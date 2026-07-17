@@ -96,8 +96,10 @@ struct RecipeCol {
     RecipeCol{ sqlName, #member, false, \
                &readI64<&Recipe::member>, nullptr, \
                &getMember<&Recipe::member>, &setI64<&Recipe::member> }
-// Read-only epoch: SELECTed and surfaced in the map, but never written — the
-// column's SQL DEFAULT (strftime) owns its value. Used for created_at.
+// Read-only epoch: SELECTed and surfaced in the map, but excluded from the
+// generated INSERT/UPDATE (writable=false), so the column's SQL DEFAULT
+// (strftime) owns its insert-time value. Used for created_at. (The import path
+// re-stamps created_at with a direct UPDATE — see importRecipesStatic.)
 #define COL_EPOCH_RO(sqlName, member) \
     RecipeCol{ sqlName, #member, false, \
                &readI64<&Recipe::member>, nullptr, \
@@ -125,8 +127,10 @@ const RecipeCol kCols[] = {
     COL_EPOCH("created_from_shot_id",  createdFromShotId),
     COL_EPOCH("cloned_from_recipe_id", clonedFromRecipeId),
     COL_EPOCH("last_used",             lastUsedEpoch),
-    // Read-only (writable=false): the SQL DEFAULT sets it at insert. Kept last
-    // so recipeFromQueryRow's positional read stays aligned with the SELECT.
+    // Read-only (writable=false): the SQL DEFAULT sets it at insert. Position
+    // within kCols is free — the SELECT list and the positional read both
+    // derive from this array, so they can't drift (COL_ID is non-writable and
+    // sits first); placed last only by convention.
     COL_EPOCH_RO("created_at",          createdEpoch),
 };
 
@@ -1474,7 +1478,13 @@ bool RecipeStorage::importRecipesStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
             dupQuery.bindValue(":beanbase", recipe.beanBaseId);
             dupQuery.bindValue(":roaster", recipe.roasterName);
             dupQuery.bindValue(":coffee", recipe.coffeeName);
-            if (dupQuery.exec() && dupQuery.next()) {
+            if (!dupQuery.exec()) {
+                // Without this, an exec failure short-circuits to "no duplicate
+                // found" and silently inserts a duplicate on merge — log so a
+                // dedup DB error is at least visible.
+                qWarning() << "RecipeStorage: import dedup query failed (may insert a duplicate):"
+                           << dupQuery.lastError().text();
+            } else if (dupQuery.next()) {
                 destId = dupQuery.value(0).toLongLong();
                 matched++;
             }

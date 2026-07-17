@@ -438,6 +438,30 @@ private slots:
         QCOMPARE(m_settings.app()->autoLoadRevertMinutes(), 17);
     }
 
+    void recipeSortRoundTrip() {
+        // The recipes-page sort preference (recipe-list-organization) must
+        // survive an export -> import cycle. Export/import key strings are
+        // hand-mirrored under a new "recipes" root object, so a typo on either
+        // side would silently drop the preference during device migration.
+        m_settings.network()->setRecipeSortField("coffee");
+        m_settings.network()->setRecipeSortDirection("ASC");
+
+        QJsonObject bundle = SettingsSerializer::exportToJson(&m_settings, false);
+
+        // Mutate both to confirm import overwrites them.
+        m_settings.network()->setRecipeSortField("name");
+        m_settings.network()->setRecipeSortDirection("DESC");
+
+        // importFromJson emits an expected favorites-replacement warning (see
+        // autoLoadBundleRoundTrip) — suppress it for the no-warnings-in-tests rule.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("SettingsSerializer: importFromJson replacing .* favorites")));
+        QVERIFY(SettingsSerializer::importFromJson(&m_settings, bundle));
+
+        QCOMPARE(m_settings.network()->recipeSortField(), QString("coffee"));
+        QCOMPARE(m_settings.network()->recipeSortDirection(), QString("ASC"));
+    }
+
     void waterVesselPresetTemperatureRoundTrip() {
         // Per-preset hot-water temperature must survive an export -> import cycle.
         m_settings.brew()->addWaterVesselPreset("Tea", 250, "weight", 40, 92.0);

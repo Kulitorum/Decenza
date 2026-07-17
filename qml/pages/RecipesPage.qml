@@ -18,6 +18,9 @@ Page {
         // Search is transient — clear it whenever the page becomes active.
         searchField.text = ""
         recipesPage.searchQuery = ""
+        // Drop the profile-number cache so a profile edited elsewhere while this
+        // page stayed instantiated is re-resolved on re-entry.
+        recipesPage._profileNumbersCache = ({})
     }
 
     property var recipes: []
@@ -89,22 +92,51 @@ Page {
             var ka = _sortKey(a, field), kb = _sortKey(b, field)
             var ba = _isBlankKey(ka), bb = _isBlankKey(kb)
             if (ba !== bb) return ba ? 1 : -1   // blanks always last, both directions
-            var cmp = (typeof ka === "number") ? (ka - kb)
-                                               : (ka < kb ? -1 : (ka > kb ? 1 : 0))
-            if (cmp === 0) cmp = (Number(a.id) || 0) - (Number(b.id) || 0)   // stable tiebreak
+            var cmp = (typeof ka === "number") ? (ka - kb) : ka.localeCompare(kb)
+            // Deterministic tiebreak by id (Array.sort isn't guaranteed stable).
+            if (cmp === 0) cmp = (Number(a.id) || 0) - (Number(b.id) || 0)
             return asc ? cmp : -cmp
         })
         return out
     }
 
-    // Resolved profile display numbers (base temp, target yield, per-frame
-    // temps) keyed by profile title. Filtering/sorting rebuilds the grid's
-    // delegates on every keystroke, and each card needs these numbers; without
-    // a cache every rebuild re-runs a synchronous ProfileManager catalog read
-    // + JSON parse per card. The cache makes each card's lookup an O(1) map
-    // hit. Cleared whenever the inventory reloads — the only time the
-    // underlying profile data can have changed. null = unresolvable profile.
+    // Cache of profile display numbers resolved from the installed-profile
+    // CATALOG, keyed by title. Filtering/sorting rebuilds the grid's delegates
+    // on each change, and every card resolves these numbers; without the cache,
+    // re-sorts/re-filters and cards sharing a title each re-run a synchronous
+    // ProfileManager catalog read (the expensive part) — with it they become
+    // O(1) map hits after the first resolution of that title. Only the catalog
+    // path is cached: it is deterministic per title. The embedded-JSON fallback
+    // (uninstalled/renamed title) depends on the recipe's OWN snapshot, so it is
+    // computed per-call and never cached under the shared title key. Cleared on
+    // inventory reload and on page re-entry (StackView.onActivated), so a
+    // profile edited elsewhere is re-resolved. null = unresolvable profile.
     property var _profileNumbersCache: ({})
+
+    // Extract {tempC, yieldG, stepTemps} from a parsed profile object, or null.
+    function _numbersFromProfileObj(d) {
+        if (!d)
+            return null
+        var tempC = Number(d.espresso_temperature) || 0
+        var yieldG = Number(d.target_weight) || 0
+        var temps = []
+        var steps = d.steps || []
+        for (var i = 0; i < steps.length; ++i) {
+            var st = steps[i]
+            var stTemp = st ? Number(st.temperature) : 0
+            if (stTemp > 0)
+                temps.push(stTemp)
+        }
+        // A resolved profile with no explicit per-step temps must still yield a
+        // non-empty array — otherwise ShotPlanText's _tempStr falls through to
+        // the loaded-profile branch, breaking "cards render their own profile"
+        // and silently dropping the recipe's offset. Fall back to the base temp.
+        return {
+            tempC: tempC,
+            yieldG: yieldG,
+            stepTemps: temps.length > 0 ? temps : (tempC > 0 ? [tempC] : [])
+        }
+    }
 
     function profileNumbersFor(title, profileJson) {
         if (title === "")
@@ -112,39 +144,22 @@ Page {
         var hit = _profileNumbersCache[title]
         if (hit !== undefined)
             return hit
-        var d = null
         var fn = ProfileManager.findProfileByTitle(title)
         if (fn && fn !== "") {
-            d = ProfileManager.getProfileByFilename(fn)
-        } else if (profileJson && String(profileJson).length > 0) {
-            try { d = JSON.parse(profileJson) } catch (e) {
+            // Catalog hit: deterministic per title → resolve once and cache.
+            var result = _numbersFromProfileObj(ProfileManager.getProfileByFilename(fn))
+            _profileNumbersCache[title] = result
+            return result
+        }
+        // Title not installed: the numbers come from this recipe's own embedded
+        // snapshot, which two recipes sharing a (renamed/uninstalled) title may
+        // NOT share — so compute per-call, never cache under the title key.
+        if (profileJson && String(profileJson).length > 0) {
+            try { return _numbersFromProfileObj(JSON.parse(profileJson)) } catch (e) {
                 console.warn("RecipesPage: unparsable embedded profile JSON for", title, ":", e)
-                d = null
             }
         }
-        var result = null
-        if (d) {
-            var tempC = Number(d.espresso_temperature) || 0
-            var yieldG = Number(d.target_weight) || 0
-            var temps = []
-            var steps = d.steps || []
-            for (var i = 0; i < steps.length; ++i) {
-                var st = steps[i]
-                var stTemp = st ? Number(st.temperature) : 0
-                if (stTemp > 0)
-                    temps.push(stTemp)
-            }
-            // A resolved profile with no explicit per-step temps must still
-            // yield a non-empty array (see the card note below), else the offset
-            // silently drops. Fall back to the base temp.
-            result = {
-                tempC: tempC,
-                yieldG: yieldG,
-                stepTemps: temps.length > 0 ? temps : (tempC > 0 ? [tempC] : [])
-            }
-        }
-        _profileNumbersCache[title] = result
-        return result
+        return null
     }
 
     // Grid column math (BeanInfoPage pattern: fixed base width, computed
