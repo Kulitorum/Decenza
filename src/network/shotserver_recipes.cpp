@@ -911,7 +911,12 @@ QString ShotServer::generateRecipesPage() const
             };
             // Bags may not be loaded yet (or may be stale) — ensure fresh.
             getJson('/api/bags').then(d => { bags = d.bags || []; source(); })
-                .catch(() => source());   // fall back to whatever we already have
+                .catch(e => {
+                    // Don't present a fetch failure as an empty inventory — say so.
+                    el('repointList').innerHTML = '<div class="result muted">Could not load bags: '
+                        + esc(e.message) + '</div>';
+                    el('repoint').showModal();
+                });
         }
         function pickBag(recipeId, bagId) {
             post('/api/recipe/' + recipeId, { bagId: bagId })

@@ -112,7 +112,7 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
             return;
         }
         QString q;
-        const int qm = path.indexOf('?');
+        const qsizetype qm = path.indexOf('?');
         if (qm >= 0)
             q = QUrlQuery(path.mid(qm + 1)).queryItemValue(QStringLiteral("q"), QUrl::FullyDecoded);
         q = q.trimmed();
@@ -827,8 +827,7 @@ QString ShotServer::generateBeansPage() const
         function runSearch(q) {
             const ctrl = new AbortController();
             const to = setTimeout(() => ctrl.abort(), 45000);
-            fetch('/api/beans/search?q=' + encodeURIComponent(q), { signal: ctrl.signal })
-                .then(r => r.json().then(d => { if (!r.ok || d.error) throw new Error(d.error || ('Server error (' + r.status + ')')); return d; }))
+            getJson('/api/beans/search?q=' + encodeURIComponent(q), { signal: ctrl.signal })
                 .then(d => renderResults(d.results || []))
                 .catch(e => { if (e.name !== 'AbortError') status('Search failed: ' + e.message); })
                 .finally(() => clearTimeout(to));
@@ -866,7 +865,7 @@ QString ShotServer::generateBeansPage() const
             const to = setTimeout(() => ctrl.abort(), 90000);
             fetch('/api/beans/extract', { method: 'POST', headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ url: url, kind: editingKind }), signal: ctrl.signal })
-                .then(r => r.json().then(d => { if (!r.ok || d.error) throw new Error(d.error || ('Server error (' + r.status + ')')); return d; }))
+                .then(readJson)
                 .then(d => {
                     const f = d.fields || {};
                     if (f.roasterName) el('fRoaster').value = f.roasterName;

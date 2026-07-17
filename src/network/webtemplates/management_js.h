@@ -15,19 +15,22 @@ inline constexpr const char* WEB_JS_MANAGEMENT = R"JS(
         const bullet = (parts) => parts.filter(p => p !== null && p !== undefined
             && String(p).trim() !== '').join(' &middot; ');
 
-        function getJson(url) {
-            return fetch(url)
-                .then(r => r.json().then(d => {
-                    if (!r.ok || d.error) throw new Error(d.error || ('Server error (' + r.status + ')'));
-                    return d;
-                }));
+        // Read the body as text and parse it safely: a non-2xx response with a
+        // non-JSON body (auth login page, proxy 502) must surface "Server error
+        // (NNN)", not a misleading JSON parse error — while a JSON {error} body
+        // still yields its message (SHOTSERVER.md fetch rules).
+        function readJson(r) {
+            return r.text().then(t => {
+                let d = {};
+                try { d = t ? JSON.parse(t) : {}; }
+                catch (e) { if (!r.ok) throw new Error('Server error (' + r.status + ')'); throw e; }
+                if (!r.ok || d.error) throw new Error(d.error || ('Server error (' + r.status + ')'));
+                return d;
+            });
         }
+        function getJson(url, opts) { return fetch(url, opts).then(readJson); }
         function post(url, body) {
             return fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'},
-                                body: JSON.stringify(body || {}) })
-                .then(r => r.json().then(d => {
-                    if (!r.ok || d.error) throw new Error(d.error || ('Server error (' + r.status + ')'));
-                    return d;
-                }));
+                                body: JSON.stringify(body || {}) }).then(readJson);
         }
 )JS";

@@ -324,7 +324,9 @@ QString ShotServer::generateEquipmentPage() const
                 + '<div class="actions">'
                 + '<button class="primary" onclick="activate(' + p.id + ')"' + (p.isActive ? ' disabled' : '') + '>Activate</button>'
                 + '<button onclick="openEditor(' + p.id + ')">Edit</button>'
-                + '<button class="danger" onclick="removePackage(' + p.id + ')">Remove</button>'
+                + (p.shotCount > 0
+                    ? '<button class="danger" onclick="removePackage(' + p.id + ')">Remove</button>'
+                    : '<button class="danger" onclick="deletePackage(' + p.id + ')">Delete</button>')
                 + '</div></div>';
         }
 
@@ -337,13 +339,16 @@ QString ShotServer::generateEquipmentPage() const
         }
 
         function activate(id) { post('/api/equipment/' + id + '/activate').then(load).catch(e => status(e.message)); }
+        // Lifecycle-driven, matching the app and the /beans page: a referenced
+        // package (shotCount>0) soft-removes; an unused one hard-deletes. Each
+        // surfaces its own error rather than masking a real failure.
         function removePackage(id) {
             if (!confirm('Remove this package from the inventory? Shot history keeps its attribution.')) return;
-            // Try hard delete first (mistaken creations); fall back to soft
-            // remove when the server refuses because it is referenced.
-            post('/api/equipment/' + id + '/delete')
-                .then(load)
-                .catch(() => post('/api/equipment/' + id + '/remove').then(load).catch(e => status(e.message)));
+            post('/api/equipment/' + id + '/remove').then(load).catch(e => status(e.message));
+        }
+        function deletePackage(id) {
+            if (!confirm('Delete this package permanently?')) return;
+            post('/api/equipment/' + id + '/delete').then(load).catch(e => status(e.message));
         }
 
         function openEditor(id) {
