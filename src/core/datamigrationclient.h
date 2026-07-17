@@ -9,10 +9,14 @@
 #include <QUdpSocket>
 #include <QTemporaryDir>
 #include <QList>
+#include <QPair>
+#include <QHostAddress>
 #include <QTimer>
 #include <QPointer>
 #include <QSettings>
 #include <memory>
+
+class QTcpSocket;
 
 class Settings;
 class ProfileStorage;
@@ -72,6 +76,59 @@ public:
 
     // Connect to a server and fetch its manifest
     Q_INVOKABLE void connectToServer(const QString& serverUrl);
+
+    // Pure, testable interface-selection helper: given a target address, the
+    // local IPv4 addresses (paired with their subnet prefix length), and the
+    // OS-preferred source address for the target, return the ordered list of
+    // candidate local source addresses whose subnet contains the target, with
+    // the preferred (default-route) source moved to the front. Empty when the
+    // target is on no directly-connected subnet. Defined inline so tests can
+    // exercise it without linking the full client (and its storage deps).
+    static QList<QHostAddress> orderedSubnetCandidates(
+        const QHostAddress& target,
+        const QList<QPair<QHostAddress, int>>& localV4,
+        const QHostAddress& preferred)
+    {
+        QList<QHostAddress> result;
+        for (const auto& entry : localV4) {
+            const QHostAddress& ip = entry.first;
+            const int prefix = entry.second;
+            if (prefix <= 0) {
+                continue;
+            }
+            // target on the same subnet as this local address?
+            if (target.isInSubnet(ip, prefix) && !result.contains(ip)) {
+                result.append(ip);
+            }
+        }
+        // Move the OS default-route source to the front so it is probed first.
+        if (!preferred.isNull()) {
+            const qsizetype idx = result.indexOf(preferred);
+            if (idx > 0) {
+                result.move(idx, 0);
+            }
+        }
+        return result;
+    }
+
+    // Errors that mean "the connection could not be established" and warrant a
+    // retry / an "unreachable" classification. EHOSTUNREACH surfaces as
+    // UnknownNetworkError. Deliberately EXCLUDES ConnectionRefusedError and
+    // RemoteHostClosedError — those mean the host answered, so it is reachable.
+    // Inline so tests can exercise the mapping without linking the client.
+    static bool isTransientNetworkError(QNetworkReply::NetworkError error)
+    {
+        switch (error) {
+        case QNetworkReply::HostNotFoundError:
+        case QNetworkReply::TimeoutError:
+        case QNetworkReply::TemporaryNetworkFailureError:
+        case QNetworkReply::NetworkSessionFailedError:
+        case QNetworkReply::UnknownNetworkError:
+            return true;
+        default:
+            return false;
+        }
+    }
 
     // Disconnect from current server
     Q_INVOKABLE void disconnect();
@@ -146,6 +203,18 @@ private:
     QString loadSessionToken(const QString& serverHost);
     void startImport(const QStringList& types);  // Common setup for all import methods
     void startNextImport();
+
+    // Connection establishment (interface-aware, multi-homing-robust).
+    // gatherSubnetCandidates reads the live interface table + OS-preferred
+    // source and delegates ordering to orderedSubnetCandidates().
+    QList<QHostAddress> gatherSubnetCandidates(const QHostAddress& target, quint16 port) const;
+    void startReachabilityPreflight();  // picks a reachable local interface, then fetchManifest()
+    void tryNextProbeCandidate();
+    void onProbeSucceeded();
+    void onProbeFailed();
+    void teardownProbeSocket();
+    void finishProbe(bool reachable);
+    void fetchManifest();               // issues the actual GET /api/backup/manifest
     void downloadNextProfile();
     void downloadNextMedia();
 
@@ -209,6 +278,17 @@ private:
     // UDP broadcasts can be dropped silently, especially on Wi-Fi, so we repeat a few
     // times to improve the chance every responder gets at least one request.
     static constexpr int DISCOVERY_RETRANSMIT_SCHEDULE_MS[] = {0, 500, 1200, 2500};
+
+    // Connection establishment state
+    QString m_connectHost;                  // host parsed from m_serverUrl
+    quint16 m_connectPort = 0;              // port parsed from m_serverUrl
+    QList<QHostAddress> m_probeCandidates;  // ordered local source addresses to try
+    int m_probeIndex = 0;
+    QTcpSocket* m_probeSocket = nullptr;
+    QTimer* m_probeTimer = nullptr;
+    int m_manifestRetriesLeft = 0;
+    static constexpr int PROBE_TIMEOUT_MS = 900;   // per-candidate connect timeout
+    static constexpr int MANIFEST_MAX_RETRIES = 2; // transient-error retries
 
     // Authentication
     bool m_needsAuthentication = false;

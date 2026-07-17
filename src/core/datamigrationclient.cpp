@@ -17,6 +17,8 @@
 #include <QFileInfo>
 #include <QUrl>
 #include <QNetworkInterface>
+#include <QTcpSocket>
+#include <QHostAddress>
 #include <QSslError>
 #include <QSslConfiguration>
 #include <QSettings>
@@ -101,10 +103,25 @@ void DataMigrationClient::connectToServer(const QString& serverUrl)
 
     // Load cached session token for this server
     QUrl parsedUrl(m_serverUrl);
-    QString host = parsedUrl.host();
-    m_sessionToken = loadSessionToken(host);
+    m_connectHost = parsedUrl.host();
+    m_connectPort = static_cast<quint16>(
+        parsedUrl.port(parsedUrl.scheme() == QLatin1String("https") ? 443 : 80));
+    m_sessionToken = loadSessionToken(m_connectHost);
+    m_manifestRetriesLeft = MANIFEST_MAX_RETRIES;
+    // A fresh connect supersedes any prior cancel/disconnect. Without this the
+    // stale flag makes tryNextProbeCandidate() early-return, hanging the
+    // preflight (m_connecting stuck true) on a reconnect to a multi-homed peer.
+    m_cancelled = false;
 
-    // Fetch manifest
+    // Pick a reachable local interface before the HTTP flow. This is what makes
+    // migration work on a host that is multi-homed on the peer's subnet, where
+    // an unbound request can otherwise fail with EHOSTUNREACH. The preflight
+    // calls fetchManifest() on success, or reports the peer unreachable.
+    startReachabilityPreflight();
+}
+
+void DataMigrationClient::fetchManifest()
+{
     QUrl url(m_serverUrl + "/api/backup/manifest");
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::UserAgentHeader, "Decenza-Migration/1.0");
@@ -113,6 +130,163 @@ void DataMigrationClient::connectToServer(const QString& serverUrl)
     m_currentReply = m_networkManager->get(request);
     setupSslHandling(m_currentReply);
     connect(m_currentReply, &QNetworkReply::finished, this, &DataMigrationClient::onManifestReply);
+}
+
+// ============================================================================
+// Interface-aware reachability preflight
+// ============================================================================
+
+QList<QHostAddress> DataMigrationClient::gatherSubnetCandidates(const QHostAddress& target,
+                                                                quint16 port) const
+{
+    QList<QPair<QHostAddress, int>> localV4;
+    for (const QNetworkInterface& iface : QNetworkInterface::allInterfaces()) {
+        const auto flags = iface.flags();
+        if (!(flags & QNetworkInterface::IsUp) ||
+            !(flags & QNetworkInterface::IsRunning) ||
+            (flags & QNetworkInterface::IsLoopBack)) {
+            continue;
+        }
+        for (const QNetworkAddressEntry& entry : iface.addressEntries()) {
+            if (entry.ip().protocol() == QAbstractSocket::IPv4Protocol) {
+                localV4.append({entry.ip(), entry.prefixLength()});
+            }
+        }
+    }
+
+    // Which source address would the kernel pick for this target by default?
+    // Connecting a UDP socket resolves the source without sending any traffic.
+    QHostAddress preferred;
+    QUdpSocket sourceProbe;
+    sourceProbe.connectToHost(target, port ? port : quint16(9));
+    if (sourceProbe.state() == QAbstractSocket::ConnectedState) {
+        preferred = sourceProbe.localAddress();
+    }
+    sourceProbe.close();
+
+    return orderedSubnetCandidates(target, localV4, preferred);
+}
+
+void DataMigrationClient::startReachabilityPreflight()
+{
+    const QHostAddress target(m_connectHost);
+
+    // Only the ambiguous case needs a probe: the target is an IPv4 literal and
+    // we hold more than one local address on its subnet (i.e. genuinely
+    // multi-homed there). A hostname, a routed target, or a single/zero on-subnet
+    // address has no ambiguity — keep the existing direct path, adding no probe
+    // round-trips (an IPv4 literal still does a sub-millisecond local route
+    // lookup here, but no TCP probe or per-candidate timeout).
+    QList<QHostAddress> candidates;
+    if (!target.isNull() && target.protocol() == QAbstractSocket::IPv4Protocol) {
+        candidates = gatherSubnetCandidates(target, m_connectPort);
+    }
+
+    if (candidates.size() < 2) {
+        fetchManifest();
+        return;
+    }
+
+    qDebug() << "DataMigrationClient: multi-homed on target subnet, probing"
+             << candidates.size() << "candidate interfaces for" << m_connectHost;
+    m_probeCandidates = candidates;
+    m_probeIndex = 0;
+    tryNextProbeCandidate();
+}
+
+void DataMigrationClient::tryNextProbeCandidate()
+{
+    if (m_cancelled) {
+        return;
+    }
+    if (m_probeIndex >= m_probeCandidates.size()) {
+        finishProbe(false);
+        return;
+    }
+
+    const QHostAddress source = m_probeCandidates.at(m_probeIndex);
+
+    teardownProbeSocket();
+    m_probeSocket = new QTcpSocket(this);
+
+    if (!m_probeTimer) {
+        m_probeTimer = new QTimer(this);
+        m_probeTimer->setSingleShot(true);
+        connect(m_probeTimer, &QTimer::timeout, this, &DataMigrationClient::onProbeFailed);
+    }
+
+    connect(m_probeSocket, &QTcpSocket::connected, this, &DataMigrationClient::onProbeSucceeded);
+    connect(m_probeSocket, &QTcpSocket::errorOccurred, this,
+            [this](QAbstractSocket::SocketError) { onProbeFailed(); });
+
+    if (!m_probeSocket->bind(source)) {
+        qWarning() << "DataMigrationClient: could not bind probe to" << source.toString()
+                   << "-" << m_probeSocket->errorString();
+        onProbeFailed();
+        return;
+    }
+
+    m_probeSocket->connectToHost(m_connectHost, m_connectPort);
+    m_probeTimer->start(PROBE_TIMEOUT_MS);
+}
+
+void DataMigrationClient::onProbeSucceeded()
+{
+    if (!m_probeSocket) {
+        return;
+    }
+    if (m_probeTimer) {
+        m_probeTimer->stop();
+    }
+    const QHostAddress via = m_probeSocket->localAddress();
+    teardownProbeSocket();
+    qDebug() << "DataMigrationClient: reachable via local source" << via.toString();
+    finishProbe(true);
+}
+
+void DataMigrationClient::onProbeFailed()
+{
+    if (!m_probeSocket) {
+        return;  // already torn down (e.g. connected and error both queued)
+    }
+    if (m_probeTimer) {
+        m_probeTimer->stop();
+    }
+    const QHostAddress tried = m_probeIndex < m_probeCandidates.size()
+                                   ? m_probeCandidates.at(m_probeIndex)
+                                   : QHostAddress();
+    qDebug() << "DataMigrationClient: candidate source" << tried.toString()
+             << "cannot reach" << m_connectHost;
+    teardownProbeSocket();
+    m_probeIndex++;
+    tryNextProbeCandidate();
+}
+
+void DataMigrationClient::teardownProbeSocket()
+{
+    if (m_probeSocket) {
+        m_probeSocket->disconnect(this);
+        m_probeSocket->abort();
+        m_probeSocket->deleteLater();
+        m_probeSocket = nullptr;
+    }
+}
+
+void DataMigrationClient::finishProbe(bool reachable)
+{
+    m_probeCandidates.clear();
+    m_probeIndex = 0;
+
+    if (!reachable) {
+        m_connecting = false;
+        emit isConnectingChanged();
+        setError(tr("Connection failed: device is not reachable on your local network"));
+        setCurrentOperation(tr("Connection failed"));
+        emit connectionFailed(m_errorMessage);
+        return;
+    }
+
+    fetchManifest();
 }
 
 void DataMigrationClient::disconnect()
@@ -135,11 +309,30 @@ void DataMigrationClient::onManifestReply()
         return;
     }
 
+    const int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const QNetworkReply::NetworkError err = reply->error();
+
+    // Retry transient network failures before declaring failure — a cold
+    // neighbour on a multi-homed subnet can drop the first attempt. (When the
+    // multi-homed preflight ran it already picked a reachable link; on the common
+    // direct path this simply re-attempts the transient failure.) HTTP status
+    // codes and parse errors mean the connection itself worked — never retried.
+    if (statusCode != 401 && err != QNetworkReply::NoError &&
+        isTransientNetworkError(err) && m_manifestRetriesLeft > 0) {
+        m_manifestRetriesLeft--;
+        const QString transientMsg = reply->errorString();
+        reply->deleteLater();
+        m_currentReply = nullptr;
+        qDebug() << "DataMigrationClient: transient manifest error (" << transientMsg
+                 << ") — retrying," << m_manifestRetriesLeft << "left";
+        fetchManifest();
+        return;
+    }
+
     m_connecting = false;
     emit isConnectingChanged();
 
-    // Check for 401 (authentication required)
-    int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    // Check for 401 (authentication required) — reachable, needs a code.
     if (statusCode == 401) {
         qDebug() << "DataMigrationClient: Server requires authentication (401)";
         reply->deleteLater();
@@ -156,8 +349,17 @@ void DataMigrationClient::onManifestReply()
         return;
     }
 
-    if (reply->error() != QNetworkReply::NoError) {
-        setError(tr("Connection failed: %1").arg(reply->errorString()));
+    if (err != QNetworkReply::NoError) {
+        // Distinguish "could not reach the device at all" from "reached it, but
+        // the connection dropped/errored" so the message is truthful. Keep the
+        // raw error string in the reachability case too — UnknownNetworkError is
+        // a Qt grab-bag (EHOSTUNREACH lands here, but so can other transport
+        // faults), so the detail must stay visible rather than be replaced.
+        const QString msg = isTransientNetworkError(err)
+            ? tr("Connection failed: device is not reachable on your local network (%1)")
+                  .arg(reply->errorString())
+            : tr("Connection failed: %1").arg(reply->errorString());
+        setError(msg);
         emit connectionFailed(m_errorMessage);
         reply->deleteLater();
         m_currentReply = nullptr;
@@ -1030,6 +1232,14 @@ void DataMigrationClient::onMediaFileReply()
 void DataMigrationClient::cancel()
 {
     m_cancelled = true;
+
+    // Tear down any in-flight reachability probe.
+    if (m_probeTimer) {
+        m_probeTimer->stop();
+    }
+    teardownProbeSocket();
+    m_probeCandidates.clear();
+    m_probeIndex = 0;
 
     if (m_currentReply) {
         // Store pointer locally and clear member FIRST
