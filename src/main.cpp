@@ -409,21 +409,28 @@ int main(int argc, char *argv[])
         }
     }
 
-#ifdef Q_OS_MACOS
-    // Workaround for macOS crash in Apple Color Emoji bitmap rendering.
-    // PNGReadPlugin::InitializePluginData crashes on QSGRenderThread when CoreText
-    // tries to decode emoji bitmaps from the sbix font table via CTFontDrawGlyphs →
-    // CopyEmojiImage → CGImageSourceCreateImageAtIndex.
+#if defined(Q_OS_MACOS) || defined(Q_OS_WIN) || defined(Q_OS_LINUX)
+    // Use CurveTextRendering (Qt 6.7+) on all resizable desktop platforms. It
+    // renders every glyph as bezier curves on the GPU, so it needs neither the
+    // distance-field glyph cache nor the native bitmap path. Two problems it avoids:
     //
-    // QtTextRendering (distance fields) was tried first, but Qt 6.x STILL falls back
-    // to native rendering when QGlyphRun contains color font glyphs — if CoreText's
-    // font shaping assigns ANY character to Apple Color Emoji (a color font), Qt uses
-    // QSGTextMaskMaterial (bitmap path) for that glyph run, triggering the crash.
+    //   * Windows/Linux "fi" ligature glitch (#1537): Qt's default QtTextRendering
+    //     (distance fields) re-caches glyphs while the window is resized, and at
+    //     certain widths the "fi" ligature drops — "Profile" briefly reads
+    //     "Proule", "Profiles" reads "Proules" — then snaps back on the next size.
+    //     CurveTextRendering has no distance-field cache, so the ligature is stable.
     //
-    // CurveTextRendering (Qt 6.7+) renders ALL glyphs as bezier curves on the GPU,
-    // never calling QCoreTextFontEngine::imageForGlyph, completely avoiding the
-    // CopyEmojiImage crash path. This app renders emoji as SVG images
-    // (Theme.emojiToImage), so bitmap emoji glyphs are not needed.
+    //   * macOS Apple Color Emoji crash: QtTextRendering STILL falls back to native
+    //     bitmap rendering (QSGTextMaskMaterial) when a glyph run contains color-font
+    //     glyphs. If CoreText shapes ANY character to Apple Color Emoji, that bitmap
+    //     path hits PNGReadPlugin::InitializePluginData → CopyEmojiImage and crashes
+    //     on QSGRenderThread. CurveTextRendering never calls imageForGlyph, so the
+    //     crash path is gone. This app draws emoji as SVG images (Theme.emojiToImage),
+    //     so bitmap emoji glyphs are never needed anyway.
+    //
+    // Mobile (Android/iOS) keeps Qt's default: those windows are fullscreen and
+    // don't resize, so the ligature glitch can't occur, and the default avoids the
+    // extra GPU cost of curve rendering on constrained devices.
     QQuickWindow::setTextRenderType(QQuickWindow::CurveTextRendering);
     {
         auto actual = QQuickWindow::textRenderType();
@@ -432,6 +439,9 @@ int main(int argc, char *argv[])
                      actual == QQuickWindow::QtTextRendering ? "QtText" : "Native")
                  << "(" << static_cast<int>(actual) << ")";
     }
+#endif
+
+#ifdef Q_OS_MACOS
     // Probe which characters CoreText routes to Apple Color Emoji — diagnostic
     // for the CopyEmojiImage crash. If any non-emoji chars use the emoji font,
     // it explains why Qt fell back to native rendering despite QtTextRendering.
