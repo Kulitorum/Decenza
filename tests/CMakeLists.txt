@@ -239,6 +239,13 @@ add_decenza_test(tst_firmwareassetcachehelpers
     tst_firmwareassetcachehelpers.cpp
 )
 
+# --- tst_migrationinterfaceselect: pure interface-selection ordering for
+# multi-homing-robust device-migration connects. orderedSubnetCandidates() is
+# inline in datamigrationclient.h, so this needs no client/storage sources. ---
+add_decenza_test(tst_migrationinterfaceselect
+    tst_migrationinterfaceselect.cpp
+)
+
 # --- tst_profile: Profile JSON/TCL parsing, frame generation, BLE encoding ---
 add_decenza_test(tst_profile
     tst_profile.cpp
