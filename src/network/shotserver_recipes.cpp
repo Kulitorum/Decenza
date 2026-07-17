@@ -15,6 +15,7 @@
 #include "../core/dbutils.h"
 #include "../core/settings.h"
 #include "../core/settings_dye.h"
+#include "../core/yieldspec.h"
 #include "../history/coffeebagstorage.h"
 #include "../history/recipepromotion.h"
 #include "../history/recipestorage.h"
@@ -68,7 +69,13 @@ QJsonObject webRecipeJson(const Recipe& r, int activeRecipeId, QSqlDatabase* db,
     o["coffeeName"] = r.coffeeName;
     o["equipmentId"] = r.equipmentId;
     o["doseG"] = r.doseG;
-    o["yieldG"] = r.yieldG;
+    // Yield spec (add-yield-ratio-anchor): sparse, mutually exclusive keys —
+    // yieldG (grams) for an absolute anchor, yieldRatio (dose multiplier) for
+    // a ratio; mode "none" emits neither.
+    if (r.yieldMode == QLatin1String("absolute") && r.yieldValue > 0)
+        o["yieldG"] = r.yieldValue;
+    else if (r.yieldMode == QLatin1String("ratio") && r.yieldValue > 0)
+        o["yieldRatio"] = r.yieldValue;
     o["tempOffsetC"] = r.tempOffsetC;
     o["grindPinned"] = r.grindPinned;
     o["rpmPinned"] = r.rpmPinned;
@@ -132,8 +139,19 @@ QVariantMap recipeFieldsFromBody(const QJsonObject& body)
         fields.insert("rpmPinned", body["rpmPinned"].toInteger());
     if (body.contains("doseG"))
         fields.insert("doseG", body["doseG"].toDouble());
-    if (body.contains("yieldG"))
-        fields.insert("yieldG", body["yieldG"].toDouble());
+    // Yield spec (add-yield-ratio-anchor): sparse, mutually exclusive keys —
+    // writing one IS setting the mode, implicitly clearing the other. The
+    // both-present rejection happens in the route handlers before this runs.
+    // 0/negative clears the anchor entirely.
+    if (body.contains("yieldG")) {
+        const double g = body["yieldG"].toDouble();
+        fields.insert("yieldValue", g > 0 ? g : 0.0);
+        fields.insert("yieldMode", g > 0 ? QStringLiteral("absolute") : QStringLiteral("none"));
+    } else if (body.contains("yieldRatio")) {
+        const double ratio = body["yieldRatio"].toDouble();
+        fields.insert("yieldValue", ratio > 0 ? YieldSpec::clampRatio(ratio) : 0.0);
+        fields.insert("yieldMode", ratio > 0 ? QStringLiteral("ratio") : QStringLiteral("none"));
+    }
     if (body.contains("tempOffsetC"))
         fields.insert("tempOffsetC", body["tempOffsetC"].toDouble());
     if (body.contains("steam"))
@@ -208,6 +226,12 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
         // into the delta column would be a 90° offset.
         if (bodyJson.contains(QStringLiteral("temperatureOverrideC"))) {
             respondJson(QJsonObject{{"error", "temperatureOverrideC was replaced by tempOffsetC — a SIGNED DELTA in Celsius against the recipe's profile (recipe-relative-temp-offset). Rejected rather than silently dropped: an absolute written into the delta field would corrupt the recipe's temperature."}}, 400);
+            return;
+        }
+        // One yield anchor per recipe: both keys at once is a contradiction,
+        // rejected loudly (add-yield-ratio-anchor; mirrors the MCP tools).
+        if (bodyJson.contains(QStringLiteral("yieldG")) && bodyJson.contains(QStringLiteral("yieldRatio"))) {
+            respondJson(QJsonObject{{"error", "yieldG and yieldRatio are mutually exclusive — a recipe holds ONE yield anchor (an absolute gram target OR a ratio of the dose). Send exactly one; writing it replaces the other automatically."}}, 400);
             return;
         }
         QVariantMap fields = recipeFieldsFromBody(bodyJson);
@@ -365,6 +389,11 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
             // The retired absolute field fails LOUD (see the create route).
             if (bodyJson.contains(QStringLiteral("temperatureOverrideC"))) {
                 respondJson(QJsonObject{{"error", "temperatureOverrideC was replaced by tempOffsetC — a SIGNED DELTA in Celsius against the recipe's profile (recipe-relative-temp-offset). Rejected rather than silently dropped: an absolute written into the delta field would corrupt the recipe's temperature."}}, 400);
+                return;
+            }
+            // One yield anchor per recipe (see the create route).
+            if (bodyJson.contains(QStringLiteral("yieldG")) && bodyJson.contains(QStringLiteral("yieldRatio"))) {
+                respondJson(QJsonObject{{"error", "yieldG and yieldRatio are mutually exclusive — a recipe holds ONE yield anchor (an absolute gram target OR a ratio of the dose). Send exactly one; writing it replaces the other automatically."}}, 400);
                 return;
             }
             QVariantMap fields = recipeFieldsFromBody(bodyJson);
@@ -574,7 +603,15 @@ QString ShotServer::generateRecipesPage() const
         <label>Roaster</label><input id="fRoaster">
         <label>Coffee</label><input id="fCoffee">
         <label>Dose (g)</label><input id="fDose" type="number" step="0.1">
-        <label>Yield (g)</label><input id="fYield" type="number" step="0.1">
+        <label>Yield anchor (a fixed weight OR a ratio of the dose — never both)</label>
+        <div class="row">
+            <select id="fYieldMode">
+                <option value="none">(none — profile default)</option>
+                <option value="absolute">Fixed (g)</option>
+                <option value="ratio">Ratio (1:x)</option>
+            </select>
+            <input id="fYieldValue" type="number" step="0.1">
+        </div>
         <label>Temp offset (&deg;C, relative to the profile)</label><input id="fTemp" type="number" step="0.1">
         <label>Grind (this recipe's own; on create, blank adopts the bag's dial)</label><input id="fGrind">
         <label>Drink type</label>
@@ -666,6 +703,9 @@ QString ShotServer::generateRecipesPage() const
             const bean = ((r.roasterName || '') + ' ' + (r.coffeeName || '')).trim();
             if (bean) parts.push(esc(bean));
             if (r.doseG > 0 && r.yieldG > 0) parts.push(r.doseG.toFixed(1) + 'g &rarr; ' + r.yieldG.toFixed(1) + 'g');
+            else if (r.yieldRatio > 0) parts.push(r.doseG > 0
+                ? r.doseG.toFixed(1) + 'g &rarr; ' + (r.doseG * r.yieldRatio).toFixed(1) + 'g (1:' + r.yieldRatio + ')'
+                : '1:' + r.yieldRatio);
             if (r.effectiveGrind) parts.push('grind ' + esc(r.effectiveGrind));
             if (r.steam && r.steam.hasMilk) parts.push('milk' + (r.steam.milkWeightG ? ' ' + r.steam.milkWeightG + 'g' : ''));
             if (r.hotWater && r.hotWater.hasWater) parts.push('+water' + (r.hotWater.order === 'before' ? ' (long black)' : ' (americano)'));
@@ -749,7 +789,11 @@ QString ShotServer::generateRecipesPage() const
             document.getElementById('fRoaster').value = r.roasterName || '';
             document.getElementById('fCoffee').value = r.coffeeName || '';
             document.getElementById('fDose').value = r.doseG > 0 ? r.doseG : '';
-            document.getElementById('fYield').value = r.yieldG > 0 ? r.yieldG : '';
+            // Yield anchor: one value + a mode, seeded from the sparse keys.
+            const yMode = r.yieldRatio > 0 ? 'ratio' : (r.yieldG > 0 ? 'absolute' : 'none');
+            document.getElementById('fYieldMode').value = yMode;
+            document.getElementById('fYieldValue').value =
+                yMode === 'ratio' ? r.yieldRatio : (yMode === 'absolute' ? r.yieldG : '');
             document.getElementById('fTemp').value = (r.tempOffsetC || 0) !== 0 ? r.tempOffsetC : '';
             document.getElementById('fGrind').value = r.grindPinned || '';
             const steam = r.steam || {};
@@ -791,12 +835,23 @@ QString ShotServer::generateRecipesPage() const
                 roasterName: document.getElementById('fRoaster').value.trim(),
                 coffeeName: document.getElementById('fCoffee').value.trim(),
                 doseG: parseFloat(document.getElementById('fDose').value) || 0,
-                yieldG: parseFloat(document.getElementById('fYield').value) || 0,
                 tempOffsetC: parseFloat(document.getElementById('fTemp').value) || 0,
                 grindPinned: document.getElementById('fGrind').value.trim(),
                 steam: steam,
                 hotWater: hotWater
             };
+            // Yield anchor: send exactly ONE of yieldG / yieldRatio (they are
+            // mutually exclusive server-side). Mode "none" — or a blank value
+            // — sends an explicit yieldG: 0 clear; this is a deliberate
+            // choice in the mode select, so it can no longer silently wipe a
+            // ratio the way the old always-sent blank yield field could.
+            {
+                const yMode = document.getElementById('fYieldMode').value;
+                const yVal = parseFloat(document.getElementById('fYieldValue').value) || 0;
+                if (yMode === 'ratio' && yVal > 0) bodyData.yieldRatio = yVal;
+                else if (yMode === 'absolute' && yVal > 0) bodyData.yieldG = yVal;
+                else bodyData.yieldG = 0;
+            }
             // Create: OMIT a blank grind so storage adopts the linked bag's
             // dial (the omit-adopts rule). Update keeps sending '' — there it
             // means "clear this recipe's grind".

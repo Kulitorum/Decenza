@@ -5,6 +5,8 @@
 #include "../controllers/maincontroller.h"
 #include "../controllers/profilemanager.h"
 #include "../core/settings.h"
+#include "../core/settings_brew.h"
+#include "../core/settings_dye.h"
 #include "../core/settings_theme.h"
 #include "../core/settings_calibration.h"
 #include "../core/databasebackupmanager.h"
@@ -74,7 +76,7 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
             {"temperature", QJsonObject{{"type", "number"}, {"description", "Override temperature for this shot (Celsius)"}}},
             {"grind", QJsonObject{{"type", "string"}, {"description", "Override grind setting for this shot"}}}
         }}},
-        [device, machineState, profileManager](const QJsonObject& args) -> QJsonObject {
+        [device, machineState, profileManager, settings](const QJsonObject& args) -> QJsonObject {
             QJsonObject result;
             if (!device || !device->isConnected()) {
                 result["error"] = "Machine not connected";
@@ -89,15 +91,42 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
                 return result;
             }
 
-            // Apply brew overrides if provided — same as QML BrewDialog
+            // Apply brew overrides if provided — same as QML BrewDialog.
+            // Absent arguments default to the CURRENT effective values, never
+            // to 0: the old code passed a missing dose as 0 straight into
+            // activateBrewWithOverrides, wiping the live dose — merely a
+            // mislabeled shot record before, but a 0 g stop target under a
+            // ratio anchor (add-yield-ratio-anchor). Same for a missing
+            // temperature, which armed a 0 °C override.
             bool hasOverrides = args.contains("dose") || args.contains("yield") ||
                                 args.contains("temperature") || args.contains("grind");
-            if (hasOverrides && profileManager) {
-                double dose = args.contains("dose") ? args["dose"].toDouble() : 0;
-                double yield = args.contains("yield") ? args["yield"].toDouble() : 0;
-                double temperature = args.contains("temperature") ? args["temperature"].toDouble() : 0;
-                QString grind = args["grind"].toString();
-                profileManager->activateBrewWithOverrides(dose, yield, temperature, grind);
+            if (hasOverrides && profileManager && settings) {
+                const double dose = args.contains("dose") ? args["dose"].toDouble()
+                                                          : profileManager->brewByRatioDose();
+                double yieldValue;
+                QString yieldMode;
+                if (args.contains("yield")) {
+                    yieldValue = args["yield"].toDouble();
+                    yieldMode = QStringLiteral("absolute");
+                } else if (profileManager->brewByRatioActive()) {
+                    // Preserve an armed ratio anchor rather than flattening
+                    // it to the grams it happens to derive right now.
+                    yieldValue = profileManager->brewByRatio();
+                    yieldMode = QStringLiteral("ratio");
+                } else {
+                    yieldValue = profileManager->targetWeight();
+                    yieldMode = QStringLiteral("absolute");
+                }
+                const double temperature = args.contains("temperature")
+                    ? args["temperature"].toDouble()
+                    : (settings->brew()->hasTemperatureOverride()
+                           ? settings->brew()->temperatureOverride()
+                           : profileManager->profileTargetTemperature());
+                const QString grind = args.contains("grind")
+                    ? args["grind"].toString()
+                    : settings->dye()->dyeGrinderSetting();
+                profileManager->activateBrewWithOverrides(dose, yieldValue, yieldMode,
+                                                          temperature, grind);
             }
 
             device->startEspresso();
@@ -198,7 +227,24 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
                 result["error"] = "Machine not connected";
                 return result;
             }
-            if (!machineState || !machineState->isFlowing()) {
+            // "In progress" means the machine is RUNNING an operation, which
+            // is not the same as liquid moving. isFlowing() excludes espresso
+            // preheat, Ending, and every non-flowing steam substate — so a
+            // stop during preheat used to be refused with "no operation in
+            // progress" while the machine went right on to pour a shot the
+            // caller had explicitly asked to abort. That is the one moment a
+            // stop is most likely to be wanted and most likely to be
+            // automated. requestIdle() is safe from any state (it just asks
+            // for Idle), so gate on the operation phases instead.
+            using Phase = MachineState::Phase;
+            const Phase phase = machineState ? machineState->phase() : Phase::Disconnected;
+            const bool operationRunning =
+                phase == Phase::EspressoPreheating || phase == Phase::Preinfusion ||
+                phase == Phase::Pouring || phase == Phase::Ending ||
+                phase == Phase::Steaming || phase == Phase::HotWater ||
+                phase == Phase::Flushing || phase == Phase::Descaling ||
+                phase == Phase::Cleaning;
+            if (!operationRunning) {
                 result["error"] = "No operation in progress";
                 return result;
             }

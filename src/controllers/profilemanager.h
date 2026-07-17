@@ -125,13 +125,49 @@ public:
     double profileRecommendedDose() const { return m_currentProfile.recommendedDose(); }
 
     // === Target weight / brew-by-ratio ===
+    // The yield ladder's single evaluation point (add-yield-ratio-anchor):
+    // resolves the session anchor {value, mode} against the effective dose,
+    // falling back to the profile's target_weight. Always returns plain
+    // grams — a ratio never crosses MachineState.
     double targetWeight() const;
     void setTargetWeight(double weight);
+    // True iff the session anchor's mode is "ratio" — read from the stored
+    // mode, never inferred by comparing grams against the profile target.
     bool brewByRatioActive() const;
+    // The canonical effective dose for ratio math and display: the latched
+    // dose during a shot, else the live dyeBeanWeight. 0 = no dose known
+    // (callers render a bare ratio and resolution falls back to the profile).
     double brewByRatioDose() const;
     double brewByRatio() const;
+    // Arm the session overrides from Brew Settings OK. The yield arrives as a
+    // spec: value + mode ("none" | "absolute" | "ratio"). The legacy 4-arg
+    // form (MCP machine_start_espresso) anchors an absolute.
+    Q_INVOKABLE void activateBrewWithOverrides(double dose, double yieldValue,
+                                               const QString& yieldMode,
+                                               double temperature, const QString& grind);
     Q_INVOKABLE void activateBrewWithOverrides(double dose, double yield, double temperature, const QString& grind);
     Q_INVOKABLE void clearBrewOverrides();
+
+    // Shot latch (add-yield-ratio-anchor Decision 9): the resolved target AND
+    // the dose are frozen at espressoCycleStarted and released at shot end,
+    // so NOTHING — a dose write, a bean switch, a recipe activation, an
+    // MCP/web anchor write, a profile load — can move the live SAW target
+    // mid-shot. Latching the dose alone was not enough: every other input to
+    // the resolution stayed live (see targetWeight()). Event-driven (called
+    // from main.cpp's cycle handlers), never a timer.
+    void latchForShot();
+    void releaseShotLatch();
+
+    // The snapshot the last shot STARTED with — the resolved grams that
+    // actually ran plus the anchor that produced them. Deliberately survives
+    // releaseShotLatch(): the shot-save path runs AFTER settling (well after
+    // the latch releases) and must record what ran, not re-read a session
+    // that may have drifted mid-shot (a dose capture while the cup fills, a
+    // bean switch). Valid once any shot has started this session.
+    bool hasShotSnapshot() const { return m_shotSnapshotValid; }
+    double latchedTargetG() const { return m_latchedTargetG; }
+    QString latchedYieldMode() const { return m_latchedYieldMode; }
+    double latchedYieldAnchorValue() const { return m_latchedYieldAnchorValue; }
 
     // === Profile catalog ===
     QVariantList availableProfiles() const;
@@ -336,6 +372,21 @@ private:
     bool m_uploadInFlight = false;        // True while a profile upload is in progress at DE1Device
     bool m_uploadPendingAfterInFlight = false;  // True if a newer profile change arrived mid-upload
     bool m_startupLoadDone = false;
+
+    // Shot latch state (add-yield-ratio-anchor Decision 9). While latched,
+    // targetWeight() answers with m_latchedTargetG (the resolved grams the
+    // shot started with) and brewByRatioDose() with m_latchedDoseG, so the
+    // running shot's target is immune to every late write.
+    bool m_shotLatched = false;
+    double m_latchedDoseG = 0.0;
+    double m_latchedTargetG = 0.0;
+    // The anchor that produced m_latchedTargetG. Snapshot alongside it so the
+    // shot record's intent and outcome can never disagree — see
+    // hasShotSnapshot(). m_shotSnapshotValid is set on the first latch and
+    // never cleared; m_shotLatched is the freeze flag and clears at shot end.
+    bool m_shotSnapshotValid = false;
+    QString m_latchedYieldMode = QStringLiteral("none");
+    double m_latchedYieldAnchorValue = 0.0;
 
     // Auto-retry state for failed profile uploads. A failure with a retryable
     // reason (frame sequence mismatch, ACK timeout) arms

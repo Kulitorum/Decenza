@@ -688,19 +688,34 @@ structured `detectorResults` JSON for MCP / dialog consumers.
 
 ### Lazy persist on view (PR #893)
 
-When a shot is opened in `ShotDetailPage` or `PostShotReviewPage`, QML calls
-`MainController.shotHistory.requestReanalyzeBadges(id)`. That method runs on
-the DB worker thread and recomputes the four flags. If at least one flag
-differs from the stored value, it issues an `UPDATE` *and* emits
-`shotBadgesUpdated(shotId, channeling, grindIssue, skipFirstFrame,
-pourTruncated)` (five args) so the UI can refresh without a full reload.
-If every flag already matches the stored value, the worker exits silently
-— no `UPDATE`, no signal, no UI refresh.
+`ShotHistoryStorage::requestReanalyzeBadges(id)` runs on the DB worker
+thread and recomputes the four flags. If at least one flag differs from the
+stored value, it issues an `UPDATE` *and* emits `shotBadgesUpdated(shotId,
+channeling, grindIssue, skipFirstFrame, pourTruncated)` (five args) so the
+UI can refresh without a full reload. If every flag already matches the
+stored value, the worker exits silently — no `UPDATE`, no signal, no UI
+refresh.
 
-The wiring lives at `qml/pages/ShotDetailPage.qml` (in `onShotReady`) and
-`qml/pages/PostShotReviewPage.qml`. The visualizer-update reload path
-suppresses it (badges didn't change, and the visualizer flow already
-triggers a second `onShotReady`).
+Note: the QML pages no longer call it from `onShotReady` — drift detection
+and persistence now ride the load path itself (`loadShotRecordStatic`
+recomputes via the badge projection and persists corrected flags inline),
+so the invokable survives mainly for programmatic re-analysis.
+
+### Yield anchor provenance (add-yield-ratio-anchor, migration 34)
+
+`shots.yield_override` is untouched by the yield-anchor change: it stays
+the **resolved gram target** every detector reads (the yield-overshoot and
+shortfall arms are pure `finalWeightG / targetWeightG` — no ratio ever
+reaches them, because resolution to grams happens upstream of
+`MachineState::setTargetWeight`). Two columns record the anchor that
+*produced* that target: `yield_mode` (`none` | `absolute` | `ratio`) and
+`yield_anchor_value` (grams when absolute, a dose multiplier when ratio).
+They are intent alongside outcome — stored at save time, never derived at
+read time (the dose is post-shot editable, and deriving would mint a ratio
+nobody chose). Promotion (`RecipePromotion::fieldsFromShotRecord`) copies
+them verbatim; legacy rows were backfilled `absolute` from a >0
+`yield_override`, else `none`. The detectors, the badge pipeline, and this
+document's gate semantics are unaffected.
 
 ### Residual gap (Issue #894)
 

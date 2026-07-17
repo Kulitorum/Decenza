@@ -88,6 +88,12 @@ class SettingsDye : public QObject {
     // and opened date of the active bag.
     Q_PROPERTY(QString activeBagStorageHint READ activeBagStorageHint NOTIFY activeBagChanged)
     Q_PROPERTY(QString activeBagOpenedDate READ activeBagOpenedDate NOTIFY activeBagChanged)
+    // The active bag's own yield spec (add-yield-ratio-anchor). QML-visible:
+    // Brew Settings reads them for the Update Bag button's enable-gate and
+    // for Clear's baseline, so they MUST be properties — a plain getter reads
+    // as `undefined` in QML and silently defeats both.
+    Q_PROPERTY(double activeBagYieldValue READ activeBagYieldValue NOTIFY activeBagYieldSpecChanged)
+    Q_PROPERTY(QString activeBagYieldMode READ activeBagYieldMode NOTIFY activeBagYieldSpecChanged)
 
 public:
     // visualizer is non-owning and must outlive this object (Settings owns both).
@@ -240,17 +246,18 @@ public:
     int activeRecipeId() const;
     void setActiveRecipeId(int recipeId);
 
-    // The active bag's yield override (grams). 0 = no override; the bag
-    // follows the profile's target weight. Applied to Settings.brew's
-    // brewYieldOverride on a user bean switch (see applyActiveBag); the
-    // brew-settings commit writes it back via persistYieldOverrideToBag().
-    double activeBagYieldOverrideG() const { return m_activeBagYieldOverrideG; }
-    // Persist the brew-settings yield override to the active bag. yieldOverrideG
-    // <= 0 stores 0 (no override — the bag follows the profile default). Called
-    // from ProfileManager::activateBrewWithOverrides (the single brew-settings
-    // commit point), not on every override change, so there is no race with the
-    // clear-on-switch reset.
-    void persistYieldOverrideToBag(double yieldOverrideG);
+    // The active bag's own yield spec (add-yield-ratio-anchor): {value, mode}
+    // with mode "none" | "absolute" | "ratio". mode "none" = the bag designs
+    // no yield and the ladder falls through to the profile. Applied to the
+    // session anchor on a user bean switch when no recipe is active (see
+    // applyActiveBag + the MainController guard).
+    double activeBagYieldValue() const { return m_activeBagYieldValue; }
+    QString activeBagYieldMode() const { return m_activeBagYieldMode; }
+    // Persist a yield spec to the active bag — the "Update Bag" button's
+    // write, and the ONLY path a yield reaches the bag (the old Brew
+    // Settings OK write-through and the per-shot stamp are gone: the yield
+    // anchor is intent, button-protected; dial-in stays automatic).
+    Q_INVOKABLE void persistYieldSpecToBag(double value, const QString& mode);
 
     // Invalidate cached DYE values so the next getter re-reads from QSettings.
     // Called by Settings::factoryReset() after wiping the store. Also zeros
@@ -289,11 +296,18 @@ signals:
     void activeBagChanged();
     void activeRecipeIdChanged();
     // Emitted only from applyActiveBag (a user bean switch, not a keep-fields
-    // historical/favorite load) carrying the new bag's yield override. The
-    // MainController applies it to Settings.brew after the switch's
-    // clear-to-profile-default reset, so a bag with an override turns the idle
+    // historical/favorite load) carrying the new bag's yield spec. The
+    // MainController applies it to the session anchor after the switch's
+    // clear-to-profile-default reset — GATED on no recipe being active (the
+    // ladder: recipe outranks bag) — so a bag with an anchor turns the idle
     // brew-settings widget yellow and a bag without one stays at the default.
-    void activeBagYieldOverrideApplied(double yieldOverrideG);
+    void activeBagYieldSpecApplied(double value, const QString& mode);
+    // The cached spec CHANGED — including on paths that deliberately do not
+    // re-arm the session (the keep-fields refresh) and on the Update Bag
+    // write. Drives the Q_PROPERTY NOTIFY above and MainController's
+    // brewBaselineChanged, so the Brew Settings baseline/button can never
+    // read a stale bag spec.
+    void activeBagYieldSpecChanged();
 
 private:
     void ensureDyeCacheLoaded() const;
@@ -323,7 +337,8 @@ private:
     QString m_activeBagDefrostDate;
     QString m_activeBagStorageHint;
     QString m_activeBagOpenedDate;
-    double m_activeBagYieldOverrideG = 0;  // active bag's yield override (0 = none)
+    double m_activeBagYieldValue = 0;      // active bag's yield spec value (0 = unset)
+    QString m_activeBagYieldMode = QStringLiteral("none");
 
     // Cached DYE values (avoid QSettings::value() → CFPreferences on every QML binding read)
     mutable QString m_dyeGrinderBrandCache;

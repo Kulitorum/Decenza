@@ -6,12 +6,15 @@ import Decenza
 // Quick coffee:water ratio chooser, opened from the ratioQuickSelect layout
 // widget (placeable in any zone). Offers three user-configurable presets
 // (Ristretto / Normale / Lungo; defaults 1:1 / 1:2 / 1:3, read from
-// Settings.brew.ratioPreset1/2/3). Applying a pick records lastUsedRatio and
-// recomputes the stop-at-weight target (yield = dose × ratio) so the ratio takes
-// effect live in the scale widget, Brew Settings, and the machine target. Also
-// includes a short "about ratios" help panel. Descriptions are original but
-// the ratio styles/learning are adapted from La Marzocco Home's article
-// "Brew Ratios Around the World" (credited in the footer).
+// Settings.brew.ratioPreset1/2/3). Applying a pick arms a RATIO ANCHOR on the
+// session (add-yield-ratio-anchor) — identical in effect to editing the ratio
+// row in Brew Settings — so the gram target derives from the dose and keeps
+// re-deriving when the dose changes. It writes no recipe or bag (persisting
+// is the Update button's job in Brew Settings) and records lastUsedRatio only
+// as preset memory. Also includes a short "about ratios" help panel.
+// Descriptions are original but the ratio styles/learning are adapted from
+// La Marzocco Home's article "Brew Ratios Around the World" (credited in the
+// footer).
 Dialog {
     id: root
     parent: Overlay.overlay
@@ -21,6 +24,15 @@ Dialog {
     modal: true
     closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
     padding: 0
+
+    // Pick-only mode (add-yield-ratio-anchor): the three named ratios are the
+    // app's smart-ratio vocabulary, and they are just as useful when DESIGNING
+    // a drink (the recipe wizard) or dialing a not-yet-committed value (Brew
+    // Settings) as when arming the current brew. In pick-only mode a tap emits
+    // ratioPicked() and writes NOTHING — the host decides what the pick means.
+    // Default false = the idle widget's behaviour: arm the session anchor.
+    property bool pickOnly: false
+    signal ratioPicked(double ratio)
 
     property bool showHelp: false
     // Each standard is a RANGE in practice (ristretto ~1:1–1.5, normale ~1:2–2.5,
@@ -37,10 +49,19 @@ Dialog {
         else if (idx === 2) Settings.brew.ratioPreset2 = v
         else Settings.brew.ratioPreset3 = v
     }
-    // The actual active ratio (target ÷ dose), matching the scale widget / Brew
-    // Settings — not lastUsedRatio, so the highlighted preset reflects reality.
-    readonly property double _dose: ProfileManager.brewByRatioDose > 0 ? ProfileManager.brewByRatioDose : 18.0
-    readonly property double currentRatio: ProfileManager.targetWeight / _dose
+    // Which ratio the "current" badge marks. Defaults to the live session:
+    // the stored anchor when ratio-anchored, else derived (target ÷ dose) —
+    // ProfileManager.brewByRatio folds both — so the highlighted preset
+    // reflects reality, not lastUsedRatio. With no dose recorded a derived
+    // ratio is unknowable (brewByRatio is 0): no card highlights, rather than
+    // faking one against an 18 g stand-in. A pick-only host overrides this
+    // with the value IT is editing (the wizard's field, the dialog's dial) —
+    // the badge must mark what the user is changing, not the live brew.
+    property double compareRatio: ProfileManager.brewByRatio > 0
+        ? ProfileManager.brewByRatio
+        : (ProfileManager.brewByRatioDose > 0
+           ? ProfileManager.targetWeight / ProfileManager.brewByRatioDose : 0)
+    readonly property double currentRatio: compareRatio
 
     // The three presets (ratios are user-configurable, defaulting to 1/2/3).
     // `desc` are our own words, informed by the La Marzocco article credited below.
@@ -54,16 +75,24 @@ Dialog {
     ]
 
     function applyRatio(r) {
-        // Apply the chosen ratio live: record the preference and recompute the
-        // stop-at-weight target (yield = dose × ratio) so the new ratio shows up
-        // everywhere immediately — the scale widget (ProfileManager.brewByRatio),
-        // Brew Settings, and the machine target. Setting brewYieldOverride emits
-        // brewOverridesChanged, which ProfileManager turns into a targetWeight sync
-        // + targetWeightChanged. Uses the measured dose (dyeBeanWeight), falling
-        // back to 18 g when none is recorded.
+        // Pick-only: hand the choice to the host and touch nothing. The
+        // wizard writes it into the recipe being designed; Brew Settings
+        // writes its own local dial (committed on OK). Neither may arm the
+        // session behind the user's back.
+        if (root.pickOnly) {
+            root.ratioPicked(r)
+            root.close()
+            return
+        }
+        // Arm a RATIO ANCHOR on the session (add-yield-ratio-anchor) — the
+        // ratio itself is stored, not a flattened dose x ratio snapshot, so
+        // the target derives live from whatever dose is (or becomes) known
+        // and shows up everywhere immediately: the scale widget
+        // (ProfileManager.brewByRatio), Brew Settings, and the machine
+        // target (resolved to grams in ProfileManager::targetWeight).
+        // lastUsedRatio is preset memory only.
         Settings.brew.lastUsedRatio = r
-        var dose = Settings.dye.dyeBeanWeight > 0 ? Settings.dye.dyeBeanWeight : 18.0
-        Settings.brew.brewYieldOverride = dose * r
+        Settings.brew.setBrewRatioAnchor(r)
         root.close()
     }
 

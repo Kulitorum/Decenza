@@ -169,9 +169,21 @@ Page {
     }
 
     function formatRatio() {
+        // The ACHIEVED ratio, with the shot's recorded target ratio alongside
+        // when the shot was pulled under a ratio anchor (add-yield-ratio-
+        // anchor): "1:2.1 (target 1:2)". The anchor is the shot's stored
+        // provenance — never re-derived from target ÷ dose, which a post-shot
+        // dose correction would distort.
         if (shotData.doseWeightG > 0) {
-            return "1:" + (shotData.finalWeightG / shotData.doseWeightG).toFixed(1)
+            var achieved = "1:" + (shotData.finalWeightG / shotData.doseWeightG).toFixed(1)
+            if (shotData.yieldMode === "ratio" && (shotData.yieldAnchorValue || 0) > 0)
+                return achieved + " " + TranslationManager.translate("shotdetail.targetRatio", "(target 1:%1)")
+                    .arg(Number(shotData.yieldAnchorValue).toFixed(1))
+            return achieved
         }
+        if (shotData.yieldMode === "ratio" && (shotData.yieldAnchorValue || 0) > 0)
+            return TranslationManager.translate("shotdetail.targetRatioOnly", "target 1:%1")
+                .arg(Number(shotData.yieldAnchorValue).toFixed(1))
         return "-"
     }
 
@@ -566,6 +578,13 @@ Page {
                 yieldOverridden: (shotData.targetWeightG || 0) > 0
                     && shotDetailPage._shotProfileYield > 0
                     && Math.abs(shotData.targetWeightG - shotDetailPage._shotProfileYield) > 0.1
+                // THIS shot's recorded anchor, not the live dial's. These
+                // default to Settings.brew reads, so leaving them unbound
+                // would stamp whatever ratio happens to be armed right now
+                // onto every historical shot ever pulled.
+                yieldAnchorMode: shotData.yieldMode || "none"
+                yieldAnchorRatio: shotData.yieldMode === "ratio"
+                    ? (shotData.yieldAnchorValue || 0) : 0
                 // Temperature is filtered out of the line (it lives in the title,
                 // highlighted there when it deviated from the profile default);
                 // pin the flag off the live dial regardless.

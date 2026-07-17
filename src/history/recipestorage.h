@@ -74,7 +74,15 @@ struct Recipe {
     qint64 equipmentId = 0;   // FK -> equipment_packages.id; 0 = none
 
     double doseG = 0;         // 0 = unset
-    double yieldG = 0;        // 0 = unset
+    // Yield as a spec, not a number (add-yield-ratio-anchor): yieldValue +
+    // yieldMode ("none" | "absolute" | "ratio", see src/core/yieldspec.h).
+    // mode "none" = the recipe designs no yield and the ladder falls through
+    // to the bag, then the profile. A ratio's gram target is derived at use
+    // time (value x dose), mirroring how tempOffsetC below stores a relative
+    // quantity resolved at use time. Replaces the legacy absolute yield_g,
+    // which migration 34 converts and leaves dead in place.
+    double yieldValue = 0;    // 0 = unset (grams when absolute, multiplier when ratio)
+    QString yieldMode = QStringLiteral("none");
     // Temperature as a SIGNED DELTA against the profile's espresso_temperature
     // (recipe-relative-temp-offset); 0 = brew at the profile's own temperature.
     // The effective brew temperature is always computed profileTemp + offset at

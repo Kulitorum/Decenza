@@ -7,6 +7,7 @@
 #include "../core/settings.h"
 #include "../core/settings_brew.h"
 #include "../core/settings_dye.h"
+#include "../core/yieldspec.h"
 #include "../core/drinktypes.h"
 #include "../network/beanbase_blob.h"
 #include "../core/settings_network.h"
@@ -249,15 +250,62 @@ MainController::MainController(QNetworkAccessManager* networkManager,
             m_profileManager->clearBrewOverrides();
     });
 
-    // A user bean switch carries the bag's yield override (fires only from
+    // A user bean switch carries the bag's yield spec (fires only from
     // applyActiveBag, never on a keep-fields historical/favorite load). It
     // arrives after the clear-to-profile reset above, so a bag with a saved
-    // override re-establishes it (idle brew-settings widget turns yellow); a
-    // bag with none (0) leaves the brew at the profile default the clear set.
-    connect(m_settings->dye(), &SettingsDye::activeBagYieldOverrideApplied, this,
-            [this](double yieldOverrideG) {
-        if (yieldOverrideG > 0 && m_settings && m_settings->brew())
-            m_settings->brew()->setBrewYieldOverride(yieldOverrideG);
+    // anchor re-establishes it (idle brew-settings widget turns yellow); a
+    // bag whose mode is "none" leaves the brew at the profile default the
+    // clear set.
+    //
+    // This walks the FULL ladder (recipe -> bag -> profile) rather than just
+    // vetoing the bag while a recipe is active. The veto looked equivalent
+    // and was not: the activeBagIdChanged clear above has already wiped the
+    // session anchor by the time this runs, so declining to re-arm doesn't
+    // leave the recipe's anchor standing — it leaves NOTHING standing, and
+    // targetWeight() drops to the profile while every surface keeps
+    // rendering the recipe's ratio (activeBaselineYieldMode reads the recipe
+    // row, not the session). Whatever this handler declines to arm, the
+    // clear has already taken away.
+    //
+    // A bean-linked recipe deactivates on the bag change (the
+    // activeBagIdChanged handler below) before this fires, so it lands in
+    // the no-recipe branch. The recipe branches below are what a recipe with
+    // NO bean link needs — it survives the switch and must keep its anchor —
+    // and what the spec's "recipe mode none falls through to the bag" rung
+    // needs.
+    connect(m_settings->dye(), &SettingsDye::activeBagYieldSpecApplied, this,
+            [this](double value, const QString& mode) {
+        if (!m_settings || !m_settings->brew())
+            return;
+        if (m_settings->dye()->activeRecipeId() >= 0) {
+            if (m_activeRecipe.isEmpty()) {
+                // A recipe is active BY ID but its row hasn't arrived yet.
+                // This is STARTUP, not a bean switch: the bag read and the
+                // recipe read are separate async workers and the bag's is
+                // enqueued first, so this handler routinely runs before the
+                // recipe cache exists. The ladder can't be walked without its
+                // top rung — and crucially, unlike a bean switch, nothing has
+                // cleared the session anchor here: it was restored from
+                // settings and already IS the recipe's. Arming the bag's over
+                // it would silently demote a ratio recipe to its bean's grams
+                // on every launch. Leave it standing; the recipe's own load
+                // path owns re-seeding.
+                return;
+            }
+            const QString recipeMode =
+                YieldSpec::normalizedMode(m_activeRecipe.value("yieldMode").toString());
+            const double recipeValue = m_activeRecipe.value("yieldValue").toDouble();
+            if (YieldSpec::isSet(recipeMode) && recipeValue > 0) {
+                // Recipe outranks bag — re-arm the RECIPE's own anchor, which
+                // the bag-switch clear just wiped.
+                m_settings->brew()->setBrewYieldAnchor(recipeValue, recipeMode);
+                return;
+            }
+            // The recipe designs no yield: the ladder falls through to the
+            // bag rung below, exactly as with no recipe active.
+        }
+        if (value > 0 && mode != QLatin1String("none"))
+            m_settings->brew()->setBrewYieldAnchor(value, mode);
     });
 
     // Unified bean search (Change Beans dialog): inventory + canonical
@@ -510,6 +558,14 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     connect(m_settings->brew(), &SettingsBrew::brewOverridesChanged, this, &MainController::brewBaselineChanged);
     connect(m_profileManager, &ProfileManager::currentProfileChanged, this, &MainController::brewBaselineChanged);
     connect(m_profileManager, &ProfileManager::targetWeightChanged, this, &MainController::brewBaselineChanged);
+    // The bag rung of the yield-baseline ladder: a bean switch, an Update Bag
+    // write, or the keep-fields cache refresh on recipe activation all move
+    // the baseline spec even with no recipe active. activeBagYieldSpecChanged
+    // covers every one (activeBagYieldSpecApplied deliberately skips the
+    // keep-fields path, so it is the wrong signal to hang this on).
+    connect(m_settings->dye(), &SettingsDye::activeBagYieldSpecChanged, this,
+            &MainController::brewBaselineChanged);
+    connect(m_settings->dye(), &SettingsDye::activeBagIdChanged, this, &MainController::brewBaselineChanged);
 
     // Auto-connect MQTT if enabled
     if (m_settings && m_settings->mqtt()->mqttEnabled() && !m_settings->mqtt()->mqttBrokerHost().isEmpty()) {
@@ -784,7 +840,20 @@ void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& sh
             hasOverrides = true;
         }
 
-        if (shotRecord.targetWeight > 0
+        // Yield restore is anchor-aware (add-yield-ratio-anchor): a shot that
+        // genuinely carried a RATIO restores the ratio — 1:2 against today's
+        // dose — which is what "brew this again" means for a ratio shot (and
+        // consistent with a ratio surviving profile loads). Absolute shots —
+        // including every legacy shot, whose backfilled "absolute" anchor may
+        // really be a volume-profile fabrication — restore frozen grams
+        // exactly as before, with the Bug-A comparison surviving for them
+        // alone: a frozen absolute matching the freshly-loaded profile's own
+        // default is not an override.
+        if (shotRecord.yieldMode == QLatin1String("ratio")
+            && shotRecord.yieldAnchorValue > 0) {
+            m_settings->brew()->setBrewRatioAnchor(shotRecord.yieldAnchorValue);
+            hasOverrides = true;
+        } else if (shotRecord.targetWeight > 0
             && qAbs(shotRecord.targetWeight
                     - m_profileManager->currentProfile().targetWeight()) > 0.1) {
             m_settings->brew()->setBrewYieldOverride(shotRecord.targetWeight);
@@ -960,6 +1029,27 @@ void MainController::setupRecipeConnections() {
         // the 5-9 minute warm-up means the hold must follow the cache.
         if (activeRecipeHasMilk() != hadMilk || activeRecipeHasMilk())
             applySteamSettings();
+        // Re-seed the brew overrides from the edited recipe, exactly as
+        // re-activating it would (add-yield-ratio-anchor). An edit changes the
+        // recipe's DESIGN, and the live setup must follow it — the grind push
+        // below has always done this; yield/temperature were left behind,
+        // stranding the value activation armed. Edit the yield to 50 and the
+        // plan would read an amber "50.0 -> 36.0g" while the shot still
+        // targeted the old 36: the recipe reading as an override of itself.
+        //
+        // "Clear the overrides" in the ladder's sense = back to the store's
+        // own values, which is Clear's meaning in Brew Settings — NOT a bare
+        // wipe, which would drop the brew to the profile rather than to the
+        // edited recipe (targetWeight() resolves the session anchor; it never
+        // re-reads the recipe). Only on an actual external edit — our own
+        // dose/grind stamps return above without re-reading, so a
+        // write-through can't bounce back and wipe the user's dialed tweak.
+        // Profile-less (hot-water) recipes own no profile to override.
+        if (refreshDial
+            && !m_activeRecipe.value(QStringLiteral("profileTitle")).toString().trimmed().isEmpty()
+            && applyRecipeBrewOverrides(m_activeRecipe))
+            m_profileManager->uploadCurrentProfile();
+
         // Mirror an edited grind/rpm back onto the live dial so the Shot Plan
         // refreshes without a re-activation (Flow-3 fix). Only on an actual
         // edit re-read; same semantics as applyActivatedRecipe's grind push:
@@ -1363,40 +1453,8 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
 
         // Yield / temperature overrides on top of the profile defaults.
         // Profile-less recipes have no profile to override or re-upload.
-        bool hasOverrides = false;
-        if (!profileLess) {
-            // A recipe YIELD matching the profile's own default is not an
-            // override — don't arm the flag for it (Bug A). Temperature no
-            // longer needs this guard: its stored offset is unambiguous.
-            const double yieldG = recipe.value("yieldG").toDouble();
-            if (yieldG > 0
-                && qAbs(yieldG - m_profileManager->currentProfile().targetWeight()) > 0.1) {
-                m_settings->brew()->setBrewYieldOverride(yieldG);
-                hasOverrides = true;
-            }
-            // Temperature is a stored OFFSET against the profile
-            // (recipe-relative-temp-offset): the brew temperature is computed
-            // profileTemp + offset at activation, so the recipe follows any
-            // later profile temperature edit. Offset 0 is unambiguous "brew at
-            // the profile's temperature" — no coincidental-default comparison
-            // needed (the old Bug-A guard).
-            const double tempOffsetC = recipe.value("tempOffsetC").toDouble();
-            const double profileTempC = m_profileManager->currentProfile().espressoTemperature();
-            if (qAbs(tempOffsetC) > 0.05 && profileTempC > 0) {
-                m_settings->brew()->setTemperatureOverride(profileTempC + tempOffsetC);
-                hasOverrides = true;
-            } else if (qAbs(tempOffsetC) > 0.05) {
-                // A real offset with no profile temperature to anchor on: the
-                // shot brews at whatever the machine holds. Loud, because the
-                // user asked for "profile −3°" and silently not getting it is
-                // undebuggable.
-                qWarning() << "applyActivatedRecipe: recipe" << recipe.value("name").toString()
-                           << "has temp offset" << tempOffsetC
-                           << "but the loaded profile reports no espresso_temperature"
-                           << "- skipping the temperature override";
-            }
-        }
-        if (hasOverrides)
+        // Shared with the active-recipe EDIT refresh — see the helper.
+        if (!profileLess && applyRecipeBrewOverrides(recipe, linkedBag))
             m_profileManager->uploadCurrentProfile();
 
         // Steam block: pitcher (the pitcher preset IS the steam spec —
@@ -1534,6 +1592,114 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
     }, Qt::QueuedConnection);
 }
 
+// Apply a recipe's yield/temperature spec to the SESSION overrides, replacing
+// whatever was armed. Shared by activation and the active-recipe edit refresh:
+// editing the active recipe re-seeds the live brew from it, exactly as
+// re-activating would. Without that, the dialed value stays armed while the
+// baseline moves to the edited spec, so the freshly-edited recipe reads as an
+// "override" of itself — edit the yield to 50 and the plan shows an amber
+// "50.0 -> 36.0g" while the shot still targets the old 36.
+//
+// `linkedBag` is the activation bundle's bag snapshot; pass an empty map to
+// resolve the bag rung from the live dye cache instead (the edit refresh and
+// the same-id re-activation contract both do).
+//
+// Returns true when any override was armed — the caller re-uploads the profile
+// so the temperature reaches the machine frames.
+bool MainController::applyRecipeBrewOverrides(const QVariantMap& recipe,
+                                              const QVariantMap& linkedBag)
+{
+    if (!m_settings || !m_profileManager)
+        return false;
+    bool hasOverrides = false;
+    // Activation reflects ONLY this recipe's own overrides: clear
+    // whatever session anchor was armed before, unconditionally.
+    // This cannot be left to the loadProfile reset — a profile load
+    // deliberately KEEPS a ratio anchor now (Decision 8), and the
+    // bag-switch clear doesn't fire when the recipe's bag is already
+    // active — so without this explicit clear a stale session ratio
+    // from the previous setup would leak into a yield-less recipe.
+    m_settings->brew()->clearAllBrewOverrides();
+    // The recipe's yield spec applies VERBATIM — value and mode
+    // (add-yield-ratio-anchor). A ratio is always a deliberate
+    // anchor, even when it derives exactly the profile's target
+    // (no Bug-A gram comparison for ratios — that would discard
+    // the anchor precisely when it coincides with the profile).
+    // The ratio anchor write is QUEUED, matching the queued dose
+    // write above, so its first resolution multiplies the recipe's
+    // own dose and never the stale pre-activation one (the yield
+    // used to be written synchronously here while the dose was
+    // queued — the write-order bug). An absolute yield doesn't
+    // depend on the dose, so it stays synchronous, and the "a value
+    // matching the profile default is not an override" rule
+    // survives for it alone. Mode "none" arms nothing: the ladder
+    // falls through to the bag's spec (applied by the bag watcher),
+    // then the profile.
+    const double yieldValue = recipe.value("yieldValue").toDouble();
+    const QString yieldMode = YieldSpec::normalizedMode(recipe.value("yieldMode").toString());
+    if (yieldMode == YieldSpec::modeRatio() && yieldValue > 0) {
+        QPointer<Settings> settings(m_settings);
+        QMetaObject::invokeMethod(this, [settings, yieldValue]() {
+            if (settings) settings->brew()->setBrewRatioAnchor(yieldValue);
+        }, Qt::QueuedConnection);
+        hasOverrides = true;
+    } else if (yieldMode == YieldSpec::modeAbsolute() && yieldValue > 0
+               && qAbs(yieldValue - m_profileManager->currentProfile().targetWeight()) > 0.1) {
+        m_settings->brew()->setBrewYieldOverride(yieldValue);
+        hasOverrides = true;
+    } else if (!YieldSpec::isSet(yieldMode) || yieldValue <= 0) {
+        // The recipe designs no yield: the ladder falls through to
+        // its linked bag's spec. Recipe-driven bag selection goes
+        // through the keep-fields path, which deliberately does NOT
+        // re-arm the session from the bag — so the fall-through is
+        // applied here, explicitly, from the activation bundle's own
+        // bag snapshot (falling back to the dye cache for the
+        // same-id re-activation contract, whose bundle bag map is
+        // empty). Armed exactly like a manual bean switch — the
+        // spec verbatim, no profile-default comparison (a bag's
+        // anchor is first-class, not a deviation) — and QUEUED like
+        // the ratio arm above so a bag ratio resolves against the
+        // recipe's queued dose, never the stale one.
+        double bagValue = linkedBag.value("yieldValue").toDouble();
+        QString bagMode = YieldSpec::normalizedMode(
+            linkedBag.value("yieldMode").toString());
+        if (linkedBag.isEmpty() && m_settings) {
+            bagValue = m_settings->dye()->activeBagYieldValue();
+            bagMode = m_settings->dye()->activeBagYieldMode();
+        }
+        if (YieldSpec::isSet(bagMode) && bagValue > 0) {
+            QPointer<Settings> settings(m_settings);
+            QMetaObject::invokeMethod(this, [settings, bagValue, bagMode]() {
+                if (settings) settings->brew()->setBrewYieldAnchor(bagValue, bagMode);
+            }, Qt::QueuedConnection);
+            hasOverrides = true;
+        }
+    }
+    // Temperature is a stored OFFSET against the profile
+    // (recipe-relative-temp-offset): the brew temperature is computed
+    // profileTemp + offset at activation, so the recipe follows any
+    // later profile temperature edit. Offset 0 is unambiguous "brew at
+    // the profile's temperature" — no coincidental-default comparison
+    // needed (the old Bug-A guard).
+    const double tempOffsetC = recipe.value("tempOffsetC").toDouble();
+    const double profileTempC = m_profileManager->currentProfile().espressoTemperature();
+    if (qAbs(tempOffsetC) > 0.05 && profileTempC > 0) {
+        m_settings->brew()->setTemperatureOverride(profileTempC + tempOffsetC);
+        hasOverrides = true;
+    } else if (qAbs(tempOffsetC) > 0.05) {
+        // A real offset with no profile temperature to anchor on: the
+        // shot brews at whatever the machine holds. Loud, because the
+        // user asked for "profile −3°" and silently not getting it is
+        // undebuggable.
+        qWarning() << "applyActivatedRecipe: recipe" << recipe.value("name").toString()
+                   << "has temp offset" << tempOffsetC
+                   << "but the loaded profile reports no espresso_temperature"
+                   << "- skipping the temperature override";
+    }
+
+    return hasOverrides;
+}
+
 // Recipe-aware brew baseline (recipe-baseline-not-override, #1485). A recipe's
 // own yield/temp ARE the baseline when it's active — so a widget must measure
 // "is this a real override?" against the recipe, not the profile. These four
@@ -1554,13 +1720,45 @@ double MainController::activeBaselineTemperatureC() const {
     return profileTemp;
 }
 
-double MainController::activeBaselineYieldG() const {
+// The yield baseline is a SPEC resolved through the ladder
+// (add-yield-ratio-anchor): the active recipe's own {value, mode} when it
+// designs a yield, else the active bag's, else the profile's target_weight
+// as an absolute. A ratio-anchored recipe has NO absolute yield — falling
+// back to the profile here is exactly the `yieldG > 0 ? yieldG :
+// profileYield` fallthrough that reintroduces #1485's spurious override
+// arrow, so the mode is consulted first.
+MainController::BaselineYield MainController::resolveBaselineYield() const {
+    // The ladder, walked ONCE: recipe -> bag -> profile. Both public getters
+    // are views onto this result, so the value and the mode can never come
+    // from different rungs (see BaselineYield in the header).
     if (!m_activeRecipe.isEmpty()) {
-        const double y = m_activeRecipe.value(QStringLiteral("yieldG")).toDouble();
-        if (y > 0.0)
-            return y;
+        const QString mode = YieldSpec::normalizedMode(
+            m_activeRecipe.value(QStringLiteral("yieldMode")).toString());
+        const double value = m_activeRecipe.value(QStringLiteral("yieldValue")).toDouble();
+        if (YieldSpec::isSet(mode) && value > 0.0)
+            return {value, mode};
     }
-    return m_profileManager ? m_profileManager->profileTargetWeight() : 0.0;
+    if (m_settings && YieldSpec::isSet(m_settings->dye()->activeBagYieldMode())
+        && m_settings->dye()->activeBagYieldValue() > 0.0)
+        return {m_settings->dye()->activeBagYieldValue(), m_settings->dye()->activeBagYieldMode()};
+    // The profile rung: its target_weight is always plain grams.
+    return {m_profileManager ? m_profileManager->profileTargetWeight() : 0.0,
+            YieldSpec::modeAbsolute()};
+}
+
+double MainController::activeBaselineYieldValue() const {
+    return resolveBaselineYield().value;
+}
+
+QString MainController::activeBaselineYieldMode() const {
+    return resolveBaselineYield().mode;
+}
+
+double MainController::activeBaselineYieldG() const {
+    const BaselineYield baseline = resolveBaselineYield();
+    const double dose = m_profileManager ? m_profileManager->brewByRatioDose() : 0.0;
+    const double profileTarget = m_profileManager ? m_profileManager->profileTargetWeight() : 0.0;
+    return YieldSpec::resolveGrams(baseline.mode, baseline.value, dose, profileTarget);
 }
 
 bool MainController::temperatureIsRealOverride() const {
@@ -1570,9 +1768,23 @@ bool MainController::temperatureIsRealOverride() const {
 }
 
 bool MainController::yieldIsRealOverride() const {
+    // Compare like with like (add-yield-ratio-anchor): the session anchor
+    // against the baseline spec in the SAME unit. A mode difference alone is
+    // a real override (an armed ratio deviates from an absolute baseline
+    // even when the derived grams coincide). Same-mode ratio deviations
+    // convert through the dose so the tolerance is the single 0.1 g rule.
     if (!m_settings || !m_settings->brew()->hasBrewYieldOverride())
         return false;
-    return qAbs(m_settings->brew()->brewYieldOverride() - activeBaselineYieldG()) > 0.1;
+    SettingsBrew* brew = m_settings->brew();
+    const QString baselineMode = activeBaselineYieldMode();
+    if (brew->brewYieldMode() != baselineMode)
+        return true;
+    const double delta = qAbs(brew->brewYieldOverride() - activeBaselineYieldValue());
+    if (baselineMode == YieldSpec::modeRatio()) {
+        const double dose = m_profileManager ? m_profileManager->brewByRatioDose() : 0.0;
+        return dose > 0 ? delta * dose > 0.1 : delta > 0.005;
+    }
+    return delta > 0.1;
 }
 
 void MainController::deactivateRecipe() {
@@ -2888,6 +3100,8 @@ void MainController::onShotEnded() {
     // These ALWAYS have values - either user override or profile default
     double shotTemperatureOverride = 0.0;
     double shotTargetWeight = 0.0;
+    QString shotYieldMode = YieldSpec::modeNone();
+    double shotYieldAnchorValue = 0.0;
 
     if (m_settings) {
         // Temperature: user override OR profile's espresso temperature
@@ -2897,10 +3111,28 @@ void MainController::onShotEnded() {
             shotTemperatureOverride = m_profileManager->currentProfile().espressoTemperature();
         }
 
-        // Yield: user override OR profile's target weight (0 for volume-based profiles)
-        if (m_settings->brew()->hasBrewYieldOverride()) {
-            shotTargetWeight = m_settings->brew()->brewYieldOverride();
+        // Yield: the shot's START-OF-SHOT snapshot — the resolved grams that
+        // actually ran (targetWeight() is the ladder's evaluation point; a
+        // ratio never lands in yield_override, which stays the
+        // resolved-grams column every detector reads) plus the anchor that
+        // produced them, recorded as intent (shots.yield_mode /
+        // yield_anchor_value): stored, never derived at read time, so a
+        // post-shot dose correction cannot rewrite it.
+        //
+        // Read the SNAPSHOT, never the live session. This path runs after
+        // SAW settling — by then the shot latch has released, so re-reading
+        // the session would record whatever it drifted to during the pour
+        // rather than what the machine used: weigh the next dose while the
+        // cup fills and a 1:2.5 shot that ran to 45 g would record 50 g; a
+        // bean switch mid-pour would record the profile default. The latch
+        // keeps the machine honest; this keeps the record honest.
+        if (m_profileManager->hasShotSnapshot()) {
+            shotTargetWeight = m_profileManager->latchedTargetG();
+            shotYieldMode = m_profileManager->latchedYieldMode();
+            shotYieldAnchorValue = m_profileManager->latchedYieldAnchorValue();
         } else if (m_profileManager->currentProfile().targetWeight() > 0) {
+            // No snapshot (a shot that never signalled cycle-start): fall
+            // back to the profile default, as before.
             shotTargetWeight = m_profileManager->currentProfile().targetWeight();
         }
     }
@@ -3034,6 +3266,10 @@ void MainController::onShotEnded() {
     metadata.recipeId = m_settings->dye()->activeRecipeId();
     metadata.steamJson = currentSteamSpecJson();
     metadata.hotWaterJson = currentHotWaterSpecJson();
+    // Yield anchor provenance (add-yield-ratio-anchor): what was MEANT,
+    // alongside the resolved grams in shotTargetWeight (what ran).
+    metadata.yieldMode = shotYieldMode;
+    metadata.yieldAnchorValue = shotYieldAnchorValue;
 
     // For volume/timer-based profiles (targetWeight=0), use the actual final weight
     // so favorites can restore a meaningful yield target
@@ -3185,24 +3421,23 @@ void MainController::onShotEnded() {
                 metadata, debugLog,
                 shotTemperatureOverride, shotTargetWeight, stoppedBy);
 
-            // Stamp the actual dose/yield onto the active bag ("last used
-            // with this bag" — the dose may come from SAW/profile settings
-            // rather than a manual edit). Independent of save success:
-            // a failed stamp is logged inside storage and never blocks the
-            // shot save. No user prompt (bean-bag-inventory).
+            // Stamp the actual dose onto the active bag ("last used with
+            // this bag" — the dose may come from SAW/profile settings rather
+            // than a manual edit). Independent of save success: a failed
+            // stamp is logged inside storage and never blocks the shot save.
+            // No user prompt (bean-bag-inventory).
+            //
+            // The YIELD half of this stamp is gone (add-yield-ratio-anchor):
+            // a shot is a measurement, the bag's yield spec is intent — it
+            // changes only via the explicit "Update Bag" action. The old
+            // per-shot yield stamp was the second, easy-to-miss auto-writer
+            // that kept the bean silently learning its yield, and the
+            // mechanism that drifted the stored dose/yield pair into a
+            // ratio nobody chose.
             if (m_bagStorage && bagIdIsSet(metadata.bagId)) {
                 QVariantMap stamp;
                 if (doseWeight > 0)
                     stamp.insert(QStringLiteral("doseWeightG"), doseWeight);
-                // Yield is an OVERRIDE: stamp it only when the shot's target
-                // differs from the profile's default weight, else 0 so the bag
-                // follows the profile baseline (shared, tested rule).
-                if (m_profileManager) {
-                    stamp.insert(QStringLiteral("yieldOverrideG"),
-                                 CoffeeBagStorage::yieldOverrideForTarget(
-                                     shotTargetWeight,
-                                     m_profileManager->currentProfile().targetWeight()));
-                }
                 stamp.insert(QStringLiteral("lastUsedEpoch"), QDateTime::currentSecsSinceEpoch());
                 m_bagStorage->requestUpdateBag(metadata.bagId, stamp);
             }

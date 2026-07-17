@@ -25,8 +25,9 @@ Rectangle {
     id: card
 
     // The recipe map (storage keys: name, drinkType, profileTitle, steamJson,
-    // hotWaterJson, roasterName, coffeeName, doseG, yieldG, tempOffsetC,
-    // grindPinned, shotCount…). The wizard hero feeds a synthesized map.
+    // hotWaterJson, roasterName, coffeeName, doseG, yieldValue, yieldMode,
+    // tempOffsetC, grindPinned, shotCount…). The wizard hero feeds a
+    // synthesized map.
     property var recipe: ({})
     property bool active: false
     // Stale = the linked bag left inventory. showStaleAction turns the bean
@@ -237,7 +238,22 @@ Rectangle {
                 tempOverridden: false
                 dose: card.recipe.doseG || 0
                 profileYield: card.profileYieldG
-                targetWeight: card.recipe.yieldG > 0 ? card.recipe.yieldG : card.profileYieldG
+                // Yield spec (add-yield-ratio-anchor), resolved against the
+                // recipe's own seed dose while browsing: absolute = the
+                // stored grams; ratio = ratio x doseG (bare "1:2" via the
+                // anchor mark when the recipe has no dose); none = the
+                // profile's target. A ratio recipe never falls back to the
+                // profile's gram target (#1485 through a side door).
+                targetWeight: {
+                    var mode = card.recipe.yieldMode || "none"
+                    var v = card.recipe.yieldValue || 0
+                    if (mode === "absolute" && v > 0) return v
+                    if (mode === "ratio" && v > 0)
+                        return (card.recipe.doseG || 0) > 0 ? card.recipe.doseG * v : 0
+                    return card.profileYieldG
+                }
+                yieldAnchorMode: card.recipe.yieldMode || "none"
+                yieldAnchorRatio: (card.recipe.yieldMode === "ratio") ? (card.recipe.yieldValue || 0) : 0
                 // No arrow/highlight: a card is a static recipe definition, not
                 // a live per-brew comparison — it shows the resulting yield only.
                 yieldOverridden: false

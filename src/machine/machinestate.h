@@ -101,6 +101,13 @@ signals:
     void scaleWeightChanged();
     void scaleFlowRateChanged();
     void espressoCycleStarted();  // When entering espresso preheating (clear graph here)
+    // The PAIR of espressoCycleStarted: fires when the espresso cycle is left,
+    // whether or not flow ever happened. shotEnded is NOT that pair — it fires
+    // only when flow STOPS, so a cycle aborted during preheat (user stops, the
+    // machine aborts, BLE drops) emits espressoCycleStarted with no shotEnded
+    // ever following. Anything armed on cycle-start and released on shotEnded
+    // therefore leaks on an aborted cycle — release on this instead.
+    void espressoCycleEnded();
     void shotStarted();           // When extraction actually begins (flow starts)
     void shotEnded();
     void targetWeightReached();

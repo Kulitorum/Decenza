@@ -1,5 +1,6 @@
 #include "settings_brew.h"
 #include "settings.h"
+#include "yieldspec.h"
 
 #include <QDebug>
 #include <QJsonArray>
@@ -103,9 +104,22 @@ SettingsBrew::SettingsBrew(QObject* parent)
         m_temperatureOverride = m_settings.value("brew/temperatureOverride", 0.0).toDouble();
     }
 
-    m_hasBrewYieldOverride = m_settings.value("brew/hasBrewYieldOverride", false).toBool();
-    if (m_hasBrewYieldOverride) {
-        m_brewYieldOverride = m_settings.value("brew/brewYieldOverride", 0.0).toDouble();
+    // Session yield anchor (add-yield-ratio-anchor): {value, mode}. An absent
+    // mode key is a pre-anchor install — migrate on read: "absolute" when the
+    // legacy hasBrewYieldOverride flag was set, else "none". No SQL-style
+    // migration step (QSettings).
+    {
+        const QString storedMode = m_settings.value("espresso/brewYieldMode").toString();
+        if (storedMode.isEmpty()) {
+            m_brewYieldMode = m_settings.value("brew/hasBrewYieldOverride", false).toBool()
+                ? YieldSpec::modeAbsolute() : YieldSpec::modeNone();
+        } else {
+            m_brewYieldMode = YieldSpec::normalizedMode(storedMode);
+        }
+        if (YieldSpec::isSet(m_brewYieldMode))
+            m_brewYieldOverride = m_settings.value("brew/brewYieldOverride", 0.0).toDouble();
+        if (m_brewYieldOverride <= 0)
+            m_brewYieldMode = YieldSpec::modeNone();
     }
 }
 
@@ -148,7 +162,7 @@ double SettingsBrew::ratioPreset1() const {
     return m_settings.value("espresso/ratioPreset1", 1.0).toDouble();
 }
 void SettingsBrew::setRatioPreset1(double r) {
-    r = qBound(0.5, r, 6.0);
+    r = YieldSpec::clampRatio(r);
     if (ratioPreset1() != r) {
         m_settings.setValue("espresso/ratioPreset1", r);
         emit ratioPreset1Changed();
@@ -159,7 +173,7 @@ double SettingsBrew::ratioPreset2() const {
     return m_settings.value("espresso/ratioPreset2", 2.0).toDouble();
 }
 void SettingsBrew::setRatioPreset2(double r) {
-    r = qBound(0.5, r, 6.0);
+    r = YieldSpec::clampRatio(r);
     if (ratioPreset2() != r) {
         m_settings.setValue("espresso/ratioPreset2", r);
         emit ratioPreset2Changed();
@@ -170,7 +184,7 @@ double SettingsBrew::ratioPreset3() const {
     return m_settings.value("espresso/ratioPreset3", 3.0).toDouble();
 }
 void SettingsBrew::setRatioPreset3(double r) {
-    r = qBound(0.5, r, 6.0);
+    r = YieldSpec::clampRatio(r);
     if (ratioPreset3() != r) {
         m_settings.setValue("espresso/ratioPreset3", r);
         emit ratioPreset3Changed();
@@ -900,47 +914,71 @@ void SettingsBrew::clearTemperatureOverride() {
     }
 }
 
-// Brew yield override (persistent)
+// Brew yield override (persistent) — the session yield anchor {value, mode}.
 
 double SettingsBrew::brewYieldOverride() const {
     return m_brewYieldOverride;
 }
 
-void SettingsBrew::setBrewYieldOverride(double yield) {
-    bool changed = false;
-    if (yield <= 0) {
-        if (m_hasBrewYieldOverride || !qFuzzyIsNull(m_brewYieldOverride)) {
-            m_brewYieldOverride = 0;
-            m_hasBrewYieldOverride = false;
-            m_settings.remove("brew/brewYieldOverride");
-            m_settings.remove("brew/hasBrewYieldOverride");
-            changed = true;
-        }
+QString SettingsBrew::brewYieldMode() const {
+    return m_brewYieldMode;
+}
+
+void SettingsBrew::writeBrewYieldAnchor(double value, const QString& mode) {
+    QString newMode = YieldSpec::normalizedMode(mode);
+    double newValue = value;
+    if (newValue <= 0)
+        newMode = YieldSpec::modeNone();
+    // clampValue bounds BOTH modes from the shared vocabulary — the absolute
+    // bound used to be a magic qBound here, which is how the bag's writers
+    // came to enforce no upper bound at all.
+    newValue = YieldSpec::clampValue(newMode, newValue);
+
+    const bool changed = newMode != m_brewYieldMode
+        || !qFuzzyCompare(1.0 + m_brewYieldOverride, 1.0 + newValue);
+    if (!changed)
+        return;
+
+    m_brewYieldOverride = newValue;
+    m_brewYieldMode = newMode;
+    if (YieldSpec::isSet(newMode)) {
+        m_settings.setValue("brew/brewYieldOverride", newValue);
+        m_settings.setValue("espresso/brewYieldMode", newMode);
+        // Legacy flag kept in sync so a downgraded build still sees the
+        // anchor as an active override.
+        m_settings.setValue("brew/hasBrewYieldOverride", true);
     } else {
-        if (!qFuzzyCompare(1.0 + m_brewYieldOverride, 1.0 + yield) || !m_hasBrewYieldOverride) {
-            m_brewYieldOverride = yield;
-            m_hasBrewYieldOverride = true;
-            m_settings.setValue("brew/brewYieldOverride", yield);
-            m_settings.setValue("brew/hasBrewYieldOverride", true);
-            changed = true;
-        }
+        m_settings.remove("brew/brewYieldOverride");
+        m_settings.remove("espresso/brewYieldMode");
+        m_settings.remove("brew/hasBrewYieldOverride");
     }
-    if (changed) {
-        emit brewOverridesChanged();
-    }
+    emit brewOverridesChanged();
+}
+
+void SettingsBrew::setBrewYieldOverride(double yield) {
+    writeBrewYieldAnchor(yield, YieldSpec::modeAbsolute());
+}
+
+void SettingsBrew::setBrewRatioAnchor(double ratio) {
+    writeBrewYieldAnchor(ratio, YieldSpec::modeRatio());
+}
+
+void SettingsBrew::setBrewYieldAnchor(double value, const QString& mode) {
+    writeBrewYieldAnchor(value, mode);
 }
 
 bool SettingsBrew::hasBrewYieldOverride() const {
-    return m_hasBrewYieldOverride;
+    return YieldSpec::isSet(m_brewYieldMode);
 }
 
 void SettingsBrew::clearAllBrewOverrides() {
     bool changed = false;
 
-    if (m_hasBrewYieldOverride || !qFuzzyIsNull(m_brewYieldOverride)) {
+    if (YieldSpec::isSet(m_brewYieldMode) || !qFuzzyIsNull(m_brewYieldOverride)) {
         m_brewYieldOverride = 0.0;
-        m_hasBrewYieldOverride = false;
+        m_brewYieldMode = YieldSpec::modeNone();
         m_settings.remove("brew/brewYieldOverride");
+        m_settings.remove("espresso/brewYieldMode");
         m_settings.remove("brew/hasBrewYieldOverride");
         changed = true;
     }
@@ -961,6 +999,19 @@ void SettingsBrew::clearAllBrewOverrides() {
     if (tempChanged) {
         emit temperatureOverrideChanged();
     }
+}
+
+void SettingsBrew::clearProfileScopedBrewOverrides() {
+    // A profile load clears what the outgoing profile owned: the temperature
+    // override (always) and an ABSOLUTE yield anchor (36 g was about THAT
+    // profile). A ratio anchor survives — a ratio is profile-independent, and
+    // this asymmetry is what delivers "persistent brew-by-ratio" with no
+    // setting (add-yield-ratio-anchor Decision 8).
+    if (m_brewYieldMode == YieldSpec::modeRatio()) {
+        clearTemperatureOverride();
+        return;
+    }
+    clearAllBrewOverrides();
 }
 
 // Stop-at-volume gating

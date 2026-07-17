@@ -31,14 +31,25 @@ Item {
     readonly property bool yieldTargetOnly: modelData.shotPlanYieldTargetOnly === true
     readonly property bool showSteamPlan: modelData.shotPlanShowSteamPlan !== false
 
-    // When a recipe is active its own yield/temp are the BASELINE, not overrides
-    // of the profile (recipe-baseline-not-override, #1485): pass them to the
-    // ShotPlanText so a recipe's designed yield shows as a plain target ("40.0g",
-    // not "36.0 → 40.0g") and neither yield nor temp is tinted at the recipe's
-    // own values. 0 when no recipe (or the recipe pins none) → profile behavior.
-    readonly property double _recipeBaselineYield:
-        (Settings.dye.activeRecipeId >= 0 && MainController.activeRecipe.yieldG > 0)
-            ? MainController.activeRecipe.yieldG : 0
+    // The ACTIVE STORE's yield/temp are the BASELINE, not overrides of the
+    // profile (recipe-baseline-not-override, #1485): pass them to the
+    // ShotPlanText so a designed yield shows as a plain target ("40.0g", not
+    // "36.0 → 40.0g") and neither yield nor temp is tinted at the store's own
+    // values.
+    //
+    // The yield baseline is the whole LADDER (add-yield-ratio-anchor):
+    // activeBaselineYieldG folds recipe -> bag -> profile and resolves a ratio
+    // through the current dose. Passing it unconditionally is what keeps this
+    // widget agreeing with Brew Settings, whose Clear/Update gate on the same
+    // ladder: a BEAN's own anchor is its design too (it is button-protected
+    // now — it only exists because the user pressed Update Bag), so it must
+    // render un-highlighted exactly like a recipe's. Gating this on "a recipe
+    // is active" made the two surfaces disagree — the Shot Plan drew a
+    // spurious "36.0 -> 42.0g" arrow against the profile for a bean's own
+    // yield, and kept drawing it even right after Update Bag. When nothing
+    // anchors, the ladder bottoms out at the profile and this equals
+    // profileYield, so the no-store case is unchanged.
+    readonly property double _baselineYieldG: MainController.activeBaselineYieldG
     readonly property double _recipeBaselineTemp:
         (Settings.dye.activeRecipeId >= 0
          && ProfileManager.profileTargetTemperature > 0
@@ -107,7 +118,7 @@ Item {
             itemOrder: root.itemOrder
             sentence: root.sentence
             yieldTargetOnly: root.yieldTargetOnly
-            recipeBaselineYield: root._recipeBaselineYield
+            baselineYieldG: root._baselineYieldG
             recipeBaselineTemp: root._recipeBaselineTemp
             maxLines: 1
             onClicked: root.openBrewSettings()
@@ -138,7 +149,7 @@ Item {
             itemOrder: root.itemOrder
             sentence: root.sentence
             yieldTargetOnly: root.yieldTargetOnly
-            recipeBaselineYield: root._recipeBaselineYield
+            baselineYieldG: root._baselineYieldG
             recipeBaselineTemp: root._recipeBaselineTemp
             stacked: root.stacked
             // Stacked spends a line on the detail tail — give the sentence +

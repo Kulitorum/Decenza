@@ -839,6 +839,19 @@ int main(int argc, char *argv[])
     // startExtraction() (which resets m_tareComplete=false), causing tare to be lost.
     QObject::connect(&machineState, &MachineState::espressoCycleStarted,
                      [&weightProcessor, &machineState, &settings, &mainController, &timingController]() {
+                         // Freeze the resolved target + dose for the duration
+                         // of the shot (add-yield-ratio-anchor Decision 9),
+                         // alongside the SAW model snapshot below so the two
+                         // stay consistent. While latched,
+                         // ProfileManager::targetWeight() answers with the
+                         // frozen value, so NO late write — a dose capture,
+                         // a bean switch's override clear, a recipe
+                         // activation, an MCP/web anchor write, a profile
+                         // load — can re-resolve and reach the worker through
+                         // the ungated forwarder below and move the live SAW
+                         // target. Event-driven, released at shot end.
+                         mainController.profileManager()->latchForShot();
+
                          // Build snapshot of learning data and configuration.
                          // Per-(profile, scale) lookup falls back to the global pool / scale
                          // default automatically when the pair has not yet graduated (< 3
@@ -928,6 +941,30 @@ int main(int argc, char *argv[])
                          }, Qt::QueuedConnection);
                      });
 
+    // Release the shot latch on espressoCycleEnded, NOT shotEnded: the latch is
+    // armed at espressoCycleStarted, and only espressoCycleEnded is that
+    // signal's pair. shotEnded is gated on flow having started, so a cycle
+    // aborted during preheat (stop tapped, machine aborts, BLE drops) would
+    // arm the latch and never release it — freezing targetWeight() at that
+    // shot's value for the rest of the session while every surface kept
+    // showing the live one. The latch outliving the cycle is precisely the
+    // failure this latch exists to prevent, so it is released on the broadest
+    // exit rather than the narrowest. Fires after the save path has read the
+    // snapshot (which survives release by design), and is idempotent.
+    QObject::connect(&machineState, &MachineState::espressoCycleEnded,
+                     [&weightProcessor, &mainController]() {
+                         mainController.profileManager()->releaseShotLatch();
+                         // Disarm the SAW worker for the same reason and by the
+                         // same asymmetry: startExtraction arms it at cycle
+                         // start (above), stopExtraction hangs off shotEnded and
+                         // so never runs for a cycle that never flowed, leaving
+                         // SAW live against the dead shot's target until the
+                         // next shot re-armed it. No-op on a normal shot.
+                         QMetaObject::invokeMethod(&weightProcessor, [&weightProcessor]() {
+                             weightProcessor.endShotCycle();
+                         }, Qt::QueuedConnection);
+                     });
+
     // Machine phase → WeightProcessor: extend scale-feed-liveness detection to
     // the pre-shot EspressoPreheating phase (BLE connection-priority backstop,
     // #1093/#1176). The feed dies during preheat prep on weak radios, ~6 s
@@ -950,6 +987,13 @@ int main(int argc, char *argv[])
     // Pre-shot callers (profile activation, recipe save) also fire this signal, but
     // configure() overwrites m_targetWeight at shot start, so any pre-shot forwarding
     // is harmless. Only mid-shot bumps observably move the worker's target.
+    // Ladder writes can no longer reach this path mid-shot
+    // (add-yield-ratio-anchor): targetWeight() answers with the RESOLVED target
+    // latched at espressoCycleStarted (see above), so neither a dose write nor
+    // an anchor write/clear moves it — and therefore this forwarder — during a
+    // shot. Latching only the dose would not have covered the anchor writes.
+    // The deliberately mid-shot caller (the phase-gated +10 g bump) writes
+    // MachineState directly rather than through the ladder, so it still flows.
     QObject::connect(&machineState, &MachineState::targetWeightChanged,
                      [&weightProcessor, &machineState]() {
                          const double w = machineState.targetWeight();

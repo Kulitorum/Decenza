@@ -984,13 +984,29 @@ private slots:
         QVERIFY(!f.profileManager.brewByRatioActive());
     }
 
-    void brewByRatioActiveWhenOverrideDiffers() {
+    // brewByRatioActive reads the STORED MODE (add-yield-ratio-anchor): only
+    // a ratio anchor makes it true. An absolute override — even one that
+    // differs from the profile target — is not "brew by ratio" (the old
+    // qAbs(override − profileTarget) inference is retired), and a ratio
+    // deriving exactly the profile's target is STILL ratio-anchored (the
+    // Bug-A case the inference silently dropped).
+    void brewByRatioActiveFollowsStoredMode() {
         McpTestFixture f;
         loadDFlowProfile(f, "Test", 36.0);
 
-        // Set a yield override different from profile's 36.0
-        f.settings.brew()->setBrewYieldOverride(54.0);
+        f.settings.brew()->setBrewYieldOverride(54.0);  // absolute
+        QVERIFY(!f.profileManager.brewByRatioActive());
+
+        f.settings.brew()->setBrewRatioAnchor(2.0);
         QVERIFY(f.profileManager.brewByRatioActive());
+
+        // Ratio deriving exactly the profile target (2.0 x 18 = 36): still
+        // anchored, and a dose change still re-derives the target.
+        f.settings.dye()->setDyeBeanWeight(18.0);
+        QVERIFY(f.profileManager.brewByRatioActive());
+        QCOMPARE(f.profileManager.targetWeight(), 36.0);
+        f.settings.dye()->setDyeBeanWeight(17.5);
+        QCOMPARE(f.profileManager.targetWeight(), 35.0);
     }
 
     void brewByRatioCalculation() {
@@ -998,9 +1014,244 @@ private slots:
         loadDFlowProfile(f, "Test", 36.0);
 
         f.settings.dye()->setDyeBeanWeight(18.0);
+        // Absolute anchor: the ratio derives (36 / 18 = 2).
         f.settings.brew()->setBrewYieldOverride(36.0);
-
         QCOMPARE(f.profileManager.brewByRatio(), 2.0);
+
+        // Ratio anchor: the stored ratio verbatim, not a re-derivation.
+        f.settings.brew()->setBrewRatioAnchor(2.5);
+        QCOMPARE(f.profileManager.brewByRatio(), 2.5);
+        QCOMPARE(f.profileManager.targetWeight(), 45.0);
+    }
+
+    // resolve() ladder contract (add-yield-ratio-anchor task 2.9): each mode,
+    // a ratio with no dose, and "none" falling through to the profile.
+    void targetWeightResolvesEachMode() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "Test", 36.0);
+
+        // Mode none: the profile answers.
+        f.settings.brew()->clearAllBrewOverrides();
+        QCOMPARE(f.profileManager.targetWeight(), 36.0);
+
+        // Absolute: the stored grams, dose-independent.
+        f.settings.brew()->setBrewYieldOverride(40.0);
+        f.settings.dye()->setDyeBeanWeight(18.0);
+        QCOMPARE(f.profileManager.targetWeight(), 40.0);
+        f.settings.dye()->setDyeBeanWeight(20.0);
+        QCOMPARE(f.profileManager.targetWeight(), 40.0);
+
+        // Ratio: value x dose.
+        f.settings.brew()->setBrewRatioAnchor(2.0);
+        QCOMPARE(f.profileManager.targetWeight(), 40.0);
+
+        // Ratio with no usable dose: falls back to the profile target —
+        // a 0 g stop target must never reach the machine.
+        f.settings.dye()->setDyeBeanWeight(0.0);
+        QCOMPARE(f.profileManager.targetWeight(), 36.0);
+    }
+
+    // The shot latch (add-yield-ratio-anchor Decision 9): NOTHING moves the
+    // resolved target while a shot runs; releasing re-resolves so the next
+    // shot picks the new state up.
+    //
+    // Regression: latching only the DOSE was not enough. Every other input
+    // stayed live, and each one re-resolves straight through main.cpp's
+    // ungated forwarder into the running WeightProcessor. A bean switch
+    // mid-pour (clearBrewOverrides) dropped a live 45 g target to the
+    // profile's 36 g and cut the shot short — observed on a real pour, not
+    // hypothetical. Every arm below is one of those paths.
+    void shotLatchFreezesTargetAgainstEveryLateWrite() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "Test", 36.0);
+
+        f.settings.dye()->setDyeBeanWeight(18.0);
+        f.settings.brew()->setBrewRatioAnchor(2.5);
+        QCOMPARE(f.profileManager.targetWeight(), 45.0);
+
+        f.profileManager.latchForShot();
+
+        // 1. A dose write (scale capture, MCP, settings import).
+        f.settings.dye()->setDyeBeanWeight(20.0);
+        QCOMPARE(f.profileManager.targetWeight(), 45.0);
+
+        // 2. An anchor CLEAR — what a bean switch does (the real-world bug).
+        f.settings.brew()->clearAllBrewOverrides();
+        QCOMPARE(f.profileManager.targetWeight(), 45.0);
+
+        // 3. An anchor WRITE (recipe activation, MCP/web edit).
+        f.settings.brew()->setBrewYieldOverride(80.0);
+        QCOMPARE(f.profileManager.targetWeight(), 45.0);
+
+        // 4. A ratio anchor write.
+        f.settings.brew()->setBrewRatioAnchor(1.0);
+        QCOMPARE(f.profileManager.targetWeight(), 45.0);
+
+        // Released: the next shot resolves against the live state (1.0 x 20).
+        f.profileManager.releaseShotLatch();
+        QCOMPARE(f.profileManager.targetWeight(), 20.0);
+    }
+
+    // A cycle that arms the latch and never releases must not poison the
+    // session. The latch is armed at espressoCycleStarted (which fires during
+    // preheat, before any flow) and released at espressoCycleEnded; shotEnded
+    // — the old release point — is gated on flow having STARTED, so a cycle
+    // aborted during preheat armed a latch that nothing ever released. Because
+    // latchForShot resolved through its own flag, the next shot then
+    // self-assigned the stale target and re-latched it: one abort silently
+    // pinned the machine's target for the rest of the session while every
+    // surface kept showing the live value. Both halves are asserted here.
+    void abortedCycleDoesNotPinTargetForTheSession() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "Test", 36.0);
+
+        f.settings.dye()->setDyeBeanWeight(18.0);
+        f.settings.brew()->setBrewRatioAnchor(2.5);
+        f.profileManager.latchForShot();
+        QCOMPARE(f.profileManager.targetWeight(), 45.0);
+
+        // The cycle is abandoned during preheat: no flow, so no shotEnded.
+        // The user then re-dials for the shot they actually intend to pull.
+        f.settings.dye()->setDyeBeanWeight(20.0);
+        f.settings.brew()->setBrewRatioAnchor(2.0);
+
+        // Re-arming must re-resolve against the live state (2.0 x 20), not
+        // launder the stale 45 through the still-armed flag.
+        f.profileManager.latchForShot();
+        QCOMPARE(f.profileManager.targetWeight(), 40.0);
+
+        // And the release must still let the session move afterwards.
+        f.profileManager.releaseShotLatch();
+        f.settings.brew()->setBrewRatioAnchor(3.0);
+        QCOMPARE(f.profileManager.targetWeight(), 60.0);
+    }
+
+    // The latch's release hangs off espressoCycleEnded (main.cpp), so that
+    // signal must fire on a cycle that never flowed — the case the old
+    // shotEnded release could not cover. The main.cpp wiring itself is out of
+    // reach here; this pins the signal contract it depends on.
+    void espressoCycleEndedFiresOnACycleThatNeverFlowed() {
+        McpTestFixture f;
+        f.device.m_simulationMode = true;  // isConnected() -> true
+
+        QSignalSpy cycleStarted(&f.machineState, &MachineState::espressoCycleStarted);
+        QSignalSpy cycleEnded(&f.machineState, &MachineState::espressoCycleEnded);
+        QSignalSpy shotEnded(&f.machineState, &MachineState::shotEnded);
+
+        // Enter the espresso cycle (preheat) — this is where the latch arms.
+        f.device.m_state = DE1::State::Espresso;
+        f.device.m_subState = DE1::SubState::Heating;
+        f.machineState.updatePhase();
+        QCOMPARE(f.machineState.phase(), MachineState::Phase::EspressoPreheating);
+        QCOMPARE(cycleStarted.count(), 1);
+
+        // Abort before any flow: straight back to Idle.
+        f.device.m_state = DE1::State::Idle;
+        f.device.m_subState = DE1::SubState::Ready;
+        f.machineState.updatePhase();
+
+        QCOMPARE(cycleEnded.count(), 1);
+        // The old release point never fires here — this is the whole bug.
+        QCOMPARE(shotEnded.count(), 0);
+    }
+
+    // A BLE drop mid-pour also LEAVES the espresso cycle, but through
+    // updatePhase's disconnect branch, which returns before the normal
+    // cycle-exit detection runs. It must still fire espressoCycleEnded or the
+    // latch leaks exactly as it did off shotEnded — same bug, different road.
+    void bleDropMidPourStillEndsTheEspressoCycle() {
+        McpTestFixture f;
+        // Connectivity comes from the transport here, NOT simulationMode
+        // (which would short-circuit isConnected() to true and make the drop
+        // below unrepresentable).
+        f.transport.setConnectedSim(true);
+
+        QSignalSpy cycleEnded(&f.machineState, &MachineState::espressoCycleEnded);
+
+        f.device.m_state = DE1::State::Espresso;
+        f.device.m_subState = DE1::SubState::Pouring;
+        f.machineState.updatePhase();
+        QCOMPARE(f.machineState.phase(), MachineState::Phase::Pouring);
+
+        // The radio drops mid-pour: isConnected() goes false.
+        f.transport.setConnectedSim(false);
+        f.machineState.updatePhase();
+
+        QCOMPARE(f.machineState.phase(), MachineState::Phase::Disconnected);
+        QCOMPARE(cycleEnded.count(), 1);
+
+        // Idempotent: further disconnected updates must not re-fire it.
+        f.machineState.updatePhase();
+        QCOMPARE(cycleEnded.count(), 1);
+    }
+
+    // The shot-save snapshot (add-yield-ratio-anchor): what RAN, not what the
+    // session drifted to. The save path runs after SAW settling — i.e. after
+    // releaseShotLatch() — so the snapshot must survive the release, or a
+    // realistic mid-shot write (weighing the next dose while the cup fills)
+    // would record a target the machine never used.
+    void shotSnapshotSurvivesLatchReleaseAndMidShotWrites() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "Test", 36.0);
+
+        f.settings.dye()->setDyeBeanWeight(18.0);
+        f.settings.brew()->setBrewRatioAnchor(2.5);
+
+        f.profileManager.latchForShot();
+        QVERIFY(f.profileManager.hasShotSnapshot());
+        QCOMPARE(f.profileManager.latchedTargetG(), 45.0);
+        QCOMPARE(f.profileManager.latchedYieldMode(), QStringLiteral("ratio"));
+        QCOMPARE(f.profileManager.latchedYieldAnchorValue(), 2.5);
+
+        // Mid-shot: weigh the next dose, then a bean switch wipes the anchor.
+        f.settings.dye()->setDyeBeanWeight(20.0);
+        f.settings.brew()->clearAllBrewOverrides();
+
+        // Shot end releases the freeze — but the snapshot still reports what ran.
+        f.profileManager.releaseShotLatch();
+        QVERIFY(f.profileManager.hasShotSnapshot());
+        QCOMPARE(f.profileManager.latchedTargetG(), 45.0);
+        QCOMPARE(f.profileManager.latchedYieldMode(), QStringLiteral("ratio"));
+        QCOMPARE(f.profileManager.latchedYieldAnchorValue(), 2.5);
+        // ...while live resolution has resumed for the NEXT shot.
+        QCOMPARE(f.profileManager.targetWeight(), 36.0);
+    }
+
+    // The latch must NOT swallow the deliberate mid-shot +10 g bump, which
+    // writes MachineState directly and never routes through targetWeight().
+    void shotLatchDoesNotBlockDirectMachineStateWrites() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "Test", 36.0);
+        f.settings.dye()->setDyeBeanWeight(18.0);
+        f.settings.brew()->setBrewRatioAnchor(2.0);
+
+        f.profileManager.latchForShot();
+        QCOMPARE(f.machineState.targetWeight(), 36.0);
+
+        // The +10 g bump's path: straight at MachineState.
+        f.machineState.setTargetWeight(f.machineState.targetWeight() + 10.0);
+        QCOMPARE(f.machineState.targetWeight(), 46.0);
+
+        f.profileManager.releaseShotLatch();
+    }
+
+    // Profile-load mode asymmetry (Decision 8): a runtime profile switch
+    // clears an ABSOLUTE session anchor but keeps a RATIO one.
+    void profileSwitchKeepsRatioClearsAbsolute() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "TestA", 36.0);
+
+        f.settings.brew()->setBrewYieldOverride(40.0);
+        loadDFlowProfile(f, "TestB", 42.0);
+        QVERIFY(!f.settings.brew()->hasBrewYieldOverride());
+        QCOMPARE(f.profileManager.targetWeight(), 42.0);
+
+        f.settings.dye()->setDyeBeanWeight(18.0);
+        f.settings.brew()->setBrewRatioAnchor(2.0);
+        loadDFlowProfile(f, "TestC", 48.0);
+        QVERIFY(f.settings.brew()->hasBrewYieldOverride());
+        QCOMPARE(f.settings.brew()->brewYieldMode(), QStringLiteral("ratio"));
+        QCOMPARE(f.profileManager.targetWeight(), 36.0);  // still 2 x 18
     }
 
     void clearBrewOverridesResetsToProfileDefaults() {

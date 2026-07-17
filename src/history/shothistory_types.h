@@ -133,10 +133,15 @@ struct ShotRecord {
     // Debug log
     QString debugLog;
 
-    // Brew overrides. Populated at save time by MainController:
-    //   - temperatureOverride: user override OR profile espresso_temperature
-    //   - targetWeight: user brew-by-ratio override OR profile target_weight,
-    //     falling back to finalWeight for volume/timer profiles where neither
+    // Brew overrides, written by MainController on save:
+    //   - temperatureOverride: user override OR profile espresso_temperature,
+    //     read from the live session at save time.
+    //   - targetWeight: the target the shot was actually PULLED at, read from
+    //     the start-of-shot snapshot (ProfileManager::latchedTargetG), not
+    //     from the live session. Save runs after SAW settling — i.e. after
+    //     the latch has been released — so reading live here would record a
+    //     target the shot never used whenever the dial moved during the pour.
+    //     Falls back to finalWeight for volume/timer profiles where neither
     //     is set (so the favorites system always has something to restore).
     // For shots imported from external formats (de1app, visualizer.coffee)
     // these fields may stay at 0 — importers don't populate them. Analysis
@@ -148,6 +153,18 @@ struct ShotRecord {
     // (units-suffixed per MCP convention).
     double temperatureOverride = 0.0;
     double targetWeight = 0.0;
+
+    // Yield anchor provenance (add-yield-ratio-anchor): the anchor that
+    // PRODUCED targetWeight — intent alongside the outcome above. mode is
+    // "none" | "absolute" | "ratio" (src/core/yieldspec.h); anchorValue is
+    // grams when absolute, a dose multiplier when ratio. STORED, never
+    // derived at read time from targetWeight / doseWeight: the dose is
+    // post-shot editable, and deriving would mint a ratio nobody chose.
+    // Promotion (recipepromotion.cpp) copies these verbatim. Persisted in
+    // shots.yield_mode / shots.yield_anchor_value (migration 34); legacy
+    // rows were backfilled 'absolute' from yield_override (>0), else 'none'.
+    QString yieldMode;
+    double yieldAnchorValue = 0.0;
 
     // Why the shot ended (#1161). One of: "weight" (stop-at-weight / SAW),
     // "volume" (stop-at-volume / SAV), "manual" (user tapped Stop in the
@@ -260,6 +277,10 @@ struct ShotSaveData {
     double doseWeight = 0;
     double temperatureOverride = 0;
     double targetWeight = 0;
+
+    // Yield anchor provenance (add-yield-ratio-anchor): see ShotRecord.
+    QString yieldMode;
+    double yieldAnchorValue = 0;
 
     // Why the shot ended (#1161): "weight" | "volume" | "manual" |
     // "profileEnd" | "" (unknown). Classified in MainController::onShotEnded

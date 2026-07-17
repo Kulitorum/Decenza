@@ -46,7 +46,23 @@ QVariantMap fieldsFromShotRecord(const ShotRecord& record, const QString& name,
     fields.insert("coffeeName", record.summary.beanType);
     fields.insert("equipmentId", record.equipmentId);
     fields.insert("doseG", record.summary.doseWeight);
-    fields.insert("yieldG", record.targetWeight);
+    // Promotion COPIES the shot's yield anchor — mode and value — never
+    // reconstructing a ratio from target ÷ dose (add-yield-ratio-anchor).
+    // dose_weight is post-shot editable; a corrected dose would mint a ratio
+    // nobody chose. A 1:2 shot therefore promotes to a 1:2 recipe, a legacy
+    // shot (backfilled absolute) to an absolute one — exactly as it recorded.
+    if (record.yieldMode == QLatin1String("ratio")
+        || record.yieldMode == QLatin1String("absolute")) {
+        fields.insert("yieldValue", record.yieldAnchorValue);
+        fields.insert("yieldMode", record.yieldMode);
+    } else if (record.targetWeight > 0) {
+        // No recorded anchor (external import): the recorded target promotes
+        // as an absolute, matching pre-anchor behaviour.
+        fields.insert("yieldValue", record.targetWeight);
+        fields.insert("yieldMode", QStringLiteral("absolute"));
+    } else {
+        fields.insert("yieldMode", QStringLiteral("none"));
+    }
     // The shot's temperature override is a frozen ABSOLUTE; the recipe stores
     // a SIGNED OFFSET against its profile (recipe-relative-temp-offset).
     // Convert against the shot's own profile snapshot — the profile as it was

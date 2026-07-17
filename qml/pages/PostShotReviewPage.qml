@@ -116,8 +116,14 @@ Page {
         return parts.join(" · ")
     }
     function recipeDoseYieldText() {
+        // The dial-in card states the PLAN — the shot's recorded target, the
+        // same authority ShotDetailPage's card uses (the two cards used to
+        // disagree: this one showed the achieved drink weight, which already
+        // has its own editable field above). Falls back to the achieved
+        // weight only when no target was recorded (volume/timer profiles).
         var dose = editDoseWeight || 0
-        var yieldG = editDrinkWeight || 0
+        var yieldG = (editShotData.targetWeightG || 0) > 0 ? editShotData.targetWeightG
+                                                           : (editDrinkWeight || 0)
         if (dose > 0 && yieldG > 0) return dose.toFixed(1) + "g → " + yieldG.toFixed(1) + "g"
         if (dose > 0) return dose.toFixed(1) + "g"
         return ""
@@ -1198,6 +1204,13 @@ Page {
                 yieldOverridden: (editShotData.targetWeightG || 0) > 0
                     && postShotReviewPage._shotProfileYield > 0
                     && Math.abs(editShotData.targetWeightG - postShotReviewPage._shotProfileYield) > 0.1
+                // THIS shot's recorded anchor, not the live dial's. These
+                // default to Settings.brew reads, so leaving them unbound
+                // would re-render the just-pulled shot against whatever the
+                // user dials next while the review page is still open.
+                yieldAnchorMode: editShotData.yieldMode || "none"
+                yieldAnchorRatio: editShotData.yieldMode === "ratio"
+                    ? (editShotData.yieldAnchorValue || 0) : 0
                 // Temperature is filtered out of the line (it lives in the title,
                 // highlighted there when it deviated from the profile default);
                 // pin the flag off the live dial regardless.

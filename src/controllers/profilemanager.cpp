@@ -7,6 +7,7 @@
 #include "../core/settings_calibration.h"
 #include "../core/profilestorage.h"
 #include "../history/coffeebagstorage.h"
+#include "../core/yieldspec.h"
 #include "../ble/de1device.h"
 #include "../ble/protocol/de1characteristics.h"
 #include "../machine/machinestate.h"
@@ -335,6 +336,17 @@ ProfileManager::ProfileManager(Settings* settings, DE1Device* device,
             emit targetWeightChanged();
         });
         connect(m_settings->dye(), &SettingsDye::dyeBeanWeightChanged, this, [this]() {
+            // Under a ratio anchor a dose write re-derives the gram target
+            // (add-yield-ratio-anchor): push the resolved value to
+            // MachineState like the brewOverridesChanged handler above.
+            // Mid-shot this is inert by construction — targetWeight()
+            // answers with the target latched at cycle start, so the write
+            // is a no-op (Decision 9). Under an absolute or no anchor the
+            // resolved value doesn't depend on the dose, so this is a no-op
+            // there too.
+            if (m_machineState) {
+                m_machineState->setTargetWeight(targetWeight());
+            }
             emit targetWeightChanged();
         });
 
@@ -388,26 +400,133 @@ QString ProfileManager::currentEditorType() const {
 // === Target weight / brew-by-ratio ===
 
 double ProfileManager::targetWeight() const {
-    if (m_settings && m_settings->brew()->hasBrewYieldOverride()) {
-        return m_settings->brew()->brewYieldOverride();
+    // MID-SHOT THE RESOLVED TARGET IS FROZEN (add-yield-ratio-anchor
+    // Decision 9). Latching only the DOSE was not enough: every OTHER input
+    // to the resolution stays live during a shot — a bean switch's
+    // clearBrewOverrides, a recipe activation, an MCP/web anchor write, a
+    // profile load — and each one re-resolves and pushes the new value at
+    // MachineState, which main.cpp's forwarder hands to the WeightProcessor
+    // with no phase gate. That MOVES THE LIVE SAW TARGET: a bean switch
+    // during a pour dropped a 45 g target to 36 g and cut the shot short.
+    // Freezing the resolved value kills every path that RESOLVES THROUGH
+    // HERE at once, and keeps the display, the machine, and the shot record
+    // agreeing on the target that actually ran. It is not a guarantee about
+    // MachineState's target in general: a caller that writes
+    // setTargetWeight() with a value of its own bypasses this, latch and
+    // all. That is exactly what the deliberate +10 g bump does — so any new
+    // caller must route through targetWeight() unless it means to override a
+    // shot in flight.
+    //
+    // The deliberate mid-shot +10 g bump is unaffected — it writes
+    // MachineState::setTargetWeight() directly and never comes through here.
+    if (m_shotLatched)
+        return m_latchedTargetG;
+
+    // The ladder's single evaluation point: resolve the session anchor
+    // {value, mode} to grams. A ratio multiplies the effective dose; a ratio
+    // with no dose — and mode "none" — fall back to the profile's own
+    // target_weight. Nothing downstream (MachineState, WeightProcessor,
+    // MQTT, shots.yield_override) ever sees a ratio.
+    if (m_settings) {
+        SettingsBrew* brew = m_settings->brew();
+        return YieldSpec::resolveGrams(brew->brewYieldMode(), brew->brewYieldOverride(),
+                                       brewByRatioDose(), m_currentProfile.targetWeight());
     }
     return m_currentProfile.targetWeight();
 }
 
 bool ProfileManager::brewByRatioActive() const {
-    if (!m_settings || !m_settings->brew()->hasBrewYieldOverride())
-        return false;
-    return qAbs(m_settings->brew()->brewYieldOverride() - m_currentProfile.targetWeight()) > 0.1;
+    // The stored mode is the only definition of "ratio-anchored". The old
+    // qAbs(override − profileTarget) > 0.1 inference silently dropped a
+    // ratio whose derived target happened to equal the profile's (Bug A).
+    return m_settings
+        && m_settings->brew()->brewYieldMode() == YieldSpec::modeRatio();
 }
 
 double ProfileManager::brewByRatioDose() const {
+    if (m_shotLatched)
+        return m_latchedDoseG;
     return m_settings ? m_settings->dye()->dyeBeanWeight() : 0.0;
 }
 
 double ProfileManager::brewByRatio() const {
-    if (!m_settings || !m_settings->brew()->hasBrewYieldOverride()) return 0.0;
-    double dose = m_settings->dye()->dyeBeanWeight();
-    return dose > 0 ? m_settings->brew()->brewYieldOverride() / dose : 0.0;
+    // Ratio mode: the stored anchor, verbatim — never re-derived through the
+    // dose (deriving would drift the displayed ratio the moment the resolved
+    // grams round). Absolute mode: the derived display ratio. None: 0.
+    if (!m_settings) return 0.0;
+    SettingsBrew* brew = m_settings->brew();
+    if (brew->brewYieldMode() == YieldSpec::modeRatio())
+        return brew->brewYieldOverride();
+    if (brew->brewYieldMode() == YieldSpec::modeAbsolute()) {
+        const double dose = brewByRatioDose();
+        return dose > 0 ? brew->brewYieldOverride() / dose : 0.0;
+    }
+    return 0.0;
+}
+
+void ProfileManager::latchForShot() {
+    // Snapshot the dose, the resolved target, AND the anchor that produced
+    // it. The dose keeps the ratio display stable; the target is the
+    // load-bearing one — see targetWeight() for why latching the dose alone
+    // was insufficient; the anchor is what the shot record stores as intent
+    // (see hasShotSnapshot()).
+    // Order matters: resolve the target BEFORE arming the flag, or
+    // targetWeight() would read the not-yet-written m_latchedTargetG.
+    // Clearing first makes that ordering hold even if a previous latch was
+    // somehow never released: resolving through a still-armed latch would
+    // self-assign (targetWeight() would answer with m_latchedTargetG), so a
+    // stale target would re-latch itself on every shot and never re-resolve.
+    // The cycle-ended release makes that unreachable — this keeps a future
+    // arm/release mismatch a one-shot bug rather than a permanent one.
+    m_shotLatched = false;
+    m_latchedDoseG = m_settings ? m_settings->dye()->dyeBeanWeight() : 0.0;
+    m_latchedTargetG = targetWeight();
+    if (m_settings) {
+        m_latchedYieldMode = m_settings->brew()->brewYieldMode();
+        m_latchedYieldAnchorValue = m_settings->brew()->brewYieldOverride();
+    }
+    m_shotSnapshotValid = true;
+    m_shotLatched = true;
+    // Push the latched target so the machine and the snapshot agree BY
+    // CONSTRUCTION. main.cpp reads machineState.targetWeight() (not this
+    // value) to configure the WeightProcessor, while the shot record reads
+    // latchedTargetG() — so if MachineState were out of sync at cycle start
+    // for any reason, the shot would STOP at one number and be RECORDED at
+    // another, with nothing logged. Today the ladder's pushes keep them
+    // level and this is a no-op; it costs one comparison to stop that from
+    // being a standing assumption.
+    if (m_machineState)
+        m_machineState->setTargetWeight(m_latchedTargetG);
+    // The latch is silent machinery that decides what the machine stops at,
+    // and it exists because a target once moved mid-pour and cut a shot
+    // short. Log the resolution so a debug log can answer "what did this
+    // shot actually target, and why" — the field diagnoses these through the
+    // log, and every latch bug so far has been invisible in it.
+    qDebug().noquote() << QString("[Yield] latched target=%1g dose=%2g anchor=%3:%4")
+        .arg(m_latchedTargetG, 0, 'f', 1).arg(m_latchedDoseG, 0, 'f', 1)
+        .arg(m_latchedYieldMode).arg(m_latchedYieldAnchorValue, 0, 'f', 2);
+}
+
+void ProfileManager::releaseShotLatch() {
+    if (!m_shotLatched)
+        return;
+    m_shotLatched = false;
+    // Re-resolve against the live state so the NEXT shot picks up anything
+    // written while the latch held (a dose capture, a bean switch, an anchor
+    // edit) — all of which were deliberately inert on the running shot.
+    const double resolved = targetWeight();
+    // This write reaches the WeightProcessor through main.cpp's ungated
+    // forwarder, so a release arriving EARLY (a BLE glitch bouncing the phase
+    // out of the espresso set mid-pour) would move the live SAW target rather
+    // than merely unlatch. Log the value whenever it actually changes: if that
+    // ever happens mid-shot, this line is the evidence, and its absence on a
+    // normal shot end is free.
+    if (!qFuzzyCompare(resolved, m_latchedTargetG))
+        qDebug().noquote() << QString("[Yield] latch released, re-resolved %1g -> %2g")
+            .arg(m_latchedTargetG, 0, 'f', 1).arg(resolved, 0, 'f', 1);
+    if (m_machineState)
+        m_machineState->setTargetWeight(resolved);
+    emit targetWeightChanged();
 }
 
 void ProfileManager::setTargetWeight(double weight) {
@@ -420,39 +539,48 @@ void ProfileManager::setTargetWeight(double weight) {
     }
 }
 
-void ProfileManager::activateBrewWithOverrides(double dose, double yield, double temperature, const QString& grind) {
+void ProfileManager::activateBrewWithOverrides(double dose, double yieldValue,
+                                               const QString& yieldMode,
+                                               double temperature, const QString& grind) {
     if (m_settings) {
         m_settings->dye()->setDyeBeanWeight(dose);
         m_settings->dye()->setDyeGrinderSetting(grind);
-        // A value that matches the profile's own default is not an override —
-        // the flags mean "deliberately different from the profile" (Bug A fix).
-        if (qAbs(yield - m_currentProfile.targetWeight()) > 0.1)
-            m_settings->brew()->setBrewYieldOverride(yield);
-        else
+        const QString mode = YieldSpec::normalizedMode(yieldMode);
+        if (mode == YieldSpec::modeRatio()) {
+            // A ratio is always a deliberate anchor — even when it derives
+            // exactly the profile's target. No gram comparison here.
+            m_settings->brew()->setBrewRatioAnchor(yieldValue);
+        } else if (mode == YieldSpec::modeAbsolute()
+                   && qAbs(yieldValue - m_currentProfile.targetWeight()) > 0.1) {
+            m_settings->brew()->setBrewYieldOverride(yieldValue);
+        } else {
+            // Absolute matching the profile default is not an override
+            // (Bug A rule — survives for absolute only); mode "none" clears.
             m_settings->brew()->setBrewYieldOverride(0);
+        }
         if (qAbs(temperature - m_currentProfile.espressoTemperature()) > 0.1)
             m_settings->brew()->setTemperatureOverride(temperature);
         else
             m_settings->brew()->clearTemperatureOverride();
 
-        // Write the yield through to the active bag so the bean remembers its
-        // override: store it only when it differs from the profile's target
-        // weight, else 0 so the bag follows the profile default on re-select
-        // (shared, tested rule). This is the single brew-settings commit point —
-        // the bag is updated here, not on every override change, avoiding a race
-        // with the clear-to-profile reset fired by a bean switch.
-        m_settings->dye()->persistYieldOverrideToBag(
-            CoffeeBagStorage::yieldOverrideForTarget(yield, m_currentProfile.targetWeight()));
+        // NOTE (add-yield-ratio-anchor): the bag yield write-through that
+        // lived here is gone. The bag's yield spec is button-protected —
+        // it changes only via "Update Bag" in Brew Settings, never as a
+        // side effect of committing the dialog.
     }
 
-    double ratio = dose > 0 ? yield / dose : 2.0;
-    qDebug() << "Brew overrides activated: dose=" << dose << "g, ratio=1:" << ratio
-             << "-> target=" << yield << "g";
+    qDebug() << "Brew overrides activated: dose=" << dose << "g, yield ="
+             << yieldValue << YieldSpec::normalizedMode(yieldMode)
+             << "-> target=" << targetWeight() << "g";
 
     // MachineState sync happens via brewOverridesChanged signal connection
 
     // Re-upload profile with temperature applied to machine frames
     uploadCurrentProfile();
+}
+
+void ProfileManager::activateBrewWithOverrides(double dose, double yield, double temperature, const QString& grind) {
+    activateBrewWithOverrides(dose, yield, YieldSpec::modeAbsolute(), temperature, grind);
 }
 
 void ProfileManager::clearBrewOverrides() {
@@ -468,13 +596,23 @@ void ProfileManager::resetBrewOverridesForLoadedProfile() {
         return;
     SettingsBrew* brew = m_settings->brew();
     if (m_startupLoadDone) {
-        brew->clearAllBrewOverrides();
+        // Every normal runtime profile load takes this branch. Clear what
+        // the outgoing profile owned — temperature and an ABSOLUTE yield
+        // anchor — but keep a ratio anchor: 1:2 is 1:2 on any profile
+        // (add-yield-ratio-anchor Decision 8).
+        brew->clearProfileScopedBrewOverrides();
         return;
     }
+    // Startup only: persisted overrides survive the launch load, except a
+    // frozen value that happens to equal the loaded profile's own default —
+    // that is not an override. The gram comparison applies to ABSOLUTE
+    // anchors only; a persisted ratio is kept verbatim (comparing its
+    // derived grams against the profile is exactly the Bug-A inference the
+    // stored mode retires).
     if (brew->hasTemperatureOverride()
         && qAbs(brew->temperatureOverride() - m_currentProfile.espressoTemperature()) <= 0.1)
         brew->clearTemperatureOverride();
-    if (brew->hasBrewYieldOverride()
+    if (brew->brewYieldMode() == YieldSpec::modeAbsolute()
         && qAbs(brew->brewYieldOverride() - m_currentProfile.targetWeight()) <= 0.1)
         brew->setBrewYieldOverride(0);
 }
@@ -2207,7 +2345,12 @@ void ProfileManager::uploadRecipeProfile(const QVariantMap& recipeParams) {
 
     // Sync stop targets to MachineState so SAW/volume checks use current values
     if (m_machineState) {
-        m_machineState->setTargetWeight(m_currentProfile.targetWeight());
+        // Through the ladder, not the raw profile value: the overrides were
+        // just cleared so these resolve identically when idle, but mid-shot
+        // targetWeight() honours the latch while the raw read would shove a
+        // new target at the machine during the pour (reachable from MCP /
+        // the web editor, which can save a profile at any time).
+        m_machineState->setTargetWeight(targetWeight());
         m_machineState->setTargetVolume(m_currentProfile.targetVolume());
         m_machineState->setProfileType(m_currentProfile.profileType());
     }
@@ -2369,7 +2512,12 @@ void ProfileManager::createNewProfileWithEditorType(EditorType type, const QStri
         m_settings->brew()->clearAllBrewOverrides();
     }
     if (m_machineState) {
-        m_machineState->setTargetWeight(m_currentProfile.targetWeight());
+        // Through the ladder, not the raw profile value: the overrides were
+        // just cleared so these resolve identically when idle, but mid-shot
+        // targetWeight() honours the latch while the raw read would shove a
+        // new target at the machine during the pour (reachable from MCP /
+        // the web editor, which can save a profile at any time).
+        m_machineState->setTargetWeight(targetWeight());
         m_machineState->setTargetVolume(m_currentProfile.targetVolume());
         m_machineState->setProfileType(m_currentProfile.profileType());
     }
@@ -2456,7 +2604,12 @@ void ProfileManager::createNewProfile(const QString& title) {
         m_settings->brew()->clearAllBrewOverrides();
     }
     if (m_machineState) {
-        m_machineState->setTargetWeight(m_currentProfile.targetWeight());
+        // Through the ladder, not the raw profile value: the overrides were
+        // just cleared so these resolve identically when idle, but mid-shot
+        // targetWeight() honours the latch while the raw read would shove a
+        // new target at the machine during the pour (reachable from MCP /
+        // the web editor, which can save a profile at any time).
+        m_machineState->setTargetWeight(targetWeight());
         m_machineState->setTargetVolume(m_currentProfile.targetVolume());
         m_machineState->setProfileType(m_currentProfile.profileType());
     }

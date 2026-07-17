@@ -10,6 +10,7 @@
 #include "../controllers/maincontroller.h"
 #include "../core/settings.h"
 #include "../core/settings_dye.h"
+#include "../core/yieldspec.h"
 #include "../history/coffeebagstorage.h"
 #include "../history/shothistorystorage.h"
 #include "webtemplates/base_css.h"
@@ -30,7 +31,7 @@ namespace {
 const QStringList kBagEditableKeys = {
     "roasterName", "coffeeName", "roastDate", "roastLevel", "frozenDate",
     "defrostDate", "notes", "startWeightG", "grinderSetting", "doseWeightG",
-    "yieldOverrideG", "inInventory"};
+    "inInventory"};
 
 QVariantMap bagFieldsFromBody(const QJsonObject& body)
 {
@@ -38,6 +39,19 @@ QVariantMap bagFieldsFromBody(const QJsonObject& body)
     for (const QString& key : kBagEditableKeys) {
         if (body.contains(key))
             fields.insert(key, body[key].toVariant());
+    }
+    // Yield spec (add-yield-ratio-anchor): sparse, mutually exclusive wire
+    // keys — grams (yieldG) or a dose multiplier (yieldRatio). Writing one
+    // IS setting the mode, which implicitly clears the other; 0 clears the
+    // anchor entirely. Both-present is rejected in the route handler.
+    if (body.contains(QStringLiteral("yieldG"))) {
+        const double g = body[QStringLiteral("yieldG")].toDouble();
+        fields.insert("yieldValue", g > 0 ? YieldSpec::clampAbsolute(g) : 0.0);
+        fields.insert("yieldMode", g > 0 ? QStringLiteral("absolute") : QStringLiteral("none"));
+    } else if (body.contains(QStringLiteral("yieldRatio"))) {
+        const double ratio = body[QStringLiteral("yieldRatio")].toDouble();
+        fields.insert("yieldValue", ratio > 0 ? YieldSpec::clampRatio(ratio) : 0.0);
+        fields.insert("yieldMode", ratio > 0 ? QStringLiteral("ratio") : QStringLiteral("none"));
     }
     return fields;
 }
@@ -89,6 +103,15 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
 
     // POST /api/bags — create
     if (path == "/api/bags" && method == "POST") {
+        // Retired key — rejected, not dropped (see the bag_update MCP twin).
+        if (bodyJson.contains(QStringLiteral("yieldOverrideG"))) {
+            respondJson(QJsonObject{{"error", "yieldOverrideG was replaced by yieldG (an absolute gram target) / yieldRatio (a multiple of the dose) — the bag now holds an explicit yield anchor rather than a deviation from the profile (add-yield-ratio-anchor). Rejected rather than silently dropped: send yieldG for the same behaviour as before."}}, 400);
+            return;
+        }
+        if (bodyJson.contains(QStringLiteral("yieldG")) && bodyJson.contains(QStringLiteral("yieldRatio"))) {
+            respondJson(QJsonObject{{"error", "yieldG and yieldRatio are mutually exclusive — the bag holds ONE yield anchor. Send exactly one; writing it replaces the other automatically."}}, 400);
+            return;
+        }
         QVariantMap fields = bagFieldsFromBody(bodyJson);
         if (fields.value("roasterName").toString().trimmed().isEmpty()
             && fields.value("coffeeName").toString().trimmed().isEmpty()) {
@@ -151,6 +174,15 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
 
         // POST /api/bag/<id> — update (same write-through path as app edits)
         if (action.isEmpty()) {
+            // Retired key — rejected, not dropped (see the bag_update MCP twin).
+            if (bodyJson.contains(QStringLiteral("yieldOverrideG"))) {
+                respondJson(QJsonObject{{"error", "yieldOverrideG was replaced by yieldG (an absolute gram target) / yieldRatio (a multiple of the dose) — the bag now holds an explicit yield anchor rather than a deviation from the profile (add-yield-ratio-anchor). Rejected rather than silently dropped: send yieldG for the same behaviour as before."}}, 400);
+                return;
+            }
+            if (bodyJson.contains(QStringLiteral("yieldG")) && bodyJson.contains(QStringLiteral("yieldRatio"))) {
+                respondJson(QJsonObject{{"error", "yieldG and yieldRatio are mutually exclusive — the bag holds ONE yield anchor. Send exactly one; writing it replaces the other automatically."}}, 400);
+                return;
+            }
             const QVariantMap fields = bagFieldsFromBody(bodyJson);
             if (fields.isEmpty()) {
                 respondJson(QJsonObject{{"error", "No editable fields provided"}}, 400);

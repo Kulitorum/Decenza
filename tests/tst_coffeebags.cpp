@@ -882,7 +882,7 @@ private slots:
             QCOMPARE(q.value(0).toInt(), 0);  // existing rows default to 0
             QVERIFY(q.exec("SELECT version FROM schema_version"));
             QVERIFY(q.next());
-            QCOMPARE(q.value(0).toInt(), 33);  // chain runs on to the latest (taste axes)
+            QCOMPARE(q.value(0).toInt(), 34);  // chain runs on to the latest (yield specs)
         });
     }
 
@@ -936,6 +936,39 @@ private slots:
             QVERIFY(q.next());
             QVERIFY(q.value(0).isNull());
             QVERIFY(q.value(1).isNull());
+        });
+    }
+
+    // Yield-spec import conversion (add-yield-ratio-anchor): a pre-34 source
+    // (no yield_mode column) converts on import — a legacy yield_override_g
+    // becomes {value, absolute}, matching the local migration; a bag without
+    // one lands on mode "none". No per-row warning (failOnWarning is armed).
+    void importConvertsLegacyBagYield() {
+        const QString srcPath = freshDb();
+        const QString destPath = freshDb();
+        withRawDb(srcPath, "legacy_yield_src", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            QVERIFY(q.exec("ALTER TABLE coffee_bags DROP COLUMN yield_value"));
+            QVERIFY(q.exec("ALTER TABLE coffee_bags DROP COLUMN yield_mode"));
+            QVERIFY(q.exec("INSERT INTO coffee_bags (roaster_name, coffee_name, yield_override_g) "
+                           "VALUES ('Legacy', 'WithYield', 38.0)"));
+            QVERIFY(q.exec("INSERT INTO coffee_bags (roaster_name, coffee_name) "
+                           "VALUES ('Legacy', 'NoYield')"));
+            // The bag import only runs alongside a shot import.
+            insertShot(db, "Legacy", "WithYield", 4000, QString(), 1);
+        });
+
+        QVERIFY(ShotHistoryStorage::importDatabaseStatic(destPath, srcPath, /*merge=*/true));
+
+        withRawDb(destPath, "legacy_yield_check", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            QVERIFY(q.exec("SELECT yield_value, yield_mode FROM coffee_bags WHERE coffee_name = 'WithYield'"));
+            QVERIFY(q.next());
+            QCOMPARE(q.value(0).toDouble(), 38.0);
+            QCOMPARE(q.value(1).toString(), QStringLiteral("absolute"));
+            QVERIFY(q.exec("SELECT yield_mode FROM coffee_bags WHERE coffee_name = 'NoYield'"));
+            QVERIFY(q.next());
+            QCOMPARE(q.value(0).toString(), QStringLiteral("none"));
         });
     }
 
@@ -1196,7 +1229,7 @@ private slots:
             QSqlQuery q(db);
             QVERIFY(q.exec("SELECT version FROM schema_version"));
             QVERIFY(q.next());
-            QCOMPARE(q.value(0).toInt(), 33);  // chain runs on to the latest (taste axes)
+            QCOMPARE(q.value(0).toInt(), 34);  // chain runs on to the latest (yield specs)
         });
     }
 
@@ -1229,7 +1262,7 @@ private slots:
             QSqlQuery q(db);
             QVERIFY(q.exec("SELECT version FROM schema_version"));
             QVERIFY(q.next());
-            QCOMPARE(q.value(0).toInt(), 33);  // chain runs on to the latest (taste axes)
+            QCOMPARE(q.value(0).toInt(), 34);  // chain runs on to the latest (yield specs)
             // The repaired table is writable — insertRecipeStatic binds
             // rpm_pinned unconditionally, so it would fail wholesale if the
             // ALTER hadn't landed.
@@ -1596,15 +1629,55 @@ private slots:
             bag.roasterName = "Stamp";
             bag.coffeeName = "Test";
             bag.doseWeightG = 18.0;
+            bag.yieldValue = 38.0;
+            bag.yieldMode = QStringLiteral("absolute");
             bagId = CoffeeBagStorage::insertBagStatic(db, bag);
 
+            // The shot-save stamp is dose + MRU only (add-yield-ratio-anchor):
+            // the bag's yield spec is button-protected and must survive the
+            // stamp untouched.
             QVERIFY(CoffeeBagStorage::updateBagFieldsStatic(db, bagId, {
-                {"doseWeightG", 18.5}, {"yieldOverrideG", 38.0}, {"lastUsedEpoch", 9999}}));
+                {"doseWeightG", 18.5}, {"lastUsedEpoch", 9999}}));
             const CoffeeBag stamped = CoffeeBagStorage::loadBagStatic(db, bagId);
             QCOMPARE(stamped.doseWeightG, 18.5);
-            QCOMPARE(stamped.yieldOverrideG, 38.0);
+            QCOMPARE(stamped.yieldValue, 38.0);
+            QCOMPARE(stamped.yieldMode, QString("absolute"));
             QCOMPARE(stamped.lastUsedEpoch, qint64(9999));
             QCOMPARE(stamped.roasterName, QString("Stamp"));
+        });
+    }
+
+    // The yield spec round-trips through kCols with mode normalization: junk
+    // and NULL modes read as "none", and a ratio spec survives insert + update.
+    void yieldSpecRoundTrip() {
+        const QString path = freshDb();
+        withRawDb(path, "spec_rt", [&](QSqlDatabase& db) {
+            CoffeeBag bag;
+            bag.roasterName = "Spec";
+            bag.coffeeName = "Ratio";
+            bag.yieldValue = 2.0;
+            bag.yieldMode = QStringLiteral("ratio");
+            const qint64 id = CoffeeBagStorage::insertBagStatic(db, bag);
+            QVERIFY(id > 0);
+
+            CoffeeBag loaded = CoffeeBagStorage::loadBagStatic(db, id);
+            QCOMPARE(loaded.yieldValue, 2.0);
+            QCOMPARE(loaded.yieldMode, QString("ratio"));
+
+            // Switching the anchor to absolute replaces the ratio wholesale —
+            // one value column + a mode, so no stale sibling can survive.
+            QVERIFY(CoffeeBagStorage::updateBagFieldsStatic(db, id, {
+                {"yieldValue", 40.0}, {"yieldMode", "absolute"}}));
+            loaded = CoffeeBagStorage::loadBagStatic(db, id);
+            QCOMPARE(loaded.yieldValue, 40.0);
+            QCOMPARE(loaded.yieldMode, QString("absolute"));
+
+            // Junk mode from a wire surface normalizes to "none" — it can
+            // never arm an anchor.
+            QVERIFY(CoffeeBagStorage::updateBagFieldsStatic(db, id, {
+                {"yieldMode", "bogus"}}));
+            loaded = CoffeeBagStorage::loadBagStatic(db, id);
+            QCOMPARE(loaded.yieldMode, QString("none"));
         });
     }
 
@@ -1622,10 +1695,12 @@ private slots:
             QVERIFY2(CoffeeBagStorage::touchesVisualizerFields({{key, "x"}}),
                      qPrintable("expected " + key + " to be a Visualizer field"));
 
-        // Local-only keys never fire, alone or together.
+        // Local-only keys never fire, alone or together. yieldValue/yieldMode
+        // (the bag's yield spec) are deliberately local-only: an anchor edit
+        // must never trigger a Visualizer PATCH (add-yield-ratio-anchor).
         const QStringList localKeys = {
             "grinderBrand", "grinderModel", "grinderBurrs", "grinderSetting",
-            "doseWeightG", "yieldOverrideG", "startWeightG", "lastUsedEpoch",
+            "doseWeightG", "yieldValue", "yieldMode", "startWeightG", "lastUsedEpoch",
             "inInventory", "visualizerBagId", "visualizerRoasterId",
             "visualizerSyncPending"};
         for (const QString& key : localKeys)
@@ -1640,33 +1715,11 @@ private slots:
             {"doseWeightG", 18.0}, {"roastDate", "2026-06-01"}}));
     }
 
-    // yieldOverrideForTarget is the shared "is this an override?" rule used by
-    // the shot-save stamp and the brew-settings commit. The realistic bug it
-    // guards: a flipped comparison or dropped epsilon would pin the bag to the
-    // profile default after a plain pour, turning the idle widget yellow forever.
-    void yieldOverrideForTargetRule() {
-        // Plain profile-default pour → 0 (no override, bag follows profile).
-        QCOMPARE(CoffeeBagStorage::yieldOverrideForTarget(36.0, 36.0), 0.0);
-        // Within epsilon of the default, both sides → still 0 (guards a one-sided
-        // qAbs bug). Note: an exact 0.1-boundary case isn't asserted — 36.1-36.0
-        // in double is ~0.10000000000000142, already past the strict-> threshold.
-        QCOMPARE(CoffeeBagStorage::yieldOverrideForTarget(36.05, 36.0), 0.0);
-        QCOMPARE(CoffeeBagStorage::yieldOverrideForTarget(35.95, 36.0), 0.0);
-        // A real override → the shot target is recorded (both directions).
-        QCOMPARE(CoffeeBagStorage::yieldOverrideForTarget(50.0, 36.0), 50.0);
-        QCOMPARE(CoffeeBagStorage::yieldOverrideForTarget(30.0, 36.0), 30.0);
-        // No target weight (SAW with no reading / non-SAW fallback) → 0.
-        QCOMPARE(CoffeeBagStorage::yieldOverrideForTarget(0.0, 36.0), 0.0);
-        // Just past the epsilon → recorded.
-        QCOMPARE(CoffeeBagStorage::yieldOverrideForTarget(36.2, 36.0), 36.2);
-    }
-
-    // SettingsDye is the bag-as-bean-state orchestrator and had no coverage of
-    // its yield-override path (no test attached a CoffeeBagStorage before). This
-    // drives the real async apply chain (setActiveBagId -> bagReady ->
-    // applyActiveBag -> activeBagYieldOverrideApplied), the write-through, and the
-    // persist clamp — using only the public API.
-    void settingsDyeYieldOverridePath() {
+    // SettingsDye is the bag-as-bean-state orchestrator. This drives the real
+    // async apply chain (setActiveBagId -> bagReady -> applyActiveBag ->
+    // activeBagYieldSpecApplied), the Update Bag persist, and the clamp —
+    // using only the public API (add-yield-ratio-anchor).
+    void settingsDyeYieldSpecPath() {
         // Isolate from any developer/CI dye state in the test app's QSettings.
         { QSettings s; s.remove(QStringLiteral("dye")); s.sync(); }
 
@@ -1674,45 +1727,67 @@ private slots:
         CoffeeBagStorage storage;
         storage.initialize(path);
 
-        // A bag WITH an override and one WITHOUT, inserted directly.
-        qint64 bagOverride = -1, bagPlain = -1;
+        // A bag WITH a ratio anchor and one WITHOUT, inserted directly.
+        qint64 bagRatio = -1, bagPlain = -1;
         withRawDb(path, "dye_seed", [&](QSqlDatabase& db) {
-            CoffeeBag a; a.roasterName = "R"; a.coffeeName = "Override"; a.yieldOverrideG = 42.0;
-            bagOverride = CoffeeBagStorage::insertBagStatic(db, a);
-            CoffeeBag b; b.roasterName = "R"; b.coffeeName = "Plain";  // yieldOverrideG defaults 0
+            CoffeeBag a; a.roasterName = "R"; a.coffeeName = "Ratio";
+            a.yieldValue = 3.0; a.yieldMode = QStringLiteral("ratio");
+            bagRatio = CoffeeBagStorage::insertBagStatic(db, a);
+            CoffeeBag b; b.roasterName = "R"; b.coffeeName = "Plain";  // mode defaults "none"
             bagPlain = CoffeeBagStorage::insertBagStatic(db, b);
         });
-        QVERIFY(bagOverride > 0 && bagPlain > 0);
+        QVERIFY(bagRatio > 0 && bagPlain > 0);
 
         SettingsVisualizer viz;
         SettingsDye dye(&viz);
         dye.setBagStorage(&storage);
 
-        // Selecting the override bag re-applies its override and exposes it.
-        QSignalSpy overrideSpy(&dye, &SettingsDye::activeBagYieldOverrideApplied);
-        dye.setActiveBagId(static_cast<int>(bagOverride));
-        QTRY_VERIFY(overrideSpy.count() >= 1);
-        QCOMPARE(overrideSpy.last().at(0).toDouble(), 42.0);
-        QCOMPARE(dye.activeBagYieldOverrideG(), 42.0);
+        // Selecting the anchored bag re-applies its spec and exposes it.
+        QSignalSpy specSpy(&dye, &SettingsDye::activeBagYieldSpecApplied);
+        dye.setActiveBagId(static_cast<int>(bagRatio));
+        QTRY_VERIFY(specSpy.count() >= 1);
+        QCOMPARE(specSpy.last().at(0).toDouble(), 3.0);
+        QCOMPARE(specSpy.last().at(1).toString(), QString("ratio"));
+        QCOMPARE(dye.activeBagYieldValue(), 3.0);
+        QCOMPARE(dye.activeBagYieldMode(), QString("ratio"));
 
-        // Switching to the plain bag emits 0 (no override → follow profile).
-        overrideSpy.clear();
+        // Switching to the plain bag emits mode "none" (follow the profile).
+        specSpy.clear();
         dye.setActiveBagId(static_cast<int>(bagPlain));
-        QTRY_VERIFY(overrideSpy.count() >= 1);
-        QCOMPARE(overrideSpy.last().at(0).toDouble(), 0.0);
-        QCOMPARE(dye.activeBagYieldOverrideG(), 0.0);
+        QTRY_VERIFY(specSpy.count() >= 1);
+        QCOMPARE(specSpy.last().at(1).toString(), QString("none"));
+        QCOMPARE(dye.activeBagYieldMode(), QString("none"));
 
-        // persistYieldOverrideToBag clamps <=0 to 0 (no override) and keeps >0.
-        // The cache is set synchronously; asserting it (rather than racing a DB
-        // read against the storage's background writers) keeps this deterministic.
-        // The write-through to the DB column is covered by the dose/yield stamp
-        // and updateBagFieldsStatic tests.
-        dye.persistYieldOverrideToBag(50.0);
-        QCOMPARE(dye.activeBagYieldOverrideG(), 50.0);
-        dye.persistYieldOverrideToBag(-5.0);
-        QCOMPARE(dye.activeBagYieldOverrideG(), 0.0);
-        dye.persistYieldOverrideToBag(0.0);
-        QCOMPARE(dye.activeBagYieldOverrideG(), 0.0);
+        // persistYieldSpecToBag (the Update Bag write) stores the spec and
+        // clamps degenerate input to "none". The cache is set synchronously;
+        // asserting it (rather than racing a DB read against the storage's
+        // background writers) keeps this deterministic.
+        dye.persistYieldSpecToBag(2.5, QStringLiteral("ratio"));
+        QCOMPARE(dye.activeBagYieldValue(), 2.5);
+        QCOMPARE(dye.activeBagYieldMode(), QString("ratio"));
+        dye.persistYieldSpecToBag(44.0, QStringLiteral("absolute"));
+        QCOMPARE(dye.activeBagYieldValue(), 44.0);
+        QCOMPARE(dye.activeBagYieldMode(), QString("absolute"));
+        dye.persistYieldSpecToBag(-5.0, QStringLiteral("absolute"));
+        QCOMPARE(dye.activeBagYieldValue(), 0.0);
+        QCOMPARE(dye.activeBagYieldMode(), QString("none"));
+        dye.persistYieldSpecToBag(2.0, QStringLiteral("none"));
+        QCOMPARE(dye.activeBagYieldMode(), QString("none"));
+
+        // An OUT-OF-RANGE ratio normalizes to the bounds the session resolves
+        // within — the degenerate cases above only exercise the value>0 gate,
+        // which predates the clamp and passes without it. A bag holding 1:20
+        // while every session consumer clamps to 1:6 would mean its stored
+        // design and the brewed shot disagree permanently.
+        dye.persistYieldSpecToBag(20.0, QStringLiteral("ratio"));
+        QCOMPARE(dye.activeBagYieldValue(), 6.0);
+        QCOMPARE(dye.activeBagYieldMode(), QString("ratio"));
+        dye.persistYieldSpecToBag(0.1, QStringLiteral("ratio"));
+        QCOMPARE(dye.activeBagYieldValue(), 0.5);
+        QCOMPARE(dye.activeBagYieldMode(), QString("ratio"));
+        // An absolute is NOT a ratio and must not be clamped into 0.5–6.0.
+        dye.persistYieldSpecToBag(44.0, QStringLiteral("absolute"));
+        QCOMPARE(dye.activeBagYieldValue(), 44.0);
 
         { QSettings s; s.remove(QStringLiteral("dye")); s.sync(); }
     }
