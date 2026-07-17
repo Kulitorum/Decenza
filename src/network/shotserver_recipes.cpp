@@ -83,6 +83,10 @@ QJsonObject webRecipeJson(const Recipe& r, int activeRecipeId, QSqlDatabase* db,
         QDateTime dt = QDateTime::fromSecsSinceEpoch(r.lastUsedEpoch);
         o["lastUsed"] = dt.toOffsetFromUtc(dt.offsetFromUtc()).toString(Qt::ISODate);
     }
+    if (r.createdEpoch > 0) {
+        QDateTime dt = QDateTime::fromSecsSinceEpoch(r.createdEpoch);
+        o["created"] = dt.toOffsetFromUtc(dt.offsetFromUtc()).toString(Qt::ISODate);
+    }
     if (shotCount >= 0)
         o["shotCount"] = shotCount;
     o["isActive"] = r.id == activeRecipeId;

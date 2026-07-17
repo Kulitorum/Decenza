@@ -98,8 +98,10 @@ private slots:
     void variantMapRoundTrip() {
         Recipe r = sampleRecipe();
         r.bagId = 12;
+        r.createdEpoch = 1700000000;  // read-only column still surfaces in the map
         const Recipe back = Recipe::fromVariantMap(r.toVariantMap());
         QCOMPARE(back.bagId, r.bagId);
+        QCOMPARE(back.createdEpoch, r.createdEpoch);
         QCOMPARE(back.name, r.name);
         QCOMPARE(back.profileTitle, r.profileTitle);
         QCOMPARE(back.profileJson, r.profileJson);
@@ -238,6 +240,10 @@ private slots:
             QCOMPARE(loaded.rpmPinned, (qint64)90);
             QCOMPARE(loaded.steamJson, sampleRecipe().steamJson);
             QCOMPARE(loaded.createdFromShotId, (qint64)42);
+            // created_at is read-only (COL_EPOCH_RO): the SQL DEFAULT stamped it
+            // at insert and it surfaces on load, even though the struct's value
+            // was never bound.
+            QVERIFY(loaded.createdEpoch > 0);
             // rpm_pinned is COL_EPOCH: updating to 0 clears it to NULL (the
             // pin-clearing path MainController relies on when the override is
             // turned off), and it reloads as 0.
@@ -615,6 +621,54 @@ private slots:
                     RecipeStorage::loadRecipeStatic(destDb, idMap.value(srcRecipeId));
                 QCOMPARE(imported.grindPinned, QString("18"));
                 QCOMPARE(imported.rpmPinned, (qint64)1200);
+            });
+        });
+    }
+
+    // Import must preserve the source's original created_at (recipe-list-
+    // organization): "Date created" ordering has to survive transfer / backup
+    // restore. created_at is read-only, so the INSERT lets the DEFAULT stamp
+    // import-time — importRecipesStatic re-stamps it from the source row.
+    void importPreservesCreatedAt() {
+        const QString srcPath = freshDbPath();
+        const QString destPath = freshDbPath();
+        const qint64 pastEpoch = 1500000000;  // a fixed date well before "now"
+        qint64 srcWithDate = 0, srcNullDate = 0;
+        withRawDb(srcPath, "created_src", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            Recipe a = sampleRecipe(); a.name = "Has date";
+            srcWithDate = RecipeStorage::insertRecipeStatic(db, a);
+            QVERIFY(srcWithDate > 0);
+            Recipe b = sampleRecipe(); b.name = "No date";
+            srcNullDate = RecipeStorage::insertRecipeStatic(db, b);
+            QVERIFY(srcNullDate > 0);
+            // Force one row's created_at to a fixed past value (the DEFAULT
+            // stamped ~now at insert), and clear the other's to NULL to exercise
+            // the guard's else-branch.
+            QSqlQuery u(db);
+            u.prepare("UPDATE recipes SET created_at = :c WHERE id = :id");
+            u.bindValue(":c", pastEpoch); u.bindValue(":id", srcWithDate);
+            QVERIFY(u.exec());
+            QSqlQuery n(db);
+            n.prepare("UPDATE recipes SET created_at = NULL WHERE id = :id");
+            n.bindValue(":id", srcNullDate);
+            QVERIFY(n.exec());
+        });
+        withRawDb(destPath, "created_dest", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            // The post-import grind-ownership backfill queries coffee_bags.
+            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
+        });
+        withRawDb(srcPath, "created_src2", [&](QSqlDatabase& srcDb) {
+            withRawDb(destPath, "created_dest2", [&](QSqlDatabase& destDb) {
+                QHash<qint64, qint64> idMap;
+                QVERIFY(RecipeStorage::importRecipesStatic(srcDb, destDb, /*merge=*/false,
+                                                           idMap, {}, {}));
+                // The dated recipe keeps its ORIGINAL created_at, not import-time.
+                QCOMPARE(RecipeStorage::loadRecipeStatic(destDb, idMap.value(srcWithDate)).createdEpoch,
+                         pastEpoch);
+                // The NULL-date recipe still lands with a valid DEFAULT (never 0).
+                QVERIFY(RecipeStorage::loadRecipeStatic(destDb, idMap.value(srcNullDate)).createdEpoch > 0);
             });
         });
     }

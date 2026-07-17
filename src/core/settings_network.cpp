@@ -81,6 +81,31 @@ void SettingsNetwork::setShotHistorySortDirection(const QString& direction) {
     }
 }
 
+// Recipes page sort (recipe-list-organization). Defaults reproduce the page's
+// prior order: most-recently-used first.
+
+QString SettingsNetwork::recipeSortField() const {
+    return m_settings.value("recipes/sortField", "dateUsed").toString();
+}
+
+void SettingsNetwork::setRecipeSortField(const QString& field) {
+    if (recipeSortField() != field) {
+        m_settings.setValue("recipes/sortField", field);
+        emit recipeSortFieldChanged();
+    }
+}
+
+QString SettingsNetwork::recipeSortDirection() const {
+    return m_settings.value("recipes/sortDirection", "DESC").toString();
+}
+
+void SettingsNetwork::setRecipeSortDirection(const QString& direction) {
+    if (recipeSortDirection() != direction) {
+        m_settings.setValue("recipes/sortDirection", direction);
+        emit recipeSortDirectionChanged();
+    }
+}
+
 // Shot server
 
 bool SettingsNetwork::shotServerEnabled() const {

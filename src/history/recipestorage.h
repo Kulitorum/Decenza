@@ -97,6 +97,11 @@ struct Recipe {
     qint64 clonedFromRecipeId = 0;
 
     qint64 lastUsedEpoch = 0; // bumped on activation and shot save (MRU)
+    // Stamped by the created_at SQL DEFAULT at insert. Never written through the
+    // generated kCols INSERT/UPDATE path (COL_EPOCH_RO); the import path
+    // re-stamps it directly to preserve source dates (see importRecipesStatic).
+    // Surfaced so the recipes page can sort by date added.
+    qint64 createdEpoch = 0;
 
     bool isValid() const { return id > 0; }
     QVariantMap toVariantMap() const;

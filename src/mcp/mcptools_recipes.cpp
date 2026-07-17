@@ -185,6 +185,9 @@ QJsonObject recipeToJson(const Recipe& r, Settings* settings, QSqlDatabase* db,
     const QString lastUsed = isoFromEpoch(r.lastUsedEpoch);
     if (!lastUsed.isEmpty())
         o["lastUsed"] = lastUsed;
+    const QString created = isoFromEpoch(r.createdEpoch);
+    if (!created.isEmpty())
+        o["created"] = created;
     o["isActive"] = settings
         && settings->dye()->activeRecipeId() == static_cast<int>(r.id);
     return o;

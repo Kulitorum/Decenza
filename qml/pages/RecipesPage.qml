@@ -13,11 +13,154 @@ Page {
     objectName: "recipesPage"
     background: ThemedPageBackground {}
 
-    StackView.onActivated: root.currentPageTitle = TranslationManager.translate("recipes.title", "Recipes")
+    StackView.onActivated: {
+        root.currentPageTitle = TranslationManager.translate("recipes.title", "Recipes")
+        // Search is transient — clear it whenever the page becomes active.
+        searchField.text = ""
+        recipesPage.searchQuery = ""
+        // Drop the profile-number cache so a profile edited elsewhere while this
+        // page stayed instantiated is re-resolved on re-entry.
+        recipesPage._profileNumbersCache = ({})
+    }
 
     property var recipes: []
     property var archivedRecipes: []
     property bool showArchived: false
+
+    // Search + sort (recipe-list-organization). Sort field/direction persist in
+    // Settings.network; the search query is transient and resets on page entry.
+    // Defaults reproduce the page's prior order (most-recently-used first).
+    property string sortField: Settings.network.recipeSortField
+    property string sortDirection: Settings.network.recipeSortDirection
+    property string searchQuery: ""
+
+    readonly property var sortFieldLabels: ({
+        "dateUsed": TranslationManager.translate("recipes.sort.dateUsed", "Date used"),
+        "dateCreated": TranslationManager.translate("recipes.sort.dateCreated", "Date created"),
+        "coffee": TranslationManager.translate("recipes.sort.coffee", "Coffee"),
+        "profile": TranslationManager.translate("recipes.sort.profile", "Profile"),
+        "name": TranslationManager.translate("recipes.sort.name", "Name")
+    })
+    readonly property var sortFieldKeys: ["dateUsed", "dateCreated", "coffee", "profile", "name"]
+    // Sensible default direction per key when the user first picks it: recency
+    // newest-first, text A→Z.
+    readonly property var defaultSortDirections: ({
+        "dateUsed": "DESC", "dateCreated": "DESC", "coffee": "ASC", "profile": "ASC", "name": "ASC"
+    })
+
+    // Filtered + sorted views the card grids render (never mutate the source
+    // arrays). Re-evaluates when the source list, query, field, or direction
+    // change — the binding tracks every property read here.
+    readonly property var visibleRecipes: filterAndSort(recipes, searchQuery, sortField, sortDirection)
+    readonly property var visibleArchivedRecipes: filterAndSort(archivedRecipes, searchQuery, sortField, sortDirection)
+
+    // Sort key for a recipe map under the chosen field. Numeric for date used,
+    // lower-cased string otherwise so comparison is case-insensitive.
+    function _sortKey(r, field) {
+        if (field === "dateCreated")
+            return Number(r.createdEpoch) || 0
+        if (field === "coffee")
+            return ((r.roasterName || "") + " " + (r.coffeeName || "")).trim().toLowerCase()
+        if (field === "profile")
+            return (r.profileTitle || "").toLowerCase()
+        if (field === "name")
+            return (r.name || "").toLowerCase()
+        return Number(r.lastUsedEpoch) || 0   // dateUsed (default)
+    }
+
+    // A recipe with no value for the sort key (bean-less, never-used, etc.)
+    // sorts to the end regardless of direction so blanks never float to the top.
+    function _isBlankKey(k) {
+        return (typeof k === "number") ? (k <= 0) : (String(k).length === 0)
+    }
+
+    function filterAndSort(list, query, field, dir) {
+        var q = String(query || "").trim().toLowerCase()
+        var out = []
+        for (var i = 0; i < list.length; ++i) {
+            var r = list[i]
+            if (q.length > 0) {
+                var hay = ((r.name || "") + " " + (r.roasterName || "") + " "
+                           + (r.coffeeName || "") + " " + (r.profileTitle || "")).toLowerCase()
+                if (hay.indexOf(q) === -1)
+                    continue
+            }
+            out.push(r)
+        }
+        var asc = (dir !== "DESC")
+        out.sort(function(a, b) {
+            var ka = _sortKey(a, field), kb = _sortKey(b, field)
+            var ba = _isBlankKey(ka), bb = _isBlankKey(kb)
+            if (ba !== bb) return ba ? 1 : -1   // blanks always last, both directions
+            var cmp = (typeof ka === "number") ? (ka - kb) : ka.localeCompare(kb)
+            // Deterministic tiebreak by id (Array.sort isn't guaranteed stable).
+            if (cmp === 0) cmp = (Number(a.id) || 0) - (Number(b.id) || 0)
+            return asc ? cmp : -cmp
+        })
+        return out
+    }
+
+    // Cache of profile display numbers resolved from the installed-profile
+    // CATALOG, keyed by title. Filtering/sorting rebuilds the grid's delegates
+    // on each change, and every card resolves these numbers; without the cache,
+    // re-sorts/re-filters and cards sharing a title each re-run a synchronous
+    // ProfileManager catalog read (the expensive part) — with it they become
+    // O(1) map hits after the first resolution of that title. Only the catalog
+    // path is cached: it is deterministic per title. The embedded-JSON fallback
+    // (uninstalled/renamed title) depends on the recipe's OWN snapshot, so it is
+    // computed per-call and never cached under the shared title key. Cleared on
+    // inventory reload and on page re-entry (StackView.onActivated), so a
+    // profile edited elsewhere is re-resolved. null = unresolvable profile.
+    property var _profileNumbersCache: ({})
+
+    // Extract {tempC, yieldG, stepTemps} from a parsed profile object, or null.
+    function _numbersFromProfileObj(d) {
+        if (!d)
+            return null
+        var tempC = Number(d.espresso_temperature) || 0
+        var yieldG = Number(d.target_weight) || 0
+        var temps = []
+        var steps = d.steps || []
+        for (var i = 0; i < steps.length; ++i) {
+            var st = steps[i]
+            var stTemp = st ? Number(st.temperature) : 0
+            if (stTemp > 0)
+                temps.push(stTemp)
+        }
+        // A resolved profile with no explicit per-step temps must still yield a
+        // non-empty array — otherwise ShotPlanText's _tempStr falls through to
+        // the loaded-profile branch, breaking "cards render their own profile"
+        // and silently dropping the recipe's offset. Fall back to the base temp.
+        return {
+            tempC: tempC,
+            yieldG: yieldG,
+            stepTemps: temps.length > 0 ? temps : (tempC > 0 ? [tempC] : [])
+        }
+    }
+
+    function profileNumbersFor(title, profileJson) {
+        if (title === "")
+            return null
+        var hit = _profileNumbersCache[title]
+        if (hit !== undefined)
+            return hit
+        var fn = ProfileManager.findProfileByTitle(title)
+        if (fn && fn !== "") {
+            // Catalog hit: deterministic per title → resolve once and cache.
+            var result = _numbersFromProfileObj(ProfileManager.getProfileByFilename(fn))
+            _profileNumbersCache[title] = result
+            return result
+        }
+        // Title not installed: the numbers come from this recipe's own embedded
+        // snapshot, which two recipes sharing a (renamed/uninstalled) title may
+        // NOT share — so compute per-call, never cache under the title key.
+        if (profileJson && String(profileJson).length > 0) {
+            try { return _numbersFromProfileObj(JSON.parse(profileJson)) } catch (e) {
+                console.warn("RecipesPage: unparsable embedded profile JSON for", title, ":", e)
+            }
+        }
+        return null
+    }
 
     // Grid column math (BeanInfoPage pattern: fixed base width, computed
     // columns) — one implementation for both card grids.
@@ -46,8 +189,10 @@ Page {
 
     Connections {
         target: MainController.recipeStorage
-        function onInventoryReady(list) { recipesPage.recipes = list }
-        function onArchivedReady(list) { recipesPage.archivedRecipes = list }
+        // Reloaded data may reflect edited profiles — drop the cached numbers
+        // so cards re-resolve once, then hit the cache on subsequent rebuilds.
+        function onInventoryReady(list) { recipesPage._profileNumbersCache = ({}); recipesPage.recipes = list }
+        function onArchivedReady(list) { recipesPage._profileNumbersCache = ({}); recipesPage.archivedRecipes = list }
         function onRecipesChanged() {
             MainController.recipeStorage.requestInventory()
             MainController.recipeStorage.requestArchived()
@@ -240,49 +385,21 @@ Page {
         }
 
         // The plan line needs the profile's base temperature, target weight,
-        // and frame temperatures (the recipe stores only its deltas). One
-        // synchronous profile read per card — the list is small. The frame
+        // and frame temperatures (the recipe stores only its deltas). These are
+        // resolved once per profile title and memoized on the page
+        // (profileNumbersFor) so the repeated delegate rebuilds from
+        // filtering/sorting don't each re-read the profile catalog. The frame
         // temps make the card render ITS OWN profile, never the loaded one
         // (recipe-relative-temp-offset); the recipe's embedded profile JSON
         // is the fallback for a renamed/uninstalled profile, and a recipe
         // resolvable by neither shows no temperature segment at all.
         function refreshProfileNumbers() {
-            profileTempC = 0
-            profileYieldG = 0
-            profileStepTemps = []
-            var t = recipe && recipe.profileTitle ? String(recipe.profileTitle) : ""
-            if (t === "")
-                return
-            var d = null
-            var fn = ProfileManager.findProfileByTitle(t)
-            if (fn && fn !== "") {
-                d = ProfileManager.getProfileByFilename(fn)
-            } else if (recipe.profileJson && String(recipe.profileJson).length > 0) {
-                try { d = JSON.parse(recipe.profileJson) } catch (e) {
-                    console.warn("RecipesPage: recipe", recipe.name,
-                                 "has unparsable embedded profile JSON:", e)
-                    d = null
-                }
-            }
-            if (!d)
-                return
-            profileTempC = Number(d.espresso_temperature) || 0
-            profileYieldG = Number(d.target_weight) || 0
-            var temps = []
-            var steps = d.steps || []
-            for (var i = 0; i < steps.length; ++i) {
-                var st = steps[i]
-                var stTemp = st ? Number(st.temperature) : 0
-                if (stTemp > 0)
-                    temps.push(stTemp)
-            }
-            // A resolved profile whose steps carry no explicit per-step
-            // temperature (e.g. some profile formats anchor solely on
-            // espresso_temperature) must still yield a non-empty array —
-            // otherwise ShotPlanText's _tempStr falls through to the
-            // loaded-profile branch, breaking "cards are immune to the
-            // loaded profile" and silently dropping the recipe's offset.
-            profileStepTemps = temps.length > 0 ? temps : (profileTempC > 0 ? [profileTempC] : [])
+            var nums = recipesPage.profileNumbersFor(
+                recipe && recipe.profileTitle ? String(recipe.profileTitle) : "",
+                recipe ? recipe.profileJson : "")
+            profileTempC = nums ? nums.tempC : 0
+            profileYieldG = nums ? nums.yieldG : 0
+            profileStepTemps = nums ? nums.stepTemps : []
         }
         onRecipeChanged: refreshProfileNumbers()
         Component.onCompleted: refreshProfileNumbers()
@@ -413,6 +530,97 @@ Page {
                 }
             }
 
+            // Search + sort bar (recipe-list-organization): mirrors the
+            // ShotHistoryPage pattern. Shown once there is anything to organize;
+            // over the empty-library starter tiles it would be pointless clutter.
+            RowLayout {
+                Layout.fillWidth: true
+                visible: recipesPage.recipes.length > 0 || recipesPage.archivedRecipes.length > 0
+                spacing: Theme.spacingSmall
+
+                StyledTextField {
+                    id: searchField
+                    Layout.fillWidth: true
+                    placeholder: TranslationManager.translate("recipes.searchPlaceholder", "Search recipes...")
+                    rightPadding: searchClearButton.visible ? Theme.scaled(36) : Theme.scaled(12)
+                    // displayText includes the IME preedit so the filter updates
+                    // per keystroke; a short debounce keeps re-sorts cheap.
+                    inputMethodHints: Qt.ImhNoPredictiveText
+                    accessibleName: TranslationManager.translate("recipes.accessible.search", "Search recipes")
+                    onDisplayTextChanged: searchTimer.restart()
+
+                    // Inline clear button (hidden in accessibility mode to avoid
+                    // overlapping elements — the standalone button below serves it).
+                    Item {
+                        id: searchClearButton
+                        width: Theme.scaled(20)
+                        height: Theme.scaled(20)
+                        visible: searchField.displayText.length > 0
+                                 && !(typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+                        anchors.right: parent.right
+                        anchors.rightMargin: Theme.scaled(10)
+                        anchors.verticalCenter: parent.verticalCenter
+                        ColoredIcon {
+                            anchors.centerIn: parent
+                            source: "qrc:/icons/cross.svg"
+                            iconWidth: Theme.scaled(14)
+                            iconHeight: Theme.scaled(14)
+                            iconColor: Theme.textSecondaryColor
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            anchors.margins: -Theme.scaled(6)
+                            onClicked: {
+                                searchField.text = ""
+                                recipesPage.searchQuery = ""
+                                searchField.focus = false
+                            }
+                        }
+                    }
+                }
+
+                // Accessible clear button (outside the field for TalkBack discovery).
+                AccessibleButton {
+                    visible: searchField.displayText.length > 0
+                             && typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
+                    accessibleName: TranslationManager.translate("recipes.accessible.clearSearch", "Clear search")
+                    icon.source: "qrc:/icons/cross.svg"
+                    onClicked: {
+                        searchField.text = ""
+                        recipesPage.searchQuery = ""
+                        searchField.focus = false
+                    }
+                }
+
+                // Sort field button
+                AccessibleButton {
+                    text: recipesPage.sortFieldLabels[recipesPage.sortField] || recipesPage.sortFieldLabels["dateUsed"]
+                    accessibleName: TranslationManager.translate("recipes.accessible.sortBy", "Sort by %1")
+                        .arg(recipesPage.sortFieldLabels[recipesPage.sortField] || "")
+                    onClicked: sortPickerDialog.open()
+                }
+
+                // Sort direction toggle
+                AccessibleButton {
+                    icon.source: recipesPage.sortDirection === "DESC"
+                        ? "qrc:/icons/SortDescending.svg" : "qrc:/icons/SortAscending.svg"
+                    tintIcon: true
+                    accessibleName: recipesPage.sortDirection === "DESC"
+                        ? TranslationManager.translate("recipes.accessible.sortDescending", "Sort descending, tap to sort ascending")
+                        : TranslationManager.translate("recipes.accessible.sortAscending", "Sort ascending, tap to sort descending")
+                    onClicked: {
+                        recipesPage.sortDirection = (recipesPage.sortDirection === "DESC") ? "ASC" : "DESC"
+                        Settings.network.recipeSortDirection = recipesPage.sortDirection
+                    }
+                }
+
+                Timer {
+                    id: searchTimer
+                    interval: 250
+                    onTriggered: recipesPage.searchQuery = searchField.displayText.trim()
+                }
+            }
+
             // Empty state: two starter tiles teach both creation paths —
             // promote a good shot from history, or walk the wizard.
             Flow {
@@ -502,7 +710,7 @@ Page {
                 spacing: Theme.spacingMedium
 
                 Repeater {
-                    model: recipesPage.recipes
+                    model: recipesPage.visibleRecipes
                     delegate: RecipeCard {
                         recipe: modelData
                         width: recipesPage.cardWidth(flickable.width)
@@ -510,9 +718,36 @@ Page {
                 }
             }
 
+            // No-matches state: a search that matches nothing anywhere —
+            // neither active nor archived (so a match hiding in the collapsed
+            // archived section never triggers a false "nothing matches"). The
+            // archived toggle below still shows its matching count so the user
+            // can reach any archived-only matches. Distinct from the "no
+            // recipes yet" starter tiles (a genuinely empty library).
+            Label {
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.spacingMedium
+                visible: recipesPage.searchQuery.length > 0
+                         && (recipesPage.recipes.length + recipesPage.archivedRecipes.length) > 0
+                         && recipesPage.visibleRecipes.length === 0
+                         && recipesPage.visibleArchivedRecipes.length === 0
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WordWrap
+                text: TranslationManager.translate("recipes.noMatches", "No recipes match your search")
+                font: Theme.bodyFont
+                color: Theme.textSecondaryColor
+                Accessible.role: Accessible.StaticText
+                Accessible.name: text
+            }
+
             // --- Archived section ---
+            // Count and visibility track the FILTERED archived set: with a
+            // search active the toggle only appears when archived recipes match
+            // and its count reflects the matches (with no search,
+            // visibleArchivedRecipes == archivedRecipes, so behaviour is
+            // unchanged).
             AccessibleButton {
-                visible: recipesPage.archivedRecipes.length > 0
+                visible: recipesPage.visibleArchivedRecipes.length > 0
                 Layout.preferredHeight: Theme.scaled(36)   // Layout child: raw height is ignored
                 _customFontSize: Theme.captionFont.pixelSize
                 leftPadding: Theme.scaled(10)
@@ -520,7 +755,7 @@ Page {
                 text: (recipesPage.showArchived
                        ? TranslationManager.translate("recipes.archived.hide", "Hide archived")
                        : TranslationManager.translate("recipes.archived.show", "Show archived"))
-                      + " (" + recipesPage.archivedRecipes.length + ")"
+                      + " (" + recipesPage.visibleArchivedRecipes.length + ")"
                 accessibleName: text
                 onClicked: recipesPage.showArchived = !recipesPage.showArchived
             }
@@ -531,7 +766,7 @@ Page {
                 spacing: Theme.spacingMedium
 
                 Repeater {
-                    model: recipesPage.showArchived ? recipesPage.archivedRecipes : []
+                    model: recipesPage.showArchived ? recipesPage.visibleArchivedRecipes : []
                     delegate: RecipeCard {
                         recipe: modelData
                         archivedCard: true
@@ -539,6 +774,20 @@ Page {
                     }
                 }
             }
+        }
+    }
+
+    // Sort picker dialog (recipe-list-organization)
+    SelectionDialog {
+        id: sortPickerDialog
+        title: TranslationManager.translate("recipes.sortByTitle", "Sort By")
+        options: recipesPage.sortFieldKeys.map(function(key) { return recipesPage.sortFieldLabels[key] || key })
+        currentIndex: recipesPage.sortFieldKeys.indexOf(recipesPage.sortField)
+        onSelected: function(index, value) {
+            recipesPage.sortField = recipesPage.sortFieldKeys[index]
+            recipesPage.sortDirection = recipesPage.defaultSortDirections[recipesPage.sortField] || "DESC"
+            Settings.network.recipeSortField = recipesPage.sortField
+            Settings.network.recipeSortDirection = recipesPage.sortDirection
         }
     }
 
