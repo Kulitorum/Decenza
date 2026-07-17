@@ -208,26 +208,53 @@ Dialog {
             font: Theme.bodyFont
         }
 
-        // --- Fixed footer: Done applies both wheels ---
-        Rectangle {
+        // --- Fixed footer: Cancel dismisses, Done applies both wheels ---
+        RowLayout {
             Layout.fillWidth: true
             Layout.leftMargin: Theme.spacingLarge
             Layout.rightMargin: Theme.spacingLarge
             Layout.bottomMargin: Theme.spacingLarge
-            Layout.preferredHeight: Theme.scaled(48)
-            radius: Theme.buttonRadius
-            color: doneMa.pressed ? Qt.darker(Theme.primaryColor, 1.15) : Theme.primaryColor
-            Accessible.role: Accessible.Button
-            Accessible.name: TranslationManager.translate("common.button.done", "Done")
-            Accessible.focusable: true
-            Accessible.onPressAction: doneMa.clicked(null)
-            Text {
-                anchors.centerIn: parent
-                text: TranslationManager.translate("common.button.done", "Done")
-                color: Theme.primaryContrastColor
-                font: Theme.bodyFont
+            spacing: Theme.spacingMedium
+
+            // Cancel — secondary style; closes with no change.
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Theme.scaled(48)
+                radius: Theme.buttonRadius
+                color: cancelMa.pressed ? Qt.darker(Theme.surfaceColor, 1.1) : "transparent"
+                border.width: 1
+                border.color: Theme.borderColor
+                Accessible.role: Accessible.Button
+                Accessible.name: TranslationManager.translate("common.button.cancel", "Cancel")
+                Accessible.focusable: true
+                Accessible.onPressAction: cancelMa.clicked(null)
+                Text {
+                    anchors.centerIn: parent
+                    text: TranslationManager.translate("common.button.cancel", "Cancel")
+                    color: Theme.textColor
+                    font: Theme.bodyFont
+                }
+                MouseArea { id: cancelMa; anchors.fill: parent; onClicked: root.close() }
             }
-            MouseArea { id: doneMa; anchors.fill: parent; onClicked: root._applyAndClose() }
+
+            // Done — primary style; applies both wheels then closes.
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Theme.scaled(48)
+                radius: Theme.buttonRadius
+                color: doneMa.pressed ? Qt.darker(Theme.primaryColor, 1.15) : Theme.primaryColor
+                Accessible.role: Accessible.Button
+                Accessible.name: TranslationManager.translate("common.button.done", "Done")
+                Accessible.focusable: true
+                Accessible.onPressAction: doneMa.clicked(null)
+                Text {
+                    anchors.centerIn: parent
+                    text: TranslationManager.translate("common.button.done", "Done")
+                    color: Theme.primaryContrastColor
+                    font: Theme.bodyFont
+                }
+                MouseArea { id: doneMa; anchors.fill: parent; onClicked: root._applyAndClose() }
+            }
         }
     }
 }
