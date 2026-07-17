@@ -303,7 +303,7 @@ Dialog {
                 Layout.fillWidth: true
                 Layout.leftMargin: Theme.spacingLarge
                 Layout.rightMargin: Theme.spacingLarge
-                Layout.preferredHeight: Theme.scaled(36)
+                Layout.preferredHeight: Theme.touchTargetMin
                 radius: Theme.buttonRadius
                 color: helpMa.pressed ? Qt.darker(Theme.backgroundColor, 1.1) : "transparent"
                 border.width: 1
