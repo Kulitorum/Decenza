@@ -1204,6 +1204,13 @@ Page {
                 yieldOverridden: (editShotData.targetWeightG || 0) > 0
                     && postShotReviewPage._shotProfileYield > 0
                     && Math.abs(editShotData.targetWeightG - postShotReviewPage._shotProfileYield) > 0.1
+                // THIS shot's recorded anchor, not the live dial's. These
+                // default to Settings.brew reads, so leaving them unbound
+                // would re-render the just-pulled shot against whatever the
+                // user dials next while the review page is still open.
+                yieldAnchorMode: editShotData.yieldMode || "none"
+                yieldAnchorRatio: editShotData.yieldMode === "ratio"
+                    ? (editShotData.yieldAnchorValue || 0) : 0
                 // Temperature is filtered out of the line (it lives in the title,
                 // highlighted there when it deviated from the profile default);
                 // pin the flag off the live dial regardless.

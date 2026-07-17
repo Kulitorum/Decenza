@@ -516,6 +516,11 @@ void MachineState::updatePhase() {
                 m_scale->stopTimer();
                 qDebug() << "=== SCALE TIMER: Stopped (espresso cycle ended) ===";
             }
+            // The pair of espressoCycleStarted — emitted on EVERY exit,
+            // including a cycle that never flowed. shotEnded cannot serve this
+            // role: it is gated on flow having started, so an abort during
+            // preheat would never release anything held since cycle start.
+            emit espressoCycleEnded();
         }
 
         // Reset timer state when entering espresso cycle (before signals)

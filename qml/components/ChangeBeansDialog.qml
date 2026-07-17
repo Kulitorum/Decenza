@@ -791,7 +791,7 @@ Dialog {
         implicitHeight: Math.min(mainColumn.implicitHeight,
                                  root.parent ? root.parent.height * 0.9 : mainColumn.implicitHeight)
         textFields: [searchField, roasterInput.textField, coffeeInput.textField, roastDateField.textField,
-                     grindSettingInput, doseInput, yieldInput,
+                     grindSettingInput, doseInput, yieldInput, yieldRatioInput,
                      notesInput, frozenDateField.textField, defrostDateField.textField,
                      openedDateField.textField,
                      originField.textField, regionField.textField, farmField.textField,
@@ -1895,7 +1895,7 @@ Dialog {
                             Layout.fillWidth: true
                             text: root.fYieldRatio
                             opacity: root.fYieldAnchor === "ratio" ? 1.0 : 0.55
-                            placeholder: "x"
+                            placeholder: TranslationManager.translate("changebeans.form.ratioMultiplier", "x")
                             accessibleName: TranslationManager.translate("changebeans.form.yieldRatio.accessible", "Yield as a ratio of the dose, blank to follow the profile default")
                             inputMethodHints: Qt.ImhFormattedNumbersOnly
                             onTextEdited: {

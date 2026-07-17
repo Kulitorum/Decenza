@@ -495,8 +495,8 @@ void SettingsDye::setDyeDrinkWeight(double value) {
         m_dyeDrinkWeightCache = value;
         m_settings.setValue("dye/drinkWeight", value);
         // dyeDrinkWeight is the recorded drink weight (DYE metadata), not the
-        // bag's yield override — the override lives in Settings.brew and is
-        // persisted to the bag via persistYieldOverrideToBag(). No write-through.
+        // bag's yield spec — the session anchor lives in Settings.brew and
+        // reaches the bag only via persistYieldSpecToBag(). No write-through.
         emit dyeDrinkWeightChanged();
     }
 }
@@ -756,8 +756,21 @@ void SettingsDye::persistYieldSpecToBag(double value, const QString& mode)
     // Writing a spec whose mode is "none" clears the bag's anchor.
     m_activeBagYieldMode = YieldSpec::normalizedMode(mode);
     m_activeBagYieldValue = (YieldSpec::isSet(m_activeBagYieldMode) && value > 0) ? value : 0.0;
+    // Clamp a ratio to the same range the session anchor enforces
+    // (SettingsBrew::setBrewRatioAnchor). Storing unclamped would let the
+    // bag hold a ratio the session can never resolve to: an MCP/web write of
+    // 1:20 would persist verbatim, then every consumer that routes it
+    // through the session would clamp to 1:6 — the bag's stored design and
+    // the brewed shot disagreeing, silently and permanently.
+    if (m_activeBagYieldMode == YieldSpec::modeRatio())
+        m_activeBagYieldValue = YieldSpec::clampRatio(m_activeBagYieldValue);
     if (m_activeBagYieldValue <= 0)
         m_activeBagYieldMode = YieldSpec::modeNone();
+    // Notify unconditionally: the cache above has already changed, so the
+    // Q_PROPERTY bindings that read it (the Update Bag button's enabled
+    // state, the brew baseline) are stale from here on whether or not a bag
+    // is attached to persist to.
+    emit activeBagYieldSpecChanged();
     if (!m_applyingBag && m_bagStorage && bagIdIsSet(activeBagId())) {
         m_pendingSelfWrites++;
         m_bagStorage->requestUpdateBag(activeBagId(),
@@ -765,7 +778,6 @@ void SettingsDye::persistYieldSpecToBag(double value, const QString& mode)
                                         {QStringLiteral("yieldMode"), m_activeBagYieldMode}});
         // The bag's spec is a baseline rung — let listeners (the brew
         // baseline, idle widgets) re-evaluate against the new stored value.
-        emit activeBagYieldSpecChanged();
         emit activeBagYieldSpecApplied(m_activeBagYieldValue, m_activeBagYieldMode);
     }
 }

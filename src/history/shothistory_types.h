@@ -133,10 +133,15 @@ struct ShotRecord {
     // Debug log
     QString debugLog;
 
-    // Brew overrides. Populated at save time by MainController:
-    //   - temperatureOverride: user override OR profile espresso_temperature
-    //   - targetWeight: user brew-by-ratio override OR profile target_weight,
-    //     falling back to finalWeight for volume/timer profiles where neither
+    // Brew overrides, written by MainController on save:
+    //   - temperatureOverride: user override OR profile espresso_temperature,
+    //     read from the live session at save time.
+    //   - targetWeight: the target the shot was actually PULLED at, read from
+    //     the start-of-shot snapshot (ProfileManager::latchedTargetG), not
+    //     from the live session. Save runs after SAW settling — i.e. after
+    //     the latch has been released — so reading live here would record a
+    //     target the shot never used whenever the dial moved during the pour.
+    //     Falls back to finalWeight for volume/timer profiles where neither
     //     is set (so the favorites system always has something to restore).
     // For shots imported from external formats (de1app, visualizer.coffee)
     // these fields may stay at 0 — importers don't populate them. Analysis

@@ -339,11 +339,11 @@ ProfileManager::ProfileManager(Settings* settings, DE1Device* device,
             // Under a ratio anchor a dose write re-derives the gram target
             // (add-yield-ratio-anchor): push the resolved value to
             // MachineState like the brewOverridesChanged handler above.
-            // Mid-shot this is inert by construction — brewByRatioDose()
-            // answers with the latched dose, so targetWeight() is unchanged
-            // and the write is a no-op (the dose latch, Decision 9). Under
-            // an absolute or no anchor the resolved value doesn't depend on
-            // the dose, so this is a no-op there too.
+            // Mid-shot this is inert by construction — targetWeight()
+            // answers with the target latched at cycle start, so the write
+            // is a no-op (Decision 9). Under an absolute or no anchor the
+            // resolved value doesn't depend on the dose, so this is a no-op
+            // there too.
             if (m_machineState) {
                 m_machineState->setTargetWeight(targetWeight());
             }
@@ -467,6 +467,13 @@ void ProfileManager::latchForShot() {
     // (see hasShotSnapshot()).
     // Order matters: resolve the target BEFORE arming the flag, or
     // targetWeight() would read the not-yet-written m_latchedTargetG.
+    // Clearing first makes that ordering hold even if a previous latch was
+    // somehow never released: resolving through a still-armed latch would
+    // self-assign (targetWeight() would answer with m_latchedTargetG), so a
+    // stale target would re-latch itself on every shot and never re-resolve.
+    // The cycle-ended release makes that unreachable — this keeps a future
+    // arm/release mismatch a one-shot bug rather than a permanent one.
+    m_shotLatched = false;
     m_latchedDoseG = m_settings ? m_settings->dye()->dyeBeanWeight() : 0.0;
     m_latchedTargetG = targetWeight();
     if (m_settings) {

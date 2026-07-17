@@ -20,6 +20,7 @@
 
 #include "core/dbutils.h"
 #include "core/grinderaliases.h"
+#include "core/yieldspec.h"
 
 #include <QSet>
 #include <QSqlQuery>
@@ -800,7 +801,8 @@ QVariantMap ShotHistoryStorage::loadLatestShotForBeanProfileStatic(QSqlDatabase&
     // the landed final weight (target + stop error + drips).
     if (!query.prepare(QStringLiteral(
             "SELECT id, timestamp, dose_weight, yield_override, final_weight, "
-            "temperature_override, grinder_setting, rpm FROM shots "
+            "temperature_override, grinder_setting, rpm, "
+            "yield_mode, yield_anchor_value FROM shots "
             "WHERE COALESCE(bean_brand,'') = ? AND COALESCE(bean_type,'') = ? "
             "AND profile_name = ? "
             "ORDER BY timestamp DESC LIMIT 1"))) {
@@ -828,6 +830,19 @@ QVariantMap ShotHistoryStorage::loadLatestShotForBeanProfileStatic(QSqlDatabase&
     shot["temperatureOverrideC"] = query.value("temperature_override").toDouble();
     shot["grinderSetting"] = query.value("grinder_setting").toString();
     shot["rpm"] = query.value("rpm").toLongLong();
+    // The shot's yield anchor (add-yield-ratio-anchor). The recipe wizard
+    // prefills from this: without the mode it can only ever see grams, so a
+    // bean+profile last pulled at 1:2 would seed a recipe with that ratio
+    // FLATTENED to a frozen weight — the exact loss this change exists to
+    // stop. Same NULL relabel as loadShotRecordStatic (a pre-34 row reads
+    // absolute when a target was recorded, else none).
+    const QVariant modeVal = query.value("yield_mode");
+    shot["yieldMode"] = YieldSpec::normalizedMode(modeVal.toString());
+    shot["yieldAnchorValue"] = query.value("yield_anchor_value").toDouble();
+    if (modeVal.isNull() && shot["targetWeightG"].toDouble() > 0) {
+        shot["yieldMode"] = YieldSpec::modeAbsolute();
+        shot["yieldAnchorValue"] = shot["targetWeightG"].toDouble();
+    }
     return shot;
 }
 

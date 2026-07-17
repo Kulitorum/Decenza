@@ -255,17 +255,41 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // arrives after the clear-to-profile reset above, so a bag with a saved
     // anchor re-establishes it (idle brew-settings widget turns yellow); a
     // bag whose mode is "none" leaves the brew at the profile default the
-    // clear set. GUARDED on no recipe being active: the resolution ladder
-    // (recipe -> bag -> profile) is enforced here explicitly, not left to
-    // signal ordering — recipe activation selects the recipe's own linked
-    // bag via applyActiveBag, and without this guard the bag's spec would
-    // land after the recipe's and silently overwrite its anchor.
+    // clear set.
+    //
+    // This walks the FULL ladder (recipe -> bag -> profile) rather than just
+    // vetoing the bag while a recipe is active. The veto looked equivalent
+    // and was not: the activeBagIdChanged clear above has already wiped the
+    // session anchor by the time this runs, so declining to re-arm doesn't
+    // leave the recipe's anchor standing — it leaves NOTHING standing, and
+    // targetWeight() drops to the profile while every surface keeps
+    // rendering the recipe's ratio (activeBaselineYieldMode reads the recipe
+    // row, not the session). Whatever this handler declines to arm, the
+    // clear has already taken away.
+    //
+    // A bean-linked recipe deactivates on the bag change (the
+    // activeBagIdChanged handler below) before this fires, so it lands in
+    // the no-recipe branch. The recipe branches below are what a recipe with
+    // NO bean link needs — it survives the switch and must keep its anchor —
+    // and what the spec's "recipe mode none falls through to the bag" rung
+    // needs.
     connect(m_settings->dye(), &SettingsDye::activeBagYieldSpecApplied, this,
             [this](double value, const QString& mode) {
         if (!m_settings || !m_settings->brew())
             return;
-        if (m_settings->dye()->activeRecipeId() >= 0)
-            return;  // recipe outranks bag
+        if (m_settings->dye()->activeRecipeId() >= 0 && !m_activeRecipe.isEmpty()) {
+            const QString recipeMode =
+                YieldSpec::normalizedMode(m_activeRecipe.value("yieldMode").toString());
+            const double recipeValue = m_activeRecipe.value("yieldValue").toDouble();
+            if (YieldSpec::isSet(recipeMode) && recipeValue > 0) {
+                // Recipe outranks bag — re-arm the RECIPE's own anchor, which
+                // the bag-switch clear just wiped.
+                m_settings->brew()->setBrewYieldAnchor(recipeValue, recipeMode);
+                return;
+            }
+            // The recipe designs no yield: the ladder falls through to the
+            // bag rung below, exactly as with no recipe active.
+        }
         if (value > 0 && mode != QLatin1String("none"))
             m_settings->brew()->setBrewYieldAnchor(value, mode);
     });

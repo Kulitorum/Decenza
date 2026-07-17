@@ -1092,6 +1092,69 @@ private slots:
         QCOMPARE(f.profileManager.targetWeight(), 20.0);
     }
 
+    // A cycle that arms the latch and never releases must not poison the
+    // session. The latch is armed at espressoCycleStarted (which fires during
+    // preheat, before any flow) and released at espressoCycleEnded; shotEnded
+    // — the old release point — is gated on flow having STARTED, so a cycle
+    // aborted during preheat armed a latch that nothing ever released. Because
+    // latchForShot resolved through its own flag, the next shot then
+    // self-assigned the stale target and re-latched it: one abort silently
+    // pinned the machine's target for the rest of the session while every
+    // surface kept showing the live value. Both halves are asserted here.
+    void abortedCycleDoesNotPinTargetForTheSession() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "Test", 36.0);
+
+        f.settings.dye()->setDyeBeanWeight(18.0);
+        f.settings.brew()->setBrewRatioAnchor(2.5);
+        f.profileManager.latchForShot();
+        QCOMPARE(f.profileManager.targetWeight(), 45.0);
+
+        // The cycle is abandoned during preheat: no flow, so no shotEnded.
+        // The user then re-dials for the shot they actually intend to pull.
+        f.settings.dye()->setDyeBeanWeight(20.0);
+        f.settings.brew()->setBrewRatioAnchor(2.0);
+
+        // Re-arming must re-resolve against the live state (2.0 x 20), not
+        // launder the stale 45 through the still-armed flag.
+        f.profileManager.latchForShot();
+        QCOMPARE(f.profileManager.targetWeight(), 40.0);
+
+        // And the release must still let the session move afterwards.
+        f.profileManager.releaseShotLatch();
+        f.settings.brew()->setBrewRatioAnchor(3.0);
+        QCOMPARE(f.profileManager.targetWeight(), 60.0);
+    }
+
+    // The latch's release hangs off espressoCycleEnded (main.cpp), so that
+    // signal must fire on a cycle that never flowed — the case the old
+    // shotEnded release could not cover. The main.cpp wiring itself is out of
+    // reach here; this pins the signal contract it depends on.
+    void espressoCycleEndedFiresOnACycleThatNeverFlowed() {
+        McpTestFixture f;
+        f.device.m_simulationMode = true;  // isConnected() -> true
+
+        QSignalSpy cycleStarted(&f.machineState, &MachineState::espressoCycleStarted);
+        QSignalSpy cycleEnded(&f.machineState, &MachineState::espressoCycleEnded);
+        QSignalSpy shotEnded(&f.machineState, &MachineState::shotEnded);
+
+        // Enter the espresso cycle (preheat) — this is where the latch arms.
+        f.device.m_state = DE1::State::Espresso;
+        f.device.m_subState = DE1::SubState::Heating;
+        f.machineState.updatePhase();
+        QCOMPARE(f.machineState.phase(), MachineState::Phase::EspressoPreheating);
+        QCOMPARE(cycleStarted.count(), 1);
+
+        // Abort before any flow: straight back to Idle.
+        f.device.m_state = DE1::State::Idle;
+        f.device.m_subState = DE1::SubState::Ready;
+        f.machineState.updatePhase();
+
+        QCOMPARE(cycleEnded.count(), 1);
+        // The old release point never fires here — this is the whole bug.
+        QCOMPARE(shotEnded.count(), 0);
+    }
+
     // The shot-save snapshot (add-yield-ratio-anchor): what RAN, not what the
     // session drifted to. The save path runs after SAW settling — i.e. after
     // releaseShotLatch() — so the snapshot must survive the release, or a

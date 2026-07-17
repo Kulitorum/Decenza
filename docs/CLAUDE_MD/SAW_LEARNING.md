@@ -222,10 +222,13 @@ by design, and this section exists so nobody "fixes" the apparent mismatch:
 - Learning being keyed per `(baseProfileName, scaleType)` while the target is
   per-recipe *looks* like a mismatch and is not: the flow-similarity weighting
   in the read path already absorbs ristretto-vs-lungo end-flow differences.
-- The dose used for ratio resolution is **latched at `espressoCycleStarted`**
-  (`ProfileManager::latchDoseForShot`, called right beside the SAW model
-  snapshot in [src/main.cpp](../../src/main.cpp)), so the resolved target the
-  snapshot captures cannot move mid-shot from a dose write.
+- The **resolved target** is latched at `espressoCycleStarted`
+  (`ProfileManager::latchForShot`, called right beside the SAW model snapshot
+  in [src/main.cpp](../../src/main.cpp)) and released at `espressoCycleEnded`,
+  so the target the snapshot captures cannot move mid-shot — not from a dose
+  write, and not from an anchor write or clear (a bean switch). Latching the
+  dose alone was not enough: it left every write that changes the anchor
+  itself free to move the target mid-pour.
 
 ## Files
 

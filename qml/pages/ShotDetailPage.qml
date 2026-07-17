@@ -578,6 +578,13 @@ Page {
                 yieldOverridden: (shotData.targetWeightG || 0) > 0
                     && shotDetailPage._shotProfileYield > 0
                     && Math.abs(shotData.targetWeightG - shotDetailPage._shotProfileYield) > 0.1
+                // THIS shot's recorded anchor, not the live dial's. These
+                // default to Settings.brew reads, so leaving them unbound
+                // would stamp whatever ratio happens to be armed right now
+                // onto every historical shot ever pulled.
+                yieldAnchorMode: shotData.yieldMode || "none"
+                yieldAnchorRatio: shotData.yieldMode === "ratio"
+                    ? (shotData.yieldAnchorValue || 0) : 0
                 // Temperature is filtered out of the line (it lives in the title,
                 // highlighted there when it deviated from the profile default);
                 // pin the flag off the live dial regardless.
