@@ -21,6 +21,13 @@ Item {
 
     // false = read live Settings.dye state; true = use the shot-mode properties below
     property bool useShotData: false
+
+    // When true, the "Link to Bean Base" nudge becomes a tappable link that emits
+    // linkRequested() — hosts wire it to their bean-linking flow (e.g. the Change
+    // Beans dialog). Default false keeps the nudge a passive hint on read-only
+    // surfaces (idle/brew, shot detail) where there's no link action to take.
+    property bool linkable: false
+    signal linkRequested()
     property string roasterName: ""
     property string coffeeName: ""
     property string roastDate: ""
@@ -177,14 +184,37 @@ Item {
             }
         }
 
-        // Subtle nudge for non-canonical beans
-        Tr {
+        // Subtle nudge for non-canonical beans. When `linkable`, it reads as a
+        // tappable link (primary colour + underline) that emits linkRequested();
+        // otherwise it's a passive secondary-colour hint.
+        Item {
+            id: linkNudge
             visible: root.hasBeans && !root.canonical
-            key: "beans.summary.linkNudge"
-            fallback: "Link to Bean Base"
-            font: Theme.captionFont
-            color: Theme.textSecondaryColor
-            Accessible.ignored: true
+            Layout.fillWidth: true
+            implicitHeight: nudgeText.implicitHeight
+            implicitWidth: nudgeText.implicitWidth
+
+            Tr {
+                id: nudgeText
+                key: "beans.summary.linkNudge"
+                fallback: "Link to Bean Base"
+                // Sub-properties assigned individually (font: + font.underline mix
+                // is a known QML conflict — see CLAUDE.md QML Gotchas).
+                font.family: Theme.captionFont.family
+                font.pixelSize: Theme.captionFont.pixelSize
+                font.underline: root.linkable
+                color: root.linkable ? Theme.primaryColor : Theme.textSecondaryColor
+                Accessible.ignored: true
+            }
+
+            AccessibleMouseArea {
+                anchors.fill: parent
+                enabled: root.linkable
+                visible: root.linkable
+                accessibleName: nudgeText.text
+                accessibleItem: linkNudge
+                onAccessibleClicked: root.linkRequested()
+            }
         }
     }
 }
