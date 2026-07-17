@@ -28,6 +28,11 @@ The `beanBaseData` blob SHALL be valid **without** a canonical `id`: a manual ba
 - **WHEN** a bag's `beanBaseData` carries detail keys but no `id`
 - **THEN** `isLinked` SHALL be false and no canonical id SHALL be sent on shot PATCH for it
 
+#### Scenario: storageHint and openedDate are never synced to Visualizer
+- **WHEN** a bag with `storageHint = "airtight"` and `openedDate` set is edited
+- **THEN** `touchesVisualizerFields()` SHALL return `false` for a fields map containing only those two keys
+- **AND** no Visualizer PATCH SHALL be triggered by that edit alone
+
 #### Scenario: A bag's yield spec is never synced to Visualizer
 - **WHEN** a bag's yield anchor is changed
 - **THEN** `touchesVisualizerFields()` SHALL return `false` for a fields map containing only the yield spec keys, and no network PATCH SHALL be issued
@@ -182,11 +187,16 @@ No other action SHALL write the bag's yield spec: not a shot save, not Brew Sett
 - **THEN** the active bag's `grinderSetting`/`rpm` SHALL be updated immediately, exactly as before this change
 
 ### Requirement: Shot snapshot includes bag lifecycle fields
-The system SHALL snapshot `frozenDate` and `defrostDate` from the active bag into the shot record at save time.
+The system SHALL snapshot `frozenDate`, `defrostDate`, `storageHint`, and `openedDate` from the active bag into the shot record at save time, in the `shots` table's own `frozen_date`, `defrost_date`, `storage_hint`, and `opened_date` columns — the same columns-on-`shots` pattern `frozen_date`/`defrost_date` already use (`shothistorystorage.cpp`), not a foreign-key-only reference to the bag row (a later bag edit must not retroactively change what an already-saved shot recorded).
 
 #### Scenario: Frozen bean shot snapshot
 - **WHEN** a shot is saved while the active bag has `frozenDate` and `defrostDate` set
 - **THEN** the shot record SHALL include both dates in its snapshot
+
+#### Scenario: Non-frozen bean shot snapshot
+- **WHEN** a shot is saved while the active bag has `storageHint = "airtight"` and `openedDate` set, with no `frozenDate`/`defrostDate`
+- **THEN** the shot record SHALL include `storageHint` and `openedDate` in its snapshot
+- **AND** `frozenDate`/`defrostDate` SHALL remain absent from that shot's snapshot
 
 ### Requirement: canonical_roaster_id stored in beanBaseData blob
 The system SHALL include `canonical_roaster_id` in the beanBaseData blob when populated via `parseCanonicalPayload`.
@@ -201,6 +211,36 @@ A schema migration SHALL add a `visualizer_sync_pending INTEGER NOT NULL DEFAULT
 #### Scenario: Migration adds the column
 - **WHEN** the schema migration runs on an existing database
 - **THEN** every existing bag SHALL have `visualizer_sync_pending = 0`
+
+### Requirement: coffee_bags table gains storage_hint and opened_date columns
+A schema migration SHALL add nullable `storage_hint` (TEXT) and `opened_date` (TEXT, ISO date) columns to `coffee_bags`. Existing bags SHALL have both columns unset (NULL) after migration — no backfill. The columns SHALL survive backup restore and device-to-device transfer via the same generic column-copy path as every other `CoffeeBag` field.
+
+#### Scenario: Migration adds the columns
+- **WHEN** the schema migration runs on an existing database
+- **THEN** every existing bag SHALL have `storage_hint = NULL` and `opened_date = NULL`
+- **AND** no existing bag's other fields SHALL change
+
+#### Scenario: Columns survive device transfer
+- **WHEN** a bag with `storageHint = "vacuum-sealed"` and `openedDate` set is exported and imported via device-to-device transfer or backup restore
+- **THEN** the imported bag SHALL carry the same `storageHint` and `openedDate` values
+
+### Requirement: shots table gains storage_hint and opened_date columns
+
+The same schema migration (or a paired one) SHALL add nullable `storage_hint` (TEXT) and `opened_date` (TEXT, ISO date) columns to the `shots` table, mirroring the existing `frozen_date`/`defrost_date` columns added by an earlier migration. Every code path that reads or writes `frozen_date`/`defrost_date` on `shots` SHALL be extended to the same two new columns: the shot-save `INSERT` and its bound parameters, the shot-read `SELECT` and its `ShotRecord` field mapping, and the device-transfer/backup-restore `INSERT` (including the source-column-presence index resolution used for older source databases that predate the columns).
+
+#### Scenario: Migration adds the shots columns
+- **WHEN** the schema migration runs on an existing database
+- **THEN** the `shots` table SHALL have nullable `storage_hint` and `opened_date` columns
+- **AND** every existing shot row SHALL have both columns NULL
+
+#### Scenario: New shot save populates the columns
+- **WHEN** a shot is saved while the active bag has `storageHint`/`openedDate` set
+- **THEN** the inserted `shots` row SHALL carry those values in its own `storage_hint`/`opened_date` columns
+
+#### Scenario: Device transfer carries the columns forward, including from older sources
+- **WHEN** a shot is exported via device-to-device transfer or backup restore
+- **THEN** the imported shot row SHALL carry the source shot's `storage_hint`/`opened_date` values
+- **AND** a source database predating this migration (columns absent) SHALL import with both columns NULL rather than failing or logging an "unknown field" warning per row
 
 ### Requirement: Bags carry a kind set at creation
 The `coffee_bags` table SHALL gain a `kind` TEXT column (`"coffee"` default, `"tea"`), added by migration with kCols registration. The kind SHALL be set by the creation entry point and SHALL NOT be editable afterwards (no editor toggle; a mis-created zero-shot bag is deleted and recreated). The kind SHALL ride backup restore and device-to-device transfer, and pre-migration bags SHALL default to coffee. Bag surfaces (inventory cards, unified bean search, idle pills, MCP bag tools) SHALL be able to read the kind; the recipe wizard's bean step filters by it.
