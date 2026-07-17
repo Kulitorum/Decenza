@@ -2144,8 +2144,9 @@ Page {
         if (entry.roasterName) editBeanBrand = String(entry.roasterName)
         if (entry.roastName) editBeanType = String(entry.roastName)
         if (entry.degree) editRoastLevel = String(entry.degree)
+        // autosave() -> saveEditedShot() persists the snapshot and already sets
+        // pendingVisualizerUpdate, so the enriched bean info pushes to Visualizer.
         autosave("beanBase", true)
-        pendingVisualizerUpdate = true
         // Best-effort attribute enrichment (origin/variety/process/...): the
         // onCanonicalDetails handler above merges it into editBeanBaseJson and
         // re-saves when it arrives.
