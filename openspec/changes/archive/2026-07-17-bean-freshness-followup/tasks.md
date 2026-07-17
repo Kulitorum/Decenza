@@ -56,6 +56,6 @@
 
 ## 9. Verification
 
-- [ ] 9.1 Run the full C++ test suite (`tst_mcptools_dialing`, `tst_coffeebagstorage` or equivalent, any `shotsummarizer`/`dialing_helpers` unit tests) and fix regressions
-- [ ] 9.2 Manually verify in Qt Creator: create a non-frozen bag with a storage hint and opened date, pull a shot, confirm `dialing_get_context` (via MCP) reports `freshnessKnown: true` with the correct instruction text
+- [x] 9.1 Run the full C++ test suite (`tst_mcptools_dialing`, `tst_coffeebagstorage` or equivalent, any `shotsummarizer`/`dialing_helpers` unit tests) and fix regressions
+- [x] 9.2 Manually verify in Qt Creator: create a non-frozen bag with a storage hint and opened date, pull a shot, confirm `dialing_get_context` (via MCP) reports `freshnessKnown: true` with the correct instruction text
 - [ ] 9.3 Manually verify the "Mark Opened" action and storage-hint dropdown (including its hide-when-frozen behavior) render correctly and persist across app restart
