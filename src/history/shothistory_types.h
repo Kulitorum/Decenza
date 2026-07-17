@@ -227,9 +227,11 @@ struct GrinderContext {
     bool allNumeric = false;
     double minSetting = 0;
     double maxSetting = 0;
-    // Typical dial increment between the user's observed numeric settings,
-    // derived by a noise-filtered modal-gap estimator (deriveGrindStep) — not
-    // the raw minimum gap, so a single mistyped setting cannot collapse it.
+    // The grinder's effective dial step: the smallest increment the user makes
+    // REPEATEDLY between observed settings (deriveGrindStep). Not the raw minimum
+    // (a single mistyped setting would collapse it) nor the most-common gap (that
+    // hides a fine step the user uses less often than a coarse one). Computed
+    // grinder-model-wide, not bean-scoped — the step is a grinder property.
     // 0 when fewer than 2 distinct numeric settings are available.
     double stepSize = 0;
     // RPM axis (variable-RPM grinders): the second half of the dial-in. Empty /

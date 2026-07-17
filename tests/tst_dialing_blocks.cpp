@@ -771,9 +771,10 @@ private slots:
     }
 
     // -------------------------------------------------------------------
-    // stepSize — noise-filtered modal gap (deriveGrindStep). A lone mistyped
-    // setting must not collapse the step the way a raw minimum-gap would, and
-    // a 0.5/0.25 modal tie resolves toward the finer 0.25.
+    // stepSize — smallest commonly-repeated gap (deriveGrindStep). A lone
+    // mistyped setting must not collapse the step the way a raw minimum-gap
+    // would (the typo's gap occurs once and is skipped), while the finest step
+    // the user makes repeatedly (0.25 here) wins over coarser ones.
     // -------------------------------------------------------------------
     void grinderContextBlock_stepSizeIsNoiseFiltered()
     {
@@ -839,6 +840,47 @@ private slots:
                 db, QStringLiteral("Zero"), QStringLiteral("espresso"), QString());
             QVERIFY2(!ctx.contains(QStringLiteral("stepSize")),
                      "a single distinct setting must not yield a stepSize");
+        });
+    }
+
+    // -------------------------------------------------------------------
+    // stepSize — the finest REPEATED step wins even when coarser moves are
+    // more common. Real-history regression: a user who dials mostly in 0.5
+    // steps across beans but fine-tunes in 0.25 on the working bean should get
+    // 0.25 (the grinder's resolution), not 0.5 (the most-common move). The step
+    // is grinder-model-wide (all beans), independent of the bean argument.
+    // -------------------------------------------------------------------
+    void grinderContextBlock_stepSizeIsFinestRepeatedNotModal()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+
+        withRawDb(path, QStringLiteral("grinder_finest"), [&](QSqlDatabase& db) {
+            // Distinct settings for one grinder: five 0.5 gaps, two 0.25 gaps.
+            // Modal gap would be 0.5; the finest repeated gap is 0.25.
+            int i = 0;
+            for (const auto& s : {QStringLiteral("5"), QStringLiteral("5.5"),
+                                   QStringLiteral("6"), QStringLiteral("7"),
+                                   QStringLiteral("7.5"), QStringLiteral("8"),
+                                   QStringLiteral("8.5"), QStringLiteral("8.75"),
+                                   QStringLiteral("9"), QStringLiteral("10"),
+                                   QStringLiteral("12")}) {
+                ShotRow r;
+                r.uuid = QStringLiteral("uuid-finest-%1").arg(i++);
+                r.profileName = QStringLiteral("p");
+                r.beanBrand = QStringLiteral("Mixed");
+                r.grinderModel = QStringLiteral("Zero");
+                r.grinderSetting = s;
+                QVERIFY(insertShot(db, r) > 0);
+            }
+
+            // Bean argument present, but the step must be grinder-wide → 0.25.
+            const QJsonObject ctx = DialingBlocks::buildGrinderContextBlock(
+                db, QStringLiteral("Zero"), QStringLiteral("espresso"),
+                QStringLiteral("Mixed"));
+            const double step = ctx.value(QStringLiteral("stepSize")).toDouble();
+            QVERIFY2(qAbs(step - 0.25) < 0.0001,
+                     qPrintable(QString("finest repeated step expected 0.25, got %1").arg(step)));
         });
     }
 

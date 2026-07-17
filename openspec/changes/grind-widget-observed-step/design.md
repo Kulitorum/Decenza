@@ -28,22 +28,28 @@ Goals: one shared, noise-filtered step estimator; the widget consumes it; the AI
 
 ## Decisions
 
-### 1. Robust step estimator (modal gap)
+### 1. Step estimator — smallest commonly-repeated gap
 
-Replace "minimum gap" with "most common gap," which is what makes it noise-tolerant. Given the sorted, de-duplicated numeric settings `V` (size ≥ 2):
+The step is the grinder's **effective resolution as the user actually dials it**: the finest increment they make *repeatedly*. Given the sorted, de-duplicated numeric settings `V` (size ≥ 2):
 
-- Compute consecutive gaps `g[i] = V[i] - V[i-1]`, dropping zeros.
-- Round each gap to 2 decimals (absorbs float dirt like `0.4999999`).
-- Pick the **modal** gap (highest frequency). Break ties toward the **smaller** gap — if the user has demonstrated a finer move as often as a coarser one, offer the finer.
-- Clamp to a floor (`0.05`) so a cluster of fine typos can't yield a micro-step.
-- With exactly 2 distinct values there is one gap → that gap is the step.
-- With fewer than 2 distinct numeric values → **no step** (sentinel `0`), and callers apply their own default (`1.0` for the widget; field omitted for MCP).
+- Compute consecutive gaps `g[i] = V[i] - V[i-1]`, dropping zeros; round each to 2 decimals (absorbs float dirt like `0.4999999`).
+- Return the **smallest gap that occurs at least twice**. A real, repeated fine move survives; a one-off gap — a mistyped setting, or a big jump when switching beans — occurs once and is skipped.
+- If no gap repeats (very sparse/scattered history), fall back to the smallest gap.
+- Clamp to a `0.05` floor. Fewer than 2 distinct numeric values → **no step** (sentinel `0`); callers default (`1.0` widget, field omitted for MCP).
 
-Worked example (the user's Niche Zero): `7.5, 8, 8.5, 8.75, 9` → gaps `0.5, 0.5, 0.25, 0.25` → tie between `0.5` and `0.25` → smaller wins → **0.25**. Add a mistyped `8.1`: gaps `0.5, 0.1, 0.4, 0.25, 0.25` → `0.25` is modal (2×) → **0.25**; the outlier's `0.1`/`0.4` each occur once and lose.
+Why *smallest-repeated*, not the earlier *modal* (most-common) gap: modal fails the core use case. A user who mostly makes coarse moves (0.5) across beans with occasional fine ones (0.25) has *more* 0.5 gaps than 0.25 gaps, so modal returns 0.5 — hiding the 0.25 the grinder can do. This was a real bug caught in testing (the widget showed 0.5-steps for a Niche Zero the user dials in 0.25). Smallest-repeated returns 0.25 there. It's still typo-robust (a lone `8.1` makes one-off 0.1/0.4 gaps that never repeat) — the property modal was chosen for — without the coarse-bias. Raw minimum is rejected for the opposite reason (a single typo collapses it).
 
-Why modal, not GCD: GCD is *destroyed* by an outlier (`gcd(0.5,0.1,0.4,0.25)=0.05`), the exact failure we're fixing. Modal frequency is the robust choice.
+Worked example (the user's real Niche Zero history): `5, 5.5, 6, 7, 7.5, 8, 8.5, 8.75, 9, 10, 12` → gaps: 0.5 ×5, 0.25 ×2, 1.0 ×2, 2.0 ×1. Modal = 0.5 (wrong); smallest-repeated = **0.25** (right).
 
-Implementation: a static free function `deriveGrindStep(const QList<double>& sortedDistinct) -> double` in the queries TU, returning `0` when it can't derive. Both `queryGrinderContext()` and the new QML-facing invokable call it, so the AI and the widget can never disagree.
+Implementation: a static free function `deriveGrindStep(const QList<double>& sortedDistinct) -> double` in the queries TU, returning `0` when it can't derive.
+
+### 1b. One estimator, grinder-wide — widget and AI never diverge
+
+The step is a property of the **grinder** (its dial resolution), not the bean or the drink, so it is computed **grinder-model-wide across all beans and beverages** — not bean-scoped. Both surfaces feed the *same* grinder-model-wide distinct-settings scope into the *same* `deriveGrindStep`:
+- The widget's `grindStepForGrinder(model)` uses `getDistinctGrinderSettingsForGrinder(model)` (model-wide, all beans/beverages).
+- `queryGrinderContext`'s `stepSize` uses `grinderWideStep(db, model)` — the identical model-wide query — rather than the bean-scoped `settingsObserved` set. (`settingsObserved` / min / max stay bean-scoped; those *are* per-bean context. Only the step is grinder-wide.)
+
+This was the fix for a divergence bug: originally the widget computed the step over all-bean history while the MCP computed it over the current bean, so the same estimator produced different numbers (widget 0.5, MCP 0.25 for the same grinder). Unifying the scope removes any possibility of disagreement.
 
 ### 2. No-grinder scope
 
@@ -59,7 +65,7 @@ Q_INVOKABLE double grindStepForGrinder(const QString& grinderModel);
 - Runs `deriveGrindStep` on the parsed-numeric subset; returns `0` when it can't derive.
 - Reuses the existing async distinct-value cache (`requestDistinctValueAsync` + `distinctCacheReady`) so QML re-evaluates when history finishes loading — the widget already listens via `_distinctCacheVersion`. Returning `0` on a cold cache is correct: the widget uses `1.0` until the cache warms, then recomputes.
 
-Caveat (accepted): the empty-model list mixes grinders. Non-numeric (letter/compound) values are excluded from the numeric estimator, and the modal-gap approach tolerates a mixed numeric set better than min-gap. This is the explicitly requested behavior; a precise per-grinder step returns as soon as a grinder is selected.
+Caveat (accepted): the empty-model list mixes grinders. Non-numeric (letter/compound) values are excluded from the numeric estimator, and the smallest-repeated approach tolerates a mixed numeric set better than raw min-gap. This is the explicitly requested behavior; a precise per-grinder step returns as soon as a grinder is selected.
 
 ### 3. Widget wiring
 
@@ -109,7 +115,7 @@ Both pills currently fill with `root.zoneTextColor` (opaque, ~white on an image)
 
 Variable-RPM grinders dial in by motor RPM, and the widget's RPM mode previously stepped by a fixed `rpmStep = 50`. For parity with burr stepping, RPM now derives from the user's own history too: `grindRpmStepForGrinder(model)` runs the *same* `deriveGrindStep` estimator over the distinct `shots.rpm` values for the active grinder (the per-shot RPM data already exists as an integer column), falling back to `50` when it can't derive (cold cache or <2 distinct RPMs). The widget rounds the result to an int.
 
-Caveat worth stating: an RPM dial is continuous — it has no detents the way a burr collar does — so the "typical increment" is inferred from whatever RPMs the user happened to log rather than from a physical step. The modal-gap estimator still resists a lone outlier, and the `50` fallback covers a fresh grinder, but a user who logs scattered RPMs will see a step that reflects their most common move rather than a round number. That was the accepted trade for parity. The estimator is scale-agnostic, so no algorithm change is needed — RPM just feeds it a different column; the 0.05 floor never binds at RPM magnitudes.
+Caveat worth stating: an RPM dial is continuous — it has no detents the way a burr collar does — so the "typical increment" is inferred from whatever RPMs the user happened to log rather than from a physical step. The smallest-repeated estimator still resists a lone outlier, and the `50` fallback covers a fresh grinder, but a user who logs scattered RPMs will see the smallest RPM step they've used more than once rather than a round number. That was the accepted trade for parity. The estimator is scale-agnostic, so no algorithm change is needed — RPM just feeds it a different column; the 0.05 floor never binds at RPM magnitudes.
 
 ### 8. Combined grind + RPM pill (widget redesign)
 
@@ -159,7 +165,7 @@ This keeps the "RPM and grind are two independent axes" model consistent from th
 
 ## Risks / Trade-offs
 
-- **Mixed-grinder step when no grinder is selected.** Mitigated by numeric-only + modal-gap; fully resolved once a grinder is chosen. Acceptable per the request.
+- **Mixed-grinder step when no grinder is selected.** Mitigated by numeric-only + smallest-repeated; fully resolved once a grinder is chosen. Acceptable per the request.
 - **Losing the manual override.** A poisoned step is now fixed by correcting the offending shot in history rather than a setting. This is rarer than the everyday benefit of correct auto-stepping, and aligns with the project's "prefer smarter defaults over settings" stance. If an override is ever needed it belongs *per grinder* (readout option schema on the widget), never as a global setting — which is the category error this change removes.
 - **Payload rename.** One-time break for MCP consumers; low blast radius.
 

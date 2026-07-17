@@ -940,26 +940,30 @@ QVariantMap ShotHistoryStorage::loadLatestGrindForBeanStatic(QSqlDatabase& db,
 // ShotServer, and the AI advisor) lives in shothistorystorage_serialize.cpp.
 
 
-// Robust "typical dial increment" estimator over the user's observed numeric
-// grinder settings. `sortedDistinct` MUST be sorted ascending and de-duplicated.
-// Returns 0 when it cannot derive (fewer than 2 distinct values) so callers can
+// Estimator: the "common smallest adjustment" — the finest gap between the
+// user's observed settings that they make REPEATEDLY. This is the single source
+// of truth for a grinder's effective step, shared by the widget and the AI
+// grinderContext. `sortedDistinct` MUST be sorted ascending and de-duplicated.
+// Returns 0 when it cannot derive (fewer than 2 distinct values) so callers
 // apply their own default.
 //
-// Noise tolerance is the whole point: rather than the raw minimum gap (which a
-// single mistyped setting collapses — an `8.1` among 7.5/8/8.5/9 would force
-// 0.1 forever), take the MOST COMMON gap between consecutive values. A lone
-// outlier contributes at most a couple of one-off gaps that lose to the modal
-// step. Ties break toward the SMALLER gap (if the user has demonstrated a finer
-// move as often as a coarser one, offer the finer). Clamped to a 0.05 floor so
-// a stray fine-typo cluster can't yield a uselessly small step.
+// Why smallest-repeated rather than the raw minimum or the modal gap:
+//   - raw minimum: a single mistyped setting (an 8.1 among 7.5/8/8.5/9) creates
+//     a one-off 0.1 gap that would force the step to 0.1 forever.
+//   - modal (most common) gap: a user who mostly makes coarse moves (0.5) with
+//     occasional fine ones gets 0.5, hiding the 0.25 their grinder actually does.
+// The step is the finest increment the user genuinely dials — the grinder's
+// effective resolution. So take the SMALLEST gap that occurs at least twice: a
+// real, repeated fine move survives; a lone typo or a one-off jump when
+// switching beans (occurring once) is skipped. Fall back to the smallest gap
+// only when nothing repeats (very sparse history). Clamped to a 0.05 floor.
 static double deriveGrindStep(const QList<double>& sortedDistinct)
 {
     if (sortedDistinct.size() < 2)
         return 0.0;
 
     // Histogram of consecutive gaps, rounded to 2 decimals to absorb float dirt
-    // (e.g. 8.75 - 8.5 == 0.24999999). QMap keeps keys sorted ascending, which
-    // makes the tie-break-toward-smaller fall out naturally below.
+    // (e.g. 8.75 - 8.5 == 0.24999999). QMap keeps keys sorted ascending.
     QMap<double, int> freq;
     for (qsizetype i = 1; i < sortedDistinct.size(); ++i) {
         double gap = std::round((sortedDistinct[i] - sortedDistinct[i - 1]) * 100.0) / 100.0;
@@ -969,18 +973,46 @@ static double deriveGrindStep(const QList<double>& sortedDistinct)
     if (freq.isEmpty())
         return 0.0;
 
-    // Modal gap. Iterating ascending with a strict '>' keeps the first (smallest)
-    // gap that reaches the max count, so ties resolve toward the finer step.
-    double best = 0.0;
-    int bestCount = 0;
+    // Smallest gap the user makes repeatedly (>= 2). Ascending iteration returns
+    // the first such gap = the smallest common adjustment.
     for (auto it = freq.constBegin(); it != freq.constEnd(); ++it) {
-        if (it.value() > bestCount) {
-            bestCount = it.value();
-            best = it.key();
-        }
+        if (it.value() >= 2)
+            return it.key() < 0.05 ? 0.05 : it.key();
     }
 
-    return best < 0.05 ? 0.05 : best;
+    // Nothing repeats (sparse/scattered history): fall back to the smallest gap.
+    const double smallest = freq.constBegin().key();
+    return smallest < 0.05 ? 0.05 : smallest;
+}
+
+// Grinder-wide step for a grinder MODEL, across ALL beans and beverages. The
+// step is a property of the grinder (its effective dial resolution), not of the
+// bean or the drink — so it is deliberately not scoped to either. This is the
+// SAME model-wide distinct-settings scope the widget's grindStepForGrinder uses
+// (getDistinctGrinderSettingsForGrinder), fed to the SAME deriveGrindStep, so
+// the widget and the AI grinderContext can never report different steps.
+// Returns 0 when it cannot derive.
+static double grinderWideStep(QSqlDatabase& db, const QString& grinderModel)
+{
+    QSqlQuery q(db);
+    q.prepare(QStringLiteral(
+        "SELECT DISTINCT grinder_setting FROM shots "
+        "WHERE equipment_id IN (SELECT package_id FROM equipment_items "
+        "WHERE kind = 'grinder' AND model = :model) "
+        "AND grinder_setting IS NOT NULL AND grinder_setting != ''"));
+    q.bindValue(":model", grinderModel);
+    if (!q.exec())
+        return 0.0;
+    QSet<double> numericSet;
+    while (q.next()) {
+        bool ok = false;
+        const double v = q.value(0).toString().trimmed().toDouble(&ok);
+        if (ok)
+            numericSet.insert(v);
+    }
+    QList<double> numeric(numericSet.begin(), numericSet.end());
+    std::sort(numeric.begin(), numeric.end());
+    return deriveGrindStep(numeric);
 }
 
 GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
@@ -1050,11 +1082,13 @@ GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
 
     QList<double> numeric(numericSet.begin(), numericSet.end());
     std::sort(numeric.begin(), numeric.end());
-    // stepSize is derived from the numeric subset whenever ≥2 distinct numeric
-    // settings exist, independent of whether EVERY value parsed (a grinder that
-    // also has a few letter/note settings still has a meaningful numeric step).
-    if (numeric.size() >= 2)
-        ctx.stepSize = deriveGrindStep(numeric);
+    // stepSize is a GRINDER property, not bean- or beverage-scoped: derive it
+    // grinder-model-wide (all beans/beverages) so it reflects the grinder's true
+    // resolution and matches the widget exactly — a user who mostly makes coarse
+    // moves on the current bean still gets the fine step their grinder can do.
+    // (settingsObserved / min / max stay bean-scoped below — those are per-bean
+    // context, unlike the step.)
+    ctx.stepSize = grinderWideStep(db, grinderModel);
     // min/max stay gated on an all-numeric history — a mixed list has no
     // meaningful numeric range to report.
     if (ctx.allNumeric && numeric.size() >= 2) {
