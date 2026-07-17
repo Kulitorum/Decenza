@@ -111,6 +111,9 @@ See `docs/CLAUDE_MD/MCP_SERVER.md` for the full data conventions section.
 - **Profiles, JSON format, stop limits, profile_sync**: `docs/CLAUDE_MD/RECIPE_PROFILES.md`
 - **QML page navigation, operation pages, phase-change handler**: `docs/CLAUDE_MD/QML_NAVIGATION.md`
 - **ShotServer (split files, async community endpoints, fetch rules)**: `docs/CLAUDE_MD/SHOTSERVER.md`
+  - **ShotServer pages must match the app in look AND features, not look half-finished.** When a ShotServer web page mirrors an in-app screen (e.g. `/beans`, `/recipes`, `/equipment`, shot history), design it to closely match the app's clean version — same information hierarchy, card grammar, active-item highlight, empty states, and canonical page chrome (the `<header class="header">` logo + back + burger menu, the shared embedded-page style) — AND aim for feature parity: every field and action the app offers on that screen should be reachable from the web, rather than shipping a bare demo-style subset.
+  - **Reuse, don't copy.** Build shared page style/shell/JS helpers instead of re-inlining per page, and reach parity features by reusing existing backends (e.g. `BeanBaseClient`, the storage classes, the patterns proven by the MCP tools and async community endpoints) rather than re-implementing them.
+  - **Keep the two surfaces in sync.** When you change an in-app page that also exists in the ShotServer (or vice-versa), update the counterpart in the same change so they don't drift. Add a task for it in the change's `tasks.md`.
 - **Emoji**: always `Image { source: Theme.emojiToImage(value) }` — never `Text` for emojis. See `EMOJI_SYSTEM.md`.
 - **Cup Fill View**: `docs/CLAUDE_MD/CUP_FILL_VIEW.md`
 - **Data migration (device-to-device)**: `docs/CLAUDE_MD/DATA_MIGRATION.md`
