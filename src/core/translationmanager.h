@@ -43,7 +43,7 @@ class TranslationManager : public QObject {
     Q_PROPERTY(int translationVersion READ translationVersion NOTIFY translationsChanged)
 
     // The QML-facing translation lookup. A PROPERTY holding a callable, not a Q_INVOKABLE —
-    // and that distinction is the whole fix for #1554.
+    // and that distinction is the whole fix for the language-switch staleness bug.
     //
     // A QML binding re-evaluates when a NOTIFY fires for a property it READ during its last
     // evaluation. Calling an invokable records no dependency, so
