@@ -1263,8 +1263,14 @@ Page {
 
         // Height-capped + scrollable so a wider or fallback system font (or a long
         // translation) can never push the dialog off-screen — it scrolls instead.
-        contentItem: ScrollView {
-            id: searchHelpScroll
+        // Flickable, deliberately NOT ScrollView. ScrollView adopts its child as contentItem
+        // and drives that child's geometry from contentWidth/contentHeight — which fights a
+        // ColumnLayout, since the layout also sizes itself. The observable result was a
+        // scroll range of ~2px with rows below it unreachable, verified on the running app
+        // at labelSize 26. Flickable never touches its children's geometry, so the layout's
+        // implicitHeight stays purely content-driven and contentHeight is honest.
+        contentItem: Flickable {
+            id: searchHelpFlick
             // Leaves room for the footer, so dialog height (content + footer) still fits
             // the page. Without subtracting it the footer pushed the dialog past the
             // window edge at large font sizes.
@@ -1272,20 +1278,18 @@ Page {
                                      shotHistoryPage.height - Theme.scaled(80)
                                          - searchHelpDialog.footer.implicitHeight)
             clip: true
+            boundsBehavior: Flickable.StopAtBounds
 
-            // A ScrollView wrapping a Layout must be told its content size explicitly: a Layout's
-            // implicit size is resolved during polish, so ScrollView's own implicit-size tracking
-            // does not reliably see it and the view ends up clipping instead of scrolling.
-            //
-            // contentWidth is pinned to the viewport so there is never a horizontal scroll —
-            // the dialog widens to fit, and past the screen bound the cells elide. Only vertical
-            // scrolling is wanted here, and that is what the height cap above exists for.
-            contentWidth: availableWidth
+            // Width pinned to the viewport so there is never a horizontal scroll — the dialog
+            // widens to fit instead, and past the screen bound the grid cells elide.
+            contentWidth: width
             contentHeight: searchHelpColumn.implicitHeight
+
+            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
             ColumnLayout {
                 id: searchHelpColumn
-                width: searchHelpScroll.availableWidth
+                width: searchHelpFlick.width
                 spacing: 0
 
                 Text {

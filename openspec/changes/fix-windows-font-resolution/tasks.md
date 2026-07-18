@@ -8,8 +8,10 @@
       so the grid has a legal narrow layout instead of an unshrinkable implicit width
 - [x] 1.2 Fix the `ScrollView` so content exceeding the dialog scrolls rather than being clipped —
       verify against real content; the elide change alone may not fix it
-- [ ] 1.3 Confirm the intro line wraps instead of overflowing and cutting mid-word, and that no
-      column is silently clipped, at the smallest supported window size
+- [x] 1.3 Confirm the intro line wraps instead of overflowing and cutting mid-word, and that no
+      column is silently clipped, at the smallest supported window size — verified on the running
+      macOS app in a small window at both stock sizes and labelSize 26/bodySize 30: all three
+      columns present, "filter"/"fields" ligatures correct, full content reachable, Close pinned.
 - [ ] 1.4 Verify with a CJK or Arabic UI language, where every glyph comes from a fallback font —
       this is the case the guards exist for
 
@@ -66,7 +68,9 @@
 - [x] 6.1 Add `POST /api/theme/font/reset` calling the existing `resetFontSizesToDefault()`
 - [x] 6.2 Add a reset control beside the Font Sizes header in `theme_html.h` / `theme_js.h`
 - [x] 6.3 Reword the combined reset confirmation to name both theme colours and font sizes
-- [ ] 6.4 Verify the fonts-only reset leaves customised colours untouched
+- [x] 6.4 Verify the fonts-only reset leaves customised colours untouched — exercised twice against
+      the running app: all 8 roles returned to default, all 45 colour keys and primaryColor intact.
+      Reset button confirmed working in the editor UI by Jeff.
 - [x] 6.5 Fix the `/themes` → `/theme` hint at `qml/pages/settings/SettingsThemesTab.qml:128`, which
       currently sends users to a 404
 
