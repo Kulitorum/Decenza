@@ -127,12 +127,12 @@ Dialog {
             Layout.fillWidth: true
             spacing: Theme.scaled(8)
 
-            Image {
+            // ThemedIcon: the white-stroked search.svg sits on a light surface in light
+            // mode and was invisible there. Same fix as SettingsPage.qml.
+            ThemedIcon {
                 source: "qrc:/icons/search.svg"
-                sourceSize.width: Theme.scaled(20)
-                sourceSize.height: Theme.scaled(20)
+                iconSize: Theme.scaled(20)
                 Layout.alignment: Qt.AlignVCenter
-                visible: source != ""
                 Accessible.ignored: true
             }
 

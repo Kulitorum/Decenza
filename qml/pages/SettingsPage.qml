@@ -67,11 +67,14 @@ Page {
         Accessible.focusable: true
         Accessible.onPressAction: searchMouseArea.clicked(null)
 
-        Image {
+        // ThemedIcon, not a bare Image: search.svg strokes white, and this button's
+        // background is Theme.surfaceColor — which is #ffffff in light mode. As a plain
+        // Image the icon was white-on-white and completely INVISIBLE in light mode.
+        // Found by looking at the running app in light mode, not by reading the code.
+        ThemedIcon {
             anchors.centerIn: parent
             source: "qrc:/icons/search.svg"
-            sourceSize.width: Theme.scaled(20)
-            sourceSize.height: Theme.scaled(20)
+            iconSize: Theme.scaled(20)
             Accessible.ignored: true
         }
 
