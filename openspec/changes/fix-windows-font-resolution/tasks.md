@@ -117,5 +117,17 @@
       known-good machine
 - [ ] 9.4 Ask the reporter for a fresh debug log; confirm the new `[Font]` lines identify the
       resolved family and any collision
+- [x] 9.7 Wire 6 hardcoded user-visible strings through TranslationManager (2 visible, 4
+      accessibleName). They never entered m_stringRegistry, so BOTH autoTranslate() and the
+      developer translateAndUploadAllLanguages() were structurally blind to them — permanently
+      English in all 39 languages regardless of how often the batch ran.
+- [x] 9.8 Add a dialog offering AI translation when switching to a language with gaps; wiki entry
+      added (local commit in ../Decenza.wiki, unpushed until merge).
+- [ ] 9.9 AFTER MERGE: run AI translate + upload for German, Spanish, French, Italian, Dutch.
+      Deferred deliberately — the 6 keys from 9.7 exist only on this branch, so uploading now
+      would publish keys no shipped build reads, and a key rename in review would orphan them.
+      ~1898 unique strings per language. Provider: OpenAI. Mechanism is per-language
+      (set currentLanguage -> autoTranslate() -> submitTranslation()); the batch tool does ALL
+      local languages with no top-N option.
 - [ ] 9.5 Archive this change with `/opsx:archive` as the last commit on the branch, before merge
 - [ ] 9.6 Close #1537 and #1469 once the reporter's log confirms the fix
