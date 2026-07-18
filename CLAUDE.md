@@ -79,8 +79,51 @@ See `docs/CLAUDE_MD/PROJECT_STRUCTURE.md` for the full source tree, signal/slot 
 - IDs/properties: `camelCase`
 - Use `Theme.qml` singleton for all styling — never hardcode colors, font sizes, spacing, or radii. Use `Theme.textColor`, `Theme.bodyFont`, `Theme.subtitleFont`, `Theme.spacingMedium`, `Theme.cardRadius`, etc.
 - All user-visible text must be internationalized. Use `TranslationManager.translate("section.key", "Fallback text")` for property bindings and inline expressions. Use the `Tr` component for standalone visible text (`Tr { key: "section.name"; fallback: "English text" }`). For text used in properties via `Tr`, use a hidden instance: `Tr { id: trMyLabel; key: "my.key"; fallback: "Label"; visible: false }` then `text: trMyLabel.text`. Reuse existing keys like `common.button.ok` and `common.accessibility.dismissDialog` where applicable.
+  - **A binding over `translate()` re-evaluates on a language change, and the plain call above is all you need.** This is worth stating because it was NOT always true: `translate` used to be a `Q_INVOKABLE`, a binding calling it recorded no dependency, and 3,248 call sites written exactly as documented here froze on whatever language was active when the page was built. It is now a `Q_PROPERTY` holding a callable, so reading `TranslationManager.translate` establishes the dependency — see `translationmanager.h`.
+  - Do **not** add a `var _ = TranslationManager.translationVersion` line to new code. It is redundant now; `Tr.qml` keeps one only as a historical marker. If you find yourself reaching for it because text is stale, the mechanism is broken — `tests/tst_translationreactivity.cpp` should be failing, and that is the thing to fix.
 - Use `StyledTextField` instead of `TextField` to avoid Material floating label
 - `ActionButton` dims icon (50% opacity) and text (secondary color) when disabled
+
+### Using emoji well
+
+The app ships the complete Twemoji set (~4,000 SVGs, MIT), resolved locally with no network
+access. Emoji are cheap, render identically on every platform, and are the one visual element
+that survives translation unchanged. **Reach for them where they make a screen easier to read
+or more pleasant to use** — an interface that is all grey text is not more professional, it is
+just harder to scan.
+
+**Where they earn their place:**
+- Category and section markers, where a glyph makes a list scannable at a glance.
+- Status and outcome, alongside the words rather than instead of them — `☕ Espresso`,
+  `⚠️ Tank low`, `✅ Uploaded`.
+- User-authored content: bean names, recipe names, widget labels, notes. Users already type
+  emoji here and the picker offers the full set.
+- Empty states and first-run screens, where a little warmth reads as care rather than noise.
+
+**Where they do not:**
+- **Never as the only carrier of meaning.** A screen reader announces the name, not the picture,
+  and a stripped context (plain-text fields, exports, MCP responses) drops it entirely. Always
+  pair with a word.
+- **Not on destructive or error actions** in place of clear wording. `🗑️ Delete all shots` is
+  fine; `🗑️` alone is not.
+- **Not more than one per label,** and not decorating every row of a list — repetition turns a
+  useful signal into visual noise, and a page where everything is marked marks nothing.
+- **Not in place of a themed icon** for chrome — toolbar and navigation icons are monochrome
+  SVGs that follow `Theme.iconColor` through `ThemedIcon`. Emoji carry fixed colours and will
+  not adapt to light/dark or a custom palette.
+
+**Mechanics — these are not optional:**
+- Render through `Theme.emojiToImage()` (for an `Image`) or `Theme.replaceEmojiWithImg()` (for
+  text with emoji inline). Putting an emoji in a plain `Text` lets a colour glyph reach the
+  platform renderer, which **crashes the render thread on macOS**.
+- No manual asset step. Using a new emoji needs no download and no `.qrc` edit — the full set
+  already ships. `.github/workflows/emoji-pin-check.yml` reports when upstream has a newer
+  release worth pulling in.
+- An emoji with no bundled asset is silently stripped, so a sequence from a Unicode revision
+  newer than the pin simply disappears. Don't build a layout that only makes sense if the emoji
+  renders.
+- For accessibility, give the element an `Accessible.name` with the word, not the picture.
+  `Theme.toAccessibleText()` strips emoji and tags from a rendered string for exactly this.
 
 ### QML Gotchas (one-liners — full samples in `docs/CLAUDE_MD/QML_GOTCHAS.md`)
 
@@ -91,7 +134,10 @@ See `docs/CLAUDE_MD/PROJECT_STRUCTURE.md` for the full source tree, signal/slot 
 - **FINAL Qt properties**: don't redeclare `message`/`title` etc. on `Popup`/`Dialog` (Qt 6.10+) — pick a different name like `resultMessage`.
 - **Numeric defaults**: use `value ?? 0.6`, not `value || 0.6` — `||` treats `0` as falsy.
 - **`native` is reserved**: use `nativeName`.
-- **No Unicode glyphs as icons** (`"✎"`, `"☰"`): use SVG `Image` from `qrc:/icons/`. Safe (present in the bundled font): `°`, `·`, `—`, `×`, `•`, `…`. **Not** safe: `→` and other arrows (`←` `↔` `↗` `⇒`), `▶`/`◀` — these are absent from the bundled font's cmap and fall back to a system font, so their metrics vary per machine. Prefer an SVG icon; if a literal is unavoidable, make sure the layout tolerates a differently-sized glyph.
+- **Emoji are encouraged; non-emoji text symbols are not.** These are two different things and only one is safe:
+  - **Emoji** (`☕` `⚙️` `⚠️` `🔒`) never reach the text renderer — the app ships the complete Twemoji set (~4,000 SVGs) and every emoji is rewritten to a bundled `<img>`. Metrics are identical on every platform because it is an image, not a glyph. **Use them where they earn their place** (see the section below).
+  - **Non-emoji text symbols** (`→` `←` `↔` `↗` `⇒` `▶` `◀` `☰` `✎`) ARE rendered as font glyphs, are absent from Decenza Sans's cmap, and fall back to a platform font whose metrics vary per machine — the class of bug behind #1537. Use an SVG `Image` from `qrc:/icons/` instead. Safe literals (present in the bundled font): `°`, `·`, `—`, `×`, `•`, `…`.
+  - Rule of thumb: if it has a colour picture in the emoji keyboard, it is an emoji and it is fine. If it is a line-drawing symbol that renders in your text colour, it is a font glyph — use an icon.
 - **The bundled font covers Latin (incl. Extended), Greek and Cyrillic only.** In CJK, Arabic, Hebrew, Devanagari and Thai locales every glyph comes from a platform fallback, so the metric determinism the bundled font provides does **not** apply there. Layout tolerance (wrap/elide/content-driven sizing) is what keeps those UIs from clipping — never rely on a fixed width that only fits the design font.
 - **`elide` is dead on `Text.RichText`**: use `Text.StyledText` for HTML-ish labels (elide works, and it's lighter); RichText silently disables `elide` → mid-glyph clipping.
 - **Accessibility on interactive elements**: every interactive element needs `Accessible.role`, `Accessible.name`, `Accessible.focusable: true`, and `Accessible.onPressAction`. Prefer `AccessibleButton` / `AccessibleMouseArea` over raw `Rectangle+MouseArea`. Full rules in `docs/CLAUDE_MD/ACCESSIBILITY.md`.
@@ -115,7 +161,7 @@ See `docs/CLAUDE_MD/MCP_SERVER.md` for the full data conventions section.
   - **ShotServer pages must match the app in look AND features, not look half-finished.** When a ShotServer web page mirrors an in-app screen (e.g. `/beans`, `/recipes`, `/equipment`, shot history), design it to closely match the app's clean version — same information hierarchy, card grammar, active-item highlight, empty states, and canonical page chrome (the `<header class="header">` logo + back + burger menu, the shared embedded-page style) — AND aim for feature parity: every field and action the app offers on that screen should be reachable from the web, rather than shipping a bare demo-style subset.
   - **Reuse, don't copy.** Build shared page style/shell/JS helpers instead of re-inlining per page, and reach parity features by reusing existing backends (e.g. `BeanBaseClient`, the storage classes, the patterns proven by the MCP tools and async community endpoints) rather than re-implementing them.
   - **Keep the two surfaces in sync.** When you change an in-app page that also exists in the ShotServer (or vice-versa), update the counterpart in the same change so they don't drift. Add a task for it in the change's `tasks.md`.
-- **Emoji**: always `Image { source: Theme.emojiToImage(value) }` — never `Text` for emojis. See `EMOJI_SYSTEM.md`.
+- **Emoji**: always `Image { source: Theme.emojiToImage(value) }` — never `Text` for emojis. See `EMOJI_SYSTEM.md` and "Using emoji well" below.
 - **Cup Fill View**: `docs/CLAUDE_MD/CUP_FILL_VIEW.md`
 - **Data migration (device-to-device)**: `docs/CLAUDE_MD/DATA_MIGRATION.md`
 - **Visualizer integration**: `docs/CLAUDE_MD/VISUALIZER.md`

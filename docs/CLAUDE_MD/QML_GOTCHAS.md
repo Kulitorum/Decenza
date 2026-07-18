@@ -96,9 +96,38 @@ JavaScript `||` treats `0` as falsy, so `value || 0.6` returns `0.6` when `value
 
 `native` is a reserved JavaScript keyword — use `nativeName` instead.
 
-## No Unicode symbols as icons
+## No Unicode symbols as icons (but emoji are fine)
 
-Never use Unicode symbols as icons in text (e.g., `"✎"`, `"✗"`, `"☰"`). These render as tofu squares on devices without the right font glyphs. Use SVG icons from `qrc:/icons/` with `Image` instead. For buttons/menu items, use a `Row { Image {} Text {} }` contentItem. Safe Unicode characters (°, ·, —, →, ×) that are in standard fonts are OK.
+Never use non-emoji Unicode symbols as icons in text (`"✎"`, `"✗"`, `"☰"`, `"▶"`). They render as font glyphs, are absent from Decenza Sans's cmap, and fall back to a platform font whose metrics vary per machine — that is the class of bug behind #1537. Use SVG icons from `qrc:/icons/` with `Image`; for buttons/menu items use a `Row { Image {} Text {} }` contentItem.
+
+Safe literals (present in the bundled font): `°`, `·`, `—`, `×`, `•`, `…`.
+
+**`→` is NOT safe** — an earlier version of this section listed it as safe, which was wrong. Arrows (`→ ← ↔ ↗ ⇒`) are absent from the bundled font.
+
+**Emoji are a different case and are encouraged.** `☕`/`⚠️`/`🔒` never reach the text renderer: the app ships the complete Twemoji set and rewrites every emoji to a bundled `<img>`, so metrics are identical everywhere. Render them through `Theme.emojiToImage()` or `Theme.replaceEmojiWithImg()` — putting one in a plain `Text` lets a colour glyph reach the platform renderer and **crashes the render thread on macOS**. See "Using emoji well" in CLAUDE.md.
+
+## Calling a Q_INVOKABLE in a binding — the binding never re-evaluates
+
+A QML binding re-evaluates when a NOTIFY fires for a **property it read** during its last evaluation. Calling a `Q_INVOKABLE` registers no dependency, so the binding computes once and then freezes — while still returning the correct value if you call it directly, which is why this survives review and unit tests alike. It only shows up when the underlying state changes.
+
+This has bitten this codebase four times: `effectiveFontSizes`, `canAutoTranslate`, `translate` (3,248 stale call sites — the language-switch bug), and the emoji resolver design before it was made synchronous.
+
+```qml
+// BROKEN — computes once, never updates
+text: TranslationManager.translate("k", "fallback")   // if translate() is a Q_INVOKABLE
+
+// WORKS — expose the value as a property instead
+Q_PROPERTY(QVariantMap effectiveFontSizes READ effectiveFontSizes NOTIFY customFontSizesChanged)
+
+// WORKS — a property whose value is a CALLABLE keeps the call-site syntax identical
+Q_PROPERTY(QJSValue translate READ translateFn NOTIFY translationsChanged)
+```
+
+The third form is how `TranslationManager` fixed 3,248 bindings without editing any of them: reading `TranslationManager.translate` is a property read, and the returned function is then invoked.
+
+An invokable **can** work if the same expression also reads a notifying property (`Tr.qml` reads `translationVersion` first), but relying on that is a trap — a later edit removing the "unused" read silently breaks it.
+
+**Non-reactive is sometimes correct.** `EmojiAssets.has()` is an invokable on purpose: the bundled asset set is fixed at build time, so there is nothing to re-evaluate for. Say so in a comment when you do this, or the next reader will assume it is the bug.
 
 ## Translucent element renders opaque (scene-graph opaque batch)
 

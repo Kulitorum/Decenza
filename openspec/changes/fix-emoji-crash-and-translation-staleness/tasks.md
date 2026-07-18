@@ -84,22 +84,22 @@ re-render, offline behaviour, eviction) no longer exist.
 
 ## 5. Documentation
 
-- [ ] 5.1 Rewrite the i18n bullet in `CLAUDE.md` (currently around line 81) so the documented
+- [x] 5.1 Rewrite the i18n bullet in `CLAUDE.md` (currently around line 81) so the documented
       pattern is the reactive one. The current text recommends the bare call that this change
       exists to fix.
-- [ ] 5.2 Rework the glyph rule in `CLAUDE.md` per D6. The current bullet bans Unicode glyphs as
+- [x] 5.2 Rework the glyph rule in `CLAUDE.md` per D6. The current bullet bans Unicode glyphs as
       icons outright and lists a "safe" set. Rewrite it to say: pictographic emoji are fine and
       resolve to images (state the resolution order and that unresolvable ones are stripped);
       non-emoji text symbols (`→`, `←`, `▶`, `☰`) remain unsafe because they are rendered by the
       bundled font, are absent from its cmap, and vary per machine. Do NOT delete the section —
       the two concerns are different and only one is fixed here.
-- [ ] 5.3 Document the build rule in `CLAUDE.md` alongside the existing "new QML files must be
+- [x] 5.3 Document the build rule in `CLAUDE.md` alongside the existing "new QML files must be
       added to CMakeLists.txt" convention: using a new emoji requires no manual asset step, the
       build fetches and commits it.
-- [ ] 5.4 Update `docs/CLAUDE_MD/EMOJI_SYSTEM.md` for the new resolution order, the cache, and the
+- [x] 5.4 Update `docs/CLAUDE_MD/EMOJI_SYSTEM.md` for the new resolution order, the cache, and the
       build step. Its "Adding New Emojis" section currently prescribes a manual 3-step process that
       this change makes obsolete.
-- [ ] 5.5 Check `docs/CLAUDE_MD/QML_GOTCHAS.md` for the invokable-in-binding trap and add it if
+- [x] 5.5 Check `docs/CLAUDE_MD/QML_GOTCHAS.md` for the invokable-in-binding trap and add it if
       absent — it has now been hit three times in one session (`effectiveFontSizes`,
       `canAutoTranslate`, `translate`), and D4 would have been a fourth.
 - [ ] 5.6 Update the wiki manual only if user-visible behaviour changed. A language switch taking
