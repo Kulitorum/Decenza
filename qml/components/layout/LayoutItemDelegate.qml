@@ -12,6 +12,11 @@ Item {
     // it bind these, otherwise they keep their own theme colors.
     property color zoneTextColor: Theme.textColor
     property bool zoneValueBold: false
+    // The zone's style preset ("standard" | "surface" | "accentBar"). Widgets that
+    // render a filled chip (Ratio/Grind pills) key off this: the light-capsule +
+    // accent-text look only reads on an accentBar, so elsewhere they use a themed
+    // surface chip instead of a bare zoneTextColor fill (white in dark mode).
+    property string zoneStyle: "standard"
 
     readonly property string itemType: modelData.type || ""
     readonly property string itemId: modelData.id || ""
@@ -241,6 +246,8 @@ Item {
                 item.zoneTextColor = Qt.binding(function() { return root.zoneTextColor })
             if (typeof item.zoneValueBold !== "undefined")
                 item.zoneValueBold = Qt.binding(function() { return root.zoneValueBold })
+            if (typeof item.zoneStyle !== "undefined")
+                item.zoneStyle = Qt.binding(function() { return root.zoneStyle })
 
             if (root.isCompiled) {
                 // Compiled items: reactive binding merges original modelData with compiled properties

@@ -33,6 +33,7 @@ Item {
     property var modelData: ({})
     property color zoneTextColor: Theme.textColor
     property bool zoneValueBold: false
+    property string zoneStyle: "standard"
 
     // Active grinder identity (both carry NOTIFY, so rpmCapable stays reactive
     // when the user switches equipment — mirrors BrewDialog.equipmentRpmCapable).
@@ -341,12 +342,14 @@ Item {
             radius: height / 2
             // Over a background image the solid capsule reads as an opaque white
             // chip on the photo; render it transparent so the value sits on the
-            // background like the Beans/Milk widgets. Without a background image
-            // keep the existing solid pill (zone-color fill, accent text).
+            // background like the Beans/Milk widgets. Otherwise use a zone-appropriate
+            // chip fill (Theme.zoneChipColor): a light capsule on the accentBar, a
+            // themed surface chip elsewhere so it isn't a white capsule in dark mode.
             readonly property bool hasBackgroundImage: Settings.theme.backgroundImagePath.length > 0
+            readonly property color pillFill: Theme.zoneChipColor(root.zoneStyle)
             color: hasBackgroundImage
                 ? "transparent"
-                : (grindMa.pressed ? Qt.darker(root.zoneTextColor, 1.15) : root.zoneTextColor)
+                : (grindMa.pressed ? Qt.darker(pillFill, 1.15) : pillFill)
 
             Accessible.role: Accessible.Button
             Accessible.name: root.labelText + " " + root.accessibleValue + ". "
