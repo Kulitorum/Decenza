@@ -44,15 +44,29 @@ QJsonObject ShotServer::buildThemeJson() const
     result["colorsDark"] = colorsDark;
     result["colorsLight"] = colorsLight;
 
-    // Font sizes. Sourced from SettingsTheme::effectiveFontSizes() so the editor reports
-    // exactly what the QML theme renders at — this used to be a second hardcoded default
-    // table, free to drift out of step with qml/Theme.qml's fallbacks.
+    // Font sizes. Sourced from SettingsTheme so the editor reports exactly what the QML
+    // theme renders at — this used to be a second hardcoded default table, free to drift
+    // out of step with qml/Theme.qml's fallbacks.
     QJsonObject fonts;
     const QVariantMap effective = m_settings->theme()->effectiveFontSizes();
     for (auto it = effective.constBegin(); it != effective.constEnd(); ++it) {
         fonts[it.key()] = it.value().toInt();
     }
     result["fonts"] = fonts;
+
+    // Slider bounds, served from the same table rather than hardcoded again in theme_js.h.
+    // The JS copy was the only place min/max lived, which made the editor's sliders the de
+    // facto validation — and POST /api/theme/font bypasses sliders entirely.
+    QJsonObject fontRanges;
+    for (auto it = SettingsTheme::fontRoles().constBegin();
+         it != SettingsTheme::fontRoles().constEnd(); ++it) {
+        QJsonObject range;
+        range["min"] = it.value().min;
+        range["max"] = it.value().max;
+        range["def"] = it.value().def;
+        fontRanges[it.key()] = range;
+    }
+    result["fontRanges"] = fontRanges;
 
     // Preset themes
     QJsonArray presets;

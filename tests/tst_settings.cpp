@@ -1865,10 +1865,31 @@ private slots:
         // domain is silently ignored. Pinning that deliberate choice.
         SettingsTheme* theme = m_settings.theme();
         theme->resetFontSizesToDefault();
+        // The reject is now loud, not silent — assert the warning fires too, otherwise
+        // failOnWarning turns intended diagnostics into a red test.
+        QTest::ignoreMessage(QtWarningMsg, "[Font] Ignoring unknown font role: \"bogusSize\"");
         theme->setFontSize("bogusSize", 99);
         QVERIFY(!theme->effectiveFontSizes().contains("bogusSize"));
         QVERIFY(!theme->fontSizeOverrides().contains("bogusSize"));
         QCOMPARE(theme->effectiveFontSizes().keys(), SettingsTheme::fontSizeDefaults().keys());
+    }
+
+    void setFontSize_clampsToRoleRange() {
+        // POST /api/theme/font accepts a JSON body, so an out-of-range value is reachable
+        // without touching the editor's sliders. Unclamped, timerSize=100000 renders the
+        // app unusable. Bounds live in fontRoles() and are enforced on write.
+        SettingsTheme* theme = m_settings.theme();
+        theme->resetFontSizesToDefault();
+        const auto& role = SettingsTheme::fontRoles().value("timerSize");
+
+        QTest::ignoreMessage(QtWarningMsg, "[Font] Clamped \"timerSize\" 100000 -> 120");
+        theme->setFontSize("timerSize", 100000);
+        QCOMPARE(theme->effectiveFontSizes().value("timerSize").toInt(), role.max);
+
+        QTest::ignoreMessage(QtWarningMsg, "[Font] Clamped \"labelSize\" 1 -> 8");
+        theme->setFontSize("labelSize", 1);
+        QCOMPARE(theme->effectiveFontSizes().value("labelSize").toInt(), role.min > 0
+                 ? SettingsTheme::fontRoles().value("labelSize").min : 8);
     }
 
     void themeQmlFontRoleNamesMatchDefaults() {

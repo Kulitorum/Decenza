@@ -122,9 +122,20 @@ public:
     Q_INVOKABLE bool loadThemeFromFile(const QString& filePath);
     Q_INVOKABLE QVariantMap generatePalette(double hue, double saturation, double lightness) const;
 
-    // Canonical font-size defaults. The ONLY declaration — QML theme roles, the web theme
-    // editor, and startup override logging all read through here, so the value the UI renders
-    // at and the value the editor reports cannot drift apart.
+    // A font size role: its default and the range a user may set it to. Bounds live here
+    // rather than only in the web editor's sliders, so they are enforced wherever a value
+    // can be written — the editor's JS min/max is a UI affordance, not a validation.
+    struct FontRole {
+        int def;
+        int min;
+        int max;
+    };
+
+    // Canonical font-size roles. The ONLY declaration — QML theme roles, the web theme
+    // editor, its slider bounds, and startup override logging all read through here, so
+    // the value the UI renders at and the value the editor reports cannot drift apart.
+    static const QMap<QString, FontRole>& fontRoles();
+    // Convenience view for callers that only need the defaults.
     static const QMap<QString, int>& fontSizeDefaults();
 
     // Set once from main.cpp immediately after font registration, before the QML engine

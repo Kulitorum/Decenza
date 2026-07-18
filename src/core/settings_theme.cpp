@@ -1,4 +1,6 @@
 #include "settings_theme.h"
+
+#include <algorithm>
 #include "settings.h"
 
 #include <QStandardPaths>
@@ -612,17 +614,28 @@ QString g_bundledFontFamily;
 void SettingsTheme::setBundledFontFamily(const QString& family) { g_bundledFontFamily = family; }
 QString SettingsTheme::bundledFontFamily() { return g_bundledFontFamily; }
 
-const QMap<QString, int>& SettingsTheme::fontSizeDefaults() {
-    static const QMap<QString, int> defaults = {
-        {"headingSize", 32},
-        {"titleSize", 24},
-        {"subtitleSize", 18},
-        {"bodySize", 18},
-        {"labelSize", 14},
-        {"captionSize", 12},
-        {"valueSize", 48},
-        {"timerSize", 72}
+const QMap<QString, SettingsTheme::FontRole>& SettingsTheme::fontRoles() {
+    //                          default  min  max
+    static const QMap<QString, FontRole> roles = {
+        {"headingSize",  {32, 16,  64}},
+        {"titleSize",    {24, 12,  48}},
+        {"subtitleSize", {18, 10,  36}},
+        {"bodySize",     {18, 10,  36}},
+        {"labelSize",    {14,  8,  28}},
+        {"captionSize",  {12,  8,  24}},
+        {"valueSize",    {48, 24,  96}},
+        {"timerSize",    {72, 36, 120}}
     };
+    return roles;
+}
+
+const QMap<QString, int>& SettingsTheme::fontSizeDefaults() {
+    static const QMap<QString, int> defaults = [] {
+        QMap<QString, int> d;
+        for (auto it = fontRoles().constBegin(); it != fontRoles().constEnd(); ++it)
+            d.insert(it.key(), it.value().def);
+        return d;
+    }();
     return defaults;
 }
 
@@ -665,8 +678,21 @@ void SettingsTheme::setCustomFontSizes(const QVariantMap& sizes) {
 }
 
 void SettingsTheme::setFontSize(const QString& fontName, int size) {
+    // Validate here rather than trusting callers. POST /api/theme/font takes a JSON body,
+    // so an out-of-range or unknown role is reachable without touching the editor's
+    // sliders — and an unbounded value (timerSize 100000) renders the app unusable while
+    // an unknown key writes junk nothing will ever surface or clean up.
+    auto it = fontRoles().constFind(fontName);
+    if (it == fontRoles().constEnd()) {
+        qWarning() << "[Font] Ignoring unknown font role:" << fontName;
+        return;
+    }
+    const int clamped = std::clamp(size, it->min, it->max);
+    if (clamped != size)
+        qWarning() << "[Font] Clamped" << fontName << size << "->" << clamped;
+
     QVariantMap sizes = customFontSizes();
-    sizes[fontName] = size;
+    sizes[fontName] = clamped;
     setCustomFontSizes(sizes);
 }
 

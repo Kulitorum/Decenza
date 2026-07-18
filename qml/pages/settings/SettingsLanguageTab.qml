@@ -852,6 +852,8 @@ Item {
         // frozen at whatever it returned when the tab was first created — configure a
         // provider afterwards and the dialog still claims you have none. Read them
         // imperatively here instead, at the one moment they matter.
+        aiTranslateOfferPopup.resultText = ""
+        aiTranslateOfferPopup.resultIsError = false
         aiTranslateOfferPopup.aiAvailable = TranslationManager.canAutoTranslate()
         aiTranslateOfferPopup.missingCount = TranslationManager.uniqueUntranslatedCount()
         aiTranslateOfferPopup.open()
@@ -861,8 +863,14 @@ Item {
         target: TranslationManager
         // After a downloaded file lands we finally know the real coverage.
         function onLanguageDownloaded(langCode, success, error) {
-            if (success && langCode === TranslationManager.currentLanguage)
-                languageTab.maybeOfferAiTranslation()
+            if (success) {
+                if (langCode === TranslationManager.currentLanguage)
+                    languageTab.maybeOfferAiTranslation()
+                return
+            }
+            // A failed download means the user switched to a language whose strings never
+            // arrived. Say so — silence looks identical to a language with no translations.
+            console.warn("Language download failed for", langCode, ":", error)
         }
         // Switching to an already-downloaded language fires no download.
         function onCurrentLanguageChanged() {
@@ -952,6 +960,16 @@ Item {
             // Progress, shown in place of the prompt once translation is running.
             Text {
                 width: parent.width
+                text: aiTranslateOfferPopup.resultText
+                font: Theme.bodyFont
+                color: Theme.errorColor
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.Wrap
+                visible: aiTranslateOfferPopup.resultIsError
+            }
+
+            Text {
+                width: parent.width
                 text: TranslationManager.translate("language.aiOffer.progress", "Translating… %1 / %2")
                       .arg(TranslationManager.autoTranslateProgress)
                       .arg(TranslationManager.autoTranslateTotal)
@@ -1009,10 +1027,25 @@ Item {
             }
         }
 
+        // Surfaced rather than swallowed: a failed run (bad key, quota, network) used to
+        // close the dialog exactly like a successful one, leaving the user to notice the
+        // strings were still English and guess why.
+        property string resultText: ""
+        property bool resultIsError: false
+
         Connections {
             target: TranslationManager
             function onAutoTranslateFinished(success, message) {
-                if (aiTranslateOfferPopup.opened) aiTranslateOfferPopup.close()
+                if (!aiTranslateOfferPopup.opened) return
+                if (success) {
+                    aiTranslateOfferPopup.close()
+                    return
+                }
+                aiTranslateOfferPopup.resultIsError = true
+                aiTranslateOfferPopup.resultText = message && message.length > 0
+                    ? message
+                    : TranslationManager.translate("language.aiOffer.failedGeneric",
+                          "Translation failed. Check your AI provider settings and try again.")
             }
         }
     }
