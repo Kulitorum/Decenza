@@ -248,6 +248,7 @@ private:
 
     QJSEngine* m_jsEngine = nullptr;
     QJSValue m_translateFn;
+    bool m_warnedNoEngine = false;  // warn once — see translateFn()
 
     QString m_currentLanguage;
     bool m_editModeEnabled = false;

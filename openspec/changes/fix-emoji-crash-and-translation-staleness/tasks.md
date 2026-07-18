@@ -130,6 +130,31 @@ re-render, offline behaviour, eviction) no longer exist.
       preceded this was verified on macOS only.
 - [ ] 6.8 Verify on Windows.
 
+## 6b. Observed in testing — NOT this change's code, decide separately
+
+- [ ] 6.10 The Language tab contradicts itself on ONE card: it shows German as `2974 / 2977`
+      and, directly below, "Translation complete!". Two code paths round the same 99.899%
+      differently:
+        - `translationmanager.cpp:1149` `(translated * 100) / total` — integer division,
+          truncates to **99%** (the language list)
+        - `SettingsLanguageTab.qml:278` `Math.round((translated/total) * 100)` — rounds to
+          **100**, which then trips `if (percent === 100) return "Translation complete!"`
+      Truncation is the safer of the two (it cannot claim 100 while anything is missing), so
+      the QML side is the one to change. Two lines. `SettingsLanguageTab.qml` is NOT touched
+      by this change, so this is a deliberate scope call, not an oversight.
+- [ ] 6.11 The 3 untranslated German strings are all long, multi-line MCP help text
+      (`settings.ai.mcp.help.capabilities` / `.platformNote` / `.steps`). Every other string in
+      the batch translated. Check whether the AI translation path skips or silently fails on
+      strings past some length — if so, that is a real gap, not a coverage statistic.
+- [ ] 6.12 The percentage's DENOMINATOR may be wrong: it counts the string registry (2,977),
+      but `machineStatus.idle` is absent from the registry entirely — so it is invisible to
+      both the percentage AND to AI translation, and can never be translated. That is why
+      "Idle" stayed English while the rest of the UI switched to German (see 6.3). 450 keys
+      also have German translations but are not in the registry, so the two have drifted in
+      both directions. CAVEAT: `string_registry.json` on disk was last written 12:46 while the
+      app started 15:01, so re-check against a freshly saved registry before treating the
+      450-key drift as established.
+
 ## 7. Custom icon audit (investigation only — no swaps in this change)
 
 Motivation: 69 bespoke SVGs in `resources/icons/` are a maintenance burden, and standard emoji are

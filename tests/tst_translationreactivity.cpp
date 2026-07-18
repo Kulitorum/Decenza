@@ -24,6 +24,9 @@
 #include <QQmlEngine>
 #include <QQmlContext>
 
+#include <QNetworkAccessManager>
+
+#include "core/settings.h"
 #include "core/translationmanager.h"
 
 // Minimal stand-in for TranslationManager: one string that changes, exposed both ways.
@@ -84,8 +87,8 @@ private slots:
     void propertyReturningCallableReEvaluates();
     void callableIsCachedAcrossEvaluations();
     void callableWorksOutsideBindings();
-    void asyncResolutionPatternReRenders();
     void realTranslateIsANotifyingProperty();
+    void realTranslateFnIsCallableAndCached();
 };
 
 // BASELINE: documents the bug. If this ever starts passing, Qt changed its
@@ -189,33 +192,6 @@ void TestTranslationReactivity::callableWorksOutsideBindings()
     QCOMPARE(obj->property("label").toString(), QStringLiteral("Hallo"));
 }
 
-// design.md D4: the emoji resolver is asynchronous, so its result changes when a
-// fetch lands. That is the same dependency problem wearing a different hat — this
-// asserts the one mechanism covers both, so fixing translations does not ship a
-// fresh class of stale binding beside it.
-void TestTranslationReactivity::asyncResolutionPatternReRenders()
-{
-    QQmlEngine engine;
-    SpikeTranslator resolver(&engine);
-    // "" models an unresolved asset (strip); the later value models the fetch landing.
-    resolver.setTranslation("emoji:1f9cb", "");
-    engine.rootContext()->setContextProperty("R", &resolver);
-
-    QQmlComponent component(&engine);
-    component.setData(R"(
-        import QtQml
-        QtObject { property string src: R.translate("emoji:1f9cb", "") }
-    )", QUrl("qrc:/spike_async.qml"));
-
-    QScopedPointer<QObject> obj(component.create());
-    QVERIFY2(obj, qPrintable(component.errorString()));
-    QCOMPARE(obj->property("src").toString(), QString());
-
-    // Fetch completes.
-    resolver.setTranslation("emoji:1f9cb", "file:///cache/1f9cb.svg");
-    QCOMPARE(obj->property("src").toString(), QStringLiteral("file:///cache/1f9cb.svg"));
-}
-
 // THE GUARD (design.md D2). Everything above proves the MECHANISM works on a stand-in;
 // this asserts the real TranslationManager actually uses it.
 //
@@ -253,6 +229,39 @@ void TestTranslationReactivity::realTranslateIsANotifyingProperty()
              "translateString() is gone — C++ callers (updatechecker, blemanager, aimanager, "
              "aiconversation, livesteamcoach, visualizer*, databasebackupmanager, aiprovider, "
              "main) route their user-visible strings through it.");
+}
+
+// The reflective test above passes even if translateFn() returns an empty QJSValue — the
+// shape would be right and every binding in the app would still be undefined. This drives
+// the REAL class and asserts the property value is callable and stable.
+//
+// `wrapper.property("translateString")` couples a string literal to a C++ method name with
+// no compile-time link: an IDE rename of translateString() compiles clean, yields undefined,
+// and turns every translated string into a TypeError. indexOfMethod catches removal, not a
+// consistent rename. This catches both.
+void TestTranslationReactivity::realTranslateFnIsCallableAndCached()
+{
+    QQmlEngine engine;
+    QNetworkAccessManager nam;
+    Settings settings;
+    TranslationManager tm(&nam, &settings);
+
+    tm.setJsEngine(&engine);
+
+    const QJSValue fn = tm.translateFn();
+    QVERIFY2(fn.isCallable(),
+             "TranslationManager.translate is not a callable — QML call sites would raise a "
+             "TypeError on every translated string. Did translateString() get renamed?");
+
+    // Cached: rebuilding per read would allocate on every one of ~3,248 bindings each time
+    // the language changes.
+    QVERIFY2(fn.strictlyEquals(tm.translateFn()), "the callable must be built once and cached");
+
+    // And it must actually translate — falling back to the English text when no translation
+    // exists, which is the safety net the whole fallback argument rests on.
+    const QJSValue out = fn.call({QJSValue("nonexistent.key.for.test"), QJSValue("Fallback Text")});
+    QVERIFY2(!out.isError(), qPrintable(out.toString()));
+    QCOMPARE(out.toString(), QStringLiteral("Fallback Text"));
 }
 
 QTEST_MAIN(TestTranslationReactivity)

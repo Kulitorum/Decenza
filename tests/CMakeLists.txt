@@ -61,6 +61,8 @@ set(PROFILE_SOURCES
 )
 
 set(CORE_SOURCES
+    ${CMAKE_SOURCE_DIR}/src/core/emojiassets.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/markdownrenderer.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_mqtt.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_autowake.cpp
@@ -342,6 +344,21 @@ add_decenza_test(tst_translationreactivity
     tst_translationreactivity.cpp
 )
 target_link_libraries(tst_translationreactivity PRIVATE Qt6::Qml)
+
+# --- tst_markdownrenderer: markdown -> HTML, incl. the raw-HTML security claim ---
+add_decenza_test(tst_markdownrenderer
+    tst_markdownrenderer.cpp
+)
+target_link_libraries(tst_markdownrenderer PRIVATE Qt6::Qml)
+
+# --- tst_emojiassets: the SHIPPED :/emoji resource set ---
+# Compiles emoji.qrc in so this asserts what actually ships, not the source directory —
+# without it a missing/stale qrc would silently strip every emoji in the app while
+# tst_textescaping (which reads disk) stayed green.
+add_decenza_test(tst_emojiassets
+    tst_emojiassets.cpp
+    ${CMAKE_SOURCE_DIR}/resources/emoji.qrc
+)
 
 # --- tst_textescaping: Theme.escapeHtml / replaceEmojiWithImg escaping contract ---
 # Runs the real JS out of qml/Theme.qml in a QJSEngine, so it guards shipping source

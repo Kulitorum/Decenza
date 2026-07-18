@@ -397,7 +397,11 @@ Rectangle {
                                     MarkdownRenderer.toHtml(MainController.aiManager.conversation.getConversationText()),
                                     Theme.bodyFont.pixelSize, true)
                               : ""
-                        textFormat: Text.MarkdownText
+                        // RichText: the binding above now produces HTML. Left as MarkdownText
+                        // this feeds <img> tags to the Markdown parser — the exact truncation
+                        // this change fixes. Three reviewers caught that I switched only two of
+                        // the four sites. See markdownrenderer.h.
+                        textFormat: Text.RichText
                         wrapMode: TextEdit.WordWrap
                         readOnly: true
                         selectByMouse: true

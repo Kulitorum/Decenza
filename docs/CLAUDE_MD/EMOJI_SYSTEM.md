@@ -14,15 +14,16 @@ Emojis are rendered as pre-rendered SVG images (Twemoji), not via a color font. 
 
 ## Resolution: bundled or stripped, never fetched
 
-The **complete** upstream set ships (~4,000 SVGs, ~3 MB compressed). Resolution is local and
+The **complete** upstream set ships (~4,000 SVGs, ~3 MB compressed — measured at v2.0, July 2026). Resolution is local and
 synchronous — there is no CDN, no cache, and no network path. An earlier design fetched unbundled
 emoji at runtime; measuring the install-size cost it was avoiding (+2.8 MB on a 137 MB bundle)
 killed it, and with it a disk cache, a negative cache, and an async-rerender problem.
+(Both figures measured July 2026; re-measure before reusing them as an argument.)
 
 `EmojiAssets` (`src/core/emojiassets.h`) answers "is this bundled?" from the Qt resource system.
 `Theme._emojiAssetPath()` asks before emitting a path, so an emoji with no asset is **stripped**
 rather than becoming an image reference nothing can resolve. This matters even with 4,000 assets:
-1,075 codepoints inside the emoji ranges have no upstream artwork.
+over a thousand codepoints inside the emoji ranges have no upstream artwork.
 
 Two things that reach the platform colour renderer without help, and are handled explicitly:
 - **Keycaps** (`1️⃣` = `U+0031 U+FE0F U+20E3`) — the base is an ASCII digit, matched by no range.

@@ -626,14 +626,12 @@ Item {
                                 // render thread on macOS. Route them through the SVG emoji path
                                 // instead, exactly as every other externally-sourced string does.
                                 //
-                                // MarkdownText, not RichText: the source IS markdown, so RichText
-                                // would show ##, - and ** as literal characters.
-                                //
                                 // Markdown -> HTML FIRST, then inject emoji, then render as
                                 // RichText. Rewriting emoji before the markdown parse truncates the
                                 // document at the first emoji (see markdownrenderer.h); doing it
                                 // after means the parser never sees an <img>. allowMarkup is safe
-                                // here because toHtml() has already escaped the source text.
+                                // because toHtml() escapes text content AND parses with
+                                // MarkdownNoHTML, so raw HTML in the notes cannot become markup.
                                 textFormat: TextEdit.RichText
                                 text: Theme.replaceEmojiWithImg(
                                           MarkdownRenderer.toHtml(MainController.updateChecker.releaseNotes),
@@ -834,7 +832,15 @@ Item {
                         id: notesText
                         width: notesScrollView.width
                         readOnly: true
-                        text: MainController.updateChecker.releaseNotes
+                        // Same treatment as the inline notes above. This one was missed and
+                        // was still rendering release notes as PLAIN TEXT — the exact crash
+                        // path main.cpp describes (a colour emoji reaching the platform
+                        // renderer takes down the macOS render thread), and the site that
+                        // comment calls "the remaining exposure".
+                        textFormat: TextEdit.RichText
+                        text: Theme.replaceEmojiWithImg(
+                                  MarkdownRenderer.toHtml(MainController.updateChecker.releaseNotes),
+                                  Theme.scaled(13), true)
                         color: Theme.textColor
                         font.pixelSize: Theme.scaled(13)
                         wrapMode: Text.WordWrap

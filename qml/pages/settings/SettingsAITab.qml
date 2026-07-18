@@ -1931,7 +1931,9 @@ KeyboardAwareContainer {
                         text: Theme.replaceEmojiWithImg(
                                   MarkdownRenderer.toHtml(MainController.aiManager?.conversation?.getConversationText() ?? ""),
                                   Theme.bodyFont.pixelSize, true)
-                        textFormat: Text.MarkdownText
+                        // RichText: the binding above produces HTML, not markdown. See
+                        // markdownrenderer.h — MarkdownText here would truncate at the first emoji.
+                        textFormat: Text.RichText
                         wrapMode: TextEdit.WordWrap
                         readOnly: true
                         selectByMouse: true

@@ -275,8 +275,12 @@ Item {
                             text: {
                                 var total = TranslationManager.totalStringCount
                                 var translated = total - TranslationManager.untranslatedCount
-                                var percent = Math.round((translated / Math.max(1, total)) * 100)
-                                if (percent === 100) return "Translation complete!"
+                                // Compare COUNTS, not a rounded percentage. Math.round() turned
+                                // 2974/2977 (99.9%) into 100 and printed "Translation complete!"
+                                // directly beneath the "2974 / 2977" that disproved it, while the
+                                // language list showed 99% because getTranslationPercent() uses
+                                // integer division. Same number, two roundings, one of them lying.
+                                if (translated >= total && total > 0) return "Translation complete!"
                                 return TranslationManager.untranslatedCount + " strings need translation"
                             }
                             font: Theme.labelFont

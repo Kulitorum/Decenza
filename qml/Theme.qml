@@ -55,10 +55,25 @@ QtObject {
     // EmojiAssets.has() is an invokable, and non-reactive on purpose: the bundled set is
     // fixed at build time, so unlike Settings.theme.effectiveFontSizes there is nothing for
     // a binding to re-evaluate. See src/core/emojiassets.h.
+    property bool _warnedNoEmojiAssets: false
     function _emojiAssetPath(cps) {
         if (!cps || cps.length === 0) return ""
+        if (typeof EmojiAssets === "undefined") {
+            // Distinct from "this emoji isn't bundled". If the context property is missing,
+            // EVERY emoji in this QML engine silently vanishes — and an app with no emoji
+            // looks deliberate. The C++ warning in emojiassets.cpp cannot fire here, because
+            // has() is never reached. Secondary engines are the real risk: main.cpp creates
+            // one for the GHC window that does not set this property.
+            if (!_warnedNoEmojiAssets) {
+                _warnedNoEmojiAssets = true
+                console.warn("[Emoji] EmojiAssets context property missing — every emoji in "
+                           + "this QML engine will be stripped. main.cpp must call "
+                           + "setContextProperty(\"EmojiAssets\", ...) on this engine.")
+            }
+            return ""
+        }
         var key = cps.join("-")
-        if (typeof EmojiAssets === "undefined" || !EmojiAssets.has(key)) return ""
+        if (!EmojiAssets.has(key)) return ""
         return "qrc:/emoji/" + key + ".svg"
     }
 
@@ -109,13 +124,18 @@ QtObject {
     function _isEmojiPresentation(text, i, cp) {
         var next = i + (cp > 0xFFFF ? 2 : 1)
         if (next >= text.length || text.codePointAt(next) !== 0xFE0F) return false
-        // Bound it. A stray U+FE0F after ordinary text must not turn that character into
-        // an image reference — only characters that actually HAVE an emoji presentation
-        // qualify: the keycap bases (0-9, # and *) and symbols from U+00A9 up. ASCII
-        // letters are excluded, so "a️" stays text.
+        // Bound it, but be honest about how loose the bound is: `cp >= 0xA9` is EVERY
+        // character above U+00A9, not just symbols — é, Cyrillic, Greek, Hebrew, Arabic and
+        // CJK all qualify. So a stray U+FE0F after CJK text makes that character resolve to
+        // a nonexistent asset and get DROPPED (see _emojiAssetPath). ASCII letters are
+        // excluded, which covers the common accidental case.
+        //
+        // Enumerating Unicode's real Emoji_Presentation property would be exact but large;
+        // this is deliberately the cheap approximation. A stray FE0F after non-emoji text is
+        // rare, and the cost is one lost character rather than a crash.
         if (cp >= 0x30 && cp <= 0x39) return true   // keycap digits
         if (cp === 0x23 || cp === 0x2A) return true // keycap # and *
-        return cp >= 0xA9                            // ©, ®, ™ and every symbol above
+        return cp >= 0xA9
     }
 
     // Replace emoji Unicode characters in a string with RichText <img> tags
@@ -223,7 +243,18 @@ QtObject {
     // a clean plain-text string for TalkBack/VoiceOver.
     function toAccessibleText(html) {
         if (!html) return ""
-        return stripEmoji(html.replace(/<[^>]*>/g, "")).trim()
+        // Decode entities as well as stripping tags. Callers now pass MarkdownRenderer output,
+        // where QTextDocument::toHtml() has escaped & < > " and emitted &nbsp; — without this a
+        // screen reader announces "Fixes R amp semicolon D sync". &amp; must be decoded LAST or
+        // it re-creates the others.
+        return stripEmoji(html.replace(/<[^>]*>/g, ""))
+            .replace(/&nbsp;/g, " ")
+            .replace(/&lt;/g, "<")
+            .replace(/&gt;/g, ">")
+            .replace(/&quot;/g, "\"")
+            .replace(/&#39;/g, "'")
+            .replace(/&amp;/g, "&")
+            .trim()
     }
 
     // Escape user-supplied text for embedding as CONTENT in a StyledText, RichText or

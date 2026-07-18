@@ -57,18 +57,22 @@ void TestTextEscaping::initTestCase()
 
     // Pull out `function <name>(...) { ... }` blocks by brace matching.
     auto extract = [&src](const QString& name) -> QString {
-        const int start = src.indexOf("function " + name + "(");
+        const QString needle = "function " + name + "(";
+        const int start = src.indexOf(needle);
         if (start < 0) return QString();
+        // Theme.qml is comment-dense and its comments name these functions. Taking the first
+        // textual hit would silently extract prose if a comment ever contained the pattern.
+        if (src.indexOf(needle, start + 1) >= 0)
+            return QString();  // ambiguous — fail loudly via the caller's QVERIFY2
         int depth = 0;
         int i = src.indexOf('{', start);
-        const int bodyStart = i;
+        if (i < 0) return QString();
         for (; i < src.size(); ++i) {
             if (src[i] == '{') ++depth;
             else if (src[i] == '}') {
                 if (--depth == 0) return src.mid(start, i - start + 1);
             }
         }
-        Q_UNUSED(bodyStart);
         return QString();
     };
 
@@ -216,7 +220,7 @@ void TestTextEscaping::unbundledEmojiIsStrippedNotBroken()
 {
     // U+1F322 sits INSIDE _isEmoji's 1F300-1F5FF range but upstream draws no asset for it.
     // That combination is the point: a codepoint the rewriter treats as emoji and then cannot
-    // resolve is exactly what produced a broken image. 1,075 codepoints in the matched ranges
+    // resolve is exactly what produced a broken image. Over a thousand codepoints in the matched ranges
     // currently have no asset, so this is a present-day gap, not a hypothetical future one.
     //
     // An earlier version of this test used U+1FB00, which _isEmoji does not match at all — so
@@ -227,9 +231,9 @@ void TestTextEscaping::unbundledEmojiIsStrippedNotBroken()
 
     const QString out = call("replaceEmojiWithImg",
                              {QJSValue("a" + unbundled + "b"), QJSValue(16)});
-    QVERIFY2(!out.contains("<img"), qPrintable("unbundled emoji must not emit an image: " + out));
-    QVERIFY2(out.contains("a") && out.contains("b"),
-             qPrintable("surrounding text must survive: " + out));
+    // QCOMPARE, not contains(): `contains("a") && contains("b")` also matches an emitted
+    // <img ... align="middle">, so it would pass on exactly the output it is meant to reject.
+    QCOMPARE(out, QStringLiteral("ab"));
 
     // A bundled one still resolves, so the check is not simply refusing everything.
     const QString ok = call("replaceEmojiWithImg", {QJSValue(QString::fromUtf8("☕")), QJSValue(16)});

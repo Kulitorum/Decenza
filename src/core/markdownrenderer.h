@@ -43,7 +43,12 @@ public:
     // own font and ignore the user's font-size settings. It emits no colour, so the theme's
     // text colour still applies once the wrapper is gone.
     //
-    // Text content is escaped by toHtml(), so the result is safe to pass through
-    // replaceEmojiWithImg() with allowMarkup=true.
+    // Safe to pass through replaceEmojiWithImg() with allowMarkup=true, for TWO reasons
+    // that both have to hold: toHtml() escapes text content, AND the parse runs with
+    // MarkdownNoHTML so raw HTML in the source never becomes live markup.
+    //
+    // An earlier version of this comment claimed only the first, and was WRONG — Qt's
+    // default GitHub dialect parses embedded HTML, so an untrusted `<a href>` reached the
+    // renderer as a real link. Caught in review; tst_markdownrenderer.cpp pins it now.
     Q_INVOKABLE QString toHtml(const QString& markdown) const;
 };

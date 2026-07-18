@@ -8,7 +8,8 @@ Usage:
     python scripts/download_emoji.py noto          # Google Noto Emoji
     python scripts/download_emoji.py fluentui      # Microsoft Fluent UI Emoji (flat)
 
-Downloads ~750 emojis used by the app + weather emojis.
+Default: the ~750 emoji the app's own content references.
+--all: the COMPLETE upstream set (~4,000), which is what ships.
 Outputs to resources/emoji/ and generates resources/emoji.qrc.
 """
 
@@ -239,7 +240,12 @@ def check_for_update(source) -> int:
     rate limit, or an upstream retag should not be able to break someone's compile or
     silently change what their app renders.
 
-    Returns 0 when current or undeterminable, 1 when an update is available.
+    Exit codes are DISTINCT so the CI job cannot report a crash as "current":
+      0 = pin is current
+      2 = a newer release exists
+      3 = could not determine (offline, rate-limited, API changed)
+    1 stays reserved for usage errors, which is what an unhandled traceback also is not —
+    an unexpected non-zero turns the job red rather than printing an all-clear.
     """
     if not hasattr(source, "repo"):
         print(f"{source.name}: no pinned repo/tag, nothing to check")
@@ -253,12 +259,12 @@ def check_for_update(source) -> int:
             latest = json.load(resp).get("tag_name", "")
     except Exception as e:
         # Offline, rate-limited, DNS down: say so and move on. Not an error.
-        print(f"emoji: could not check {source.repo} for updates ({e}) — skipping")
-        return 0
+        print(f"emoji: could not check {source.repo} for updates ({e})")
+        return 3
 
     if not latest:
-        print(f"emoji: {source.repo} reported no latest release — skipping")
-        return 0
+        print(f"emoji: {source.repo} reported no latest release")
+        return 3
 
     def parts(tag):
         return [int(x) for x in re.findall(r"\d+", tag)] or [0]
@@ -272,7 +278,7 @@ def check_for_update(source) -> int:
         print(f"    and commit resources/emoji/ + resources/emoji.qrc.")
         print(f"    Emoji from a newer Unicode revision are stripped until you do.")
         print()
-        return 1
+        return 2
 
     print(f"emoji: {source.repo} {source.tag} is current (latest: {latest})")
     return 0
@@ -302,13 +308,18 @@ def download_full_set(source, emoji_dir: str) -> list[str]:
     try:
         with urllib.request.urlopen(req, timeout=180) as resp:
             blob = resp.read()
-    except urllib.error.URLError as e:
+    except OSError as e:
+        # OSError covers URLError AND the bare TimeoutError a socket read timeout raises
+        # mid-download, which URLError alone does not catch.
         print(f"ERROR: could not fetch the release archive: {e}")
+        print("Existing assets left untouched.")
         sys.exit(1)
 
     print(f"  archive: {len(blob) / 1024 / 1024:.1f} MB")
 
     written = []
+    staged = {}
+    skipped = 0
     with tempfile.TemporaryFile() as tmp:
         tmp.write(blob)
         tmp.seek(0)
@@ -320,21 +331,40 @@ def download_full_set(source, emoji_dir: str) -> list[str]:
                     continue
                 if wanted not in member.name:
                     continue
+                # basename() IS the traversal guard — it discards any directory component,
+                # so a "../../etc/x.svg" member becomes "x.svg". (An earlier version also
+                # compared fname to basename(fname), which is vacuous by construction.)
                 fname = os.path.basename(member.name)
-                # Guard against a path-traversal entry in an untrusted archive.
-                if fname != os.path.basename(fname) or fname.startswith("."):
+                if fname.startswith("."):
                     continue
                 f = tar.extractfile(member)
                 if f is None:
+                    skipped += 1
                     continue
-                with open(os.path.join(emoji_dir, fname), "wb") as out:
-                    out.write(f.read())
+                staged[fname] = f.read()
                 written.append(fname)
 
-    if not written:
-        print(f"ERROR: no SVGs found under '{source.archive_svg_dir}' in the archive. "
-              f"The upstream layout may have changed.")
+    # "Not zero" is far too weak a check. If upstream restructures, or extractfile() returns
+    # None for most members, a handful of files would regenerate emoji.qrc with a handful of
+    # entries — and EmojiAssets would then find a non-empty set, keep quiet, and strip ~4,000
+    # emoji as if each were individually unbundled. tst_emojiassets asserts > 4000; the
+    # generator should refuse to produce something that test would reject.
+    MIN_EXPECTED = 3000
+    if len(written) < MIN_EXPECTED:
+        print(f"ERROR: only {len(written)} SVGs found under '{source.archive_svg_dir}' "
+              f"(expected at least {MIN_EXPECTED}). The upstream layout may have changed. "
+              f"Existing assets left untouched.")
         sys.exit(1)
+    if skipped:
+        print(f"  note: skipped {skipped} unreadable member(s)")
+
+    # Only now is it safe to replace what is already committed.
+    for f in os.listdir(emoji_dir):
+        if f.endswith(".svg"):
+            os.remove(os.path.join(emoji_dir, f))
+    for fname, data in staged.items():
+        with open(os.path.join(emoji_dir, fname), "wb") as out:
+            out.write(data)
 
     print(f"  extracted: {len(written)} SVGs")
     return written
@@ -390,12 +420,11 @@ def main():
     # Ensure output directory exists
     os.makedirs(EMOJI_DIR, exist_ok=True)
 
-    # Clear existing SVGs
-    for f in os.listdir(EMOJI_DIR):
-        if f.endswith(".svg"):
-            os.remove(os.path.join(EMOJI_DIR, f))
-
     if fetch_all:
+        # Fetch and validate BEFORE destroying anything. Deleting first meant a flaky network
+        # on a routine pin bump wiped ~4,000 committed assets and left emoji.qrc listing files
+        # that no longer existed — a build failure naming individual SVGs and saying nothing
+        # about the download that removed them.
         filenames = download_full_set(source, EMOJI_DIR)
         unique_filenames = sorted(set(filenames))
         generate_qrc(filenames, QRC_PATH)
@@ -403,6 +432,12 @@ def main():
         total_size = sum(os.path.getsize(os.path.join(EMOJI_DIR, fn)) for fn in unique_filenames)
         print(f"Total size: {total_size / 1024 / 1024:.2f} MB")
         return
+
+    # Curated path: safe to clear first, since each emoji is fetched individually and a
+    # partial result is reported rather than silently accepted.
+    for f in os.listdir(EMOJI_DIR):
+        if f.endswith(".svg"):
+            os.remove(os.path.join(EMOJI_DIR, f))
 
     # Collect all unique emojis
     emojis_from_data = parse_emoji_data_js(EMOJI_DATA_JS)
