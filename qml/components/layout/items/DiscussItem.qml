@@ -85,7 +85,7 @@ Item {
             translationFallback: "Discuss"
             iconSource: "qrc:/icons/discuss.svg"
             iconSize: Theme.scaled(43)
-            backgroundColor: Theme.primaryColor
+            backgroundColor: Theme.actionButtonFill(Theme.primaryColor)
             enabled: root.isClaudeDesktopReady
             onClicked: root.openDiscuss()
         }

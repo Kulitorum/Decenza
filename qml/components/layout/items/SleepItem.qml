@@ -49,7 +49,10 @@ Item {
             anchors.fill: parent
             anchors.topMargin: Theme.spacingSmall
             anchors.bottomMargin: Theme.spacingSmall
-            color: sleepCompactTap.isPressed ? Qt.darker(Theme.buttonDisabled, 1.2) : Theme.buttonDisabled
+            color: {
+                var base = Theme.actionButtonFill(Theme.buttonDisabled)
+                return sleepCompactTap.isPressed ? Qt.darker(base, 1.2) : base
+            }
             radius: Theme.cardRadius
             opacity: 1.0
         }
@@ -107,7 +110,7 @@ Item {
             translationKey: "idle.button.sleep"
             translationFallback: "Sleep"
             iconSource: root.showIcon ? "qrc:/icons/sleep.svg" : ""
-            backgroundColor: Theme.buttonDisabled
+            backgroundColor: Theme.actionButtonFill(Theme.buttonDisabled)
             onClicked: root.doSleep()
             onPressAndHold: if (root.allowQuit) Qt.quit()
 

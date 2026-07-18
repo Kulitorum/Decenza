@@ -375,6 +375,16 @@ QtObject {
     readonly property color actionTileColor: Settings.theme.backgroundImagePath.length > 0
         ? surfaceColor
         : primaryColor
+
+    // Fill for idle-screen full-mode action buttons that render their OWN
+    // ActionButton/Rectangle (Sleep/Quit/History/Favorites/Discuss) instead of
+    // compiling to the scrimmed CustomItem tile. Over a custom background image
+    // they scrim to the same neutral glass as those tiles — so they read as
+    // buttons like Steam/Hot Water rather than an opaque colour slab — while
+    // keeping their given accent/grey fill when no image is set (zero change).
+    function actionButtonFill(baseColor: color): color {
+        return Settings.theme.backgroundImagePath.length > 0 ? scrimColor(surfaceColor) : baseColor
+    }
     property color secondaryColor: _c("secondaryColor", Settings.theme.customThemeColors.secondaryColor || "#c0c5e3")
     property color textColor: _c("textColor", Settings.theme.customThemeColors.textColor || "#ffffff")
     // Brightened whenever a background image is active. Originally tried scoping

@@ -122,7 +122,7 @@ Item {
 
         Rectangle {
             anchors.fill: parent
-            color: Theme.surfaceColor
+            color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
         }
 
