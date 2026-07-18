@@ -158,7 +158,12 @@ Page {
                         "ollama": "Ollama"
                     }[provider] || provider
 
-                    return recommendation + "\n\n---\n*" + TranslationManager.translate("dialingassistant.attribution", "Advice by") + " " + providerName + "*"
+                    // markdownSafeText: AI recommendations routinely contain emoji. Raw, they
+                    // reach the platform colour renderer (the macOS render-thread crash);
+                    // rewritten to <img> they truncate the rest of the reply, because Qt's
+                    // Markdown importer stops at inline HTML. See Theme.markdownSafeText.
+                    return Theme.markdownSafeText(recommendation)
+                         + "\n\n---\n*" + TranslationManager.translate("dialingassistant.attribution", "Advice by") + " " + providerName + "*"
                 }
                 textFormat: Text.MarkdownText
                 wrapMode: TextEdit.WordWrap

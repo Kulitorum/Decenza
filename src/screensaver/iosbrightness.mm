@@ -136,9 +136,9 @@ void macos_probeEmojiFont()
             // Check if it's Apple Color Emoji
             bool isEmoji = [name containsString:@"Emoji"] || [name containsString:@"emoji"];
             if (isEmoji) {
-                qWarning() << "[FontProbe] WARNING: U+" << QString::number(p.ch, 16).toUpper()
-                           << p.name << "-> font:" << QString::fromNSString(name)
-                           << "(APPLE COLOR EMOJI — will trigger native rendering!)";
+                qInfo() << "[FontProbe] U+" << QString::number(p.ch, 16).toUpper()
+                        << p.name << "would resolve to" << QString::fromNSString(name)
+                        << "IF rendered as text — expected; the app renders it as a bundled SVG.";
                 anyEmoji = true;
             }
 
@@ -150,8 +150,17 @@ void macos_probeEmojiFont()
     if (!anyEmoji) {
         qDebug() << "[FontProbe] All probed characters use non-emoji fonts (OK)";
     } else {
-        qWarning() << "[FontProbe] Some characters use Apple Color Emoji!"
-                    << "CurveTextRendering should still prevent the CopyEmojiImage crash.";
+        // This used to say "CurveTextRendering should still prevent the CopyEmojiImage crash."
+        // That is FALSE, and a crash on 2026-07-18 disproved it: curves cannot represent colour
+        // bitmaps, so Qt falls back to the texture-mask path for exactly these glyphs. Debug logs
+        // are read by users' AIs via MCP and acted on, so a confidently wrong all-clear here would
+        // get a real crash report dismissed. The actual defence is never letting a colour glyph
+        // reach the renderer — Theme.replaceEmojiWithImg() rewrites emoji to bundled SVGs.
+        qInfo() << "[FontProbe] Probed characters have Apple Color Emoji coverage. That is normal "
+                   "and NOT a crash indicator: the app renders emoji as bundled SVG images, so "
+                   "these glyphs never reach the text renderer. A crash here would mean some "
+                   "string bypassed Theme.replaceEmojiWithImg() — that is the thing to look for, "
+                   "not this line.";
     }
 
     CFRelease(systemFont);

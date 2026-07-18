@@ -627,15 +627,14 @@ Item {
                                 // instead, exactly as every other externally-sourced string does.
                                 //
                                 // MarkdownText, not RichText: the source IS markdown, so RichText
-                                // would show ##, - and ** as literal characters. ConversationOverlay
-                                // is the precedent — markdown + replaceEmojiWithImg, with the inline
-                                // <img> passing through the importer.
+                                // would show ##, - and ** as literal characters.
                                 //
-                                // replaceEmojiWithImg escapes & and < by default, so remote content
-                                // cannot inject tags; it leaves > raw so blockquotes still render.
+                                // markdownSafeText, NOT replaceEmojiWithImg: an inline <img>
+                                // truncates the rest of the document in Qt's Markdown importer, so
+                                // rewriting emoji here showed only the notes before the first emoji.
+                                // Release notes routinely open with one. See Theme.markdownSafeText.
                                 textFormat: TextEdit.MarkdownText
-                                text: Theme.replaceEmojiWithImg(MainController.updateChecker.releaseNotes,
-                                                                Theme.scaled(12))
+                                text: Theme.markdownSafeText(MainController.updateChecker.releaseNotes)
                                 color: Theme.textSecondaryColor
                                 font.pixelSize: Theme.scaled(12)
                                 wrapMode: Text.WordWrap

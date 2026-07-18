@@ -1925,7 +1925,10 @@ KeyboardAwareContainer {
                     TextArea {
                         id: conversationText
                         width: parent.width
-                        text: MainController.aiManager?.conversation?.getConversationText() ?? ""
+                        // markdownSafeText: raw emoji here would reach the platform colour
+                        // renderer (the macOS render-thread crash), and rewriting them to <img>
+                        // would truncate the reply. See Theme.markdownSafeText.
+                        text: Theme.markdownSafeText(MainController.aiManager?.conversation?.getConversationText() ?? "")
                         textFormat: Text.MarkdownText
                         wrapMode: TextEdit.WordWrap
                         readOnly: true

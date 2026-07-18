@@ -17,6 +17,7 @@
 #include <QtTest>
 #include <QJSEngine>
 #include <QDir>
+#include <QTextDocument>
 #include <QFile>
 #include <QRegularExpression>
 
@@ -35,6 +36,8 @@ private slots:
     void variationSelectorSequencesAreRewritten();
     void strayVariationSelectorDoesNotCaptureText();
     void unbundledEmojiIsStrippedNotBroken();
+    void markdownSafeTextRemovesEmojiEntirely();
+    void inlineImgTruncatesMarkdownDocument();
 
 private:
     QJSEngine m_engine;
@@ -74,11 +77,15 @@ void TestTextEscaping::initTestCase()
     const QString isEmoji = extract("_isEmoji");
     const QString isEmojiPres = extract("_isEmojiPresentation");
     const QString assetPath = extract("_emojiAssetPath");
+    const QString mdSafe = extract("markdownSafeText");
+    const QString stripFn = extract("stripEmoji");
     const QString replaceEmoji = extract("replaceEmojiWithImg");
     QVERIFY2(!escapeHtml.isEmpty(), "escapeHtml() not found in Theme.qml");
     QVERIFY2(!isEmoji.isEmpty(), "_isEmoji() not found in Theme.qml");
     QVERIFY2(!isEmojiPres.isEmpty(), "_isEmojiPresentation() not found in Theme.qml");
     QVERIFY2(!assetPath.isEmpty(), "_emojiAssetPath() not found in Theme.qml");
+    QVERIFY2(!mdSafe.isEmpty(), "markdownSafeText() not found in Theme.qml");
+    QVERIFY2(!stripFn.isEmpty(), "stripEmoji() not found in Theme.qml");
     QVERIFY2(!replaceEmoji.isEmpty(), "replaceEmojiWithImg() not found in Theme.qml");
 
     // Stand in for the EmojiAssets C++ singleton, seeded from the REAL asset directory in
@@ -97,11 +104,13 @@ void TestTextEscaping::initTestCase()
     m_engine.globalObject().setProperty("__knownEmoji", known);
     m_engine.evaluate("var EmojiAssets = { has: function(k) { return __knownEmoji[k] === true } }");
 
-    const QString program = QStringLiteral("(function(){ %1\n%2\n%3\n%4\n%5\n"
+    const QString program = QStringLiteral("(function(){ %1\n%2\n%3\n%4\n%5\n%6\n%7\n"
                                            "return { escapeHtml: escapeHtml,"
                                            "         replaceEmojiWithImg: replaceEmojiWithImg,"
+                                           "         markdownSafeText: markdownSafeText,"
                                            "         _emojiAssetPath: _emojiAssetPath }; })()")
-                                .arg(escapeHtml, isEmoji, isEmojiPres, assetPath, replaceEmoji);
+                                .arg(escapeHtml, isEmoji, isEmojiPres, assetPath, replaceEmoji)
+                                .arg(stripFn, mdSafe);
 
     m_theme = m_engine.evaluate(program);
     QVERIFY2(!m_theme.isError(), qPrintable(m_theme.toString()));
@@ -229,6 +238,40 @@ void TestTextEscaping::unbundledEmojiIsStrippedNotBroken()
     // A bundled one still resolves, so the check is not simply refusing everything.
     const QString ok = call("replaceEmojiWithImg", {QJSValue(QString::fromUtf8("☕")), QJSValue(16)});
     QVERIFY2(ok.contains("qrc:/emoji/2615.svg"), qPrintable(ok));
+}
+
+// Markdown contexts must NOT get <img> tags — see the two tests below for why.
+void TestTextEscaping::markdownSafeTextRemovesEmojiEntirely()
+{
+    const QString in = QString::fromUtf8("**☕ Recipes** — the whole drink.");
+    const QString out = call("markdownSafeText", {QJSValue(in)});
+    QVERIFY2(!out.contains("<img"), qPrintable("markdown must never receive an img tag: " + out));
+    QVERIFY2(!out.contains(QString::fromUtf8("☕")), qPrintable("emoji must be removed: " + out));
+    QVERIFY2(out.contains("Recipes") && out.contains("whole drink"),
+             qPrintable("surrounding text must survive: " + out));
+}
+
+// Documents the Qt behaviour that forced the decision above. This is a test of the
+// FRAMEWORK, deliberately: the whole design rests on it, it is surprising, and a Qt
+// upgrade that fixed it would let us restore emoji in markdown. It cost a production
+// regression (release notes truncated) and had silently broken AI replies before that,
+// because a code comment asserted the opposite without anyone checking.
+void TestTextEscaping::inlineImgTruncatesMarkdownDocument()
+{
+    const QString img = "<img src=\"file:///nonexistent-but-irrelevant.svg\" width=\"12\">";
+
+    QTextDocument withImg;
+    withImg.setMarkdown("hi " + img + " there\n\n- alpha\n- beta");
+    const QString got = withImg.toPlainText();
+    QVERIFY2(!got.contains("there"), qPrintable("Qt no longer truncates at inline <img> — "
+             "markdownSafeText() could be relaxed to keep emoji. Got: " + got));
+    QVERIFY2(!got.contains("alpha"), qPrintable("expected list after <img> to be dropped: " + got));
+
+    // Same content without the img survives intact — proving the img is the cause.
+    QTextDocument noImg;
+    noImg.setMarkdown("hi there\n\n- alpha\n- beta");
+    const QString ok = noImg.toPlainText();
+    QVERIFY2(ok.contains("there") && ok.contains("alpha"), qPrintable(ok));
 }
 
 QTEST_MAIN(TestTextEscaping)

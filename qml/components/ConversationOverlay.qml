@@ -388,13 +388,14 @@ Rectangle {
                     TextArea {
                         id: conversationText
                         width: parent.width
-                        // Substitute emoji with Twemoji SVG <img> (project-wide
-                        // pattern) so a color/sbix glyph never reaches CoreText's
-                        // crashing emoji path. Qt's Markdown importer passes the
-                        // inline <img> through, so markdown formatting AND emoji
-                        // both render. See docs/CLAUDE_MD/EMOJI_SYSTEM.md.
+                        // Strip emoji rather than rewriting them to <img>. The comment
+                        // here used to claim "Qt's Markdown importer passes the inline
+                        // <img> through, so markdown formatting AND emoji both render" —
+                        // that is FALSE: an inline <img> truncates the rest of the
+                        // document, so every AI reply was silently losing everything
+                        // after its first emoji. See Theme.markdownSafeText.
                         text: MainController.aiManager && MainController.aiManager.conversation
-                              ? Theme.replaceEmojiWithImg(MainController.aiManager.conversation.getConversationText(), Theme.bodyFont.pixelSize)
+                              ? Theme.markdownSafeText(MainController.aiManager.conversation.getConversationText())
                               : ""
                         textFormat: Text.MarkdownText
                         wrapMode: TextEdit.WordWrap
@@ -1086,7 +1087,7 @@ Rectangle {
             // that handler reads _pendingScrollKind, performs the scroll, and
             // wakes the render thread.
             overlay._pendingScrollKind = isResponse ? "preResponse" : "bottom"
-            conversationText.text = Theme.replaceEmojiWithImg(MainController.aiManager.conversation.getConversationText(), Theme.bodyFont.pixelSize)
+            conversationText.text = Theme.markdownSafeText(MainController.aiManager.conversation.getConversationText())
         }
     }
 
