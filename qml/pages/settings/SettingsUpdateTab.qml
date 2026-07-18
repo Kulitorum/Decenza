@@ -1036,7 +1036,7 @@ Item {
             AccessibleButton {
                 Layout.fillWidth: true
                 text: TranslationManager.translate("common.button.close", "Close")
-                accessibleName: TranslationManager.translate("common.accessibility.dismissDialog", "Close dialog")
+                accessibleName: TranslationManager.translate("common.accessibility.dismissDialog", "Dismiss dialog")
                 onClicked: donateDialog.close()
             }
         }

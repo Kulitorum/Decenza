@@ -1201,7 +1201,7 @@ Page {
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(2)
-                    Text { text: TranslationManager.translate("profileEditor.frameName", "Frame Name"); font: Theme.captionFont; color: Theme.textSecondaryColor }
+                    Text { text: TranslationManager.translate("profileEditor.frameName", "Frame name"); font: Theme.captionFont; color: Theme.textSecondaryColor }
                     StyledTextField {
                         Accessible.name: TranslationManager.translate("profileEditor.frameName", "Frame name")
                         Layout.fillWidth: true
@@ -1357,11 +1357,11 @@ Page {
 
                 // Max volume
                 Text { text: TranslationManager.translate("profileEditor.maxVolume", "Volume"); font: Theme.captionFont; color: Theme.flowColor }
-                ValueInput { Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("profileEditor.maxVolume", "Max volume"); from: 0; to: 500; stepSize: 1; suffix: " mL"; displayText: stepVersion >= 0 && step && (step.volume || 0) === 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: stepVersion >= 0 && step ? (step.volume || 0) : 0; onValueModified: function(newValue) { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].volume = Math.round(newValue) } }; onValueCommitted: uploadProfile() }
+                ValueInput { Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("profileEditor.maxVolume.accessible", "Max volume"); from: 0; to: 500; stepSize: 1; suffix: " mL"; displayText: stepVersion >= 0 && step && (step.volume || 0) === 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: stepVersion >= 0 && step ? (step.volume || 0) : 0; onValueModified: function(newValue) { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].volume = Math.round(newValue) } }; onValueCommitted: uploadProfile() }
 
                 // Max weight (independent, app-side exit)
                 Text { text: TranslationManager.translate("profileEditor.maxWeight", "Weight"); font: Theme.captionFont; color: Theme.weightColor }
-                ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: TranslationManager.translate("profileEditor.maxWeight", "Max weight"); from: 0; to: 500; stepSize: 0.1; suffix: " g"; displayText: stepVersion >= 0 && step && (step.exit_weight || 0) === 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: stepVersion >= 0 && step ? (step.exit_weight || 0) : 0; onValueModified: function(newValue) { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].exit_weight = Math.round(newValue * 10) / 10 } }; onValueCommitted: uploadProfile() }
+                ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: TranslationManager.translate("profileEditor.maxWeight.accessible", "Max weight"); from: 0; to: 500; stepSize: 0.1; suffix: " g"; displayText: stepVersion >= 0 && step && (step.exit_weight || 0) === 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: stepVersion >= 0 && step ? (step.exit_weight || 0) : 0; onValueModified: function(newValue) { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].exit_weight = Math.round(newValue * 10) / 10 } }; onValueCommitted: uploadProfile() }
 
                 // Flow/Pressure limit (opposite of goal in section 2)
                 Text { text: step && step.pump === "pressure" ? TranslationManager.translate("profileEditor.maxFlow", "Flow limit") : TranslationManager.translate("profileEditor.maxPressure", "Pressure limit"); font: Theme.captionFont; color: step && step.pump === "pressure" ? Theme.flowColor : Theme.pressureColor }
@@ -1416,7 +1416,7 @@ Page {
                     ValueInput {
                         Layout.fillWidth: true
                         valueColor: step && (step.exit_type === "flow_over" || step.exit_type === "flow_under") ? Theme.flowColor : Theme.pressureColor
-                        accessibleName: TranslationManager.translate("profileEditor.exitValue", "Exit value")
+                        accessibleName: TranslationManager.translate("profileEditor.exitValue.accessible", "Exit value")
                         from: 0; to: { if (!step) return 12; switch (step.exit_type) { case "flow_over": case "flow_under": return 8; default: return 12 } }
                         stepSize: 0.01
                         suffix: step && (step.exit_type === "flow_over" || step.exit_type === "flow_under") ? " mL/s" : " bar"
@@ -1441,7 +1441,7 @@ Page {
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(2)
-                    Text { text: TranslationManager.translate("profileEditor.popupMessage", "Popup Message"); font: Theme.captionFont; color: Theme.textSecondaryColor }
+                    Text { text: TranslationManager.translate("profileEditor.popupMessage", "Popup message"); font: Theme.captionFont; color: Theme.textSecondaryColor }
                     StyledTextField {
                         Accessible.name: TranslationManager.translate("profileEditor.popupMessage", "Popup message")
                         Layout.fillWidth: true

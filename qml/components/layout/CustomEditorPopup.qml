@@ -370,7 +370,7 @@ Dialog {
                             textFormat: TextEdit.RichText
                             color: Theme.textColor
                             font: Theme.bodyFont
-                            placeholderText: TranslationManager.translate("customeditor.placeholder.enterText", "Enter text...")
+                            placeholderText: TranslationManager.translate("customeditor.placeholder.enterText", "Enter text")
                             placeholderTextColor: Theme.textSecondaryColor
                             wrapMode: Text.Wrap
                             background: null
@@ -608,7 +608,7 @@ Dialog {
                                 color: isActive ? Theme.primaryColor : (sizeMa.pressed ? Qt.darker(Theme.backgroundColor, 1.3) : Theme.backgroundColor)
                                 border.color: Theme.borderColor; border.width: 1
                                 Accessible.role: Accessible.Button
-                                Accessible.name: TranslationManager.translate("customeditor.format.fontSize", "Font size") + " " + modelData.label + (isActive ? ", " + TranslationManager.translate("combobox.selected", "selected") : "")
+                                Accessible.name: TranslationManager.translate("customeditor.format.fontSize", "Font size") + " " + modelData.label + (isActive ? ", " + TranslationManager.translate("combobox.selected", "Selected") : "")
                                 Accessible.focusable: true
                                 Accessible.onPressAction: sizeMa.clicked(null)
                                 Text {
@@ -637,7 +637,7 @@ Dialog {
                                 color: popup.textAlign === modelData.align ? Theme.primaryColor : Theme.backgroundColor
                                 border.color: Theme.borderColor; border.width: 1
                                 Accessible.role: Accessible.Button
-                                Accessible.name: TranslationManager.translate("customeditor.format.align", "Align") + " " + modelData.align + (popup.textAlign === modelData.align ? ", " + TranslationManager.translate("combobox.selected", "selected") : "")
+                                Accessible.name: TranslationManager.translate("customeditor.format.align", "Align") + " " + modelData.align + (popup.textAlign === modelData.align ? ", " + TranslationManager.translate("combobox.selected", "Selected") : "")
                                 Accessible.focusable: true
                                 Accessible.onPressAction: alignMa.clicked(null)
                                 ColoredIcon {

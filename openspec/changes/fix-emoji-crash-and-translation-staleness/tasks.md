@@ -386,13 +386,40 @@ decide with, rather than guessing.
       key has one English string, and that a mismatch means the English was rewritten. Neither
       survives contact with the codebase. Only running it found that.
 
-- [ ] 7.8f FOLLOW-UP, not done: 26 keys are used with two different English strings in the same
-      build. That is a real defect independent of anything here — translators see one string and
-      users may be shown the other, and it makes the registry's value for those keys a coin flip.
-      The list is reproducible with the grep in 7.8e. Most are a trailing colon (label vs
-      accessible text, which probably want separate keys); `common.accessibility.dismissDialog`
-      is a genuine wording split across eleven files. Left for Jeff to schedule — it is a
-      content/QML cleanup, not part of this change.
+- [x] 7.8f Fixed all 27 keys used with two different English strings (26 by the first count;
+      widening the pattern to `translationKey`/`translationFallback` found one more).
+
+      Almost all were one shape: a VISIBLE LABEL and an `Accessible.name` sharing a key, worded
+      differently on purpose — "Volume" on screen, "Max volume" for a screen reader that has no
+      column colour to go by. That is good accessibility practice and simply needs two keys.
+
+      Which variant keeps the key was decided by the DATA, not by preference: whichever the
+      existing translations were made from, so nothing already translated is invalidated. That
+      mattered — `settings.options.showInMl` had 'Show in milliliters' in the registry while the
+      German read 'In Millilitern (ml) anzeigen', i.e. translated from the OTHER variant. The
+      German is the evidence of intent; the registry value was just whoever wrote last.
+
+      Unified, where the difference was noise (20 keys): the 11 `beanbase.details.*` labels lose
+      a trailing colon — German already renders them bare ('Herkunft'), so English users saw
+      "Origin:" while German users saw "Herkunft", and the colon was never part of the key's
+      meaning. Note the contrast with `changebeans.form.roaster`, whose German IS 'Röster:' —
+      that colon is genuinely part of that string and was left alone. Plus casing
+      (Frame Name/Frame name), ellipses (Search settings...), 'Close dialog' → 'Dismiss dialog'
+      across two of twelve files, and 'Purge steam wand' → 'Purge the steam wand'.
+
+      Split, where the accessible name genuinely differs (7 keys): `.accessible` suffix, the
+      convention already set by `changebeans.form.url.accessible` — maxVolume, maxWeight,
+      exitValue, settings.data.settingsai, ratio.edit.button; plus
+      `settings.preferences.autoCalibration.description` for the long visible text (the SHORT
+      form is what German holds, so the switch keeps the key) and `idle.button.hotwater.short`
+      for MiniGHC's cramped "Water" tile.
+
+      `scripts/check_translation_key_conflicts.py` now fails on a reintroduction, and documents
+      both repair strategies so the next person does not guess. 2587 keys checked, 0 conflicts.
+      Build clean, 82/82 via Qt Creator.
+
+      NOTE: the 7 new keys are untranslated until a re-translate, so they render English in
+      ar/de/fr. All 7 are accessible names or a short tile label; none is body text.
 
 - [ ] 7.8b The glyph class IS statically catchable — `redraw-icon-set` task 4.4 guessed it was not.
       `scripts/check_font_glyph_coverage.py` already does it. Worth landing as a test, but it cannot

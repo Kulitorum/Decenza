@@ -1343,7 +1343,7 @@ KeyboardAwareContainer {
                         Layout.fillWidth: true
                         text: TranslationManager.translate("settings.data.settingsai", "Settings")
                         primary: restoreConfirmDialog.restoreSettings
-                        accessibleName: TranslationManager.translate("settings.data.settingsai", "Settings & AI Conversations") + ", " +
+                        accessibleName: TranslationManager.translate("settings.data.settingsai.accessible", "Settings & AI Conversations") + ", " +
                             (restoreConfirmDialog.restoreSettings
                                 ? TranslationManager.translate("accessibility.selected", "selected")
                                 : TranslationManager.translate("accessibility.notselected", "not selected"))

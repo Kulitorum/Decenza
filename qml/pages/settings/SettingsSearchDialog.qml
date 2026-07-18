@@ -139,7 +139,7 @@ Dialog {
             StyledTextField {
                 id: searchField
                 Layout.fillWidth: true
-                placeholder: TranslationManager.translate("settings.search.placeholder", "Search settings...")
+                placeholder: TranslationManager.translate("settings.search.placeholder", "Search settings")
                 accessibleName: TranslationManager.translate("settings.search.placeholder", "Search settings")
                 // Hint the Android IME away from autocorrect; some IMEs ignore this,
                 // so the filter above also reads displayText rather than text.

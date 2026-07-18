@@ -1054,7 +1054,7 @@ Page {
                 AccessibleTapHandler {
                     id: stopTapHandler
                     anchors.fill: parent
-                    accessibleName: steamSoftStopped ? TranslationManager.translate("steam.accessible.purge", "Purge steam wand") : TranslationManager.translate("steam.accessible.stop", "Stop steaming")
+                    accessibleName: steamSoftStopped ? TranslationManager.translate("steam.accessible.purge", "Purge the steam wand") : TranslationManager.translate("steam.accessible.stop", "Stop steaming")
                     accessibleItem: steamStopButton
                     onAccessibleClicked: {
                         if (!Settings.hardware.steamTwoTapStop) {

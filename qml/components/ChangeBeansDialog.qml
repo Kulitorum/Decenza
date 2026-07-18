@@ -1543,14 +1543,14 @@ Dialog {
 
                         DetailField {
                             id: originField
-                            labelKey: "beanbase.details.origin"; labelFallback: "Origin:"
+                            labelKey: "beanbase.details.origin"; labelFallback: "Origin"
                             accessibleText: TranslationManager.translate("beanbase.details.origin", "Origin")
                             value: root.fOrigin
                             onEdited: function(t) { root.fOrigin = t }
                         }
                         DetailField {
                             id: regionField
-                            labelKey: "beanbase.details.region"; labelFallback: "Region:"
+                            labelKey: "beanbase.details.region"; labelFallback: "Region"
                             accessibleText: TranslationManager.translate("beanbase.details.region", "Region")
                             value: root.fRegion
                             onEdited: function(t) { root.fRegion = t }
@@ -1612,7 +1612,7 @@ Dialog {
                         DetailField {
                             id: farmField
                             visible: !root.isTea
-                            labelKey: "beanbase.details.farm"; labelFallback: "Farm:"
+                            labelKey: "beanbase.details.farm"; labelFallback: "Farm"
                             accessibleText: TranslationManager.translate("beanbase.details.farm", "Farm")
                             value: root.fFarm
                             onEdited: function(t) { root.fFarm = t }
@@ -1620,7 +1620,7 @@ Dialog {
                         DetailField {
                             id: producerField
                             visible: !root.isTea
-                            labelKey: "beanbase.details.producer"; labelFallback: "Producer:"
+                            labelKey: "beanbase.details.producer"; labelFallback: "Producer"
                             accessibleText: TranslationManager.translate("beanbase.details.producer", "Producer")
                             value: root.fProducer
                             onEdited: function(t) { root.fProducer = t }
@@ -1628,14 +1628,14 @@ Dialog {
                         DetailField {
                             id: varietyField
                             visible: !root.isTea
-                            labelKey: "beanbase.details.variety"; labelFallback: "Variety:"
+                            labelKey: "beanbase.details.variety"; labelFallback: "Variety"
                             accessibleText: TranslationManager.translate("beanbase.details.variety", "Variety")
                             value: root.fVariety
                             onEdited: function(t) { root.fVariety = t }
                         }
                         DetailField {
                             id: elevationField
-                            labelKey: "beanbase.details.elevation"; labelFallback: "Elevation:"
+                            labelKey: "beanbase.details.elevation"; labelFallback: "Elevation"
                             accessibleText: TranslationManager.translate("beanbase.details.elevation", "Elevation")
                             value: root.fElevation
                             onEdited: function(t) { root.fElevation = t }
@@ -1643,7 +1643,7 @@ Dialog {
                         DetailField {
                             id: processField
                             visible: !root.isTea
-                            labelKey: "beanbase.details.process"; labelFallback: "Process:"
+                            labelKey: "beanbase.details.process"; labelFallback: "Process"
                             accessibleText: TranslationManager.translate("beanbase.details.process", "Process")
                             value: root.fProcess
                             onEdited: function(t) { root.fProcess = t }
@@ -1651,28 +1651,28 @@ Dialog {
                         DetailField {
                             id: harvestField
                             visible: !root.isTea
-                            labelKey: "beanbase.details.harvest"; labelFallback: "Harvest:"
+                            labelKey: "beanbase.details.harvest"; labelFallback: "Harvest"
                             accessibleText: TranslationManager.translate("beanbase.details.harvest", "Harvest")
                             value: root.fHarvest
                             onEdited: function(t) { root.fHarvest = t }
                         }
                         DetailField {
                             id: qualityScoreField
-                            labelKey: "beanbase.details.qualityScore"; labelFallback: "Quality score:"
+                            labelKey: "beanbase.details.qualityScore"; labelFallback: "Quality score"
                             accessibleText: TranslationManager.translate("beanbase.details.qualityScore", "Quality score")
                             value: root.fQualityScore
                             onEdited: function(t) { root.fQualityScore = t }
                         }
                         DetailField {
                             id: placeOfPurchaseField
-                            labelKey: "beanbase.details.placeOfPurchase"; labelFallback: "Purchased at:"
+                            labelKey: "beanbase.details.placeOfPurchase"; labelFallback: "Purchased at"
                             accessibleText: TranslationManager.translate("beanbase.details.placeOfPurchase", "Purchased at")
                             value: root.fPlaceOfPurchase
                             onEdited: function(t) { root.fPlaceOfPurchase = t }
                         }
                         DetailField {
                             id: tastingNotesField
-                            labelKey: "beanbase.details.tastingNotes"; labelFallback: "Tasting notes:"
+                            labelKey: "beanbase.details.tastingNotes"; labelFallback: "Tasting notes"
                             accessibleText: TranslationManager.translate("beanbase.details.tastingNotes", "Tasting notes")
                             value: root.fTastingNotes
                             onEdited: function(t) { root.fTastingNotes = t }
