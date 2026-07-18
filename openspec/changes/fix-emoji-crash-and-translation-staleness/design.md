@@ -179,6 +179,53 @@ broken-image bug above. "Bundled or strip" is a set lookup, not a resolver.
   rich-text engine resolves resources through a document resource handler rather than the network
   stack, so remote images are not reliably fetched at all.
 
+### D8: Markdown renders as HTML, so emoji survive — an ORDERING fix, not a new library
+
+**Qt's Markdown importer truncates the rest of the document at an inline `<img>`.** Verified on
+Qt 6.11.1 with a RESOLVABLE image, so it is not a broken-asset artefact:
+
+| Input | Rendered |
+|---|---|
+| `hi <img src=…> there` | `hi` |
+| `**<img src=…> Recipes** …` + a list | *(empty — whole document lost)* |
+| para, `<img src=…>`, list | `para` |
+
+Rewriting emoji to `<img>` before the markdown parse fed the parser exactly what it chokes on. In
+the running app the release notes rendered only down to the first emoji. Worse, this predates the
+change: `ConversationOverlay` carried a comment asserting the importer "passes the inline `<img>`
+through", so **every AI reply containing an emoji had been silently losing everything after it**,
+and two further markdown sites (`SettingsAITab`, `DialingAssistantPage`) had no emoji handling at
+all — raw colour glyphs straight to the renderer, the crash path, in the output most likely to
+contain emoji.
+
+The fix is to reverse the order:
+
+```
+markdown ──[Qt's parser]──> HTML ──[Theme.replaceEmojiWithImg]──> HTML + sized emoji
+                                                                   └─> textFormat: RichText
+```
+
+The parser never sees an `<img>`, so the bug cannot fire.
+
+**This adds no dependency and no new parser.** Qt already provides the markdown parser
+(`QTextDocument::setMarkdown`, md4c) and the app already provides the emoji substitution, used at
+26 sites. `MarkdownRenderer` is ~25 lines of glue that also strips the `<body style="font-family:…;
+font-size:13pt">` wrapper `toHtml()` bakes in — left in place it would override the QML element's
+font and ignore the user's font-size settings. It emits no colour, so the theme still applies.
+
+*Alternatives considered:*
+- **Strip emoji in markdown.** Shipped briefly and rejected on sight: it fixed the truncation by
+  deleting the emoji, immediately after the decision to encourage them.
+- **Markdown's own `![alt](url)` syntax.** Survives the parser, but carries no width/height, so a
+  36×36 Twemoji renders triple-height in 12px text — and markdown has no syntax to size it.
+- **cmark-gfm.** Would replace a parser that is not the problem, and still would not render emoji.
+- **QtWebEngine.** Renders both perfectly; a full Chromium is not a proportionate dependency for a
+  release-notes pane, and is impractical on iOS/Android.
+
+Consequence for the four switched sites: `textFormat` is now `RichText`, so `elide` is unavailable
+there (QML_GOTCHAS) — none of them elide — and `Accessible.description` switched from
+`stripMarkdown()` to `toAccessibleText()`, which strips tags and emoji rather than markdown syntax.
+
 ### D5: Nothing the application displays depends on the network
 
 **No part of the app depends on the network to render text.** This was previously a boundary to

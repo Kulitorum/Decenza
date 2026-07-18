@@ -25,12 +25,12 @@
       `ConversationOverlay`, whose text comes from `AIConversation::getConversationText()`.
 - [x] 2.3 Confirm `ShotDetailPage:357` still renders its `<font color=...>` highlight — it builds
       markup deliberately and calls `escapeHtml()` on the name itself, so it may need the opt-in.
-- [ ] 2.4 Verify the release-notes field in the running app. Changed from `RichText` to
-      `MarkdownText` — the source is GitHub markdown, so RichText showed `##`, `-` and `**`
-      as literal characters. Confirm headings/bullets/bold render AND that the emoji `<img>`
-      survives the markdown importer: a scratch check with no qrc resources showed the img
-      and its trailing text dropped, which may be an artefact of the missing resource or may
-      be real. `ConversationOverlay` is the in-app precedent claiming it works. NEEDS JEFF.
+- [x] 2.4 Verify the release-notes field in the running app. DONE, and it found a real bug I
+      had hedged about instead of confirming: an inline `<img>` truncates the rest of a
+      Markdown document in Qt, so the notes rendered only up to the first emoji. Fixed by
+      converting markdown -> HTML BEFORE injecting emoji (`MarkdownRenderer`, see D8).
+      Verified in the running app: emoji render at inline size, headings/bold/bullets intact,
+      scrolls to the end with no truncation.
 - [x] 2.5 Correct the `CurveTextRendering` comment in `src/main.cpp` (already in the working tree —
       re-read it after the #1549 merge and confirm it reads coherently in its new surroundings).
 - [x] 2.6 Add a test that asserts `replaceEmojiWithImg()` escapes by default and preserves markup
@@ -110,10 +110,17 @@ re-render, offline behaviour, eviction) no longer exist.
 
 - [ ] 6.1 Build via Qt Creator; zero errors and zero new warnings.
 - [ ] 6.2 Run the full test suite; all suites pass.
-- [ ] 6.3 Have Jeff launch the app and switch language to German, navigate several pages, switch
-      back to English, and confirm no German text remains anywhere without a restart.
-- [ ] 6.4 Have Jeff open the update tab against a release whose notes contain emoji and confirm no
-      crash.
+- [x] 6.3 Language switch verified live via MCP + screenshots: English -> German retranslated
+      the whole UI with NO restart (Rezepte/Bohnen/Dampf/Bereit/Spülen/Verlauf/…), and German ->
+      English left no residue. RESIDUAL: page titles are set by imperative assignment in
+      StackView.onActivated (35 sites), not bindings, so they keep the language active when the
+      page was last activated and self-heal on navigation. See 6.9.
+- [x] 6.4 Update tab opened against v2.0.0 notes (which contain emoji): no crash, emoji render
+      as bundled SVGs at inline size, full content present.
+- [ ] 6.9 DECIDE: fix the 35 imperative `currentPageTitle` assignments so page titles retranslate
+      live. Needs each page to expose a `pageTitle` property and main.qml to bind it — a
+      one-line change per page plus a small refactor. Not done: it is a separate shape of bug
+      from the binding fix, and this change is already large.
 - [ ] 6.5 Check pages that display externally-sourced text after the escaping change — bean names,
       recipe names, shot history, screensaver author, AI conversation — and confirm no raw tags
       appear.

@@ -1925,10 +1925,12 @@ KeyboardAwareContainer {
                     TextArea {
                         id: conversationText
                         width: parent.width
-                        // markdownSafeText: raw emoji here would reach the platform colour
-                        // renderer (the macOS render-thread crash), and rewriting them to <img>
-                        // would truncate the reply. See Theme.markdownSafeText.
-                        text: Theme.markdownSafeText(MainController.aiManager?.conversation?.getConversationText() ?? "")
+                        // Markdown -> HTML, then emoji: raw emoji would reach the platform
+                        // colour renderer (the macOS render-thread crash), and injecting <img>
+                        // before the parse would truncate the reply. See markdownrenderer.h.
+                        text: Theme.replaceEmojiWithImg(
+                                  MarkdownRenderer.toHtml(MainController.aiManager?.conversation?.getConversationText() ?? ""),
+                                  Theme.bodyFont.pixelSize, true)
                         textFormat: Text.MarkdownText
                         wrapMode: TextEdit.WordWrap
                         readOnly: true
@@ -1940,7 +1942,8 @@ KeyboardAwareContainer {
 
                         Accessible.role: Accessible.EditableText
                         Accessible.name: TranslationManager.translate("conversation.accessible.transcript", "AI conversation transcript")
-                        Accessible.description: Theme.stripMarkdown(text)
+                        // toAccessibleText: `text` is HTML now, not markdown.
+                        Accessible.description: Theme.toAccessibleText(text)
                         Accessible.focusable: true
                         activeFocusOnTab: true
 

@@ -234,6 +234,7 @@ set(SOURCES
     src/core/settings_hardware.cpp
     src/core/settings_ai.cpp
     src/core/emojiassets.cpp
+    src/core/markdownrenderer.cpp
     src/core/settings_theme.cpp
     src/core/settings_visualizer.cpp
     src/core/settings_mcp.cpp
@@ -1257,6 +1258,7 @@ if(NOT ANDROID AND NOT IOS)
         src/core/settings_hardware.cpp
         src/core/settings_ai.cpp
         src/core/emojiassets.cpp
+        src/core/markdownrenderer.cpp
         src/core/settings_theme.cpp
         src/core/settings_visualizer.cpp
         src/core/settings_mcp.cpp

@@ -201,35 +201,8 @@ QtObject {
         return result
     }
 
-    // Prepare text for a Text/TextArea using textFormat: MarkdownText.
-    //
-    // MUST be used instead of replaceEmojiWithImg() for markdown, because Qt's Markdown
-    // importer TRUNCATES THE REST OF THE DOCUMENT at an inline <img> tag. Verified against
-    // Qt 6.11.1 with a resolvable image:
-    //
-    //     "hi <img src=...> there"                  -> "hi"
-    //     "**<img src=...> Recipes** …\n\n- a\n- b"  -> ""   (entire document lost)
-    //
-    // That is not a broken-image artefact; it happens with an asset that loads fine. It hit
-    // production twice: the update tab's release notes rendered only the text before the
-    // first emoji, and ConversationOverlay had been silently dropping everything after the
-    // first emoji in an AI reply — its comment claimed the importer "passes the inline <img>
-    // through", which is simply not true.
-    //
-    // Markdown's own image syntax (`![alt](url)`) survives the importer, but carries no
-    // width/height, so a 36x36 Twemoji SVG renders triple-height in 12px text. There is no
-    // sizing syntax in markdown to fix that with.
-    //
-    // So markdown loses emoji. That is the deliberate trade: dropping a glyph beats dropping
-    // the rest of the release notes, and it still satisfies the reason all of this exists —
-    // no colour glyph reaches the platform renderer, so no crash.
-    function markdownSafeText(text) {
-        return stripEmoji(text)
-    }
-
     // Strip emoji Unicode characters from a string entirely.
-    // Use for plain-text Text elements where <img> tags aren't supported, and via
-    // markdownSafeText() for MarkdownText.
+    // Use for plain-text Text elements where <img> tags aren't supported.
     function stripEmoji(text) {
         if (!text) return ""
         var result = ""

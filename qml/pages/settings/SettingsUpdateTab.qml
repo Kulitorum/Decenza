@@ -629,12 +629,15 @@ Item {
                                 // MarkdownText, not RichText: the source IS markdown, so RichText
                                 // would show ##, - and ** as literal characters.
                                 //
-                                // markdownSafeText, NOT replaceEmojiWithImg: an inline <img>
-                                // truncates the rest of the document in Qt's Markdown importer, so
-                                // rewriting emoji here showed only the notes before the first emoji.
-                                // Release notes routinely open with one. See Theme.markdownSafeText.
-                                textFormat: TextEdit.MarkdownText
-                                text: Theme.markdownSafeText(MainController.updateChecker.releaseNotes)
+                                // Markdown -> HTML FIRST, then inject emoji, then render as
+                                // RichText. Rewriting emoji before the markdown parse truncates the
+                                // document at the first emoji (see markdownrenderer.h); doing it
+                                // after means the parser never sees an <img>. allowMarkup is safe
+                                // here because toHtml() has already escaped the source text.
+                                textFormat: TextEdit.RichText
+                                text: Theme.replaceEmojiWithImg(
+                                          MarkdownRenderer.toHtml(MainController.updateChecker.releaseNotes),
+                                          Theme.scaled(12), true)
                                 color: Theme.textSecondaryColor
                                 font.pixelSize: Theme.scaled(12)
                                 wrapMode: Text.WordWrap
@@ -643,7 +646,9 @@ Item {
 
                                 Accessible.role: Accessible.StaticText
                                 Accessible.name: TranslationManager.translate("settings.update.releaseNotesContent", "Release notes")
-                                Accessible.description: Theme.stripMarkdown(text)
+                                // toAccessibleText: `text` is HTML now, so tags and the emoji
+                                // <img>s are what need stripping, not markdown syntax.
+                                Accessible.description: Theme.toAccessibleText(text)
                                 Accessible.focusable: true
                                 activeFocusOnTab: true
                             }

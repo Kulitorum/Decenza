@@ -36,7 +36,6 @@ private slots:
     void variationSelectorSequencesAreRewritten();
     void strayVariationSelectorDoesNotCaptureText();
     void unbundledEmojiIsStrippedNotBroken();
-    void markdownSafeTextRemovesEmojiEntirely();
     void inlineImgTruncatesMarkdownDocument();
 
 private:
@@ -77,14 +76,12 @@ void TestTextEscaping::initTestCase()
     const QString isEmoji = extract("_isEmoji");
     const QString isEmojiPres = extract("_isEmojiPresentation");
     const QString assetPath = extract("_emojiAssetPath");
-    const QString mdSafe = extract("markdownSafeText");
     const QString stripFn = extract("stripEmoji");
     const QString replaceEmoji = extract("replaceEmojiWithImg");
     QVERIFY2(!escapeHtml.isEmpty(), "escapeHtml() not found in Theme.qml");
     QVERIFY2(!isEmoji.isEmpty(), "_isEmoji() not found in Theme.qml");
     QVERIFY2(!isEmojiPres.isEmpty(), "_isEmojiPresentation() not found in Theme.qml");
     QVERIFY2(!assetPath.isEmpty(), "_emojiAssetPath() not found in Theme.qml");
-    QVERIFY2(!mdSafe.isEmpty(), "markdownSafeText() not found in Theme.qml");
     QVERIFY2(!stripFn.isEmpty(), "stripEmoji() not found in Theme.qml");
     QVERIFY2(!replaceEmoji.isEmpty(), "replaceEmojiWithImg() not found in Theme.qml");
 
@@ -104,13 +101,12 @@ void TestTextEscaping::initTestCase()
     m_engine.globalObject().setProperty("__knownEmoji", known);
     m_engine.evaluate("var EmojiAssets = { has: function(k) { return __knownEmoji[k] === true } }");
 
-    const QString program = QStringLiteral("(function(){ %1\n%2\n%3\n%4\n%5\n%6\n%7\n"
+    const QString program = QStringLiteral("(function(){ %1\n%2\n%3\n%4\n%5\n%6\n"
                                            "return { escapeHtml: escapeHtml,"
                                            "         replaceEmojiWithImg: replaceEmojiWithImg,"
-                                           "         markdownSafeText: markdownSafeText,"
                                            "         _emojiAssetPath: _emojiAssetPath }; })()")
                                 .arg(escapeHtml, isEmoji, isEmojiPres, assetPath, replaceEmoji)
-                                .arg(stripFn, mdSafe);
+                                .arg(stripFn);
 
     m_theme = m_engine.evaluate(program);
     QVERIFY2(!m_theme.isError(), qPrintable(m_theme.toString()));
@@ -240,22 +236,12 @@ void TestTextEscaping::unbundledEmojiIsStrippedNotBroken()
     QVERIFY2(ok.contains("qrc:/emoji/2615.svg"), qPrintable(ok));
 }
 
-// Markdown contexts must NOT get <img> tags — see the two tests below for why.
-void TestTextEscaping::markdownSafeTextRemovesEmojiEntirely()
-{
-    const QString in = QString::fromUtf8("**☕ Recipes** — the whole drink.");
-    const QString out = call("markdownSafeText", {QJSValue(in)});
-    QVERIFY2(!out.contains("<img"), qPrintable("markdown must never receive an img tag: " + out));
-    QVERIFY2(!out.contains(QString::fromUtf8("☕")), qPrintable("emoji must be removed: " + out));
-    QVERIFY2(out.contains("Recipes") && out.contains("whole drink"),
-             qPrintable("surrounding text must survive: " + out));
-}
-
-// Documents the Qt behaviour that forced the decision above. This is a test of the
-// FRAMEWORK, deliberately: the whole design rests on it, it is surprising, and a Qt
-// upgrade that fixed it would let us restore emoji in markdown. It cost a production
-// regression (release notes truncated) and had silently broken AI replies before that,
-// because a code comment asserted the opposite without anyone checking.
+// Documents the Qt behaviour that dictates the markdown pipeline ORDER: convert
+// markdown -> HTML FIRST, then inject emoji <img> (see markdownrenderer.h). A test of the
+// FRAMEWORK, deliberately — the design rests on it, it is surprising, and it cost a
+// production regression (release notes truncated at the first emoji) plus a longer-running
+// silent one in AI replies, because a code comment asserted the opposite and nobody
+// checked. If a Qt upgrade fixes this, the ordering constraint can be relaxed.
 void TestTextEscaping::inlineImgTruncatesMarkdownDocument()
 {
     const QString img = "<img src=\"file:///nonexistent-but-irrelevant.svg\" width=\"12\">";
@@ -264,7 +250,7 @@ void TestTextEscaping::inlineImgTruncatesMarkdownDocument()
     withImg.setMarkdown("hi " + img + " there\n\n- alpha\n- beta");
     const QString got = withImg.toPlainText();
     QVERIFY2(!got.contains("there"), qPrintable("Qt no longer truncates at inline <img> — "
-             "markdownSafeText() could be relaxed to keep emoji. Got: " + got));
+             "the markdown->HTML-first ordering could be relaxed. Got: " + got));
     QVERIFY2(!got.contains("alpha"), qPrintable("expected list after <img> to be dropped: " + got));
 
     // Same content without the img survives intact — proving the img is the cause.

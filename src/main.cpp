@@ -44,6 +44,7 @@
 #include "core/asynclogger.h"
 #include "core/btlogfilter.h"
 #include "core/emojiassets.h"
+#include "core/markdownrenderer.h"
 #include "core/settings.h"
 #include "core/settings_mqtt.h"
 #include "core/settings_autowake.h"
@@ -2803,6 +2804,10 @@ int main(int argc, char *argv[])
     // reference (drawn as neither the emoji nor nothing). See emojiassets.h.
     static EmojiAssets emojiAssets;
     context->setContextProperty("EmojiAssets", &emojiAssets);
+    // Markdown -> HTML so emoji can be injected AFTER the parse. Rewriting emoji to <img>
+    // before it truncates the document at the first emoji. See markdownrenderer.h.
+    static MarkdownRenderer markdownRenderer;
+    context->setContextProperty("MarkdownRenderer", &markdownRenderer);
     context->setContextProperty("TemperatureDisplay", &temperatureDisplayBridge);
     context->setContextProperty("BLEManager", &bleManager);
     context->setContextProperty("DE1Device", &de1Device);

@@ -158,14 +158,15 @@ Page {
                         "ollama": "Ollama"
                     }[provider] || provider
 
-                    // markdownSafeText: AI recommendations routinely contain emoji. Raw, they
-                    // reach the platform colour renderer (the macOS render-thread crash);
-                    // rewritten to <img> they truncate the rest of the reply, because Qt's
-                    // Markdown importer stops at inline HTML. See Theme.markdownSafeText.
-                    return Theme.markdownSafeText(recommendation)
-                         + "\n\n---\n*" + TranslationManager.translate("dialingassistant.attribution", "Advice by") + " " + providerName + "*"
+                    // Markdown -> HTML, then emoji. AI recommendations routinely contain
+                    // emoji: raw they reach the platform colour renderer (the macOS
+                    // render-thread crash), and injected before the parse they truncate the
+                    // rest of the reply. See markdownrenderer.h.
+                    var md = recommendation
+                           + "\n\n---\n*" + TranslationManager.translate("dialingassistant.attribution", "Advice by") + " " + providerName + "*"
+                    return Theme.replaceEmojiWithImg(MarkdownRenderer.toHtml(md), Theme.bodyFont.pixelSize, true)
                 }
-                textFormat: Text.MarkdownText
+                textFormat: Text.RichText
                 wrapMode: TextEdit.WordWrap
                 readOnly: true
                 selectByMouse: true
@@ -176,7 +177,9 @@ Page {
 
                 Accessible.role: Accessible.EditableText
                 Accessible.name: TranslationManager.translate("dialingassistant.accessible.recommendation", "AI dialing recommendation")
-                Accessible.description: Theme.stripMarkdown(text)
+                // toAccessibleText, not stripMarkdown: `text` is HTML now, so tags (and the
+                // emoji <img>s) are what need removing, not markdown syntax.
+                Accessible.description: Theme.toAccessibleText(text)
                 Accessible.focusable: true
                 activeFocusOnTab: true
             }
