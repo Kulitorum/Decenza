@@ -164,14 +164,22 @@ across 41 QML files), while emoji are fixed multi-colour. Colorising an emoji at
 a silhouette; not colorising drops it out of the theme entirely. This group produces the data to
 decide with, rather than guessing.
 
-- [ ] 7.1 Classify all 69 icons in `resources/icons/` into: (a) a standard emoji is a genuine
+- [x] 7.1 Classify all 68 icons in `resources/icons/` into (I said 69 — the 69th file is
+      decenza.ico, not an SVG): (a) a standard emoji is a genuine
       equivalent, (b) no emoji equivalent exists, (c) an equivalent exists but the icon is
       theming-critical. Record the proposed emoji codepoint for every (a).
-- [ ] 7.2 For each (a), note where it is used and whether that context tints it. An icon that is
-      never tinted is a much cheaper swap than one in themed chrome.
-- [ ] 7.3 Build a side-by-side visual comparison of the candidates — themed SVG vs Twemoji — in
-      both light and dark mode. The theming loss has to be seen, not described.
-- [ ] 7.4 BOTH of my original objections to the icon swap are now dead, so 7.1-7.3 decide it on
+- [x] 7.2 For each (a), note where it is used and whether that context tints it. CORRECTED
+      TWICE, both times by looking instead of grepping:
+        1st count: 17/274 tinted — wrong, only matched ThemedIcon blocks.
+        2nd count: 62/274 (23%) — also counts inline `layer.effect: MultiEffect`, which is
+          how most components actually tint. Still an undercount; there may be further
+          mechanisms.
+      The measurement that matters came from the running app in light mode: icons DO adapt
+      (idle buttons render blue, bottom bar near-black). My "94% untinted, probably invisible
+      in light mode" claim was wrong. Static analysis of this kept misleading me.
+- [x] 7.3 Side-by-side comparison built from the real assets (artifact published): every icon on
+      the dark surface AND on light mode's #eef0f6, beside the exact bundled emoji.
+- [x] 7.4 BOTH of my original objections to the icon swap are now dead, so 7.1-7.3 decide it on
       merit rather than on my reservations:
       (a) Offline/CDN — gone. Everything is bundled; nothing fetches at runtime.
       (b) Theming — OpenMoji ships a `black/` tree of MONOCHROME line-art built exactly like our
@@ -185,6 +193,14 @@ decide with, rather than guessing.
       equivalent for `flush`, `espresso 8mm`, `niche-zero`, `decent-de1`, `body-*`, `taste-*`.
 - [ ] 7.5 Present the classification and comparison to Jeff and get a decision. Do NOT swap any
       icon in this change — a follow-up change carries whatever is agreed.
+- [x] 7.6 Light-mode check in the running app. Most icons tint correctly. ONE genuine bug found
+      and fixed: the Settings search button (SettingsPage.qml + SettingsSearchDialog.qml) drew
+      a white-stroked search.svg as a plain Image on a `Theme.surfaceColor` background — #ffffff
+      in light mode — so it was completely INVISIBLE. Now ThemedIcon. Needs a relaunch to
+      confirm; the running app still had the old QML.
+- [ ] 7.7 A broader light-mode sweep is worth doing: the same shape (plain Image + white-stroked
+      SVG on a light surface) could exist elsewhere. Do it by LOOKING at pages in light mode —
+      two grep-based attempts at this both gave wrong answers.
 
 ## 8. Close-out
 
