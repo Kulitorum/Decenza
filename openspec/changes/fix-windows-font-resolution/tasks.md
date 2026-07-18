@@ -50,7 +50,9 @@
       not the user's effective label size, so it is comparable between machines
 - [x] 4.4 Log non-default font size overrides (role, current value, default) after `Settings` is
       constructed — not in the `[Font]` block, which runs before Settings exists
-- [ ] 4.5 Confirm nothing is logged about font sizes when every role is at its default
+- [x] 4.5 Confirm nothing is logged about font sizes when every role is at its default
+      (`if (!overrides.isEmpty())` in main.cpp; logic covered by
+      tst_settings::fontSizeOverrides_emptyWhenAllDefault)
 
 ## 5. Explicit family on theme roles
 
@@ -92,8 +94,13 @@
 
 ## 9. Documentation and release
 
-- [ ] 9.1 Add a wiki manual entry for the fonts-only reset (user-visible feature)
-- [ ] 9.2 Update the manual's theme editor section if it names the `/themes` path
+- [x] 9.1 Add a wiki manual entry for the fonts-only reset (user-visible feature) — committed
+      LOCALLY in ../Decenza.wiki, deliberately NOT pushed: the wiki is public and should not
+      document this until the PR merges. Push after merge.
+- [x] 9.2 Update the manual's theme editor section if it names the `/themes` path — it did
+      (Manual.md:1678); fixed in the same local wiki commit. Also filled a real gap: the Font
+      Scaling section never mentioned app-wide font sizes at all, though the web editor is the
+      only place to change them.
 - [ ] 9.3 Build via Qt Creator and have Jeff launch the app to verify rendering is unchanged on a
       known-good machine
 - [ ] 9.4 Ask the reporter for a fresh debug log; confirm the new `[Font]` lines identify the
