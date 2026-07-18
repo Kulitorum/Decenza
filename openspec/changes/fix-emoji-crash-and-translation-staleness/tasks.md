@@ -126,9 +126,16 @@ re-render, offline behaviour, eviction) no longer exist.
       appear.
 - [ ] 6.6 Exercise an emoji outside the bundled 745 in a bean name or recipe name: confirm it
       fetches and renders, survives a restart, and strips cleanly with the network off.
-- [ ] 6.7 Verify on Android. The escaping change affects every platform, and the font work that
-      preceded this was verified on macOS only.
-- [ ] 6.8 Verify on Windows.
+- [x] 6.7 Android verification NOT REQUIRED for this change — Jeff's call, and correct.
+      The rule is that PLATFORM/BLE/JNI code needs an Android CI build because a macOS compile
+      skips `#ifdef Q_OS_ANDROID` branches. This change adds none: it is QML, three plain-Qt C++
+      classes (TranslationManager, EmojiAssets, MarkdownRenderer) and resources. Verified the
+      merged commit touches no platform-conditional block. I had over-applied the rule and was
+      treating this as the branch's largest risk; it is not. Android gets exercised by the next
+      beta build like anything else.
+- [x] 6.8 Windows likewise — no platform-conditional code, nothing Windows-specific to verify
+      ahead of the normal build. (The FONT work in #1549 genuinely was Windows-specific; this
+      change is not, and I conflated the two.)
 
 ## 6b. Observed in testing — NOT this change's code, decide separately
 
@@ -223,17 +230,44 @@ decide with, rather than guessing.
       Icons tint correctly across the surfaces walked — the "94% untinted" fear was wrong, as the
       corrected 7.2 already records. Not exhaustive (every page was not visited), but the
       hypothesis that this was widespread is not supported.
-- [ ] 7.8 FOUND during the sweep, unrelated to icons: **16 user-visible `→` glyphs** across 10
-      QML files. CLAUDE.md bans exactly this — non-emoji text symbols are rendered as font
-      glyphs, are absent from Decenza Sans's cmap, and fall back to a platform font whose
-      metrics vary per machine. That is the #1537 bug class, still shipping. Seen on screen in
-      Shot History ("18.0g → 35.9g", ShotPlanText.qml:154). Worst case is
-      RecipeWizardPage.qml:1438, `text: "→"` standing alone as a de-facto icon.
-      Others: main.qml:1577, EspressoPage 805/848, SteamPage 1665/1916, ShotDetailPage:208,
-      PostShotReviewPage:130, SettingsHistoryDataTab:65, RecipeWizardPage 923/926/2034/2767/2770,
-      StringBrowserPage:952, ConversationOverlay:1152, BackgroundPickerDialog:113.
-      Fix: an SVG icon where it is decorative, or a safe literal where it is textual. NOT done
-      here — it is a separate concern from this change and wants its own pass.
+- [ ] 7.8 Banned font-glyph sweep — MEASURED, not yet fixed. Scope is ~2x what was recorded.
+      Method: hand-grepping for `→` was the wrong tool and undercounted. `scripts/check_font_glyph_coverage.py`
+      reads DecenzaSans' cmap directly and checks every character in every QML string literal against
+      it, skipping emoji (they never reach the text renderer). Verified premise first: `→ ← ↗ ↕ ▶ ◀ ⧉`
+      are absent from all four weights; `— · × • … ° > › » – /` are present.
+
+      RESULT: 29 sites, 6 glyph types (recorded before as "16 arrows", one type).
+        →  22 sites   ↗  3 (SettingsAITab)   ←/↕ 1 (ValueInput:1012)
+        ◀/▶ 2 (FlowCalibrationPage:120,140)  ⧉  1 (SettingsConnectionsTab:89)
+      NOT violations, deliberately: AddLanguagePage's native language names (العربية, 中文, 日本語,
+      한국어, עברית, हिन्दी, ไทย). Those MUST use platform fallback — it is a language picker.
+
+      The 29 split into two DIFFERENT jobs and should not be done as one:
+        A. Text arrows (25) — mechanical. `›` (U+203A) is in the font and is the conventional
+           breadcrumb/transition mark: "Settings › Connections", "18.0g › 35.9g".
+        B. Glyphs used AS ICONS (6) — needs SVG, and overlaps `redraw-icon-set`:
+           FlowCalibrationPage prev/next BUTTONS whose entire visible content is a fallback glyph;
+           ValueInput's "← drag ↕ gear ×2 type" hint; `⧉` as a copy affordance;
+           RecipeWizardPage:1438 standalone arrow; SettingsHistoryDataTab:65 trailing disclosure.
+           `resources/icons/ArrowLeft.svg` is a RIGHT arrow flipped by a transform, so a right
+           arrow is the same path minus the wrapper — but note its `fill="#ffffff"`, which is the
+           light-mode invisibility hazard from 7.7 unless routed through ThemedIcon.
+
+- [ ] 7.8a Translation debt found while measuring 7.8 — INDEPENDENT of the glyph fix.
+      Translations are keyed by string key ONLY; there is no source-text hash. Changing an English
+      fallback therefore does NOT invalidate the existing translation. Proof: `settings.ai.remoteMcp.setupGuidance`
+      has already been rewritten in QML to drop its arrows, yet the registry and all of ar/de/fr
+      still carry the old arrow-bearing text. So fixing 7.8's English leaves ~17-20 arrows per
+      language on disk indefinitely — worst in Arabic, where an LTR arrow is also directionally wrong.
+      Also found: `settings.ai.remoteMcp.adminFunnel` / `.adminHttps` are referenced NOWHERE in the
+      tree but still sit in the registry and all three catalogs — the registry accumulates dead keys.
+
+- [ ] 7.8b The glyph class IS statically catchable — `redraw-icon-set` task 4.4 guessed it was not.
+      `scripts/check_font_glyph_coverage.py` already does it. Worth landing as a test, but it cannot
+      be green until 7.8's 29 sites are fixed, so it lands WITH the fix (no allowlist — an allowlist
+      is how this becomes permanent debt). Update redraw-icon-set 4.4, which currently says
+      "Probably not statically".
+
 - [ ] 7.9 A faint cloud indicator in Shot History rows is very low-contrast in light mode. Could
       not locate its source by grepping ShotHistoryPage; may be deliberate de-emphasis for an
       "uploaded" state. Look at it directly before assuming either way.
@@ -244,6 +278,8 @@ decide with, rather than guessing.
       The code is merged and live (#1550), but Android and Windows have had ZERO exercise and
       this change touches text rendering on every platform plus 4,009 new assets. Archiving
       would file the paperwork on a change whose riskiest claim is still unverified.
-      Gate: 6.7 and 6.8. When those pass, archive — the three specs are ADDED-only new
-      capabilities (emoji-asset-resolution, translation-reactivity, untrusted-text-rendering),
-      so promotion is clean with no MODIFIED requirements to reconcile.
+      GATE UPDATED: 6.7/6.8 are closed — no platform-specific code, so no Android/Windows
+      build is owed ahead of the next beta. The remaining open items (5.6 wiki, 6.5/6.6 spot
+      checks, 6.11/6.12 translation findings, 7.8 arrow glyphs) are follow-ups rather than
+      verification of what shipped. The three specs are ADDED-only new capabilities, so
+      promotion is clean whenever the archive happens.

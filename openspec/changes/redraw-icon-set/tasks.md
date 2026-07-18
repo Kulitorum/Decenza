@@ -81,8 +81,13 @@ departure — it is doing deliberately what was already done ad hoc.
       paths than a grep finds.
 - [ ] 4.3 Fix each instance by routing it through `ThemedIcon` (or the inline MultiEffect pattern
       already used nearby).
-- [ ] 4.4 Consider whether a test can catch this class at all. Probably not statically — but say
-      so deliberately rather than leaving it unexamined.
+- [ ] 4.4 Consider whether a test can catch the LIGHT-MODE class. Probably not statically — tinting
+      happens through three rendering paths and two grep attempts already returned wrong answers.
+      But note the ADJACENT class IS catchable and the guess here was wrong once already: banned
+      font glyphs (the #1537 class) are found definitively by reading DecenzaSans' cmap and checking
+      every QML string literal against it. `scripts/check_font_glyph_coverage.py` does this; it found
+      29 sites across 6 glyph types where hand-grepping had found 16 across 1. See
+      `fix-emoji-crash-and-translation-staleness/tasks.md` 7.8/7.8b.
 
 ## 5. Documentation
 
