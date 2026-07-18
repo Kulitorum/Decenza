@@ -502,6 +502,28 @@ decide with, rather than guessing.
       The lesson is the one this whole change keeps re-teaching: the code read correctly and
       the tests passed. Only the log from a real run showed the state it actually gets.
 
+- [x] 7.8k Retested German in the app after all of 7.8e-7.8j (build 17:48, reachability fix in).
+      NOTHING LOST — de.json still 3425 translations, zero missing against the pre-test backup,
+      `Loaded 3425 translations for: "de"`, TTS switched to de_DE, no QML errors, and no drift
+      warnings (the registry was already brought current by the earlier session's scan, so there
+      is nothing left to report). The only WARNs are MQTT failing to reach Home Assistant.
+
+      The conflict fixes behaved as designed: `beanbase.details.origin` now holds 'Origin' with
+      the colon gone, and its German 'Herkunft' is untouched. Same for dismissDialog
+      ('Dismiss dialog' / 'Dialog schließen') and search.placeholder. Picking the variant the
+      translations were made from is what preserved them.
+
+      HONEST READING OF THE COUNTER. The page shows German 2975/2979, 4 untranslated, against
+      2961/2978 before. That is NOT a 13-string improvement from this work — 11 of it is simply
+      the translations I dropped during 7.8e being restored. And the 4 will grow to about 10:
+      only 1 of the 7 new `.accessible` keys (ratio.edit.button.accessible) has been registered,
+      because the rest are on screens not yet opened this session. The other 3 untranslated are
+      the long multi-line MCP help strings already known from 6.11, unchanged.
+
+      Also confirmed incidentally: this launch reported reachability Online where the previous
+      one reported Unknown, on the same machine minutes apart — which is exactly why 7.8j's fix
+      was needed and why waiting on Online specifically was the wrong condition.
+
 - [ ] 7.8b The glyph class IS statically catchable — `redraw-icon-set` task 4.4 guessed it was not.
       `scripts/check_font_glyph_coverage.py` already does it. Worth landing as a test, but it cannot
       be green until 7.8's 29 sites are fixed, so it lands WITH the fix (no allowlist — an allowlist
