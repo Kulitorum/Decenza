@@ -605,17 +605,33 @@ QtObject {
     // (#1537).
     readonly property string fontFamily: Settings.theme.bundledFontFamily
 
+    // The UI family plus the bundled symbol face, in priority order. Qt consults the
+    // second family only for codepoints the first lacks, so this changes nothing about
+    // how text renders — Decenza Sans still draws every letter — while arrows and
+    // geometric shapes (→ ← ↗ ↕ ▶ ◀ ⧉) come from the bundle instead of whatever the host
+    // happened to offer. That is the whole fix: no QML edits, no icons, no emoji, and the
+    // symbols stay monochrome so they take the element's colour like the text around them.
+    //
+    // Each entry is dropped when empty. A "" in this list is NOT inert — Qt resolves it to
+    // the application default, which would silently reinstate the platform fallback.
+    readonly property var fontFamilies: {
+        var f = []
+        if (fontFamily) f.push(fontFamily)
+        if (Settings.theme.symbolFontFamily) f.push(Settings.theme.symbolFontFamily)
+        return f
+    }
+
     // Scaled fonts. Sizes come from Settings.theme.effectiveFontSizes, which merges the
     // user's overrides over the canonical defaults declared once in SettingsTheme — never
     // re-hardcode a default here, that duplication is what this replaced.
-    readonly property font headingFont: Qt.font({ family: fontFamily, pixelSize: scaled(Settings.theme.effectiveFontSizes.headingSize), bold: true })
-    readonly property font titleFont: Qt.font({ family: fontFamily, pixelSize: scaled(Settings.theme.effectiveFontSizes.titleSize), bold: true })
-    readonly property font subtitleFont: Qt.font({ family: fontFamily, pixelSize: scaled(Settings.theme.effectiveFontSizes.subtitleSize), bold: true })
-    readonly property font bodyFont: Qt.font({ family: fontFamily, pixelSize: scaled(Settings.theme.effectiveFontSizes.bodySize) })
-    readonly property font labelFont: Qt.font({ family: fontFamily, pixelSize: scaled(Settings.theme.effectiveFontSizes.labelSize) })
-    readonly property font captionFont: Qt.font({ family: fontFamily, pixelSize: scaled(Settings.theme.effectiveFontSizes.captionSize) })
-    readonly property font valueFont: Qt.font({ family: fontFamily, pixelSize: scaled(Settings.theme.effectiveFontSizes.valueSize), bold: true })
-    readonly property font timerFont: Qt.font({ family: fontFamily, pixelSize: scaled(Settings.theme.effectiveFontSizes.timerSize), bold: true })
+    readonly property font headingFont: Qt.font({ families: fontFamilies, pixelSize: scaled(Settings.theme.effectiveFontSizes.headingSize), bold: true })
+    readonly property font titleFont: Qt.font({ families: fontFamilies, pixelSize: scaled(Settings.theme.effectiveFontSizes.titleSize), bold: true })
+    readonly property font subtitleFont: Qt.font({ families: fontFamilies, pixelSize: scaled(Settings.theme.effectiveFontSizes.subtitleSize), bold: true })
+    readonly property font bodyFont: Qt.font({ families: fontFamilies, pixelSize: scaled(Settings.theme.effectiveFontSizes.bodySize) })
+    readonly property font labelFont: Qt.font({ families: fontFamilies, pixelSize: scaled(Settings.theme.effectiveFontSizes.labelSize) })
+    readonly property font captionFont: Qt.font({ families: fontFamilies, pixelSize: scaled(Settings.theme.effectiveFontSizes.captionSize) })
+    readonly property font valueFont: Qt.font({ families: fontFamilies, pixelSize: scaled(Settings.theme.effectiveFontSizes.valueSize), bold: true })
+    readonly property font timerFont: Qt.font({ families: fontFamilies, pixelSize: scaled(Settings.theme.effectiveFontSizes.timerSize), bold: true })
 
     // Real monospace family per platform. "monospace" is NOT a registered font
     // family on macOS/iOS/Windows — using it triggers a slow font-alias scan and

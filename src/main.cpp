@@ -546,6 +546,45 @@ int main(int argc, char *argv[])
         }
     }
 
+    // Symbol fallback face, registered separately from the four weights above: it is
+    // never a candidate for the primary family, and folding it into fontFiles would
+    // corrupt both the "all weights registered" count and the probe metric.
+    //
+    // Decenza Sans carries 927 glyphs — Latin, Greek, Cyrillic, and no symbols. Every
+    // arrow and geometric shape written in QML was therefore resolved by whatever the
+    // host happened to offer, which is why the same screen could measure differently on
+    // two machines. Noto Sans Math supplies all seven the app uses (→ ← ↗ ↕ ▶ ◀ ⧉).
+    //
+    // Chained AFTER the bundled family in Theme's font roles, so it only ever fills a
+    // gap. Being a real text font it stays monochrome and takes the element's colour —
+    // which is what emoji cannot do, and the reason symbols are not emoji here.
+    {
+        const int id = QFontDatabase::addApplicationFont(QStringLiteral(":/fonts/NotoSansMath-Regular.ttf"));
+        const QStringList families = id < 0 ? QStringList() : QFontDatabase::applicationFontFamilies(id);
+        if (families.isEmpty()) {
+            // Not fatal: symbols revert to the platform fallback they used before this
+            // font existed. Warn, because the failure is otherwise invisible — the glyphs
+            // still draw, just not from the bundle, and not identically across machines.
+            qWarning() << "[Font] Symbol fallback did not register — symbols will come from"
+                       << "the platform fallback and vary between machines";
+        } else {
+            SettingsTheme::setSymbolFontFamily(families.first());
+            qDebug() << "[Font] Symbol fallback registered:" << families.first();
+
+            // Also chain it on the APPLICATION font. Theme's roles cover everything that
+            // asks for one, but an element setting only font.pixelSize inherits this font
+            // instead — ValueInput's gear hint is one such site — and would otherwise still
+            // resolve its symbols against the host. Re-set rather than mutate: the app font
+            // was assigned above, before this face existed.
+            const QString primary = SettingsTheme::bundledFontFamily();
+            if (!primary.isEmpty()) {
+                QFont appFont;
+                appFont.setFamilies({primary, families.first()});
+                app.setFont(appFont);
+            }
+        }
+    }
+
 #if defined(Q_OS_MACOS) || defined(Q_OS_WIN) || defined(Q_OS_LINUX)
     // Use CurveTextRendering (Qt 6.7+) on all resizable desktop platforms. It
     // renders every glyph as bezier curves on the GPU, so it needs neither the

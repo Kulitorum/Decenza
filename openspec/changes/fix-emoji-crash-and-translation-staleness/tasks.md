@@ -230,28 +230,45 @@ decide with, rather than guessing.
       Icons tint correctly across the surfaces walked — the "94% untinted" fear was wrong, as the
       corrected 7.2 already records. Not exhaustive (every page was not visited), but the
       hypothesis that this was widespread is not supported.
-- [ ] 7.8 Banned font-glyph sweep — MEASURED, not yet fixed. Scope is ~2x what was recorded.
-      Method: hand-grepping for `→` was the wrong tool and undercounted. `scripts/check_font_glyph_coverage.py`
-      reads DecenzaSans' cmap directly and checks every character in every QML string literal against
-      it, skipping emoji (they never reach the text renderer). Verified premise first: `→ ← ↗ ↕ ▶ ◀ ⧉`
-      are absent from all four weights; `— · × • … ° > › » – /` are present.
+- [x] 7.8 Banned font-glyph sweep — RESOLVED BY ADDING A FONT, not by editing 29 sites.
+      Jeff's call, and the right one: "is there a standard font for these, let's make an easy
+      problem easy." The 29 sites are now correct with zero QML changes.
 
-      RESULT: 29 sites, 6 glyph types (recorded before as "16 arrows", one type).
-        →  22 sites   ↗  3 (SettingsAITab)   ←/↕ 1 (ValueInput:1012)
-        ◀/▶ 2 (FlowCalibrationPage:120,140)  ⧉  1 (SettingsConnectionsTab:89)
-      NOT violations, deliberately: AddLanguagePage's native language names (العربية, 中文, 日本語,
-      한국어, עברית, हिन्दी, ไทย). Those MUST use platform fallback — it is a language picker.
+      What actually happened. Hand-grepping for `→` had found 16 sites of one glyph type.
+      `scripts/check_font_glyph_coverage.py` reads DecenzaSans' cmap and checks every QML string
+      literal against it: 29 sites, six glyph types (`→ ↗ ↕ ← ▶ ◀ ⧉`). Decenza Sans has 927 glyphs
+      and no symbols at all, so all of them came from a per-machine host fallback.
 
-      The 29 split into two DIFFERENT jobs and should not be done as one:
-        A. Text arrows (25) — mechanical. `›` (U+203A) is in the font and is the conventional
-           breadcrumb/transition mark: "Settings › Connections", "18.0g › 35.9g".
-        B. Glyphs used AS ICONS (6) — needs SVG, and overlaps `redraw-icon-set`:
-           FlowCalibrationPage prev/next BUTTONS whose entire visible content is a fallback glyph;
-           ValueInput's "← drag ↕ gear ×2 type" hint; `⧉` as a copy affordance;
-           RecipeWizardPage:1438 standalone arrow; SettingsHistoryDataTab:65 trailing disclosure.
-           `resources/icons/ArrowLeft.svg` is a RIGHT arrow flipped by a transform, so a right
-           arrow is the same path minus the wrapper — but note its `fill="#ffffff"`, which is the
-           light-mode invisibility hazard from 7.7 unless routed through ThemedIcon.
+      Fix: bundle Noto Sans Math (SIL OFL, same licence as the UI face) purely as a symbol
+      fallback. Measured three candidates by cmap before choosing — no Noto Symbols face covers
+      the set (Symbols misses ▶ ◀ ⧉, Symbols2 misses every arrow); Math covers all seven in use.
+      Chained after the UI family in `Theme.fontFamilies` and on the application font in main.cpp
+      (needed separately: sites setting only `font.pixelSize`, like ValueInput's gear hint,
+      inherit the app font and would otherwise still hit the host). Qt consults a later family
+      only for missing codepoints, so letterforms are untouched. Build clean, 0 warnings.
+      Scanner now reports zero uncovered symbols; it exits non-zero for CI, ignoring
+      AddLanguagePage's native language names, which are SUPPOSED to use a platform fallback.
+
+      Two things this replaced, both worse:
+        - Rewriting 25 sites to `›`. Churns translated strings for a cosmetic gain.
+        - Turning them into emoji. Only four of the seven have Twemoji assets at all, and I
+          started down this path before catching that it would have made things WORSE: adding
+          U+FE0F to `AccessibleButton.text` / a plain `Text` — neither routes through
+          `replaceEmojiWithImg` — is an explicit colour-emoji request, i.e. the exact macOS
+          render-thread crash this change exists to prevent. Reverted before it went anywhere.
+          Emoji also carry fixed colours and would not follow Theme, which is what sank the icon
+          swap. A text font keeps symbols monochrome and correctly coloured.
+
+      The premise was also wrong. CLAUDE.md justified the ban with #1537; #1537 was a Windows
+      distance-field re-caching bug that dropped the "fi" ligature from "Profile" — a word
+      entirely inside the bundled font, nothing to do with fallbacks. Nothing in this app has ever
+      been traced to a missing glyph. CLAUDE.md and QML_GOTCHAS.md now say symbols are fine, name
+      the script, and record the bad citation so the ban is not reinstated from memory.
+
+      NEEDS JEFF'S EYES: the seven symbols now draw in Noto Sans Math rather than the host font,
+      so they will look slightly different — weight and arrowhead shape most likely. Check the
+      dose→yield line, Espresso's pressure/flow goal, and FlowCalibration's prev/next buttons.
+
 
 - [ ] 7.8a Translation debt found while measuring 7.8 — INDEPENDENT of the glyph fix.
       Translations are keyed by string key ONLY; there is no source-text hash. Changing an English

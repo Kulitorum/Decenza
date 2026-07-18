@@ -23,7 +23,14 @@ def cmap_of(path):
                 out.update(range(s,min(e2,s+5000)+1))
     return out
 
-cmap = cmap_of("resources/fonts/DecenzaSans-Regular.ttf")
+# The UI face, then the symbol fallback chained after it in Theme.fontFamilies.
+# A codepoint is covered if ANY bundled face has it — that is what Qt resolves against.
+FACES = ["resources/fonts/DecenzaSans-Regular.ttf",
+         "resources/fonts/NotoSansMath-Regular.ttf"]
+cmap = set()
+for _f in FACES:
+    if os.path.exists(_f):
+        cmap |= cmap_of(_f)
 
 # Emoji are fine: they never reach the text renderer (rewritten to bundled <img>).
 def is_emoji(cp):
@@ -44,12 +51,18 @@ for path in files:
                 if cp < 0x80 or is_emoji(cp) or cp in cmap: continue
                 hits.setdefault(ch, []).append(f"{path}:{ln}")
 
-print(f"Scanned {len(files)} QML files against DecenzaSans cmap ({len(cmap)} glyphs)\n")
+print(f"Scanned {len(files)} QML files against {len(FACES)} bundled faces ({len(cmap)} glyphs)\n")
 if not hits:
-    print("No missing glyphs."); sys.exit()
+    print("No uncovered glyphs — every symbol in QML resolves from the bundle.")
+    sys.exit(0)
 for ch, locs in sorted(hits.items(), key=lambda kv: -len(kv[1])):
     try: nm = unicodedata.name(ch)
     except ValueError: nm = "?"
     print(f"  {ch}  U+{ord(ch):04X}  {nm:38} {len(locs):3} site(s)")
     for l in sorted(set(locs))[:4]: print(f"        {l}")
     if len(set(locs)) > 4: print(f"        … and {len(set(locs))-4} more")
+
+# Exit non-zero so this can gate CI. Language names in AddLanguagePage are expected
+# to be uncovered — they are native names in a picker and must use a platform fallback.
+sys.exit(1 if any(loc for locs in hits.values() for loc in locs
+                  if "AddLanguagePage" not in loc) else 0)
