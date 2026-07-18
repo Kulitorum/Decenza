@@ -1,29 +1,65 @@
-## 1. Decide whether to do this at all
+## 1. Survey icon libraries the way we surveyed emoji sets
 
-The honest first question. The current set is not bad, and D4 says an icon that is not clearly
-better should not ship — which admits the possibility that the answer is "leave them".
+`scripts/download_emoji.py` already carries a multi-source abstraction — twemoji, openmoji, noto,
+fluentui — each pinned to a tag, fetched and committed. Icons deserve the same treatment: survey
+several families, measure coverage against OUR concepts, and pin whatever wins. 22 of the current
+68 are already stock Feather/Lucide (`sleep.svg` is Feather's `power` verbatim), so this is not a
+departure — it is doing deliberately what was already done ad hoc.
 
-- [ ] 1.1 Pick 3–4 of the most-seen icons (idle screen and bottom bar) and draw ONE alternative
-      treatment for each. Not the whole set — enough to see whether craft-within-monochrome
-      actually reads better at 20px.
-- [ ] 1.2 Render them side by side with the current icons at 20px AND at tile size, on dark and on
-      light. Use the contact-sheet workflow in design.md D3.
-- [ ] 1.3 Show Jeff. If the alternatives are not clearly better, STOP and archive this change with
-      that finding — "we looked and the current set is close to the ceiling" is a real result.
-- [ ] 1.4 If they are better, name what specifically makes them better (weight contrast? optical
-      sizing? terminals?) so the remaining 64 have a brief rather than a vibe.
+- [ ] 1.1 Survey candidate families. Record licence, icon count, available weights/styles, and
+      whether they ship SVG suitable for recolouring (`fill="none"` + stroke, or a single fill —
+      NOT multi-path artwork, which breaks MultiEffect colorization). Starting list:
+        Phosphor (MIT) — 6 weights incl. DUOTONE, the closest thing to craft-within-monochrome
+        Material Symbols (Apache 2.0) — variable axes: optical size, weight, grade, FILL
+        Lucide (ISC) — the maintained Feather fork; same flat ceiling as today, but consistent
+        Tabler (MIT) — very large, stroke + filled variants
+        Iconoir (MIT), Remix Icon (Apache 2.0), Heroicons (MIT), Bootstrap Icons (MIT)
+        Font Awesome free (CC-BY 4.0 — attribution obligation, note it)
+      Add any others found; the point is breadth before choosing.
+- [ ] 1.2 Measure COVERAGE against our 68 concepts, per family. Do it by rendering a contact sheet
+      of each family's candidate for each of our icons and LOOKING — the emoji audit proved that
+      name-matching a library's icon list produces confident nonsense. Expect roughly 50 generic
+      concepts to be well covered and ~15 domain ones (decent-de1, niche-zero, espresso 8mm,
+      flush 8mm, grind, coffeebeans, taste-*, body-*) to be covered by nobody.
+- [ ] 1.3 Head-to-head on the FOUR most-seen icons (idle screen + bottom bar). For each: current
+      icon vs Phosphor DUOTONE vs Material Symbols (a couple of axis settings) vs the other
+      shortlisted families. Render at 20px AND tile size, dark and light, and on a state-coloured
+      (active/orange) tile — the case that broke the emoji swap and that nobody predicted.
+      A first pass on coffee/gear/drop is already done and duotone survives all three grounds
+      (see design.md D1); 1.3 is the real comparison at the sizes actually used, since duotone
+      depth is subtler at 20px than at 26px.
+- [ ] 1.3a Prefer DUOTONE weights wherever a family offers them — that is where the depth comes
+      from. Confirm the depth survives Qt's `MultiEffect { colorization: 1.0 }` specifically:
+      the CSS proof used `currentColor`, and Qt's colorization path is NOT the same code. If
+      colorization flattens the two opacities into one, duotone is off the table and that needs
+      knowing at 1.3, not at 3.4.
+- [ ] 1.4 Show Jeff. If nothing is clearly better than what we have, STOP and archive with that
+      finding. "We surveyed the field and kept ours" is a real result and the one most likely to
+      be re-litigated otherwise.
+- [ ] 1.5 If something wins, name WHY in concrete terms (duotone depth? optical sizing? terminals?
+      weight contrast?), so the remaining icons have a brief rather than a vibe.
 
-## 2. Explore the cheaper middle path first (design.md Open Questions)
+## 2. Fill the gaps the libraries cannot
 
-- [ ] 2.1 Before committing to a full redraw, try keeping each icon's geometry and adjusting only
-      stroke weight, terminals and optical sizing. Compare against both the current set and the
-      task-1 alternatives.
-- [ ] 2.2 Decide: full redraw, refinement pass, or nothing. Record the reasoning.
+- [ ] 2.1 For the ~15 domain-specific concepts no family covers, evaluate vector-native AI tools:
+      Recraft (SVG output, icon-set style consistency), Adobe Firefly Vector / Illustrator
+      generative vector. Judge output on whether it is RECOLOURABLE — most AI vector output uses
+      fills and multiple paths, which breaks tinting and is the single most likely failure.
+- [ ] 2.2 Do NOT use raster generators (Midjourney, DALL-E, Stable Diffusion) and vectorise. The
+      trace produces dozens of filled paths, colorization breaks, and cross-icon consistency is
+      their known weakness. Recorded so it is not re-tried.
+- [ ] 2.3 Whatever the source, the domain icons must sit in the SAME visual language as the family
+      chosen in task 1 — matching stroke weight, terminals, corner radius, optical size. This is
+      the hard part and the most likely reason to abandon.
+- [ ] 2.4 Consider the cheaper middle path before any of this: keep the current geometry and adjust
+      only stroke weight, terminals and optical sizing. It may deliver most of the perceived gain.
 
-## 3. The redraw (only if task 2 says so)
+## 3. Adopt (only if tasks 1-2 produce a clear winner)
 
-- [ ] 3.1 Draw the set. Prioritise by visibility — the idle screen and bottom bar are seen
-      constantly; AlignCenter is not.
+- [ ] 3.1 Bring in the chosen family, pinned to a tag, with a script in the shape of
+      `download_emoji.py` so the set is reproducible and refreshable rather than hand-copied.
+      Prioritise by visibility — the idle screen and bottom bar are seen constantly;
+      AlignCenter is not.
 - [ ] 3.2 Keep filenames and paths identical, so none of the ~274 QML references change.
 - [ ] 3.3 Keep every icon recolourable — no baked-in fills or strokes the app cannot override.
       This is what lets a tinted icon stay legible on a state-coloured tile.

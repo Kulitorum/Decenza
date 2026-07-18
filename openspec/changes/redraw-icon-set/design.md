@@ -59,7 +59,8 @@ never done**, and the shape is general: plain `Image` + white-stroked SVG + ligh
 ## Goals / Non-Goals
 
 **Goals:**
-- Icons with more visual craft than a uniform 2px stroke — the quality that made ☕ read better.
+- Icons with real DEPTH — the quality that made ☕ read better — built from one tintable colour
+  so it survives theme and state recolouring.
 - Keep every property the current set has: theme tinting, state-colour response, 20px legibility,
   and coverage of concepts with no emoji.
 - Encode the constraints above as requirements a future attempt cannot skip.
@@ -75,27 +76,91 @@ never done**, and the shape is general: plain `Image` + white-stroked SVG + ligh
 
 ## Decisions
 
-### D1: Monochrome stays a hard constraint; craft comes from form
+### D1: Depth is the goal. It must come from VALUE, not hue.
 
-The temptation is to add colour, since colour is what made the emoji feel richer. **Colour is
-exactly what disqualified them.** Two independent reasons:
+The direction is explicit: *"I liked the depth of the coffee one and would like to go in that
+direction."* An earlier draft of this decision said monochrome was a hard constraint and craft had
+to come from form alone. **That was too strict and it conflated two different things.**
 
-- State: tiles recolour to signal active/warning, and only a tintable icon stays legible.
-- Theme: light mode tints icons to `#1a1a2e`, dark to white, and users can set custom palettes.
+- **Hue** is what disqualified emoji. Fixed colours cannot respond to a tile turning orange to
+  signal active, and they fight the theme.
+- **Value** — light and dark of a single colour — is what actually reads as depth, and it survives
+  tinting completely.
 
-So the craft has to come from everything except hue: weight contrast within a single stroke,
-considered negative space, a suggestion of depth through line weight rather than shading, and
-silhouettes that read at a glance. This is a harder brief than "make them colourful", and it is the
-only one compatible with the constraints.
+Phosphor's **duotone** weight is the existence proof, verified by rendering (July 2026):
 
-*Alternative considered:* a colour set for non-state surfaces plus a monochrome set for tiles.
-Rejected — it recreates the mixed-set problem (point 4) and doubles the assets.
+```svg
+<svg viewBox="0 0 256 256" fill="currentColor">
+  <path d="…" opacity="0.2"/>   <!-- the solid mass -->
+  <path d="…"/>                  <!-- the linework, full opacity -->
+</svg>
+```
 
-### D2: Redraw all 68, or none
+One hue, two values. Because it is `currentColor` with alpha, recolouring preserves the
+relationship: the identical file was rendered on a normal tile, on an ACTIVE orange tile, and on
+light mode's `#eef0f6` — legible and dimensional in all three. That is the case emoji failed.
+
+So the brief is: **dimensional, but built from one tintable colour.** Filled masses at partial
+opacity, weight contrast, considered negative space — everything except a second hue.
+
+*Honest limitation:* duotone depth at 20px is subtler than an emoji's. This gets closer to what ☕
+had; it does not reproduce it. Whether "closer" is enough is exactly what task 1.3 puts on screen.
+
+*Alternative considered:* full multi-hue artwork for surfaces that never change state colour, and
+monochrome elsewhere. Rejected — it recreates the mixed-set failure (point 4) and doubles the
+assets.
+
+### D1a: Survey icon families before drawing anything
+
+**22 of the 68 are already stock Feather/Lucide** — `sleep.svg` is Feather's `power` verbatim,
+`quit.svg` its `log-out`. The set is not a coherent bespoke family that a redraw would refine; it
+is a partly-borrowed set that grew. Some of the flatness being reacted to is simply Feather's
+house style, which is deliberately minimal.
+
+That makes "adopt a better family" the first thing to try, not the fallback. Two look purpose-built
+for the actual brief — craft without colour:
+
+- **Phosphor** (MIT) — six weights including **duotone**, which gives depth using two opacities of
+  a single colour. Still tintable, so it survives the state-colour constraint that killed emoji.
+- **Material Symbols** (Apache 2.0) — a variable font with **optical size, weight, grade and fill**
+  axes, designed for exactly "the same icon with more presence at small sizes".
+
+`scripts/download_emoji.py` already models the pattern: several sources, each pinned to a tag,
+fetched and committed reproducibly. An icon equivalent should look the same, so the choice is
+revisitable rather than a one-time hand-copy.
+
+*Why survey rather than pick:* the emoji audit's candidate list was built by matching names and was
+wrong in both directions until everything was rendered. A library's own icon index invites exactly
+that mistake. Coverage must be measured by looking at each family's candidate for each of our 68
+concepts.
+
+*What no family will cover:* roughly 15 domain concepts — `decent-de1`, `niche-zero`,
+`espresso 8mm`, `flush 8mm`, `grind`, `coffeebeans`, `taste-*`, `body-*`. Espresso hardware is not
+in anyone's general icon set, for the same reason it is not in anyone's emoji set. Those stay
+bespoke, and they carry most of the app's character.
+
+### D1b: AI tooling — vector-native only, and only for the gaps
+
+For the ~15 bespoke concepts, vector-native generators (**Recraft**, Illustrator's generative
+vector) are worth trying. The acceptance criterion is not "does it look nice" but **is it
+recolourable** — a single stroke or a single fill. Most AI vector output is multi-path filled
+artwork, which breaks `MultiEffect` colorization and therefore fails the state-colour requirement
+before aesthetics are even discussed.
+
+**Raster generators are the wrong tool and should not be retried.** Midjourney/DALL-E/SD output
+pixels; vectorising produces dozens of filled paths, and cross-icon consistency is their known
+weakness. Recorded here so the experiment is not repeated.
+
+The harder constraint for any generated icon is not the icon itself — it is matching the stroke
+weight, terminals, corner radius and optical sizing of the family chosen in D1a. A domain icon that
+does not sit in the same language as its 50 neighbours reproduces the mixed-set failure at smaller
+scale.
+
+### D2: Adopt across all 68, or none
 
 Point 4 again. A new style landing on half the set produces exactly what the emoji swap produced:
 two visual languages on one screen. If the work is staged across PRs, it must be staged so that no
-release ships a partial set — e.g. draw everything, land once.
+release ships a partial set — bring in everything, land once.
 
 ### D3: Judge every icon by rendering it, not by describing it
 

@@ -27,8 +27,13 @@ constraint on any future redraw.
 
 ## What Changes
 
-- Redraw the icon set with more visual craft than a uniform 2px stroke, while preserving every
-  property the current set has and the emoji swap lost.
+- Survey icon families (Phosphor's duotone weights, Material Symbols' variable axes, and others)
+  the way `download_emoji.py` already surveys emoji sets — pinned, fetched, reproducible — and
+  adopt one if it is clearly better than what we have.
+- Draw the ~15 domain concepts no family covers (DE1, niche-zero, portafilter/brew-group, grind,
+  taste and body attributes), in the chosen family's visual language.
+- Preserve every property the current set has and the emoji swap lost: theme tinting, state-colour
+  response, 20px legibility.
 - Record the constraints learned from the emoji experiment as testable requirements, so a future
   attempt does not rediscover them by shipping them.
 - Fix the light-mode visibility class of bug found during the audit (one instance is already
@@ -47,8 +52,11 @@ None. No existing spec states requirements about iconography.
 
 ## Impact
 
-- `resources/icons/` — 68 SVGs redrawn. File names unchanged, so the ~274 QML references are
-  untouched.
+- `resources/icons/` — 68 SVGs replaced or refined. File names unchanged, so the ~274 QML
+  references are untouched. 22 are currently stock Feather/Lucide, so a third of the set is
+  already borrowed — this makes that deliberate.
+- Possibly a `scripts/download_icons.py` in the shape of `download_emoji.py`, so the set is
+  reproducible from a pinned upstream rather than hand-copied.
 - Rendering paths stay as they are: `ThemedIcon`, inline `layer.effect: MultiEffect`, and plain
   `Image`. The redraw must work through all three, because all three are in use.
 - No C++ changes. No new dependencies.
