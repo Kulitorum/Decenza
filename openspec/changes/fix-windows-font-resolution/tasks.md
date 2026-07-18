@@ -30,16 +30,16 @@
 
 ## 3. Single source of truth for font size defaults
 
-- [ ] 3.1 Declare the canonical defaults once in `SettingsTheme` (heading 32, title 24, subtitle 18,
+- [x] 3.1 Declare the canonical defaults once in `SettingsTheme` (heading 32, title 24, subtitle 18,
       body 18, label 14, caption 12, value 48, timer 72)
-- [ ] 3.2 Add `Q_PROPERTY QVariantMap effectiveFontSizes` merging defaults with overrides, notifying
+- [x] 3.2 Add `Q_PROPERTY QVariantMap effectiveFontSizes` merging defaults with overrides, notifying
       on `customFontSizesChanged` — a property, not an invokable, or QML bindings will not
       re-evaluate when a slider moves
-- [ ] 3.3 Point the eight font roles in `qml/Theme.qml:478-485` at `effectiveFontSizes`, removing the
+- [x] 3.3 Point the eight font roles in `qml/Theme.qml:478-485` at `effectiveFontSizes`, removing the
       inline `|| <default>` fallbacks
-- [ ] 3.4 Point `shotserver_theme.cpp:49`'s `fontDefaults` map at the canonical declaration, deleting
+- [x] 3.4 Point `shotserver_theme.cpp:49`'s `fontDefaults` map at the canonical declaration, deleting
       the duplicate table
-- [ ] 3.5 Add an accessor returning only roles whose value differs from default, for startup logging
+- [x] 3.5 Add an accessor returning only roles whose value differs from default, for startup logging
 
 ## 4. Startup font diagnostics
 
@@ -48,15 +48,15 @@
       registration failure from resolution failure
 - [x] 4.3 Log the probe metric: `horizontalAdvance("Extraction yield (%)")` at a fixed 14px — fixed,
       not the user's effective label size, so it is comparable between machines
-- [ ] 4.4 Log non-default font size overrides (role, current value, default) after `Settings` is
+- [x] 4.4 Log non-default font size overrides (role, current value, default) after `Settings` is
       constructed — not in the `[Font]` block, which runs before Settings exists
 - [ ] 4.5 Confirm nothing is logged about font sizes when every role is at its default
 
 ## 5. Explicit family on theme roles
 
-- [ ] 5.1 Expose `Theme.fontFamily`, resolving to the registered family or empty string when
+- [x] 5.1 Expose `Theme.fontFamily`, resolving to the registered family or empty string when
       registration failed (empty falls back to the application default)
-- [ ] 5.2 Add `family: Theme.fontFamily` to the eight font roles in `qml/Theme.qml`
+- [x] 5.2 Add `family: Theme.fontFamily` to the eight font roles in `qml/Theme.qml`
 - [ ] 5.3 Spot-check a CJK string still renders via platform fallback with no missing-glyph boxes
 
 ## 6. Web theme editor

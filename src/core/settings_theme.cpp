@@ -599,6 +599,56 @@ void SettingsTheme::resetThemeToDefault() {
 }
 
 // Font size customization
+//
+// Canonical defaults live here and nowhere else. They were previously duplicated in
+// qml/Theme.qml (as `|| 32` style fallbacks) and in shotserver_theme.cpp (as its own
+// QMap) — two tables free to drift, where the size the UI renders at and the size the
+// web editor reports could silently disagree.
+namespace {
+// Set from main.cpp before the QML engine is created; read-only thereafter.
+QString g_bundledFontFamily;
+}
+
+void SettingsTheme::setBundledFontFamily(const QString& family) { g_bundledFontFamily = family; }
+QString SettingsTheme::bundledFontFamily() { return g_bundledFontFamily; }
+
+const QMap<QString, int>& SettingsTheme::fontSizeDefaults() {
+    static const QMap<QString, int> defaults = {
+        {"headingSize", 32},
+        {"titleSize", 24},
+        {"subtitleSize", 18},
+        {"bodySize", 18},
+        {"labelSize", 14},
+        {"captionSize", 12},
+        {"valueSize", 48},
+        {"timerSize", 72}
+    };
+    return defaults;
+}
+
+QVariantMap SettingsTheme::effectiveFontSizes() const {
+    const QVariantMap overrides = customFontSizes();
+    QVariantMap effective;
+    for (auto it = fontSizeDefaults().constBegin(); it != fontSizeDefaults().constEnd(); ++it) {
+        const int stored = overrides.value(it.key()).toInt();
+        effective[it.key()] = stored > 0 ? stored : it.value();
+    }
+    return effective;
+}
+
+QVariantMap SettingsTheme::fontSizeOverrides() const {
+    const QVariantMap overrides = customFontSizes();
+    QVariantMap changed;
+    for (auto it = fontSizeDefaults().constBegin(); it != fontSizeDefaults().constEnd(); ++it) {
+        const int stored = overrides.value(it.key()).toInt();
+        // > 0 filters unset/garbage; != default is what makes it an override. Storing a
+        // value equal to the default is not a customization worth reporting.
+        if (stored > 0 && stored != it.value())
+            changed[it.key()] = stored;
+    }
+    return changed;
+}
+
 QVariantMap SettingsTheme::customFontSizes() const {
     QByteArray data = m_settings.value("theme/customFontSizes").toByteArray();
     if (data.isEmpty()) {

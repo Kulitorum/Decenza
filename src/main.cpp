@@ -435,6 +435,9 @@ int main(int argc, char *argv[])
 
         if (!bundledFamily.isEmpty()) {
             app.setFont(QFont(bundledFamily));
+            // Publish to Theme.qml so every font role can state the family explicitly
+            // rather than relying on application-font inheritance.
+            SettingsTheme::setBundledFontFamily(bundledFamily);
             qDebug() << "[Font] Bundled application font set:" << bundledFamily;
 
             // What actually resolved. exactMatch() false means the request for
@@ -679,6 +682,26 @@ int main(int argc, char *argv[])
     // Create core objects
     Settings settings;
     settings.theme()->initSystemThemeDetection();
+
+    // Font size overrides, logged here rather than in the [Font] block above because that
+    // runs before Settings exists. Only roles the user actually changed are reported —
+    // when everything is stock (the overwhelmingly common case) this logs nothing at all,
+    // so the line's presence is itself the signal. Without it, a layout report cannot be
+    // read against the text sizes the reporter is actually running (#1469).
+    {
+        const QVariantMap overrides = settings.theme()->fontSizeOverrides();
+        if (!overrides.isEmpty()) {
+            QStringList parts;
+            for (auto it = overrides.constBegin(); it != overrides.constEnd(); ++it) {
+                parts << QStringLiteral("%1=%2 (default %3)")
+                             .arg(it.key())
+                             .arg(it.value().toInt())
+                             .arg(SettingsTheme::fontSizeDefaults().value(it.key()));
+            }
+            qDebug().noquote() << "[Font] Font size overrides:" << parts.join(QStringLiteral(", "));
+        }
+    }
+
     checkpoint("Settings");
 
     // Shared QNetworkAccessManager — avoids per-class NAM overhead (connection

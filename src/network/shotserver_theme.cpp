@@ -44,23 +44,13 @@ QJsonObject ShotServer::buildThemeJson() const
     result["colorsDark"] = colorsDark;
     result["colorsLight"] = colorsLight;
 
-    // Font sizes
+    // Font sizes. Sourced from SettingsTheme::effectiveFontSizes() so the editor reports
+    // exactly what the QML theme renders at — this used to be a second hardcoded default
+    // table, free to drift out of step with qml/Theme.qml's fallbacks.
     QJsonObject fonts;
-    QVariantMap fontSizes = m_settings->theme()->customFontSizes();
-    static const QMap<QString, int> fontDefaults = {
-        {"headingSize", 32},
-        {"titleSize", 24},
-        {"subtitleSize", 18},
-        {"bodySize", 18},
-        {"labelSize", 14},
-        {"captionSize", 12},
-        {"valueSize", 48},
-        {"timerSize", 72}
-    };
-
-    for (auto it = fontDefaults.constBegin(); it != fontDefaults.constEnd(); ++it) {
-        int val = fontSizes.value(it.key()).toInt();
-        fonts[it.key()] = val > 0 ? val : it.value();
+    const QVariantMap effective = m_settings->theme()->effectiveFontSizes();
+    for (auto it = effective.constBegin(); it != effective.constEnd(); ++it) {
+        fonts[it.key()] = it.value().toInt();
     }
     result["fonts"] = fonts;
 

@@ -474,15 +474,24 @@ QtObject {
     property color dyeTdsColor: _c("dyeTdsColor", Settings.theme.customThemeColors.dyeTdsColor || "#FF9800")
     property color dyeEyColor: _c("dyeEyColor", Settings.theme.customThemeColors.dyeEyColor || "#a2693d")
 
-    // Scaled fonts (sizes customizable via Settings.theme.customFontSizes)
-    readonly property font headingFont: Qt.font({ pixelSize: scaled(Settings.theme.customFontSizes.headingSize || 32), bold: true })
-    readonly property font titleFont: Qt.font({ pixelSize: scaled(Settings.theme.customFontSizes.titleSize || 24), bold: true })
-    readonly property font subtitleFont: Qt.font({ pixelSize: scaled(Settings.theme.customFontSizes.subtitleSize || 18), bold: true })
-    readonly property font bodyFont: Qt.font({ pixelSize: scaled(Settings.theme.customFontSizes.bodySize || 18) })
-    readonly property font labelFont: Qt.font({ pixelSize: scaled(Settings.theme.customFontSizes.labelSize || 14) })
-    readonly property font captionFont: Qt.font({ pixelSize: scaled(Settings.theme.customFontSizes.captionSize || 12) })
-    readonly property font valueFont: Qt.font({ pixelSize: scaled(Settings.theme.customFontSizes.valueSize || 48), bold: true })
-    readonly property font timerFont: Qt.font({ pixelSize: scaled(Settings.theme.customFontSizes.timerSize || 72), bold: true })
+    // The bundled UI family ("Decenza Sans"), or empty when registration failed — an empty
+    // family in Qt.font() falls back to the application default, preserving the graceful
+    // degradation main.cpp already provides. Stated explicitly on every role rather than
+    // relying on inheritance, so a Quick Controls style default cannot quietly displace it
+    // and so the family is assertable in a test (#1537).
+    readonly property string fontFamily: Settings.theme.bundledFontFamily
+
+    // Scaled fonts. Sizes come from Settings.theme.effectiveFontSizes, which merges the
+    // user's overrides over the canonical defaults declared once in SettingsTheme — never
+    // re-hardcode a default here, that duplication is what this replaced.
+    readonly property font headingFont: Qt.font({ family: fontFamily, pixelSize: scaled(Settings.theme.effectiveFontSizes.headingSize), bold: true })
+    readonly property font titleFont: Qt.font({ family: fontFamily, pixelSize: scaled(Settings.theme.effectiveFontSizes.titleSize), bold: true })
+    readonly property font subtitleFont: Qt.font({ family: fontFamily, pixelSize: scaled(Settings.theme.effectiveFontSizes.subtitleSize), bold: true })
+    readonly property font bodyFont: Qt.font({ family: fontFamily, pixelSize: scaled(Settings.theme.effectiveFontSizes.bodySize) })
+    readonly property font labelFont: Qt.font({ family: fontFamily, pixelSize: scaled(Settings.theme.effectiveFontSizes.labelSize) })
+    readonly property font captionFont: Qt.font({ family: fontFamily, pixelSize: scaled(Settings.theme.effectiveFontSizes.captionSize) })
+    readonly property font valueFont: Qt.font({ family: fontFamily, pixelSize: scaled(Settings.theme.effectiveFontSizes.valueSize), bold: true })
+    readonly property font timerFont: Qt.font({ family: fontFamily, pixelSize: scaled(Settings.theme.effectiveFontSizes.timerSize), bold: true })
 
     // Real monospace family per platform. "monospace" is NOT a registered font
     // family on macOS/iOS/Windows — using it triggers a slow font-alias scan and

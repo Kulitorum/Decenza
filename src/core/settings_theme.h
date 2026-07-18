@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QMap>
 #include <QObject>
 #include <QSettings>
 #include <QString>
@@ -27,6 +28,17 @@ class SettingsTheme : public QObject {
     Q_PROPERTY(QStringList themeNames READ themeNames NOTIFY themeNamesChanged)
     Q_PROPERTY(double screenBrightness READ screenBrightness WRITE setScreenBrightness NOTIFY screenBrightnessChanged)
     Q_PROPERTY(QVariantMap customFontSizes READ customFontSizes WRITE setCustomFontSizes NOTIFY customFontSizesChanged)
+    // Defaults merged with the user's overrides — the single value QML should render at.
+    // A PROPERTY, not an invokable: QML bindings only re-evaluate on property reads, so
+    // fontSizeFor("labelSize") would silently fail to update when a slider moves (the same
+    // trap CLAUDE.md documents against Theme.qml's temperature helpers).
+    Q_PROPERTY(QVariantMap effectiveFontSizes READ effectiveFontSizes NOTIFY customFontSizesChanged)
+
+    // The bundled UI font family main.cpp actually registered, or empty if registration
+    // failed. CONSTANT: main.cpp sets it before the QML engine is created and it never
+    // changes, so no notify is needed. Exists so Theme.qml can state the family on every
+    // font role explicitly instead of relying on application-font inheritance (#1537).
+    Q_PROPERTY(QString bundledFontFamily READ bundledFontFamily CONSTANT)
 
     // Theme mode (light/dark/system)
     Q_PROPERTY(QString themeMode READ themeMode WRITE setThemeMode NOTIFY themeModeChanged)
@@ -110,7 +122,22 @@ public:
     Q_INVOKABLE bool loadThemeFromFile(const QString& filePath);
     Q_INVOKABLE QVariantMap generatePalette(double hue, double saturation, double lightness) const;
 
+    // Canonical font-size defaults. The ONLY declaration — QML theme roles, the web theme
+    // editor, and startup override logging all read through here, so the value the UI renders
+    // at and the value the editor reports cannot drift apart.
+    static const QMap<QString, int>& fontSizeDefaults();
+
+    // Set once from main.cpp immediately after font registration, before the QML engine
+    // exists. Static because SettingsTheme is not constructed yet at that point.
+    static void setBundledFontFamily(const QString& family);
+    static QString bundledFontFamily();
+
     QVariantMap customFontSizes() const;
+    QVariantMap effectiveFontSizes() const;
+    // Only the roles whose effective value differs from the default. A stored value that
+    // happens to equal the default (user moved a slider and moved it back) is not an
+    // override and is not reported.
+    QVariantMap fontSizeOverrides() const;
     void setCustomFontSizes(const QVariantMap& sizes);
     Q_INVOKABLE void setFontSize(const QString& fontName, int size);
     Q_INVOKABLE int getFontSize(const QString& fontName) const;
