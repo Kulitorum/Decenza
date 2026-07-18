@@ -265,9 +265,16 @@ decide with, rather than guessing.
       been traced to a missing glyph. CLAUDE.md and QML_GOTCHAS.md now say symbols are fine, name
       the script, and record the bad citation so the ban is not reinstated from memory.
 
-      NEEDS JEFF'S EYES: the seven symbols now draw in Noto Sans Math rather than the host font,
-      so they will look slightly different — weight and arrowhead shape most likely. Check the
-      dose→yield line, Espresso's pressure/flow goal, and FlowCalibration's prev/next buttons.
+      VERIFIED in the running macOS build (2026-07-18 16:52 session, binary built 16:51:49):
+        - `[Font] Symbol fallback registered: "Noto Sans Math"` — the face loads.
+        - Startup log clean: no QML TypeErrors, no font warnings. (MQTT connection failures in
+          that session are the Home Assistant broker being unreachable, unrelated.)
+        - FlowCalibration's ◀/▶ buttons draw as clean monochrome triangles, centred, in the
+          text colour. That was the case worth seeing: U+25B6 HAS a Twemoji asset, so it was the
+          one codepoint with a plausible colour-font resolution path. It resolved to the text font.
+      NOT visually confirmed: a `→` on screen, which is 22 of the 29 sites. Same font and same
+      chain, and U+2192 has no emoji form so it is strictly the safer case, but it has not been
+      looked at. Cheapest place to catch one: History → any shot, detail line "18.0g → 36.0g".
 
 
 - [ ] 7.8a Translation debt found while measuring 7.8 — INDEPENDENT of the glyph fix.
