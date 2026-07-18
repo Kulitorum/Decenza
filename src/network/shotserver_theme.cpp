@@ -200,17 +200,47 @@ void ShotServer::handleThemeApi(QTcpSocket* socket, const QString& method,
         return;
     }
 
-    // POST /api/theme/font - set a single font size
+    // POST /api/theme/font - set a single font size.
+    //
+    // Reports what was actually applied. setFontSize() has two non-applying outcomes —
+    // an unknown role writes nothing, and an out-of-range value is clamped — and answering
+    // a flat {"ok":true} to either told the caller it had stored a value the app does not
+    // hold. The sibling /mode and /color endpoints already 400 on bad input; this one now
+    // matches, and echoes the applied value so a client can correct its slider.
     if (path == "/api/theme/font" && method == "POST") {
-        QJsonObject obj = QJsonDocument::fromJson(body).object();
-        QString name = obj["name"].toString();
-        int value = obj["value"].toInt();
+        QJsonParseError perr{};
+        const QJsonObject obj = QJsonDocument::fromJson(body, &perr).object();
+        if (perr.error != QJsonParseError::NoError) {
+            // Previously surfaced as the misleading "Missing name".
+            sendResponse(socket, 400, "text/plain",
+                         "Malformed JSON body: " + perr.errorString().toUtf8());
+            return;
+        }
+        const QString name = obj["name"].toString();
+        const int value = obj["value"].toInt();
         if (name.isEmpty() || value <= 0) {
             sendResponse(socket, 400, "text/plain", "Missing name or invalid value");
             return;
         }
+        const auto& roles = SettingsTheme::fontRoles();
+        const auto roleIt = roles.constFind(name);
+        if (roleIt == roles.constEnd()) {
+            sendResponse(socket, 400, "text/plain",
+                         "Unknown font role '" + name.toUtf8() + "'");
+            return;
+        }
+
         m_settings->theme()->setFontSize(name, value);
-        sendResponse(socket, 200, "application/json", "{\"ok\":true}");
+        const int applied = m_settings->theme()->effectiveFontSizes().value(name).toInt();
+
+        QJsonObject resp;
+        resp["ok"] = true;
+        resp["name"] = name;
+        resp["applied"] = applied;
+        resp["clamped"] = (applied != value);
+        resp["min"] = roleIt->min;
+        resp["max"] = roleIt->max;
+        sendJson(socket, QJsonDocument(resp).toJson(QJsonDocument::Compact));
         return;
     }
 

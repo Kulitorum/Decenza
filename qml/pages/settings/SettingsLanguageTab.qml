@@ -837,14 +837,23 @@ Item {
     // that they can do anything about it. This surfaces the option at the one moment
     // it is obviously relevant.
     //
-    // Offered once per language per session — an event-based set, not a timer.
+    // Offered once per language per VISIT to this tab — this property's lifetime is the
+    // tab item's, not the app's, so navigating away and back re-arms it. An event-based
+    // set, not a timer. Known gap: a user who dismisses and THEN configures an AI
+    // provider is not re-offered until they leave and return.
     property var _aiOfferedFor: ({})
 
     function maybeOfferAiTranslation() {
         var lang = TranslationManager.currentLanguage
         if (!lang || lang === "en") return                  // base language is never incomplete
         if (TranslationManager.autoTranslating) return
-        if (languageTab._aiOfferedFor[lang]) return         // already asked this session
+        if (languageTab._aiOfferedFor[lang]) return         // already asked on this tab visit
+        // currentLanguage is set BEFORE downloadLanguage() and emits synchronously, so
+        // this runs while the file is still in flight. Offering here would report a
+        // near-empty language ("0% translated") that is about to be ~95% complete — and
+        // worse, would set the guard below, so the onLanguageDownloaded path that exists
+        // precisely to read real coverage would never run.
+        if (TranslationManager.downloading) return
         if (TranslationManager.uniqueUntranslatedCount() <= 0) return
         languageTab._aiOfferedFor[lang] = true
         // Snapshot the values that come from Q_INVOKABLE methods. QML bindings only
@@ -854,8 +863,13 @@ Item {
         // imperatively here instead, at the one moment they matter.
         aiTranslateOfferPopup.resultText = ""
         aiTranslateOfferPopup.resultIsError = false
+        aiTranslateOfferPopup.userCancelled = false
         aiTranslateOfferPopup.aiAvailable = TranslationManager.canAutoTranslate()
         aiTranslateOfferPopup.missingCount = TranslationManager.uniqueUntranslatedCount()
+        aiTranslateOfferPopup.percentDone = TranslationManager.totalStringCount > 0
+            ? Math.round(100 * (TranslationManager.totalStringCount - TranslationManager.untranslatedCount)
+                             / TranslationManager.totalStringCount)
+            : 0
         aiTranslateOfferPopup.open()
     }
 
@@ -869,7 +883,8 @@ Item {
                 return
             }
             // A failed download means the user switched to a language whose strings never
-            // arrived. Say so — silence looks identical to a language with no translations.
+            // arrived. NOTE: this only reaches the log, not the user — surfacing it needs a
+            // banner/toast this tab does not currently have. Not claiming otherwise.
             console.warn("Language download failed for", langCode, ":", error)
         }
         // Switching to an already-downloaded language fires no download.
@@ -896,10 +911,10 @@ Item {
         // langName IS a safe binding: it reads currentLanguage, a real property, so the
         // whole expression re-evaluates when the language changes.
         readonly property string langName: TranslationManager.getLanguageDisplayName(TranslationManager.currentLanguage)
-        readonly property int percentDone: TranslationManager.totalStringCount > 0
-            ? Math.round(100 * (TranslationManager.totalStringCount - TranslationManager.untranslatedCount)
-                             / TranslationManager.totalStringCount)
-            : 0
+        // Snapshotted alongside missingCount, not a live binding. Mixing the two produced
+        // self-contradicting text ("94% translated — 812 phrases still in English") when
+        // a download landed while the dialog was open.
+        property int percentDone: 0
 
         background: Rectangle {
             color: Theme.surfaceColor
@@ -1009,10 +1024,16 @@ Item {
                           ? TranslationManager.translate("language.aiOffer.accessible.cancel", "Stop translating")
                           : TranslationManager.translate("language.aiOffer.accessible.dismiss", "Continue without translating")
                     onClicked: {
-                        if (TranslationManager.autoTranslating)
+                        if (TranslationManager.autoTranslating) {
+                            // cancelAutoTranslate() reports completion as a FAILURE
+                            // ("Translation cancelled"), so without this flag the user's
+                            // own Stop press would paint a red error and leave the dialog
+                            // open, needing a second press to dismiss.
+                            aiTranslateOfferPopup.userCancelled = true
                             TranslationManager.cancelAutoTranslate()
-                        else
+                        } else {
                             aiTranslateOfferPopup.close()
+                        }
                     }
                 }
 
@@ -1032,20 +1053,25 @@ Item {
         // strings were still English and guess why.
         property string resultText: ""
         property bool resultIsError: false
+        property bool userCancelled: false
 
         Connections {
             target: TranslationManager
             function onAutoTranslateFinished(success, message) {
                 if (!aiTranslateOfferPopup.opened) return
-                if (success) {
+                if (success || aiTranslateOfferPopup.userCancelled) {
+                    aiTranslateOfferPopup.userCancelled = false
                     aiTranslateOfferPopup.close()
                     return
                 }
                 aiTranslateOfferPopup.resultIsError = true
-                aiTranslateOfferPopup.resultText = message && message.length > 0
-                    ? message
-                    : TranslationManager.translate("language.aiOffer.failedGeneric",
-                          "Translation failed. Check your AI provider settings and try again.")
+                // Deliberately the translated generic string, not `message`: the backend
+                // messages are raw English literals, and this dialog is only ever shown to
+                // users running a non-English UI. The provider's text goes to the log.
+                console.warn("[AI translate] failed:", message)
+                aiTranslateOfferPopup.resultText =
+                    TranslationManager.translate("language.aiOffer.failedGeneric",
+                        "Translation failed. Check your AI provider settings and try again.")
             }
         }
     }

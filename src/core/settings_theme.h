@@ -29,9 +29,12 @@ class SettingsTheme : public QObject {
     Q_PROPERTY(double screenBrightness READ screenBrightness WRITE setScreenBrightness NOTIFY screenBrightnessChanged)
     Q_PROPERTY(QVariantMap customFontSizes READ customFontSizes WRITE setCustomFontSizes NOTIFY customFontSizesChanged)
     // Defaults merged with the user's overrides — the single value QML should render at.
-    // A PROPERTY, not an invokable: QML bindings only re-evaluate on property reads, so
-    // fontSizeFor("labelSize") would silently fail to update when a slider moves (the same
-    // trap CLAUDE.md documents against Theme.qml's temperature helpers).
+    // A PROPERTY, not an invokable: a binding re-evaluates when a NOTIFY fires for a
+    // property it READ during its last evaluation. A Q_INVOKABLE call registers no such
+    // dependency, so a binding over fontSizeFor("labelSize") would never re-run on its own
+    // when a slider moves. (An invokable CAN work if the same expression also reads a
+    // notifying property — see Tr.qml, which reads translationVersion for exactly that
+    // reason — but relying on that is a trap, so the value is exposed as a property.)
     Q_PROPERTY(QVariantMap effectiveFontSizes READ effectiveFontSizes NOTIFY customFontSizesChanged)
 
     // The bundled UI font family main.cpp actually registered, or empty if registration

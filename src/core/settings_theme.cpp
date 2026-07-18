@@ -663,11 +663,24 @@ QVariantMap SettingsTheme::fontSizeOverrides() const {
 }
 
 QVariantMap SettingsTheme::customFontSizes() const {
-    QByteArray data = m_settings.value("theme/customFontSizes").toByteArray();
+    const QByteArray data = m_settings.value("theme/customFontSizes").toByteArray();
     if (data.isEmpty()) {
         return QVariantMap();
     }
-    QJsonDocument doc = QJsonDocument::fromJson(data);
+    // Check the parse. Without this a corrupt blob returns an empty map — byte-for-byte
+    // identical to "the user has no overrides" — and the startup log deliberately stays
+    // silent in that case, so the corruption is actively camouflaged as normal. The user
+    // sees stock sizes, assumes an update reset them, nudges one slider, and setFontSize()
+    // then writes a fresh map over the top: every other override is destroyed, silently.
+    QJsonParseError err{};
+    const QJsonDocument doc = QJsonDocument::fromJson(data, &err);
+    if (err.error != QJsonParseError::NoError || !doc.isObject()) {
+        qWarning() << "[Font] Stored font-size overrides are corrupt at offset" << err.offset
+                   << ":" << err.errorString()
+                   << "— falling back to default sizes. The stored value will be overwritten"
+                      " on the next font-size change.";
+        return QVariantMap();
+    }
     return doc.object().toVariantMap();
 }
 

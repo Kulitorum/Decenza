@@ -478,7 +478,7 @@ QtObject {
     // family in Qt.font() falls back to the application default, preserving the graceful
     // degradation main.cpp already provides. Stated explicitly on every role rather than
     // relying on inheritance, so a Quick Controls style default cannot quietly displace it
-    // and so the family is assertable in a test (#1537).
+    // (#1537).
     readonly property string fontFamily: Settings.theme.bundledFontFamily
 
     // Scaled fonts. Sizes come from Settings.theme.effectiveFontSizes, which merges the

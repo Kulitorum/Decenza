@@ -471,8 +471,16 @@ function onFontSlider(el) {
     document.getElementById('fv_' + name).textContent = val + 'px';
 
     clearTimeout(debounceTimers['font_' + name]);
-    debounceTimers['font_' + name] = setTimeout(function() {
-        postJson('/api/theme/font', { name: name, value: val });
+    debounceTimers['font_' + name] = setTimeout(async function() {
+        // Read the response. The server clamps out-of-range values, so without this the
+        // slider could sit at 400px indefinitely for a font actually rendering at 120.
+        const res = await postJson('/api/theme/font', { name: name, value: val });
+        if (!res || !res.ok) return;
+        const data = await res.json().catch(function() { return null; });
+        if (!data || !data.clamped) return;
+        const slider = document.querySelector('.font-slider[data-name="' + name + '"]');
+        if (slider) slider.value = data.applied;
+        document.getElementById('fv_' + name).textContent = data.applied + 'px';
     }, 100);
 }
 

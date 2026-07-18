@@ -95,7 +95,9 @@
 
 - [x] 8.1 Test that the bundled family registers under `Decenza Sans` with all four weights.
       NOTE: verified at the font-file level via `tools/rename_bundled_font.py --verify` rather than
-      a Qt test — registering application fonts needs a QGuiApplication, which the guiless settings
+      a Qt test. (That flag originally only reported *pending* changes, so on already-renamed fonts
+      it printed "0 would change" — indistinguishable from success. It now asserts the new names are
+      present and exits non-zero otherwise; --dry-run is the old behaviour.) — registering application fonts needs a QGuiApplication, which the guiless settings
       suite has no reason to spin up. Runtime resolution is instead asserted by the new startup log
       (family + exactMatch), which is exactly what the reporter's next log will show.
 - [x] 8.2 Test the override-diff logic: stored-equal-to-default is not an override; changed values
