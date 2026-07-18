@@ -494,8 +494,8 @@ void TranslationManager::scanAllStrings()
                 QString fallback = match.captured(2);
 
                 // Unescape common escape sequences
-                key.replace("\\\"", "\"").replace("\\n", "\n").replace("\\t", "\t");
-                fallback.replace("\\\"", "\"").replace("\\n", "\n").replace("\\t", "\t");
+                key = unescapeQmlLiteral(key);
+                fallback = unescapeQmlLiteral(fallback);
 
                 if (!key.trimmed().isEmpty() && !fallback.trimmed().isEmpty()) {
                     seenInQml.insert(key);
@@ -534,8 +534,8 @@ void TranslationManager::scanAllStrings()
                         QString fallback = fbIt.value();
 
                         // Unescape
-                        key.replace("\\\"", "\"").replace("\\n", "\n").replace("\\t", "\t");
-                        fallback.replace("\\\"", "\"").replace("\\n", "\n").replace("\\t", "\t");
+                        key = unescapeQmlLiteral(key);
+                        fallback = unescapeQmlLiteral(fallback);
 
                         if (!key.trimmed().isEmpty() && !fallback.trimmed().isEmpty()) {
                             seenInQml.insert(key);
@@ -586,8 +586,8 @@ void TranslationManager::scanAllStrings()
                     // Unescape
                     QString keyClean = key;
                     QString fallbackClean = fallback;
-                    keyClean.replace("\\\"", "\"").replace("\\n", "\n").replace("\\t", "\t");
-                    fallbackClean.replace("\\\"", "\"").replace("\\n", "\n").replace("\\t", "\t");
+                    keyClean = unescapeQmlLiteral(keyClean);
+                    fallbackClean = unescapeQmlLiteral(fallbackClean);
 
                     if (!keyClean.trimmed().isEmpty() && !fallbackClean.trimmed().isEmpty()) {
                         seenInQml.insert(keyClean);
@@ -1524,6 +1524,46 @@ void TranslationManager::loadStringRegistry()
         }
         m_stringRegistry[key] = fallback;
     }
+}
+
+QString TranslationManager::unescapeQmlLiteral(const QString& literal)
+{
+    QString out;
+    out.reserve(literal.size());
+    for (qsizetype i = 0; i < literal.size(); ++i) {
+        if (literal[i] != u'\\' || i + 1 >= literal.size()) {
+            out += literal[i];
+            continue;
+        }
+        const QChar esc = literal[++i];
+        switch (esc.unicode()) {
+        case u'n':  out += u'\n'; break;
+        case u't':  out += u'\t'; break;
+        case u'r':  out += u'\r'; break;
+        case u'"':  out += u'"';  break;
+        case u'\'': out += u'\''; break;
+        case u'\\': out += u'\\'; break;
+        case u'u': {
+            bool ok = false;
+            const char16_t cp = literal.mid(i + 1, 4).toUShort(&ok, 16);
+            if (ok && i + 4 < literal.size()) {
+                out += QChar(cp);
+                i += 4;
+                break;
+            }
+            out += u'\\';
+            out += esc;
+            break;
+        }
+        default:
+            // Not an escape the QML engine recognises either — leave it exactly as written
+            // rather than silently eating the backslash.
+            out += u'\\';
+            out += esc;
+            break;
+        }
+    }
+    return out;
 }
 
 bool TranslationManager::noteSourceString(const QString& key, const QString& fallback)

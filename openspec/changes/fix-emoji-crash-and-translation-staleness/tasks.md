@@ -323,6 +323,38 @@ decide with, rather than guessing.
       nothing. Full suite 82/82.
 
 
+- [x] 7.8c Should the existing translations be marked stale wholesale? NO — measured, not argued.
+      The on-disk registry is itself a snapshot of the OLD English (captured at first sight,
+      never updated), so comparing it to today's QML identifies exactly which entries drifted.
+      Against Jeff's real registry: 2978 keys, 2457 still match, 469 absent from QML
+      (C++-registered or dead), and 52 drifted — 1.7%. Each language carries a translation for
+      all 52, i.e. 1.5% of ~3425. Marking everything stale would discard three complete
+      languages to fix fifty-two strings.
+      Nothing to do, either: those 52 are cleaned automatically on the first run after this
+      change, because the stale registry value is still there to be compared against. The
+      history handles itself once, then the mechanism keeps it honest.
+      Of the 52 — 37 real wording changes (bagcard.deleteRefused still tells German users to
+      press "Mark as Empty", a button since renamed to "Bag finished"), 1 with a changed
+      placeholder set (an accessibility string that gained "%1 of %2", so the translation was
+      already broken), and 14 punctuation-only ("Elevation:" losing its colon). The 14 are a
+      small real loss — a good translation dropped over a colon — and are the price of not
+      keeping a heuristic that guesses which rewrites matter.
+
+- [x] 7.8d A bug the 7.8c measurement caught in 7.8a's own fix, before it shipped.
+      The scanner reads QML as TEXT and sees escape sequences; the runtime sees the characters
+      they denote. Both write the registry. The scanner's unescape — duplicated inline three
+      times — handled only \", \n and \t, so six fallbacks using \uXXXX (GraphLegend's
+      superscript two, customeditor's degree sign) decoded differently on the two paths.
+      Harmless while the !contains guard meant first-writer-wins. With 7.8a it becomes a
+      permanent oscillation: every scan and every render sees the other's value as a rewrite,
+      drops the translation, and rewrites the registry.
+      Fixed by a single unescapeQmlLiteral() used at all three sites, handling \uXXXX plus the
+      escapes that already worked, leaving malformed input exactly as written rather than
+      eating the backslash. Two tests pin it, including the oscillation itself.
+      Worth noting how this was found: not by reading the diff, but by looking at what the
+      change would actually do to real data. The categorisation was for Jeff's question; the
+      bug fell out of the "wording changed" bucket looking wrong.
+
 - [ ] 7.8b The glyph class IS statically catchable — `redraw-icon-set` task 4.4 guessed it was not.
       `scripts/check_font_glyph_coverage.py` already does it. Worth landing as a test, but it cannot
       be green until 7.8's 29 sites are fixed, so it lands WITH the fix (no allowlist — an allowlist

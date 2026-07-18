@@ -131,6 +131,13 @@ public:
     //   3. All translation patterns are extracted and registered
     //   4. AI translation / upload now has access to all strings
     //
+    // Decode a QML string literal the way the QML engine does. The scanner reads QML as TEXT,
+    // so it sees the escape sequences; the runtime sees the characters they denote. Those two
+    // must agree, because both write the registry — six fallbacks use \uXXXX (GraphLegend's
+    // superscript two, a degree sign) and a scanner that stored the literal backslash-u would
+    // disagree with the runtime forever, each seeing the other's value as a rewrite.
+    static QString unescapeQmlLiteral(const QString& literal);
+
     Q_INVOKABLE void registerString(const QString& key, const QString& fallback);
     Q_INVOKABLE void scanAllStrings();
 

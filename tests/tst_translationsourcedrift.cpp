@@ -177,6 +177,52 @@ private slots:
         QCOMPARE(tm.translateString(key, QStringLiteral("Archive")), QStringLiteral("Archivieren"));
     }
 
+    // The scanner reads QML as text and sees escape sequences; the runtime sees the characters
+    // they denote. Both write the registry, so if they decode differently each sees the other's
+    // value as a rewrite and they oscillate — dropping the translation and rewriting the
+    // registry on every scan and every render, forever. Six fallbacks in qml/ use \uXXXX
+    // (GraphLegend's superscript two, a degree sign), and the old unescape handled only
+    // \", \n and \t. Harmless while the !contains guard meant first-writer-wins; not harmless now.
+    void scannerAndRuntimeDecodeLiteralsIdentically()
+    {
+        // What the scanner reads out of a .qml file, verbatim.
+        QCOMPARE(TranslationManager::unescapeQmlLiteral(QStringLiteral("Resist(P/F\\u00B2)")),
+                 QStringLiteral("Resist(P/F²)"));
+        QCOMPARE(TranslationManager::unescapeQmlLiteral(QStringLiteral("Steam (\\u00B0C)")),
+                 QStringLiteral("Steam (°C)"));
+        QCOMPARE(TranslationManager::unescapeQmlLiteral(QStringLiteral("Shot excluded \\u2014 too short")),
+                 QStringLiteral("Shot excluded — too short"));
+
+        // The escapes that already worked must keep working.
+        QCOMPARE(TranslationManager::unescapeQmlLiteral(QStringLiteral("a\\nb\\tc\\\"d\\\"")),
+                 QStringLiteral("a\nb\tc\"d\""));
+
+        // A backslash must not be eaten, and must not turn the next character into an escape.
+        QCOMPARE(TranslationManager::unescapeQmlLiteral(QStringLiteral("C:\\\\next")),
+                 QStringLiteral("C:\\next"));
+
+        // Malformed \u is left exactly as written rather than silently dropped.
+        QCOMPARE(TranslationManager::unescapeQmlLiteral(QStringLiteral("50\\uZZZZ")),
+                 QStringLiteral("50\\uZZZZ"));
+    }
+
+    // The oscillation itself: a decoded literal registered by the scanner must not read as a
+    // rewrite when the runtime supplies the same string as real characters.
+    void aDecodedLiteralIsNotSeenAsARewrite()
+    {
+        Settings settings;
+        TranslationManager tm(&m_nam, &settings);
+        tm.setCurrentLanguage(QStringLiteral("de"));
+        const QString key = QStringLiteral("test.drift.escapes");
+
+        // Scanner path: registers what unescapeQmlLiteral() produced from the file.
+        tm.registerString(key, TranslationManager::unescapeQmlLiteral(QStringLiteral("Steam (\\u00B0C)")));
+        tm.setTranslation(key, QStringLiteral("Dampf (°C)"));
+
+        // Runtime path: QML hands over the real characters.
+        QCOMPARE(tm.translateString(key, QStringLiteral("Steam (°C)")), QStringLiteral("Dampf (°C)"));
+    }
+
     // The known limit, asserted rather than described, so that if provenance is ever added to
     // the published format this test fails and points at the paragraph that explains why.
     void aRedownloadReintroducesTheStaleTranslation()
