@@ -108,8 +108,8 @@ re-render, offline behaviour, eviction) no longer exist.
 
 ## 6. Verification
 
-- [ ] 6.1 Build via Qt Creator; zero errors and zero new warnings.
-- [ ] 6.2 Run the full test suite; all suites pass.
+- [x] 6.1 Build via Qt Creator; zero errors and zero new warnings. Clean throughout.
+- [x] 6.2 Run the full test suite; 81/81 suites pass, no warnings.
 - [x] 6.3 Language switch verified live via MCP + screenshots: English -> German retranslated
       the whole UI with NO restart (Rezepte/Bohnen/Dampf/Bereit/Spülen/Verlauf/…), and German ->
       English left no residue. RESIDUAL: page titles are set by imperative assignment in
@@ -132,7 +132,7 @@ re-render, offline behaviour, eviction) no longer exist.
 
 ## 6b. Observed in testing — NOT this change's code, decide separately
 
-- [ ] 6.10 The Language tab contradicts itself on ONE card: it shows German as `2974 / 2977`
+- [x] 6.10 FIXED (shipped in #1550). The Language tab contradicted itself on ONE card: it shows German as `2974 / 2977`
       and, directly below, "Translation complete!". Two code paths round the same 99.899%
       differently:
         - `translationmanager.cpp:1149` `(translated * 100) / total` — integer division,
@@ -224,4 +224,10 @@ decide with, rather than guessing.
 
 ## 8. Close-out
 
-- [ ] 8.1 Archive this change with `/opsx:archive` as the last commit on the branch, before merge.
+- [ ] 8.1 Archive this change. NOT DONE, deliberately — attempted 2026-07-18 and stopped.
+      The code is merged and live (#1550), but Android and Windows have had ZERO exercise and
+      this change touches text rendering on every platform plus 4,009 new assets. Archiving
+      would file the paperwork on a change whose riskiest claim is still unverified.
+      Gate: 6.7 and 6.8. When those pass, archive — the three specs are ADDED-only new
+      capabilities (emoji-asset-resolution, translation-reactivity, untrusted-text-rendering),
+      so promotion is clean with no MODIFIED requirements to reconcile.
