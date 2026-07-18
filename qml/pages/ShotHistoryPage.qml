@@ -1265,8 +1265,12 @@ Page {
         // translation) can never push the dialog off-screen — it scrolls instead.
         contentItem: ScrollView {
             id: searchHelpScroll
+            // Leaves room for the footer, so dialog height (content + footer) still fits
+            // the page. Without subtracting it the footer pushed the dialog past the
+            // window edge at large font sizes.
             implicitHeight: Math.min(searchHelpColumn.implicitHeight,
-                                     shotHistoryPage.height - Theme.scaled(80))
+                                     shotHistoryPage.height - Theme.scaled(80)
+                                         - searchHelpDialog.footer.implicitHeight)
             clip: true
 
             // A ScrollView wrapping a Layout must be told its content size explicitly: a Layout's
@@ -1489,16 +1493,24 @@ Page {
                     Layout.rightMargin: Theme.scaled(20)
                 }
 
-                // Close button
-                AccessibleButton {
-                    text: TranslationManager.translate("shothistory.close", "Close")
-                    accessibleName: TranslationManager.translate("shothistory.closeHelp", "Close search help")
-                    Layout.alignment: Qt.AlignRight
-                    Layout.topMargin: Theme.scaled(12)
-                    Layout.rightMargin: Theme.scaled(20)
-                    Layout.bottomMargin: Theme.scaled(20)
-                    onClicked: searchHelpDialog.close()
-                }
+            }
+        }
+
+        // Close lives in the footer, outside the scrolling content, so it is reachable at
+        // any font size and window height. While it was the last child of the scrolling
+        // column, large text pushed it to the very end of the scroll range where it sat
+        // half under the dialog edge — verified on a small window at labelSize 26.
+        footer: Item {
+            implicitHeight: helpCloseButton.implicitHeight + Theme.scaled(24)
+
+            AccessibleButton {
+                id: helpCloseButton
+                text: TranslationManager.translate("shothistory.close", "Close")
+                accessibleName: TranslationManager.translate("shothistory.closeHelp", "Close search help")
+                anchors.right: parent.right
+                anchors.rightMargin: Theme.scaled(20)
+                anchors.verticalCenter: parent.verticalCenter
+                onClicked: searchHelpDialog.close()
             }
         }
     }
