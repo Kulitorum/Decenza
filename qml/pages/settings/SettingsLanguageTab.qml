@@ -174,7 +174,9 @@ Item {
                     AccessibleButton {
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.scaled(40)
-                        text: TranslationManager.downloading ? "..." : "Update"
+                        text: TranslationManager.downloading
+                            ? "..."
+                            : TranslationManager.translate("language.button.update", "Update")
                         accessibleName: TranslationManager.downloading ? TranslationManager.translate("language.accessible.downloading", "Downloading") : TranslationManager.translate("language.accessible.update", "Update community translations")
                         accessibleDescription: TranslationManager.translate("language.accessible.update.description", "Download latest translations from the community")
                         primary: true
@@ -329,7 +331,9 @@ Item {
                     Layout.fillWidth: true
                     Layout.preferredHeight: Theme.scaled(40)
                     activeFocusOnTab: false
-                    text: TranslationManager.uploading ? "Uploading..." : "Submit to Community"
+                    text: TranslationManager.uploading
+                        ? TranslationManager.translate("language.button.uploading", "Uploading...")
+                        : TranslationManager.translate("language.button.submit", "Submit to Community")
                     accessibleName: TranslationManager.uploading ? TranslationManager.translate("language.accessible.uploading", "Uploading translation") : TranslationManager.translate("language.accessible.submit", "Submit to community")
                     accessibleDescription: TranslationManager.translate("language.accessible.submit.description", "Share your translations with the community")
                     primary: true

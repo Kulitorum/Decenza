@@ -524,6 +524,30 @@ decide with, rather than guessing.
       one reported Unknown, on the same machine minutes apart — which is exactly why 7.8j's fix
       was needed and why waiting on Online specifically was the wrong condition.
 
+- [x] 7.8l Jeff asked why the Update button still read "Update" in German. Because it was never
+      translated: `text: TranslationManager.downloading ? "..." : "Update"` — a bare literal, no
+      translate() call. Its two siblings in the same row ARE translated ("Hinzufügen...",
+      "Löschen"), which is exactly why it stood out. A string like this is invisible twice over:
+      it stays English in every language, and it never enters the registry, so no translator is
+      ever offered it.
+
+      Scanning for the class found 9 candidates, 7 of them false positives (platform checks like
+      `=== "ios"`, and `!== "undefined"` guards). Real ones, both in SettingsLanguageTab:
+        line 177  "Update"
+        line 332  "Uploading..." / "Submit to Community"
+      Also ShotHistoryPage:499, whose `|| "Date"` fallback was a literal while every value in
+      sortFieldLabels is translated. RecipesPage:600 looked similar but already falls back to a
+      translated label, so it was left alone.
+
+      Deliberately NOT adding a guard script for this one: 7 of 9 hits were noise, and a check
+      that cries wolf gets ignored. Distinguishing a user-visible literal from a comparison
+      needs real QML parsing, not a regex.
+
+      CONSEQUENCE worth stating: this makes the buttons translatable, it does not make them
+      German. The three new keys have no translation yet, so German goes from the 2979/2979 it
+      just reached back to 3 short until someone re-translates. Fixing an untranslated string
+      always looks like a small regression in the counter first.
+
 - [ ] 7.8b The glyph class IS statically catchable — `redraw-icon-set` task 4.4 guessed it was not.
       `scripts/check_font_glyph_coverage.py` already does it. Worth landing as a test, but it cannot
       be green until 7.8's 29 sites are fixed, so it lands WITH the fix (no allowlist — an allowlist
