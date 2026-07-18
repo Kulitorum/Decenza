@@ -14,6 +14,7 @@
 #include <QUrl>
 #include <QUrlQuery>
 #include <QTimer>
+#include <QNetworkInformation>
 #include <QSet>
 #include <QRegularExpression>
 #include <QCoreApplication>
@@ -102,8 +103,41 @@ TranslationManager::TranslationManager(QNetworkAccessManager* networkManager, Se
              << "Translations:" << m_translations.size()
              << "AI Translations:" << m_aiTranslations.size();
 
-    // Check for language updates after startup (delayed to not block app launch)
-    QTimer::singleShot(3000, this, &TranslationManager::checkForLanguageUpdate);
+    scheduleLanguageUpdateCheck();
+}
+
+// Merge community translations for the active language, once per launch, as soon as there is
+// a network to do it over.
+//
+// This was `QTimer::singleShot(3000, ...)` — a fixed delay standing in for "wait until the
+// network is up", which is the timer-as-a-guard pattern the project rules out: three seconds
+// is too long on a warm desktop and too short on a tablet still associating with Wi-Fi, and
+// when it is too short the check simply fails and nothing retries until the next launch.
+// QNetworkInformation already reports reachability — main.cpp loads the backend and logs it —
+// so the condition can be waited on directly.
+void TranslationManager::scheduleLanguageUpdateCheck()
+{
+    auto* info = QNetworkInformation::instance();
+    if (!info) {
+        // No backend on this platform, or the manager was constructed before main.cpp loaded
+        // one. Ask immediately; being offline just fails the request, which is already handled.
+        checkForLanguageUpdate();
+        return;
+    }
+
+    if (info->reachability() == QNetworkInformation::Reachability::Online) {
+        checkForLanguageUpdate();
+        return;
+    }
+
+    // Offline at launch. Wait for the transition rather than guessing at a delay — this also
+    // covers the case the old timer could not: a device that only gets a network minutes in
+    // now picks up translations without needing a restart.
+    connect(info, &QNetworkInformation::reachabilityChanged, this,
+            [this](QNetworkInformation::Reachability reachability) {
+        if (reachability == QNetworkInformation::Reachability::Online)
+            checkForLanguageUpdate();
+    });
 }
 
 QString TranslationManager::translationsDir() const
@@ -2310,6 +2344,14 @@ void TranslationManager::saveUserOverrides()
 
 void TranslationManager::checkForLanguageUpdate()
 {
+    // Once per launch, matching the single-shot this replaced. Set before any early return so
+    // that a connection which drops and comes back does not re-run it — reachabilityChanged
+    // can fire repeatedly on a flapping link, which the fixed delay never had to survive.
+    if (m_launchUpdateCheckDone) {
+        return;
+    }
+    m_launchUpdateCheckDone = true;
+
     // Only check for non-English languages that were downloaded from the server
     if (m_currentLanguage == "en") {
         return;

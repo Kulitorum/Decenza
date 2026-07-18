@@ -421,6 +421,26 @@ decide with, rather than guessing.
       NOTE: the 7 new keys are untranslated until a re-translate, so they render English in
       ar/de/fr. All 7 are accessible names or a short tile label; none is body text.
 
+- [x] 7.8g Replaced the launch-time `QTimer::singleShot(3000, ...)` that triggered the
+      community-translation merge. It was a fixed delay standing in for "wait until the network
+      is up" — the timer-as-a-guard pattern CLAUDE.md rules out, and wrong in both directions:
+      too long on a warm desktop, too short on a tablet still associating with Wi-Fi, and when
+      it fired too early the check simply failed with nothing retrying until the next launch.
+
+      QNetworkInformation already reports reachability and main.cpp loads the backend at line
+      842, before TranslationManager is constructed at 854, so the condition can be waited on
+      directly. Online at startup -> check immediately; offline -> check on the transition to
+      Online, which is a case the old timer could never handle (a device that gets a network
+      minutes in now picks translations up without a restart). No backend on the platform ->
+      check immediately, since being offline just fails a request that is already handled.
+
+      Guarded by `m_launchUpdateCheckDone`, set before any early return: reachabilityChanged can
+      fire repeatedly on a flapping link, which a one-shot timer never had to survive.
+
+      The three remaining `QTimer::singleShot(RETRY_DELAY_MS, ...)` in this file are 429 retry
+      backoffs and the one repeating QTimer is the registry batch-save — both are genuinely
+      periodic/backoff work, which the rule allows. Left alone.
+
 - [ ] 7.8b The glyph class IS statically catchable — `redraw-icon-set` task 4.4 guessed it was not.
       `scripts/check_font_glyph_coverage.py` already does it. Worth landing as a test, but it cannot
       be green until 7.8's 29 sites are fixed, so it lands WITH the fix (no allowlist — an allowlist

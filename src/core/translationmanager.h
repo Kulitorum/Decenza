@@ -231,6 +231,11 @@ private:
     void saveTranslations();
     void loadLanguageMetadata();
     void saveLanguageMetadata();
+    // Runs the once-per-launch community-translation merge as soon as the network is up.
+    // Replaces a fixed 3s delay; see the definition for why that delay was wrong in both
+    // directions.
+    void scheduleLanguageUpdateCheck();
+
     void loadStringRegistry();
     void saveStringRegistry();
 
@@ -286,6 +291,9 @@ private:
     // Registry of all known string keys and their English fallbacks
     // registry[key] = english_fallback
     QMap<QString, QString> m_stringRegistry;
+
+    // Guards the launch-time language update so it runs once even if reachability flaps.
+    bool m_launchUpdateCheckDone = false;
 
     // Language metadata: {langCode: {displayName, nativeName, isRtl}}
     QMap<QString, QVariantMap> m_languageMetadata;
