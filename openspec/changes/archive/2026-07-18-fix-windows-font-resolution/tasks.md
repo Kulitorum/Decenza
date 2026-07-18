@@ -131,5 +131,5 @@
       ~1898 unique strings per language. Provider: OpenAI. Mechanism is per-language
       (set currentLanguage -> autoTranslate() -> submitTranslation()); the batch tool does ALL
       local languages with no top-N option.
-- [ ] 9.5 Archive this change with `/opsx:archive` as the last commit on the branch, before merge
+- [x] 9.5 Archive this change with `/opsx:archive` as the last commit on the branch, before merge
 - [ ] 9.6 Close #1537 and #1469 once the reporter's log confirms the fix
