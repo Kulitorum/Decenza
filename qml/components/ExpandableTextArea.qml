@@ -86,7 +86,7 @@ Rectangle {
         rightPadding: root.isMobile ? Theme.scaled(8) : Theme.scaled(24) // room for expand button on desktop
         topPadding: Theme.scaled(4)
         bottomPadding: Theme.scaled(4)
-        text: Theme.replaceEmojiWithImg(formatTextWithLinks(root.text), root.textFont.pixelSize)
+        text: Theme.replaceEmojiWithImg(formatTextWithLinks(root.text), root.textFont.pixelSize, true)  // formatTextWithLinks already escapes and emits <a> links
         textFormat: Text.StyledText
         font: root.textFont
         color: Theme.textColor

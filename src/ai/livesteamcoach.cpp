@@ -13,7 +13,7 @@
 // TranslationManager has been injected.
 QString LiveSteamCoach::tr_(const char* key, const char* fallback) const {
     if (m_translationManager)
-        return m_translationManager->translate(QString::fromUtf8(key),
+        return m_translationManager->translateString(QString::fromUtf8(key),
                                                QString::fromUtf8(fallback));
     return QString::fromUtf8(fallback);
 }

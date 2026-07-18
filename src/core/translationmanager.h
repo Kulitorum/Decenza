@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QJSValue>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QMap>
@@ -41,6 +42,30 @@ class TranslationManager : public QObject {
     // Version counter - increments when translations change, used for QML reactivity
     Q_PROPERTY(int translationVersion READ translationVersion NOTIFY translationsChanged)
 
+    // The QML-facing translation lookup. A PROPERTY holding a callable, not a Q_INVOKABLE —
+    // and that distinction is the whole fix for the language-switch staleness bug.
+    //
+    // A QML binding re-evaluates when a NOTIFY fires for a property it READ during its last
+    // evaluation. Calling an invokable records no dependency, so
+    //
+    //     text: TranslationManager.translate("settings.title", "Settings")
+    //
+    // used to compute once at construction and then freeze: changing language left the old
+    // language on screen until restart. Tr.qml worked around it by reading translationVersion
+    // first, but 3,248 call sites in qml/ called translate() bare and none of them updated.
+    //
+    // Exposed as a property, reading `TranslationManager.translate` IS a property read, so the
+    // binding depends on translationsChanged and re-runs — with the call-site syntax completely
+    // unchanged. That is why this fix touches zero of those 3,248 lines.
+    //
+    // Proven before the codebase was swept: tests/tst_translationreactivity.cpp drives a real
+    // QQmlEngine and includes a negative control showing the invokable form does NOT update.
+    // If that test is ever deleted, a refactor back to Q_INVOKABLE would silently re-freeze
+    // every translated string in the app.
+    //
+    // C++ callers use translateString() directly and are unaffected.
+    Q_PROPERTY(QJSValue translate READ translateFn NOTIFY translationsChanged)
+
 public:
     explicit TranslationManager(QNetworkAccessManager* networkManager, Settings* settings, QObject* parent = nullptr);
 
@@ -65,9 +90,16 @@ public:
     int autoTranslateTotal() const { return m_autoTranslateTotal; }
     QString lastTranslatedText() const { return m_lastTranslatedText; }
 
-    // Translation lookup (auto-registers strings)
-    Q_INVOKABLE QString translate(const QString& key, const QString& fallback);
+    // Translation lookup (auto-registers strings). This is the real implementation and the
+    // entry point for C++ callers; QML reaches it through the `translate` property above.
+    Q_INVOKABLE QString translateString(const QString& key, const QString& fallback);
     Q_INVOKABLE bool hasTranslation(const QString& key) const;
+
+    // Must be called once, after the QML engine exists and before QML loads. TranslationManager
+    // is exposed with setContextProperty rather than being created by the engine, so
+    // qmlEngine(this) is null and the engine has to be handed in explicitly.
+    void setJsEngine(QJSEngine* engine);
+    QJSValue translateFn();
 
     // Translation editing
     Q_INVOKABLE void setTranslation(const QString& key, const QString& translation);
@@ -213,6 +245,10 @@ private:
 
     Settings* m_settings;
     QNetworkAccessManager* m_networkManager;
+
+    QJSEngine* m_jsEngine = nullptr;
+    QJSValue m_translateFn;
+    bool m_warnedNoEngine = false;  // warn once — see translateFn()
 
     QString m_currentLanguage;
     bool m_editModeEnabled = false;

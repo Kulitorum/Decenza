@@ -388,15 +388,20 @@ Rectangle {
                     TextArea {
                         id: conversationText
                         width: parent.width
-                        // Substitute emoji with Twemoji SVG <img> (project-wide
-                        // pattern) so a color/sbix glyph never reaches CoreText's
-                        // crashing emoji path. Qt's Markdown importer passes the
-                        // inline <img> through, so markdown formatting AND emoji
-                        // both render. See docs/CLAUDE_MD/EMOJI_SYSTEM.md.
+                        // Markdown -> HTML, THEN emoji. The comment here used to claim
+                        // "Qt's Markdown importer passes the inline <img> through" — that is
+                        // FALSE, and every AI reply was silently losing everything after its
+                        // first emoji. Converting first means the parser never sees an <img>.
                         text: MainController.aiManager && MainController.aiManager.conversation
-                              ? Theme.replaceEmojiWithImg(MainController.aiManager.conversation.getConversationText(), Theme.bodyFont.pixelSize)
+                              ? Theme.replaceEmojiWithImg(
+                                    MarkdownRenderer.toHtml(MainController.aiManager.conversation.getConversationText()),
+                                    Theme.bodyFont.pixelSize, true)
                               : ""
-                        textFormat: Text.MarkdownText
+                        // RichText: the binding above now produces HTML. Left as MarkdownText
+                        // this feeds <img> tags to the Markdown parser — the exact truncation
+                        // this change fixes. Three reviewers caught that I switched only two of
+                        // the four sites. See markdownrenderer.h.
+                        textFormat: Text.RichText
                         wrapMode: TextEdit.WordWrap
                         readOnly: true
                         selectByMouse: true
@@ -410,7 +415,8 @@ Rectangle {
                         // text now carries <img> emoji substitutions; strip the
                         // HTML tags (toAccessibleText) before stripping Markdown
                         // so VoiceOver/TalkBack don't read literal "<img src=…>".
-                        Accessible.description: Theme.stripMarkdown(Theme.toAccessibleText(text))
+                        // `text` is HTML now; toAccessibleText strips the tags and emoji.
+                        Accessible.description: Theme.toAccessibleText(text)
                         Accessible.focusable: true
                         activeFocusOnTab: true
 
@@ -1086,7 +1092,9 @@ Rectangle {
             // that handler reads _pendingScrollKind, performs the scroll, and
             // wakes the render thread.
             overlay._pendingScrollKind = isResponse ? "preResponse" : "bottom"
-            conversationText.text = Theme.replaceEmojiWithImg(MainController.aiManager.conversation.getConversationText(), Theme.bodyFont.pixelSize)
+            conversationText.text = Theme.replaceEmojiWithImg(
+                    MarkdownRenderer.toHtml(MainController.aiManager.conversation.getConversationText()),
+                    Theme.bodyFont.pixelSize, true)
         }
     }
 

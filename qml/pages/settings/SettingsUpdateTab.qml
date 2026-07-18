@@ -620,7 +620,22 @@ Item {
                             TextArea {
                                 width: inlineNotesScrollView.width
                                 readOnly: true
-                                text: MainController.updateChecker.releaseNotes
+                                // Release notes are remote GitHub markdown and routinely contain
+                                // emoji. Rendered as plain text, a colour emoji reaches Apple Color
+                                // Emoji -> CopyEmojiImage -> ImageIO PNG decode, which crashes the
+                                // render thread on macOS. Route them through the SVG emoji path
+                                // instead, exactly as every other externally-sourced string does.
+                                //
+                                // Markdown -> HTML FIRST, then inject emoji, then render as
+                                // RichText. Rewriting emoji before the markdown parse truncates the
+                                // document at the first emoji (see markdownrenderer.h); doing it
+                                // after means the parser never sees an <img>. allowMarkup is safe
+                                // because toHtml() escapes text content AND parses with
+                                // MarkdownNoHTML, so raw HTML in the notes cannot become markup.
+                                textFormat: TextEdit.RichText
+                                text: Theme.replaceEmojiWithImg(
+                                          MarkdownRenderer.toHtml(MainController.updateChecker.releaseNotes),
+                                          Theme.scaled(12), true)
                                 color: Theme.textSecondaryColor
                                 font.pixelSize: Theme.scaled(12)
                                 wrapMode: Text.WordWrap
@@ -629,7 +644,9 @@ Item {
 
                                 Accessible.role: Accessible.StaticText
                                 Accessible.name: TranslationManager.translate("settings.update.releaseNotesContent", "Release notes")
-                                Accessible.description: Theme.stripMarkdown(text)
+                                // toAccessibleText: `text` is HTML now, so tags and the emoji
+                                // <img>s are what need stripping, not markdown syntax.
+                                Accessible.description: Theme.toAccessibleText(text)
                                 Accessible.focusable: true
                                 activeFocusOnTab: true
                             }
@@ -815,7 +832,15 @@ Item {
                         id: notesText
                         width: notesScrollView.width
                         readOnly: true
-                        text: MainController.updateChecker.releaseNotes
+                        // Same treatment as the inline notes above. This one was missed and
+                        // was still rendering release notes as PLAIN TEXT — the exact crash
+                        // path main.cpp describes (a colour emoji reaching the platform
+                        // renderer takes down the macOS render thread), and the site that
+                        // comment calls "the remaining exposure".
+                        textFormat: TextEdit.RichText
+                        text: Theme.replaceEmojiWithImg(
+                                  MarkdownRenderer.toHtml(MainController.updateChecker.releaseNotes),
+                                  Theme.scaled(13), true)
                         color: Theme.textColor
                         font.pixelSize: Theme.scaled(13)
                         wrapMode: Text.WordWrap

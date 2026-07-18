@@ -285,7 +285,8 @@ Item {
         result = result.replace(/%DATE%/g, Qt.formatDate(now, "yyyy-MM-dd"))
         // Convert any emoji Unicode in the result to <img> tags to avoid
         // CoreText/ImageIO crash from Apple Color Emoji PNG decoding on render thread
-        return Theme.replaceEmojiWithImg(result, Theme.bodyFont.pixelSize)
+        // allowMarkup: user-authored widget templates may deliberately contain formatting.
+        return Theme.replaceEmojiWithImg(result, Theme.bodyFont.pixelSize, true)
     }
 
     function executeActionString(actionStr) {

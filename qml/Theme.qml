@@ -31,6 +31,7 @@ QtObject {
 
     // Convert emoji character to pre-rendered SVG image path.
     // Passes through qrc:/icons/... paths unchanged.
+    // Returns "" when no asset is bundled — see _emojiAssetPath.
     function emojiToImage(emoji) {
         if (!emoji) return ""
         if (emoji.indexOf("qrc:") === 0) return emoji
@@ -40,7 +41,40 @@ QtObject {
             i += cp > 0xFFFF ? 2 : 1
             if (cp !== 0xFE0F) cps.push(cp.toString(16))
         }
-        return "qrc:/emoji/" + cps.join("-") + ".svg"
+        return _emojiAssetPath(cps)
+    }
+
+    // Asset path for a codepoint list, or "" when nothing is bundled for it.
+    //
+    // The app ships the complete Twemoji set, but "complete" is relative to a pinned
+    // upstream: a codepoint from a newer Unicode revision, or a sequence upstream does not
+    // draw, has no asset. Emitting the path anyway produces an image reference nothing can
+    // resolve, which renders as a broken-image artefact — worse than either showing the
+    // emoji or dropping it. So callers get "" and drop it.
+    //
+    // EmojiAssets.has() is an invokable, and non-reactive on purpose: the bundled set is
+    // fixed at build time, so unlike Settings.theme.effectiveFontSizes there is nothing for
+    // a binding to re-evaluate. See src/core/emojiassets.h.
+    property bool _warnedNoEmojiAssets: false
+    function _emojiAssetPath(cps) {
+        if (!cps || cps.length === 0) return ""
+        if (typeof EmojiAssets === "undefined") {
+            // Distinct from "this emoji isn't bundled". If the context property is missing,
+            // EVERY emoji in this QML engine silently vanishes — and an app with no emoji
+            // looks deliberate. The C++ warning in emojiassets.cpp cannot fire here, because
+            // has() is never reached. Secondary engines are the real risk: main.cpp creates
+            // one for the GHC window that does not set this property.
+            if (!_warnedNoEmojiAssets) {
+                _warnedNoEmojiAssets = true
+                console.warn("[Emoji] EmojiAssets context property missing — every emoji in "
+                           + "this QML engine will be stripped. main.cpp must call "
+                           + "setContextProperty(\"EmojiAssets\", ...) on this engine.")
+            }
+            return ""
+        }
+        var key = cps.join("-")
+        if (!EmojiAssets.has(key)) return ""
+        return "qrc:/emoji/" + key + ".svg"
     }
 
     // Check if a Unicode code point is an emoji that would trigger Apple Color Emoji
@@ -69,9 +103,39 @@ QtObject {
         if (cp >= 0x1F100 && cp <= 0x1F1FF) return true
         // Skin tone modifiers (not standalone but may appear)
         if (cp >= 0x1F3FB && cp <= 0x1F3FF) return true
+        // Combining enclosing keycap — the tail of "1️⃣" (U+0031 U+FE0F U+20E3). Without
+        // this the whole sequence falls through every range above (the base is ASCII "1")
+        // and reaches CoreText as a colour glyph, which is the crash this file prevents.
+        // See _isEmojiPresentation for the base character.
+        if (cp === 0x20E3) return true
         // Variation selector 16 (emoji presentation) — skip, handled separately
         // ZWJ (U+200D) — skip, only a joiner
         return false
+    }
+
+    // True when `cp` is a character that this text is asking to render in EMOJI
+    // presentation — i.e. it is followed by U+FE0F.
+    //
+    // Range checks alone cannot catch these: "©️" is U+00A9 (Latin-1 copyright sign) and
+    // "1️⃣" starts at U+0031 (ASCII digit one). Both are ordinary text codepoints that macOS
+    // renders from Apple Color Emoji ONLY because of the trailing U+FE0F — which is exactly
+    // the colour-glyph path that crashes the render thread. The variation selector is the
+    // signal, so use it rather than trying to enumerate every base character.
+    function _isEmojiPresentation(text, i, cp) {
+        var next = i + (cp > 0xFFFF ? 2 : 1)
+        if (next >= text.length || text.codePointAt(next) !== 0xFE0F) return false
+        // Bound it, but be honest about how loose the bound is: `cp >= 0xA9` is EVERY
+        // character above U+00A9, not just symbols — é, Cyrillic, Greek, Hebrew, Arabic and
+        // CJK all qualify. So a stray U+FE0F after CJK text makes that character resolve to
+        // a nonexistent asset and get DROPPED (see _emojiAssetPath). ASCII letters are
+        // excluded, which covers the common accidental case.
+        //
+        // Enumerating Unicode's real Emoji_Presentation property would be exact but large;
+        // this is deliberately the cheap approximation. A stray FE0F after non-emoji text is
+        // rare, and the cost is one lost character rather than a crash.
+        if (cp >= 0x30 && cp <= 0x39) return true   // keycap digits
+        if (cp === 0x23 || cp === 0x2A) return true // keycap # and *
+        return cp >= 0xA9
     }
 
     // Replace emoji Unicode characters in a string with RichText <img> tags
@@ -82,7 +146,13 @@ QtObject {
     // align="middle" (honored by StyledText) and style="vertical-align" (honored
     // by RichText) so it stays centered either way. See QML_GOTCHAS.md — RichText
     // silently disables elide.
-    function replaceEmojiWithImg(text, pixelSize) {
+    // allowMarkup: pass true ONLY when the caller has already escaped its input and
+    // is deliberately supplying markup (links, formatting). It defaults to FALSE so
+    // that untrusted text -- bean names from Bean Base, AI replies, community
+    // screensaver authors, GitHub release notes -- cannot inject tags into the
+    // RichText/StyledText renderer. Getting this wrong should fail visibly (raw
+    // tags on screen), not silently.
+    function replaceEmojiWithImg(text, pixelSize, allowMarkup) {
         if (!text) return ""
         var size = pixelSize || 16
         var result = ""
@@ -90,7 +160,7 @@ QtObject {
         while (i < text.length) {
             var cp = text.codePointAt(i)
             var charLen = cp > 0xFFFF ? 2 : 1
-            if (_isEmoji(cp)) {
+            if (_isEmoji(cp) || _isEmojiPresentation(text, i, cp)) {
                 // Collect full emoji sequence (multi-codepoint with ZWJ, modifiers)
                 var emojiCps = [cp]
                 var j = i + charLen
@@ -125,7 +195,13 @@ QtObject {
                     }
                     break
                 }
-                var src = "qrc:/emoji/" + emojiCps.map(function(c) { return c.toString(16) }).join("-") + ".svg"
+                var src = _emojiAssetPath(emojiCps.map(function(c) { return c.toString(16) }))
+                if (src === "") {
+                    // Nothing bundled for this sequence — drop it rather than emitting a
+                    // path that resolves to nothing. The surrounding text is unaffected.
+                    i = j
+                    continue
+                }
                 // align="middle" centres the emoji in Text.StyledText (which ignores
                 // the CSS style= attribute); style="vertical-align" keeps it centred in
                 // any label still using Text.RichText. Prefer StyledText — RichText
@@ -137,7 +213,8 @@ QtObject {
                 // Stray variation selector — skip
                 i += charLen
             } else {
-                result += text.substring(i, i + charLen)
+                var chunk = text.substring(i, i + charLen)
+                result += allowMarkup ? chunk : escapeHtml(chunk)
                 i += charLen
             }
         }
@@ -166,16 +243,40 @@ QtObject {
     // a clean plain-text string for TalkBack/VoiceOver.
     function toAccessibleText(html) {
         if (!html) return ""
-        return stripEmoji(html.replace(/<[^>]*>/g, "")).trim()
+        // Decode entities as well as stripping tags. Callers now pass MarkdownRenderer output,
+        // where QTextDocument::toHtml() has escaped & < > " and emitted &nbsp; — without this a
+        // screen reader announces "Fixes R amp semicolon D sync". &amp; must be decoded LAST or
+        // it re-creates the others.
+        return stripEmoji(html.replace(/<[^>]*>/g, ""))
+            .replace(/&nbsp;/g, " ")
+            .replace(/&lt;/g, "<")
+            .replace(/&gt;/g, ">")
+            .replace(/&quot;/g, "\"")
+            .replace(/&#39;/g, "'")
+            .replace(/&amp;/g, "&")
+            .trim()
     }
 
-    // Escape user-supplied text so it can be safely embedded in a StyledText/RichText
-    // string (a bean or roaster name containing & < > would otherwise be mis-parsed).
+    // Escape user-supplied text for embedding as CONTENT in a StyledText, RichText or
+    // MarkdownText string.
+    //
+    // Escapes & and < only — deliberately NOT >. Injection requires OPENING a tag, and
+    // only < does that; once < is &lt; a stray > is just a greater-than sign with no tag
+    // to close. Escaping > is a convention inherited from ATTRIBUTE contexts, where >
+    // can terminate a tag early. Nothing here puts untrusted text in an attribute: the
+    // only attributes we generate are src/width on <img>, built from hex codepoints,
+    // and the <a href> in ExpandableTextArea, whose URL regex excludes quotes.
+    //
+    // Leaving > raw is what makes one policy correct for all three formats: escaping it
+    // breaks Markdown blockquotes ("> quoted" renders indented, "&gt; quoted" renders as
+    // literal text), which AI replies use routinely. Verified against Qt 6.11.1.
+    //
+    // CONTRACT: content only. Never interpolate untrusted text into an attribute value —
+    // that needs quote escaping, which escaping > never provided anyway.
     function escapeHtml(s) {
         return String(s)
             .replace(/&/g, "&amp;")
             .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
     }
 
     // 6-digit hex (#rrggbb) for StyledText/RichText <font color> spans. The

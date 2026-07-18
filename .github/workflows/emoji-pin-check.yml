@@ -1,0 +1,72 @@
+name: Check emoji asset pin
+
+# The emoji set is committed to the repo and generated from a PINNED upstream tag
+# (see scripts/download_emoji.py). Pinning is what stops upstream from changing how
+# the app renders without a commit — a rebuild months later reproduces the release it
+# claims to. The cost is that a pin rots quietly: nobody notices a year has passed and
+# two Unicode revisions shipped, and meanwhile every emoji newer than the pin is
+# stripped from user text with no signal to anyone.
+#
+# The app resolves emoji locally with no network fallback, so a stale pin is the ONLY
+# thing standing between a user and a missing emoji. This job is the signal.
+#
+# Advisory by construction: it opens nothing, changes nothing, and never gates a merge.
+# It runs on a schedule rather than per-build so no compile depends on a third-party
+# API being reachable.
+
+on:
+  schedule:
+    # Monthly. Upstream releases a few times a year, so anything more frequent is noise.
+    - cron: '0 6 1 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compare pinned emoji version against upstream
+        id: check
+        run: |
+          set +e
+          # NOT `... | tee` + `$?` — that captures tee's status, not the script's,
+          # so an available update would always report as "current".
+          python3 scripts/download_emoji.py twemoji --check-updates > result.txt 2>&1
+          status=$?
+          cat result.txt
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          # 0 current, 2 update available, 3 undeterminable — all expected. Anything else
+          # (a traceback, a usage error) must turn the job RED. A scheduled job that can
+          # only ever be green is not a rot detector; it is a rot detector that rotted.
+          case "$status" in
+            0|2|3) exit 0 ;;
+            *) echo "::error::emoji pin check failed unexpectedly (exit $status)"; exit 1 ;;
+          esac
+
+      - name: Summarise
+        if: always()
+        run: |
+          {
+            echo "## Emoji asset pin"
+            echo
+            echo '```'
+            cat result.txt
+            echo '```'
+            if [ "${{ steps.check.outputs.status }}" = "2" ]; then
+              echo
+              echo "A newer upstream release is available. To take it:"
+              echo
+              echo '```bash'
+              echo "# edit Twemoji.tag in scripts/download_emoji.py, then:"
+              echo "python scripts/download_emoji.py twemoji --all"
+              echo "git add resources/emoji resources/emoji.qrc"
+              echo '```'
+              echo
+              echo "Check the diff for MODIFIED files as well as additions — upstream"
+              echo "revises existing artwork (8 of 744 changed between 14.0.2 and 17.0.3)."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

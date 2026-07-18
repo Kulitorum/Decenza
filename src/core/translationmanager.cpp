@@ -1,3 +1,4 @@
+#include <QJSEngine>
 #include "translationmanager.h"
 #include "settings.h"
 #include "settings_ai.h"
@@ -197,7 +198,75 @@ QString TranslationManager::lastError() const
 
 // --- Translation lookup ---
 
-QString TranslationManager::translate(const QString& key, const QString& fallback)
+void TranslationManager::setJsEngine(QJSEngine* engine)
+{
+    if (m_jsEngine && m_jsEngine != engine) {
+        // Bindings that already read `translate` hold a callable bound to the PREVIOUS
+        // engine. They keep calling into it, and if that engine is destroyed the value is
+        // invalid — materially worse than undefined. There is no migration path, so fail
+        // loudly at the wiring mistake rather than mysteriously later.
+        qFatal("[i18n] setJsEngine() called twice with different engines — 3,248 bindings "
+               "hold a callable from the first one and cannot be migrated.");
+    }
+
+    m_jsEngine = engine;
+    m_translateFn = QJSValue();  // rebuild against this engine on next read
+
+    if (!engine)
+        return;
+
+    // Build eagerly so a wiring fault surfaces here, at the call site that got it wrong,
+    // instead of 3,248 times over from the property getter.
+    (void)translateFn();
+
+    // The property name below is a STRING coupled to a C++ method with no compile-time
+    // link: an IDE rename of translateString() compiles clean, yields undefined, and turns
+    // every translated string in the app into a TypeError. tst_translationreactivity's
+    // indexOfMethod check catches removal, not a consistent rename.
+    Q_ASSERT_X(m_translateFn.isCallable(), "TranslationManager",
+               "translateString not found on the QJSEngine wrapper — was it renamed?");
+
+    // Anything that already evaluated (before wiring, or against the old engine) is stale
+    // and will never re-run on its own, because nothing else fires for this transition.
+    emit translationsChanged();
+}
+
+QJSValue TranslationManager::translateFn()
+{
+    if (!m_jsEngine) {
+        // Nobody called setJsEngine(). Every translated binding in the app evaluates to
+        // undefined — a startup wiring fault, not a content problem.
+        //
+        // Warn ONCE. This is a Q_PROPERTY read accessor behind ~3,248 bindings; warning per
+        // read would emit thousands of identical lines on startup and again on every
+        // translationsChanged, burying the one message that explains the blank UI. Debug logs
+        // here are read by users' AI assistants via MCP, so a flooded log is actively harmful.
+        if (!m_warnedNoEngine) {
+            m_warnedNoEngine = true;
+            qCritical() << "[i18n] TranslationManager has no QJSEngine — EVERY translated "
+                           "string in the app will be undefined. main.cpp must call "
+                           "translationManager.setJsEngine(&engine) before engine.load(). "
+                           "This message is logged once.";
+        }
+        return QJSValue();
+    }
+
+    if (m_translateFn.isUndefined() || m_translateFn.isNull()) {
+        // Built once and cached. Bindings re-evaluate on every translationsChanged, and
+        // rebuilding the wrapper each time would allocate on every language change.
+        //
+        // CppOwnership is required, not defensive: newQObject() hands the object to the JS
+        // engine's GC by default, and TranslationManager is a stack object in main() that
+        // outlives nothing. Without this the engine could collect it out from under the
+        // callable held by 3,248 live bindings.
+        QJSEngine::setObjectOwnership(this, QJSEngine::CppOwnership);
+        QJSValue wrapper = m_jsEngine->newQObject(this);
+        m_translateFn = wrapper.property(QStringLiteral("translateString"));
+    }
+    return m_translateFn;
+}
+
+QString TranslationManager::translateString(const QString& key, const QString& fallback)
 {
     // Skip empty/whitespace keys or fallbacks
     if (key.trimmed().isEmpty() || fallback.trimmed().isEmpty()) {

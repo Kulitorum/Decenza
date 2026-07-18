@@ -43,6 +43,8 @@
 
 #include "core/asynclogger.h"
 #include "core/btlogfilter.h"
+#include "core/emojiassets.h"
+#include "core/markdownrenderer.h"
 #include "core/settings.h"
 #include "core/settings_mqtt.h"
 #include "core/settings_autowake.h"
@@ -559,9 +561,18 @@ int main(int argc, char *argv[])
     //     bitmap rendering (QSGTextMaskMaterial) when a glyph run contains color-font
     //     glyphs. If CoreText shapes ANY character to Apple Color Emoji, that bitmap
     //     path hits PNGReadPlugin::InitializePluginData → CopyEmojiImage and crashes
-    //     on QSGRenderThread. CurveTextRendering never calls imageForGlyph, so the
-    //     crash path is gone. This app draws emoji as SVG images (Theme.emojiToImage),
-    //     so bitmap emoji glyphs are never needed anyway.
+    //     on QSGRenderThread.
+    //
+    //     CurveTextRendering REDUCES but does NOT eliminate this. An earlier version of
+    //     this comment claimed the crash path was gone; a crash on 2026-07-18 disproved
+    //     it — the stack ran through QSGTextMaskMaterial with Curve rendering active and
+    //     confirmed. Curves cannot represent colour bitmaps, so Qt still falls back to
+    //     the texture-mask path for colour glyphs specifically — precisely the case this
+    //     was meant to cover. The real defence is never letting a colour glyph reach
+    //     CoreText: route every externally-sourced string through
+    //     Theme.replaceEmojiWithImg() so emoji render as bundled SVGs. Text that skips
+    //     that path (that crash was GitHub release notes in a plain TextArea) is the
+    //     remaining exposure.
     //
     // Mobile (Android/iOS) keeps Qt's default: those windows are fullscreen and
     // don't resize, so the ligature glitch can't occur, and the default avoids the
@@ -1301,7 +1312,7 @@ int main(int argc, char *argv[])
     for (const QString& providerId : aiManager.availableProviders()) {
         const QString hint = aiManager.modelHint(providerId);
         if (!hint.isEmpty())
-            translationManager.translate("settings.ai.modelHint." + providerId, hint);
+            translationManager.translateString("settings.ai.modelHint." + providerId, hint);
     }
 
     // Connect FlowScale to graph initially (will be disconnected if physical scale found)
@@ -2782,6 +2793,21 @@ int main(int argc, char *argv[])
     QQmlContext* context = engine.rootContext();
     context->setContextProperty("Settings", &settings);
     context->setContextProperty("TranslationManager", &translationManager);
+    // Required before QML loads: TranslationManager.translate is a QJSValue property holding a
+    // callable, and it needs an engine to build that callable from. It is exposed via
+    // setContextProperty rather than created by the engine, so qmlEngine(this) is null and the
+    // engine cannot be discovered from inside. Without this every translated string in the app
+    // evaluates to undefined. See translationmanager.h.
+    translationManager.setJsEngine(&engine);
+    // Lets Theme.qml ask whether an emoji asset exists before emitting a path to it —
+    // without this an emoji outside the bundled set becomes an unresolvable image
+    // reference (drawn as neither the emoji nor nothing). See emojiassets.h.
+    static EmojiAssets emojiAssets;
+    context->setContextProperty("EmojiAssets", &emojiAssets);
+    // Markdown -> HTML so emoji can be injected AFTER the parse. Rewriting emoji to <img>
+    // before it truncates the document at the first emoji. See markdownrenderer.h.
+    static MarkdownRenderer markdownRenderer;
+    context->setContextProperty("MarkdownRenderer", &markdownRenderer);
     context->setContextProperty("TemperatureDisplay", &temperatureDisplayBridge);
     context->setContextProperty("BLEManager", &bleManager);
     context->setContextProperty("DE1Device", &de1Device);

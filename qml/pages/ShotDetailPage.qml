@@ -354,7 +354,10 @@ Page {
                                 } else {
                                     result = name
                                 }
-                                return Theme.replaceEmojiWithImg(result, Theme.titleFont.pixelSize)
+                                // allowMarkup: `name` is escaped above and tempStr is a
+                                // <font> span we build ourselves — escaping here would
+                                // render the highlight as raw tags.
+                                return Theme.replaceEmojiWithImg(result, Theme.titleFont.pixelSize, true)
                             }
                             font: Theme.titleFont
                             color: Theme.textColor
