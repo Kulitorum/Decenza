@@ -12,14 +12,12 @@
       column is silently clipped, at the smallest supported window size — verified on the running
       macOS app in a small window at both stock sizes and labelSize 26/bodySize 30: all three
       columns present, "filter"/"fields" ligatures correct, full content reachable, Close pinned.
-- [ ] 1.4 Verify with a CJK or Arabic UI language, where every glyph comes from a fallback font —
-      this is the case the guards exist for.
-      BLOCKED, not skipped: this device has no translations downloaded ("Translations: 0, AI
-      Translations: 0"), so switching the UI language would either still render English (a
-      meaningless test) or trigger a 2955-string AI translation download — a side effect not worth
-      causing on Jeff's machine unprompted. Fallback GLYPH rendering is covered by 5.3; what
-      remains untested is RTL layout plus fallback metrics inside the dialog specifically. Needs a
-      build with a translation actually installed.
+- [x] 1.4 Verify with a CJK or Arabic UI language, where every glyph comes from a fallback font —
+      this is the case the guards exist for. DONE: downloaded the Arabic translation (1062/2960
+      strings) and drove the app in RTL across Idle, Settings/Lang & Access, Shot History and the
+      search-syntax dialog. The dialog holds: three columns intact, nothing clipped, content
+      scrolls to the last syntax line, and the footer Close ("إغلاق") stays pinned. No tofu.
+      Switched back to English afterwards.
 
 ## 2. Rename the bundled font family
 
