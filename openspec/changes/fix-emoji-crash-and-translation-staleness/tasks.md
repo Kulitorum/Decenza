@@ -218,9 +218,25 @@ decide with, rather than guessing.
       a white-stroked search.svg as a plain Image on a `Theme.surfaceColor` background — #ffffff
       in light mode — so it was completely INVISIBLE. Now ThemedIcon. Needs a relaunch to
       confirm; the running app still had the old QML.
-- [ ] 7.7 A broader light-mode sweep is worth doing: the same shape (plain Image + white-stroked
-      SVG on a light surface) could exist elsewhere. Do it by LOOKING at pages in light mode —
-      two grep-based attempts at this both gave wrong answers.
+- [x] 7.7 Light-mode sweep DONE by walking the app (idle, settings tabs, shot history) in light
+      mode. Result: NO further invisible icons found. The search-button fix is confirmed visible.
+      Icons tint correctly across the surfaces walked — the "94% untinted" fear was wrong, as the
+      corrected 7.2 already records. Not exhaustive (every page was not visited), but the
+      hypothesis that this was widespread is not supported.
+- [ ] 7.8 FOUND during the sweep, unrelated to icons: **16 user-visible `→` glyphs** across 10
+      QML files. CLAUDE.md bans exactly this — non-emoji text symbols are rendered as font
+      glyphs, are absent from Decenza Sans's cmap, and fall back to a platform font whose
+      metrics vary per machine. That is the #1537 bug class, still shipping. Seen on screen in
+      Shot History ("18.0g → 35.9g", ShotPlanText.qml:154). Worst case is
+      RecipeWizardPage.qml:1438, `text: "→"` standing alone as a de-facto icon.
+      Others: main.qml:1577, EspressoPage 805/848, SteamPage 1665/1916, ShotDetailPage:208,
+      PostShotReviewPage:130, SettingsHistoryDataTab:65, RecipeWizardPage 923/926/2034/2767/2770,
+      StringBrowserPage:952, ConversationOverlay:1152, BackgroundPickerDialog:113.
+      Fix: an SVG icon where it is decorative, or a safe literal where it is textual. NOT done
+      here — it is a separate concern from this change and wants its own pass.
+- [ ] 7.9 A faint cloud indicator in Shot History rows is very low-contrast in light mode. Could
+      not locate its source by grepping ShotHistoryPage; may be deliberate de-emphasis for an
+      "uploaded" state. Look at it directly before assuming either way.
 
 ## 8. Close-out
 
