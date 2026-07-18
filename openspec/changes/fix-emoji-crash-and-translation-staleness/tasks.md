@@ -191,8 +191,28 @@ decide with, rather than guessing.
       concluding the swap is viable — this is the whole question now.
       Also note OpenMoji is CC-BY-SA (share-alike) where Twemoji is MIT, and it has no
       equivalent for `flush`, `espresso 8mm`, `niche-zero`, `decent-de1`, `body-*`, `taste-*`.
-- [ ] 7.5 Present the classification and comparison to Jeff and get a decision. Do NOT swap any
-      icon in this change — a follow-up change carries whatever is agreed.
+- [x] 7.5 DECIDED: do NOT swap. Tried it on the 12 most prominent icons and looked at the
+      result together. Reverted.
+
+      What decided it, none of which came from the classification — all of it from rendering
+      the thing and looking:
+      - Concepts with NO honest emoji kept appearing: sleep (IEC power symbol; U+23FB..23FE
+        exist in Unicode but no emoji set draws them), equipment (grinder + basket + puck
+        prep), history (a list of past shots), beans (the emoji is red KIDNEY beans; coffee
+        beans have a centre crease). That is 4 of 12, plus profiles as a semantic downgrade —
+        an abstract "chart increasing" replacing a drawn pressure curve.
+      - Emoji cannot respond to STATE colour. The Profiles tile turns orange when active;
+        a red-and-grey chart emoji sits on it unreadably. Monochrome icons are tinted to
+        contrast with whatever the tile is doing. This is a category problem, not a bad pick.
+      - The mix reads as unfinished. With ~27 icons unable to convert, mixed is the
+        destination, not a transition. Side by side, the one reverted icon (History) looked
+        more native than the emoji flanking it.
+      - The icons already theme correctly (verified in light mode), so the swap trades a
+        working mechanism for a fixed-colour one.
+
+      Emoji keep earning their place where #1550 put them: release notes, AI replies, bean and
+      recipe names, widget labels — user-authored and externally-sourced TEXT. Functional
+      chrome is the opposite case.
 - [x] 7.6 Light-mode check in the running app. Most icons tint correctly. ONE genuine bug found
       and fixed: the Settings search button (SettingsPage.qml + SettingsSearchDialog.qml) drew
       a white-stroked search.svg as a plain Image on a `Theme.surfaceColor` background — #ffffff

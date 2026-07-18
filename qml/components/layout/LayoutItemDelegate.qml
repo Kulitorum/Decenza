@@ -65,7 +65,7 @@ Item {
 
         switch (type) {
             case "espresso": return {
-                emoji: "📈",
+                emoji: "qrc:/icons/profile.svg",
                 content: TranslationManager.translate("idle.button.profiles", "Profiles"),
                 action: "togglePreset:espresso",
                 longPressAction: "navigate:profiles",
@@ -73,7 +73,7 @@ Item {
                 backgroundColor: Settings.app.selectedFavoriteProfile === -1 ? Theme.highlightColor : Theme.actionTileColor
             }
             case "steam": return {
-                emoji: "💨",
+                emoji: "qrc:/icons/steam.svg",
                 content: TranslationManager.translate("idle.button.steam", "Steam"),
                 action: "togglePreset:steam",
                 longPressAction: "navigate:steam",
@@ -81,7 +81,7 @@ Item {
                 backgroundColor: Theme.actionTileColor
             }
             case "hotwater": return {
-                emoji: "💧",
+                emoji: "qrc:/icons/water.svg",
                 content: TranslationManager.translate("idle.button.hotwater", "Hot Water"),
                 action: "togglePreset:hotwater",
                 longPressAction: "navigate:hotwater",
@@ -89,7 +89,7 @@ Item {
                 backgroundColor: Theme.actionTileColor
             }
             case "flush": return {
-                emoji: "🚿",
+                emoji: "qrc:/icons/flush.svg",
                 content: TranslationManager.translate("idle.button.flush", "Flush"),
                 action: "togglePreset:flush",
                 longPressAction: "navigate:flush",
@@ -97,7 +97,7 @@ Item {
                 backgroundColor: Theme.actionTileColor
             }
             case "beans": return {
-                emoji: "🫘",
+                emoji: "qrc:/icons/coffeebeans.svg",
                 content: TranslationManager.translate("idle.button.beaninfo", "Beans"),
                 action: "togglePreset:beans",
                 longPressAction: "navigate:beaninfo",
@@ -105,7 +105,7 @@ Item {
                 backgroundColor: Settings.dye.activeBagId <= 0 ? Theme.highlightColor : Theme.actionTileColor
             }
             case "recipes": return {
-                emoji: "☕",
+                emoji: "qrc:/icons/espresso.svg",
                 content: TranslationManager.translate("idle.button.recipes", "Recipes"),
                 action: "togglePreset:recipes",
                 // "recipeList" (drink recipes) — the bare "recipes" navigate
@@ -115,11 +115,6 @@ Item {
                 backgroundColor: Theme.actionTileColor
             }
             case "equipment": return {
-                // NOT an emoji. Equipment captures grinder + portafilter basket + puck prep;
-                // grind.svg draws coffee grounds, which is exactly that domain. Every emoji
-                // candidate is wrong domain (toolbox/nut+bolt/alembic/package), a visual
-                // homonym (basket = wicker picnic basket), or a collision (gear = Settings,
-                // coffee = Recipes). The toolbox also renders bright red against a teal UI.
                 emoji: "qrc:/icons/grind.svg",
                 content: TranslationManager.translate("idle.button.equipment", "Equipment"),
                 action: "togglePreset:equipment",
@@ -128,8 +123,6 @@ Item {
                 backgroundColor: Theme.actionTileColor
             }
             case "history": return {
-                // NOT an emoji. history.svg draws horizontal lines (a list of past shots); the
-                // clock I had here came from matching the WORD "History", not the drawing.
                 emoji: "qrc:/icons/history.svg",
                 content: TranslationManager.translate("idle.button.history", "History"),
                 action: "navigate:history",
@@ -138,7 +131,7 @@ Item {
                 backgroundColor: Theme.actionTileColor
             }
             case "settings": return {
-                emoji: "⚙",
+                emoji: "qrc:/icons/settings.svg",
                 content: TranslationManager.translate("idle.button.settings", "Settings"),
                 action: "navigate:settings",
                 longPressAction: "",
@@ -146,7 +139,7 @@ Item {
                 backgroundColor: Theme.actionTileColor
             }
             case "autofavorites": return {
-                emoji: "⭐",
+                emoji: "qrc:/icons/star.svg",
                 content: TranslationManager.translate("idle.button.autofavorites", "Favorites"),
                 action: "navigate:autofavorites",
                 longPressAction: "",
@@ -154,11 +147,6 @@ Item {
                 backgroundColor: Theme.actionTileColor
             }
             case "sleep": return {
-                // NOT an emoji: sleep.svg is the IEC power symbol (arc + vertical bar), and no
-                // emoji set draws one — U+23FB..23FE POWER SYMBOL are text symbols Twemoji does
-                // not include, so as an emoji they would be stripped, and as raw text they are
-                // the font-glyph class CLAUDE.md bans. The bespoke icon communicates this better
-                // than any emoji does.
                 emoji: "qrc:/icons/sleep.svg",
                 content: TranslationManager.translate("idle.button.sleep", "Sleep"),
                 action: "command:sleep",
@@ -167,7 +155,7 @@ Item {
                 backgroundColor: "#555555"
             }
             case "quit": return {
-                emoji: "🚪",
+                emoji: "qrc:/icons/quit.svg",
                 content: TranslationManager.translate("idle.button.quit", "Quit"),
                 action: "command:quit",
                 longPressAction: "",
