@@ -91,6 +91,7 @@ Item {
                 zoneName: root.zoneName
                 zoneTextColor: Theme.zoneTextColor(root.zoneStyle)
                 zoneValueBold: Theme.zoneValueBold(root.zoneStyle)
+                zoneStyle: root.zoneStyle
                 Layout.preferredWidth: {
                     // Flip clock: interpolate between buttonWidth and wide based on clockScale
                     if (modelData.type === "screensaverFlipClock") {

@@ -534,6 +534,17 @@ QtObject {
     function zoneValueBold(style) {
         return style === "accentBar"
     }
+    // Fill for a small tappable value chip (the Ratio/Grind pills) sitting in a
+    // zone of the given style, chosen to contrast with that zone's OWN background
+    // (zoneBackgroundColor): a light capsule on the blue accentBar, a recessed
+    // inset chip on a surfaceColor zone, and a raised surface chip on the
+    // transparent standard zone (where a bare zoneTextColor fill would otherwise
+    // be a jarring white capsule in dark mode).
+    function zoneChipColor(style) {
+        if (style === "accentBar") return primaryContrastColor
+        if (style === "surface")   return insetBackgroundColor
+        return surfaceColor
+    }
 
     // Chart line colors
     property color pressureColor: _c("pressureColor", Settings.theme.customThemeColors.pressureColor || "#18c37e")

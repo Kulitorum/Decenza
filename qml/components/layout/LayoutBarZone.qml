@@ -68,6 +68,7 @@ Item {
                 itemSize: root.itemSize
                 zoneTextColor: Theme.zoneTextColor(root.zoneStyle)
                 zoneValueBold: Theme.zoneValueBold(root.zoneStyle)
+                zoneStyle: root.zoneStyle
                 // equalWidth/spaced: every item gets an equal share of the width,
                 // independent of content width. packed: only spacers grow.
                 Layout.fillWidth: modelData.type === "spacer" || root.fillWidthMode
