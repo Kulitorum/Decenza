@@ -486,8 +486,18 @@ async function randomTheme() {
     renderAll(data);
 }
 
+// Fonts only -- deliberately does not touch colours, unlike resetTheme() below.
+async function resetFontSizes() {
+    if (!confirm('Reset all font sizes to their defaults? Your theme colours are not affected.')) return;
+    const res = await postJson('/api/theme/font/reset', {});
+    const data = await res.json();
+    renderAll(data);
+}
+
 async function resetTheme() {
-    if (!confirm('Reset theme to defaults?')) return;
+    // Names both categories: this clears font sizes too, and someone resetting their
+    // colours should not silently lose sizing they tuned (or vice versa).
+    if (!confirm('Reset theme colours AND font sizes to defaults? This clears both.')) return;
     const res = await postJson('/api/theme/reset', {});
     const data = await res.json();
     renderAll(data);

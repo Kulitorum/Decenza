@@ -10,7 +10,10 @@ inline constexpr const char* WEB_HTML_THEME_BODY = R"HTML(
 
     <!-- Right: Fonts + Presets -->
     <div class="right-panel">
-        <div class="section-title">Font Sizes</div>
+        <div class="section-title section-title-row">
+            <span>Font Sizes</span>
+            <button class="btn-small" onclick="resetFontSizes()">Reset</button>
+        </div>
         <div id="fontPanel"></div>
 
         <div class="presets-section">

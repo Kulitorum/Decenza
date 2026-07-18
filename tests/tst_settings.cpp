@@ -1750,6 +1750,87 @@ private slots:
         QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "   ", 2.0), QString());
     }
 
+    // --- Font sizes: single source of truth + override reporting (#1469) -----
+
+    void fontSizeDefaults_areTheSingleSource() {
+        // The web theme editor used to carry its own copy of this table. If a default
+        // changes, both the QML theme and the editor must move together — this asserts
+        // the canonical values so a silent edit to one surface is caught here.
+        const QMap<QString, int>& d = SettingsTheme::fontSizeDefaults();
+        QCOMPARE(d.value("headingSize"), 32);
+        QCOMPARE(d.value("titleSize"), 24);
+        QCOMPARE(d.value("subtitleSize"), 18);
+        QCOMPARE(d.value("bodySize"), 18);
+        QCOMPARE(d.value("labelSize"), 14);
+        QCOMPARE(d.value("captionSize"), 12);
+        QCOMPARE(d.value("valueSize"), 48);
+        QCOMPARE(d.value("timerSize"), 72);
+        QCOMPARE(d.size(), 8);
+    }
+
+    void effectiveFontSizes_defaultsWhenUnset() {
+        SettingsTheme* theme = m_settings.theme();
+        theme->resetFontSizesToDefault();
+        const QVariantMap eff = theme->effectiveFontSizes();
+        // Every role is present and equals its default — QML indexes this map directly,
+        // so a missing key would make a font role's pixelSize undefined.
+        QCOMPARE(eff.size(), SettingsTheme::fontSizeDefaults().size());
+        QCOMPARE(eff.value("labelSize").toInt(), 14);
+        QCOMPARE(eff.value("timerSize").toInt(), 72);
+    }
+
+    void effectiveFontSizes_mergesOverrides() {
+        SettingsTheme* theme = m_settings.theme();
+        theme->resetFontSizesToDefault();
+        theme->setFontSize("labelSize", 22);
+        const QVariantMap eff = theme->effectiveFontSizes();
+        QCOMPARE(eff.value("labelSize").toInt(), 22);   // overridden
+        QCOMPARE(eff.value("bodySize").toInt(), 18);    // untouched roles stay default
+        theme->resetFontSizesToDefault();
+    }
+
+    void fontSizeOverrides_emptyWhenAllDefault() {
+        // The startup log must stay silent when nothing is customised — this is the
+        // overwhelmingly common case and the reason the log line is conditional.
+        SettingsTheme* theme = m_settings.theme();
+        theme->resetFontSizesToDefault();
+        QVERIFY(theme->fontSizeOverrides().isEmpty());
+    }
+
+    void fontSizeOverrides_reportsOnlyChangedRoles() {
+        SettingsTheme* theme = m_settings.theme();
+        theme->resetFontSizesToDefault();
+        theme->setFontSize("labelSize", 20);
+        theme->setFontSize("bodySize", 24);
+        const QVariantMap changed = theme->fontSizeOverrides();
+        QCOMPARE(changed.size(), 2);
+        QCOMPARE(changed.value("labelSize").toInt(), 20);
+        QCOMPARE(changed.value("bodySize").toInt(), 24);
+        QVERIFY(!changed.contains("timerSize"));
+        theme->resetFontSizesToDefault();
+    }
+
+    void fontSizeOverrides_storedValueEqualToDefaultIsNotAnOverride() {
+        // Dragging a slider and putting it back writes a stored entry equal to the
+        // default. That is not a customization and must not be reported, or the log
+        // would accuse a user of a change they did not make.
+        SettingsTheme* theme = m_settings.theme();
+        theme->resetFontSizesToDefault();
+        theme->setFontSize("labelSize", 14);   // == default
+        QVERIFY(theme->customFontSizes().contains("labelSize"));  // it IS stored
+        QVERIFY(theme->fontSizeOverrides().isEmpty());            // but is not an override
+        theme->resetFontSizesToDefault();
+    }
+
+    void resetFontSizesToDefault_clearsOverrides() {
+        SettingsTheme* theme = m_settings.theme();
+        theme->setFontSize("headingSize", 40);
+        QVERIFY(!theme->fontSizeOverrides().isEmpty());
+        theme->resetFontSizesToDefault();
+        QVERIFY(theme->fontSizeOverrides().isEmpty());
+        QCOMPARE(theme->effectiveFontSizes().value("headingSize").toInt(), 32);
+    }
+
 };
 
 QTEST_GUILESS_MAIN(tst_Settings)

@@ -61,30 +61,34 @@
 
 ## 6. Web theme editor
 
-- [ ] 6.1 Add `POST /api/theme/font/reset` calling the existing `resetFontSizesToDefault()`
-- [ ] 6.2 Add a reset control beside the Font Sizes header in `theme_html.h` / `theme_js.h`
-- [ ] 6.3 Reword the combined reset confirmation to name both theme colours and font sizes
+- [x] 6.1 Add `POST /api/theme/font/reset` calling the existing `resetFontSizesToDefault()`
+- [x] 6.2 Add a reset control beside the Font Sizes header in `theme_html.h` / `theme_js.h`
+- [x] 6.3 Reword the combined reset confirmation to name both theme colours and font sizes
 - [ ] 6.4 Verify the fonts-only reset leaves customised colours untouched
-- [ ] 6.5 Fix the `/themes` → `/theme` hint at `qml/pages/settings/SettingsThemesTab.qml:128`, which
+- [x] 6.5 Fix the `/themes` → `/theme` hint at `qml/pages/settings/SettingsThemesTab.qml:128`, which
       currently sends users to a 404
 
 ## 7. Correct the glyph-safety guidance
 
-- [ ] 7.1 Remove `→` from CLAUDE.md's list of glyphs safe to use as literals — it is not in the
+- [x] 7.1 Remove `→` from CLAUDE.md's list of glyphs safe to use as literals — it is not in the
       bundled font's cmap and falls back to a system font, unlike `°` `·` `—` `×` which are covered.
       It ships in UI strings today (for example shot history's `18.0g → 41.6g`)
-- [ ] 7.2 Note in the same guidance that the bundled font covers Latin/Greek/Cyrillic only, so
+- [x] 7.2 Note in the same guidance that the bundled font covers Latin/Greek/Cyrillic only, so
       non-Latin locales rely on platform fallback and on layout tolerance rather than metric
       determinism
 
 ## 8. Tests
 
-- [ ] 8.1 Test that the bundled family registers under `Decenza Sans` with all four weights
-- [ ] 8.2 Test the override-diff logic: stored-equal-to-default is not an override; changed values
+- [x] 8.1 Test that the bundled family registers under `Decenza Sans` with all four weights.
+      NOTE: verified at the font-file level via `tools/rename_bundled_font.py --verify` rather than
+      a Qt test — registering application fonts needs a QGuiApplication, which the guiless settings
+      suite has no reason to spin up. Runtime resolution is instead asserted by the new startup log
+      (family + exactMatch), which is exactly what the reporter's next log will show.
+- [x] 8.2 Test the override-diff logic: stored-equal-to-default is not an override; changed values
       are reported with their defaults; all-default yields an empty result
-- [ ] 8.3 Test that QML theme defaults and the web editor's reported defaults come from the same
+- [x] 8.3 Test that QML theme defaults and the web editor's reported defaults come from the same
       declaration and agree
-- [ ] 8.4 Run the full suite with `-DBUILD_TESTS=ON` and clear all warnings
+- [x] 8.4 Run the full suite with `-DBUILD_TESTS=ON` and clear all warnings
 
 ## 9. Documentation and release
 

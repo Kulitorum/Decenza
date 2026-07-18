@@ -200,6 +200,16 @@ void ShotServer::handleThemeApi(QTcpSocket* socket, const QString& method,
         return;
     }
 
+    // POST /api/theme/font/reset - restore font sizes to defaults, leaving colours alone.
+    // Distinct from /api/theme/reset, which also discards the user's palette: resetting a
+    // font size should not cost someone the theme they built.
+    if (path == "/api/theme/font/reset" && method == "POST") {
+        m_settings->theme()->resetFontSizesToDefault();
+        QJsonDocument doc(buildThemeJson());
+        sendJson(socket, doc.toJson(QJsonDocument::Compact));
+        return;
+    }
+
     // POST /api/theme/preset - apply a preset theme
     if (path == "/api/theme/preset" && method == "POST") {
         QJsonObject obj = QJsonDocument::fromJson(body).object();

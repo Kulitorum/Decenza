@@ -124,8 +124,10 @@ KeyboardAwareContainer {
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.margins: Theme.scaled(12)
+                // Route is /theme (singular) — see shotserver.cpp. The old /themes text
+                // sent everyone who followed it to a 404.
                 text: TranslationManager.translate("settings.themes.webBanner",
-                    "For CRT shaders, live preview, and more — use the web version (enable web server, then visit /themes)")
+                    "For font sizes, CRT shaders, live preview, and more — use the web version (enable web server, then visit /theme)")
                 color: Theme.textColor
                 font: Theme.captionFont
                 wrapMode: Text.WordWrap
