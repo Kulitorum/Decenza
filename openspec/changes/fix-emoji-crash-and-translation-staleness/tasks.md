@@ -441,6 +441,34 @@ decide with, rather than guessing.
       backoffs and the one repeating QTimer is the registry batch-save — both are genuinely
       periodic/backoff work, which the rule allows. Left alone.
 
+- [x] 7.8h Reviewed the backend (Kulitorum/decenza-shotmap) that the translation sync talks to,
+      since 7.8a concluded the remaining fix was server-side. Findings and Jeff's call, recorded
+      so this does not get re-raised as an open action.
+
+      Sensible already: language codes are regex-validated before the S3 key is built, so no path
+      traversal; pre-signed URLs expire in 300s with ContentType pinned; rate limiting is a proper
+      atomic DynamoDB counter with TTL (10 per IP per hour); NoSuchKey returns 404; reads carry
+      Cache-Control. The client is also defensive at the parse boundary — isObject(), non-empty,
+      values toString()'d — so malformed JSON is rejected.
+
+      Weaknesses: upload is unauthenticated and the payload is never validated by anything,
+      because the pre-signed URL bypasses the Lambda entirely (no JSON check, no size cap, no key
+      allowlist, whole-file replace). No versioning on the translations bucket — the only
+      aws_s3_bucket_versioning in the Terraform is for the website bucket, and the translations
+      bucket is not declared in that repo at all, only referenced as var.translations_bucket.
+
+      JEFF'S CALL: acceptable. Recovery is "upload another translation", which is a fair answer
+      for a community-curated file in a project this size. Not pursuing server-side auth,
+      validation, versioning, or a promotion step. No issue filed.
+
+      STILL OPEN, and deliberately distinguished from the above because re-uploading does NOT
+      undo it: a translated string is bound to a Text with textFormat: Text.StyledText at
+      BeanBaseDetailsRow.qml:65 (key `beanbase.row.linked`). StyledText renders <img> — this
+      codebase relies on exactly that, Theme.qml:209 builds `<img src=...>` for emoji — so a
+      remote img in a translation value would be fetched by every user of that language on
+      opening the screen. Not tested against the live backend, deliberately. The fix is
+      client-side and a few lines; offered to Jeff, awaiting a decision.
+
 - [ ] 7.8b The glyph class IS statically catchable — `redraw-icon-set` task 4.4 guessed it was not.
       `scripts/check_font_glyph_coverage.py` already does it. Worth landing as a test, but it cannot
       be green until 7.8's 29 sites are fixed, so it lands WITH the fix (no allowlist — an allowlist
