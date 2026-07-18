@@ -115,7 +115,12 @@ Item {
                 backgroundColor: Theme.actionTileColor
             }
             case "equipment": return {
-                emoji: "🧰",
+                // NOT an emoji. Equipment captures grinder + portafilter basket + puck prep;
+                // grind.svg draws coffee grounds, which is exactly that domain. Every emoji
+                // candidate is wrong domain (toolbox/nut+bolt/alembic/package), a visual
+                // homonym (basket = wicker picnic basket), or a collision (gear = Settings,
+                // coffee = Recipes). The toolbox also renders bright red against a teal UI.
+                emoji: "qrc:/icons/grind.svg",
                 content: TranslationManager.translate("idle.button.equipment", "Equipment"),
                 action: "togglePreset:equipment",
                 longPressAction: "navigate:equipment",
@@ -123,7 +128,9 @@ Item {
                 backgroundColor: Theme.actionTileColor
             }
             case "history": return {
-                emoji: "🕐",
+                // NOT an emoji. history.svg draws horizontal lines (a list of past shots); the
+                // clock I had here came from matching the WORD "History", not the drawing.
+                emoji: "qrc:/icons/history.svg",
                 content: TranslationManager.translate("idle.button.history", "History"),
                 action: "navigate:history",
                 longPressAction: "",
