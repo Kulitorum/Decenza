@@ -227,6 +227,57 @@ def download_emoji(source: EmojiSource, emoji: str, cps: list[str]) -> bytes | N
 
 # --- Generate QRC ---
 
+def check_for_update(source) -> int:
+    """Report whether upstream has released a version newer than our pin.
+
+    The whole point of pinning is that upstream cannot change our rendering without a
+    commit. The cost is that the pin silently rots — nobody notices a year has passed and
+    two Unicode revisions have shipped. This closes that gap without giving up
+    reproducibility: the build tells you a newer version exists, and a human decides.
+
+    Deliberately advisory. It must never fail a build or auto-bump: a network hiccup, a
+    rate limit, or an upstream retag should not be able to break someone's compile or
+    silently change what their app renders.
+
+    Returns 0 when current or undeterminable, 1 when an update is available.
+    """
+    if not hasattr(source, "repo"):
+        print(f"{source.name}: no pinned repo/tag, nothing to check")
+        return 0
+
+    url = f"https://api.github.com/repos/{source.repo}/releases/latest"
+    req = urllib.request.Request(url, headers={"User-Agent": "Decenza-EmojiDownloader/1.0",
+                                               "Accept": "application/vnd.github+json"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            latest = json.load(resp).get("tag_name", "")
+    except Exception as e:
+        # Offline, rate-limited, DNS down: say so and move on. Not an error.
+        print(f"emoji: could not check {source.repo} for updates ({e}) — skipping")
+        return 0
+
+    if not latest:
+        print(f"emoji: {source.repo} reported no latest release — skipping")
+        return 0
+
+    def parts(tag):
+        return [int(x) for x in re.findall(r"\d+", tag)] or [0]
+
+    if parts(latest) > parts(source.tag):
+        print()
+        print(f"  emoji assets are OUT OF DATE")
+        print(f"    pinned: {source.tag}    latest: {latest}  ({source.repo})")
+        print(f"    to update: edit {os.path.basename(__file__)} (Twemoji.tag), then")
+        print(f"      python scripts/download_emoji.py {source.name} --all")
+        print(f"    and commit resources/emoji/ + resources/emoji.qrc.")
+        print(f"    Emoji from a newer Unicode revision are stripped until you do.")
+        print()
+        return 1
+
+    print(f"emoji: {source.repo} {source.tag} is current (latest: {latest})")
+    return 0
+
+
 def download_full_set(source, emoji_dir: str) -> list[str]:
     """Fetch the COMPLETE upstream emoji set and write it to emoji_dir.
 
@@ -308,6 +359,7 @@ def main():
     args = [a for a in sys.argv[1:] if not a.startswith("-")]
     flags = {a for a in sys.argv[1:] if a.startswith("-")}
     fetch_all = "--all" in flags
+    check_only = "--check-updates" in flags
 
     if not args or args[0] not in SOURCES:
         print(f"Usage: {sys.argv[0]} <source> [--all]")
@@ -318,11 +370,19 @@ def main():
         print("          app resolves emoji locally with no network fallback, so anything")
         print("          not bundled is stripped from displayed text.")
         print()
+        print("  --check-updates")
+        print("          Report whether upstream has a release newer than our pin, and exit.")
+        print("          Advisory only: prints and returns 1, never modifies anything.")
+        print()
         for name, src in SOURCES.items():
             print(f"  {name:12s} - {src.license_info}")
         sys.exit(1)
 
     source = SOURCES[args[0]]
+
+    if check_only:
+        sys.exit(check_for_update(source))
+
     print(f"Downloading emoji from: {source.name}")
     print(f"License: {source.license_info}")
     print()

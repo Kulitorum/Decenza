@@ -311,9 +311,17 @@ crash showed. The real defence is D3's routing, and the comment says so.
 - **+2.8 MB install size** → Measured, not estimated (0.32 MB → ~3.15 MB compressed, against a
   137 MB bundle). Stated here because the previous version of this design rejected the whole
   approach on an unmeasured size estimate that was wrong by roughly 5x.
-- **Emoji newer than the pinned upstream strip rather than render** → Accepted. The alternative is
-  tracking `latest` and losing build reproducibility. Bumping the pin is a one-line change, and
-  stripping is a clean degradation rather than a broken image or a crash.
+- **Emoji newer than the pinned upstream strip rather than render** → Accepted, with a monthly CI
+  job (`.github/workflows/emoji-pin-check.yml`) that reports when upstream has a newer release.
+  Pinning without that check just moves the failure from "upstream changed under us" to "the pin
+  rotted and nobody noticed" — and with no runtime fallback, a stale pin is the only thing between
+  a user and a missing emoji. The job is advisory: it opens nothing, changes nothing, gates no
+  merge, and runs on a schedule so no compile depends on a third-party API being reachable.
+- **The existence check is justified by TODAY's gaps, not a future Unicode revision** → 1,075
+  codepoints inside `_isEmoji`'s ranges currently have no bundled asset (unassigned or undrawn
+  upstream), so the broken-image path is reachable now. Unicode 18 (~September 2026) is not the
+  argument; an earlier draft leaned on it, and a test written against that reasoning used a
+  codepoint `_isEmoji` does not even match, so it passed without exercising the check at all.
 - **`_isEmojiPresentation` is a heuristic, not the Unicode emoji property** → It treats "followed
   by U+FE0F" as the signal, bounded to keycap bases and cp >= 0xA9. A character with emoji
   presentation outside that bound would still be missed. Enumerating the real Unicode property

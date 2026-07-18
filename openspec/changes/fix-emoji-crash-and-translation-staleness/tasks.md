@@ -138,10 +138,18 @@ decide with, rather than guessing.
       never tinted is a much cheaper swap than one in themed chrome.
 - [ ] 7.3 Build a side-by-side visual comparison of the candidates — themed SVG vs Twemoji — in
       both light and dark mode. The theming loss has to be seen, not described.
-- [ ] 7.4 Note that D5 does NOT block an icon swap: icons are app-authored, so any emoji replacing
-      one would be bundled by the build step and never fetched. The offline concern dissolves. The
-      remaining objection is theming alone — a swapped icon stops following `Theme.iconColor` —
-      so the decision rests entirely on 7.3's visual comparison, not on connectivity.
+- [ ] 7.4 BOTH of my original objections to the icon swap are now dead, so 7.1-7.3 decide it on
+      merit rather than on my reservations:
+      (a) Offline/CDN — gone. Everything is bundled; nothing fetches at runtime.
+      (b) Theming — OpenMoji ships a `black/` tree of MONOCHROME line-art built exactly like our
+      icons: `fill="none"` + a single `stroke`, same as `resources/icons/*.svg`. So a swapped
+      icon CAN follow `Theme.iconColor` through ThemedIcon after all.
+      One thing to actually test rather than assume: our icons stroke WHITE and ThemedIcon's
+      comment says white is what makes `MultiEffect { colorization: 1.0 }` work; OpenMoji black
+      strokes `#000`. Colorising a black source may not produce a light tint. Test it before
+      concluding the swap is viable — this is the whole question now.
+      Also note OpenMoji is CC-BY-SA (share-alike) where Twemoji is MIT, and it has no
+      equivalent for `flush`, `espresso 8mm`, `niche-zero`, `decent-de1`, `body-*`, `taste-*`.
 - [ ] 7.5 Present the classification and comparison to Jeff and get a decision. Do NOT swap any
       icon in this change — a follow-up change carries whatever is agreed.
 

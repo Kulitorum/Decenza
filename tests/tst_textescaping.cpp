@@ -209,10 +209,15 @@ void TestTextEscaping::strayVariationSelectorDoesNotCaptureText()
 // still misses.
 void TestTextEscaping::unbundledEmojiIsStrippedNotBroken()
 {
-    // U+1FB00 is a legacy-computing block character, not an emoji upstream draws. If a future
-    // asset refresh ever adds it, this test should be re-pointed rather than deleted.
-    const QString unbundled = QString::fromUcs4(U"\U0001FB00", 1);
-    QVERIFY2(call("_emojiAssetPath", {m_engine.toScriptValue(QStringList{"1fb00"})}).isEmpty(),
+    // U+1F322 sits INSIDE _isEmoji's 1F300-1F5FF range but upstream draws no asset for it.
+    // That combination is the point: a codepoint the rewriter treats as emoji and then cannot
+    // resolve is exactly what produced a broken image. 1,075 codepoints in the matched ranges
+    // currently have no asset, so this is a present-day gap, not a hypothetical future one.
+    //
+    // An earlier version of this test used U+1FB00, which _isEmoji does not match at all — so
+    // it passed whether or not the existence check existed, and proved nothing.
+    const QString unbundled = QString::fromUcs4(U"\U0001F322", 1);
+    QVERIFY2(call("_emojiAssetPath", {m_engine.toScriptValue(QStringList{"1f322"})}).isEmpty(),
              "an unbundled key must yield no path");
 
     const QString out = call("replaceEmojiWithImg",
