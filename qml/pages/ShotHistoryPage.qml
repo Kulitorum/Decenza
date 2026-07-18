@@ -521,7 +521,7 @@ Page {
         // Filter banner (shown when initialFilter is active)
         Rectangle {
             Layout.fillWidth: true
-            height: filterBannerRow.implicitHeight + Theme.spacingSmall * 2
+            Layout.preferredHeight: filterBannerRow.implicitHeight + Theme.spacingSmall * 2
             radius: Theme.scaled(8)
             color: Qt.alpha(Theme.primaryColor, 0.15)
             visible: initialFilter !== null
@@ -791,25 +791,25 @@ Page {
                             // (most severe — shot has no tuning signal), then channeling
                             // (red), grind (orange), skipFirstFrame (red).
                             Rectangle {
-                                width: Theme.scaled(8); height: Theme.scaled(8); radius: Theme.scaled(4)
+                                Layout.preferredWidth: Theme.scaled(8); Layout.preferredHeight: Theme.scaled(8); radius: Theme.scaled(4)
                                 color: Theme.errorColor
                                 visible: model.pourTruncatedDetected ?? false
                                 Accessible.ignored: true
                             }
                             Rectangle {
-                                width: Theme.scaled(8); height: Theme.scaled(8); radius: Theme.scaled(4)
+                                Layout.preferredWidth: Theme.scaled(8); Layout.preferredHeight: Theme.scaled(8); radius: Theme.scaled(4)
                                 color: Theme.errorColor
                                 visible: model.channelingDetected ?? false
                                 Accessible.ignored: true
                             }
                             Rectangle {
-                                width: Theme.scaled(8); height: Theme.scaled(8); radius: Theme.scaled(4)
+                                Layout.preferredWidth: Theme.scaled(8); Layout.preferredHeight: Theme.scaled(8); radius: Theme.scaled(4)
                                 color: Theme.warningColor
                                 visible: model.grindIssueDetected ?? false
                                 Accessible.ignored: true
                             }
                             Rectangle {
-                                width: Theme.scaled(8); height: Theme.scaled(8); radius: Theme.scaled(4)
+                                Layout.preferredWidth: Theme.scaled(8); Layout.preferredHeight: Theme.scaled(8); radius: Theme.scaled(4)
                                 color: Theme.errorColor
                                 visible: model.skipFirstFrameDetected ?? false
                                 Accessible.ignored: true
@@ -831,8 +831,8 @@ Page {
 
                     // Load Profile button
                     Rectangle {
-                        width: loadButtonText.implicitWidth + Theme.scaled(20)
-                        height: Theme.scaled(40)
+                        Layout.preferredWidth: loadButtonText.implicitWidth + Theme.scaled(20)
+                        Layout.preferredHeight: Theme.scaled(40)
                         radius: Theme.scaled(20)
                         color: Theme.warningColor
                         Accessible.role: Accessible.Button
@@ -863,8 +863,8 @@ Page {
                     // Create-recipe button (promote this shot to a recipe —
                     // opens the composer prefilled from the shot, add-recipes)
                     Rectangle {
-                        width: recipeButtonText.implicitWidth + Theme.scaled(20)
-                        height: Theme.scaled(40)
+                        Layout.preferredWidth: recipeButtonText.implicitWidth + Theme.scaled(20)
+                        Layout.preferredHeight: Theme.scaled(40)
                         radius: Theme.scaled(20)
                         color: Theme.primaryColor
                         Accessible.role: Accessible.Button
@@ -894,8 +894,8 @@ Page {
 
                     // Edit button (green circle with E)
                     Rectangle {
-                        width: Theme.scaled(40)
-                        height: Theme.scaled(40)
+                        Layout.preferredWidth: Theme.scaled(40)
+                        Layout.preferredHeight: Theme.scaled(40)
                         radius: Theme.scaled(20)
                         color: Theme.successColor
                         Accessible.role: Accessible.Button
@@ -923,8 +923,8 @@ Page {
 
                     // Detail arrow
                     Rectangle {
-                        width: Theme.scaled(40)
-                        height: Theme.scaled(40)
+                        Layout.preferredWidth: Theme.scaled(40)
+                        Layout.preferredHeight: Theme.scaled(40)
                         radius: Theme.scaled(20)
                         color: Theme.primaryColor
                         Accessible.role: Accessible.Button
@@ -1151,8 +1151,8 @@ Page {
                             // Inline delete button (hidden in accessibility mode)
                             Rectangle {
                                 visible: !_accessibilityMode
-                                width: Theme.scaled(28)
-                                height: Theme.scaled(28)
+                                Layout.preferredWidth: Theme.scaled(28)
+                                Layout.preferredHeight: Theme.scaled(28)
                                 radius: Theme.scaled(14)
                                 color: deleteArea.pressed ? Qt.darker(Theme.errorColor, 1.2) : Theme.errorColor
 
@@ -1241,7 +1241,16 @@ Page {
         id: searchHelpDialog
         parent: Overlay.overlay
         anchors.centerIn: parent
-        width: Math.min(Theme.scaled(420), shotHistoryPage.width - Theme.scaled(40))
+        // Width follows content between a design minimum and a screen-bounded maximum, so a wider
+        // font (fallback, or a host font that beat the bundled one) or a long translation widens
+        // the dialog instead of pushing its third column under the clip. The grid cells also
+        // elide, so at the screen bound the layout degrades to shortened text rather than
+        // content that is simply not there. (#1469, #1537)
+        //
+        // No binding loop: a Text's implicitWidth is its natural unwrapped/unelided width, which
+        // does not depend on the width it is allocated — so content -> width is one-directional.
+        width: Math.min(Math.max(Theme.scaled(420), searchHelpColumn.implicitWidth),
+                        shotHistoryPage.width - Theme.scaled(40))
         modal: true
         padding: 0
 
@@ -1259,6 +1268,16 @@ Page {
             implicitHeight: Math.min(searchHelpColumn.implicitHeight,
                                      shotHistoryPage.height - Theme.scaled(80))
             clip: true
+
+            // A ScrollView wrapping a Layout must be told its content size explicitly: a Layout's
+            // implicit size is resolved during polish, so ScrollView's own implicit-size tracking
+            // does not reliably see it and the view ends up clipping instead of scrolling.
+            //
+            // contentWidth is pinned to the viewport so there is never a horizontal scroll —
+            // the dialog widens to fit, and past the screen bound the cells elide. Only vertical
+            // scrolling is wanted here, and that is what the height cap above exists for.
+            contentWidth: availableWidth
+            contentHeight: searchHelpColumn.implicitHeight
 
             ColumnLayout {
                 id: searchHelpColumn
@@ -1300,8 +1319,8 @@ Page {
 
                     // Header row
                     Text { text: TranslationManager.translate("shothistory.helpheaderkeyword", "Keyword"); font.bold: true; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textColor; Accessible.ignored: true }
-                    Text { text: TranslationManager.translate("shothistory.helpheaderfilters", "Filters"); font.bold: true; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textColor; Accessible.ignored: true }
-                    Text { text: TranslationManager.translate("shothistory.helpheaderexample", "Example"); font.bold: true; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textColor; Accessible.ignored: true }
+                    Text { text: TranslationManager.translate("shothistory.helpheaderfilters", "Filters"); font.bold: true; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
+                    Text { text: TranslationManager.translate("shothistory.helpheaderexample", "Example"); font.bold: true; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
 
                     // Data rows — keyword column is tappable to insert into search
                     Rectangle {
@@ -1316,8 +1335,8 @@ Page {
                         Text { id: ratingLabel; text: "rating:"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
                         MouseArea { id: ratingArea; anchors.fill: parent; onClicked: insertSearchKeyword("rating:") }
                     }
-                    Text { text: TranslationManager.translate("shothistory.helprating", "Enjoyment (0-100)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
-                    Text { text: "rating:70+"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+                    Text { text: TranslationManager.translate("shothistory.helprating", "Enjoyment (0-100)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
+                    Text { text: "rating:70+"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
 
                     Rectangle {
                         color: doseArea.pressed ? Theme.surfaceColor : "transparent"
@@ -1331,8 +1350,8 @@ Page {
                         Text { id: doseLabel; text: "dose:"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
                         MouseArea { id: doseArea; anchors.fill: parent; onClicked: insertSearchKeyword("dose:") }
                     }
-                    Text { text: TranslationManager.translate("shothistory.helpdose", "Dose weight (g)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
-                    Text { text: "dose:16-18"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+                    Text { text: TranslationManager.translate("shothistory.helpdose", "Dose weight (g)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
+                    Text { text: "dose:16-18"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
 
                     Rectangle {
                         color: yieldArea.pressed ? Theme.surfaceColor : "transparent"
@@ -1346,8 +1365,8 @@ Page {
                         Text { id: yieldLabel; text: "yield:"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
                         MouseArea { id: yieldArea; anchors.fill: parent; onClicked: insertSearchKeyword("yield:") }
                     }
-                    Text { text: TranslationManager.translate("shothistory.helpyield", "Yield weight (g)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
-                    Text { text: "yield:30-40"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+                    Text { text: TranslationManager.translate("shothistory.helpyield", "Yield weight (g)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
+                    Text { text: "yield:30-40"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
 
                     Rectangle {
                         color: timeArea.pressed ? Theme.surfaceColor : "transparent"
@@ -1361,8 +1380,8 @@ Page {
                         Text { id: timeLabel; text: "time:"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
                         MouseArea { id: timeArea; anchors.fill: parent; onClicked: insertSearchKeyword("time:") }
                     }
-                    Text { text: TranslationManager.translate("shothistory.helptime", "Duration (seconds)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
-                    Text { text: "time:25-35"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+                    Text { text: TranslationManager.translate("shothistory.helptime", "Duration (seconds)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
+                    Text { text: "time:25-35"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
 
                     Rectangle {
                         color: tdsArea.pressed ? Theme.surfaceColor : "transparent"
@@ -1376,8 +1395,8 @@ Page {
                         Text { id: tdsLabel; text: "tds:"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
                         MouseArea { id: tdsArea; anchors.fill: parent; onClicked: insertSearchKeyword("tds:") }
                     }
-                    Text { text: TranslationManager.translate("shotHistory.label.tds", "TDS"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
-                    Text { text: "tds:1.3-1.5"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+                    Text { text: TranslationManager.translate("shotHistory.label.tds", "TDS"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
+                    Text { text: "tds:1.3-1.5"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
 
                     Rectangle {
                         color: eyArea.pressed ? Theme.surfaceColor : "transparent"
@@ -1391,8 +1410,8 @@ Page {
                         Text { id: eyLabel; text: "ey:"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
                         MouseArea { id: eyArea; anchors.fill: parent; onClicked: insertSearchKeyword("ey:") }
                     }
-                    Text { text: TranslationManager.translate("shothistory.helpey", "Extraction yield (%)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
-                    Text { text: "ey:18-22"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+                    Text { text: TranslationManager.translate("shothistory.helpey", "Extraction yield (%)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
+                    Text { text: "ey:18-22"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
 
                     // Quality flag keywords
                     Rectangle {
@@ -1407,8 +1426,8 @@ Page {
                         Text { id: channelingLabel; text: "channeling:yes"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
                         MouseArea { id: channelingArea; anchors.fill: parent; onClicked: insertSearchKeyword("channeling:yes") }
                     }
-                    Text { text: TranslationManager.translate("shothistory.helpchanneling", "Channeling detected"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
-                    Text { text: "channeling:yes"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+                    Text { text: TranslationManager.translate("shothistory.helpchanneling", "Channeling detected"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
+                    Text { text: "channeling:yes"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
 
                     Rectangle {
                         color: grindArea.pressed ? Theme.surfaceColor : "transparent"
@@ -1422,8 +1441,8 @@ Page {
                         Text { id: grindLabel; text: "grind:yes"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
                         MouseArea { id: grindArea; anchors.fill: parent; onClicked: insertSearchKeyword("grind:yes") }
                     }
-                    Text { text: TranslationManager.translate("shothistory.helpgrind", "Grind issue"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
-                    Text { text: "grind:yes"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+                    Text { text: TranslationManager.translate("shothistory.helpgrind", "Grind issue"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
+                    Text { text: "grind:yes"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
 
                     Rectangle {
                         color: skipFrameArea.pressed ? Theme.surfaceColor : "transparent"
@@ -1437,8 +1456,8 @@ Page {
                         Text { id: skipFrameLabel; text: "skipframe:yes"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
                         MouseArea { id: skipFrameArea; anchors.fill: parent; onClicked: insertSearchKeyword("skipframe:yes") }
                     }
-                    Text { text: TranslationManager.translate("shothistory.helpskipframe", "First step skipped"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
-                    Text { text: "skipframe:yes"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+                    Text { text: TranslationManager.translate("shothistory.helpskipframe", "First step skipped"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
+                    Text { text: "skipframe:yes"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
 
                     Rectangle {
                         color: puckFailedArea.pressed ? Theme.surfaceColor : "transparent"
@@ -1452,8 +1471,8 @@ Page {
                         Text { id: puckFailedLabel; text: "puckfailed:yes"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
                         MouseArea { id: puckFailedArea; anchors.fill: parent; onClicked: insertSearchKeyword("puckfailed:yes") }
                     }
-                    Text { text: TranslationManager.translate("shothistory.helppuckfailed", "Puck failed"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
-                    Text { text: "puckfailed:yes"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+                    Text { text: TranslationManager.translate("shothistory.helppuckfailed", "Puck failed"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
+                    Text { text: "puckfailed:yes"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
                 }
 
                 // Syntax explanation
