@@ -1,132 +1,103 @@
 ## ADDED Requirements
 
-### Requirement: Emoji resolve through bundled, then network, then removal
+### Requirement: Every emoji the application can display ships with it
 
-An emoji SHALL be resolved to a displayable image by trying, in order: the bundled asset set, a
-cached copy previously fetched from the network, and a fresh network fetch. When none succeeds the
-emoji SHALL be removed from the displayed text.
+The application SHALL bundle the complete emoji asset set, so that displaying any emoji requires
+no network access at any time.
 
-The application MUST NOT emit an image reference it has not established can be resolved. Doing so
-produces a broken-image artefact that is worse than either rendering the emoji or omitting it.
+Emoji rendering is not an enhancement that may degrade: an emoji reaching the platform text
+renderer as a colour glyph crashes the application on macOS. Resolution must therefore be local and
+unconditional, not dependent on connectivity, a cache warm-up, or a prior successful fetch.
 
-#### Scenario: Emoji is bundled
+#### Scenario: Any emoji, any connectivity
 
-- **WHEN** text contains an emoji whose asset ships with the application
-- **THEN** it renders from the bundled asset with no network request
+- **WHEN** text containing an emoji is displayed, with or without a network connection, on a first
+  run or a hundredth
+- **THEN** the emoji renders from a bundled asset
 
-#### Scenario: Emoji was fetched previously
+#### Scenario: No network access for rendering
 
-- **WHEN** text contains an emoji that is not bundled but was fetched on an earlier occasion
-- **THEN** it renders from the cached copy with no network request
+- **WHEN** the application renders any text containing emoji
+- **THEN** it makes no network request to obtain the asset
 
-#### Scenario: Emoji is neither bundled nor cached
+#### Scenario: User selects an emoji offline
 
-- **WHEN** text contains an emoji that is neither bundled nor cached, and the network is available
-- **THEN** the emoji is fetched, stored for future use, and displayed
+- **WHEN** the user picks any emoji from the application's picker with no network connection
+- **THEN** it renders
 
-#### Scenario: Emoji cannot be obtained
+### Requirement: An emoji with no asset is removed, never left broken
 
-- **WHEN** an emoji is neither bundled nor cached and the fetch does not succeed — offline, the
-  asset does not exist upstream, or the request fails
+Before emitting an image reference for an emoji, the application SHALL establish that the asset
+exists. When it does not, the emoji SHALL be removed from the displayed text.
+
+The application MUST NOT emit an image reference it has not established can be resolved. An
+unresolvable reference produces a broken-image artefact, which is worse than either rendering the
+emoji or omitting it, and worse than the crash it was avoiding is visible.
+
+#### Scenario: Codepoint outside the bundled set
+
+- **WHEN** text contains an emoji sequence with no bundled asset — a newer Unicode revision than
+  the bundled set covers, or a sequence upstream does not provide
 - **THEN** the emoji is removed from the displayed text
-- **AND** the surrounding text renders normally
+- **AND** the surrounding text renders normally, with no broken-image artefact
 
-### Requirement: Text updates when a fetched emoji becomes available
+#### Scenario: Resolution is synchronous
 
-Because fetching is asynchronous, text displayed before a fetch completes SHALL be updated once the
-asset is available, without user action.
+- **WHEN** an emoji is resolved
+- **THEN** the result is final at the point of first render, and does not change later
 
-This is the same class of defect as translation staleness: the displayed value depends on state
-that changes later, and a binding that does not record a dependency on that state will never
-re-evaluate.
+### Requirement: Variation-selector sequences resolve to their asset
 
-#### Scenario: Emoji arrives after the text is displayed
+Emoji whose colour presentation is requested by a trailing variation selector SHALL be rewritten to
+image references, and the variation selector SHALL NOT form part of the asset key.
 
-- **WHEN** text containing an unbundled emoji is displayed, and the fetch completes afterwards
-- **THEN** the displayed text updates to include the emoji without the user navigating away and
-  back
+Matching emoji by codepoint range alone misses these: a keycap begins with an ASCII digit, and
+`©️` is a Latin-1 codepoint. Both are rendered from the platform colour font solely because of the
+trailing selector, which is the crashing path.
 
-#### Scenario: Fetch fails after the text is displayed
+#### Scenario: Keycap sequence
 
-- **WHEN** the fetch does not succeed
-- **THEN** the displayed text settles on the stripped form and does not retry indefinitely
+- **WHEN** text contains a keycap sequence such as digit + variation selector + combining enclosing
+  keycap
+- **THEN** the whole sequence resolves to a single image, not a literal digit beside an image of
+  the combining character
 
-### Requirement: Cached emoji persist across restarts
+#### Scenario: Symbol with emoji presentation
 
-Emoji fetched from the network SHALL be stored so that they are available on subsequent launches
-without refetching.
+- **WHEN** text contains a symbol such as `©`, `®` or `™` followed by a variation selector
+- **THEN** it resolves to an image rather than reaching the platform text renderer
 
-#### Scenario: Restart after fetching
+#### Scenario: Variation selector is excluded from the key
 
-- **WHEN** the application is restarted after having fetched an emoji
-- **THEN** that emoji renders without a network request
+- **WHEN** an asset key is derived from an emoji sequence containing a variation selector
+- **THEN** the selector is omitted from the key
 
-#### Scenario: Offline after a previous fetch
+#### Scenario: Stray variation selector after ordinary text
 
-- **WHEN** the application has no network connection and displays text containing an emoji it
-  fetched previously
-- **THEN** the emoji renders from the cache
+- **WHEN** a variation selector follows a character that has no emoji presentation, such as a
+  letter
+- **THEN** that character is not converted to an image reference
 
-### Requirement: The application's own interface never depends on the network for emoji
+### Requirement: The bundled set is reproducible and pinned
 
-No part of the application's own interface SHALL require a network fetch to render. Every emoji
-referenced by app-authored content — interface labels, the emoji picker's set, translated strings —
-SHALL ship with the application.
+The emoji asset set SHALL be committed to the repository and generated from a pinned upstream
+version, so that a release is reproducible from a clean checkout with no network access.
 
-The network path exists only for content the project does not control and cannot know at build
-time: release notes, bean names, AI replies, community author names, and text the user types.
-
-An app-authored emoji reaching the network is a defect rather than a slow path: it means the build
-failed to bundle an asset, and the field symptom is an interface that renders differently depending
-on connectivity.
-
-#### Scenario: An emoji used by the app is not yet bundled
-
-- **WHEN** app-authored content references an emoji with no bundled asset
-- **THEN** the build obtains and bundles it
-
-#### Scenario: The invariant is checked, not assumed
-
-- **WHEN** the project is built
-- **THEN** a check asserts that every emoji referenced by app-authored content has a bundled asset,
-  and fails the build if any does not
-
-#### Scenario: A first run with no network
-
-- **WHEN** the application runs for the first time with no network connection
-- **THEN** every emoji in its own interface renders, including every emoji offered by the picker
-
-#### Scenario: User selects an emoji while offline
-
-- **WHEN** the user picks an emoji from the application's picker with no network connection
-- **THEN** it renders, because the picker's set ships complete
-
-#### Scenario: Uncontrolled content while offline
-
-- **WHEN** externally-sourced text containing an unbundled emoji is displayed with no network
-- **THEN** that emoji is stripped, and this is the only case in which stripping occurs
-
-### Requirement: Newly required emoji are committed to the repository
-
-Emoji obtained by the build SHALL be committed to the project repository as tracked assets, so
-that a release is reproducible from a clean checkout without network access to the CDN.
-
-An asset fetched at build time but not committed makes the build non-reproducible and silently
-couples release output to a third-party service's availability at build time.
-
-#### Scenario: Build discovers a missing emoji
-
-- **WHEN** the build finds that referenced content needs an emoji not currently in the repository
-- **THEN** the asset is added to the repository's tracked emoji set, alongside the manifest the
-  resource system reads
+A build that fetches assets at build time couples release output to a third party's availability
+that morning, and an unpinned source lets upstream artwork change with no commit explaining why a
+rebuild renders differently.
 
 #### Scenario: Clean checkout with no network
 
-- **WHEN** a release is built from a clean checkout with no access to the CDN
-- **THEN** the build succeeds and the resulting application contains every emoji its own interface
-  uses
+- **WHEN** a release is built from a clean checkout with no network access
+- **THEN** the build succeeds and the application contains the complete emoji set
 
-#### Scenario: Release contains the bundled set
+#### Scenario: Upstream publishes a new version
 
-- **WHEN** a release artefact is produced
-- **THEN** it ships the committed emoji assets rather than resolving them at first run
+- **WHEN** the upstream emoji project publishes a newer release
+- **THEN** the application's rendering is unchanged until the pinned version is deliberately updated
+
+#### Scenario: Refreshing the set
+
+- **WHEN** a maintainer updates the pinned upstream version
+- **THEN** a single documented command regenerates the asset set and its resource manifest

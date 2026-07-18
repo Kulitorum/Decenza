@@ -36,41 +36,36 @@
 - [x] 2.6 Add a test that asserts `replaceEmojiWithImg()` escapes by default and preserves markup
       when `allowMarkup` is true.
 
-## 3. Emoji asset resolution (blocked on 1.4)
+## 3. Emoji asset set (CDN design REVERSED — see design.md D4)
 
-- [x] 3.1 Settle the CDN source and URL template. DONE: `jdecked/twemoji@17.0.3` via jsDelivr.
-      `twitter/twemoji` is NOT archived (an earlier note here said it was — wrong), but its last
-      release is v14.0.2 from March 2022 and it 404s on Unicode 15+. The fork is byte-identical
-      for overlapping assets, so bundled 14.0.2 artwork and fetched 17.0.3 artwork cannot
-      disagree. Skin-tone, ZWJ, flag, keycap and `©` sequences all verified by real requests;
+Originally a CDN resolver with a disk cache. Measuring the install-size cost it was avoiding
+(+2.8 MB compressed, on a 137 MB bundle) reversed the decision: ship all 4,009 assets, delete the
+runtime network path entirely. Former tasks 3.2-3.5 and 3.9-3.10 (resolver, caches, async
+re-render, offline behaviour, eviction) no longer exist.
+
+- [x] 3.1 Settle the upstream source and filename pattern. DONE: `jdecked/twemoji@17.0.3` via
+      jsDelivr, now a BUILD-TIME source only. `twitter/twemoji` is NOT archived (an earlier note
+      here said it was — wrong), but its last release is v14.0.2 from March 2022 and it 404s on
+      Unicode 15+. Byte-identical for overlapping assets, so regenerating does not restyle the 744
+      already shipping. Skin-tone, ZWJ, flag, keycap and `©` sequences verified by real requests;
       U+FE0F must be stripped from the key (`31-20e3` 200, `31-fe0f-20e3` 404).
-- [ ] 3.2 Implement the resolver: bundled → disk cache → fetch → strip, with a negative cache so a
-      failed emoji is not refetched on every re-render.
-- [ ] 3.3 Give the resolver a notifying property per D4 and route `emojiToImage()` and
-      `replaceEmojiWithImg()` through it. Confirm an emoji that arrives after first paint actually
-      re-renders — this is the requirement most likely to be silently unmet.
-- [ ] 3.4 Confirm the strip path: with the network unreachable, an unbundled emoji is removed and
-      the surrounding text renders normally, with no broken-image artefact.
-- [ ] 3.5 Confirm the cache survives a restart, and that a restart with no network still renders
-      previously-fetched emoji.
-- [ ] 3.6 Add the build step that bundles referenced-but-missing emoji, extending
-      `scripts/download_emoji.py`. It must scan every app-authored source of emoji — `qml/`,
-      `EmojiData.js`, translated strings — not just the picker's category lists.
-- [ ] 3.7 Add a check that enforces D5's invariant: every emoji referenced by app-authored content
-      has a bundled asset, failing the build otherwise. Verify it fails by deleting one bundled
-      asset that the app references and watching the build go red. The point is that an
-      app-authored emoji can never silently reach the network.
-- [ ] 3.8 Make the build step commit newly fetched assets and the regenerated `emoji.qrc` back to
-      the repository, so a release is reproducible from a clean checkout with no CDN access.
-      Decide where this runs — a local/dev step, or CI — and make sure it cannot fire on a
-      release-tag build and mutate the tagged tree. Read `docs/CLAUDE_MD/CI_CD.md` first; the
-      Android workflow already commits `versioncode.txt` back to `main` and is the precedent to
-      follow.
-- [ ] 3.9 Verify offline behaviour end to end on a real device with networking disabled: every
-      emoji in the app's own UI renders, every emoji in the picker renders and can be selected,
-      and only externally-sourced text shows stripping.
-- [ ] 3.10 Decide and record whether the cache needs eviction. Small assets and codepoint keying
-      suggest not, but make it a decision rather than an omission.
+- [x] 3.2 Close the variation-selector crash path: keycaps and `©️ ®️ ™️` matched no codepoint range
+      and reached the platform colour renderer. Both new tests verified to fail without the fix.
+- [x] 3.3 Point `scripts/download_emoji.py` at `jdecked/twemoji@17.0.3` and give it a mode that
+      fetches the COMPLETE upstream set rather than only the codepoints `EmojiData.js` lists.
+- [x] 3.4 Run it: ~4,009 assets into `resources/emoji/`, regenerate `resources/emoji.qrc`, commit.
+      Sanity-check the count and total size against the measured figures (4,009 files, 9.65 MB raw)
+      rather than assuming the run was complete.
+- [x] 3.5 Add the existence check so an emoji with no asset is STRIPPED rather than emitted as an
+      unresolvable `qrc:` path. This is the broken-image bug and it is not fixed by bundling more —
+      a Unicode 18 emoji still misses. Applies to both `emojiToImage()` and `replaceEmojiWithImg()`.
+- [x] 3.6 Verify the strip path with a test: an emoji known to be outside the set produces no
+      `<img>` and leaves surrounding text intact.
+- [x] 3.7 Confirm what the regeneration changed. RESULT: 3,265 added, 0 deleted, and **8 of 744
+      modified** (🌁 🍉 🏥 🔒 🔓 🚑 🤡 🥺) — my prediction of "no modifications" was wrong, having
+      generalised a byte-identity check on one asset to all 744. Mostly upstream path optimisation
+      (arcs for béziers; 🥺 2277→1428 bytes, same shape); 🔒 is a genuine redraw, now spanning the
+      full viewBox height. Fine to take, but it is a visual change and is recorded as one.
 
 ## 4. Translation reactivity (blocked on 1.5)
 

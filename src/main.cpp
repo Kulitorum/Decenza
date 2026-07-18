@@ -43,6 +43,7 @@
 
 #include "core/asynclogger.h"
 #include "core/btlogfilter.h"
+#include "core/emojiassets.h"
 #include "core/settings.h"
 #include "core/settings_mqtt.h"
 #include "core/settings_autowake.h"
@@ -2791,6 +2792,11 @@ int main(int argc, char *argv[])
     QQmlContext* context = engine.rootContext();
     context->setContextProperty("Settings", &settings);
     context->setContextProperty("TranslationManager", &translationManager);
+    // Lets Theme.qml ask whether an emoji asset exists before emitting a path to it —
+    // without this an emoji outside the bundled set becomes an unresolvable image
+    // reference (drawn as neither the emoji nor nothing). See emojiassets.h.
+    static EmojiAssets emojiAssets;
+    context->setContextProperty("EmojiAssets", &emojiAssets);
     context->setContextProperty("TemperatureDisplay", &temperatureDisplayBridge);
     context->setContextProperty("BLEManager", &bleManager);
     context->setContextProperty("DE1Device", &de1Device);

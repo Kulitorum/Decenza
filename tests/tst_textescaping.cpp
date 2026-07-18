@@ -16,6 +16,7 @@
 
 #include <QtTest>
 #include <QJSEngine>
+#include <QDir>
 #include <QFile>
 #include <QRegularExpression>
 
@@ -33,10 +34,12 @@ private slots:
     void emojiBecomesImgTag();
     void variationSelectorSequencesAreRewritten();
     void strayVariationSelectorDoesNotCaptureText();
+    void unbundledEmojiIsStrippedNotBroken();
 
 private:
     QJSEngine m_engine;
     QJSValue m_theme;
+    qsizetype m_assetCount = 0;
     QString call(const QString& fn, const QJSValueList& args);
 };
 
@@ -70,16 +73,35 @@ void TestTextEscaping::initTestCase()
     const QString escapeHtml = extract("escapeHtml");
     const QString isEmoji = extract("_isEmoji");
     const QString isEmojiPres = extract("_isEmojiPresentation");
+    const QString assetPath = extract("_emojiAssetPath");
     const QString replaceEmoji = extract("replaceEmojiWithImg");
     QVERIFY2(!escapeHtml.isEmpty(), "escapeHtml() not found in Theme.qml");
     QVERIFY2(!isEmoji.isEmpty(), "_isEmoji() not found in Theme.qml");
     QVERIFY2(!isEmojiPres.isEmpty(), "_isEmojiPresentation() not found in Theme.qml");
+    QVERIFY2(!assetPath.isEmpty(), "_emojiAssetPath() not found in Theme.qml");
     QVERIFY2(!replaceEmoji.isEmpty(), "replaceEmojiWithImg() not found in Theme.qml");
 
-    const QString program = QStringLiteral("(function(){ %1\n%2\n%3\n%4\n"
+    // Stand in for the EmojiAssets C++ singleton, seeded from the REAL asset directory in
+    // the source tree. That keeps "is this emoji bundled?" answered by what actually ships,
+    // so a test asserting an emoji strips cannot pass merely because a hand-written list
+    // omitted it.
+    QDir emojiDir(QStringLiteral(DECENZA_SOURCE_DIR) + "/resources/emoji");
+    const QStringList assets = emojiDir.entryList(QStringList{"*.svg"}, QDir::Files);
+    QVERIFY2(assets.size() > 3000,
+             qPrintable(QStringLiteral("expected the full bundled set, found %1").arg(assets.size())));
+    m_assetCount = assets.size();
+
+    QJSValue known = m_engine.newObject();
+    for (const QString& a : assets)
+        known.setProperty(a.left(a.size() - 4), QJSValue(true));
+    m_engine.globalObject().setProperty("__knownEmoji", known);
+    m_engine.evaluate("var EmojiAssets = { has: function(k) { return __knownEmoji[k] === true } }");
+
+    const QString program = QStringLiteral("(function(){ %1\n%2\n%3\n%4\n%5\n"
                                            "return { escapeHtml: escapeHtml,"
-                                           "         replaceEmojiWithImg: replaceEmojiWithImg }; })()")
-                                .arg(escapeHtml, isEmoji, isEmojiPres, replaceEmoji);
+                                           "         replaceEmojiWithImg: replaceEmojiWithImg,"
+                                           "         _emojiAssetPath: _emojiAssetPath }; })()")
+                                .arg(escapeHtml, isEmoji, isEmojiPres, assetPath, replaceEmoji);
 
     m_theme = m_engine.evaluate(program);
     QVERIFY2(!m_theme.isError(), qPrintable(m_theme.toString()));
@@ -178,6 +200,30 @@ void TestTextEscaping::strayVariationSelectorDoesNotCaptureText()
     const QString out = call("replaceEmojiWithImg", {QJSValue(letterThenVs), QJSValue(16)});
     QVERIFY2(!out.contains("<img"), qPrintable("a letter must not become an image: " + out));
     QCOMPARE(out, QStringLiteral("abc"));  // stray selector dropped, text intact
+}
+
+// The broken-image bug: before this change both functions emitted qrc:/emoji/<key>.svg with
+// no check that the file existed, so an emoji outside the bundled set produced an image
+// reference nothing could resolve — neither drawn nor removed. Shipping ~4,000 assets does
+// not fix this on its own: a codepoint from a Unicode revision newer than the pinned upstream
+// still misses.
+void TestTextEscaping::unbundledEmojiIsStrippedNotBroken()
+{
+    // U+1FB00 is a legacy-computing block character, not an emoji upstream draws. If a future
+    // asset refresh ever adds it, this test should be re-pointed rather than deleted.
+    const QString unbundled = QString::fromUcs4(U"\U0001FB00", 1);
+    QVERIFY2(call("_emojiAssetPath", {m_engine.toScriptValue(QStringList{"1fb00"})}).isEmpty(),
+             "an unbundled key must yield no path");
+
+    const QString out = call("replaceEmojiWithImg",
+                             {QJSValue("a" + unbundled + "b"), QJSValue(16)});
+    QVERIFY2(!out.contains("<img"), qPrintable("unbundled emoji must not emit an image: " + out));
+    QVERIFY2(out.contains("a") && out.contains("b"),
+             qPrintable("surrounding text must survive: " + out));
+
+    // A bundled one still resolves, so the check is not simply refusing everything.
+    const QString ok = call("replaceEmojiWithImg", {QJSValue(QString::fromUtf8("☕")), QJSValue(16)});
+    QVERIFY2(ok.contains("qrc:/emoji/2615.svg"), qPrintable(ok));
 }
 
 QTEST_MAIN(TestTextEscaping)

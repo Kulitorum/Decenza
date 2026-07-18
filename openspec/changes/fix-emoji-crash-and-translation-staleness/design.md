@@ -132,67 +132,74 @@ Default-safe is chosen over default-permissive because the failure modes are asy
 opt-in shows raw tags on screen and gets reported immediately, whereas a missing escape is
 invisible until it is exploited or until a bean name containing `<` mangles a page.
 
-### D4: Emoji resolution becomes asynchronous — and inherits the binding problem
+### D4: Ship the complete emoji set; there is no runtime resolution
 
 Today `emojiToImage()` and `replaceEmojiWithImg()` are pure string functions: codepoints in,
-`qrc:/emoji/<hex>.svg` out, with **no check that the file exists**. 745 assets ship. Anything
+`qrc:/emoji/<hex>.svg` out, with **no check that the file exists**. 744 assets ship. Anything
 outside that set becomes an image reference nothing can resolve — the emoji is neither drawn nor
 removed. This was not a designed fallback; it is an unhandled case.
 
-Resolution becomes: bundled → disk cache → CDN fetch → strip. That makes the result of these
-functions *time-varying*, which is the same trap as D1 — a binding that calls a function and
-records no dependency will show the stripped form forever, even after the asset arrives. **The
-resolver must therefore expose a notifying property that participates in binding dependencies**,
-and the spike in task 1 should confirm the chosen mechanism covers this case too. It would be
-absurd to fix 3,248 stale translation bindings in this change and introduce a new class of stale
-binding beside them.
+**Bundle all 4,009 upstream assets and keep the functions pure.** Resolution is
+bundled-or-strip, decided locally and synchronously.
 
-Implementation shape: a C++ resolver owns the cache directory and the network access. It returns a
-resolvable local path (`qrc:` or `file:`) or an empty string meaning "strip". A cache miss returns
-empty immediately and starts a fetch; completion bumps a notifying counter and bindings re-render.
-Failure is recorded so the same emoji is not refetched on every re-render — a negative cache, which
-is what stops the "does not retry indefinitely" scenario from becoming a request storm.
+*This reverses an earlier decision in this document, on a measurement I should have taken first.*
+The original design specified bundled → disk cache → CDN fetch → strip, and rejected shipping the
+full set with the parenthetical "~3,700 SVGs, roughly 15 MB… rejected on install size for a mobile
+app." That figure was estimated, never measured, and it was the sole argument against. Measured:
+
+| | Files | Raw | Compressed (3.06x, measured on the existing set) |
+|---|---|---|---|
+| Bundled today | 744 | 0.99 MB | 0.32 MB |
+| Full twemoji v17.0.3 | 4,009 | 9.65 MB | ~3.15 MB |
+
+**+2.8 MB** against a 137 MB application bundle. The cost that justified the entire runtime
+architecture is about 2%.
+
+What shipping everything deletes, rather than merely simplifies:
+
+- The CDN fetch, and the new outbound network traffic the proposal had to disclose.
+- The disk cache, the negative cache, and the cache-eviction question.
+- **The asynchronous-resolution problem entirely.** The previous D4 argued the resolver had to
+  expose a notifying property, because a function whose value arrives later is the same trap as
+  the 3,248 stale `translate()` bindings — and that fixing one while introducing the other would
+  be absurd. With a local synchronous lookup the hazard does not exist to be guarded against.
+  (The spike's `asyncResolutionPatternReRenders` case is now unused by this design; it is kept
+  because the mechanism it proves is still what makes `translate` reactive.)
+- Offline behaviour as a design concern, and the app-authored vs uncontrolled boundary that
+  existed only to decide what was allowed to hit the network.
+
+What remains: an **existence check** before emitting an image reference. Even at 4,009 assets a
+newer Unicode revision or an odd sequence can miss, and emitting an unresolvable path is the
+broken-image bug above. "Bundled or strip" is a set lookup, not a resolver.
 
 *Alternatives considered:*
-- **Let QML `Image` load the CDN URL directly.** Qt would handle caching via `QNetworkDiskCache`
-  and no resolver would be needed. Rejected: it puts a remote URL inside `<img>` tags in
-  `StyledText`, where Qt's rich-text engine resolves resources through a document resource handler
-  rather than the network stack, so remote images are not reliably fetched at all. It would also
-  make every emoji a live network dependency with no negative caching.
-- **Ship every Unicode emoji.** ~3,700 SVGs, roughly 15 MB. Rejected on install size for a mobile
-  app, and it still fails for future Unicode revisions.
+- **CDN with disk cache** — the original design. Rejected once measured: it buys a ~2.8 MB install
+  saving in exchange for a network dependency, two caches, and a class of stale binding.
+- **Let QML `Image` load a CDN URL directly.** Rejected: inside `<img>` in `StyledText`, Qt's
+  rich-text engine resolves resources through a document resource handler rather than the network
+  stack, so remote images are not reliably fetched at all.
 
-### D5: The CDN serves uncontrolled content only — never the app's own interface
+### D5: Nothing the application displays depends on the network
 
-**No part of the app's own interface may depend on the network.** Everything the interface needs
-ships with the app. The CDN exists solely for content the app cannot know at build time.
+**No part of the app depends on the network to render text.** This was previously a boundary to
+police — app-authored content bundled, uncontrolled content allowed to fetch — enforced by a build
+step and a test. Shipping the full set makes the boundary unnecessary: there is no fetch path for
+anything to fall down, so there is nothing to enforce.
 
-The boundary is drawn by whether the *project* controls the string:
+Emoji rendering is not an enhancement that may degrade. A colour glyph reaching the platform text
+renderer crashes the app on macOS, so resolution must be unconditional rather than best-effort.
 
-| Class | Examples | Resolution |
-|---|---|---|
-| App-authored | UI labels, the emoji picker set (`EmojiData.js`), translated strings, anything in `qml/` | **Bundled. Never fetched.** |
-| Uncontrolled | GitHub release notes, bean names from Bean Base, AI replies, community screensaver authors, user-typed labels and recipe names | Bundled if present, else fetched and cached, else stripped |
+The pinned upstream version is what keeps this reproducible: assets are committed, and a clean
+checkout with no network builds a complete application. See the source note below.
 
-This is stronger than "a first run offline happens to work". App-authored emoji reaching the
-network is a **defect**, not a slow path — it means the build step failed to bundle something, and
-the symptom in the field would be a UI element that renders differently depending on connectivity.
-
-Enforcement is the build step (D-build, tasks 3.6–3.8), not runtime good behaviour: it scans
-app-authored sources for emoji, fetches anything missing, and commits it. A test asserts the
-invariant directly — every emoji referenced by app-authored content has a bundled asset — so the
-guarantee fails at build time rather than on a user's offline first run.
-
-Note this also means a *user-selected* emoji (from the picker, in a widget label) is app-authored
-for this purpose: the picker's set ships complete, so choosing one never needs the network.
-
-**CDN source settled (verified 2026-07-18 by fetching, not by assumption):**
+**Upstream source settled (verified 2026-07-18 by fetching, not by assumption).** This is now a
+BUILD-TIME source only — nothing fetches at runtime:
 
 ```
 https://cdn.jsdelivr.net/gh/jdecked/twemoji@17.0.3/assets/svg/<hex>[-<hex>...].svg
 ```
 
-`scripts/download_emoji.py` pins `twitter/twemoji@14.0.2`, which is where the bundled 745 came
+`scripts/download_emoji.py` pins `twitter/twemoji@14.0.2`, which is where the bundled 744 came
 from. Upstream status, checked against the GitHub API rather than assumed (an earlier draft of this
 document claimed `twitter/twemoji` was archived — **it is not**):
 
@@ -202,30 +209,46 @@ document claimed `twitter/twemoji` was archived — **it is not**):
 | Since then | a README edit; a v14.0.3 released and reverted | v16.0.1, v17.0.0–17.0.3 |
 
 Not archived, but dormant where it matters: no emoji release in four years. The functional
-consequence is decisive — `twitter/twemoji@14.0.2` **404s on `1fae8`** (🫨, Unicode 15), which is
-precisely the case a CDN fallback exists to serve. `jdecked/twemoji` is the maintained continuation
-and serves it.
+consequence is decisive — `twitter/twemoji@14.0.2` **404s on `1fae8`** (🫨, Unicode 15). Staying on
+it would mean shipping a "complete" set that is three Unicode revisions stale.
+`jdecked/twemoji` is the maintained continuation and serves it.
 
-Mixing the two sources is safe, and this was checked rather than assumed: `2615.svg` is
-**byte-identical** (SHA-256 `8b8afd8f…31ff`) across `twitter@14.0.2`, `jdecked@15.1.0`, `16.0.1`
-and `17.0.3`. The fork is a true continuation rather than a redesign, so a bundled asset and a
-fetched one cannot disagree visually — which matters because the bundled set is 14.0.2 artwork.
-(In practice they never even meet: bundled is checked first, so anything fetched is by definition
-not bundled.)
+The fork is a continuation rather than a redesign. `2615.svg` is **byte-identical** (SHA-256
+`8b8afd8f…31ff`) across `twitter@14.0.2`, `jdecked@15.1.0`, `16.0.1` and `17.0.3`.
+
+**Corrected after actually regenerating:** an earlier version of this paragraph generalised that
+one sample to the whole set and claimed re-generating "does not restyle the 744 assets already
+shipping". It does, slightly. Measured against the committed set:
+
+- 736 of 744 byte-identical
+- **8 changed (1.1%)**: 🌁 🍉 🏥 🔒 🔓 🚑 🤡 🥺
+- 3,265 added, 0 deleted
+
+Most of the eight are path optimisation from upstream's "optimize v17.0 SVGs" work — arcs
+replacing cubic béziers, e.g. 🥺 drops 2,277 → 1,428 bytes with identical shape. At least one is a
+genuine redraw: 🔒 previously spanned y=3–36 within the 36-unit viewBox and now spans y=0–36, so
+the lock is drawn slightly larger.
+
+This is upstream improving its artwork across three Unicode revisions and is fine to take, but it
+is a visual change to shipped assets rather than the pure addition claimed above.
 
 Alternatives rejected: **OpenMoji** is actively maintained but CC-BY-SA, adding a share-alike
 obligation Twemoji's MIT does not; **Noto Emoji** is OFL and Google-maintained. Either would mean
-redrawing all 745 bundled assets in a different visual language for no functional gain.
+redrawing every bundled asset in a different visual language for no functional gain.
 
-URL rules confirmed against real requests:
+Filename rules confirmed against real requests:
 - Codepoints are lowercase hex, hyphen-joined: `1f44d-1f3fd` (skin tone), `1f469-200d-1f4bb` (ZWJ),
   `1f1fa-1f1f8` (flag) — all 200.
 - **U+FE0F must be stripped.** `31-20e3` → 200, `31-fe0f-20e3` → 404. `emojiToImage()` and
   `replaceEmojiWithImg()` already strip it, so this is compatible — but it is a hard requirement on
-  the resolver's key derivation, not an incidental detail.
+  key derivation, not an incidental detail.
 
-Pin the tag. Tracking `latest` would let an upstream redesign change how the app renders with no
-commit on our side.
+Pin the tag rather than tracking `latest`. With no runtime fetch this is purely a build-
+reproducibility concern, but it is a real one: `@latest` means a rebuild months from now can
+produce different artwork than the release it claims to reproduce, with no commit explaining why,
+and bug reports about rendering become unreproducible. Bumping a pin is a one-line reviewable
+change. The cost is that emoji from a Unicode revision newer than the pin strip until someone
+bumps it — a narrow and self-correcting gap.
 
 ### D4a: `_isEmoji()` has coverage gaps that leave the crash path open
 
@@ -282,18 +305,19 @@ crash showed. The real defence is D3's routing, and the comment says so.
 - **Verification has been macOS-only for the font work that preceded this** → The emoji crash is
   macOS-specific by nature, but the escaping change affects every platform. Android and Windows
   need a real launch before this merges.
-- **The emoji resolver introduces a second class of stale binding** → D4 requires it to expose a
-  notifying property, and the task list verifies a late-arriving emoji actually re-renders. This is
-  the third instance of the invokable-in-binding trap in one session; treating it as a known
-  hazard rather than rediscovering it is the point of D2's guard and the QML_GOTCHAS entry.
-- **New outbound network traffic** → Every emoji the app cannot resolve locally becomes a request
-  to a third-party CDN. Bounded by the disk cache, the negative cache, and the build step, but it
-  is a real change in the app's network behaviour and should not be introduced silently.
-- **CDN content changing underneath us** → Pin a tag rather than tracking `latest`, so an upstream
-  redesign cannot alter how the app renders without a deliberate bump.
-- **Unbounded cache growth** → The cache is keyed by codepoint sequence and each asset is a few KB,
-  so realistic growth is small; but there is no eviction, and that should be a conscious decision
-  rather than an oversight.
+- **~4,000 new files in the repository** → A single directory of small generated assets, added and
+  refreshed by one documented script. Reviewing the diff by eye is impractical, so the guard is
+  that they are generated from a pinned upstream at a verified SHA rather than hand-edited.
+- **+2.8 MB install size** → Measured, not estimated (0.32 MB → ~3.15 MB compressed, against a
+  137 MB bundle). Stated here because the previous version of this design rejected the whole
+  approach on an unmeasured size estimate that was wrong by roughly 5x.
+- **Emoji newer than the pinned upstream strip rather than render** → Accepted. The alternative is
+  tracking `latest` and losing build reproducibility. Bumping the pin is a one-line change, and
+  stripping is a clean degradation rather than a broken image or a crash.
+- **`_isEmojiPresentation` is a heuristic, not the Unicode emoji property** → It treats "followed
+  by U+FE0F" as the signal, bounded to keycap bases and cp >= 0xA9. A character with emoji
+  presentation outside that bound would still be missed. Enumerating the real Unicode property
+  would be exhaustive but is a larger change; the bound is chosen to be safe rather than complete.
 
 ## Migration Plan
 

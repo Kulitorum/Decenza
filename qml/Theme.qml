@@ -31,6 +31,7 @@ QtObject {
 
     // Convert emoji character to pre-rendered SVG image path.
     // Passes through qrc:/icons/... paths unchanged.
+    // Returns "" when no asset is bundled — see _emojiAssetPath.
     function emojiToImage(emoji) {
         if (!emoji) return ""
         if (emoji.indexOf("qrc:") === 0) return emoji
@@ -40,7 +41,25 @@ QtObject {
             i += cp > 0xFFFF ? 2 : 1
             if (cp !== 0xFE0F) cps.push(cp.toString(16))
         }
-        return "qrc:/emoji/" + cps.join("-") + ".svg"
+        return _emojiAssetPath(cps)
+    }
+
+    // Asset path for a codepoint list, or "" when nothing is bundled for it.
+    //
+    // The app ships the complete Twemoji set, but "complete" is relative to a pinned
+    // upstream: a codepoint from a newer Unicode revision, or a sequence upstream does not
+    // draw, has no asset. Emitting the path anyway produces an image reference nothing can
+    // resolve, which renders as a broken-image artefact — worse than either showing the
+    // emoji or dropping it. So callers get "" and drop it.
+    //
+    // EmojiAssets.has() is an invokable, and non-reactive on purpose: the bundled set is
+    // fixed at build time, so unlike Settings.theme.effectiveFontSizes there is nothing for
+    // a binding to re-evaluate. See src/core/emojiassets.h.
+    function _emojiAssetPath(cps) {
+        if (!cps || cps.length === 0) return ""
+        var key = cps.join("-")
+        if (typeof EmojiAssets === "undefined" || !EmojiAssets.has(key)) return ""
+        return "qrc:/emoji/" + key + ".svg"
     }
 
     // Check if a Unicode code point is an emoji that would trigger Apple Color Emoji
@@ -156,7 +175,13 @@ QtObject {
                     }
                     break
                 }
-                var src = "qrc:/emoji/" + emojiCps.map(function(c) { return c.toString(16) }).join("-") + ".svg"
+                var src = _emojiAssetPath(emojiCps.map(function(c) { return c.toString(16) }))
+                if (src === "") {
+                    // Nothing bundled for this sequence — drop it rather than emitting a
+                    // path that resolves to nothing. The surrounding text is unaffected.
+                    i = j
+                    continue
+                }
                 // align="middle" centres the emoji in Text.StyledText (which ignores
                 // the CSS style= attribute); style="vertical-align" keeps it centred in
                 // any label still using Text.RichText. Prefer StyledText — RichText

@@ -46,12 +46,28 @@ class EmojiSource:
 
 
 class Twemoji(EmojiSource):
-    """Twitter Twemoji - flat, colorful, widely used. CC-BY 4.0."""
+    """Twemoji - flat, colorful, widely used. MIT.
+
+    Pinned to jdecked/twemoji, NOT twitter/twemoji. The original is not archived, but
+    its last release is v14.0.2 (March 2022) and it 404s on Unicode 15+ codepoints such
+    as 1fae8. jdecked/twemoji is the maintained continuation and the artwork is identical
+    where the two overlap (2615.svg is byte-identical across 14.0.2, 15.1.0, 16.0.1 and
+    17.0.3), so moving the pin adds emoji without restyling the ones already shipped.
+
+    Pinned rather than @latest: with no runtime fetching this is purely about build
+    reproducibility, but @latest would let a rebuild months from now produce different
+    artwork than the release it claims to reproduce, with no commit explaining why.
+    """
     name = "twemoji"
-    license_info = "Twemoji by Twitter (CC-BY 4.0) - https://github.com/twitter/twemoji"
+    license_info = "Twemoji by Twitter, maintained by jdecked (MIT) - https://github.com/jdecked/twemoji"
+    # Bump deliberately, and re-run with --all so bundled assets match the pin.
+    repo = "jdecked/twemoji"
+    tag = "v17.0.3"
+    # Path within the repo archive that holds the SVGs.
+    archive_svg_dir = "assets/svg"
 
     def svg_url(self, cps: list[str]) -> list[str]:
-        base = "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/svg"
+        base = f"https://cdn.jsdelivr.net/gh/{self.repo}@{self.tag.lstrip('v')}/assets/svg"
         joined = "-".join(cps)
         # Try with all codepoints, then without fe0f
         urls = [f"{base}/{joined}.svg"]
@@ -211,6 +227,68 @@ def download_emoji(source: EmojiSource, emoji: str, cps: list[str]) -> bytes | N
 
 # --- Generate QRC ---
 
+def download_full_set(source, emoji_dir: str) -> list[str]:
+    """Fetch the COMPLETE upstream emoji set and write it to emoji_dir.
+
+    Downloads the pinned release tarball in ONE request rather than issuing ~4,000
+    individual CDN requests: it is far faster, and it is the polite way to take a whole
+    repository from a free CDN.
+
+    Returns the list of written filenames.
+    """
+    import tarfile
+    import tempfile
+
+    if not hasattr(source, "repo"):
+        print(f"ERROR: source '{source.name}' does not support --all "
+              f"(no pinned repo/tag). Only twemoji does today.")
+        sys.exit(1)
+
+    url = f"https://github.com/{source.repo}/archive/refs/tags/{source.tag}.tar.gz"
+    print(f"Fetching complete set: {url}")
+
+    req = urllib.request.Request(url, headers={"User-Agent": "Decenza-EmojiDownloader/1.0"})
+    try:
+        with urllib.request.urlopen(req, timeout=180) as resp:
+            blob = resp.read()
+    except urllib.error.URLError as e:
+        print(f"ERROR: could not fetch the release archive: {e}")
+        sys.exit(1)
+
+    print(f"  archive: {len(blob) / 1024 / 1024:.1f} MB")
+
+    written = []
+    with tempfile.TemporaryFile() as tmp:
+        tmp.write(blob)
+        tmp.seek(0)
+        with tarfile.open(fileobj=tmp, mode="r:gz") as tar:
+            # Paths look like "twemoji-17.0.3/assets/svg/2615.svg".
+            wanted = f"/{source.archive_svg_dir}/"
+            for member in tar.getmembers():
+                if not member.isfile() or not member.name.endswith(".svg"):
+                    continue
+                if wanted not in member.name:
+                    continue
+                fname = os.path.basename(member.name)
+                # Guard against a path-traversal entry in an untrusted archive.
+                if fname != os.path.basename(fname) or fname.startswith("."):
+                    continue
+                f = tar.extractfile(member)
+                if f is None:
+                    continue
+                with open(os.path.join(emoji_dir, fname), "wb") as out:
+                    out.write(f.read())
+                written.append(fname)
+
+    if not written:
+        print(f"ERROR: no SVGs found under '{source.archive_svg_dir}' in the archive. "
+              f"The upstream layout may have changed.")
+        sys.exit(1)
+
+    print(f"  extracted: {len(written)} SVGs")
+    return written
+
+
 def generate_qrc(filenames: list[str], qrc_path: str):
     """Generate a Qt resource file for the emoji SVGs."""
     lines = ['<!DOCTYPE RCC>', '<RCC version="1.0">', '    <qresource prefix="/">']
@@ -227,24 +305,27 @@ def generate_qrc(filenames: list[str], qrc_path: str):
 # --- Main ---
 
 def main():
-    if len(sys.argv) < 2 or sys.argv[1] not in SOURCES:
-        print(f"Usage: {sys.argv[0]} <source>")
+    args = [a for a in sys.argv[1:] if not a.startswith("-")]
+    flags = {a for a in sys.argv[1:] if a.startswith("-")}
+    fetch_all = "--all" in flags
+
+    if not args or args[0] not in SOURCES:
+        print(f"Usage: {sys.argv[0]} <source> [--all]")
         print(f"  Sources: {', '.join(SOURCES.keys())}")
+        print()
+        print("  --all   Fetch the COMPLETE upstream set (~4,000 emoji) instead of only")
+        print("          the codepoints EmojiData.js references. This is what ships: the")
+        print("          app resolves emoji locally with no network fallback, so anything")
+        print("          not bundled is stripped from displayed text.")
         print()
         for name, src in SOURCES.items():
             print(f"  {name:12s} - {src.license_info}")
         sys.exit(1)
 
-    source = SOURCES[sys.argv[1]]
+    source = SOURCES[args[0]]
     print(f"Downloading emoji from: {source.name}")
     print(f"License: {source.license_info}")
     print()
-
-    # Collect all unique emojis
-    emojis_from_data = parse_emoji_data_js(EMOJI_DATA_JS)
-    weather_emojis = get_weather_emojis()
-    all_emojis = list(dict.fromkeys(emojis_from_data + weather_emojis))  # Deduplicate, preserve order
-    print(f"Found {len(all_emojis)} unique emojis to download")
 
     # Ensure output directory exists
     os.makedirs(EMOJI_DIR, exist_ok=True)
@@ -253,6 +334,21 @@ def main():
     for f in os.listdir(EMOJI_DIR):
         if f.endswith(".svg"):
             os.remove(os.path.join(EMOJI_DIR, f))
+
+    if fetch_all:
+        filenames = download_full_set(source, EMOJI_DIR)
+        unique_filenames = sorted(set(filenames))
+        generate_qrc(filenames, QRC_PATH)
+        print(f"\nGenerated: {QRC_PATH} ({len(unique_filenames)} entries)")
+        total_size = sum(os.path.getsize(os.path.join(EMOJI_DIR, fn)) for fn in unique_filenames)
+        print(f"Total size: {total_size / 1024 / 1024:.2f} MB")
+        return
+
+    # Collect all unique emojis
+    emojis_from_data = parse_emoji_data_js(EMOJI_DATA_JS)
+    weather_emojis = get_weather_emojis()
+    all_emojis = list(dict.fromkeys(emojis_from_data + weather_emojis))  # Deduplicate, preserve order
+    print(f"Found {len(all_emojis)} unique emojis to download")
 
     success = 0
     failed = []
