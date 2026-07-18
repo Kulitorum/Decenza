@@ -8,6 +8,11 @@ import "../components/layout/ShotPlanConfig.js" as ShotPlanConfig
 
 Page {
     id: shotDetailPage
+    // Declarative so it re-evaluates on a language change. This used to be an
+    // imperative assignment in onCompleted/onActivated, which ran once and left
+    // page titles in the previous language until you navigated away and back.
+    readonly property string pageTitle: TranslationManager.translate("shotdetail.title", "Shot Detail")
+
     objectName: "shotDetailPage"
     background: ThemedPageBackground {}
 
@@ -75,7 +80,6 @@ Page {
     // Re-assert on every activation, not just creation — returning here after a
     // page was pushed on top would otherwise keep that page's header title.
     StackView.onActivated: {
-        root.currentPageTitle = TranslationManager.translate("shotdetail.title", "Shot Detail")
     }
 
     // RecipeField (labeled component row) is a shared component in
@@ -91,7 +95,6 @@ Page {
     Tr { id: trRowEquipment; key: "shotdetail.equipment"; fallback: "Equipment"; visible: false }
 
     Component.onCompleted: {
-        root.currentPageTitle = TranslationManager.translate("shotdetail.title", "Shot Detail")
         // Initialize currentIndex if shotIds provided
         if (shotIds.length > 0 && currentIndex < 0) {
             currentIndex = shotIds.indexOf(shotId)

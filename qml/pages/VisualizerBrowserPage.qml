@@ -6,14 +6,17 @@ import "../components"
 
 Page {
     id: visualizerPage
+    // Declarative so it re-evaluates on a language change. This used to be an
+    // imperative assignment in onCompleted/onActivated, which ran once and left
+    // page titles in the previous language until you navigated away and back.
+    readonly property string pageTitle: trPageTitle.text
+
     objectName: "visualizerBrowserPage"
     background: ThemedPageBackground {}
 
     // Translatable strings for page title
     Tr { id: trPageTitle; key: "visualizer.title"; fallback: "Import from Visualizer"; visible: false }
 
-    Component.onCompleted: root.currentPageTitle = trPageTitle.text
-    StackView.onActivated: root.currentPageTitle = trPageTitle.text
 
     // Cancel any pending duplicate resolution when navigating away to avoid
     // leaving ProfileSaveHelper in a stuck state that blocks future imports.

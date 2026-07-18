@@ -24,12 +24,10 @@ Page {
     }
 
     Component.onCompleted: {
-        root.currentPageTitle = pageTitle
         if (!isIOS) {
             MainController.profileImporter.scanProfiles()
         }
     }
-    StackView.onActivated: root.currentPageTitle = pageTitle
 
     ColumnLayout {
         anchors.fill: parent

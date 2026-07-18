@@ -6,6 +6,11 @@ import "../components"
 
 Page {
     id: shotHistoryPage
+    // Declarative so it re-evaluates on a language change. This used to be an
+    // imperative assignment in onCompleted/onActivated, which ran once and left
+    // page titles in the previous language until you navigated away and back.
+    readonly property string pageTitle: TranslationManager.translate("shothistory.title", "Shot History")
+
     objectName: "shotHistoryPage"
     background: ThemedPageBackground {}
 
@@ -76,7 +81,6 @@ Page {
     })
 
     StackView.onActivated: {
-        root.currentPageTitle = TranslationManager.translate("shothistory.title", "Shot History")
         if (!_initialized) {
             _initialized = true
             if (initialFilter) {

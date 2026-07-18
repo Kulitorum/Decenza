@@ -6,6 +6,11 @@ import "../../components"
 
 Page {
     id: stringBrowserPage
+    // Declarative so it re-evaluates on a language change. This used to be an
+    // imperative assignment in onCompleted/onActivated, which ran once and left
+    // page titles in the previous language until you navigated away and back.
+    readonly property string pageTitle: isEnglish ? TranslationManager.translate("stringBrowser.titleCustomizer", "String Customizer") : TranslationManager.translate("stringBrowser.titleBrowser", "Translation Browser")
+
     objectName: "stringBrowserPage"
     background: ThemedPageBackground {}
 
@@ -14,11 +19,9 @@ Page {
     property bool isEnglish: TranslationManager.currentLanguage === "en"
 
     Component.onCompleted: {
-        root.currentPageTitle = isEnglish ? TranslationManager.translate("stringBrowser.titleCustomizer", "String Customizer") : TranslationManager.translate("stringBrowser.titleBrowser", "Translation Browser")
         stringModel.refresh()
     }
     StackView.onActivated: {
-        root.currentPageTitle = isEnglish ? TranslationManager.translate("stringBrowser.titleCustomizer", "String Customizer") : TranslationManager.translate("stringBrowser.titleBrowser", "Translation Browser")
     }
 
     function handleBack() {

@@ -8,6 +8,11 @@ import "../components/layout"
 
 Page {
     id: idlePage
+    // Declarative so it re-evaluates on a language change. This used to be an
+    // imperative assignment in onCompleted/onActivated, which ran once and left
+    // page titles in the previous language until you navigated away and back.
+    readonly property string pageTitle: TranslationManager.translate("idle.pageTitle", "Idle")
+
     objectName: "idlePage"
     // Exposed so the global Brew Settings dialog (main.qml) can source the live
     // empty-scale virtual zero while this is the current page.
@@ -21,7 +26,6 @@ Page {
     readonly property bool canStartOperations: DE1Device.isHeadless || DE1Device.simulationMode
 
     StackView.onActivated: {
-        root.currentPageTitle = TranslationManager.translate("idle.pageTitle", "Idle")
         if (root.pendingBrewDialog) {
             root.pendingBrewDialog = false
             root.openBrewSettings()
@@ -114,7 +118,6 @@ Page {
     }
 
     Component.onCompleted: {
-        root.currentPageTitle = TranslationManager.translate("idle.pageTitle", "Idle")
         MainController.bagStorage.requestInventory()
         MainController.equipmentStorage.requestInventory()
         MainController.recipeStorage.requestInventory()

@@ -7,6 +7,11 @@ import "../components"
 
 Page {
     id: autoFavoritesPage
+    // Declarative so it re-evaluates on a language change. This used to be an
+    // imperative assignment in onCompleted/onActivated, which ran once and left
+    // page titles in the previous language until you navigated away and back.
+    readonly property string pageTitle: TranslationManager.translate("autofavorites.title", "Auto-Favorites")
+
     objectName: "autoFavoritesPage"
     background: ThemedPageBackground {}
 
@@ -24,12 +29,10 @@ Page {
     }
 
     Component.onCompleted: {
-        root.currentPageTitle = TranslationManager.translate("autofavorites.title", "Auto-Favorites")
         loadFavorites()
     }
 
     StackView.onActivated: {
-        root.currentPageTitle = TranslationManager.translate("autofavorites.title", "Auto-Favorites")
         loadFavorites()
     }
 

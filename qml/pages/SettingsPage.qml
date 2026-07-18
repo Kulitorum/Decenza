@@ -7,10 +7,14 @@ import "../components"
 
 Page {
     id: settingsPage
+    // Declarative so it re-evaluates on a language change. This used to be an
+    // imperative assignment in onCompleted/onActivated, which ran once and left
+    // page titles in the previous language until you navigated away and back.
+    readonly property string pageTitle: TranslationManager.translate("settings.title", "Settings")
+
     objectName: "settingsPage"
     background: ThemedPageBackground {}
 
-    Component.onCompleted: root.currentPageTitle = TranslationManager.translate("settings.title", "Settings")
 
     // Requested tab to switch to (set before pushing page). Symbolic id from SettingsTabs.
     property string requestedTabId: ""
@@ -38,7 +42,6 @@ Page {
 
     // Switch to requested tab after page transition completes (page is fully laid out)
     StackView.onActivated: {
-        root.currentPageTitle = TranslationManager.translate("settings.title", "Settings")
         var idx = requestedTabId.length > 0 ? SettingsTabs.indexOf(requestedTabId) : -1
         if (idx >= 0) {
             markTabLoaded(idx)

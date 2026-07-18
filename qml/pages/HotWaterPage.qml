@@ -6,6 +6,11 @@ import "../components"
 
 Page {
     objectName: "hotWaterPage"
+
+    // Declarative so it re-evaluates on a language change. This used to be an
+    // imperative assignment in onCompleted/onActivated, which ran once and left
+    // page titles in the previous language until you navigated away and back.
+    readonly property string pageTitle: pageTitleText.text
     background: ThemedPageBackground {}
 
     // Use StackView.onActivated (not Component.onCompleted) so side effects
@@ -14,7 +19,6 @@ Page {
     // Skip the preset-reset, settings push, and tare while dispensing so a
     // re-activation mid-session doesn't clobber in-progress state.
     StackView.onActivated: {
-        root.currentPageTitle = pageTitleText.text
         if (!isDispensing) {
             // Sync Settings with selected preset
             Settings.brew.waterVolume = getCurrentVesselVolume()

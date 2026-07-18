@@ -6,6 +6,11 @@ import "../components"
 
 Page {
     id: profileEditorPage
+    // Declarative so it re-evaluates on a language change. This used to be an
+    // imperative assignment in onCompleted/onActivated, which ran once and left
+    // page titles in the previous language until you navigated away and back.
+    readonly property string pageTitle: profile ? profile.title : TranslationManager.translate("profileEditor.title", "Profile Editor")
+
     objectName: "profileEditorPage"
     background: ThemedPageBackground {}
 
@@ -101,7 +106,6 @@ Page {
     }
 
     function updatePageTitle() {
-        root.currentPageTitle = profile ? profile.title : TranslationManager.translate("profileEditor.title", "Profile Editor")
     }
 
     // Commit any text fields that use onEditingFinished (which won't fire on navigation)

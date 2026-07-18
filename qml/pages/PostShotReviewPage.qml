@@ -9,17 +9,20 @@ import "../components/layout/ShotPlanConfig.js" as ShotPlanConfig
 
 Page {
     id: postShotReviewPage
+    // Declarative so it re-evaluates on a language change. This used to be an
+    // imperative assignment in onCompleted/onActivated, which ran once and left
+    // page titles in the previous language until you navigated away and back.
+    readonly property string pageTitle: TranslationManager.translate("postshotreview.title", "Shot Review")
+
     objectName: "postShotReviewPage"
     background: ThemedPageBackground {}
 
     Component.onCompleted: {
-        root.currentPageTitle = TranslationManager.translate("postshotreview.title", "Shot Review")
         if (editShotId > 0) {
             loadShotForEditing()
         }
     }
     StackView.onActivated: {
-        root.currentPageTitle = TranslationManager.translate("postshotreview.title", "Shot Review")
         // Reconnect refractometer when entering/returning to this page
         if (Settings.savedRefractometerAddress !== "" && !BLEManager.refractometerConnected) {
             BLEManager.tryDirectConnectToRefractometer()

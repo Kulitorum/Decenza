@@ -7,6 +7,11 @@ import "../components"
 
 Page {
     id: shotComparisonPage
+    // Declarative so it re-evaluates on a language change. This used to be an
+    // imperative assignment in onCompleted/onActivated, which ran once and left
+    // page titles in the previous language until you navigated away and back.
+    readonly property string pageTitle: TranslationManager.translate("shotcomparison.title", "Compare Shots")
+
     objectName: "shotComparisonPage"
     background: ThemedPageBackground {}
 
@@ -43,11 +48,9 @@ Page {
     // Re-assert on every activation, not just creation — returning here after a
     // page was pushed on top would otherwise keep that page's header title.
     StackView.onActivated: {
-        root.currentPageTitle = TranslationManager.translate("shotcomparison.title", "Compare Shots")
     }
 
     Component.onCompleted: {
-        root.currentPageTitle = TranslationManager.translate("shotcomparison.title", "Compare Shots")
     }
 
     // Scrollable content area (vertical only)

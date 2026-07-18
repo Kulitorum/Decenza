@@ -10,11 +10,15 @@ import "../components"
 // mistaken creation and deletes outright — same lifecycle as bags.
 Page {
     id: recipesPage
+    // Declarative so it re-evaluates on a language change. This used to be an
+    // imperative assignment in onCompleted/onActivated, which ran once and left
+    // page titles in the previous language until you navigated away and back.
+    readonly property string pageTitle: TranslationManager.translate("recipes.title", "Recipes")
+
     objectName: "recipesPage"
     background: ThemedPageBackground {}
 
     StackView.onActivated: {
-        root.currentPageTitle = TranslationManager.translate("recipes.title", "Recipes")
         // Search is transient — clear it whenever the page becomes active.
         searchField.text = ""
         recipesPage.searchQuery = ""
@@ -170,7 +174,6 @@ Page {
     }
 
     Component.onCompleted: {
-        root.currentPageTitle = TranslationManager.translate("recipes.title", "Recipes")
         MainController.recipeStorage.requestInventory()
         MainController.recipeStorage.requestArchived()
         MainController.bagStorage.requestInventory()

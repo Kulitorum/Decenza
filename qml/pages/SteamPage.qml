@@ -21,7 +21,6 @@ Page {
     // mid-session doesn't clobber the user's in-progress settings or re-issue
     // a redundant BLE write.
     StackView.onActivated: {
-        root.currentPageTitle = pageTitle
         if (!isSteaming) {
             var preset = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
             if (preset && preset.disabled) {

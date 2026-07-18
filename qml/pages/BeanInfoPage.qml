@@ -11,15 +11,18 @@ import "../components"
 // bag edits go through the dialog's Edit Bag form.
 Page {
     id: bagInventoryPage
+    // Declarative so it re-evaluates on a language change. This used to be an
+    // imperative assignment in onCompleted/onActivated, which ran once and left
+    // page titles in the previous language until you navigated away and back.
+    readonly property string pageTitle: TranslationManager.translate("beaninfo.title", "Beans")
+
     objectName: "bagInventoryPage"
     background: ThemedPageBackground {}
 
-    StackView.onActivated: root.currentPageTitle = TranslationManager.translate("beaninfo.title", "Beans")
 
     property var inventoryBags: []
 
     Component.onCompleted: {
-        root.currentPageTitle = TranslationManager.translate("beaninfo.title", "Beans")
         MainController.bagStorage.requestInventory()
         addBagButton.forceActiveFocus()
     }

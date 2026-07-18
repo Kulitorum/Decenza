@@ -10,15 +10,18 @@ import "../components"
 // global selection here — cards are informational + edit/remove.
 Page {
     id: equipmentPage
+    // Declarative so it re-evaluates on a language change. This used to be an
+    // imperative assignment in onCompleted/onActivated, which ran once and left
+    // page titles in the previous language until you navigated away and back.
+    readonly property string pageTitle: TranslationManager.translate("equipment.title", "Equipment")
+
     objectName: "equipmentPage"
     background: ThemedPageBackground {}
 
-    StackView.onActivated: root.currentPageTitle = TranslationManager.translate("equipment.title", "Equipment")
 
     property var inventoryPackages: []
 
     Component.onCompleted: {
-        root.currentPageTitle = TranslationManager.translate("equipment.title", "Equipment")
         MainController.equipmentStorage.requestInventory()
         addEquipmentButton.forceActiveFocus()
     }

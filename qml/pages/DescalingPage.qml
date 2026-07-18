@@ -6,11 +6,14 @@ import "../components"
 
 Page {
     id: descalingPage
+    // Declarative so it re-evaluates on a language change. This used to be an
+    // imperative assignment in onCompleted/onActivated, which ran once and left
+    // page titles in the previous language until you navigated away and back.
+    readonly property string pageTitle: TranslationManager.translate("descaling.title", "Descaling")
+
     objectName: "descalingPage"
     background: ThemedPageBackground {}
 
-    Component.onCompleted: root.currentPageTitle = TranslationManager.translate("descaling.title", "Descaling")
-    StackView.onActivated: root.currentPageTitle = TranslationManager.translate("descaling.title", "Descaling")
 
     // Restore normal operation when leaving descale page
     Component.onDestruction: {

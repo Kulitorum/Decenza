@@ -7,6 +7,11 @@ import "../components/library"
 
 Item {
     id: communityBrowser
+    // Declarative so it re-evaluates on a language change. This used to be an
+    // imperative assignment in onCompleted/onActivated, which ran once and left
+    // page titles in the previous language until you navigated away and back.
+    readonly property string pageTitle: TranslationManager.translate("community.title", "Community")
+
     objectName: "communityBrowserPage"
 
     // Filter state
@@ -20,10 +25,8 @@ Item {
     property string selectedEntryId: ""
 
     Component.onCompleted: {
-        root.currentPageTitle = "Community"
         refreshResults()
     }
-    StackView.onActivated: root.currentPageTitle = "Community"
 
     ColumnLayout {
         anchors.fill: parent

@@ -6,6 +6,11 @@ import "../components"
 
 Page {
     id: profileInfoPage
+    // Declarative so it re-evaluates on a language change. This used to be an
+    // imperative assignment in onCompleted/onActivated, which ran once and left
+    // page titles in the previous language until you navigated away and back.
+    readonly property string pageTitle: TranslationManager.translate("profileinfo.title", "Profile Info")
+
     objectName: "profileInfoPage"
     background: ThemedPageBackground {}
 
@@ -19,11 +24,9 @@ Page {
     // Re-assert on every activation, not just creation — returning here after a
     // page was pushed on top would otherwise keep that page's header title.
     StackView.onActivated: {
-        root.currentPageTitle = TranslationManager.translate("profileinfo.title", "Profile Info")
     }
 
     Component.onCompleted: {
-        root.currentPageTitle = TranslationManager.translate("profileinfo.title", "Profile Info")
         loadProfile()
     }
 

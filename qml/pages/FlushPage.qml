@@ -16,7 +16,6 @@ Page {
     // Skip the preset-reset and settings push while flushing so a
     // re-activation mid-session doesn't clobber in-progress state.
     StackView.onActivated: {
-        root.currentPageTitle = pageTitle
         if (!isFlushing) {
             // Sync Settings with selected preset
             Settings.brew.flushFlow = getCurrentPresetFlow()
