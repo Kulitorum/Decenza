@@ -73,7 +73,7 @@ Item {
             translationFallback: "Favorites"
             iconSource: "qrc:/icons/star.svg"
             iconSize: Theme.scaled(43)
-            backgroundColor: Theme.primaryColor
+            backgroundColor: Theme.actionButtonFill(Theme.primaryColor)
             onClicked: root.goToAutoFavorites()
         }
     }

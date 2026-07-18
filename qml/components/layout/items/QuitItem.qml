@@ -24,7 +24,10 @@ Item {
             anchors.fill: parent
             anchors.topMargin: Theme.spacingSmall
             anchors.bottomMargin: Theme.spacingSmall
-            color: quitCompactTap.isPressed ? Qt.darker("#555555", 1.2) : "#555555"
+            color: {
+                var base = Theme.actionButtonFill("#555555")
+                return quitCompactTap.isPressed ? Qt.darker(base, 1.2) : base
+            }
             radius: Theme.cardRadius
         }
 
@@ -76,7 +79,7 @@ Item {
             translationKey: "idle.button.quit"
             translationFallback: "Quit"
             iconSource: "qrc:/icons/quit.svg"
-            backgroundColor: "#555555"
+            backgroundColor: Theme.actionButtonFill("#555555")
             onClicked: Qt.quit()
         }
     }

@@ -74,7 +74,7 @@ Item {
             translationFallback: "History"
             iconSource: "qrc:/icons/history.svg"
             iconSize: Theme.scaled(43)
-            backgroundColor: Theme.primaryColor
+            backgroundColor: Theme.actionButtonFill(Theme.primaryColor)
             onClicked: root.goToHistory()
         }
     }
