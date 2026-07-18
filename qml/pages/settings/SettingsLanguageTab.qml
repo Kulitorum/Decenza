@@ -847,6 +847,13 @@ Item {
         if (languageTab._aiOfferedFor[lang]) return         // already asked this session
         if (TranslationManager.uniqueUntranslatedCount() <= 0) return
         languageTab._aiOfferedFor[lang] = true
+        // Snapshot the values that come from Q_INVOKABLE methods. QML bindings only
+        // re-evaluate on PROPERTY reads, so a binding calling canAutoTranslate() is
+        // frozen at whatever it returned when the tab was first created — configure a
+        // provider afterwards and the dialog still claims you have none. Read them
+        // imperatively here instead, at the one moment they matter.
+        aiTranslateOfferPopup.aiAvailable = TranslationManager.canAutoTranslate()
+        aiTranslateOfferPopup.missingCount = TranslationManager.uniqueUntranslatedCount()
         aiTranslateOfferPopup.open()
     }
 
@@ -874,7 +881,12 @@ Item {
         closePolicy: TranslationManager.autoTranslating ? Dialog.NoAutoClose
                                                         : (Dialog.CloseOnEscape | Dialog.CloseOnPressOutside)
 
-        readonly property int missingCount: TranslationManager.uniqueUntranslatedCount()
+        // Set from maybeOfferAiTranslation() immediately before open() — see the note
+        // there. Deliberately NOT bindings on invokables.
+        property bool aiAvailable: false
+        property int missingCount: 0
+        // langName IS a safe binding: it reads currentLanguage, a real property, so the
+        // whole expression re-evaluates when the language changes.
         readonly property string langName: TranslationManager.getLanguageDisplayName(TranslationManager.currentLanguage)
         readonly property int percentDone: TranslationManager.totalStringCount > 0
             ? Math.round(100 * (TranslationManager.totalStringCount - TranslationManager.untranslatedCount)
@@ -923,7 +935,7 @@ Item {
                 color: Theme.textSecondaryColor
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.Wrap
-                visible: !TranslationManager.autoTranslating && !TranslationManager.canAutoTranslate()
+                visible: !TranslationManager.autoTranslating && !aiTranslateOfferPopup.aiAvailable
             }
 
             Text {
@@ -934,7 +946,7 @@ Item {
                 color: Theme.textSecondaryColor
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.Wrap
-                visible: !TranslationManager.autoTranslating && TranslationManager.canAutoTranslate()
+                visible: !TranslationManager.autoTranslating && aiTranslateOfferPopup.aiAvailable
             }
 
             // Progress, shown in place of the prompt once translation is running.
@@ -970,7 +982,7 @@ Item {
                 spacing: Theme.spacingSmall
 
                 AccessibleButton {
-                    width: TranslationManager.canAutoTranslate() && !TranslationManager.autoTranslating
+                    width: aiTranslateOfferPopup.aiAvailable && !TranslationManager.autoTranslating
                            ? (parent.width - Theme.spacingSmall) / 2 : parent.width
                     text: TranslationManager.autoTranslating
                           ? TranslationManager.translate("language.aiOffer.cancel", "Stop")
@@ -988,7 +1000,7 @@ Item {
 
                 AccessibleButton {
                     width: (parent.width - Theme.spacingSmall) / 2
-                    visible: TranslationManager.canAutoTranslate() && !TranslationManager.autoTranslating
+                    visible: aiTranslateOfferPopup.aiAvailable && !TranslationManager.autoTranslating
                     text: TranslationManager.translate("language.aiOffer.translate", "Translate")
                     accessibleName: TranslationManager.translate("language.aiOffer.accessible.translate",
                                         "Translate missing phrases using the configured AI provider")
