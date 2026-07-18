@@ -15,14 +15,18 @@
 
 ## 2. Rename the bundled font family
 
-- [ ] 2.1 Rewrite name IDs 1, 4, 6 and 16 (where present) to `Decenza Sans` in all four
+- [x] 2.1 Rewrite name IDs 1, 4, 6 and 16 (where present) to `Decenza Sans` in all four
       `resources/fonts/Roboto-*.ttf`, leaving ID 2 (Subfamily) intact; commit the renamed files
-- [ ] 2.2 Rename the files to `DecenzaSans-{Light,Regular,Medium,Bold}.ttf` and update the resource
+- [x] 2.2 Rename the files to `DecenzaSans-{Light,Regular,Medium,Bold}.ttf` and update the resource
       paths in `src/main.cpp` and the qrc/CMake file list
-- [ ] 2.3 Record the rename procedure (tool + name IDs) in a comment beside the font block so the
+- [x] 2.3 Record the rename procedure (tool + name IDs) in a comment beside the font block so the
       transformation is reproducible on the next font update
-- [ ] 2.4 Verify all four weights register as distinct styles of one family and that `OFL.txt` still
-      accompanies the files (no Reserved Font Name clause, so renaming is permitted outright)
+- [x] 2.4 Verify the family structure is preserved byte-for-byte apart from names, and that `OFL.txt`
+      still accompanies the files (no Reserved Font Name clause, so renaming is permitted outright).
+      NOTE: the original task premise was wrong — Regular/Bold are a RIBBI pair sharing ID1, while
+      Light/Medium are *separate* families (ID1 "Decenza Sans Light"/"Medium") linked by typographic
+      family ID16. That is how Google ships Roboto; the rename preserves it exactly, so weight
+      selection behaves precisely as it did before. Changing that structure is a separate concern.
 
 ## 3. Single source of truth for font size defaults
 
@@ -39,10 +43,10 @@
 
 ## 4. Startup font diagnostics
 
-- [ ] 4.1 Log host font families that could collide with the bundled family, before registration
-- [ ] 4.2 Log the resolved family and `QFontInfo::exactMatch()` after registration, distinguishing
+- [x] 4.1 Log host font families that could collide with the bundled family, before registration
+- [x] 4.2 Log the resolved family and `QFontInfo::exactMatch()` after registration, distinguishing
       registration failure from resolution failure
-- [ ] 4.3 Log the probe metric: `horizontalAdvance("Extraction yield (%)")` at a fixed 14px — fixed,
+- [x] 4.3 Log the probe metric: `horizontalAdvance("Extraction yield (%)")` at a fixed 14px — fixed,
       not the user's effective label size, so it is comparable between machines
 - [ ] 4.4 Log non-default font size overrides (role, current value, default) after `Settings` is
       constructed — not in the `[Font]` block, which runs before Settings exists

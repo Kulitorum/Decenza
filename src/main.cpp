@@ -11,6 +11,8 @@
 #include <QGuiApplication>
 #include <QFont>
 #include <QFontDatabase>
+#include <QFontInfo>
+#include <QFontMetrics>
 #include <QAccessible>
 #include <QCoreApplication>
 #include <QDebug>
@@ -374,22 +376,51 @@ int main(int argc, char *argv[])
 
     QApplication app(argc, argv);
 
-    // --- Bundled UI font (issue #1469) -------------------------------------
-    // Decenza ships its own Roboto so text glyph metrics are deterministic
+    // --- Bundled UI font (issues #1469, #1537) -----------------------------
+    // Decenza ships its own UI font so text glyph metrics are deterministic
     // across platforms, OEMs, and OS versions instead of inheriting each
     // device's system font — differing system-font metrics were causing text
-    // to overflow/clip on some devices but not others. Roboto matches Android's
-    // historical default, so the look is essentially unchanged there. Registered
-    // before the QML engine loads so all QML UI inherits it. QML elements that
-    // set an explicit font.family (e.g. Theme.monoFontFamily) still override
-    // this default.
+    // to overflow/clip on some devices but not others. Registered before the
+    // QML engine loads so all QML UI inherits it. QML elements that set an
+    // explicit font.family (e.g. Theme.monoFontFamily) still override it.
+    //
+    // The font is Roboto, RENAMED to the application-specific family
+    // "Decenza Sans" (see tools/rename_bundled_font.py). The rename is load
+    // bearing, not cosmetic: registering under a widely-distributed name made
+    // family lookup ambiguous on hosts that already have that font installed —
+    // Windows machines commonly get a Roboto from Chrome or Adobe. When two
+    // fonts claim one name, shaping and rasterization can resolve to different
+    // files, which renders a ligature as an unrelated glyph ("Profile" reading
+    // as "Proule", #1537) and measures advance widths that are not ours, so
+    // the metric-determinism this whole block exists for silently did not hold.
+    //
+    // Registration succeeding is NOT evidence the bundled font is in use — that
+    // is exactly how #1537 shipped unnoticed — so we log what actually resolved.
     {
         const QStringList fontFiles = {
-            QStringLiteral(":/fonts/Roboto-Regular.ttf"),
-            QStringLiteral(":/fonts/Roboto-Medium.ttf"),
-            QStringLiteral(":/fonts/Roboto-Bold.ttf"),
-            QStringLiteral(":/fonts/Roboto-Light.ttf"),
+            QStringLiteral(":/fonts/DecenzaSans-Regular.ttf"),
+            QStringLiteral(":/fonts/DecenzaSans-Medium.ttf"),
+            QStringLiteral(":/fonts/DecenzaSans-Bold.ttf"),
+            QStringLiteral(":/fonts/DecenzaSans-Light.ttf"),
         };
+
+        // Collision detector: any pre-existing host family that could be picked
+        // in place of ours. Logged BEFORE registration so the host's own font
+        // database is visible, not our additions to it. "Roboto" stays on the
+        // watch list because it is what we shipped before the rename — seeing it
+        // here on a machine reporting glyph corruption confirms the diagnosis.
+        {
+            QStringList competing;
+            for (const QString& family : QFontDatabase::families()) {
+                if (family.contains(QLatin1String("Decenza"), Qt::CaseInsensitive)
+                    || family.contains(QLatin1String("Roboto"), Qt::CaseInsensitive)) {
+                    competing << family;
+                }
+            }
+            if (!competing.isEmpty())
+                qDebug() << "[Font] Host families that could collide with the bundled family:" << competing;
+        }
+
         QString bundledFamily;
         for (const QString& path : fontFiles) {
             const int id = QFontDatabase::addApplicationFont(path);
@@ -401,9 +432,33 @@ int main(int argc, char *argv[])
             if (bundledFamily.isEmpty() && !families.isEmpty())
                 bundledFamily = families.first();
         }
+
         if (!bundledFamily.isEmpty()) {
             app.setFont(QFont(bundledFamily));
             qDebug() << "[Font] Bundled application font set:" << bundledFamily;
+
+            // What actually resolved. exactMatch() false means the request for
+            // our family was satisfied by something else — the #1537 signature.
+            const QFont probeFont(bundledFamily);
+            const QFontInfo info(probeFont);
+            qDebug() << "[Font] Resolved: family=" << info.family()
+                     << "exactMatch=" << info.exactMatch();
+            if (!info.exactMatch() || info.family() != bundledFamily) {
+                qWarning() << "[Font] Bundled family did NOT win resolution — requested"
+                           << bundledFamily << "but got" << info.family()
+                           << "; text metrics are not deterministic on this device";
+            }
+
+            // Probe metric, deliberately at a FIXED 14px and a fixed string rather
+            // than the user's effective label size: the value is only useful if it
+            // is comparable between two machines' logs. This exact string is one of
+            // the search-syntax grid cells that overflowed in #1469.
+            QFont metricFont(bundledFamily);
+            metricFont.setPixelSize(14);
+            const qreal probe = QFontMetricsF(metricFont)
+                                    .horizontalAdvance(QStringLiteral("Extraction yield (%)"));
+            qDebug() << "[Font] Probe advance \"Extraction yield (%)\" @14px ="
+                     << QString::number(probe, 'f', 2);
         } else {
             qWarning() << "[Font] No bundled font registered (bundled font resource missing from build) — falling back to platform default";
         }
