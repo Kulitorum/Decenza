@@ -345,6 +345,16 @@ add_decenza_test(tst_translationreactivity
 )
 target_link_libraries(tst_translationreactivity PRIVATE Qt6::Qml)
 
+# --- tst_translationsourcedrift: what happens when a key's English is rewritten ---
+# Pins the contract that the registry follows the source text and that a translation of the
+# PREVIOUS wording stops being served, while a user's own override survives. The old
+# `if (!contains(key))` guard meant a key's English was captured once and never revisited,
+# which a full rescan could not repair either.
+add_decenza_test(tst_translationsourcedrift
+    tst_translationsourcedrift.cpp
+)
+target_link_libraries(tst_translationsourcedrift PRIVATE Qt6::Qml)
+
 # --- tst_markdownrenderer: markdown -> HTML, incl. the raw-HTML security claim ---
 add_decenza_test(tst_markdownrenderer
     tst_markdownrenderer.cpp

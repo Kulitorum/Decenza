@@ -102,9 +102,12 @@ re-render, offline behaviour, eviction) no longer exist.
 - [x] 5.5 Check `docs/CLAUDE_MD/QML_GOTCHAS.md` for the invokable-in-binding trap and add it if
       absent — it has now been hit three times in one session (`effectiveFontSizes`,
       `canAutoTranslate`, `translate`), and D4 would have been a fourth.
-- [ ] 5.6 Update the wiki manual only if user-visible behaviour changed. A language switch taking
-      effect without a restart is user-visible; check whether the manual currently tells users to
-      restart.
+- [x] 5.6 Wiki manual — checked and edited. It never told users to restart after a language
+      change, so there was nothing to correct; the edit states the behaviour positively instead,
+      for anyone who restarts out of habit, and documents the new drift rule (a translation of
+      superseded English steps aside; your own edits are kept). Two small changes in Manual.md,
+      section 19 and the Language summary. HELD LOCALLY at /tmp/decenza-wiki — pushing publishes
+      to the public wiki, so it waits for Jeff.
 
 ## 6. Verification
 
@@ -277,14 +280,48 @@ decide with, rather than guessing.
       looked at. Cheapest place to catch one: History → any shot, detail line "18.0g → 36.0g".
 
 
-- [ ] 7.8a Translation debt found while measuring 7.8 — INDEPENDENT of the glyph fix.
-      Translations are keyed by string key ONLY; there is no source-text hash. Changing an English
-      fallback therefore does NOT invalidate the existing translation. Proof: `settings.ai.remoteMcp.setupGuidance`
-      has already been rewritten in QML to drop its arrows, yet the registry and all of ar/de/fr
-      still carry the old arrow-bearing text. So fixing 7.8's English leaves ~17-20 arrows per
-      language on disk indefinitely — worst in Arabic, where an LTR arrow is also directionally wrong.
-      Also found: `settings.ai.remoteMcp.adminFunnel` / `.adminHttps` are referenced NOWHERE in the
-      tree but still sit in the registry and all three catalogs — the registry accumulates dead keys.
+- [x] 7.8a Source-text drift — FIXED for the registry, MITIGATED for translations, with one
+      limitation that is architectural rather than a bug.
+
+      Root cause was narrower than "no source hash": every registry write was guarded by
+      `if (!m_stringRegistry.contains(key))`, at all five sites INCLUDING the full rescan. A key's
+      English was captured once and never revisited, so no amount of rescanning could repair it.
+      Note the contrast that made this invisible: `m_aiTranslations` is keyed by FALLBACK TEXT and
+      so self-invalidates, while `m_translations` is keyed by KEY and silently did not.
+
+      Fixed by `noteSourceString()`, which inserts or updates and reports whether anything changed.
+      The registry now follows the source text, which matters beyond display — it is what the AI
+      translator is prompted with and what a community upload publishes, so the drift was
+      propagating outward from here.
+
+      On a rewrite, a DOWNLOADED translation is dropped: it rendered a different sentence and can
+      be flatly wrong in the confident way ("Delete" reworded to "Archive" leaves the old verb
+      standing everywhere else). A USER'S OWN override is kept, matching setTranslation()'s
+      existing contract that overrides survive updates. The propagate step in translateString()
+      now also runs for reworded keys, so a rewrite landing on wording already translated
+      elsewhere inherits it for free rather than going blank.
+
+      A defect found by testing, not by reading: the drop was NON-DETERMINISTIC. translateString()
+      only marks the registry dirty, so whether the new English survived the process decided
+      whether the next launch re-detected the same drift. noteSourceString() now saves
+      immediately on the drift path — drift is rare by construction, so the write is cheap.
+
+      LIMITATION, asserted in the test rather than described so it cannot rot: the drop is
+      one-shot. A published translation carries no record of which English it was made from, so a
+      re-download of the same stale text is indistinguishable from a fresh translation and it
+      returns. Closing that needs provenance in the published format — a SERVER-side change, and
+      the real remaining half of this problem.
+
+      Dead keys: the scan now reports registry keys it did not find in any QML file, and
+      deliberately does not delete them. Live strings are registered from C++ too (blemanager,
+      aimanager, updatechecker, visualizer*, main.cpp's model hints), and those look identical
+      from here — deleting one silently untranslates it in every language. So the report names
+      candidates for a human, with adminFunnel/.adminHttps as the known-dead examples.
+
+      tests/tst_translationsourcedrift.cpp — 8 cases, seeding via a real downloaded language file
+      rather than setTranslation(), which marks everything a user override and would have tested
+      nothing. Full suite 82/82.
+
 
 - [ ] 7.8b The glyph class IS statically catchable — `redraw-icon-set` task 4.4 guessed it was not.
       `scripts/check_font_glyph_coverage.py` already does it. Worth landing as a test, but it cannot

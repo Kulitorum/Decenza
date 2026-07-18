@@ -273,14 +273,16 @@ QString TranslationManager::translateString(const QString& key, const QString& f
         return fallback;
     }
 
-    // Auto-register the string if not already registered
-    if (!m_stringRegistry.contains(key)) {
-        m_stringRegistry[key] = fallback;
+    // Auto-register the string, or update it if the English changed under this key.
+    if (noteSourceString(key, fallback)) {
         // Don't save on every call - batch save periodically
         m_registryDirty = true;
 
         // Propagate existing translation from other keys with the same fallback
-        // This ensures new keys get translations that were applied before they were registered
+        // This ensures new keys get translations that were applied before they were registered.
+        // It now also runs for a key whose English was REWORDED: noteSourceString has just
+        // dropped that key's old translation, and if the new wording matches a string already
+        // translated elsewhere, this refills it for free rather than waiting for a re-translate.
         if (m_currentLanguage != "en") {
             QString normalizedFallback = fallback.trimmed();
             for (auto it = m_stringRegistry.constBegin(); it != m_stringRegistry.constEnd(); ++it) {
@@ -425,8 +427,7 @@ void TranslationManager::registerString(const QString& key, const QString& fallb
         return;
     }
 
-    if (!m_stringRegistry.contains(key)) {
-        m_stringRegistry[key] = fallback;
+    if (noteSourceString(key, fallback)) {
         saveStringRegistry();
         recalculateUntranslatedCount();
         emit totalStringCountChanged();
@@ -477,6 +478,7 @@ void TranslationManager::scanAllStrings()
 
     int stringsFound = 0;
     qsizetype initialCount = m_stringRegistry.size();
+    QSet<QString> seenInQml;
 
     for (const QString& filePath : qmlFiles) {
         QFile file(filePath);
@@ -496,8 +498,8 @@ void TranslationManager::scanAllStrings()
                 fallback.replace("\\\"", "\"").replace("\\n", "\n").replace("\\t", "\t");
 
                 if (!key.trimmed().isEmpty() && !fallback.trimmed().isEmpty()) {
-                    if (!m_stringRegistry.contains(key)) {
-                        m_stringRegistry[key] = fallback;
+                    seenInQml.insert(key);
+                    if (noteSourceString(key, fallback)) {
                         stringsFound++;
                     }
                 }
@@ -536,8 +538,8 @@ void TranslationManager::scanAllStrings()
                         fallback.replace("\\\"", "\"").replace("\\n", "\n").replace("\\t", "\t");
 
                         if (!key.trimmed().isEmpty() && !fallback.trimmed().isEmpty()) {
-                            if (!m_stringRegistry.contains(key)) {
-                                m_stringRegistry[key] = fallback;
+                            seenInQml.insert(key);
+                            if (noteSourceString(key, fallback)) {
                                 stringsFound++;
                             }
                         }
@@ -588,8 +590,8 @@ void TranslationManager::scanAllStrings()
                     fallbackClean.replace("\\\"", "\"").replace("\\n", "\n").replace("\\t", "\t");
 
                     if (!keyClean.trimmed().isEmpty() && !fallbackClean.trimmed().isEmpty()) {
-                        if (!m_stringRegistry.contains(keyClean)) {
-                            m_stringRegistry[keyClean] = fallbackClean;
+                        seenInQml.insert(keyClean);
+                        if (noteSourceString(keyClean, fallbackClean)) {
                             stringsFound++;
                         }
                     }
@@ -616,6 +618,27 @@ void TranslationManager::scanAllStrings()
     emit scanFinished(static_cast<int>(m_stringRegistry.size() - initialCount));
 
     qDebug() << "Scan complete. Found" << stringsFound << "new strings. Total:" << m_stringRegistry.size();
+
+    // Keys held in the registry that this scan did not find in any QML file. Reported, never
+    // removed: plenty of live strings are registered from C++ (blemanager, aimanager,
+    // updatechecker, visualizer*, and main.cpp's per-provider model hints all call
+    // translateString directly), and those legitimately appear nowhere in the QML tree. So this
+    // list is CANDIDATES, not garbage — the registry does accumulate keys for UI that has since
+    // been deleted (settings.ai.remoteMcp.adminFunnel/.adminHttps are two), but telling those
+    // apart from a C++-registered key needs a human, and deleting a live one silently
+    // untranslates it in every language.
+    QStringList notInQml;
+    for (auto it = m_stringRegistry.constBegin(); it != m_stringRegistry.constEnd(); ++it) {
+        if (!seenInQml.contains(it.key()))
+            notInQml << it.key();
+    }
+    if (!notInQml.isEmpty()) {
+        notInQml.sort();
+        qDebug().noquote() << "TranslationManager:" << notInQml.size()
+                           << "registry keys were not found in any QML file. Live C++-registered"
+                           << "strings look like this too — verify before removing any:"
+                           << "\n    " + notInQml.join(QStringLiteral("\n    "));
+    }
 }
 
 // --- Community translations ---
@@ -1501,6 +1524,54 @@ void TranslationManager::loadStringRegistry()
         }
         m_stringRegistry[key] = fallback;
     }
+}
+
+bool TranslationManager::noteSourceString(const QString& key, const QString& fallback)
+{
+    const auto existing = m_stringRegistry.constFind(key);
+    if (existing == m_stringRegistry.constEnd()) {
+        m_stringRegistry[key] = fallback;
+        return true;
+    }
+
+    // Exact compare first. This is the path taken for every string on every render, and it
+    // allocates nothing; the trimmed() compare below would allocate twice per call if it ran
+    // unconditionally. Trimming is only consulted once the two already differ, so that
+    // re-indenting a multi-line fallback does not count as a rewrite.
+    const QString previous = existing.value();
+    if (previous == fallback || previous.trimmed() == fallback.trimmed())
+        return false;
+
+    m_stringRegistry[key] = fallback;
+
+    // Persist immediately rather than leaving it to the batched save. translateString() is one
+    // of the callers and only marks the registry dirty, so on that path the new English could
+    // be lost if the process ended first — and then the NEXT launch would re-detect the same
+    // drift and drop the translation again. That made the behaviour below depend on whether a
+    // flush happened to have run, which is worse than either outcome consistently. Drift is
+    // rare by construction (it needs the English to actually change), so the write is cheap.
+    saveStringRegistry();
+
+    // The English changed under a key that already carries a translation. That translation
+    // rendered a different sentence, so it is not stale-but-serviceable — it can be flatly
+    // wrong, and wrong in the confident way that reads as intentional ("Delete" reworded to
+    // "Archive" leaves the old verb standing in every other language). Falling back to English
+    // is the honest failure, and autoTranslate/download refill it on the next pass.
+    //
+    // User overrides are kept, matching setTranslation()'s existing contract that they survive
+    // updates: they are hand-authored, the String Browser shows them against this new source
+    // text, and silently discarding someone's own words is worse than showing them stale.
+    if (m_translations.contains(key) && !m_userOverrides.contains(key)) {
+        m_translations.remove(key);
+        m_aiGenerated.remove(key);
+        qDebug().noquote()
+            << "TranslationManager: source text changed for" << key
+            << "— dropped the" << m_currentLanguage << "translation, which rendered the old text."
+            << "\n    was:" << previous.left(80)
+            << "\n    now:" << fallback.left(80);
+        recalculateUntranslatedCount();
+    }
+    return true;
 }
 
 void TranslationManager::saveStringRegistry()

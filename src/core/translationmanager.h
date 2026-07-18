@@ -226,6 +226,18 @@ private:
     void saveLanguageMetadata();
     void loadStringRegistry();
     void saveStringRegistry();
+
+    // Record the CURRENT English for a key, and deal with the case where it changed.
+    //
+    // Every registry write used to be guarded by `if (!m_stringRegistry.contains(key))`, so a
+    // key's English was captured once and never revisited — including by a full rescan. The
+    // registry therefore drifted into holding text the app no longer displays, and since it is
+    // what the AI translator is prompted with and what the community upload publishes, the
+    // drift propagated outward. `settings.ai.remoteMcp.setupGuidance` is the worked example:
+    // rewritten in QML to drop its arrows, still stored here with them.
+    //
+    // Returns true when the registry changed, so callers can decide whether to save.
+    bool noteSourceString(const QString& key, const QString& fallback);
     void propagateTranslationsToAllKeys();
     void recalculateUntranslatedCount();
     QString translationsDir() const;
