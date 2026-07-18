@@ -18,6 +18,10 @@ function(add_decenza_test name)
     add_executable(${name} ${ARGN})
     set_target_properties(${name} PROPERTIES AUTOMOC_PATH_PREFIX OFF)
     target_compile_definitions(${name} PRIVATE DECENZA_TESTING)
+    # Source-tree path, so a test can assert against shipped QML/assets rather than
+    # a duplicated copy of their contents (see themeQmlFontRoleNamesMatchDefaults).
+    target_compile_definitions(${name} PRIVATE
+        DECENZA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
     # Link the shared decenza_testlib so the base sources (settings, BLE,
     # profile, machine, …) are compiled once, not recompiled into every target.
     # Per-process QSettings isolation is handled in the settings classes
