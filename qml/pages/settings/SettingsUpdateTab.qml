@@ -620,7 +620,22 @@ Item {
                             TextArea {
                                 width: inlineNotesScrollView.width
                                 readOnly: true
-                                text: MainController.updateChecker.releaseNotes
+                                // Release notes are remote GitHub markdown and routinely contain
+                                // emoji. Rendered as plain text, a colour emoji reaches Apple Color
+                                // Emoji -> CopyEmojiImage -> ImageIO PNG decode, which crashes the
+                                // render thread on macOS. Route them through the SVG emoji path
+                                // instead, exactly as every other externally-sourced string does.
+                                //
+                                // MarkdownText, not RichText: the source IS markdown, so RichText
+                                // would show ##, - and ** as literal characters. ConversationOverlay
+                                // is the precedent — markdown + replaceEmojiWithImg, with the inline
+                                // <img> passing through the importer.
+                                //
+                                // replaceEmojiWithImg escapes & and < by default, so remote content
+                                // cannot inject tags; it leaves > raw so blockquotes still render.
+                                textFormat: TextEdit.MarkdownText
+                                text: Theme.replaceEmojiWithImg(MainController.updateChecker.releaseNotes,
+                                                                Theme.scaled(12))
                                 color: Theme.textSecondaryColor
                                 font.pixelSize: Theme.scaled(12)
                                 wrapMode: Text.WordWrap

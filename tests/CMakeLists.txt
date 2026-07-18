@@ -327,6 +327,24 @@ add_decenza_test(tst_saw_settings
     tst_saw_settings.cpp
 )
 
+# --- tst_translationreactivity: QML binding dependency on translate/emoji lookups ---
+# Needs a real QQmlEngine to assert that bindings re-evaluate, so it links Qt6::Qml
+# on top of what add_decenza_test provides. Guards the mechanism that keeps 3,248
+# translated strings from silently freezing after a language change.
+find_package(Qt6 REQUIRED COMPONENTS Qml)
+add_decenza_test(tst_translationreactivity
+    tst_translationreactivity.cpp
+)
+target_link_libraries(tst_translationreactivity PRIVATE Qt6::Qml)
+
+# --- tst_textescaping: Theme.escapeHtml / replaceEmojiWithImg escaping contract ---
+# Runs the real JS out of qml/Theme.qml in a QJSEngine, so it guards shipping source
+# rather than a copy. Needs Qt6::Qml for QJSEngine.
+add_decenza_test(tst_textescaping
+    tst_textescaping.cpp
+)
+target_link_libraries(tst_textescaping PRIVATE Qt6::Qml)
+
 # --- tst_beanbaseclient: Bean Base API client (debounce, rate limit, cache, parse) ---
 add_decenza_test(tst_beanbaseclient
     tst_beanbaseclient.cpp

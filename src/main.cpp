@@ -559,9 +559,18 @@ int main(int argc, char *argv[])
     //     bitmap rendering (QSGTextMaskMaterial) when a glyph run contains color-font
     //     glyphs. If CoreText shapes ANY character to Apple Color Emoji, that bitmap
     //     path hits PNGReadPlugin::InitializePluginData → CopyEmojiImage and crashes
-    //     on QSGRenderThread. CurveTextRendering never calls imageForGlyph, so the
-    //     crash path is gone. This app draws emoji as SVG images (Theme.emojiToImage),
-    //     so bitmap emoji glyphs are never needed anyway.
+    //     on QSGRenderThread.
+    //
+    //     CurveTextRendering REDUCES but does NOT eliminate this. An earlier version of
+    //     this comment claimed the crash path was gone; a crash on 2026-07-18 disproved
+    //     it — the stack ran through QSGTextMaskMaterial with Curve rendering active and
+    //     confirmed. Curves cannot represent colour bitmaps, so Qt still falls back to
+    //     the texture-mask path for colour glyphs specifically — precisely the case this
+    //     was meant to cover. The real defence is never letting a colour glyph reach
+    //     CoreText: route every externally-sourced string through
+    //     Theme.replaceEmojiWithImg() so emoji render as bundled SVGs. Text that skips
+    //     that path (that crash was GitHub release notes in a plain TextArea) is the
+    //     remaining exposure.
     //
     // Mobile (Android/iOS) keeps Qt's default: those windows are fullscreen and
     // don't resize, so the ligature glitch can't occur, and the default avoids the

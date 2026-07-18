@@ -82,7 +82,13 @@ QtObject {
     // align="middle" (honored by StyledText) and style="vertical-align" (honored
     // by RichText) so it stays centered either way. See QML_GOTCHAS.md — RichText
     // silently disables elide.
-    function replaceEmojiWithImg(text, pixelSize) {
+    // allowMarkup: pass true ONLY when the caller has already escaped its input and
+    // is deliberately supplying markup (links, formatting). It defaults to FALSE so
+    // that untrusted text -- bean names from Bean Base, AI replies, community
+    // screensaver authors, GitHub release notes -- cannot inject tags into the
+    // RichText/StyledText renderer. Getting this wrong should fail visibly (raw
+    // tags on screen), not silently.
+    function replaceEmojiWithImg(text, pixelSize, allowMarkup) {
         if (!text) return ""
         var size = pixelSize || 16
         var result = ""
@@ -137,7 +143,8 @@ QtObject {
                 // Stray variation selector — skip
                 i += charLen
             } else {
-                result += text.substring(i, i + charLen)
+                var chunk = text.substring(i, i + charLen)
+                result += allowMarkup ? chunk : escapeHtml(chunk)
                 i += charLen
             }
         }
@@ -169,13 +176,26 @@ QtObject {
         return stripEmoji(html.replace(/<[^>]*>/g, "")).trim()
     }
 
-    // Escape user-supplied text so it can be safely embedded in a StyledText/RichText
-    // string (a bean or roaster name containing & < > would otherwise be mis-parsed).
+    // Escape user-supplied text for embedding as CONTENT in a StyledText, RichText or
+    // MarkdownText string.
+    //
+    // Escapes & and < only — deliberately NOT >. Injection requires OPENING a tag, and
+    // only < does that; once < is &lt; a stray > is just a greater-than sign with no tag
+    // to close. Escaping > is a convention inherited from ATTRIBUTE contexts, where >
+    // can terminate a tag early. Nothing here puts untrusted text in an attribute: the
+    // only attributes we generate are src/width on <img>, built from hex codepoints,
+    // and the <a href> in ExpandableTextArea, whose URL regex excludes quotes.
+    //
+    // Leaving > raw is what makes one policy correct for all three formats: escaping it
+    // breaks Markdown blockquotes ("> quoted" renders indented, "&gt; quoted" renders as
+    // literal text), which AI replies use routinely. Verified against Qt 6.11.1.
+    //
+    // CONTRACT: content only. Never interpolate untrusted text into an attribute value —
+    // that needs quote escaping, which escaping > never provided anyway.
     function escapeHtml(s) {
         return String(s)
             .replace(/&/g, "&amp;")
             .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
     }
 
     // 6-digit hex (#rrggbb) for StyledText/RichText <font color> spans. The
