@@ -28,6 +28,7 @@ private slots:
     void init() { QTest::failOnWarning(); }
     void initTestCase();
     void escapesAmpersandAndLessThan();
+    void neutralisesRemoteImageInAStyledTextValue();
     void doesNotEscapeGreaterThan();
     void tagInjectionIsNeutralised();
     void replaceEmojiEscapesByDefault();
@@ -123,6 +124,33 @@ QString TestTextEscaping::call(const QString& fn, const QJSValueList& args)
     if (r.isError())
         return QStringLiteral("ERROR: ") + r.toString();
     return r.toString();
+}
+
+// The payload this escaping exists to stop, written out rather than described.
+//
+// Community translations are downloaded and merged automatically at launch, and uploading one
+// is unauthenticated, so a translated string is attacker-influenceable in a way a literal is
+// not. BeanBaseDetailsRow binds one to a Text with textFormat: Text.StyledText, and StyledText
+// renders <img> -- the emoji pipeline depends on exactly that. Unescaped, a remote img in a
+// translation is fetched by every user of that language when the row renders.
+//
+// escapeHtml only has to break the tag open: with `<` encoded there is no element for Qt to
+// parse, so the source is never resolved and the text renders as the literal characters.
+void TestTextEscaping::neutralisesRemoteImageInAStyledTextValue()
+{
+    const QString payload = QStringLiteral("Linked <img src=\"https://example.invalid/x.png\">");
+    const QString escaped = call("escapeHtml", {QJSValue(payload)});
+
+    QVERIFY2(!escaped.contains(QStringLiteral("<img")),
+             "an <img> tag survived escaping and would be rendered by StyledText");
+    QVERIFY2(escaped.contains(QStringLiteral("&lt;img")), "the tag should render as text");
+
+    // The URL still appears -- as inert characters. Asserting on its absence would pass for the
+    // wrong reason, which an earlier version of a sibling test in this branch actually did.
+    QVERIFY(escaped.contains(QStringLiteral("https://example.invalid/x.png")));
+
+    // The same holds for the other tags StyledText acts on.
+    QVERIFY(!call("escapeHtml", {QJSValue("<a href=\"x\">t</a>")}).contains(QStringLiteral("<a ")));
 }
 
 void TestTextEscaping::escapesAmpersandAndLessThan()

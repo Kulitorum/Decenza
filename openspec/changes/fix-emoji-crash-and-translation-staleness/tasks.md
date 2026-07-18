@@ -461,13 +461,27 @@ decide with, rather than guessing.
       for a community-curated file in a project this size. Not pursuing server-side auth,
       validation, versioning, or a promotion step. No issue filed.
 
-      STILL OPEN, and deliberately distinguished from the above because re-uploading does NOT
-      undo it: a translated string is bound to a Text with textFormat: Text.StyledText at
-      BeanBaseDetailsRow.qml:65 (key `beanbase.row.linked`). StyledText renders <img> — this
-      codebase relies on exactly that, Theme.qml:209 builds `<img src=...>` for emoji — so a
-      remote img in a translation value would be fetched by every user of that language on
-      opening the screen. Not tested against the live backend, deliberately. The fix is
-      client-side and a few lines; offered to Jeff, awaiting a decision.
+- [x] 7.8i Client-side hardening done, since re-uploading does not undo a fetch that already
+      happened. Measured first, and the exposure was far smaller than feared — the codebase was
+      already defending this almost everywhere:
+        * `Tr.qml` sets no textFormat, so the ~3,200 ordinary call sites are plain text.
+        * `replaceEmojiWithImg` escapes every non-emoji chunk unless a caller opts into
+          `allowMarkup`, and the five callers that do pass HTML they assembled from
+          already-escaped pieces, or MarkdownRenderer output (hardened earlier in this change).
+        * `joinWithBullet` escapes each part, so BeanBaseDetailsRow's rich branch was fine.
+        * `ShotDetailPage.qml:344` already wraps its translated value in `Theme.escapeHtml`.
+      Exactly ONE site was unescaped: the else-branch at BeanBaseDetailsRow.qml:65, where
+      `beanbase.row.linked` went straight into a StyledText. Wrapped in Theme.escapeHtml.
+
+      `scripts/check_translated_richtext.py` fails on a reintroduction and lists the four safe
+      patterns so the fix is obvious. `tests/tst_textescaping.cpp` gains the actual payload —
+      a remote `<img>` — asserting the tag cannot survive. That test deliberately also asserts
+      the URL is STILL PRESENT as inert text: checking for its absence would pass for the wrong
+      reason, which is a mistake a sibling test in this branch made earlier and had to be fixed.
+
+      Note what this does and does not buy. It stops markup in a translation being executed as
+      markup. It does not stop a hostile translation from displaying wrong or abusive WORDS —
+      nothing client-side can, and per 7.8h the answer to that is a human uploading a correction.
 
 - [ ] 7.8b The glyph class IS statically catchable — `redraw-icon-set` task 4.4 guessed it was not.
       `scripts/check_font_glyph_coverage.py` already does it. Worth landing as a test, but it cannot
