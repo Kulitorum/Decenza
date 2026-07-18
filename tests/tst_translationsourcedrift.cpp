@@ -12,17 +12,15 @@
 //     merely outdated — reword "Delete" to "Archive" and every other language keeps the old verb,
 //     confidently, in a way that reads as intentional.
 //
-// The two translation sources behave differently on purpose, and these tests pin that:
-// a DOWNLOADED translation is dropped when its source text is rewritten, while a USER'S OWN
-// override survives, matching setTranslation()'s existing contract that overrides outlive updates.
-//
-// KNOWN LIMIT, deliberately asserted below so nobody mistakes it for a bug: the drop is one-shot.
-// A downloaded translation carries no record of the English it was made from, so once the
-// registry has moved on, re-downloading the same stale text is indistinguishable from a fresh
-// one and it comes back. Closing that needs provenance in the published translation format,
-// which is a server-side change. See tasks.md 7.8a.
+// The fix is deliberately limited to the registry: the translation is REPORTED as now rendering
+// superseded text, and otherwise left alone. An earlier version dropped it, and running that
+// against the real app disproved the assumption it rested on. A key does not have one English
+// string here — 26 keys are used with two different fallbacks in the SAME build, so they
+// oscillate rather than drift, and dropping destroyed their translations on every launch. It ate
+// 11 German strings on the first real run before being reverted. See tasks.md 7.8a/7.8e.
 
 #include <QtTest>
+#include <QRegularExpression>
 #include <QDir>
 #include <QFile>
 #include <QJsonDocument>
@@ -124,8 +122,10 @@ private slots:
         QCOMPARE(stored, QStringLiteral("Add this as a custom connector"));
     }
 
-    // A DOWNLOADED translation of the old sentence must stop being served.
-    void rewrittenSourceDropsADownloadedTranslation()
+    // A translation is KEPT when its source text is rewritten — the registry moves, the
+    // translation does not. Pinned because the opposite was implemented first and looked right
+    // until it met a codebase where one key can carry two English strings.
+    void rewrittenSourceKeepsTheTranslationAndUpdatesTheRegistry()
     {
         const QString key = QStringLiteral("test.drift.delete");
         writeDownloadedLanguageFile(QStringLiteral("de"), {{key, QStringLiteral("Löschen")}});
@@ -137,15 +137,35 @@ private slots:
         tm.registerString(key, QStringLiteral("Delete"));
         QCOMPARE(tm.translateString(key, QStringLiteral("Delete")), QStringLiteral("Löschen"));
 
-        // The button now archives rather than deletes. "Löschen" is not stale, it is wrong.
-        QCOMPARE(tm.translateString(key, QStringLiteral("Archive")), QStringLiteral("Archive"));
-        QVERIFY2(!tm.hasTranslation(key),
-                 "a downloaded translation of the previous English must not survive the rewrite");
+        // Warns that the German now renders superseded English, and keeps serving it.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("source text changed")));
+        tm.registerString(key, QStringLiteral("Archive"));
+        QVERIFY2(tm.hasTranslation(key), "the translation must survive a source rewrite");
     }
 
-    // ...but a translation the user wrote themselves is kept. setTranslation() marks those as
-    // overrides and already promises they survive updates; discarding someone's own words is
-    // worse than showing them against changed source, which the String Browser makes visible.
+    // The oscillating case that killed the drop: one key, two English strings, same build.
+    // Flipping between them must not degrade the translation no matter how often it happens.
+    void aKeyUsedWithTwoFallbacksDoesNotLoseItsTranslation()
+    {
+        const QString key = QStringLiteral("beanbase.details.elevation");
+        writeDownloadedLanguageFile(QStringLiteral("de"), {{key, QStringLiteral("Höhe")}});
+
+        Settings settings;
+        TranslationManager tm(&m_nam, &settings);
+        tm.setCurrentLanguage(QStringLiteral("de"));
+
+        // BeanBaseDetailsPopup says "Elevation"; ChangeBeansDialog says "Elevation:".
+        for (int round = 0; round < 3; ++round) {
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("source text changed")));
+            tm.registerString(key, QStringLiteral("Elevation"));
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("source text changed")));
+            tm.registerString(key, QStringLiteral("Elevation:"));
+        }
+        QCOMPARE(tm.translateString(key, QStringLiteral("Elevation")), QStringLiteral("Höhe"));
+    }
+
+    // A user's own translation survives too. Trivially true now that nothing is dropped, but
+    // kept as the guard that would fail first if dropping were ever reintroduced.
     void aUserOverrideSurvivesARewrite()
     {
         Settings settings;
@@ -156,6 +176,7 @@ private slots:
         tm.registerString(key, QStringLiteral("Delete"));
         tm.setTranslation(key, QStringLiteral("Entfernen"));   // marks a user override
 
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("source text changed")));
         QCOMPARE(tm.translateString(key, QStringLiteral("Archive")), QStringLiteral("Entfernen"));
     }
 
@@ -170,10 +191,8 @@ private slots:
         tm.translateString(QStringLiteral("test.drift.donor"), QStringLiteral("Archive"));
         tm.setTranslation(QStringLiteral("test.drift.donor"), QStringLiteral("Archivieren"));
 
+        // A brand-new key whose English already matches the donor's inherits its translation.
         const QString key = QStringLiteral("test.drift.inherits");
-        tm.translateString(key, QStringLiteral("Delete"));
-
-        // Reworded to match the donor's English.
         QCOMPARE(tm.translateString(key, QStringLiteral("Archive")), QStringLiteral("Archivieren"));
     }
 
@@ -223,30 +242,6 @@ private slots:
         QCOMPARE(tm.translateString(key, QStringLiteral("Steam (°C)")), QStringLiteral("Dampf (°C)"));
     }
 
-    // The known limit, asserted rather than described, so that if provenance is ever added to
-    // the published format this test fails and points at the paragraph that explains why.
-    void aRedownloadReintroducesTheStaleTranslation()
-    {
-        const QString key = QStringLiteral("test.drift.redownload");
-        writeDownloadedLanguageFile(QStringLiteral("de"), {{key, QStringLiteral("Löschen")}});
-
-        {
-            Settings settings;
-            TranslationManager tm(&m_nam, &settings);
-            tm.setCurrentLanguage(QStringLiteral("de"));
-            tm.registerString(key, QStringLiteral("Delete"));
-            QCOMPARE(tm.translateString(key, QStringLiteral("Archive")), QStringLiteral("Archive"));
-        }
-
-        // The server still publishes the translation of the old English; nothing in the file
-        // says which English that was, so the client cannot tell it from a fresh translation.
-        writeDownloadedLanguageFile(QStringLiteral("de"), {{key, QStringLiteral("Löschen")}});
-
-        Settings settings;
-        TranslationManager tm(&m_nam, &settings);
-        tm.setCurrentLanguage(QStringLiteral("de"));
-        QCOMPARE(tm.translateString(key, QStringLiteral("Archive")), QStringLiteral("Löschen"));
-    }
 };
 
 QTEST_MAIN(TestTranslationSourceDrift)

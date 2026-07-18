@@ -1586,30 +1586,36 @@ bool TranslationManager::noteSourceString(const QString& key, const QString& fal
 
     // Persist immediately rather than leaving it to the batched save. translateString() is one
     // of the callers and only marks the registry dirty, so on that path the new English could
-    // be lost if the process ended first — and then the NEXT launch would re-detect the same
-    // drift and drop the translation again. That made the behaviour below depend on whether a
-    // flush happened to have run, which is worse than either outcome consistently. Drift is
-    // rare by construction (it needs the English to actually change), so the write is cheap.
+    // be lost if the process ended first, and the next launch would rediscover the same change.
+    // A change here is rare by construction, so the write is cheap.
     saveStringRegistry();
 
-    // The English changed under a key that already carries a translation. That translation
-    // rendered a different sentence, so it is not stale-but-serviceable — it can be flatly
-    // wrong, and wrong in the confident way that reads as intentional ("Delete" reworded to
-    // "Archive" leaves the old verb standing in every other language). Falling back to English
-    // is the honest failure, and autoTranslate/download refill it on the next pass.
+    // Report, do NOT touch the translation.
     //
-    // User overrides are kept, matching setTranslation()'s existing contract that they survive
-    // updates: they are hand-authored, the String Browser shows them against this new source
-    // text, and silently discarding someone's own words is worse than showing them stale.
-    if (m_translations.contains(key) && !m_userOverrides.contains(key)) {
-        m_translations.remove(key);
-        m_aiGenerated.remove(key);
-        qDebug().noquote()
+    // An earlier version of this dropped the translation on the reasoning that it rendered a
+    // sentence that no longer exists and could be flatly wrong. Running it against the real app
+    // killed that idea: a key having ONE English string is an assumption this codebase does not
+    // hold. 26 keys are used with two different fallbacks in the SAME build — every
+    // beanbase.details.* label ("Elevation" vs "Elevation:" between BeanBaseDetailsPopup and
+    // ChangeBeansDialog), and common.accessibility.dismissDialog across eleven files
+    // ("Close dialog" vs "Dismiss dialog"). Those keys do not drift, they oscillate: whichever
+    // site is scanned or rendered last wins, so dropping would destroy their translations
+    // repeatedly and silently, on every launch, forever. It ate 11 German strings on the first
+    // real run.
+    //
+    // Weighed on measured numbers, the drop cost more than it bought: 52 keys of genuine drift,
+    // mostly cosmetic and partly self-healing through the propagate step below, against 26 keys
+    // of permanent damage. So the honest thing is to say what happened and leave the data alone.
+    // Anyone who wants the translation refreshed can re-translate that key; anyone who sees this
+    // warning repeatedly for one key is looking at a source conflict, not a rewrite.
+    if (m_translations.contains(key)) {
+        qWarning().noquote()
             << "TranslationManager: source text changed for" << key
-            << "— dropped the" << m_currentLanguage << "translation, which rendered the old text."
+            << "— its" << m_currentLanguage << "translation still renders the OLD text."
+            << "Repeats for the same key mean two QML sites disagree about this key's English,"
+            << "not that it was rewritten."
             << "\n    was:" << previous.left(80)
             << "\n    now:" << fallback.left(80);
-        recalculateUntranslatedCount();
     }
     return true;
 }

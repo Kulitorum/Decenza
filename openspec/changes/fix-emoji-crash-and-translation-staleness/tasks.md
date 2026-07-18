@@ -355,6 +355,45 @@ decide with, rather than guessing.
       change would actually do to real data. The categorisation was for Jeff's question; the
       bug fell out of the "wording changed" bucket looking wrong.
 
+- [x] 7.8e Ran 7.8a against Jeff's real app and it disproved the design. The drop is REVERTED.
+      Method: back up his translations, switch to German (3425 translations), open Lang & Access
+      so scanAllStrings() runs over the whole tree, diff the files.
+
+      Predicted 52 drops. Got 11 — and all 11 were WRONG. Their registry entry was unchanged
+      before and after, which cannot happen from drift. Cause: `beanbase.details.elevation` is
+      written as `labelFallback: "Elevation:"` on ChangeBeansDialog.qml:1638 and as
+      `translate(..., "Elevation")` on line 1639 and in BeanBaseDetailsPopup.qml:194. One key,
+      two English strings, in the SAME build.
+
+      26 keys are like this — every `beanbase.details.*`, `common.accessibility.dismissDialog`
+      across eleven files ("Close dialog" vs "Dismiss dialog"), several profileEditor.* labels.
+      They do not drift, they OSCILLATE: whichever site is scanned or rendered last wins, so
+      dropping destroys their translation on every launch, silently, forever. It ate 11 German
+      strings on the first real run. Restored from the backup.
+
+      So the numbers say don't do it: 52 keys of genuine drift, mostly cosmetic and partly
+      self-healing through the propagate step, against 26 keys of permanent damage. The registry
+      update is kept — that was the actual documented harm, since the registry is what the AI
+      translator is prompted with and what a community upload publishes. The translation is now
+      REPORTED as rendering superseded English and otherwise left alone, with the warning text
+      saying that repeats for one key mean a source conflict rather than a rewrite.
+
+      Also observed, working: the language switch retranslated the whole UI live with no restart
+      (6.3/6.9 still good), and the propagate step refilled two keys by inheritance
+      (`ratio.edit.button`, `settings.search.placeholder`) instead of leaving them blank.
+
+      Two design assumptions died here, both of which read as obviously true beforehand: that a
+      key has one English string, and that a mismatch means the English was rewritten. Neither
+      survives contact with the codebase. Only running it found that.
+
+- [ ] 7.8f FOLLOW-UP, not done: 26 keys are used with two different English strings in the same
+      build. That is a real defect independent of anything here — translators see one string and
+      users may be shown the other, and it makes the registry's value for those keys a coin flip.
+      The list is reproducible with the grep in 7.8e. Most are a trailing colon (label vs
+      accessible text, which probably want separate keys); `common.accessibility.dismissDialog`
+      is a genuine wording split across eleven files. Left for Jeff to schedule — it is a
+      content/QML cleanup, not part of this change.
+
 - [ ] 7.8b The glyph class IS statically catchable — `redraw-icon-set` task 4.4 guessed it was not.
       `scripts/check_font_glyph_coverage.py` already does it. Worth landing as a test, but it cannot
       be green until 7.8's 29 sites are fixed, so it lands WITH the fix (no allowlist — an allowlist
