@@ -13,7 +13,13 @@
       macOS app in a small window at both stock sizes and labelSize 26/bodySize 30: all three
       columns present, "filter"/"fields" ligatures correct, full content reachable, Close pinned.
 - [ ] 1.4 Verify with a CJK or Arabic UI language, where every glyph comes from a fallback font —
-      this is the case the guards exist for
+      this is the case the guards exist for.
+      BLOCKED, not skipped: this device has no translations downloaded ("Translations: 0, AI
+      Translations: 0"), so switching the UI language would either still render English (a
+      meaningless test) or trigger a 2955-string AI translation download — a side effect not worth
+      causing on Jeff's machine unprompted. Fallback GLYPH rendering is covered by 5.3; what
+      remains untested is RTL layout plus fallback metrics inside the dialog specifically. Needs a
+      build with a translation actually installed.
 
 ## 2. Rename the bundled font family
 
@@ -61,7 +67,11 @@
 - [x] 5.1 Expose `Theme.fontFamily`, resolving to the registered family or empty string when
       registration failed (empty falls back to the application default)
 - [x] 5.2 Add `family: Theme.fontFamily` to the eight font roles in `qml/Theme.qml`
-- [ ] 5.3 Spot-check a CJK string still renders via platform fallback with no missing-glyph boxes
+- [x] 5.3 Spot-check a CJK string still renders via platform fallback with no missing-glyph boxes —
+      verified on the running app via the Languages list, which renders native script names:
+      Japanese 日本語, Korean 한국어 (Hangul composed), Arabic العربية (shaped, connected RTL),
+      Hebrew עברית, Hindi हिन्दी (conjunct correctly formed), Cyrillic Български. No tofu boxes;
+      the explicit `family: Theme.fontFamily` on theme roles does not suppress per-glyph fallback.
 
 ## 6. Web theme editor
 
