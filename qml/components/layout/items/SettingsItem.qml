@@ -43,7 +43,7 @@ Item {
 
         AccessibleTapHandler {
             anchors.fill: parent
-            accessibleName: "Settings. Open application settings"
+            accessibleName: TranslationManager.translate("layout.settings.accessible.open", "Settings. Open application settings")
             onAccessibleClicked: root.goToSettings()
         }
     }

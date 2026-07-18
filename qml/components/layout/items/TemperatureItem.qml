@@ -134,7 +134,7 @@ Item {
                 }
                 Text {
                     visible: root.isRealOverride
-                    text: "(override)"
+                    text: TranslationManager.translate("layout.temperature.override", "(override)")
                     color: Theme.accentColor
                     font: Theme.labelFont
                     Accessible.ignored: true

@@ -8,12 +8,16 @@
         <file>sounds/frameclick2.wav</file>
         <file>sounds/frameclick3.wav</file>
         <file>sounds/frameclick4.wav</file>
-        <!-- Bundled UI font (Roboto, SIL OFL 1.1) — gives deterministic glyph
-             metrics across platforms/OEMs/OS versions. See resources/fonts/OFL.txt. -->
-        <file>fonts/Roboto-Regular.ttf</file>
-        <file>fonts/Roboto-Medium.ttf</file>
-        <file>fonts/Roboto-Bold.ttf</file>
-        <file>fonts/Roboto-Light.ttf</file>
+        <!-- Bundled UI font (Roboto, SIL OFL 1.1, renamed to the application-specific
+             family "Decenza Sans") — gives deterministic glyph metrics across
+             platforms/OEMs/OS versions. The rename is what makes that guarantee hold:
+             a host-installed font sharing the family name would otherwise be free to
+             win family resolution (#1537). See resources/fonts/OFL.txt and
+             tools/rename_bundled_font.py. -->
+        <file>fonts/DecenzaSans-Regular.ttf</file>
+        <file>fonts/DecenzaSans-Medium.ttf</file>
+        <file>fonts/DecenzaSans-Bold.ttf</file>
+        <file>fonts/DecenzaSans-Light.ttf</file>
         <!-- Splash screens (random on startup) -->
         <file>splash/splash1.png</file>
         <file>splash/splash2.png</file>

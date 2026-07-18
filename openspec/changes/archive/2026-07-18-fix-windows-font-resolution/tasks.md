@@ -1,0 +1,135 @@
+## 1. Search-syntax dialog layout tolerance
+
+<!-- Ordered first deliberately: the bundled font covers only Latin/Greek/Cyrillic, so for every
+     non-Latin locale these guards are the ONLY protection against a clipped dialog. Wider reach
+     than the rename, and independently valuable if the collision theory turns out to be wrong. -->
+
+- [x] 1.1 Give the description and example grid cells `Layout.fillWidth` + `elide: Text.ElideRight`
+      so the grid has a legal narrow layout instead of an unshrinkable implicit width
+- [x] 1.2 Fix the `ScrollView` so content exceeding the dialog scrolls rather than being clipped —
+      verify against real content; the elide change alone may not fix it
+- [x] 1.3 Confirm the intro line wraps instead of overflowing and cutting mid-word, and that no
+      column is silently clipped, at the smallest supported window size — verified on the running
+      macOS app in a small window at both stock sizes and labelSize 26/bodySize 30: all three
+      columns present, "filter"/"fields" ligatures correct, full content reachable, Close pinned.
+- [x] 1.4 Verify with a CJK or Arabic UI language, where every glyph comes from a fallback font —
+      this is the case the guards exist for. DONE: downloaded the Arabic translation (1062/2960
+      strings) and drove the app in RTL across Idle, Settings/Lang & Access, Shot History and the
+      search-syntax dialog. The dialog holds: three columns intact, nothing clipped, content
+      scrolls to the last syntax line, and the footer Close ("إغلاق") stays pinned. No tofu.
+      Switched back to English afterwards.
+
+## 2. Rename the bundled font family
+
+- [x] 2.1 Rewrite name IDs 1, 4, 6 and 16 (where present) to `Decenza Sans` in all four
+      `resources/fonts/Roboto-*.ttf`, leaving ID 2 (Subfamily) intact; commit the renamed files
+- [x] 2.2 Rename the files to `DecenzaSans-{Light,Regular,Medium,Bold}.ttf` and update the resource
+      paths in `src/main.cpp` and the qrc/CMake file list
+- [x] 2.3 Record the rename procedure (tool + name IDs) in a comment beside the font block so the
+      transformation is reproducible on the next font update
+- [x] 2.4 Verify the family structure is preserved byte-for-byte apart from names, and that `OFL.txt`
+      still accompanies the files (no Reserved Font Name clause, so renaming is permitted outright).
+      NOTE: the original task premise was wrong — Regular/Bold are a RIBBI pair sharing ID1, while
+      Light/Medium are *separate* families (ID1 "Decenza Sans Light"/"Medium") linked by typographic
+      family ID16. That is how Google ships Roboto; the rename preserves it exactly, so weight
+      selection behaves precisely as it did before. Changing that structure is a separate concern.
+
+## 3. Single source of truth for font size defaults
+
+- [x] 3.1 Declare the canonical defaults once in `SettingsTheme` (heading 32, title 24, subtitle 18,
+      body 18, label 14, caption 12, value 48, timer 72)
+- [x] 3.2 Add `Q_PROPERTY QVariantMap effectiveFontSizes` merging defaults with overrides, notifying
+      on `customFontSizesChanged` — a property, not an invokable, or QML bindings will not
+      re-evaluate when a slider moves
+- [x] 3.3 Point the eight font roles in `qml/Theme.qml:478-485` at `effectiveFontSizes`, removing the
+      inline `|| <default>` fallbacks
+- [x] 3.4 Point `shotserver_theme.cpp:49`'s `fontDefaults` map at the canonical declaration, deleting
+      the duplicate table
+- [x] 3.5 Add an accessor returning only roles whose value differs from default, for startup logging
+
+## 4. Startup font diagnostics
+
+- [x] 4.1 Log host font families that could collide with the bundled family, before registration
+- [x] 4.2 Log the resolved family and `QFontInfo::exactMatch()` after registration, distinguishing
+      registration failure from resolution failure
+- [x] 4.3 Log the probe metric: `horizontalAdvance("Extraction yield (%)")` at a fixed 14px — fixed,
+      not the user's effective label size, so it is comparable between machines
+- [x] 4.4 Log non-default font size overrides (role, current value, default) after `Settings` is
+      constructed — not in the `[Font]` block, which runs before Settings exists
+- [x] 4.5 Confirm nothing is logged about font sizes when every role is at its default
+      (`if (!overrides.isEmpty())` in main.cpp; logic covered by
+      tst_settings::fontSizeOverrides_emptyWhenAllDefault)
+
+## 5. Explicit family on theme roles
+
+- [x] 5.1 Expose `Theme.fontFamily`, resolving to the registered family or empty string when
+      registration failed (empty falls back to the application default)
+- [x] 5.2 Add `family: Theme.fontFamily` to the eight font roles in `qml/Theme.qml`
+- [x] 5.3 Spot-check a CJK string still renders via platform fallback with no missing-glyph boxes —
+      verified on the running app via the Languages list, which renders native script names:
+      Japanese 日本語, Korean 한국어 (Hangul composed), Arabic العربية (shaped, connected RTL),
+      Hebrew עברית, Hindi हिन्दी (conjunct correctly formed), Cyrillic Български. No tofu boxes;
+      the explicit `family: Theme.fontFamily` on theme roles does not suppress per-glyph fallback.
+
+## 6. Web theme editor
+
+- [x] 6.1 Add `POST /api/theme/font/reset` calling the existing `resetFontSizesToDefault()`
+- [x] 6.2 Add a reset control beside the Font Sizes header in `theme_html.h` / `theme_js.h`
+- [x] 6.3 Reword the combined reset confirmation to name both theme colours and font sizes
+- [x] 6.4 Verify the fonts-only reset leaves customised colours untouched — exercised twice against
+      the running app: all 8 roles returned to default, all 45 colour keys and primaryColor intact.
+      Reset button confirmed working in the editor UI by Jeff.
+- [x] 6.5 Fix the `/themes` → `/theme` hint at `qml/pages/settings/SettingsThemesTab.qml:128`, which
+      currently sends users to a 404
+
+## 7. Correct the glyph-safety guidance
+
+- [x] 7.1 Remove `→` from CLAUDE.md's list of glyphs safe to use as literals — it is not in the
+      bundled font's cmap and falls back to a system font, unlike `°` `·` `—` `×` which are covered.
+      It ships in UI strings today (for example shot history's `18.0g → 41.6g`)
+- [x] 7.2 Note in the same guidance that the bundled font covers Latin/Greek/Cyrillic only, so
+      non-Latin locales rely on platform fallback and on layout tolerance rather than metric
+      determinism
+
+## 8. Tests
+
+- [x] 8.1 Test that the bundled family registers under `Decenza Sans` with all four weights.
+      NOTE: verified at the font-file level via `tools/rename_bundled_font.py --verify` rather than
+      a Qt test. (That flag originally only reported *pending* changes, so on already-renamed fonts
+      it printed "0 would change" — indistinguishable from success. It now asserts the new names are
+      present and exits non-zero otherwise; --dry-run is the old behaviour.) — registering application fonts needs a QGuiApplication, which the guiless settings
+      suite has no reason to spin up. Runtime resolution is instead asserted by the new startup log
+      (family + exactMatch), which is exactly what the reporter's next log will show.
+- [x] 8.2 Test the override-diff logic: stored-equal-to-default is not an override; changed values
+      are reported with their defaults; all-default yields an empty result
+- [x] 8.3 Test that QML theme defaults and the web editor's reported defaults come from the same
+      declaration and agree
+- [x] 8.4 Run the full suite with `-DBUILD_TESTS=ON` and clear all warnings
+
+## 9. Documentation and release
+
+- [x] 9.1 Add a wiki manual entry for the fonts-only reset (user-visible feature) — committed
+      LOCALLY in ../Decenza.wiki, deliberately NOT pushed: the wiki is public and should not
+      document this until the PR merges. Push after merge.
+- [x] 9.2 Update the manual's theme editor section if it names the `/themes` path — it did
+      (Manual.md:1678); fixed in the same local wiki commit. Also filled a real gap: the Font
+      Scaling section never mentioned app-wide font sizes at all, though the web editor is the
+      only place to change them.
+- [ ] 9.3 Build via Qt Creator and have Jeff launch the app to verify rendering is unchanged on a
+      known-good machine
+- [ ] 9.4 Ask the reporter for a fresh debug log; confirm the new `[Font]` lines identify the
+      resolved family and any collision
+- [x] 9.7 Wire 6 hardcoded user-visible strings through TranslationManager (2 visible, 4
+      accessibleName). They never entered m_stringRegistry, so BOTH autoTranslate() and the
+      developer translateAndUploadAllLanguages() were structurally blind to them — permanently
+      English in all 39 languages regardless of how often the batch ran.
+- [x] 9.8 Add a dialog offering AI translation when switching to a language with gaps; wiki entry
+      added (local commit in ../Decenza.wiki, unpushed until merge).
+- [ ] 9.9 AFTER MERGE: run AI translate + upload for German, Spanish, French, Italian, Dutch.
+      Deferred deliberately — the 6 keys from 9.7 exist only on this branch, so uploading now
+      would publish keys no shipped build reads, and a key rename in review would orphan them.
+      ~1898 unique strings per language. Provider: OpenAI. Mechanism is per-language
+      (set currentLanguage -> autoTranslate() -> submitTranslation()); the batch tool does ALL
+      local languages with no top-N option.
+- [x] 9.5 Archive this change with `/opsx:archive` as the last commit on the branch, before merge
+- [ ] 9.6 Close #1537 and #1469 once the reporter's log confirms the fix

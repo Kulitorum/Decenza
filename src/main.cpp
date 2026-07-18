@@ -11,6 +11,8 @@
 #include <QGuiApplication>
 #include <QFont>
 #include <QFontDatabase>
+#include <QFontInfo>
+#include <QFontMetrics>
 #include <QAccessible>
 #include <QCoreApplication>
 #include <QDebug>
@@ -374,23 +376,71 @@ int main(int argc, char *argv[])
 
     QApplication app(argc, argv);
 
-    // --- Bundled UI font (issue #1469) -------------------------------------
-    // Decenza ships its own Roboto so text glyph metrics are deterministic
+    // --- Bundled UI font (issues #1469, #1537) -----------------------------
+    // Decenza ships its own UI font so text glyph metrics are deterministic
     // across platforms, OEMs, and OS versions instead of inheriting each
     // device's system font — differing system-font metrics were causing text
-    // to overflow/clip on some devices but not others. Roboto matches Android's
-    // historical default, so the look is essentially unchanged there. Registered
-    // before the QML engine loads so all QML UI inherits it. QML elements that
-    // set an explicit font.family (e.g. Theme.monoFontFamily) still override
-    // this default.
+    // to overflow/clip on some devices but not others. Registered before the
+    // QML engine loads so all QML UI inherits it. QML elements that set an
+    // explicit font.family (e.g. Theme.monoFontFamily) still override it.
+    //
+    // The font is Roboto, RENAMED to the application-specific family
+    // "Decenza Sans" (see tools/rename_bundled_font.py).
+    //
+    // HYPOTHESIS, NOT CONFIRMED. The reasoning: registering under a widely
+    // distributed name may make family lookup ambiguous on hosts that already
+    // have that font installed (Windows machines commonly get a Roboto from
+    // Chrome or Adobe), and if shaping and rasterization then resolve to
+    // different files you get a ligature drawn as an unrelated glyph — the
+    // "Profile" -> "Proule" signature of #1537.
+    //
+    // DISCONFIRMING EVIDENCE, recorded deliberately: a dev Mac WITH a system
+    // Roboto installed rendered correctly under the old name. A name collision
+    // is therefore NOT sufficient on its own, and this rename may not be the
+    // fix. It is cheap insurance that removes one variable; the per-weight
+    // resolution logging below is what will actually confirm or refute it.
+    //
+    // See also the CurveTextRendering block further down, which attributes
+    // #1537 to distance-field re-caching during resize. These two explanations
+    // are NOT reconciled — do not treat either as settled.
+    //
+    // Registration succeeding is NOT evidence the bundled font is in use — that
+    // is exactly how #1537 shipped unnoticed — so we log what actually resolved.
     {
         const QStringList fontFiles = {
-            QStringLiteral(":/fonts/Roboto-Regular.ttf"),
-            QStringLiteral(":/fonts/Roboto-Medium.ttf"),
-            QStringLiteral(":/fonts/Roboto-Bold.ttf"),
-            QStringLiteral(":/fonts/Roboto-Light.ttf"),
+            QStringLiteral(":/fonts/DecenzaSans-Regular.ttf"),
+            QStringLiteral(":/fonts/DecenzaSans-Medium.ttf"),
+            QStringLiteral(":/fonts/DecenzaSans-Bold.ttf"),
+            QStringLiteral(":/fonts/DecenzaSans-Light.ttf"),
         };
+
+        // Collision detector: any pre-existing host family that could be picked
+        // in place of ours. Logged BEFORE registration so the host's own font
+        // database is visible, not our additions to it. "Roboto" stays on the
+        // watch list because it is the family the bundled font used to claim, so
+        // a host copy is the specific collision we care about.
+        //
+        // Presence here is a CORRELATE, NOT PROOF: a dev Mac with a system Roboto
+        // renders correctly. Read it together with the per-weight resolution lines
+        // below, which are the actual evidence.
+        {
+            QStringList competing;
+            for (const QString& family : QFontDatabase::families()) {
+                if (family.contains(QLatin1String("Decenza"), Qt::CaseInsensitive)
+                    || family.contains(QLatin1String("Roboto"), Qt::CaseInsensitive)) {
+                    competing << family;
+                }
+            }
+            if (!competing.isEmpty())
+                qDebug() << "[Font] Host families that could collide with the bundled family:" << competing;
+        }
+
+        // Log EVERY file's outcome. Taking families.first() from the first success and
+        // discarding the rest is how this block previously reported a clean bill of health
+        // while a weight had quietly registered under a foreign family — the same class of
+        // mistake #1537 was: treating one observation as proof about four files.
         QString bundledFamily;
+        int registeredCount = 0;
         for (const QString& path : fontFiles) {
             const int id = QFontDatabase::addApplicationFont(path);
             if (id < 0) {
@@ -398,12 +448,97 @@ int main(int argc, char *argv[])
                 continue;
             }
             const QStringList families = QFontDatabase::applicationFontFamilies(id);
-            if (bundledFamily.isEmpty() && !families.isEmpty())
+            if (families.isEmpty()) {
+                // A valid id with no families: registration "succeeded" and contributed
+                // nothing. This weight is unreachable at runtime.
+                qWarning() << "[Font] Registered but exposed NO family:" << path
+                           << "— this weight will not be reachable";
+                continue;
+            }
+            qDebug() << "[Font] Registered" << path << "->" << families;
+            ++registeredCount;
+            if (bundledFamily.isEmpty())
                 bundledFamily = families.first();
         }
+        if (registeredCount != fontFiles.size()) {
+            qWarning() << "[Font] PARTIAL registration —" << registeredCount << "of"
+                       << fontFiles.size() << "files usable; some weights unavailable";
+        }
+
         if (!bundledFamily.isEmpty()) {
             app.setFont(QFont(bundledFamily));
+            // Publish to Theme.qml so every font role can state the family explicitly
+            // rather than relying on application-font inheritance.
+            SettingsTheme::setBundledFontFamily(bundledFamily);
             qDebug() << "[Font] Bundled application font set:" << bundledFamily;
+
+            // Probe the weights Theme.qml actually requests THROUGH THIS FAMILY: the
+            // default, and bold (five of the eight roles set bold: true). A single
+            // default-weight probe would miss a bold-only substitution entirely.
+            //
+            // Deliberately NOT Light/Medium. They ship as SEPARATE ID1 families
+            // ("Decenza Sans Light"/"Medium") linked by typographic family ID16 — see
+            // tools/rename_bundled_font.py. Probing them under "Decenza Sans" can never
+            // match on platforms that register by ID1, which would flip
+            // allWeightsResolved false on healthy machines and stamp the probe advance
+            // "[FALLBACK FONT]" — destroying the one number this block exists to make
+            // comparable between machines. They are reported below as their own families.
+            struct WeightProbe { const char* label; QFont::Weight weight; };
+            static const WeightProbe kProbes[] = {
+                {"Regular", QFont::Normal},
+                {"Bold",    QFont::Bold},
+            };
+            bool allWeightsResolved = true;
+            for (const auto& p : kProbes) {
+                QFont f(bundledFamily);
+                f.setWeight(p.weight);
+                const QFontInfo fi(f);
+                // The family comparison is the real substitution signal. exactMatch() is
+                // reported for information only and deliberately NOT escalated: it returns
+                // false whenever ANY requested attribute was not matched exactly (size,
+                // style, weight), so warning on it would emit confident wrong diagnoses.
+                // These logs are read by users' AI assistants, which act on them.
+                const bool familyOk = (fi.family() == bundledFamily);
+                if (familyOk) {
+                    qDebug() << "[Font] Resolved" << p.label << "-> family=" << fi.family()
+                             << "exactMatch=" << fi.exactMatch();
+                } else {
+                    allWeightsResolved = false;
+                    qWarning() << "[Font]" << p.label << "did NOT resolve to" << bundledFamily
+                               << "— got" << fi.family()
+                               << "; text metrics are not deterministic for this weight";
+                }
+            }
+            qDebug() << "[Font] Styles available for" << bundledFamily << "="
+                     << QFontDatabase::styles(bundledFamily);
+            // Light/Medium are their own families by design; report presence without
+            // letting their absence contaminate allWeightsResolved. Nothing in Theme.qml
+            // requests them today, so absence is informational, not a fault.
+            for (const char* suffix : {" Light", " Medium"}) {
+                const QString sub = bundledFamily + QString::fromLatin1(suffix);
+                qDebug() << "[Font] Sub-family" << sub
+                         << (QFontDatabase::families().contains(sub) ? "present" : "ABSENT");
+            }
+
+            // Probe metric, deliberately at a FIXED 14px and a fixed string rather
+            // than the user's effective label size: the value is only useful if it
+            // is comparable between two machines' logs. This exact string mirrors
+            // shothistory.helpey's English fallback (one of the grid cells that
+            // overflowed in #1469), kept in sync BY HAND — it is a stable yardstick,
+            // not a live measurement of what the user sees. Under a non-English
+            // locale the UI draws a different string entirely.
+            //
+            // Tagged when resolution failed, because an untagged number invites the
+            // reader to diff it against a healthy machine and read the delta as a
+            // rendering difference rather than as the font substitution it actually is.
+            QFont metricFont(bundledFamily);
+            metricFont.setPixelSize(14);
+            const qreal probe = QFontMetricsF(metricFont)
+                                    .horizontalAdvance(QStringLiteral("Extraction yield (%)"));
+            qDebug().noquote() << "[Font] Probe advance \"Extraction yield (%)\" @14px ="
+                               << QString::number(probe, 'f', 2)
+                               << (allWeightsResolved ? QString()
+                                                      : QStringLiteral("[FALLBACK FONT — not comparable]"));
         } else {
             qWarning() << "[Font] No bundled font registered (bundled font resource missing from build) — falling back to platform default";
         }
@@ -624,6 +759,26 @@ int main(int argc, char *argv[])
     // Create core objects
     Settings settings;
     settings.theme()->initSystemThemeDetection();
+
+    // Font size overrides, logged here rather than in the [Font] block above because that
+    // runs before Settings exists. Only roles the user actually changed are reported —
+    // when everything is stock (the overwhelmingly common case) this logs nothing at all,
+    // so the line's presence is itself the signal. Without it, a layout report cannot be
+    // read against the text sizes the reporter is actually running (#1469).
+    {
+        const QVariantMap overrides = settings.theme()->fontSizeOverrides();
+        if (!overrides.isEmpty()) {
+            QStringList parts;
+            for (auto it = overrides.constBegin(); it != overrides.constEnd(); ++it) {
+                parts << QStringLiteral("%1=%2 (default %3)")
+                             .arg(it.key())
+                             .arg(it.value().toInt())
+                             .arg(SettingsTheme::fontSizeDefaults().value(it.key()));
+            }
+            qDebug().noquote() << "[Font] Font size overrides:" << parts.join(QStringLiteral(", "));
+        }
+    }
+
     checkpoint("Settings");
 
     // Shared QNetworkAccessManager — avoids per-class NAM overhead (connection

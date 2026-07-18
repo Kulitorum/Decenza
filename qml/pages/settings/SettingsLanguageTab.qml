@@ -186,7 +186,7 @@ Item {
                 // Divider
                 Rectangle {
                     Layout.fillWidth: true
-                    height: 1
+                    Layout.preferredHeight: 1
                     color: Theme.borderColor
                     Layout.topMargin: Theme.scaled(4)
                     Layout.bottomMargin: Theme.scaled(4)
@@ -525,7 +525,7 @@ Item {
                     // Divider
                     Rectangle {
                         Layout.fillWidth: true
-                        height: 1
+                        Layout.preferredHeight: 1
                         color: Theme.borderColor
                         Layout.topMargin: Theme.scaled(2)
                         Layout.bottomMargin: Theme.scaled(2)
@@ -825,6 +825,253 @@ Item {
                 font: Theme.captionFont
                 color: Theme.textSecondaryColor
                 horizontalAlignment: Text.AlignHCenter
+            }
+        }
+    }
+
+    // --- Offer AI translation when a language has gaps -------------------------
+    //
+    // Missing strings are NOT translated on the fly: autoTranslate() is user-initiated
+    // and needs a configured AI provider. Someone switching to a partially-translated
+    // language would otherwise just see English scattered through the UI with no hint
+    // that they can do anything about it. This surfaces the option at the one moment
+    // it is obviously relevant.
+    //
+    // Offered once per language per VISIT to this tab — this property's lifetime is the
+    // tab item's, not the app's, so navigating away and back re-arms it. An event-based
+    // set, not a timer. Known gap: a user who dismisses and THEN configures an AI
+    // provider is not re-offered until they leave and return.
+    property var _aiOfferedFor: ({})
+
+    function maybeOfferAiTranslation() {
+        var lang = TranslationManager.currentLanguage
+        if (!lang || lang === "en") return                  // base language is never incomplete
+        if (TranslationManager.autoTranslating) return
+        if (languageTab._aiOfferedFor[lang]) return         // already asked on this tab visit
+        // currentLanguage is set BEFORE downloadLanguage() and emits synchronously, so
+        // this runs while the file is still in flight. Offering here would report a
+        // near-empty language ("0% translated") that is about to be ~95% complete — and
+        // worse, would set the guard below, so the onLanguageDownloaded path that exists
+        // precisely to read real coverage would never run.
+        if (TranslationManager.downloading) return
+        if (TranslationManager.uniqueUntranslatedCount() <= 0) return
+        languageTab._aiOfferedFor[lang] = true
+        // Snapshot the values that come from Q_INVOKABLE methods. QML bindings only
+        // re-evaluate on PROPERTY reads, so a binding calling canAutoTranslate() is
+        // frozen at whatever it returned when the tab was first created — configure a
+        // provider afterwards and the dialog still claims you have none. Read them
+        // imperatively here instead, at the one moment they matter.
+        aiTranslateOfferPopup.resultText = ""
+        aiTranslateOfferPopup.resultIsError = false
+        aiTranslateOfferPopup.userCancelled = false
+        aiTranslateOfferPopup.aiAvailable = TranslationManager.canAutoTranslate()
+        aiTranslateOfferPopup.missingCount = TranslationManager.uniqueUntranslatedCount()
+        aiTranslateOfferPopup.percentDone = TranslationManager.totalStringCount > 0
+            ? Math.round(100 * (TranslationManager.totalStringCount - TranslationManager.untranslatedCount)
+                             / TranslationManager.totalStringCount)
+            : 0
+        aiTranslateOfferPopup.open()
+    }
+
+    Connections {
+        target: TranslationManager
+        // After a downloaded file lands we finally know the real coverage.
+        function onLanguageDownloaded(langCode, success, error) {
+            if (success) {
+                if (langCode === TranslationManager.currentLanguage)
+                    languageTab.maybeOfferAiTranslation()
+                return
+            }
+            // A failed download means the user switched to a language whose strings never
+            // arrived. NOTE: this only reaches the log, not the user — surfacing it needs a
+            // banner/toast this tab does not currently have. Not claiming otherwise.
+            console.warn("Language download failed for", langCode, ":", error)
+        }
+        // Switching to an already-downloaded language fires no download.
+        function onCurrentLanguageChanged() {
+            languageTab.maybeOfferAiTranslation()
+        }
+    }
+
+    Dialog {
+        id: aiTranslateOfferPopup
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(parent.width * 0.85, Theme.scaled(380))
+        modal: true
+        dim: true
+        padding: Theme.spacingMedium
+        closePolicy: TranslationManager.autoTranslating ? Dialog.NoAutoClose
+                                                        : (Dialog.CloseOnEscape | Dialog.CloseOnPressOutside)
+
+        // Set from maybeOfferAiTranslation() immediately before open() — see the note
+        // there. Deliberately NOT bindings on invokables.
+        property bool aiAvailable: false
+        property int missingCount: 0
+        // langName IS a safe binding: it reads currentLanguage, a real property, so the
+        // whole expression re-evaluates when the language changes.
+        readonly property string langName: TranslationManager.getLanguageDisplayName(TranslationManager.currentLanguage)
+        // Snapshotted alongside missingCount, not a live binding. Mixing the two produced
+        // self-contradicting text ("94% translated — 812 phrases still in English") when
+        // a download landed while the dialog was open.
+        property int percentDone: 0
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 2
+            border.color: Theme.primaryColor
+        }
+
+        contentItem: Column {
+            spacing: Theme.spacingMedium
+
+            Text {
+                width: parent.width
+                text: TranslationManager.translate("language.aiOffer.title", "Translation Incomplete")
+                font: Theme.subtitleFont
+                color: Theme.textColor
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.Wrap
+            }
+
+            Text {
+                width: parent.width
+                text: TranslationManager.translate("language.aiOffer.message",
+                          "%1 is %2% translated — %3 phrases are still in English.")
+                      .arg(aiTranslateOfferPopup.langName)
+                      .arg(aiTranslateOfferPopup.percentDone)
+                      .arg(aiTranslateOfferPopup.missingCount)
+                font: Theme.bodyFont
+                color: Theme.textColor
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.Wrap
+                visible: !TranslationManager.autoTranslating
+            }
+
+            // No provider configured — say what to do rather than offering a dead button.
+            Text {
+                width: parent.width
+                text: TranslationManager.translate("language.aiOffer.noProvider",
+                          "Set up an AI provider in Settings → AI to translate the rest automatically.")
+                font: Theme.bodyFont
+                color: Theme.textSecondaryColor
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.Wrap
+                visible: !TranslationManager.autoTranslating && !aiTranslateOfferPopup.aiAvailable
+            }
+
+            Text {
+                width: parent.width
+                text: TranslationManager.translate("language.aiOffer.question",
+                          "Translate them now with your configured AI?")
+                font: Theme.bodyFont
+                color: Theme.textSecondaryColor
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.Wrap
+                visible: !TranslationManager.autoTranslating && aiTranslateOfferPopup.aiAvailable
+            }
+
+            // Progress, shown in place of the prompt once translation is running.
+            Text {
+                width: parent.width
+                text: aiTranslateOfferPopup.resultText
+                font: Theme.bodyFont
+                color: Theme.errorColor
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.Wrap
+                visible: aiTranslateOfferPopup.resultIsError
+            }
+
+            Text {
+                width: parent.width
+                text: TranslationManager.translate("language.aiOffer.progress", "Translating… %1 / %2")
+                      .arg(TranslationManager.autoTranslateProgress)
+                      .arg(TranslationManager.autoTranslateTotal)
+                font: Theme.bodyFont
+                color: Theme.textColor
+                horizontalAlignment: Text.AlignHCenter
+                visible: TranslationManager.autoTranslating
+            }
+
+            Rectangle {
+                width: parent.width
+                height: Theme.scaled(6)
+                radius: height / 2
+                color: Theme.borderColor
+                visible: TranslationManager.autoTranslating
+
+                Rectangle {
+                    height: parent.height
+                    radius: parent.radius
+                    color: Theme.primaryColor
+                    width: parent.width * (TranslationManager.autoTranslateProgress
+                                           / Math.max(1, TranslationManager.autoTranslateTotal))
+                }
+            }
+
+            Row {
+                width: parent.width
+                spacing: Theme.spacingSmall
+
+                AccessibleButton {
+                    width: aiTranslateOfferPopup.aiAvailable && !TranslationManager.autoTranslating
+                           ? (parent.width - Theme.spacingSmall) / 2 : parent.width
+                    text: TranslationManager.autoTranslating
+                          ? TranslationManager.translate("language.aiOffer.cancel", "Stop")
+                          : TranslationManager.translate("language.aiOffer.dismiss", "Not Now")
+                    accessibleName: TranslationManager.autoTranslating
+                          ? TranslationManager.translate("language.aiOffer.accessible.cancel", "Stop translating")
+                          : TranslationManager.translate("language.aiOffer.accessible.dismiss", "Continue without translating")
+                    onClicked: {
+                        if (TranslationManager.autoTranslating) {
+                            // cancelAutoTranslate() reports completion as a FAILURE
+                            // ("Translation cancelled"), so without this flag the user's
+                            // own Stop press would paint a red error and leave the dialog
+                            // open, needing a second press to dismiss.
+                            aiTranslateOfferPopup.userCancelled = true
+                            TranslationManager.cancelAutoTranslate()
+                        } else {
+                            aiTranslateOfferPopup.close()
+                        }
+                    }
+                }
+
+                AccessibleButton {
+                    width: (parent.width - Theme.spacingSmall) / 2
+                    visible: aiTranslateOfferPopup.aiAvailable && !TranslationManager.autoTranslating
+                    text: TranslationManager.translate("language.aiOffer.translate", "Translate")
+                    accessibleName: TranslationManager.translate("language.aiOffer.accessible.translate",
+                                        "Translate missing phrases using the configured AI provider")
+                    onClicked: TranslationManager.autoTranslate()
+                }
+            }
+        }
+
+        // Surfaced rather than swallowed: a failed run (bad key, quota, network) used to
+        // close the dialog exactly like a successful one, leaving the user to notice the
+        // strings were still English and guess why.
+        property string resultText: ""
+        property bool resultIsError: false
+        property bool userCancelled: false
+
+        Connections {
+            target: TranslationManager
+            function onAutoTranslateFinished(success, message) {
+                if (!aiTranslateOfferPopup.opened) return
+                if (success || aiTranslateOfferPopup.userCancelled) {
+                    aiTranslateOfferPopup.userCancelled = false
+                    aiTranslateOfferPopup.close()
+                    return
+                }
+                aiTranslateOfferPopup.resultIsError = true
+                // Deliberately the translated generic string, not `message`: the backend
+                // messages are raw English literals, and this dialog is only ever shown to
+                // users running a non-English UI. The provider's text goes to the log.
+                console.warn("[AI translate] failed:", message)
+                aiTranslateOfferPopup.resultText =
+                    TranslationManager.translate("language.aiOffer.failedGeneric",
+                        "Translation failed. Check your AI provider settings and try again.")
             }
         }
     }

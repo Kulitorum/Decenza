@@ -44,25 +44,29 @@ QJsonObject ShotServer::buildThemeJson() const
     result["colorsDark"] = colorsDark;
     result["colorsLight"] = colorsLight;
 
-    // Font sizes
+    // Font sizes. Sourced from SettingsTheme so the editor reports exactly what the QML
+    // theme renders at — this used to be a second hardcoded default table, free to drift
+    // out of step with qml/Theme.qml's fallbacks.
     QJsonObject fonts;
-    QVariantMap fontSizes = m_settings->theme()->customFontSizes();
-    static const QMap<QString, int> fontDefaults = {
-        {"headingSize", 32},
-        {"titleSize", 24},
-        {"subtitleSize", 18},
-        {"bodySize", 18},
-        {"labelSize", 14},
-        {"captionSize", 12},
-        {"valueSize", 48},
-        {"timerSize", 72}
-    };
-
-    for (auto it = fontDefaults.constBegin(); it != fontDefaults.constEnd(); ++it) {
-        int val = fontSizes.value(it.key()).toInt();
-        fonts[it.key()] = val > 0 ? val : it.value();
+    const QVariantMap effective = m_settings->theme()->effectiveFontSizes();
+    for (auto it = effective.constBegin(); it != effective.constEnd(); ++it) {
+        fonts[it.key()] = it.value().toInt();
     }
     result["fonts"] = fonts;
+
+    // Slider bounds, served from the same table rather than hardcoded again in theme_js.h.
+    // The JS copy was the only place min/max lived, which made the editor's sliders the de
+    // facto validation — and POST /api/theme/font bypasses sliders entirely.
+    QJsonObject fontRanges;
+    for (auto it = SettingsTheme::fontRoles().constBegin();
+         it != SettingsTheme::fontRoles().constEnd(); ++it) {
+        QJsonObject range;
+        range["min"] = it.value().min;
+        range["max"] = it.value().max;
+        range["def"] = it.value().def;
+        fontRanges[it.key()] = range;
+    }
+    result["fontRanges"] = fontRanges;
 
     // Preset themes
     QJsonArray presets;
@@ -196,17 +200,57 @@ void ShotServer::handleThemeApi(QTcpSocket* socket, const QString& method,
         return;
     }
 
-    // POST /api/theme/font - set a single font size
+    // POST /api/theme/font - set a single font size.
+    //
+    // Reports what was actually applied. setFontSize() has two non-applying outcomes —
+    // an unknown role writes nothing, and an out-of-range value is clamped — and answering
+    // a flat {"ok":true} to either told the caller it had stored a value the app does not
+    // hold. The sibling /mode and /color endpoints already 400 on bad input; this one now
+    // matches, and echoes the applied value so a client can correct its slider.
     if (path == "/api/theme/font" && method == "POST") {
-        QJsonObject obj = QJsonDocument::fromJson(body).object();
-        QString name = obj["name"].toString();
-        int value = obj["value"].toInt();
+        QJsonParseError perr{};
+        const QJsonObject obj = QJsonDocument::fromJson(body, &perr).object();
+        if (perr.error != QJsonParseError::NoError) {
+            // Previously surfaced as the misleading "Missing name".
+            sendResponse(socket, 400, "text/plain",
+                         "Malformed JSON body: " + perr.errorString().toUtf8());
+            return;
+        }
+        const QString name = obj["name"].toString();
+        const int value = obj["value"].toInt();
         if (name.isEmpty() || value <= 0) {
             sendResponse(socket, 400, "text/plain", "Missing name or invalid value");
             return;
         }
+        const auto& roles = SettingsTheme::fontRoles();
+        const auto roleIt = roles.constFind(name);
+        if (roleIt == roles.constEnd()) {
+            sendResponse(socket, 400, "text/plain",
+                         "Unknown font role '" + name.toUtf8() + "'");
+            return;
+        }
+
         m_settings->theme()->setFontSize(name, value);
-        sendResponse(socket, 200, "application/json", "{\"ok\":true}");
+        const int applied = m_settings->theme()->effectiveFontSizes().value(name).toInt();
+
+        QJsonObject resp;
+        resp["ok"] = true;
+        resp["name"] = name;
+        resp["applied"] = applied;
+        resp["clamped"] = (applied != value);
+        resp["min"] = roleIt->min;
+        resp["max"] = roleIt->max;
+        sendJson(socket, QJsonDocument(resp).toJson(QJsonDocument::Compact));
+        return;
+    }
+
+    // POST /api/theme/font/reset - restore font sizes to defaults, leaving colours alone.
+    // Distinct from /api/theme/reset, which also discards the user's palette: resetting a
+    // font size should not cost someone the theme they built.
+    if (path == "/api/theme/font/reset" && method == "POST") {
+        m_settings->theme()->resetFontSizesToDefault();
+        QJsonDocument doc(buildThemeJson());
+        sendJson(socket, doc.toJson(QJsonDocument::Compact));
         return;
     }
 

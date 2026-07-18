@@ -601,7 +601,7 @@ Item {
                     // Disconnect button
                     AccessibleButton {
                         text: TranslationManager.translate("settings.connections.disconnect", "Disconnect USB")
-                        accessibleName: "Disconnect DE1 USB connection"
+                        accessibleName: TranslationManager.translate("settings.connections.accessible.disconnectUsb", "Disconnect DE1 USB connection")
                         Layout.alignment: Qt.AlignLeft
                         onClicked: USBManager.disconnectUsb()
                     }
@@ -862,7 +862,7 @@ Item {
 
                     StyledSwitch {
                         checked: Settings.usbSerialEnabled
-                        accessibleName: "Enable serial USB connection for DE1"
+                        accessibleName: TranslationManager.translate("settings.connections.accessible.enableSerialUsb", "Enable serial USB connection for DE1")
                         onToggled: Settings.usbSerialEnabled = checked
                     }
                 }

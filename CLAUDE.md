@@ -91,7 +91,8 @@ See `docs/CLAUDE_MD/PROJECT_STRUCTURE.md` for the full source tree, signal/slot 
 - **FINAL Qt properties**: don't redeclare `message`/`title` etc. on `Popup`/`Dialog` (Qt 6.10+) — pick a different name like `resultMessage`.
 - **Numeric defaults**: use `value ?? 0.6`, not `value || 0.6` — `||` treats `0` as falsy.
 - **`native` is reserved**: use `nativeName`.
-- **No Unicode glyphs as icons** (`"✎"`, `"☰"`): use SVG `Image` from `qrc:/icons/`. Safe: `°`, `·`, `—`, `→`, `×`.
+- **No Unicode glyphs as icons** (`"✎"`, `"☰"`): use SVG `Image` from `qrc:/icons/`. Safe (present in the bundled font): `°`, `·`, `—`, `×`, `•`, `…`. **Not** safe: `→` and other arrows (`←` `↔` `↗` `⇒`), `▶`/`◀` — these are absent from the bundled font's cmap and fall back to a system font, so their metrics vary per machine. Prefer an SVG icon; if a literal is unavoidable, make sure the layout tolerates a differently-sized glyph.
+- **The bundled font covers Latin (incl. Extended), Greek and Cyrillic only.** In CJK, Arabic, Hebrew, Devanagari and Thai locales every glyph comes from a platform fallback, so the metric determinism the bundled font provides does **not** apply there. Layout tolerance (wrap/elide/content-driven sizing) is what keeps those UIs from clipping — never rely on a fixed width that only fits the design font.
 - **`elide` is dead on `Text.RichText`**: use `Text.StyledText` for HTML-ish labels (elide works, and it's lighter); RichText silently disables `elide` → mid-glyph clipping.
 - **Accessibility on interactive elements**: every interactive element needs `Accessible.role`, `Accessible.name`, `Accessible.focusable: true`, and `Accessible.onPressAction`. Prefer `AccessibleButton` / `AccessibleMouseArea` over raw `Rectangle+MouseArea`. Full rules in `docs/CLAUDE_MD/ACCESSIBILITY.md`.
 

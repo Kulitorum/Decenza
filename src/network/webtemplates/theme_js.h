@@ -61,16 +61,19 @@ const COLOR_DEFS = [
     ]}
 ];
 
-const FONT_DEFS = [
-    { name: "headingSize", display: "Heading", min: 16, max: 64 },
-    { name: "titleSize", display: "Title", min: 12, max: 48 },
-    { name: "subtitleSize", display: "Subtitle", min: 10, max: 36 },
-    { name: "bodySize", display: "Body", min: 10, max: 36 },
-    { name: "labelSize", display: "Label", min: 8, max: 28 },
-    { name: "captionSize", display: "Caption", min: 8, max: 24 },
-    { name: "valueSize", display: "Value", min: 24, max: 96 },
-    { name: "timerSize", display: "Timer", min: 36, max: 120 }
-];
+// Display labels only. The roles, their bounds and their defaults come from the
+// server (data.fontRanges -> SettingsTheme::fontRoles()); this used to carry min/max
+// too, which made it a second source of truth AND the only place bounds were checked.
+const FONT_LABELS = {
+    headingSize:  "Heading",
+    titleSize:    "Title",
+    subtitleSize: "Subtitle",
+    bodySize:     "Body",
+    labelSize:    "Label",
+    captionSize:  "Caption",
+    valueSize:    "Value",
+    timerSize:    "Timer"
+};
 
 let currentTheme = null;
 let lastChangeTime = 0;  // To ignore self-echo SSE events
@@ -364,18 +367,20 @@ function switchEditorMode(mode) {
     }
 }
 
-function renderFonts(fonts) {
+function renderFonts(fonts, ranges) {
     const panel = document.getElementById('fontPanel');
     panel.innerHTML = '';
-    for (const f of FONT_DEFS) {
-        const val = fonts[f.name] || 16;
+    if (!ranges) return;   // server did not send fontRanges — render nothing rather than guess
+    for (const name of Object.keys(ranges)) {
+        const r = ranges[name];
+        const val = fonts[name] || r.def;
         const row = document.createElement('div');
         row.className = 'font-row';
         row.innerHTML =
-            '<span class="font-label">' + f.display + '</span>' +
-            '<input type="range" class="font-slider" min="' + f.min + '" max="' + f.max + '" value="' + val + '" ' +
-                   'data-name="' + f.name + '" oninput="onFontSlider(this)">' +
-            '<span class="font-value" id="fv_' + f.name + '">' + val + 'px</span>';
+            '<span class="font-label">' + (FONT_LABELS[name] || name) + '</span>' +
+            '<input type="range" class="font-slider" min="' + r.min + '" max="' + r.max + '" value="' + val + '" ' +
+                   'data-name="' + name + '" oninput="onFontSlider(this)">' +
+            '<span class="font-value" id="fv_' + name + '">' + val + 'px</span>';
         panel.appendChild(row);
     }
 }
@@ -413,7 +418,7 @@ function renderPresets(presets, activeName) {
 function renderAll(data) {
     currentTheme = data;
     renderColors(data.editingColors || data.colors, data.pageColors);
-    renderFonts(data.fonts);
+    renderFonts(data.fonts, data.fontRanges);
     renderPresets(data.presets, data.activeThemeName);
     if (typeof initShaderState === 'function') initShaderState(data);
 }
@@ -466,8 +471,16 @@ function onFontSlider(el) {
     document.getElementById('fv_' + name).textContent = val + 'px';
 
     clearTimeout(debounceTimers['font_' + name]);
-    debounceTimers['font_' + name] = setTimeout(function() {
-        postJson('/api/theme/font', { name: name, value: val });
+    debounceTimers['font_' + name] = setTimeout(async function() {
+        // Read the response. The server clamps out-of-range values, so without this the
+        // slider could sit at 400px indefinitely for a font actually rendering at 120.
+        const res = await postJson('/api/theme/font', { name: name, value: val });
+        if (!res || !res.ok) return;
+        const data = await res.json().catch(function() { return null; });
+        if (!data || !data.clamped) return;
+        const slider = document.querySelector('.font-slider[data-name="' + name + '"]');
+        if (slider) slider.value = data.applied;
+        document.getElementById('fv_' + name).textContent = data.applied + 'px';
     }, 100);
 }
 
@@ -486,8 +499,18 @@ async function randomTheme() {
     renderAll(data);
 }
 
+// Fonts only -- deliberately does not touch colours, unlike resetTheme() below.
+async function resetFontSizes() {
+    if (!confirm('Reset all font sizes to their defaults? Your theme colours are not affected.')) return;
+    const res = await postJson('/api/theme/font/reset', {});
+    const data = await res.json();
+    renderAll(data);
+}
+
 async function resetTheme() {
-    if (!confirm('Reset theme to defaults?')) return;
+    // Names both categories: this clears font sizes too, and someone resetting their
+    // colours should not silently lose sizing they tuned (or vice versa).
+    if (!confirm('Reset theme colours AND font sizes to defaults? This clears both.')) return;
     const res = await postJson('/api/theme/reset', {});
     const data = await res.json();
     renderAll(data);

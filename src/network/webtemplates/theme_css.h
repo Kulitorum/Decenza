@@ -190,6 +190,15 @@ inline constexpr const char* WEB_CSS_THEME_EDITOR = R"CSS(
     color: var(--text);
 }
 
+/* Section header carrying an action (e.g. the Font Sizes reset) — keeps the
+   title left and the control right without disturbing the plain .section-title. */
+.section-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
 .font-row {
     display: flex;
     align-items: center;

@@ -1,4 +1,6 @@
 #include "settings_theme.h"
+
+#include <algorithm>
 #include "settings.h"
 
 #include <QStandardPaths>
@@ -599,12 +601,86 @@ void SettingsTheme::resetThemeToDefault() {
 }
 
 // Font size customization
+//
+// Canonical defaults live here and nowhere else. They were previously duplicated in
+// qml/Theme.qml (as `|| 32` style fallbacks) and in shotserver_theme.cpp (as its own
+// QMap) — two tables free to drift, where the size the UI renders at and the size the
+// web editor reports could silently disagree.
+namespace {
+// Set from main.cpp before the QML engine is created; read-only thereafter.
+QString g_bundledFontFamily;
+}
+
+void SettingsTheme::setBundledFontFamily(const QString& family) { g_bundledFontFamily = family; }
+QString SettingsTheme::bundledFontFamily() { return g_bundledFontFamily; }
+
+const QMap<QString, SettingsTheme::FontRole>& SettingsTheme::fontRoles() {
+    //                          default  min  max
+    static const QMap<QString, FontRole> roles = {
+        {"headingSize",  {32, 16,  64}},
+        {"titleSize",    {24, 12,  48}},
+        {"subtitleSize", {18, 10,  36}},
+        {"bodySize",     {18, 10,  36}},
+        {"labelSize",    {14,  8,  28}},
+        {"captionSize",  {12,  8,  24}},
+        {"valueSize",    {48, 24,  96}},
+        {"timerSize",    {72, 36, 120}}
+    };
+    return roles;
+}
+
+const QMap<QString, int>& SettingsTheme::fontSizeDefaults() {
+    static const QMap<QString, int> defaults = [] {
+        QMap<QString, int> d;
+        for (auto it = fontRoles().constBegin(); it != fontRoles().constEnd(); ++it)
+            d.insert(it.key(), it.value().def);
+        return d;
+    }();
+    return defaults;
+}
+
+QVariantMap SettingsTheme::effectiveFontSizes() const {
+    const QVariantMap overrides = customFontSizes();
+    QVariantMap effective;
+    for (auto it = fontSizeDefaults().constBegin(); it != fontSizeDefaults().constEnd(); ++it) {
+        const int stored = overrides.value(it.key()).toInt();
+        effective[it.key()] = stored > 0 ? stored : it.value();
+    }
+    return effective;
+}
+
+QVariantMap SettingsTheme::fontSizeOverrides() const {
+    const QVariantMap overrides = customFontSizes();
+    QVariantMap changed;
+    for (auto it = fontSizeDefaults().constBegin(); it != fontSizeDefaults().constEnd(); ++it) {
+        const int stored = overrides.value(it.key()).toInt();
+        // > 0 filters unset/garbage; != default is what makes it an override. Storing a
+        // value equal to the default is not a customization worth reporting.
+        if (stored > 0 && stored != it.value())
+            changed[it.key()] = stored;
+    }
+    return changed;
+}
+
 QVariantMap SettingsTheme::customFontSizes() const {
-    QByteArray data = m_settings.value("theme/customFontSizes").toByteArray();
+    const QByteArray data = m_settings.value("theme/customFontSizes").toByteArray();
     if (data.isEmpty()) {
         return QVariantMap();
     }
-    QJsonDocument doc = QJsonDocument::fromJson(data);
+    // Check the parse. Without this a corrupt blob returns an empty map — byte-for-byte
+    // identical to "the user has no overrides" — and the startup log deliberately stays
+    // silent in that case, so the corruption is actively camouflaged as normal. The user
+    // sees stock sizes, assumes an update reset them, nudges one slider, and setFontSize()
+    // then writes a fresh map over the top: every other override is destroyed, silently.
+    QJsonParseError err{};
+    const QJsonDocument doc = QJsonDocument::fromJson(data, &err);
+    if (err.error != QJsonParseError::NoError || !doc.isObject()) {
+        qWarning() << "[Font] Stored font-size overrides are corrupt at offset" << err.offset
+                   << ":" << err.errorString()
+                   << "— falling back to default sizes. The stored value will be overwritten"
+                      " on the next font-size change.";
+        return QVariantMap();
+    }
     return doc.object().toVariantMap();
 }
 
@@ -615,8 +691,21 @@ void SettingsTheme::setCustomFontSizes(const QVariantMap& sizes) {
 }
 
 void SettingsTheme::setFontSize(const QString& fontName, int size) {
+    // Validate here rather than trusting callers. POST /api/theme/font takes a JSON body,
+    // so an out-of-range or unknown role is reachable without touching the editor's
+    // sliders — and an unbounded value (timerSize 100000) renders the app unusable while
+    // an unknown key writes junk nothing will ever surface or clean up.
+    auto it = fontRoles().constFind(fontName);
+    if (it == fontRoles().constEnd()) {
+        qWarning() << "[Font] Ignoring unknown font role:" << fontName;
+        return;
+    }
+    const int clamped = std::clamp(size, it->min, it->max);
+    if (clamped != size)
+        qWarning() << "[Font] Clamped" << fontName << size << "->" << clamped;
+
     QVariantMap sizes = customFontSizes();
-    sizes[fontName] = size;
+    sizes[fontName] = clamped;
     setCustomFontSizes(sizes);
 }
 

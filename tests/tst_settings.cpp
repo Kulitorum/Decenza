@@ -14,6 +14,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QRegularExpression>
+#include <QFile>
 
 // Test Settings property round-trip and signal emission.
 // Under DECENZA_TESTING, Settings and every settings_<domain>.cpp construct
@@ -84,6 +85,7 @@ private:
 
     // Saved originals — restored in cleanup() regardless of test outcome
     double m_origTargetWeight;
+    QVariantMap m_origCustomFontSizes;
     double m_origDoseCupTare;
     bool m_origDoseCaptureSound;
     double m_origSteamTemp;
@@ -115,6 +117,10 @@ private slots:
         m_origSteamTemp = m_settings.brew()->steamTemperature();
         m_origScaleAddress = m_settings.scaleAddress();
         m_origThemeMode = m_settings.theme()->themeMode();
+        // Font sizes: saved/restored like every other setting rather than relying on
+        // a trailing reset inside each test — a trailing reset does not run when an
+        // assertion fails mid-test, which is exactly when leaked state does most harm.
+        m_origCustomFontSizes = m_settings.theme()->customFontSizes();
         m_origShotRating = m_settings.visualizer()->defaultShotRating();
         m_origIgnoreVolume = m_settings.brew()->ignoreVolumeWithScale();
         m_origAutoUpdate = m_settings.visualizer()->visualizerAutoUpdate();
@@ -138,6 +144,7 @@ private slots:
 
     void cleanup() {
         // Restore all originals after each test (runs even on assertion failure)
+        m_settings.theme()->setCustomFontSizes(m_origCustomFontSizes);
         m_settings.brew()->setTargetWeight(m_origTargetWeight);
         m_settings.brew()->setDoseCupTareWeight(m_origDoseCupTare);
         m_settings.brew()->setDoseCaptureSoundEnabled(m_origDoseCaptureSound);
@@ -1748,6 +1755,174 @@ private slots:
         QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "fine", 2.0), QString());
         QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "", 2.0), QString());
         QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "   ", 2.0), QString());
+    }
+
+    // --- Font sizes: single source of truth + override reporting (#1469) -----
+
+    void fontSizeDefaults_areTheSingleSource() {
+        // The web theme editor used to carry its own copy of this table. If a default
+        // changes, both the QML theme and the editor must move together — this asserts
+        // the canonical values so a silent edit to one surface is caught here.
+        const QMap<QString, int>& d = SettingsTheme::fontSizeDefaults();
+        QCOMPARE(d.value("headingSize"), 32);
+        QCOMPARE(d.value("titleSize"), 24);
+        QCOMPARE(d.value("subtitleSize"), 18);
+        QCOMPARE(d.value("bodySize"), 18);
+        QCOMPARE(d.value("labelSize"), 14);
+        QCOMPARE(d.value("captionSize"), 12);
+        QCOMPARE(d.value("valueSize"), 48);
+        QCOMPARE(d.value("timerSize"), 72);
+        QCOMPARE(d.size(), 8);
+    }
+
+    void effectiveFontSizes_defaultsWhenUnset() {
+        SettingsTheme* theme = m_settings.theme();
+        theme->resetFontSizesToDefault();
+        const QVariantMap eff = theme->effectiveFontSizes();
+        // Assert the KEY NAMES, not just the count. QML indexes this map by name
+        // (effectiveFontSizes.labelSize), and Theme.qml no longer carries `|| 14`
+        // fallbacks — so a renamed or missing key yields undefined, then
+        // Math.round(undefined * scale) = NaN, then Qt.font({pixelSize: NaN}) on a
+        // font role used app-wide. Silent, and a size-only check would not catch it.
+        QCOMPARE(eff.keys(), SettingsTheme::fontSizeDefaults().keys());
+        QCOMPARE(eff.value("labelSize").toInt(), 14);
+        QCOMPARE(eff.value("timerSize").toInt(), 72);
+        // No role may ever be zero/undefined — that would render invisible text.
+        for (auto it = eff.constBegin(); it != eff.constEnd(); ++it)
+            QVERIFY2(it.value().toInt() > 0, qPrintable("non-positive size for " + it.key()));
+    }
+
+    void effectiveFontSizes_mergesOverrides() {
+        SettingsTheme* theme = m_settings.theme();
+        theme->resetFontSizesToDefault();
+        theme->setFontSize("labelSize", 22);
+        const QVariantMap eff = theme->effectiveFontSizes();
+        QCOMPARE(eff.value("labelSize").toInt(), 22);   // overridden
+        QCOMPARE(eff.value("bodySize").toInt(), 18);    // untouched roles stay default
+        // Totality must survive overrides too, not just the unset case.
+        QCOMPARE(eff.keys(), SettingsTheme::fontSizeDefaults().keys());
+        theme->resetFontSizesToDefault();
+    }
+
+    void fontSizeOverrides_emptyWhenAllDefault() {
+        // The startup log must stay silent when nothing is customised — this is the
+        // overwhelmingly common case and the reason the log line is conditional.
+        SettingsTheme* theme = m_settings.theme();
+        theme->resetFontSizesToDefault();
+        QVERIFY(theme->fontSizeOverrides().isEmpty());
+    }
+
+    void fontSizeOverrides_reportsOnlyChangedRoles() {
+        SettingsTheme* theme = m_settings.theme();
+        theme->resetFontSizesToDefault();
+        theme->setFontSize("labelSize", 20);
+        theme->setFontSize("bodySize", 24);
+        const QVariantMap changed = theme->fontSizeOverrides();
+        QCOMPARE(changed.size(), 2);
+        QCOMPARE(changed.value("labelSize").toInt(), 20);
+        QCOMPARE(changed.value("bodySize").toInt(), 24);
+        QVERIFY(!changed.contains("timerSize"));
+    }
+
+    void fontSizeOverrides_storedValueEqualToDefaultIsNotAnOverride() {
+        // Dragging a slider and putting it back writes a stored entry equal to the
+        // default. That is not a customization and must not be reported, or the log
+        // would accuse a user of a change they did not make.
+        SettingsTheme* theme = m_settings.theme();
+        theme->resetFontSizesToDefault();
+        theme->setFontSize("labelSize", 14);   // == default
+        QVERIFY(theme->customFontSizes().contains("labelSize"));  // it IS stored
+        QVERIFY(theme->fontSizeOverrides().isEmpty());            // but is not an override
+    }
+
+    void fontSizeOverrides_ignoresGarbageStoredValues_data() {
+        QTest::addColumn<QVariant>("stored");
+        QTest::addColumn<int>("expectedEffective");
+        // The `stored > 0` guard in effectiveFontSizes()/fontSizeOverrides() is the only
+        // thing standing between a corrupt QSettings blob and pixelSize 0 (invisible
+        // text). Every one of these is reachable: getFontSize() returns 0 for a missing
+        // key, the web POST /api/theme/font takes a JSON body, and customFontSizes()
+        // round-trips through JSON where a string silently .toInt()s to 0.
+        QTest::newRow("zero")        << QVariant(0)      << 14;
+        QTest::newRow("negative")    << QVariant(-5)     << 14;
+        QTest::newRow("non-numeric") << QVariant("big")  << 14;
+    }
+
+    void fontSizeOverrides_ignoresGarbageStoredValues() {
+        QFETCH(QVariant, stored);
+        QFETCH(int, expectedEffective);
+        SettingsTheme* theme = m_settings.theme();
+        theme->resetFontSizesToDefault();
+        theme->setCustomFontSizes(QVariantMap{{"labelSize", stored}});
+        // Falls back to the default rather than rendering at 0...
+        QCOMPARE(theme->effectiveFontSizes().value("labelSize").toInt(), expectedEffective);
+        // ...and is not reported as a user override in the startup log.
+        QVERIFY(theme->fontSizeOverrides().isEmpty());
+    }
+
+    void fontSizeOverrides_unknownKeyIsDropped() {
+        // Both accessors iterate fontSizeDefaults(), so a key outside the canonical
+        // domain is silently ignored. Pinning that deliberate choice.
+        SettingsTheme* theme = m_settings.theme();
+        theme->resetFontSizesToDefault();
+        // The reject is now loud, not silent — assert the warning fires too, otherwise
+        // failOnWarning turns intended diagnostics into a red test.
+        QTest::ignoreMessage(QtWarningMsg, "[Font] Ignoring unknown font role: \"bogusSize\"");
+        theme->setFontSize("bogusSize", 99);
+        QVERIFY(!theme->effectiveFontSizes().contains("bogusSize"));
+        QVERIFY(!theme->fontSizeOverrides().contains("bogusSize"));
+        QCOMPARE(theme->effectiveFontSizes().keys(), SettingsTheme::fontSizeDefaults().keys());
+    }
+
+    void setFontSize_clampsToRoleRange() {
+        // POST /api/theme/font accepts a JSON body, so an out-of-range value is reachable
+        // without touching the editor's sliders. Unclamped, timerSize=100000 renders the
+        // app unusable. Bounds live in fontRoles() and are enforced on write.
+        SettingsTheme* theme = m_settings.theme();
+        theme->resetFontSizesToDefault();
+        const auto& role = SettingsTheme::fontRoles().value("timerSize");
+
+        QTest::ignoreMessage(QtWarningMsg, "[Font] Clamped \"timerSize\" 100000 -> 120");
+        theme->setFontSize("timerSize", 100000);
+        QCOMPARE(theme->effectiveFontSizes().value("timerSize").toInt(), role.max);
+
+        QTest::ignoreMessage(QtWarningMsg, "[Font] Clamped \"labelSize\" 1 -> 8");
+        theme->setFontSize("labelSize", 1);
+        QCOMPARE(theme->effectiveFontSizes().value("labelSize").toInt(), role.min > 0
+                 ? SettingsTheme::fontRoles().value("labelSize").min : 8);
+    }
+
+    void themeQmlFontRoleNamesMatchDefaults() {
+        // Guards the C++/QML seam that no compiler checks. Theme.qml indexes
+        // effectiveFontSizes by literal name; this PR removed its `|| 14` fallbacks, so
+        // a rename on either side yields NaN pixelSize app-wide with every other test
+        // still green. Reads the shipped QML rather than a copy of the list.
+        QFile f(QStringLiteral(DECENZA_SOURCE_DIR) + "/qml/Theme.qml");
+        QVERIFY2(f.open(QIODevice::ReadOnly | QIODevice::Text), "cannot open qml/Theme.qml");
+        const QString qml = QString::fromUtf8(f.readAll());
+
+        static const QRegularExpression re(QStringLiteral("effectiveFontSizes\\.(\\w+)"));
+        QStringList referenced;
+        auto it = re.globalMatch(qml);
+        while (it.hasNext())
+            referenced << it.next().captured(1);
+
+        QVERIFY2(!referenced.isEmpty(), "no effectiveFontSizes.<role> references found — "
+                                        "did Theme.qml stop using the shared defaults?");
+        for (const QString& role : std::as_const(referenced)) {
+            QVERIFY2(SettingsTheme::fontSizeDefaults().contains(role),
+                     qPrintable("Theme.qml references effectiveFontSizes." + role
+                                + " which is not a key of SettingsTheme::fontSizeDefaults()"));
+        }
+    }
+
+    void resetFontSizesToDefault_clearsOverrides() {
+        SettingsTheme* theme = m_settings.theme();
+        theme->setFontSize("headingSize", 40);
+        QVERIFY(!theme->fontSizeOverrides().isEmpty());
+        theme->resetFontSizesToDefault();
+        QVERIFY(theme->fontSizeOverrides().isEmpty());
+        QCOMPARE(theme->effectiveFontSizes().value("headingSize").toInt(), 32);
     }
 
 };
