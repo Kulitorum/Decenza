@@ -106,7 +106,7 @@ Item {
         spacing: Theme.scaled(8)
 
         Text {
-            text: "Search Loffee Labs Bean Base"
+            text: TranslationManager.translate("beaninfo.beanbase.searchTitle", "Search Loffee Labs Bean Base")
             color: Theme.textSecondaryColor
             font.pixelSize: Theme.scaled(12)
         }
@@ -174,7 +174,7 @@ Item {
         enabled: root.searchEnabled
         opacity: root.searchEnabled ? 1.0 : 0.6
         placeholder: TranslationManager.translate("beaninfo.beanbase.placeholder", "Search by roaster or bean name")
-        accessibleName: "Search Loffee Labs Bean Base"
+        accessibleName: TranslationManager.translate("beaninfo.beanbase.searchTitle", "Search Loffee Labs Bean Base")
         inputMethodHints: Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase
         rightPadding: Theme.scaled(44)
 

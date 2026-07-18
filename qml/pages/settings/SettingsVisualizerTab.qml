@@ -233,7 +233,7 @@ KeyboardAwareContainer {
 
                         AccessibleMouseArea {
                             anchors.fill: parent
-                            accessibleName: "Sign up at visualizer.coffee. Opens web browser"
+                            accessibleName: TranslationManager.translate("settings.visualizer.accessible.signup", "Sign up at visualizer.coffee. Opens web browser")
                             accessibleItem: signUpLink
                             onAccessibleClicked: Qt.openUrlExternally("https://visualizer.coffee/users/sign_up")
                         }
