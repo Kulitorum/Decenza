@@ -125,17 +125,26 @@ void TranslationManager::scheduleLanguageUpdateCheck()
         return;
     }
 
-    if (info->reachability() == QNetworkInformation::Reachability::Online) {
+    // Wait ONLY when the backend positively says there is no network. Everything else —
+    // including Unknown — attempts the request.
+    //
+    // Unknown is not a synonym for offline: it is what the backend reports when it cannot
+    // tell, and macOS reports exactly that at startup on the machine this was tested on, with
+    // no reachabilityChanged ever following. A first version of this waited for Online and so
+    // would have sat there forever, never running a check the old timer always ran. Local and
+    // Site are treated the same way: the API host is on the internet so they will probably
+    // fail, but attempting and failing is what the timer did, and failure is already handled.
+    if (info->reachability() != QNetworkInformation::Reachability::Disconnected) {
         checkForLanguageUpdate();
         return;
     }
 
-    // Offline at launch. Wait for the transition rather than guessing at a delay — this also
-    // covers the case the old timer could not: a device that only gets a network minutes in
-    // now picks up translations without needing a restart.
+    // Genuinely disconnected. Wait for that to stop being true rather than guessing at a
+    // delay — this also covers the case the old timer could not: a device that only gets a
+    // network minutes in now picks up translations without needing a restart.
     connect(info, &QNetworkInformation::reachabilityChanged, this,
             [this](QNetworkInformation::Reachability reachability) {
-        if (reachability == QNetworkInformation::Reachability::Online)
+        if (reachability != QNetworkInformation::Reachability::Disconnected)
             checkForLanguageUpdate();
     });
 }

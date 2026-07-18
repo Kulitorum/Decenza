@@ -483,6 +483,25 @@ decide with, rather than guessing.
       markup. It does not stop a hostile translation from displaying wrong or abusive WORDS —
       nothing client-side can, and per 7.8h the answer to that is a human uploading a correction.
 
+- [x] 7.8j Caught a regression in 7.8g's own fix, by Jeff asking whether German had been
+      retested after all the later changes. It had not, and looking at the running app's log
+      showed `[Network] initial reachability: Unknown` with NO reachabilityChanged following in
+      the whole session.
+
+      7.8g waited for `Online` specifically. Unknown is not a synonym for offline — it is what
+      the backend reports when it cannot tell, and it is what macOS reports at startup on this
+      machine. So the launch check would have sat waiting for a transition that never came,
+      never running a merge the old 3s timer always ran. Strictly worse than what it replaced,
+      on the very machine it was written on.
+
+      Now waits only on `Disconnected`, the one state that positively means no network.
+      Everything else attempts the request, since failing is already handled and attempting is
+      what the timer did. Local/Site will likely fail against an internet host, and that is
+      fine and matches the previous behaviour.
+
+      The lesson is the one this whole change keeps re-teaching: the code read correctly and
+      the tests passed. Only the log from a real run showed the state it actually gets.
+
 - [ ] 7.8b The glyph class IS statically catchable — `redraw-icon-set` task 4.4 guessed it was not.
       `scripts/check_font_glyph_coverage.py` already does it. Worth landing as a test, but it cannot
       be green until 7.8's 29 sites are fixed, so it lands WITH the fix (no allowlist — an allowlist
