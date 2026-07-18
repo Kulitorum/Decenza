@@ -19,9 +19,12 @@
 
 #include <QtTest>
 #include <QJSValue>
+#include <QMetaProperty>
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QQmlContext>
+
+#include "core/translationmanager.h"
 
 // Minimal stand-in for TranslationManager: one string that changes, exposed both ways.
 class SpikeTranslator : public QObject {
@@ -36,7 +39,7 @@ public:
         : QObject(parent), m_engine(engine) {}
 
     // The actual lookup. Also the C++ entry point — the real change keeps this
-    // callable from C++ (11 call sites) regardless of the QML-facing shape.
+    // callable from C++ (10 call sites) regardless of the QML-facing shape.
     Q_INVOKABLE QString translateString(const QString& key, const QString& fallback) const {
         ++m_lookupCount;
         return m_translations.value(key, fallback);
@@ -82,6 +85,7 @@ private slots:
     void callableIsCachedAcrossEvaluations();
     void callableWorksOutsideBindings();
     void asyncResolutionPatternReRenders();
+    void realTranslateIsANotifyingProperty();
 };
 
 // BASELINE: documents the bug. If this ever starts passing, Qt changed its
@@ -210,6 +214,45 @@ void TestTranslationReactivity::asyncResolutionPatternReRenders()
     // Fetch completes.
     resolver.setTranslation("emoji:1f9cb", "file:///cache/1f9cb.svg");
     QCOMPARE(obj->property("src").toString(), QStringLiteral("file:///cache/1f9cb.svg"));
+}
+
+// THE GUARD (design.md D2). Everything above proves the MECHANISM works on a stand-in;
+// this asserts the real TranslationManager actually uses it.
+//
+// Without this, someone refactoring `translate` back to a plain Q_INVOKABLE would break
+// every translated string in the app — 3,248 bindings silently freezing on whatever
+// language was active at construction — and no other test would notice, because each one
+// still returns the right string when called directly. The defect only shows after a
+// language change, which no unit test performs.
+//
+// Deliberately reflective rather than behavioural: constructing a TranslationManager needs
+// a QNetworkAccessManager and Settings, and pulls in the whole translation-file stack. The
+// property's SHAPE is what the 3,248 bindings depend on, and the shape is what this checks.
+void TestTranslationReactivity::realTranslateIsANotifyingProperty()
+{
+    const QMetaObject* mo = &TranslationManager::staticMetaObject;
+
+    const int idx = mo->indexOfProperty("translate");
+    QVERIFY2(idx >= 0,
+             "TranslationManager has no 'translate' PROPERTY. If it was changed back to a "
+             "Q_INVOKABLE, every translated binding in the app has stopped updating on a "
+             "language change. See translationmanager.h.");
+
+    const QMetaProperty prop = mo->property(idx);
+    QVERIFY2(prop.hasNotifySignal(),
+             "'translate' must have a NOTIFY signal — without one a binding reading it never "
+             "re-evaluates, which is the whole bug this exists to prevent.");
+    QCOMPARE(QByteArray(prop.notifySignal().name()), QByteArray("translationsChanged"));
+
+    // QJSValue is what lets the property hold a callable, so call sites keep the
+    // translate("key", "fallback") syntax unchanged.
+    QCOMPARE(QByteArray(prop.typeName()), QByteArray("QJSValue"));
+
+    // And the C++ entry point must still exist for the 10 non-QML callers.
+    QVERIFY2(mo->indexOfMethod("translateString(QString,QString)") >= 0,
+             "translateString() is gone — C++ callers (updatechecker, blemanager, aimanager, "
+             "aiconversation, livesteamcoach, visualizer*, databasebackupmanager, aiprovider, "
+             "main) route their user-visible strings through it.");
 }
 
 QTEST_MAIN(TestTranslationReactivity)

@@ -2345,7 +2345,7 @@ void BLEManager::shareScaleLog() {
 
 QString BLEManager::translateUiString(const QString& key, const QString& fallback) const {
     if (m_translationManager) {
-        return m_translationManager->translate(key, fallback);
+        return m_translationManager->translateString(key, fallback);
     }
     return fallback;
 }

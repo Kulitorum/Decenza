@@ -1,3 +1,4 @@
+#include <QJSEngine>
 #include "translationmanager.h"
 #include "settings.h"
 #include "settings_ai.h"
@@ -197,7 +198,38 @@ QString TranslationManager::lastError() const
 
 // --- Translation lookup ---
 
-QString TranslationManager::translate(const QString& key, const QString& fallback)
+void TranslationManager::setJsEngine(QJSEngine* engine)
+{
+    m_jsEngine = engine;
+    m_translateFn = QJSValue();  // rebuild against the new engine on next read
+}
+
+QJSValue TranslationManager::translateFn()
+{
+    if (!m_jsEngine) {
+        // Nobody called setJsEngine(). Every translated binding in the app would evaluate to
+        // undefined, which is a startup wiring fault rather than a content problem, so say so.
+        qWarning() << "[i18n] TranslationManager has no QJSEngine — translate() is unavailable "
+                      "from QML. main.cpp must call setJsEngine() before loading QML.";
+        return QJSValue();
+    }
+
+    if (m_translateFn.isUndefined() || m_translateFn.isNull()) {
+        // Built once and cached. Bindings re-evaluate on every translationsChanged, and
+        // rebuilding the wrapper each time would allocate on every language change.
+        //
+        // CppOwnership is required, not defensive: newQObject() hands the object to the JS
+        // engine's GC by default, and TranslationManager is a stack object in main() that
+        // outlives nothing. Without this the engine could collect it out from under the
+        // callable held by 3,248 live bindings.
+        QJSEngine::setObjectOwnership(this, QJSEngine::CppOwnership);
+        QJSValue wrapper = m_jsEngine->newQObject(this);
+        m_translateFn = wrapper.property(QStringLiteral("translateString"));
+    }
+    return m_translateFn;
+}
+
+QString TranslationManager::translateString(const QString& key, const QString& fallback)
 {
     // Skip empty/whitespace keys or fallbacks
     if (key.trimmed().isEmpty() || fallback.trimmed().isEmpty()) {

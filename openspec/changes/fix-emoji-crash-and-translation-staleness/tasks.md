@@ -69,16 +69,17 @@ re-render, offline behaviour, eviction) no longer exist.
 
 ## 4. Translation reactivity (blocked on 1.5)
 
-- [ ] 4.1 Implement whichever mechanism task 1 selected.
-- [ ] 4.2 Rename the C++ entry point (`translateString()`) and update the 11 C++ callers:
+- [x] 4.1 Implement whichever mechanism task 1 selected.
+- [x] 4.2 Rename the C++ entry point (`translateString()`) and update the 10 C++ callers (I said
+      11 earlier — miscounted a comment line as a call):
       `main.cpp`, `updatechecker`, `databasebackupmanager`, `blemanager`, `visualizerimporter`,
       `visualizeruploader`, `aiprovider`, `aimanager`, `aiconversation`, `livesteamcoach`.
-- [ ] 4.3 Add the regression guard test per D2 — under D1, assert the QML-facing `translate` is a
+- [x] 4.3 Add the regression guard test per D2 — under D1, assert the QML-facing `translate` is a
       notifying property; under the codemod fallback, assert no bare `translate(` survives in
       `qml/`.
-- [ ] 4.4 Verify the guard actually fails: deliberately revert the mechanism, watch the test go
+- [x] 4.4 Verify the guard actually fails: deliberately revert the mechanism, watch the test go
       red, then restore. Do not claim the guard works without having seen it fail.
-- [ ] 4.5 Confirm `Tr.qml` still behaves correctly and decide whether its `translationVersion`
+- [x] 4.5 Confirm `Tr.qml` still behaves correctly and decide whether its `translationVersion`
       touch stays (design leans yes, as documentation).
 
 ## 5. Documentation

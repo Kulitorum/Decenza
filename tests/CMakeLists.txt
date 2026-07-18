@@ -134,8 +134,12 @@ add_library(decenza_testlib STATIC
 )
 set_target_properties(decenza_testlib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)
 target_compile_definitions(decenza_testlib PUBLIC DECENZA_TESTING)
+# Qt6::Qml is needed for QJSValue/QJSEngine: TranslationManager exposes `translate` as a
+# QJSValue property holding a callable, which is what makes translated bindings re-evaluate
+# on a language change (see translationmanager.h). PUBLIC so every test target inherits it.
+find_package(Qt6 REQUIRED COMPONENTS Qml)
 target_link_libraries(decenza_testlib PUBLIC
-    Qt6::Core Qt6::Bluetooth Qt6::Sql Qt6::Network Qt6::Gui
+    Qt6::Core Qt6::Bluetooth Qt6::Sql Qt6::Network Qt6::Gui Qt6::Qml
 )
 target_include_directories(decenza_testlib PUBLIC
     ${CMAKE_SOURCE_DIR}/src
@@ -330,7 +334,9 @@ add_decenza_test(tst_saw_settings
 # --- tst_translationreactivity: QML binding dependency on translate/emoji lookups ---
 # Needs a real QQmlEngine to assert that bindings re-evaluate, so it links Qt6::Qml
 # on top of what add_decenza_test provides. Guards the mechanism that keeps 3,248
-# translated strings from silently freezing after a language change.
+# translated strings from silently freezing after a language change. TranslationManager
+# itself comes from decenza_testlib, so realTranslateIsANotifyingProperty() checks the
+# SHIPPING meta-object rather than the spike's stand-in.
 find_package(Qt6 REQUIRED COMPONENTS Qml)
 add_decenza_test(tst_translationreactivity
     tst_translationreactivity.cpp

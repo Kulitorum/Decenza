@@ -1311,7 +1311,7 @@ int main(int argc, char *argv[])
     for (const QString& providerId : aiManager.availableProviders()) {
         const QString hint = aiManager.modelHint(providerId);
         if (!hint.isEmpty())
-            translationManager.translate("settings.ai.modelHint." + providerId, hint);
+            translationManager.translateString("settings.ai.modelHint." + providerId, hint);
     }
 
     // Connect FlowScale to graph initially (will be disconnected if physical scale found)
@@ -2792,6 +2792,12 @@ int main(int argc, char *argv[])
     QQmlContext* context = engine.rootContext();
     context->setContextProperty("Settings", &settings);
     context->setContextProperty("TranslationManager", &translationManager);
+    // Required before QML loads: TranslationManager.translate is a QJSValue property holding a
+    // callable, and it needs an engine to build that callable from. It is exposed via
+    // setContextProperty rather than created by the engine, so qmlEngine(this) is null and the
+    // engine cannot be discovered from inside. Without this every translated string in the app
+    // evaluates to undefined. See translationmanager.h.
+    translationManager.setJsEngine(&engine);
     // Lets Theme.qml ask whether an emoji asset exists before emitting a path to it —
     // without this an emoji outside the bundled set becomes an unresolvable image
     // reference (drawn as neither the emoji nor nothing). See emojiassets.h.
