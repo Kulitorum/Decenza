@@ -186,10 +186,63 @@ guarantee fails at build time rather than on a user's offline first run.
 Note this also means a *user-selected* emoji (from the picker, in a widget label) is app-authored
 for this purpose: the picker's set ships complete, so choosing one never needs the network.
 
-**Open: the exact CDN source and URL template are not yet settled.** `twitter/twemoji` is archived;
-the maintained fork is `jdecked/twemoji`, and jsDelivr can serve either from GitHub. The specific
-URL pattern and its stability need checking before it is hard-coded — pinning a tag rather than
-tracking `latest` is the likely answer, so upstream changes cannot alter rendering underneath us.
+**CDN source settled (verified 2026-07-18 by fetching, not by assumption):**
+
+```
+https://cdn.jsdelivr.net/gh/jdecked/twemoji@17.0.3/assets/svg/<hex>[-<hex>...].svg
+```
+
+`scripts/download_emoji.py` pins `twitter/twemoji@14.0.2`, which is where the bundled 745 came
+from. Upstream status, checked against the GitHub API rather than assumed (an earlier draft of this
+document claimed `twitter/twemoji` was archived — **it is not**):
+
+| | `twitter/twemoji` | `jdecked/twemoji` |
+|---|---|---|
+| Latest release | v14.0.2, **March 2022** | v17.0.3, **June 2026** |
+| Since then | a README edit; a v14.0.3 released and reverted | v16.0.1, v17.0.0–17.0.3 |
+
+Not archived, but dormant where it matters: no emoji release in four years. The functional
+consequence is decisive — `twitter/twemoji@14.0.2` **404s on `1fae8`** (🫨, Unicode 15), which is
+precisely the case a CDN fallback exists to serve. `jdecked/twemoji` is the maintained continuation
+and serves it.
+
+Mixing the two sources is safe, and this was checked rather than assumed: `2615.svg` is
+**byte-identical** (SHA-256 `8b8afd8f…31ff`) across `twitter@14.0.2`, `jdecked@15.1.0`, `16.0.1`
+and `17.0.3`. The fork is a true continuation rather than a redesign, so a bundled asset and a
+fetched one cannot disagree visually — which matters because the bundled set is 14.0.2 artwork.
+(In practice they never even meet: bundled is checked first, so anything fetched is by definition
+not bundled.)
+
+Alternatives rejected: **OpenMoji** is actively maintained but CC-BY-SA, adding a share-alike
+obligation Twemoji's MIT does not; **Noto Emoji** is OFL and Google-maintained. Either would mean
+redrawing all 745 bundled assets in a different visual language for no functional gain.
+
+URL rules confirmed against real requests:
+- Codepoints are lowercase hex, hyphen-joined: `1f44d-1f3fd` (skin tone), `1f469-200d-1f4bb` (ZWJ),
+  `1f1fa-1f1f8` (flag) — all 200.
+- **U+FE0F must be stripped.** `31-20e3` → 200, `31-fe0f-20e3` → 404. `emojiToImage()` and
+  `replaceEmojiWithImg()` already strip it, so this is compatible — but it is a hard requirement on
+  the resolver's key derivation, not an incidental detail.
+
+Pin the tag. Tracking `latest` would let an upstream redesign change how the app renders with no
+commit on our side.
+
+### D4a: `_isEmoji()` has coverage gaps that leave the crash path open
+
+Found while verifying the URL patterns. `_isEmoji()` matches by codepoint range, and several
+sequences that macOS renders with Apple Color Emoji fall outside every range it lists:
+
+- **Keycaps** — `1️⃣` is `U+0031 U+FE0F U+20E3`. The base is ASCII `1`; neither it nor U+20E3 is in
+  any range, so the sequence is never rewritten and reaches CoreText as a colour glyph.
+- **`©️ ®️ ™️`** — U+00A9, U+00AE, U+2122 followed by U+FE0F. Same story.
+
+These are the crash this change exists to prevent, reached by a path the change does not currently
+close. The general rule that catches them: **a codepoint followed by U+FE0F is being requested in
+emoji presentation**, so treat it as emoji regardless of its range — plus recognising U+20E3 as a
+sequence continuation.
+
+Scope note: this is a pre-existing defect, not one introduced here, but `Theme.qml` is a file this
+change already edits and the gap defeats the change's own purpose, so it is fixed here.
 
 ### D6: Narrow the CLAUDE.md glyph guidance — do not delete it
 

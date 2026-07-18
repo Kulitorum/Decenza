@@ -38,10 +38,12 @@
 
 ## 3. Emoji asset resolution (blocked on 1.4)
 
-- [ ] 3.1 Settle the CDN source and URL template. `twitter/twemoji` is archived; check
-      `jdecked/twemoji` via jsDelivr, confirm the SVG path pattern for a real multi-codepoint
-      sequence (e.g. a skin-tone or ZWJ emoji), and pin a tag rather than tracking `latest`.
-      Verify by actually fetching two or three, not by assuming the pattern.
+- [x] 3.1 Settle the CDN source and URL template. DONE: `jdecked/twemoji@17.0.3` via jsDelivr.
+      `twitter/twemoji` is NOT archived (an earlier note here said it was — wrong), but its last
+      release is v14.0.2 from March 2022 and it 404s on Unicode 15+. The fork is byte-identical
+      for overlapping assets, so bundled 14.0.2 artwork and fetched 17.0.3 artwork cannot
+      disagree. Skin-tone, ZWJ, flag, keycap and `©` sequences all verified by real requests;
+      U+FE0F must be stripped from the key (`31-20e3` 200, `31-fe0f-20e3` 404).
 - [ ] 3.2 Implement the resolver: bundled → disk cache → fetch → strip, with a negative cache so a
       failed emoji is not refetched on every re-render.
 - [ ] 3.3 Give the resolver a notifying property per D4 and route `emojiToImage()` and

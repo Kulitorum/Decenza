@@ -31,6 +31,8 @@ private slots:
     void replaceEmojiEscapesByDefault();
     void replaceEmojiPreservesMarkupWhenAllowed();
     void emojiBecomesImgTag();
+    void variationSelectorSequencesAreRewritten();
+    void strayVariationSelectorDoesNotCaptureText();
 
 private:
     QJSEngine m_engine;
@@ -67,15 +69,17 @@ void TestTextEscaping::initTestCase()
 
     const QString escapeHtml = extract("escapeHtml");
     const QString isEmoji = extract("_isEmoji");
+    const QString isEmojiPres = extract("_isEmojiPresentation");
     const QString replaceEmoji = extract("replaceEmojiWithImg");
     QVERIFY2(!escapeHtml.isEmpty(), "escapeHtml() not found in Theme.qml");
     QVERIFY2(!isEmoji.isEmpty(), "_isEmoji() not found in Theme.qml");
+    QVERIFY2(!isEmojiPres.isEmpty(), "_isEmojiPresentation() not found in Theme.qml");
     QVERIFY2(!replaceEmoji.isEmpty(), "replaceEmojiWithImg() not found in Theme.qml");
 
-    const QString program = QStringLiteral("(function(){ %1\n%2\n%3\n"
+    const QString program = QStringLiteral("(function(){ %1\n%2\n%3\n%4\n"
                                            "return { escapeHtml: escapeHtml,"
                                            "         replaceEmojiWithImg: replaceEmojiWithImg }; })()")
-                                .arg(escapeHtml, isEmoji, replaceEmoji);
+                                .arg(escapeHtml, isEmoji, isEmojiPres, replaceEmoji);
 
     m_theme = m_engine.evaluate(program);
     QVERIFY2(!m_theme.isError(), qPrintable(m_theme.toString()));
@@ -140,6 +144,40 @@ void TestTextEscaping::emojiBecomesImgTag()
     QVERIFY2(escaped.contains("qrc:/emoji/2615.svg"), qPrintable(escaped));
     QVERIFY2(allowed.contains("qrc:/emoji/2615.svg"), qPrintable(allowed));
     QVERIFY2(!escaped.contains(QString::fromUtf8("☕")), "raw emoji codepoint survived the rewrite");
+}
+
+// Range checks alone miss these: "1️⃣" starts at ASCII U+0031 and "©️" is U+00A9. Both render
+// from Apple Color Emoji ONLY because of the trailing U+FE0F, so both reached CoreText as
+// colour glyphs — the crash path this whole change exists to close. The variation selector
+// is the signal. Filenames must have FE0F stripped: 31-20e3.svg exists upstream,
+// 31-fe0f-20e3.svg does not (verified against jdecked/twemoji@17.0.3).
+void TestTextEscaping::variationSelectorSequencesAreRewritten()
+{
+    // Build the sequences explicitly from codepoints so the source file's own encoding
+    // cannot quietly change what is being tested.
+    const QString keycap1 = QString(QChar(0x0031)) + QChar(0xFE0F) + QChar(0x20E3);
+    const QString copyright = QString(QChar(0x00A9)) + QChar(0xFE0F);
+    const QString trademark = QString(QChar(0x2122)) + QChar(0xFE0F);
+
+    const QString k = call("replaceEmojiWithImg", {QJSValue(keycap1), QJSValue(16)});
+    QVERIFY2(k.contains("qrc:/emoji/31-20e3.svg"), qPrintable("keycap: " + k));
+    QVERIFY2(!k.contains("fe0f"), qPrintable("FE0F must be stripped from the asset key: " + k));
+
+    const QString c = call("replaceEmojiWithImg", {QJSValue(copyright), QJSValue(16)});
+    QVERIFY2(c.contains("qrc:/emoji/a9.svg"), qPrintable("copyright: " + c));
+
+    const QString t = call("replaceEmojiWithImg", {QJSValue(trademark), QJSValue(16)});
+    QVERIFY2(t.contains("qrc:/emoji/2122.svg"), qPrintable("trademark: " + t));
+}
+
+// The variation-selector rule must be bounded: a stray U+FE0F after ordinary text must not
+// drag that character into an image reference.
+void TestTextEscaping::strayVariationSelectorDoesNotCaptureText()
+{
+    const QString letterThenVs = QString("a") + QChar(0xFE0F) + QString("bc");
+    const QString out = call("replaceEmojiWithImg", {QJSValue(letterThenVs), QJSValue(16)});
+    QVERIFY2(!out.contains("<img"), qPrintable("a letter must not become an image: " + out));
+    QCOMPARE(out, QStringLiteral("abc"));  // stray selector dropped, text intact
 }
 
 QTEST_MAIN(TestTextEscaping)

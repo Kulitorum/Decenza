@@ -69,9 +69,34 @@ QtObject {
         if (cp >= 0x1F100 && cp <= 0x1F1FF) return true
         // Skin tone modifiers (not standalone but may appear)
         if (cp >= 0x1F3FB && cp <= 0x1F3FF) return true
+        // Combining enclosing keycap — the tail of "1️⃣" (U+0031 U+FE0F U+20E3). Without
+        // this the whole sequence falls through every range above (the base is ASCII "1")
+        // and reaches CoreText as a colour glyph, which is the crash this file prevents.
+        // See _isEmojiPresentation for the base character.
+        if (cp === 0x20E3) return true
         // Variation selector 16 (emoji presentation) — skip, handled separately
         // ZWJ (U+200D) — skip, only a joiner
         return false
+    }
+
+    // True when `cp` is a character that this text is asking to render in EMOJI
+    // presentation — i.e. it is followed by U+FE0F.
+    //
+    // Range checks alone cannot catch these: "©️" is U+00A9 (Latin-1 copyright sign) and
+    // "1️⃣" starts at U+0031 (ASCII digit one). Both are ordinary text codepoints that macOS
+    // renders from Apple Color Emoji ONLY because of the trailing U+FE0F — which is exactly
+    // the colour-glyph path that crashes the render thread. The variation selector is the
+    // signal, so use it rather than trying to enumerate every base character.
+    function _isEmojiPresentation(text, i, cp) {
+        var next = i + (cp > 0xFFFF ? 2 : 1)
+        if (next >= text.length || text.codePointAt(next) !== 0xFE0F) return false
+        // Bound it. A stray U+FE0F after ordinary text must not turn that character into
+        // an image reference — only characters that actually HAVE an emoji presentation
+        // qualify: the keycap bases (0-9, # and *) and symbols from U+00A9 up. ASCII
+        // letters are excluded, so "a️" stays text.
+        if (cp >= 0x30 && cp <= 0x39) return true   // keycap digits
+        if (cp === 0x23 || cp === 0x2A) return true // keycap # and *
+        return cp >= 0xA9                            // ©, ®, ™ and every symbol above
     }
 
     // Replace emoji Unicode characters in a string with RichText <img> tags
@@ -96,7 +121,7 @@ QtObject {
         while (i < text.length) {
             var cp = text.codePointAt(i)
             var charLen = cp > 0xFFFF ? 2 : 1
-            if (_isEmoji(cp)) {
+            if (_isEmoji(cp) || _isEmojiPresentation(text, i, cp)) {
                 // Collect full emoji sequence (multi-codepoint with ZWJ, modifiers)
                 var emojiCps = [cp]
                 var j = i + charLen
