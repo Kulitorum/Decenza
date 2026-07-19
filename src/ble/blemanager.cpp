@@ -110,7 +110,13 @@ BLEManager::BLEManager(QObject* parent)
     m_adapterRecoverySafetyTimer = new QTimer(this);
     m_adapterRecoverySafetyTimer->setSingleShot(true);
     m_adapterRecoverySafetyTimer->setInterval(kAdapterRecoverySafetyMs);
+    // [[maybe_unused]] on the capture: the whole body is #ifndef Q_OS_IOS, so on
+    // iOS this lambda captures `this` and uses nothing. Kept as one lambda
+    // rather than #if-ing the connect away, because the timer is still
+    // constructed and armed above on every platform — removing only the
+    // handler would leave a timer that fires into nothing, which is worse.
     connect(m_adapterRecoverySafetyTimer, &QTimer::timeout, this, [this]() {
+        Q_UNUSED(this)
 #ifndef Q_OS_IOS
         if (!m_adapterRecoveryInFlight || !m_localDevice) return;
         const bool adapterOff = m_localDevice->hostMode() == QBluetoothLocalDevice::HostPoweredOff;

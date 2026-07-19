@@ -2174,13 +2174,19 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         int lastIndex = 0;
         QStringList bodyLines;
         if (WebDebugLogger::instance()) {
-            lines = WebDebugLogger::instance()->getLines(afterIndex, &lastIndex);
+            bodyLines = WebDebugLogger::instance()->getLines(afterIndex, &lastIndex);
+        } else {
+            // No logger: say so rather than returning an empty success. An empty
+            // "lines" array is indistinguishable from "the log is empty".
+            sendJson(socket, QJsonDocument(QJsonObject{
+                {"error", "debug logger unavailable"}}).toJson(QJsonDocument::Compact));
+            return;
         }
 
         QJsonObject result;
         result["lastIndex"] = lastIndex;
         QJsonArray linesArray;
-        for (const QString& line : std::as_const(lines)) {
+        for (const QString& line : std::as_const(bodyLines)) {
             linesArray.append(line);
         }
         result["lines"] = linesArray;

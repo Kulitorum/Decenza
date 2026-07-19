@@ -1365,9 +1365,9 @@ QDateTime ShotServer::extractImageDate(const QString& imagePath)
                     int second = match.captured(6).toInt();
 
                     QDateTime parsedDt(QDate(year, month, day), QTime(hour, minute, second));
-                    if (dt.isValid() && year >= 1990 && year <= 2100) {
-                        qDebug() << "Extracted EXIF date:" << dt;
-                        return dt;
+                    if (parsedDt.isValid() && year >= 1990 && year <= 2100) {
+                        qDebug() << "Extracted EXIF date:" << parsedDt;
+                        return parsedDt;
                     }
                 }
             }
