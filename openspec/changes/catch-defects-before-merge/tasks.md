@@ -3,14 +3,14 @@
 - [x] 1.1 Add an `ENABLE_UBSAN` option to `CMakeLists.txt` beside the existing ASan block (~lines 200-217), adding `-fsanitize=undefined -fno-omit-frame-pointer` to compile flags and `-fsanitize=undefined` to exe and shared linker flags, with the MSVC branch left unsupported (MSVC has no UBSan)
 - [x] 1.2 Keep the existing ASan auto-enable behaviour byte-for-byte: Debug + single-config generator + non-Android + non-Apple still turns ASan on with neither option named
 - [x] 1.3 Confirm the multi-config guard still holds — configure with Xcode and verify no `-fsanitize` flag reaches a Release build
-- [ ] 1.4 Verify locally: configure with `-DENABLE_UBSAN=ON -DBUILD_TESTS=ON`, build, and confirm the flag is on the compile line for a test target
+- [x] 1.4 Verify locally: configure with `-DENABLE_UBSAN=ON -DBUILD_TESTS=ON`, build, and confirm the flag is on the compile line for a test target
 
 ## 2. Measure before committing to a budget
 
-- [ ] 2.1 Run the full `ctest` suite locally with UBSan enabled and record total wall-clock time plus the slowest ten tests, for comparison against the current ~6 min / `tst_dbmigration` ~350 s / `tst_coffeebags` ~350 s baseline
-- [ ] 2.2 Record every UBSan diagnostic the first clean run produces — this is the answer to the design's "is the initial run clean?" open question and decides whether the CI job can start blocking
-- [ ] 2.3 Run the suite twice more under UBSan to see whether `tst_settling` or `tst_decentscalewifi` flake more under instrumentation than they do plain
-- [ ] 2.4 Write the measured numbers into the design's Open Questions section, replacing the placeholders, so the decision trail is not lost
+- [x] 2.1 Run the full `ctest` suite locally with UBSan enabled and record total wall-clock time plus the slowest ten tests, for comparison against the current ~6 min / `tst_dbmigration` ~350 s / `tst_coffeebags` ~350 s baseline
+- [x] 2.2 Record every UBSan diagnostic the first clean run produces — this is the answer to the design's "is the initial run clean?" open question and decides whether the CI job can start blocking
+- [x] 2.3 Run the suite twice more under UBSan to see whether `tst_settling` or `tst_decentscalewifi` flake more under instrumentation than they do plain
+- [x] 2.4 Write the measured numbers into the design's Open Questions section, replacing the placeholders, so the decision trail is not lost
 
 ## 3. Pre-merge CI workflow
 
@@ -33,9 +33,9 @@
 
 ## 5. ASan gets executed somewhere
 
-- [ ] 5.1 Decide from the 2.1 measurement whether ASan fits per-PR or belongs on a nightly `schedule:` trigger, and record the reasoning
-- [ ] 5.2 Wire up the chosen cadence so the existing ASan configuration actually runs instead of remaining dead configuration
-- [ ] 5.3 Make the ASan result visible without opening the workflow file to check whether it ran
+- [x] 5.1 Decide from the 2.1 measurement whether ASan fits per-PR or belongs on a nightly `schedule:` trigger, and record the reasoning
+- [x] 5.2 Wire up the chosen cadence so the existing ASan configuration actually runs instead of remaining dead configuration
+- [x] 5.3 Make the ASan result visible without opening the workflow file to check whether it ran
 
 ## 6. Turn on `-Wall -Wextra -Werror`, then shrink the exemption list
 

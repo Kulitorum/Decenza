@@ -117,9 +117,23 @@ The one thing the exemption list does not cover is a *new* warning in a class th
 
 Rollback at any step is deleting a workflow file or setting the option default back to `OFF`; nothing here changes application code or release behaviour.
 
-## Open Questions
+## Open Questions — resolved by measurement
 
-- Instrumented suite runtime — unknown until measured. Determines whether ASan can be per-PR or must be nightly, and whether the full suite fits the sanitized run.
-- Is the initial UBSan run clean? Determines whether step 4 is days or weeks away.
-- Does `prune-caches.yml`'s `workflow_run` trigger already cover a new workflow, or does it need naming explicitly?
+Measured on macOS arm64 (M-series, 10 cores), Release + `-DENABLE_UBSAN=ON`, `ctest -j10 --repeat until-pass:3`, three consecutive runs. CI numbers will differ — the runner is slower and colder — but the *ratios* are what these questions turned on.
+
+**Instrumented suite runtime — a non-issue.** 34.1 s, 31.8 s, 31.9 s across the three runs, against the ~30 s documented parallel baseline: roughly **1.1x**, well under the 1.2-2x the design budgeted for. The slowest tests are unchanged in rank and barely moved — `tst_coffeebags` 32.4 s, `tst_dbmigration` 28.8 s, `tst_decentscalewifi` 22.5 s, `tst_beanbaseclient` 10.2 s, `tst_scaleprotocol` 6.7 s, `tst_settling` 3.2 s, then everything else under 3 s. Note the ~350 s figure quoted in the proposal for the two slow tests is a *CI* number; locally they are ~30 s. Nothing needs to be subsetted or moved to nightly, so task 4.4's contingency does not fire.
+
+**The initial UBSan run is clean.** Zero diagnostics, across all three runs, with `log_path` capturing anything the sanitizer emitted (no log files were produced at all). So the job can go blocking as soon as its CI runtime is known — it does not have to sit non-blocking waiting for a backlog to be cleared.
+
+Because zero findings is exactly what a *broken* sanitizer setup also looks like, this was confirmed by negative control rather than assumed: a deliberate signed overflow compiled with the same flags reports `runtime error: signed integer overflow` and — critically — **exits 0** under UBSan's defaults, and exits 134 under the `halt_on_error=1` the workflow sets. The instrumentation works, and the design's insistence on `halt_on_error=1` is confirmed as load-bearing rather than defensive.
+
+**No flake under instrumentation.** All 82 tests passed on all three runs; neither `tst_settling` (3.1-3.2 s, stable) nor `tst_decentscalewifi` (22.1-22.5 s) needed a retry. `--repeat until-pass:3` is kept anyway — it exists for CI contention, which is not reproducible locally.
+
+**ASan: nightly, not per-PR.** Given the small test-time overhead above, the argument against per-PR ASan is not test runtime — it is that ASan objects never hash-match UBSan objects, so a second sanitizer means a second full compile and a second ccache generation on every pull request. The *build* is what does not fit the budget. Hence `nightly-asan.yml` on a 04:23 UTC cron, offset from the prune cron.
+
+**`prune-caches.yml` needed naming explicitly.** Its `workflow_run` trigger enumerates workflows by name, so a new one is not covered automatically; both `Pre-merge verification` and the ASan job were added to that list and to the in-progress skip gate.
+
+## Open Questions — still open
+
+- Instrumented runtime *on the CI runner*, which is the number the budget in the `pre-merge-verification` spec actually refers to. Read it off the first real runs before flipping the job to a required check.
 - Should the pre-merge job also run the three text-invariant scripts, folding `text-invariants.yml` into it, or stay separate? Separate keeps the fast linters fast; folding reduces workflow count.
