@@ -104,15 +104,10 @@ jobs:
           echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/$QT_NDK_VERSION" >> $GITHUB_ENV
 
       - name: Set up ccache
-        uses: hendrikmuhs/ccache-action@v1.2.23
+        uses: ./.github/actions/setup-compiler-cache
         with:
-          # use_cache=false (nightly) must not skip this step — it is what
-          # INSTALLS the compiler cache, and later steps still invoke it;
-          # skipping it failed with 'ccache: command not found' (exit 127).
-          # The tool stays installed and the CACHE is defeated instead: a key
-          # that cannot match restores nothing, save: false writes nothing.
-          key: ${{ (github.event_name == 'workflow_dispatch' && !inputs.use_cache) && format('cold-no-restore-{0}', github.run_id) || 'android-arm64' }}
-          save: ${{ github.event_name != 'workflow_dispatch' || inputs.use_cache }}
+          key: 'android-arm64'
+          use_cache: ${{ inputs.use_cache }}
           # At 500M the cache sat at 99.8% full and evicted at save time
           # (a full build is ~600 objects ≈ one cache-full). 1G fits in the
           # repo cache budget now that prune-caches.yml keeps 1 copy/group.

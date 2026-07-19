@@ -98,17 +98,11 @@ jobs:
           Add-Content $env:GITHUB_PATH $ninja.DirectoryName
 
       - name: Set up sccache
-        uses: hendrikmuhs/ccache-action@v1.2.23
+        uses: ./.github/actions/setup-compiler-cache
         with:
           variant: sccache
-          # use_cache=false (nightly) must not skip this step — it is what
-          # INSTALLS the compiler cache, and later steps still invoke it;
-          # skipping it failed with 'ccache: command not found' (exit 127).
-          # The tool stays installed and the CACHE is defeated instead: a key
-          # that cannot match restores nothing, save: false writes nothing.
-          key: ${{ (github.event_name == 'workflow_dispatch' && !inputs.use_cache) && format('cold-no-restore-{0}', github.run_id) || 'sccache-windows-x64-qt6.11.1-vs2026' }}
-          save: ${{ github.event_name != 'workflow_dispatch' || inputs.use_cache }}
-          max-size: 500M
+          key: 'sccache-windows-x64-qt6.11.1-vs2026'
+          use_cache: ${{ inputs.use_cache }}
 
       - name: Locate OpenSSL 3
         id: openssl

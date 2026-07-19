@@ -95,7 +95,7 @@ jobs:
           cache: false
 
       - name: Set up ccache
-        uses: hendrikmuhs/ccache-action@v1.2.23
+        uses: ./.github/actions/setup-compiler-cache
         with:
           # Key includes a shim-revision tag (s2 = "shim revision 2: also
           # unsets IPHONEOS_DEPLOYMENT_TARGET"). Bump this whenever the
@@ -104,14 +104,8 @@ jobs:
           # %compiler% -v) sees the same banner from clang.real regardless
           # of which env vars the shim drops, so a key bump is the only
           # reliable way to invalidate.
-          # use_cache=false (nightly) must not skip this step — it is what
-          # INSTALLS the compiler cache, and later steps still invoke it;
-          # skipping it failed with 'ccache: command not found' (exit 127).
-          # The tool stays installed and the CACHE is defeated instead: a key
-          # that cannot match restores nothing, save: false writes nothing.
-          key: ${{ (github.event_name == 'workflow_dispatch' && !inputs.use_cache) && format('cold-no-restore-{0}', github.run_id) || 'ios-arm64-xcode26.4.1-s2' }}
-          save: ${{ github.event_name != 'workflow_dispatch' || inputs.use_cache }}
-          max-size: 500M
+          key: 'ios-arm64-xcode26.4.1-s2'
+          use_cache: ${{ inputs.use_cache }}
 
       - name: Configure ccache for CI
         # Run %compiler% -v so the hash captures the real compiler the shim

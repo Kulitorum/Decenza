@@ -83,16 +83,10 @@ jobs:
           cache-key-prefix: 'qt-linux-v4'
 
       - name: Set up ccache
-        uses: hendrikmuhs/ccache-action@v1.2.23
+        uses: ./.github/actions/setup-compiler-cache
         with:
-          # use_cache=false (nightly) must not skip this step — it is what
-          # INSTALLS ccache, and later steps still invoke it; skipping it
-          # failed the build with 'ccache: command not found' (exit 127).
-          # So the tool stays installed and the CACHE is defeated instead:
-          # a key that cannot match restores nothing, and save: false
-          # writes nothing. Cold build, no cache churn, ccache on PATH.
-          key: ${{ (github.event_name == 'workflow_dispatch' && !inputs.use_cache) && format('cold-no-restore-{0}', github.run_id) || 'linux-x86_64' }}
-          save: ${{ github.event_name != 'workflow_dispatch' || inputs.use_cache }}
+          key: 'linux-x86_64'
+          use_cache: ${{ inputs.use_cache }}
 
       - name: Configure ccache for CI
         run: ccache --set-config=compiler_check=content
