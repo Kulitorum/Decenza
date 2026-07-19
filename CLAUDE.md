@@ -59,7 +59,7 @@ Read [`docs/SHOT_REVIEW.md`](https://github.com/Kulitorum/Decenza/blob/main/docs
 
 **There is no pull-request CI gate — run the full suite locally before opening a PR.** That is the gate. `nightly-sanitizers.yml` re-runs the suite on `main` each night under UBSan and ASan. Platform-guarded code (`#ifdef Q_OS_IOS` etc.) is compiled only by the tag-push release workflows, so verify platform-specific changes with a CI test build of that platform (see `docs/CLAUDE_MD/CI_CD.md`).
 
-**Debug builds are sanitizer-instrumented automatically** (UBSan on all desktop platforms, ASan additionally on non-Apple), so a normal local test run already reports undefined behaviour. Release builds are untouched.
+**Debug builds are sanitizer-instrumented automatically** — ASan *and* UBSan on every desktop platform including macOS, so a normal local test run already reports undefined behaviour and memory errors. UBSan is in recovering mode there (it reports and continues); an explicit `-DENABLE_UBSAN=ON` gives the halting mode CI uses. Release builds are untouched.
 
 ## Project Structure
 

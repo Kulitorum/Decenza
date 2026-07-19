@@ -56,8 +56,9 @@ option(ENABLE_ASAN "Enable Address Sanitizer" OFF)
 # misaligned loads, out-of-range enum/bool values, etc.
 # Enable in Qt Creator: Projects → Build → CMake → add ENABLE_UBSAN=ON
 # Or configure from CLI: cmake ... -DENABLE_UBSAN=ON
-# The pre-merge CI job builds with this ON; off by default so routine local
-# builds are uninstrumented. Not supported on MSVC (no UBSan there).
+# nightly-sanitizers.yml builds with this ON (halting mode). Debug builds
+# auto-enable it in RECOVERING mode; see the block further down. Not supported
+# on MSVC (no UBSan there).
 option(ENABLE_UBSAN "Enable Undefined Behavior Sanitizer" OFF)
 
 # Optional features (Quick3D not available on all platforms, e.g. Raspberry Pi)
@@ -243,9 +244,10 @@ if(ENABLE_ASAN OR (NOT CMAKE_CONFIGURATION_TYPES AND CMAKE_BUILD_TYPE STREQUAL "
     endif()
 endif()
 
-# Undefined Behavior Sanitizer - opt-in only (-DENABLE_UBSAN=ON), never
-# auto-enabled, so a routine local build carries no instrumentation. The
-# pre-merge CI job turns it on to run the test suite instrumented.
+# Undefined Behavior Sanitizer. Auto-enabled for Debug builds (see the block
+# below) and available anywhere via -DENABLE_UBSAN=ON; a Release build carries
+# no instrumentation unless asked. The nightly job turns it on explicitly to run
+# the suite in HALTING mode — see the recover/halt split further down.
 #
 # -fno-sanitize-recover=all is what makes a finding FAIL rather than warn.
 # UBSan's default is report-and-continue: a run can print undefined behaviour
@@ -269,10 +271,10 @@ endif()
 # suite is run locally before every pull request and there is no CI gate — so
 # instrumenting the Debug build instruments the run that already happens.
 #
-# Note the existing ASan condition above excludes APPLE, which meant that on
-# macOS — the platform this is developed on — a Debug build carried NO
-# sanitizer at all. UBSan is verified working on macOS (the full 83-test suite
-# passes instrumented), so there is no reason to exclude Apple here.
+# The ASan condition above used to exclude APPLE, so a macOS Debug build once
+# carried no sanitizer at all. This branch removed that exclusion (see the
+# comment on the ASan block), so macOS Debug now gets BOTH. UBSan is verified
+# working there — the full suite passes instrumented.
 #
 # Android is excluded for the same reason ASan excludes it: the runtime needs
 # packaging into the APK (wrap.sh + shared lib) that this file does not do.
@@ -360,6 +362,20 @@ endif()
 # so the invariants they document go unchecked in exactly the run built to
 # check invariants.
 if(ENABLE_ASAN OR ENABLE_UBSAN)
+    # Tell the C++ side which sanitizers are actually on. This has to come from
+    # CMake, not from compiler macros: clang exposes __has_feature(...), and GCC
+    # defines __SANITIZE_ADDRESS__ for ASan — but GCC defines NOTHING for UBSan.
+    # The nightly job's ubsan leg is GCC on ubuntu-24.04, so a C++-side guess
+    # left the report hooks uncompiled and the startup banner announcing
+    # "Sanitizers: none" on an instrumented binary — the precise failure the
+    # banner exists to rule out.
+    if(ENABLE_ASAN)
+        add_compile_definitions(DECENZA_ASAN_ACTIVE)
+    endif()
+    if(ENABLE_UBSAN)
+        add_compile_definitions(DECENZA_UBSAN_ACTIVE)
+    endif()
+    add_compile_definitions(DECENZA_SANITIZERS_ACTIVE)
     add_compile_definitions(QT_FORCE_ASSERTS)
     if(NOT MSVC)
         # libc++ (Apple/clang) and libstdc++ (GCC) spell this differently and
@@ -424,7 +440,7 @@ else()
     #   -Wshadow              8 sites, two of which hid genuine confusion
     #                        between an inner and outer variable of different
     #                        types.
-    #   the rest             scored ZERO across 568 TUs: free today, and a
+    #   the rest             scored ZERO in the sweep: free today, and a
     #                        first occurrence now fails the build rather than
     #                        drifting in unnoticed.
     foreach(_w
@@ -473,7 +489,7 @@ else()
     #       same reason -Wfloat-equal is out.
     #
     #       Worth recording HOW this was nearly added by mistake: a sweep script
-    #       reported "0 hits across 567 TUs", and the real build immediately
+    #       reported zero hits, and the real build immediately
     #       produced three. The script counted lines matching "warning:" and had
     #       no way to tell "compiled clean" from "failed to compile" — so a
     #       broken run and a clean one looked identical. That is the same

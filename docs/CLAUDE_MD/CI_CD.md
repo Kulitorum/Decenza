@@ -25,7 +25,7 @@ Runs at 04:23 UTC on `main` (plus `workflow_dispatch`): two independent Linux x6
 
 The full test suite is already run locally before every pull request, so tests are gated by process rather than by CI.
 
-**What a green night does not mean:** one platform (Linux x64) — #1558 was inside `#ifdef Q_OS_IOS` and would not be caught here; only code the 83 tests execute, and coverage is unmeasured; and nothing about data races, since ThreadSanitizer is unusable against an uninstrumented Qt (see `TESTING.md`).
+**What a green night does not mean:** one platform (Linux x64) — #1558 was inside `#ifdef Q_OS_IOS` and would not be caught here; only code the test suite executes, and coverage is unmeasured; and nothing about data races, since ThreadSanitizer is unusable against an uninstrumented Qt (see `TESTING.md`).
 
 **Compiler diagnostics are not in CI at all, by design.** `-Wall -Wextra -Werror` is on in every build, so a warning is an error on the developer's own machine — which is where it should be found, not in a log read once a day.
 

@@ -50,7 +50,9 @@ UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
   ctest --output-on-failure -j$(sysctl -n hw.ncpu) --repeat until-pass:3
 ```
 
-`ENABLE_UBSAN` is off by default and never auto-enabled, so routine builds are uninstrumented. It is not supported with MSVC (configure fails fast). ASan (`-DENABLE_ASAN=ON`, auto-on for non-Apple Debug builds) works the same way for memory errors; the two can be combined (`-DENABLE_ASAN=ON -DENABLE_UBSAN=ON`).
+**Debug builds instrument themselves.** A Debug configure turns on ASan *and* UBSan on every desktop platform including macOS (Android is excluded — its ASan needs `wrap.sh` packaging this project does not do). UBSan runs in **recovering** mode there: it prints a diagnostic and the app keeps going, so you are told about undefined behaviour without losing your session.
+
+A **Release** build carries no instrumentation unless you ask. `-DENABLE_UBSAN=ON` gives the **halting** mode CI uses, where a finding aborts. `-DENABLE_ASAN=ON` does the same for memory errors, and the two combine. UBSan is not supported with MSVC (configure fails fast).
 
 **What the instrumented build turns on beyond plain UBSan**, and why each one is there:
 

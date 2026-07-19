@@ -20,7 +20,7 @@ name: Nightly sanitizers
 # What this does NOT cover, so nobody reads a green night as more than it is:
 #   - One platform (Linux x64). #1558, the build break that motivated all of
 #     this, was inside #ifdef Q_OS_IOS and would not be caught here.
-#   - Only code the 83 tests execute. Coverage is unmeasured.
+#   - Only code the test suite executes. Coverage is unmeasured.
 #   - Data races. ThreadSanitizer is unusable against an uninstrumented Qt —
 #     measured at 10,194 reports, 94% of them false positives from Qt's own
 #     queued-connection machinery. See docs/CLAUDE_MD/TESTING.md.
@@ -152,6 +152,9 @@ jobs:
           SANITIZER: ${{ matrix.sanitizer }}
         run: |
           LOG=build/ctest.log
+          # Set when a sanitizer report is present in the log, regardless of
+          # ctest's exit code — see the exit at the end of this step.
+          FOUND=0
           {
             echo "## Nightly $SANITIZER"
             if [ ! -f "$LOG" ]; then
@@ -160,6 +163,7 @@ jobs:
               echo "**Canary failed — instrumentation is not in effect.** Every other"
               echo "result in this run is worth less than it looks, including the passes."
             elif grep -qE "ERROR: (Address|Leak)Sanitizer|SUMMARY: UndefinedBehaviorSanitizer" "$LOG"; then
+              FOUND=1
               echo "**Sanitizer finding(s):**"
               echo '```'
               grep -E "ERROR: (Address|Leak)Sanitizer.*|runtime error:.*|SUMMARY: UndefinedBehaviorSanitizer.*" "$LOG" | sort -u | head -40
@@ -169,3 +173,16 @@ jobs:
             fi
             grep -E "^[0-9]+% tests passed" "$LOG" 2>/dev/null || true
           } >> "$GITHUB_STEP_SUMMARY"
+
+          # Fail the job on a finding even when ctest exited 0.
+          #
+          # --repeat until-pass:3 exists for the two clock-cadence tests, but it
+          # applies to the whole suite: an intermittent use-after-free or
+          # data-dependent UB that reproduces on 1 of 3 attempts passes on retry
+          # and ctest exits 0 — while this very summary prints the report from
+          # the failed attempt. A green tick over a summary reading "Sanitizer
+          # finding(s)" is the worst of both, and nightlies are read by the tick.
+          if [ "$FOUND" -eq 1 ]; then
+            echo "::error::Sanitizer finding present in the log; failing the job even though ctest may have passed on retry."
+            exit 1
+          fi

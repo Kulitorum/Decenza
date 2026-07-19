@@ -982,13 +982,23 @@ void ScreensaverVideoManager::loadCacheIndex()
 
 }
 
-void ScreensaverVideoManager::saveCacheIndex()
+// Returns false if the index could not be fully written. This used to be void
+// with a bare `return` on open failure — a writer that cannot report failure,
+// which is the exact defect shape (#1553) the rest of this file guards against.
+// It matters most on the migration path: if the destination directory does not
+// exist, every write here fails silently, the in-memory index is never
+// persisted, and loadCacheIndex() then drops every entry whose file it cannot
+// find. The user's whole video cache is re-downloaded, with nothing in the log.
+bool ScreensaverVideoManager::saveCacheIndex()
 {
     QString indexPath = m_cacheDir + "/cache_index.json";
     QFile file(indexPath);
 
     if (!file.open(QIODevice::WriteOnly)) {
-        return;
+        qWarning() << "[Screensaver] Could not write cache index" << indexPath
+                   << "-" << file.errorString()
+                   << "— cached videos will be re-downloaded on next start";
+        return false;
     }
 
     QJsonObject root;
@@ -1002,8 +1012,19 @@ void ScreensaverVideoManager::saveCacheIndex()
         root[it.key()] = cached;  // key is video URL
     }
 
-    file.write(QJsonDocument(root).toJson());
+    const QByteArray payload = QJsonDocument(root).toJson();
+    const qint64 written = file.write(payload);
+    // close() flushes; a failure here means the bytes never reached disk even
+    // though write() reported success.
+    const bool closedOk = file.flush();
     file.close();
+    if (written != payload.size() || !closedOk) {
+        qWarning() << "[Screensaver] Cache index write incomplete" << indexPath
+                   << "- wrote" << written << "of" << payload.size() << "bytes"
+                   << "-" << file.errorString();
+        return false;
+    }
+    return true;
 }
 
 void ScreensaverVideoManager::updateCacheUsedBytes()
@@ -1711,10 +1732,14 @@ void ScreensaverVideoManager::migrateCacheToExternal()
         return;
     }
 
-    // Create external directory
+    // Create external directory. A failure here makes every move below fail, so
+    // abort rather than pressing on and repointing m_cacheDir at a directory
+    // that does not exist — that combination silently discards the whole index.
     QDir externalDir(externalPath);
-    if (!externalDir.exists()) {
-        externalDir.mkpath(".");
+    if (!externalDir.exists() && !externalDir.mkpath(".")) {
+        qWarning() << "[Screensaver] Cannot create external cache dir" << externalPath
+                   << "— staying on" << fallbackPath << "and leaving the cache intact";
+        return;
     }
 
     // Migrate cache index and files
@@ -1775,9 +1800,17 @@ void ScreensaverVideoManager::migrateCacheToExternal()
                    << "- those remain usable from there.";
     }
 
-    // Update cache directory and save index
+    // Update cache directory and save index. If the index cannot be persisted,
+    // put m_cacheDir back: an index describing the new location that was never
+    // written is worse than not having migrated at all, because the next start
+    // reads the OLD index and finds nothing where it points.
+    const QString previousCacheDir = m_cacheDir;
     m_cacheDir = externalPath;
-    saveCacheIndex();
+    if (!saveCacheIndex()) {
+        qWarning() << "[Screensaver] Cache index could not be saved after migration"
+                   << "— reverting cache dir to" << previousCacheDir;
+        m_cacheDir = previousCacheDir;
+    }
 
     // Try to remove old fallback directory if empty
     fallbackDir.rmdir(".");

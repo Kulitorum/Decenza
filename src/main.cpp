@@ -11,6 +11,16 @@
 // call during their own init — see the constraints on them below; they are far
 // tighter than they look. Each runtime appends ".<pid>" to log_path, so
 // concurrent runs never collide.
+// DECENZA_SANITIZERS_ACTIVE comes from CMakeLists.txt, which knows which
+// sanitizers were requested. Do NOT infer this from compiler macros alone:
+// clang has __has_feature(...), GCC defines __SANITIZE_ADDRESS__ for ASan — and
+// GCC defines NOTHING for UBSan. The nightly ubsan leg is GCC, so a macro-only
+// guard left these hooks uncompiled and the banner below reporting "none" on an
+// instrumented binary. The macro checks are kept as a secondary signal for a
+// build that passes -fsanitize by hand without the CMake options.
+#if defined(DECENZA_SANITIZERS_ACTIVE)
+#  define DECENZA_SANITIZER_HOOKS 1
+#endif
 #if defined(__has_feature)
 #  if __has_feature(address_sanitizer) || __has_feature(undefined_behavior_sanitizer)
 #    define DECENZA_SANITIZER_HOOKS 1
@@ -423,24 +433,45 @@ void announceSanitizerReports(const QString& whenLabel)
                        QStringLiteral("decenza-ubsan.*")},
                       QDir::Files, QDir::Time);
     int announced = 0;
+    int unreadable = 0;
     for (const QString& name : found) {
         if (name.endsWith(QStringLiteral(".reported")))
             continue;
         QFile f(dir.filePath(name));
-        if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+        if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            // Counted, not skipped silently. A bare `continue` here would leave
+            // `announced` at zero and print "none pending" below while an
+            // unreadable report sat in the directory — the exact conflation the
+            // else-branch was added to prevent, reintroduced one level up.
+            ++unreadable;
             continue;
+        }
         // Cap the excerpt — a report can run to hundreds of lines, and the point
         // is to make the finding visible, not to move the file into the log. The
         // full path is logged so the rest is findable.
         const QByteArray head = f.read(4000);
         f.close();
-        if (head.trimmed().isEmpty())
+        if (head.trimmed().isEmpty()) {
+            // An ASan report truncated to zero bytes by the abort. Still
+            // evidence that something happened; do not count it as "none".
+            ++unreadable;
             continue;
+        }
         qWarning().noquote() << "SANITIZER REPORT (" << whenLabel << ") —"
                              << dir.filePath(name) << "\n"
                              << QString::fromUtf8(head).trimmed();
-        (void)QFile::rename(dir.filePath(name),
-                            dir.filePath(name + QStringLiteral(".reported")));
+        // The rename is what stops a finding being re-announced forever, so
+        // its failure has to be visible. It fails when the destination already
+        // exists — and it will, because the runtimes append ".<pid>" and PIDs
+        // are reused. Without this branch a fixed crash gets re-diagnosed on
+        // every launch, in a log that assistants read over MCP and act on.
+        if (!QFile::rename(dir.filePath(name),
+                           dir.filePath(name + QStringLiteral(".reported")))) {
+            qWarning().noquote()
+                << "Sanitizer: could not mark" << dir.filePath(name)
+                << "as reported — it will be announced again next launch."
+                << "Delete it by hand once the finding is dealt with.";
+        }
         ++announced;
     }
     if (announced > 0) {
@@ -448,13 +479,23 @@ void announceSanitizerReports(const QString& whenLabel)
             << "Sanitizer: announced" << announced << "report(s) from" << whenLabel
             << "- a sanitizer does not write one unless it detected something, so"
             << "treat each as real until the source location says otherwise.";
-    } else {
+    }
+    if (unreadable > 0) {
+        qWarning().noquote()
+            << "Sanitizer:" << unreadable << "report file(s) in" << dir.path()
+            << "could not be read or were empty. Something was written; its"
+            << "contents are lost. Inspect them by hand.";
+    }
+    if (announced == 0 && unreadable == 0) {
         // Say so even when there is nothing. Otherwise silence means either
         // "scanned, found nothing" or "never ran" — and those are the two
         // readings a reporting mechanism must never conflate. The first version
         // of this function logged only on a finding, so its own correctness was
         // unobservable: exactly the ambiguity the sanitizer canary exists to
         // remove, reproduced in the code that reports sanitizer results.
+        //
+        // Gated on `unreadable` too: claiming "none pending" while an
+        // unreadable file sits there would be the same lie in a new place.
         qDebug().noquote() << "Sanitizer report scan (" << whenLabel
                            << "): none pending in" << dir.path();
     }
@@ -801,12 +842,22 @@ int main(int argc, char *argv[])
     // by whoever built the binary.
     {
         QStringList activeSanitizers;
+        // CMake-defined first — see the note on DECENZA_SANITIZER_HOOKS above
+        // for why compiler macros alone cannot answer this on GCC + UBSan.
+#if defined(DECENZA_ASAN_ACTIVE)
+        activeSanitizers << QStringLiteral("ASan");
+#endif
+#if defined(DECENZA_UBSAN_ACTIVE)
+        activeSanitizers << QStringLiteral("UBSan");
+#endif
 #if defined(__has_feature)
 #  if __has_feature(address_sanitizer)
-        activeSanitizers << QStringLiteral("ASan");
+        if (!activeSanitizers.contains(QStringLiteral("ASan")))
+            activeSanitizers << QStringLiteral("ASan");
 #  endif
 #  if __has_feature(undefined_behavior_sanitizer)
-        activeSanitizers << QStringLiteral("UBSan");
+        if (!activeSanitizers.contains(QStringLiteral("UBSan")))
+            activeSanitizers << QStringLiteral("UBSan");
 #  endif
 #  if __has_feature(thread_sanitizer)
         activeSanitizers << QStringLiteral("TSan");

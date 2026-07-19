@@ -2,7 +2,7 @@
 //
 // A sanitizer that is silently not applied produces exactly the same green
 // suite as a codebase with no undefined behaviour in it. The first UBSan run
-// here reported zero findings across all 82 tests — a good result and an
+// here reported zero findings across the whole suite — a good result and an
 // indistinguishable one from `-fsanitize=undefined` having been dropped by a
 // flag-ordering mistake, a toolchain that quietly ignored it, or someone
 // configuring without -DENABLE_UBSAN=ON. Every later clean run has the same

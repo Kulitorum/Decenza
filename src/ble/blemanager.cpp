@@ -110,14 +110,16 @@ BLEManager::BLEManager(QObject* parent)
     m_adapterRecoverySafetyTimer = new QTimer(this);
     m_adapterRecoverySafetyTimer->setSingleShot(true);
     m_adapterRecoverySafetyTimer->setInterval(kAdapterRecoverySafetyMs);
-    // [[maybe_unused]] on the capture: the whole body is #ifndef Q_OS_IOS, so on
-    // iOS this lambda captures `this` and uses nothing. Kept as one lambda
-    // rather than #if-ing the connect away, because the timer is still
-    // constructed and armed above on every platform — removing only the
-    // handler would leave a timer that fires into nothing, which is worse.
-    connect(m_adapterRecoverySafetyTimer, &QTimer::timeout, this, [this]() {
-        Q_UNUSED(this)
+    // The connect is guarded, not the lambda body.
+    //
+    // An earlier version kept one lambda with Q_UNUSED(this), justified by
+    // "the timer is still constructed and armed on every platform". That was
+    // simply wrong — both start() calls are themselves inside #ifndef
+    // Q_OS_IOS, so on iOS the timer is constructed and never started. There is
+    // no timer firing into nothing to protect against, and the workaround was
+    // guarding a hazard that did not exist.
 #ifndef Q_OS_IOS
+    connect(m_adapterRecoverySafetyTimer, &QTimer::timeout, this, [this]() {
         if (!m_adapterRecoveryInFlight || !m_localDevice) return;
         const bool adapterOff = m_localDevice->hostMode() == QBluetoothLocalDevice::HostPoweredOff;
         if (adapterOff) {
@@ -135,8 +137,8 @@ BLEManager::BLEManager(QObject* parent)
                           "HostConnectable event; treating as recovered (#1309)";
             finishAdapterRecovery(true);
         }
-#endif
     });
+#endif
 
     // Eagerly run the Linux capability check so any qWarning lands early in
     // startup logs; subsequent calls hit the cached result.

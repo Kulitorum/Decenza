@@ -6,24 +6,11 @@ every platform. When it does not, Qt falls back to a host font, and the same
 screen measures differently on two machines — which is the exact failure the
 bundled Decenza Sans exists to prevent (see the font notes in CLAUDE.md).
 
-Four live instances were found by reading warnings out of a running app's log,
-which is a poor way to discover a class of defect that a grep can find at commit
-time:
-
-    font.family: "serif"          decorative italic "i" on the profile info
-                                  badge. No platform provides a family by that
-                                  name, so Qt ran a full font-alias sweep
-                                  (~45 ms, with a warning) and fell back anyway.
-    font.family: "monospace"      a code snippet, same generic-alias problem
-                                  (~66 ms).
-    font.family: "Arial"  x4      flip-clock digits. Present on macOS and
-                                  Windows, frequently absent on Linux and
-                                  Android, where the two halves of a flipping
-                                  card would stop lining up.
-    font.family: "Material Icons" a private-use codepoint in a font this
-                                  project does not bundle, and the only such
-                                  reference left in the tree. It rendered as
-                                  whatever the host had, or as a tofu box.
+These were originally found by reading warnings out of a running app's log —
+seven literals across four families ("serif", "monospace", "Arial" x4 and a
+"Material Icons" reference to a font this project does not bundle). That is a
+poor way to discover something a grep finds in milliseconds, which is why this
+check exists. See the commit that added it for the full list.
 
 What to do instead:
   - Nothing. Omit font.family and inherit the bundled application font, which
@@ -44,9 +31,25 @@ import sys
 
 QML_DIR = pathlib.Path(__file__).resolve().parent.parent / "qml"
 
-# font.family: "Anything" — the grouped-property form. Qt.font({...}) is the
-# sanctioned escape hatch and is deliberately NOT matched.
-PATTERN = re.compile(r'font\.family\s*:\s*"([^"]+)"')
+# Matches `font.family: "X"` and `font.family: \'X\'`, plus the grouped form
+# `font { family: "X" }`. Qt.font({families: [...]}) is the sanctioned escape
+# hatch and is deliberately NOT matched — it takes a prioritised list, which is
+# the thing we want people to use when they genuinely need a specific face.
+#
+# Known limits, stated rather than pretended away: a family built at runtime
+# (`font.family: someExpression`) and a QML JS assignment
+# (`label.font.family = "Arial"`) are not matched. Both are legal QML. This is a
+# grep, not a parser; it catches the idiom people actually write.
+PATTERN = re.compile(
+    r"""(?:font\s*\.\s*family|(?<![\w.])family)\s*:\s*(['"])([^'"]+)\1"""
+)
+
+# Strip // to end-of-line and /* */ spans before matching, so a commented-out
+# example is not a blocking false positive. A blocking check has no override,
+# so a false positive stops a PR with a message that will not match what the
+# author sees on screen.
+LINE_COMMENT = re.compile(r"//.*$")
+BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
 
 # Families the project actually bundles (resources/fonts/). Naming one of these
 # explicitly is redundant but not a portability bug, so it is allowed.
@@ -56,14 +59,20 @@ BUNDLED = {"Decenza Sans", "Noto Sans Math"}
 def main() -> int:
     findings = []
     for path in sorted(QML_DIR.rglob("*.qml")):
-        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-            stripped = line.strip()
-            if stripped.startswith("//"):
-                continue
-            m = PATTERN.search(line)
-            if m and m.group(1) not in BUNDLED:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError as exc:
+            # Report as a finding rather than a traceback: the job still fails,
+            # but the message names the file instead of a stack.
+            findings.append((path.relative_to(QML_DIR.parent), 0,
+                             f"<not valid UTF-8: {exc}>"))
+            continue
+        text = BLOCK_COMMENT.sub("", text)
+        for lineno, line in enumerate(text.splitlines(), 1):
+            m = PATTERN.search(LINE_COMMENT.sub("", line))
+            if m and m.group(2) not in BUNDLED:
                 rel = path.relative_to(QML_DIR.parent)
-                findings.append((rel, lineno, m.group(1)))
+                findings.append((rel, lineno, m.group(2)))
 
     if not findings:
         print(f"check_font_family_literals: OK — no hardcoded font.family "

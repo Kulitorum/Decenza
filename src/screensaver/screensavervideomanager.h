@@ -378,7 +378,9 @@ private:
 
     // Cache management
     void loadCacheIndex();
-    void saveCacheIndex();
+    // Returns false if the index could not be fully written — callers on the
+    // migration path must not repoint m_cacheDir when it fails.
+    bool saveCacheIndex();
     void updateCacheUsedBytes();
     QString getCachePath(const VideoItem& item) const;
     bool isVideoCached(const VideoItem& item) const;
