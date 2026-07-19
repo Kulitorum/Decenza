@@ -358,6 +358,7 @@ private:
     // Public + static so tst_aiproviders can assert these stay equal to each provider's first
     // catalog entry in aiprovider.cpp. That test is what stops this list going stale again.
     QString translationModelFor(const QString& provider, const QString& fallback) const;
+    QString selectedProviderLabel() const;
     QStringList getConfiguredProviders() const;
 
     // Helper to get provider for AI requests (uses batch override if active)

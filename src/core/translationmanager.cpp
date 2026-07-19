@@ -2536,30 +2536,40 @@ QString TranslationManager::translationModelFor(const QString& provider,
     return catalogued.isEmpty() ? fallback : catalogued;
 }
 
+// Human-readable name of the selected provider, for error text the user actually reads.
+QString TranslationManager::selectedProviderLabel() const
+{
+    const QString id = m_settings->ai()->aiProvider();
+    if (id == QLatin1String("anthropic")) return QStringLiteral("Claude");
+    if (id == QLatin1String("openai"))    return QStringLiteral("OpenAI");
+    if (id == QLatin1String("gemini"))    return QStringLiteral("Gemini");
+    if (id == QLatin1String("ollama"))    return QStringLiteral("Ollama");
+    return id.isEmpty() ? QStringLiteral("No AI provider") : id;
+}
+
 QStringList TranslationManager::getConfiguredProviders() const
 {
-    // The user's SELECTED provider goes first; the rest are fallbacks for when it rate-limits
-    // or errors. This used to be hard-ordered "Claude first (best quality), then OpenAI",
-    // which meant a user with Anthropic set up got Anthropic for translation no matter what
-    // they had chosen in Settings — and when the Anthropic model ID went stale, every batch
-    // silently burned a failed round on it before falling through to the provider they had
-    // actually picked. Their choice is not a tiebreak, it is the answer.
+    // ONLY the user's selected provider. No substitution, silent or otherwise.
     //
-    // The fallback list itself is kept: it is what let a batch still complete while Anthropic
-    // was 404ing, and losing it would turn one dead provider into a dead feature.
+    // This used to hard-order "Claude first (best quality), then OpenAI" and fall through to
+    // whatever else had a key. That fallback is exactly what hid a dead provider for months:
+    // the Anthropic model ID had been retired, every Anthropic request 404'd, and the batch
+    // quietly finished on OpenAI — so the only users who could notice were those with no
+    // second key, who got nothing at all and no reason why.
+    //
+    // Substituting a provider the user did not choose is not resilience when it is silent.
+    // A translation run that cannot use the configured provider now stops and says so.
     QStringList providers;
     const QString selected = m_settings->ai()->aiProvider();
-    auto configured = [this](const QString& id) {
-        if (id == "anthropic") return !m_settings->ai()->anthropicApiKey().isEmpty();
-        if (id == "openai")    return !m_settings->ai()->openaiApiKey().isEmpty();
-        return false;
-    };
-    if (configured(selected)) providers << selected;
-    if (selected != "anthropic" && configured("anthropic")) providers << "anthropic";
-    if (selected != "openai"    && configured("openai"))    providers << "openai";
-    // Gemini excluded from auto-discovery due to aggressive rate limiting.
-    // Ollama excluded — requires explicit user configuration (endpoint + model).
-    // Both work when explicitly selected by the user in settings.
+    const bool configured =
+        (selected == QLatin1String("anthropic") && !m_settings->ai()->anthropicApiKey().isEmpty())
+        || (selected == QLatin1String("openai") && !m_settings->ai()->openaiApiKey().isEmpty())
+        || (selected == QLatin1String("gemini") && !m_settings->ai()->geminiApiKey().isEmpty())
+        || (selected == QLatin1String("ollama") && !m_settings->ai()->ollamaEndpoint().isEmpty());
+    if (configured)
+        providers << selected;
+    // Gemini and Ollama are no longer "excluded": nothing is auto-discovered any more, so if
+    // the user selected one, that is what runs.
     return providers;
 }
 
@@ -2583,7 +2593,9 @@ void TranslationManager::translateAndUploadAllLanguages()
     // Get all configured providers - we'll cycle through them
     m_batchProviderQueue = getConfiguredProviders();
     if (m_batchProviderQueue.isEmpty()) {
-        m_lastError = "No AI providers configured. Set up at least one AI provider in Settings.";
+        m_lastError = QStringLiteral("%1 is selected as the AI provider but is not configured. "
+                                     "Add its API key in Settings, or select a provider that has one.")
+                          .arg(selectedProviderLabel());
         emit lastErrorChanged();
         emit batchTranslateUploadFinished(false, m_lastError);
         return;
@@ -2634,12 +2646,8 @@ void TranslationManager::translateAndUploadAllLanguages()
         if (!m_batchProcessing) return;
 
         if (!m_batchLanguageQueue.isEmpty()) {
-            // More languages to process - reset provider queue for new language
-            m_batchProviderQueue = getConfiguredProviders();
-            if (!m_batchProviderQueue.isEmpty()) {
-                m_batchCurrentProvider = m_batchProviderQueue.takeFirst();
-                m_settings->ai()->setAiProvider(m_batchCurrentProvider);
-            }
+            // No provider queue to reset: the selected provider is the only one used, and a
+            // failure with it stops the batch rather than moving on.
             QString nextLang = m_batchLanguageQueue.takeFirst();
             qDebug() << "Batch: Processing language:" << nextLang << "with provider:" << m_batchCurrentProvider;
             setCurrentLanguage(nextLang);
@@ -2712,20 +2720,24 @@ void TranslationManager::translateAndUploadAllLanguages()
                 submitTranslation();
             }
         } else {
-            // Translation failed - check if we can try another provider
-            if (!m_batchProviderQueue.isEmpty()) {
-                // Try next provider for the SAME language
-                QString nextProvider = m_batchProviderQueue.takeFirst();
-                m_batchCurrentProvider = nextProvider;
-                m_settings->ai()->setAiProvider(nextProvider);
-                qDebug() << "Batch: Rate limited/error, trying provider:" << nextProvider << "for" << m_currentLanguage;
-                autoTranslate();
-            } else {
-                // All providers exhausted for this language, move to next
-                // (*processNext)() will reset the provider queue
-                qDebug() << "Batch: All providers exhausted for" << m_currentLanguage << ", moving to next language";
-                (*processNext)();
-            }
+            // Failure is terminal. Previously this walked to the next configured provider and,
+            // once they were exhausted, moved to the next LANGUAGE — so a batch could report
+            // "complete" having translated nothing, on a provider the user never picked.
+            m_batchProcessing = false;
+            m_batchCurrentProvider.clear();
+            m_batchLanguageQueue.clear();
+            m_batchProviderQueue.clear();
+            m_settings->ai()->setAiProvider(m_originalProvider);
+            if (!m_originalLanguage.isEmpty() && m_originalLanguage != m_currentLanguage)
+                setCurrentLanguage(m_originalLanguage);
+            m_lastError = QStringLiteral("Translation failed on %1 for %2: %3")
+                              .arg(selectedProviderLabel(), m_currentLanguage, message);
+            emit lastErrorChanged();
+            qWarning().noquote() << "Batch:" << m_lastError
+                                 << "— stopping. The selected provider is the only one used;"
+                                 << "nothing was silently retried elsewhere.";
+            emit batchTranslateUploadFinished(false, m_lastError);
+            return;
         }
     });
 

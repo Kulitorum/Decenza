@@ -690,6 +690,29 @@ decide with, rather than guessing.
       gpt-5.4, anthropic claude-sonnet-4-6, gemini gemini-2.5-flash. A user wanting Sonnet 5
       selects it, and 7.8p's change means that selection is now actually used.
 
+- [x] 7.8r Selected provider ONLY, and a failure is loud. Jeff's call, and the right one:
+      silent substitution is what hid the retired model for months.
+
+      getConfiguredProviders() now returns just the selected provider (or nothing, if it has no
+      key), for all four including Gemini and Ollama — nothing is auto-discovered any more, so
+      the old "excluded from auto-discovery" carve-outs are gone with it.
+
+      A translation failure now STOPS the batch: it clears the queues, restores the provider and
+      language, sets lastError to "Translation failed on <Provider> for <lang>: <message>",
+      warns, and emits batchTranslateUploadFinished(false, ...). Previously it walked to the next
+      provider and, once those were exhausted, moved to the next LANGUAGE — so a run could report
+      "complete" having translated nothing, using a provider the user never chose.
+      "No AI providers configured" likewise became "<Provider> is selected as the AI provider but
+      is not configured", which names the thing to fix.
+
+      The dead fallback branch was deleted rather than left behind an `if (false)` — I wrote that
+      shim first and it is exactly the sort of thing that reads as live code six months later.
+
+      TRADE-OFF, accepted deliberately: a transient rate-limit on the selected provider now ends
+      the run instead of quietly finishing on another. That is the point — the previous behaviour
+      was indistinguishable from success, and only a user with a single key could ever have
+      noticed the provider was dead.
+
 - [ ] 7.8b The glyph class IS statically catchable — `redraw-icon-set` task 4.4 guessed it was not.
       `scripts/check_font_glyph_coverage.py` already does it. Worth landing as a test, but it cannot
       be green until 7.8's 29 sites are fixed, so it lands WITH the fix (no allowlist — an allowlist
