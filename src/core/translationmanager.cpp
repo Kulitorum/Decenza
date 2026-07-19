@@ -1577,6 +1577,21 @@ void TranslationManager::setGroupTranslation(const QString& fallback, const QStr
         return;
     }
 
+    // Clear the AI translation here rather than leaving it to the caller.
+    //
+    // StringBrowserPage used to do this in the two lines AFTER calling this function, and those
+    // lines could not run: emit translationsChanged() below is synchronous, the page's handler
+    // calls stringModel.refresh(), and the ListView delegate whose function is mid-execution is
+    // destroyed underneath it. The result was a ReferenceError — "TranslationManager is not
+    // defined" — because the delegate's context had gone, so a manual edit never cleared the
+    // stale AI value. The setEditing() call after it was failing silently for the same reason.
+    //
+    // Doing it here also fixes a correctness bug the QML version had: it cleared the AI
+    // translation whether or not the edit was actually saved. Now it only happens on the path
+    // where the save succeeded, because the refusal above returns before reaching this.
+    if (!translation.isEmpty() && m_currentLanguage != QLatin1String("en"))
+        clearAiTranslation(fallback);
+
     recalculateUntranslatedCount();
     m_translationVersion++;
     emit translationsChanged();

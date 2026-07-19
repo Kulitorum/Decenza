@@ -640,6 +640,43 @@ private slots:
                  "claim success for work it did not persist");
     }
 
+    // A manual edit clears the stale AI value — and only when the edit was actually kept.
+    //
+    // This lived in StringBrowserPage as two lines AFTER the setGroupTranslation call, where it
+    // could never run: that call emits translationsChanged() synchronously, the page's handler
+    // rebuilds the model, and the ListView delegate executing the function is destroyed mid-call.
+    // The live app logged "TranslationManager is not defined" at exactly that line, so every
+    // manual edit in a non-English language left the old AI translation on screen beside it.
+    //
+    // The second half is a bug the QML version had independently: it cleared the AI translation
+    // whether or not the save succeeded. In C++ the clear sits after the refusal check, so a
+    // refused edit now leaves the AI value alone rather than destroying it for nothing.
+    void aManualEditClearsTheAiValueOnlyIfItWasSaved()
+    {
+        Settings settings;
+        TranslationManager tm(&m_nam, &settings);
+        tm.setCurrentLanguage(QStringLiteral("de"));
+
+        const QString fallback = QStringLiteral("Brew ratio");
+        tm.registerString(QStringLiteral("edit.ratio"), fallback);
+        tm.m_aiTranslations[fallback] = QStringLiteral("KI-Verhaeltnis");
+        QVERIFY(!tm.getAiTranslation(fallback).isEmpty());
+
+        // Healthy file: the edit saves, so the stale AI value must go.
+        tm.setGroupTranslation(fallback, QStringLiteral("Brueh-Verhaeltnis"));
+        QVERIFY2(tm.getAiTranslation(fallback).isEmpty(),
+                 "a saved manual edit must clear the AI translation it replaces");
+
+        // Now the refusal path: the AI value must survive, because the edit did not.
+        tm.m_aiTranslations[fallback] = QStringLiteral("KI-Verhaeltnis");
+        tm.m_translationsLoadFailed = true;
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Refusing to save")));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("was NOT saved and has been rolled back")));
+        tm.setGroupTranslation(fallback, QStringLiteral("Etwas anderes"));
+        QVERIFY2(!tm.getAiTranslation(fallback).isEmpty(),
+                 "a refused edit must not destroy the AI translation it failed to replace");
+    }
+
 };
 
 QTEST_MAIN(TestTranslationSourceDrift)

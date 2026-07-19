@@ -511,15 +511,23 @@ Page {
                     editingIndex = idx
                 }
 
+                // Order matters here, and it is not stylistic.
+                //
+                // setGroupTranslation() emits translationsChanged() synchronously; the page's
+                // Connections handler responds by calling stringModel.refresh(), which destroys
+                // THIS delegate while this function is still on the stack. Anything after that
+                // call runs on a dead object: the old version cleared the AI translation and
+                // exited edit mode afterwards, and neither happened — the first threw
+                // "TranslationManager is not defined" and the second failed silently.
+                //
+                // So leave edit mode FIRST, and make the mutation the last thing this function
+                // does. The AI-translation clear moved into setGroupTranslation(), where it is
+                // atomic with the edit and only runs if the save actually succeeded.
                 function saveAndExitEditing(fallbackKey, newText, oldText) {
+                    setEditing(false, -1)
                     if (newText !== oldText) {
                         TranslationManager.setGroupTranslation(fallbackKey, newText)
-                        // Clear AI translation when user manually edits (non-English)
-                        if (newText !== "" && TranslationManager.currentLanguage !== "en") {
-                            TranslationManager.clearAiTranslation(fallbackKey)
-                        }
                     }
-                    setEditing(false, -1)
                 }
 
                 // Accessibility: announce the English text and translation status
