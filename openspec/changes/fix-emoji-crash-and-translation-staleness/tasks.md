@@ -632,6 +632,36 @@ decide with, rather than guessing.
       .AppleIndicFont) is Devanagari in the language picker rendering through a platform
       fallback, exactly as the bundled-font note in CLAUDE.md describes.
 
+- [x] 7.8p "My API key is set to OpenAI, why was it using Claude?" — two separate defects, both
+      of which had been quietly overriding the user's configuration.
+
+      PROVIDER: getConfiguredProviders() hard-ordered "Claude first (best quality), then OpenAI"
+      and never read `aiProvider`. Anyone with an Anthropic key got Anthropic for translation no
+      matter what Settings said. Now the SELECTED provider goes first and the others stay as
+      fallbacks — the fallback list is what let a batch finish while Anthropic was 404ing, so
+      removing it would turn one dead provider into a dead feature.
+
+      MODEL: every cloud provider hard-coded its own model and ignored `providerModel()`.
+      That is how Anthropic sat on `claude-3-5-haiku-20241022` — RETIRED 2026-02-19, confirmed
+      against the claude-api skill's retired-models table — for months: nothing in Settings
+      could correct it, because Settings was never consulted. OpenAI was pinned to `gpt-4o-mini`
+      and Gemini to `gemini-2.0-flash`, NEITHER of which is in the app's own model catalog
+      (`gpt-5.4`/`gpt-5.4-mini`, `gemini-2.5-flash`/`gemini-3.5-flash`) — so all three cloud
+      providers had drifted, not just the one that happened to 404. Ollama read its setting and
+      is the only one that never went stale, which is the whole argument.
+
+      Now `translationModelFor(provider, fallback)` returns the configured model, using a cheap
+      default only when unset. The fallbacks are a floor, not a preference: if the user has
+      picked an expensive model, that is what runs. Translation is bulk (2400+ strings, 25 per
+      request), so that can cost real money — but respecting the choice beats second-guessing
+      it, and a surprising bill is more visible than a silently wrong model.
+
+      Worth noting how this surfaced: the 404 was in a log Jeff asked me to read for a DIFFERENT
+      reason. The failure was invisible by design — the batch falls through to the next provider,
+      so anyone with a second key configured saw translations succeed and never learned the
+      first provider was dead. Only a user with Anthropic alone would have noticed, by getting
+      nothing at all.
+
 - [ ] 7.8b The glyph class IS statically catchable — `redraw-icon-set` task 4.4 guessed it was not.
       `scripts/check_font_glyph_coverage.py` already does it. Worth landing as a test, but it cannot
       be green until 7.8's 29 sites are fixed, so it lands WITH the fix (no allowlist — an allowlist

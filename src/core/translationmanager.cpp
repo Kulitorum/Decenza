@@ -1914,7 +1914,7 @@ void TranslationManager::sendNextAutoTranslateBatch()
         request.setRawHeader("Authorization", ("Bearer " + m_settings->ai()->openaiApiKey()).toUtf8());
 
         QJsonObject json;
-        json["model"] = "gpt-4o-mini";  // Use mini for translation - cheaper and fast
+        json["model"] = translationModelFor(provider, QStringLiteral("gpt-5.4-mini"));
         json["temperature"] = 0.3;
         QJsonArray messages;
         QJsonObject msg;
@@ -1931,7 +1931,7 @@ void TranslationManager::sendNextAutoTranslateBatch()
         request.setRawHeader("anthropic-version", "2023-06-01");
 
         QJsonObject json;
-        json["model"] = "claude-3-5-haiku-20241022";  // Use haiku for translation - cheaper and fast
+        json["model"] = translationModelFor(provider, QStringLiteral("claude-haiku-4-5"));
         json["max_tokens"] = 4096;
         QJsonArray messages;
         QJsonObject msg;
@@ -1943,7 +1943,11 @@ void TranslationManager::sendNextAutoTranslateBatch()
 
     } else if (provider == "gemini") {
         QString apiKey = m_settings->ai()->geminiApiKey();
-        request.setUrl(QUrl("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"));
+        // Gemini carries the model in the PATH rather than the body, which is why it was the
+        // easiest one to leave stale — "gemini-2.0-flash" is not in the app's own model list.
+        const QString geminiModel = translationModelFor(provider, QStringLiteral("gemini-2.5-flash"));
+        request.setUrl(QUrl("https://generativelanguage.googleapis.com/v1beta/models/"
+                            + geminiModel + ":generateContent"));
         request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
         request.setRawHeader("x-goog-api-key", apiKey.toUtf8());
 
@@ -2496,14 +2500,48 @@ void TranslationManager::mergeLanguageUpdate(const QJsonObject& newTranslations)
 
 // --- Batch Translate and Upload All Languages ---
 
+// The model to translate with for a given provider: whatever the user configured for it in
+// Settings, falling back to a cheap-and-fast default only when they have not chosen one.
+//
+// Every cloud provider here used to hard-code its own model and ignore the user's choice
+// entirely. That is how the Anthropic path came to sit on claude-3-5-haiku-20241022 for months
+// after Anthropic retired it — nothing in Settings could correct it, because Settings was never
+// consulted. OpenAI was pinned to gpt-4o-mini and Gemini to gemini-2.0-flash, neither of which
+// appears in the app's own model list any more. Ollama was the only one that read its setting,
+// and it is the only one that never went stale.
+//
+// The fallbacks are a floor for the unconfigured case, not a preference: they are cheap models
+// because translation is bulk and mechanical (2400+ strings, 25 to a request). If the user has
+// picked a model, that is the one that runs — including an expensive one. Respecting the choice
+// beats second-guessing it, and a surprising bill is more visible than a silently wrong model.
+QString TranslationManager::translationModelFor(const QString& provider,
+                                                const QString& fallback) const
+{
+    const QString configured = m_settings->ai()->providerModel(provider).trimmed();
+    return configured.isEmpty() ? fallback : configured;
+}
+
 QStringList TranslationManager::getConfiguredProviders() const
 {
-    // Order: Claude first (best quality), then OpenAI
-    // Gemini excluded due to aggressive rate limiting
-    // Each provider fills in gaps left by previous ones
+    // The user's SELECTED provider goes first; the rest are fallbacks for when it rate-limits
+    // or errors. This used to be hard-ordered "Claude first (best quality), then OpenAI",
+    // which meant a user with Anthropic set up got Anthropic for translation no matter what
+    // they had chosen in Settings — and when the Anthropic model ID went stale, every batch
+    // silently burned a failed round on it before falling through to the provider they had
+    // actually picked. Their choice is not a tiebreak, it is the answer.
+    //
+    // The fallback list itself is kept: it is what let a batch still complete while Anthropic
+    // was 404ing, and losing it would turn one dead provider into a dead feature.
     QStringList providers;
-    if (!m_settings->ai()->anthropicApiKey().isEmpty()) providers << "anthropic";
-    if (!m_settings->ai()->openaiApiKey().isEmpty()) providers << "openai";
+    const QString selected = m_settings->ai()->aiProvider();
+    auto configured = [this](const QString& id) {
+        if (id == "anthropic") return !m_settings->ai()->anthropicApiKey().isEmpty();
+        if (id == "openai")    return !m_settings->ai()->openaiApiKey().isEmpty();
+        return false;
+    };
+    if (configured(selected)) providers << selected;
+    if (selected != "anthropic" && configured("anthropic")) providers << "anthropic";
+    if (selected != "openai"    && configured("openai"))    providers << "openai";
     // Gemini excluded from auto-discovery due to aggressive rate limiting.
     // Ollama excluded — requires explicit user configuration (endpoint + model).
     // Both work when explicitly selected by the user in settings.

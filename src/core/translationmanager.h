@@ -351,6 +351,7 @@ private:
     static constexpr int RETRY_DELAY_MS = 10000;  // 10 seconds
 
     // Helper to get all configured AI providers
+    QString translationModelFor(const QString& provider, const QString& fallback) const;
     QStringList getConfiguredProviders() const;
 
     // Helper to get provider for AI requests (uses batch override if active)
