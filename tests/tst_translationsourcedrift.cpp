@@ -773,6 +773,71 @@ private slots:
                  "language, so a non-fatal cancel spends money the user just asked to stop");
     }
 
+    // A translation that loses or renumbers a placeholder is rejected, not applied.
+    //
+    // Renumbering is the dangerous one. "%1 frames" coming back as "Bilder" is visibly broken —
+    // the number just vanishes from the label. But "%2 of %1" against a source of "%1 of %2"
+    // looks perfectly fine in review and silently swaps two values at runtime. Neither is caught
+    // by anything else: the string is applied, saved, and then uploaded to the community copy,
+    // so one bad completion becomes every user's bad completion for that language.
+    //
+    // Reordering must still be allowed — that is what numbered placeholders are for, and word
+    // order differs between languages. Only the SET has to match.
+    void aTranslationThatBreaksPlaceholdersIsRejected()
+    {
+        QCOMPARE(TranslationManager::placeholderSet(QStringLiteral("%1 of %2")),
+                 (QSet<int>{1, 2}));
+        QCOMPARE(TranslationManager::placeholderSet(QStringLiteral("no placeholders")),
+                 QSet<int>());
+
+        // Reordering is legitimate — German and Japanese routinely need it.
+        QCOMPARE(TranslationManager::placeholderSet(QStringLiteral("%2 von %1")),
+                 TranslationManager::placeholderSet(QStringLiteral("%1 of %2")));
+
+        // Dropping one is not.
+        QVERIFY2(TranslationManager::placeholderSet(QStringLiteral("Bilder"))
+                     != TranslationManager::placeholderSet(QStringLiteral("%1 frames")),
+                 "a translation that drops its placeholder must not compare equal");
+
+        // Nor is inventing one.
+        QVERIFY2(TranslationManager::placeholderSet(QStringLiteral("%1 von %2"))
+                     != TranslationManager::placeholderSet(QStringLiteral("%1 frames")),
+                 "a translation that invents a placeholder must not compare equal");
+
+        // Repetition is harmless: QString::arg replaces every occurrence of %1.
+        QCOMPARE(TranslationManager::placeholderSet(QStringLiteral("%1 and %1 again")),
+                 TranslationManager::placeholderSet(QStringLiteral("%1")));
+    }
+
+    // A community download cannot reintroduce a placeholder-broken string either.
+    //
+    // The AI path and this one need the same rule, but this is the one with the wider blast
+    // radius: the backend accepts uploads unauthenticated, so one bad contribution reaches every
+    // user of that language on their next update. The seven broken strings this rule found on a
+    // real machine — including a screen-reader label that had lost "%1 of %2" in four languages
+    // — arrived through exactly this door.
+    void aCommunityUpdateCannotReintroduceBrokenPlaceholders()
+    {
+        Settings settings;
+        TranslationManager tm(&m_nam, &settings);
+        tm.setCurrentLanguage(QStringLiteral("de"));
+
+        const QString key = QStringLiteral("bg.thumb");
+        tm.registerString(key, QStringLiteral("Background image %1 of %2"));
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("placeholders do not match")));
+        tm.mergeLanguageUpdate(QJsonObject{{key, QStringLiteral("Hintergrundbild")}});
+
+        QVERIFY2(!tm.hasTranslation(key),
+                 "a download that dropped its placeholders must be skipped, not applied");
+
+        // The correctly-placeholdered version is accepted, reordered or not.
+        tm.mergeLanguageUpdate(QJsonObject{{key, QStringLiteral("Hintergrundbild %1 von %2")}});
+        QCOMPARE(tm.translateString(key, QStringLiteral("Background image %1 of %2")),
+                 QStringLiteral("Hintergrundbild %1 von %2"));
+    }
+
 };
 
 QTEST_MAIN(TestTranslationSourceDrift)

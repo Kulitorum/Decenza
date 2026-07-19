@@ -289,6 +289,10 @@ private:
     // not the JSON object that was asked for. That is a FAILED batch, not zero translations,
     // and the difference matters: inside the bulk run a "success" triggers the upload.
     bool parseAutoTranslateResponse(const QByteArray& data);
+
+    // Placeholders a string carries, e.g. {1, 2} for "%1 of %2". A translation must carry the
+    // same set: reordering is fine and expected, losing or inventing one is not.
+    static QSet<int> placeholderSet(const QString& text);
     QString buildTranslationPrompt(const QVariantList& strings) const;
     void loadAiTranslations();
     bool saveAiTranslations();
@@ -359,6 +363,9 @@ private:
     // turns the run's result from success into a named failure, which also stops the bulk path
     // from uploading an untranslated file.
     int m_autoTranslateParseFailures = 0;
+
+    // Translations discarded this run because they did not preserve their placeholders.
+    int m_autoTranslateRejected = 0;
 
     // True when a run failed for a reason that would recur for EVERY remaining language — the
     // provider erroring, a user cancel, or a failed save. A batch stops on this. It exists

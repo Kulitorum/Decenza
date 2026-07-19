@@ -2243,6 +2243,7 @@ void TranslationManager::autoTranslate()
     m_autoTranslateCancelled = false;
     m_autoTranslateProgress = 0;
     m_autoTranslateParseFailures = 0;   // per-run, like m_batchFailedUploads
+    m_autoTranslateRejected = 0;
     m_autoTranslateFatal = false;
     m_autoTranslateTotal = static_cast<int>(m_stringsToTranslate.size());
     m_pendingBatchCount = 0;
@@ -2538,9 +2539,35 @@ void TranslationManager::onAutoTranslateBatchReply(QNetworkReply* reply)
             qWarning().noquote() << "AI translation:" << m_lastError;
             emit autoTranslateFinished(false, m_lastError);
         } else {
-            emit autoTranslateFinished(true, QString("Translated %1 strings").arg(m_autoTranslateProgress));
+            QString okMsg = QString("Translated %1 strings").arg(m_autoTranslateProgress);
+            if (m_autoTranslateRejected > 0) {
+                // Not a failed run — the rest applied — but the user must be told these were
+                // dropped, or they are left looking English with no explanation.
+                okMsg += QStringLiteral(" (%1 rejected: placeholders did not match)")
+                             .arg(m_autoTranslateRejected);
+                qWarning().noquote() << "AI translation:" << m_autoTranslateRejected
+                                     << "string(s) rejected for placeholder mismatch";
+            }
+            emit autoTranslateFinished(true, okMsg);
         }
     }
+}
+
+// The set of %N placeholders a string carries.
+//
+// Numbered rather than positional, so a translation is free to REORDER them — that is the whole
+// point of %1/%2 — but it must not lose or invent one. Compared as a set, not a list: QString::arg
+// replaces every occurrence of %1, so repeating or de-duplicating one is harmless.
+//
+// 184 of the ~3680 registered strings carry these, and %N is the only form the corpus uses.
+QSet<int> TranslationManager::placeholderSet(const QString& text)
+{
+    static const QRegularExpression re(QStringLiteral("%L?(\\d)"));
+    QSet<int> found;
+    auto it = re.globalMatch(text);
+    while (it.hasNext())
+        found.insert(it.next().captured(1).toInt());
+    return found;
 }
 
 bool TranslationManager::parseAutoTranslateResponse(const QByteArray& data)
@@ -2598,6 +2625,27 @@ bool TranslationManager::parseAutoTranslateResponse(const QByteArray& data)
         for (auto it = translations.constBegin(); it != translations.constEnd(); ++it) {
             QString fallbackText = it.key();
             QString translation = it.value().toString().trimmed();
+
+            // Reject a translation that dropped, added or renumbered a placeholder.
+            //
+            // "%1 frames" coming back as "Bilder" leaves QString::arg with nowhere to put the
+            // number: the user sees a label with the value silently missing. Renumbering is
+            // worse — "%2 of %1" against a source of "%1 of %2" swaps two values with no visible
+            // damage at all, so it survives review and ships.
+            //
+            // Nothing downstream checks this. The string is applied, saved, and then UPLOADED to
+            // the community copy for that language, so one bad completion becomes everyone's
+            // bad completion. Models drop placeholders exactly when the surrounding text is
+            // being restructured, which is most likely in the languages that need it most.
+            if (!translation.isEmpty()
+                && placeholderSet(translation) != placeholderSet(fallbackText)) {
+                qWarning().noquote()
+                    << "Rejecting AI translation - placeholders do not match. source="
+                    << fallbackText << "translation=" << translation;
+                m_autoTranslateRejected++;
+                continue;
+            }
+
             if (!translation.isEmpty()) {
                 // Store in AI translations (for display in AI column)
                 m_aiTranslations[fallbackText] = translation;
@@ -2987,10 +3035,30 @@ bool TranslationManager::mergeLanguageUpdate(const QJsonObject& newTranslations)
     int added = 0;
     int updated = 0;
     int preserved = 0;
+    int skippedBadPlaceholders = 0;
 
     for (auto it = newTranslations.constBegin(); it != newTranslations.constEnd(); ++it) {
         const QString& key = it.key();
         const QString& newValue = it.value().toString();
+
+        // Same placeholder rule as the AI path, for the same reason and with a wider blast
+        // radius: this data comes from the community server, which anyone can upload to
+        // unauthenticated. Without the check a single bad contribution propagates to every user
+        // of that language on their next update.
+        //
+        // Not hypothetical. When this rule was first written it immediately found seven
+        // already-shipped translations that had lost their placeholders, including a screen
+        // reader label — "Background image %1 of %2" translated as just "Hintergrundbild", so a
+        // VoiceOver user in German, French, Arabic or Danish heard no position at all and could
+        // not navigate the list. That damage arrived through exactly this path.
+        const QString source = m_stringRegistry.value(key);
+        if (!source.isEmpty() && placeholderSet(newValue) != placeholderSet(source)) {
+            qWarning().noquote() << "Skipping community translation for" << key
+                                 << "- placeholders do not match. source=" << source
+                                 << "incoming=" << newValue;
+            skippedBadPlaceholders++;
+            continue;
+        }
 
         // Skip if user has customized this translation
         if (m_userOverrides.contains(key)) {
@@ -3010,7 +3078,9 @@ bool TranslationManager::mergeLanguageUpdate(const QJsonObject& newTranslations)
     }
 
     if (added > 0 || updated > 0) {
-        qDebug() << "Language update merged:" << added << "new," << updated << "updated," << preserved << "preserved user overrides";
+        qDebug() << "Language update merged:" << added << "new," << updated << "updated,"
+                 << preserved << "preserved user overrides,"
+                 << skippedBadPlaceholders << "skipped for placeholder mismatch";
         // Honour the save. Returning true after a refused write defeats this function's own
         // caller, which was rewritten in this branch specifically to act on the bool — the
         // caller then writes metadata, emits languageDownloaded(true), and the UI offers to
