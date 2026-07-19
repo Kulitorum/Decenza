@@ -385,7 +385,14 @@ void TranslationManager::setTranslation(const QString& key, const QString& trans
         return;
     }
 
-    saveUserOverrides();
+    // The override marker matters as much as the text: it is the only thing stopping the next
+    // community update from overwriting this edit. Persisting the translation but not the marker
+    // means the edit silently reverts on the next Update — the exact failure m_userOverrides
+    // exists to prevent, arrived at from the success path.
+    if (!saveUserOverrides()) {
+        qWarning() << "Translation for" << key << "was saved but its user-override marker was"
+                   << "NOT — a community update could overwrite this edit";
+    }
     recalculateUntranslatedCount();
     m_translationVersion++;
     emit translationsChanged();
@@ -1454,8 +1461,12 @@ void TranslationManager::onTranslationUploaded(QNetworkReply* reply)
         return;
     }
 
+    // Name the language that was actually uploaded. The retry fix pinned the URL to
+    // m_uploadingLangCode but left this reading m_currentLanguage, so a rate-limited French
+    // upload completing after a switch to German still announced a successful GERMAN
+    // contribution — the exact wrong report the fix's own comment quotes.
     QString message = QString("Translation for %1 submitted successfully! Thank you for contributing.")
-                          .arg(getLanguageDisplayName(m_currentLanguage));
+                          .arg(getLanguageDisplayName(m_uploadingLangCode.isEmpty() ? m_currentLanguage : m_uploadingLangCode));
     emit translationSubmitted(true, message);
     qDebug() << message;
 }
@@ -2261,6 +2272,11 @@ void TranslationManager::cancelAutoTranslate()
 {
     if (m_autoTranslating) {
         m_autoTranslateCancelled = true;
+        // Fatal to the whole run, not just this language. The header says this flag covers "a
+        // user cancel" and it did not: the batch's non-fatal branch then recorded the cancel as
+        // one language's failure and called processNext(), so pressing Stop began translating
+        // the NEXT language on the user's paid key. Stop must mean stop.
+        m_autoTranslateFatal = true;
         m_autoTranslating = false;
         emit autoTranslatingChanged();
         emit autoTranslateFinished(false, "Translation cancelled");
@@ -2640,12 +2656,31 @@ void TranslationManager::copyAiToFinal(const QString& fallback)
     if (aiTranslation.isEmpty()) return;
 
     QStringList keys = getKeysForFallback(fallback);
+    // Snapshot for rollback: the edit paths were hardened to never display a change that was
+    // not persisted, and this button — "use the AI translation" — is on the same page and just
+    // as reachable. It was skipped in that pass.
+    QMap<QString, QString> previous;
+    QSet<QString> previouslyAi;
+    for (const QString& key : keys) {
+        if (m_translations.contains(key)) previous[key] = m_translations.value(key);
+        if (m_aiGenerated.contains(key)) previouslyAi.insert(key);
+    }
+
     for (const QString& key : keys) {
         m_translations[key] = aiTranslation;
         m_aiGenerated.insert(key);  // Mark as AI-generated
     }
 
-    saveTranslations();
+    if (!saveTranslations()) {
+        for (const QString& key : keys) {
+            if (previous.contains(key)) m_translations[key] = previous.value(key);
+            else m_translations.remove(key);
+            if (!previouslyAi.contains(key)) m_aiGenerated.remove(key);
+        }
+        qWarning() << "Copy of the AI translation was NOT saved and has been rolled back";
+        emit translationsChanged();
+        return;
+    }
     recalculateUntranslatedCount();
     m_translationVersion++;
     emit translationsChanged();
@@ -2698,6 +2733,18 @@ void TranslationManager::clearAllAiTranslations()
 
     // Delete the AI translations file
     QString aiPath = translationsDir() + "/" + m_currentLanguage + "_ai.json";
+    // Verify the main file can be written BEFORE deleting the AI cache. This removed the file
+    // first and then discarded saveTranslations()' verdict, so with a corrupt language file the
+    // AI cache was destroyed irreversibly while the change it was part of never persisted — the
+    // user saw the clear applied, restarted, and had the old translations back with the AI
+    // column permanently empty.
+    if (!saveTranslations()) {
+        qWarning() << "Refusing to clear AI translations - the main file could not be saved";
+        loadAiTranslations();   // restore the in-memory state we just cleared
+        loadTranslations();
+        emit translationsChanged();
+        return;
+    }
     QFile::remove(aiPath);
 
     // Save updated translations
@@ -2964,7 +3011,12 @@ bool TranslationManager::mergeLanguageUpdate(const QJsonObject& newTranslations)
 
     if (added > 0 || updated > 0) {
         qDebug() << "Language update merged:" << added << "new," << updated << "updated," << preserved << "preserved user overrides";
-        saveTranslations();
+        // Honour the save. Returning true after a refused write defeats this function's own
+        // caller, which was rewritten in this branch specifically to act on the bool — the
+        // caller then writes metadata, emits languageDownloaded(true), and the UI offers to
+        // AI-translate over data that was never persisted.
+        if (!saveTranslations())
+            return false;
         recalculateUntranslatedCount();
         m_translationVersion++;
         emit translationsChanged();

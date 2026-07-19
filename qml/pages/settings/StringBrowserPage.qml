@@ -511,25 +511,6 @@ Page {
                     editingIndex = idx
                 }
 
-                // Order matters here, and it is not stylistic.
-                //
-                // setGroupTranslation() emits translationsChanged() synchronously; the page's
-                // Connections handler responds by calling stringModel.refresh(), which destroys
-                // THIS delegate while this function is still on the stack. Anything after that
-                // call runs on a dead object: the old version cleared the AI translation and
-                // exited edit mode afterwards, and neither happened — the first threw
-                // "TranslationManager is not defined" and the second failed silently.
-                //
-                // So leave edit mode FIRST, and make the mutation the last thing this function
-                // does. The AI-translation clear moved into setGroupTranslation(), where it is
-                // atomic with the edit and only runs if the save actually succeeded.
-                function saveAndExitEditing(fallbackKey, newText, oldText) {
-                    setEditing(false, -1)
-                    if (newText !== oldText) {
-                        TranslationManager.setGroupTranslation(fallbackKey, newText)
-                    }
-                }
-
                 // Accessibility: announce the English text and translation status
                 Accessible.role: Accessible.ListItem
                 Accessible.name: {
@@ -773,20 +754,32 @@ Page {
                                     delegateRoot.setEditing(true, index)
                                     centerTimer.start()
                                 } else {
-                                    // Save on focus lost.
+                                    // THE single save path. Losing focus is the one event that
+                                    // means "this edit is finished", and it happens whether the
+                                    // user pressed Enter or clicked away — so saving anywhere
+                                    // else duplicates it.
                                     //
-                                    // Guard the detached case: when a save destroys this delegate
-                                    // the row goes away, focus is released as part of that
-                                    // teardown, and this handler runs against a model that no
-                                    // longer has a row — model.fallback reads back as "". Saving
-                                    // then is never right; at best it is a whole-file write that
-                                    // matches no keys, and it is indistinguishable from a real
-                                    // edit in the log.
+                                    // Having two paths is what produced two writes per edit, and
+                                    // the first attempt to fix it made that worse rather than
+                                    // better: reordering exitEditing() so focus dropped BEFORE
+                                    // the save meant this handler ran while the row was still
+                                    // live, did the real save here, destroyed the delegate, and
+                                    // left exitEditing's remaining statements — including a
+                                    // second setGroupTranslation with the pre-edit oldText — to
+                                    // run on a dead object. Two no-op-plus-real became two real.
+                                    //
+                                    // Order below is deliberate: read the model, leave edit mode,
+                                    // and make the mutation the last statement, because it
+                                    // destroys this delegate.
                                     var fallbackKey = model.fallback
+                                    // A detached row (the model refreshed under us) reports an
+                                    // empty fallback. Saving from one is never legitimate.
                                     if (!fallbackKey || fallbackKey.length === 0)
                                         return
                                     var newText = text.trim()
-                                    if (newText !== (model.translation || "")) {
+                                    var changed = newText !== (model.translation || "")
+                                    delegateRoot.setEditing(false, -1)
+                                    if (changed) {
                                         TranslationManager.setGroupTranslation(fallbackKey, newText)
                                     }
                                 }
@@ -808,23 +801,16 @@ Page {
                                 }
                             }
 
-                            // Read the model and drop focus BEFORE saving. Saving destroys this
-                            // delegate (see saveAndExitEditing), so `model` is detached and
-                            // `focus = false` lands on a dead object if they come after.
+                            // Releases focus, nothing more. onActiveFocusChanged above is the
+                            // only place that saves, so Enter and click-away take the identical
+                            // route and cannot each fire their own write.
                             //
-                            // This is why every edit produced TWO saves. Releasing focus during
-                            // teardown fired onActiveFocusChanged below, which read model.fallback
-                            // from the detached row — getting "" — and called setGroupTranslation
-                            // again. That second call matched no keys and changed nothing, but
-                            // still wrote the whole ~300 KB language file, on the main thread,
-                            // for every single edit.
+                            // `focus = false` is LAST because it propagates synchronously: the
+                            // handler it triggers saves, which destroys this delegate, so any
+                            // statement after it would run on a dead object.
                             function exitEditing() {
-                                var newText = text.trim()
-                                var fallbackKey = model.fallback
-                                var oldText = model.translation || ""
-                                focus = false
                                 Qt.inputMethod.hide()
-                                delegateRoot.saveAndExitEditing(fallbackKey, newText, oldText)
+                                focus = false
                             }
                         }
 

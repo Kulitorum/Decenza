@@ -748,6 +748,31 @@ private slots:
                  "not follow the UI to another language");
     }
 
+    // Stop must mean stop — it briefly meant "skip to the next language".
+    //
+    // Routing per-language failures back into the batch (so one model reply of prose would not
+    // abandon eleven other languages) introduced a non-fatal branch that calls processNext().
+    // A user cancel took that branch, because cancelAutoTranslate set m_autoTranslateCancelled
+    // but not m_autoTranslateFatal — despite the header comment claiming the flag covered "a
+    // user cancel". Pressing Stop therefore began translating the NEXT language on the user's
+    // paid key, which is close to the worst thing a Stop button can do.
+    void acancelIsFatalToTheWholeRunNotJustOneLanguage()
+    {
+        Settings settings;
+        TranslationManager tm(&m_nam, &settings);
+
+        tm.m_autoTranslating = true;
+        tm.m_autoTranslateFatal = false;
+        tm.m_autoTranslateCancelled = false;
+
+        tm.cancelAutoTranslate();
+
+        QVERIFY2(tm.m_autoTranslateCancelled, "cancel must mark the run cancelled");
+        QVERIFY2(tm.m_autoTranslateFatal,
+                 "cancel must be FATAL: the batch's non-fatal branch advances to the next "
+                 "language, so a non-fatal cancel spends money the user just asked to stop");
+    }
+
 };
 
 QTEST_MAIN(TestTranslationSourceDrift)
