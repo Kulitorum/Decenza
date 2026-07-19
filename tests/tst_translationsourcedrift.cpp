@@ -592,6 +592,42 @@ private slots:
                  "a well-formed reply must still succeed");
     }
 
+    // The consequence, not the helper. Every previous round tested one frame below the bug and
+    // shipped it green, and the round that introduced this very code did it again: it asserted
+    // parseAutoTranslateResponse's return value while the caller three statements away emitted
+    // success regardless.
+    //
+    // What matters is that a run which could not PERSIST what it translated reports failure. A
+    // corrupt local file shows the language at 0%, the user presses AI Translate because of
+    // that 0%, pays for the whole language, watches the strings appear — and saveTranslations()
+    // refuses. Before this, the run still said "Translated N strings" and the work was gone at
+    // restart.
+    void arunThatCannotSaveReportsFailureNotSuccess()
+    {
+        Settings settings;
+
+        const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+                            + QStringLiteral("/translations");
+        QDir().mkpath(dir);
+        const QString path = dir + QStringLiteral("/de.json");
+        {
+            QFile f(path);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write("{ truncated");
+        }
+
+        TranslationManager tm(&m_nam, &settings);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Invalid translation file")));
+        tm.setCurrentLanguage(QStringLiteral("de"));
+
+        // saveTranslations() must refuse AND say so, rather than refusing silently and letting
+        // a caller report success on top of it.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Refusing to save")));
+        QVERIFY2(!tm.saveTranslations(),
+                 "a save that refuses must report it; a void refusal is what let the AI run "
+                 "claim success for work it did not persist");
+    }
+
 };
 
 QTEST_MAIN(TestTranslationSourceDrift)

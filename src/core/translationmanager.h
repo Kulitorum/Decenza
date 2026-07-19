@@ -250,7 +250,9 @@ private slots:
 
 private:
     void loadTranslations();
-    void saveTranslations();
+    // Returns false if it refused (the local file failed to load, so the in-memory map is empty
+    // by failure) or the write failed. Callers that report success must honour it.
+    bool saveTranslations();
     void loadLanguageMetadata();
     void saveLanguageMetadata();
     // Runs the once-per-launch community-translation merge as soon as the network is up.
@@ -348,6 +350,13 @@ private:
     // turns the run's result from success into a named failure, which also stops the bulk path
     // from uploading an untranslated file.
     int m_autoTranslateParseFailures = 0;
+
+    // True when a run failed for a reason that would recur for EVERY remaining language — the
+    // provider erroring, a user cancel, or a failed save. A batch stops on this. It exists
+    // because routing parse failures into autoTranslateFinished(false) made the bulk run treat
+    // one model reply of prose as grounds to abandon the other eleven languages, which the
+    // terminal branch was never meant to cover.
+    bool m_autoTranslateFatal = false;
     int m_autoTranslateTotal = 0;
     int m_pendingBatchCount = 0;  // Track parallel batch requests
     int m_translationRunId = 0;   // Increments each translation run to identify stale responses

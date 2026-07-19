@@ -1673,7 +1673,7 @@ void TranslationManager::loadTranslations()
     qDebug() << "Loaded" << m_translations.size() << "translations for:" << m_currentLanguage;
 }
 
-void TranslationManager::saveTranslations()
+bool TranslationManager::saveTranslations()
 {
     // Refuse when the local file failed to LOAD, for the same reason mergeLanguageUpdate does:
     // m_translations is empty by failure, not by fact, and writing it out replaces the user's
@@ -1693,7 +1693,7 @@ void TranslationManager::saveTranslations()
         m_lastError = tr("The %1 file could not be read earlier, so nothing was saved over it. "
                          "Repair or delete that file, then restart.").arg(m_currentLanguage);
         emit lastErrorChanged();
-        return;
+        return false;
     }
 
     // Save translations for any language (including English customizations)
@@ -1721,7 +1721,7 @@ void TranslationManager::saveTranslations()
                    << "- translations NOT saved";
         m_lastError = tr("Could not save translations for %1.").arg(m_currentLanguage);
         emit lastErrorChanged();
-        return;
+        return false;
     }
     file.write(QJsonDocument(root).toJson());
     if (!file.commit()) {
@@ -1730,7 +1730,9 @@ void TranslationManager::saveTranslations()
         m_lastError = tr("Could not save translations for %1 (the previous file is unchanged).")
                           .arg(m_currentLanguage);
         emit lastErrorChanged();
+        return false;
     }
+    return true;
 }
 
 void TranslationManager::loadLanguageMetadata()
@@ -2051,6 +2053,7 @@ void TranslationManager::autoTranslate()
     m_autoTranslateCancelled = false;
     m_autoTranslateProgress = 0;
     m_autoTranslateParseFailures = 0;   // per-run, like m_batchFailedUploads
+    m_autoTranslateFatal = false;
     m_autoTranslateTotal = static_cast<int>(m_stringsToTranslate.size());
     m_pendingBatchCount = 0;
     emit autoTranslatingChanged();
@@ -2235,6 +2238,28 @@ void TranslationManager::onAutoTranslateBatchReply(QNetworkReply* reply)
             qDebug() << "TranslationManager: All batches drained after cancellation";
             m_autoTranslating = false;
             emit autoTranslatingChanged();
+
+            // Persist whatever DID apply before the stop. Batches that parsed and applied are
+            // paid for and already in m_translations; this path used to drop them on the floor,
+            // so ten good batches followed by one transport error left the user billed for
+            // eleven and holding none. Only the completion path saved, and the two exits
+            // disagreeing about that is the bug.
+            if (m_autoTranslateProgress > 0) {
+                qDebug() << "Persisting" << m_autoTranslateProgress << "strings applied before the stop";
+                saveTranslations();
+                saveAiTranslations();
+                recalculateUntranslatedCount();
+                m_translationVersion++;
+                emit translationsChanged();
+            }
+
+            // A user-initiated cancel sets no error, which left this emitting an empty or, worse,
+            // a stale unrelated message.
+            if (m_lastError.isEmpty()) {
+                m_lastError = tr("Translation stopped. %1 strings were translated and saved.")
+                                  .arg(m_autoTranslateProgress);
+                emit lastErrorChanged();
+            }
             emit autoTranslateFinished(false, m_lastError);
         }
         return;
@@ -2244,6 +2269,7 @@ void TranslationManager::onAutoTranslateBatchReply(QNetworkReply* reply)
         // Set cancelled flag but DON'T emit autoTranslateFinished yet
         // Wait for all in-flight responses to complete first
         m_autoTranslateCancelled = true;
+        m_autoTranslateFatal = true;   // the provider itself is unusable; later languages would fail identically
         m_lastError = QString("AI request failed (%1): %2").arg(provider, reply->errorString());
         qWarning() << "TranslationManager:" << m_lastError;
         qWarning() << "Response body:" << reply->readAll().left(500);
@@ -2270,7 +2296,13 @@ void TranslationManager::onAutoTranslateBatchReply(QNetworkReply* reply)
         qDebug() << "TranslationManager: All batches complete for" << m_currentLanguage;
         m_autoTranslating = false;
         emit autoTranslatingChanged();
-        saveTranslations();
+        // The verdict MUST be honoured. saveTranslations() returned void, so a refusal here was
+        // invisible and the block below still emitted success: a user whose file was corrupt saw
+        // 0%, pressed AI Translate for that reason, paid for the whole language, watched the
+        // strings appear on screen — and lost every one of them at restart, having been told
+        // "Translated 3429 strings". That is round two's bug reproduced on round three's guard,
+        // on the path this branch itself identified as the one users actually take.
+        const bool saved = saveTranslations();
         saveAiTranslations();
         recalculateUntranslatedCount();
         m_translationVersion++;
@@ -2283,13 +2315,20 @@ void TranslationManager::onAutoTranslateBatchReply(QNetworkReply* reply)
         // the community copy. A paid run reported complete, having translated nothing and
         // uploaded damage. Same "credit for work not done" shape as the upload accounting.
         //
-        // m_autoTranslateCancelled is checked for the same reason. A transport error on a
-        // NON-last batch sets it and then waits for the remaining batches to drain — and this
-        // completion, reached by the last of those drains, reported success anyway. So a run
-        // that had already failed loudly on one batch still ended green, and in the bulk path
-        // still uploaded. Found while verifying the parse-failure fix; it is the same bug one
-        // door along, which is how every round of this review has gone.
-        if (m_autoTranslateParseFailures > 0 || m_autoTranslateCancelled) {
+        // m_autoTranslateCancelled is belt-and-braces, NOT a fixed defect. The commit that added
+        // it claimed the cancelled drain reported success; that was wrong — the drain above
+        // already emits autoTranslateFinished(false, ...) and always did. The only way to arrive
+        // here with the flag set is a QML handler calling cancelAutoTranslate() re-entrantly
+        // from a progress signal emitted inside the parser. Kept for that narrow case, and
+        // labelled honestly because a false claim of a fixed bug is exactly what this branch
+        // keeps having to correct.
+        if (!saved) {
+            m_autoTranslateFatal = true;   // disk/state problem — every remaining language hits it too
+            // m_lastError is already set by saveTranslations().
+            qWarning().noquote() << "AI translation: applied" << m_autoTranslateProgress
+                                 << "strings but could NOT persist them -" << m_lastError;
+            emit autoTranslateFinished(false, m_lastError);
+        } else if (m_autoTranslateParseFailures > 0 || m_autoTranslateCancelled) {
             if (m_autoTranslateParseFailures > 0) {
                 m_lastError = tr("%1 returned %2 unusable response(s); %3 strings were "
                                  "translated. Nothing was uploaded.")
@@ -3000,6 +3039,19 @@ void TranslationManager::translateAndUploadAllLanguages()
                 qDebug() << "Batch: Uploading" << m_currentLanguage << "...";
                 submitTranslation();
             }
+        } else if (!m_autoTranslateFatal) {
+            // This language failed, but the provider is fine — one reply came back as prose or
+            // truncated JSON. Record it and carry on with the rest.
+            //
+            // Routing parse failures into autoTranslateFinished(false) without this made the
+            // terminal branch below swallow the whole run: one unusable reply out of a
+            // twelve-language batch abandoned the other eleven. The terminal branch was written
+            // for "the provider is unusable and everything after it fails the same way", which
+            // is true of a transport error and false of a bad completion.
+            qWarning().noquote() << "Batch: translation of" << m_currentLanguage
+                                 << "failed but the provider is usable — continuing." << message;
+            m_batchFailedUploads << QStringLiteral("%1 (%2)").arg(m_currentLanguage, message);
+            (*processNext)();
         } else {
             // Failure is terminal. Previously this walked to the next configured provider and,
             // once they were exhausted, moved to the next LANGUAGE — so a batch could report
