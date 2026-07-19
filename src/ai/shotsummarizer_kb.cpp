@@ -218,11 +218,11 @@ void ShotSummarizer::loadProfileKnowledge()
         const bool isEditorDefault =
             (edt == QStringLiteral("dflow") || edt == QStringLiteral("aflow"));
 
-        auto registerAlias = [&](const QString& raw, bool recipeAnchor) {
-            const QString key = normalizeProfileKey(raw);
+        auto registerAlias = [&](const QString& alias, bool recipeAnchor) {
+            const QString key = normalizeProfileKey(alias);
             const auto it = s_aliasToId.constFind(key);
             if (it != s_aliasToId.constEnd() && it.value() != pk.id)
-                qWarning() << "ShotSummarizer: alias collision —" << raw
+                qWarning() << "ShotSummarizer: alias collision —" << alias
                            << "maps to both" << it.value() << "and" << pk.id
                            << "(validator gate should have rejected this)";
             const bool firstSeen = (it == s_aliasToId.constEnd());

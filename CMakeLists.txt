@@ -210,7 +210,26 @@ endif()
 # don't set CMAKE_BUILD_TYPE at configure time, so auto-enable is skipped to avoid
 # leaking flags into Release builds. Android requires special ASan packaging
 # (wrap.sh + shared lib in APK) that isn't handled here.
-if(ENABLE_ASAN OR (NOT CMAKE_CONFIGURATION_TYPES AND CMAKE_BUILD_TYPE STREQUAL "Debug" AND NOT ANDROID AND NOT APPLE))
+#
+# APPLE was excluded here for a long time because the instrumented app would not
+# START — the test suite was fine, so the fault was in launching the bundle, not
+# in the instrumentation. macOS is back in, because a Debug build is exactly
+# where memory errors should surface and excluding the development platform made
+# ASan dead configuration for the people most able to act on it.
+#
+# If the app fails to launch under ASan, the two causes worth checking first:
+#
+#  1. dyld cannot find the runtime. clang links it as
+#     @rpath/libclang_rt.asan_osx_dynamic.dylib and adds an rpath pointing INTO
+#     the Xcode toolchain (…/clang/<major>/lib/darwin). That path contains an
+#     Xcode version, so a major Xcode upgrade can strand every previously-linked
+#     binary. Symptom is a dyld error naming the dylib, before any app code runs.
+#     `otool -l <binary> | grep -A2 LC_RPATH` shows what it is actually looking for.
+#  2. ASan found a real defect during startup and aborted. This looks like "the
+#     app won't start" but is the tool working: the console carries an
+#     "ERROR: AddressSanitizer: …" block naming the location. That is a bug to
+#     fix, not a reason to turn the sanitizer off.
+if(ENABLE_ASAN OR (NOT CMAKE_CONFIGURATION_TYPES AND CMAKE_BUILD_TYPE STREQUAL "Debug" AND NOT ANDROID))
     if(MSVC)
         message(STATUS ">>> ASan ENABLED for debug build (MSVC) <<<")
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /fsanitize=address")
@@ -934,7 +953,13 @@ target_include_directories(Decenza PRIVATE
     ${CMAKE_BINARY_DIR}  # For version.h
 )
 if(ANDROID)
-    target_include_directories(Decenza PRIVATE ${mdns_lib_SOURCE_DIR})
+    # SYSTEM: mjansson/mdns is vendored third-party code, and it is header-only,
+    # so without this it compiles INSIDE our translation units and inherits
+    # -Werror. Android caught -Wcast-align on its sockaddr -> sockaddr_in casts,
+    # which is idiomatic BSD-socket code we are in no position to "fix".
+    # SYSTEM keeps our diagnostics on our code, matching the reason the warning
+    # options sit after the FetchContent blocks.
+    target_include_directories(Decenza SYSTEM PRIVATE ${mdns_lib_SOURCE_DIR})
 endif()
 if(IOS)
     target_include_directories(Decenza PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/ios)

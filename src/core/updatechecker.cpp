@@ -196,15 +196,18 @@ UpdateChecker::UpdateChecker(QNetworkAccessManager* networkManager, Settings* se
         checkForUpdates();
     });
 
-    connect(m_settings->app(), &SettingsApp::autoCheckUpdatesChanged, this, [this]() {
 #if !defined(Q_OS_IOS)
+    // iOS has no periodic timer to start or stop (updates go through the App
+    // Store), so the connection itself is skipped rather than connecting a
+    // lambda whose body compiles away to nothing there.
+    connect(m_settings->app(), &SettingsApp::autoCheckUpdatesChanged, this, [this]() {
         if (m_settings->app()->autoCheckUpdates()) {
             m_periodicTimer->start();
         } else {
             m_periodicTimer->stop();
         }
-#endif
     });
+#endif
 }
 
 QString UpdateChecker::tr_(const char* key, const char* fallback) const {
