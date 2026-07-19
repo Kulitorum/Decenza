@@ -677,6 +677,77 @@ private slots:
                  "a refused edit must not destroy the AI translation it failed to replace");
     }
 
+    // Import must MERGE, not replace — the last unguarded copy of the download bug.
+    //
+    // Same file, same destruction, one button along: export a backup at 1500 strings,
+    // AI-translate up to 3429, then import the backup to restore a few hand-corrections, and
+    // the other 1929 used to vanish with no prompt, no diff and no undo.
+    void animportMergesRatherThanReplacing()
+    {
+        Settings settings;
+        TranslationManager tm(&m_nam, &settings);
+
+        const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+                            + QStringLiteral("/translations");
+        QDir().mkpath(dir);
+
+        // A rich local file: two strings the import will not carry.
+        writeDownloadedLanguageFile(QStringLiteral("zz"), {
+            {QStringLiteral("keep.one"), QStringLiteral("Behalten eins")},
+            {QStringLiteral("keep.two"), QStringLiteral("Behalten zwei")},
+        });
+
+        // A poorer import file carrying one overlapping key and one new one.
+        const QString importPath = dir + QStringLiteral("/incoming.json");
+        {
+            QJsonObject root{
+                {QStringLiteral("language"), QStringLiteral("zz")},
+                {QStringLiteral("translations"), QJsonObject{
+                    {QStringLiteral("keep.one"), QStringLiteral("Ersetzt")},
+                    {QStringLiteral("brand.new"), QStringLiteral("Neu")}}}};
+            QFile f(importPath);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write(QJsonDocument(root).toJson());
+        }
+
+        tm.importTranslation(importPath);
+
+        QFile result(dir + QStringLiteral("/zz.json"));
+        QVERIFY(result.open(QIODevice::ReadOnly));
+        const QJsonObject after = QJsonDocument::fromJson(result.readAll())
+                                      .object().value(QStringLiteral("translations")).toObject();
+
+        QCOMPARE(after.value(QStringLiteral("keep.one")).toString(), QStringLiteral("Ersetzt"));
+        QCOMPARE(after.value(QStringLiteral("brand.new")).toString(), QStringLiteral("Neu"));
+        QVERIFY2(after.contains(QStringLiteral("keep.two")),
+                 "a string the import did not carry must survive it — import merges, never replaces");
+    }
+
+    // The payload and the language it was built for must travel together.
+    //
+    // The 429 retry re-derived the language from m_currentLanguage at fire time while
+    // m_pendingUploadData still held the original payload, so uploading French, hitting the
+    // rate limit, and switching to German published the French strings AS the German community
+    // copy — then reported it as a successful German contribution. The blast radius is every
+    // user of that language, not one local file.
+    void auploadPayloadStaysPairedWithItsLanguage()
+    {
+        Settings settings;
+        TranslationManager tm(&m_nam, &settings);
+        tm.setCurrentLanguage(QStringLiteral("fr"));
+        tm.setTranslation(QStringLiteral("a.key"), QStringLiteral("Bonjour"));
+
+        tm.submitTranslation();   // builds m_pendingUploadData for fr (the network call fails, fine)
+        QCOMPARE(tm.m_uploadingLangCode, QStringLiteral("fr"));
+
+        // The user switches language while the upload is pending.
+        tm.setCurrentLanguage(QStringLiteral("de"));
+
+        QVERIFY2(tm.m_uploadingLangCode == QStringLiteral("fr"),
+                 "the pending upload must stay bound to the language whose data it holds, "
+                 "not follow the UI to another language");
+    }
+
 };
 
 QTEST_MAIN(TestTranslationSourceDrift)

@@ -431,16 +431,24 @@ void TranslationManager::addLanguage(const QString& langCode, const QString& dis
 
     saveLanguageMetadata();
 
-    // Create empty translation file
-    QFile file(languageFilePath(langCode));
-    if (file.open(QIODevice::WriteOnly)) {
+    // Create an empty translation file ONLY if there is not one already.
+    //
+    // This opened WriteOnly unconditionally, which truncates. The guard above is only
+    // `m_languageMetadata.contains(langCode)`, so if the metadata file was ever lost the
+    // language vanishes from the picker while its .json sits on disk — and the obvious recovery,
+    // adding the language back, destroyed exactly the file the user was trying to recover.
+    // The action a person takes to fix the problem must not be the one that makes it permanent.
+    const QString newLangPath = languageFilePath(langCode);
+    if (QFile::exists(newLangPath)) {
+        qWarning() << "Language" << langCode << "was missing from the metadata but its file"
+                   << "exists — keeping the existing translations rather than overwriting them";
+    } else {
         QJsonObject root;
         root["language"] = langCode;
         root["displayName"] = displayName;
         root["nativeName"] = nativeName.isEmpty() ? displayName : nativeName;
         root["translations"] = QJsonObject();
-        file.write(QJsonDocument(root).toJson());
-        file.close();
+        writeJsonFile(newLangPath, QJsonDocument(root), tr("the new %1 language file").arg(langCode));
     }
 
     m_availableLanguages = m_languageMetadata.keys();
@@ -1105,6 +1113,19 @@ void TranslationManager::onLanguageFileFetched(QNetworkReply* reply)
 
 void TranslationManager::exportTranslation(const QString& filePath)
 {
+    // Refuse to export a map that is empty by failure. Taking a backup before repairing a
+    // broken file is the natural move, and this silently wrote {"translations":{}} and called
+    // it done — handing the user a file that looks like a backup and contains nothing.
+    if (m_translationsLoadFailed) {
+        qWarning() << "Refusing to export" << m_currentLanguage
+                   << "- its local file could not be read, so there is nothing trustworthy to"
+                   << "export. The exported file would be empty.";
+        m_lastError = tr("The %1 file could not be read, so there was nothing to export.")
+                          .arg(m_currentLanguage);
+        emit lastErrorChanged();
+        return;
+    }
+
     // Allow exporting any language including English customizations
     QJsonObject root;
     root["language"] = m_currentLanguage;
@@ -1119,15 +1140,20 @@ void TranslationManager::exportTranslation(const QString& filePath)
     }
     root["translations"] = translations;
 
-    QFile file(filePath);
-    if (file.open(QIODevice::WriteOnly)) {
-        file.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
-        file.close();
-        qDebug() << "Exported translation to:" << filePath;
-    } else {
+    QSaveFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly)) {
         m_lastError = QString("Failed to write file: %1").arg(filePath);
         emit lastErrorChanged();
+        return;
     }
+    file.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+    if (!file.commit()) {
+        qWarning() << "Failed to commit export to" << filePath << ":" << file.errorString();
+        m_lastError = QString("Failed to write file: %1").arg(filePath);
+        emit lastErrorChanged();
+        return;
+    }
+    qDebug() << "Exported translation to:" << filePath;
 }
 
 void TranslationManager::importTranslation(const QString& filePath)
@@ -1158,12 +1184,51 @@ void TranslationManager::importTranslation(const QString& filePath)
         return;
     }
 
-    // Save the imported file
-    QFile destFile(languageFilePath(langCode));
-    if (destFile.open(QIODevice::WriteOnly)) {
-        destFile.write(data);
-        destFile.close();
+    // MERGE the import into what is already here — do not replace it.
+    //
+    // This wrote `data` straight over the language file, which made Import the last unguarded
+    // copy of the bug the download path was rewritten to fix. Same file, same destruction, one
+    // button along: export a backup at 1500 strings, AI-translate to 3429, then import the
+    // backup to restore a few hand-corrections, and the other 1929 are gone with no prompt, no
+    // diff and no undo. The plain QFile made it worse — WriteOnly truncates at open, so a short
+    // write leaves exactly the corrupt file loadTranslations() now has to guard against.
+    //
+    // Merging is the safe direction: it cannot lose a string. A user who genuinely wants to
+    // start over can delete the language first, which is explicit and reversible in a way that
+    // a silent overwrite is not.
+    const QJsonObject incoming = root["translations"].toObject();
+    QJsonObject merged;
+    const QString destPath = languageFilePath(langCode);
+    QFile existing(destPath);
+    if (existing.exists()) {
+        if (!existing.open(QIODevice::ReadOnly)) {
+            qWarning() << "Import ABORTED for" << langCode << "- cannot read existing"
+                       << destPath << ":" << existing.errorString();
+            m_lastError = tr("Could not read the existing %1 file, so nothing was imported.")
+                              .arg(langCode);
+            emit lastErrorChanged();
+            return;
+        }
+        QJsonParseError parseError;
+        const QJsonDocument localDoc = QJsonDocument::fromJson(existing.readAll(), &parseError);
+        existing.close();
+        if (parseError.error != QJsonParseError::NoError) {
+            qWarning() << "Import ABORTED for" << langCode << "- existing file is not valid JSON:"
+                       << parseError.errorString();
+            m_lastError = tr("The existing %1 file could not be parsed, so nothing was imported.")
+                              .arg(langCode);
+            emit lastErrorChanged();
+            return;
+        }
+        merged = localDoc.object().value(QStringLiteral("translations")).toObject();
     }
+    for (auto it = incoming.constBegin(); it != incoming.constEnd(); ++it)
+        merged[it.key()] = it.value();
+
+    QJsonObject out = root;
+    out["translations"] = merged;
+    if (!writeJsonFile(destPath, QJsonDocument(out), tr("the imported %1 translations").arg(langCode)))
+        return;   // writeJsonFile has already warned and set m_lastError
 
     // Update metadata
     m_languageMetadata[langCode] = QVariantMap{
@@ -1241,6 +1306,7 @@ void TranslationManager::submitTranslation()
 
     // Store the data for upload after we get the pre-signed URL
     m_pendingUploadData = QJsonDocument(root).toJson();
+    m_uploadingLangCode = m_currentLanguage;   // pin: the retry must not re-derive this later
 
     m_uploading = true;
     emit uploadingChanged();
@@ -1274,12 +1340,31 @@ void TranslationManager::onUploadUrlReceived(QNetworkReply* reply)
                                 .arg(m_uploadRetryCount).arg(MAX_RETRIES);
             emit retryStatusChanged();
 
-            // Schedule retry after delay
-            QTimer::singleShot(RETRY_DELAY_MS, this, [this]() {
+            // Schedule retry after delay.
+            //
+            // Capture the language this upload is FOR. Reading m_currentLanguage inside the
+            // lambda meant the retry asked for an upload URL for whatever language was selected
+            // 30 seconds later, while m_pendingUploadData still held the payload captured for
+            // the original one. Nothing stops the user switching language while a rate-limited
+            // upload waits — m_uploading gates submitTranslation(), not setCurrentLanguage() —
+            // so uploading French, hitting 429, and switching to German published the French
+            // strings as the German community copy, then reported "Translation for German
+            // submitted successfully! Thank you for contributing."
+            //
+            // Up to MAX_RETRIES chances per upload, on the status this file documents as the
+            // ordinary one. The blast radius is every user of that language, not this machine.
+            const QString uploadLang = m_uploadingLangCode.isEmpty() ? m_currentLanguage
+                                                                     : m_uploadingLangCode;
+            QTimer::singleShot(RETRY_DELAY_MS, this, [this, uploadLang]() {
+                if (uploadLang != m_uploadingLangCode) {
+                    qWarning() << "Abandoning upload retry for" << uploadLang
+                               << "- the pending upload is now for" << m_uploadingLangCode;
+                    return;
+                }
                 // Re-request the upload URL
                 QString uploadUrlEndpoint = QString("%1/v1/translations/upload-url?lang=%2")
                     .arg(TRANSLATION_API_BASE)
-                    .arg(m_currentLanguage);
+                    .arg(uploadLang);
 
                 QNetworkRequest request{QUrl(uploadUrlEndpoint)};
                 QNetworkReply* retryReply = m_networkManager->get(request);
@@ -1741,6 +1826,40 @@ void TranslationManager::loadTranslations()
     qDebug() << "Loaded" << m_translations.size() << "translations for:" << m_currentLanguage;
 }
 
+// Write a JSON document to `path` atomically, or report why not.
+//
+// Every persistence helper in this file used to be the same four lines — QFile, if(open),
+// write, close — with no else, no check of write()'s return, and a void signature. That shape
+// is what made a full disk or a read-only profile directory indistinguishable from success at
+// every call site, and it is why four review rounds each found another caller reporting work
+// it had not done.
+//
+// QSaveFile writes a temporary and renames on commit, so a failure leaves the previous file
+// exactly as it was. QIODevice::WriteOnly on a plain QFile truncates at open, which means the
+// old content is destroyed before the first byte of the new content is written — the very way
+// the corrupt files this class now has to guard against get made.
+bool TranslationManager::writeJsonFile(const QString& path, const QJsonDocument& doc,
+                                       const QString& what)
+{
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly)) {
+        qWarning() << "Failed to open" << path << "for writing:" << file.errorString()
+                   << "-" << what << "NOT saved";
+        m_lastError = tr("Could not save %1.").arg(what);
+        emit lastErrorChanged();
+        return false;
+    }
+    file.write(doc.toJson());
+    if (!file.commit()) {
+        qWarning() << "Failed to commit" << path << ":" << file.errorString()
+                   << "-" << what << "NOT saved; the previous file is intact";
+        m_lastError = tr("Could not save %1 (the previous file is unchanged).").arg(what);
+        emit lastErrorChanged();
+        return false;
+    }
+    return true;
+}
+
 bool TranslationManager::saveTranslations()
 {
     // Refuse when the local file failed to LOAD, for the same reason mergeLanguageUpdate does:
@@ -1826,7 +1945,7 @@ void TranslationManager::loadLanguageMetadata()
     }
 }
 
-void TranslationManager::saveLanguageMetadata()
+bool TranslationManager::saveLanguageMetadata()
 {
     QJsonObject root;
     for (auto it = m_languageMetadata.constBegin(); it != m_languageMetadata.constEnd(); ++it) {
@@ -1834,11 +1953,7 @@ void TranslationManager::saveLanguageMetadata()
     }
 
     QString metaPath = translationsDir() + "/languages_meta.json";
-    QFile file(metaPath);
-    if (file.open(QIODevice::WriteOnly)) {
-        file.write(QJsonDocument(root).toJson());
-        file.close();
-    }
+    return writeJsonFile(metaPath, QJsonDocument(root), tr("the language list"));
 }
 
 void TranslationManager::loadStringRegistry()
@@ -1969,7 +2084,7 @@ bool TranslationManager::noteSourceString(const QString& key, const QString& fal
     return true;
 }
 
-void TranslationManager::saveStringRegistry()
+bool TranslationManager::saveStringRegistry()
 {
     QJsonObject root;
     root["version"] = "1.0";
@@ -1985,11 +2100,7 @@ void TranslationManager::saveStringRegistry()
     root["strings"] = strings;
 
     QString regPath = translationsDir() + "/string_registry.json";
-    QFile file(regPath);
-    if (file.open(QIODevice::WriteOnly)) {
-        file.write(QJsonDocument(root).toJson());
-        file.close();
-    }
+    return writeJsonFile(regPath, QJsonDocument(root), tr("the string registry"));
 }
 
 void TranslationManager::propagateTranslationsToAllKeys()
@@ -2642,17 +2753,17 @@ void TranslationManager::loadAiTranslations()
     qDebug() << "Loaded" << m_aiTranslations.size() << "AI translations for:" << m_currentLanguage;
 }
 
-void TranslationManager::saveAiTranslations()
+bool TranslationManager::saveAiTranslations()
 {
     if (m_currentLanguage == "en") {
-        return;
+        return true;   // nothing to store for the base language; not a failure
     }
 
     QString aiPath = translationsDir() + "/" + m_currentLanguage + "_ai.json";
 
     if (m_aiTranslations.isEmpty()) {
-        QFile::remove(aiPath);
-        return;
+        QFile::remove(aiPath);   // deliberate: an empty set is represented by absence
+        return true;
     }
 
     QJsonObject root;
@@ -2672,11 +2783,7 @@ void TranslationManager::saveAiTranslations()
     }
     root["generated"] = generated;
 
-    QFile file(aiPath);
-    if (file.open(QIODevice::WriteOnly)) {
-        file.write(QJsonDocument(root).toJson());
-        file.close();
-    }
+    return writeJsonFile(aiPath, QJsonDocument(root), tr("the AI translations"));
 }
 
 // --- User Overrides (preserved during language updates) ---
@@ -2710,17 +2817,17 @@ void TranslationManager::loadUserOverrides()
     qDebug() << "Loaded" << m_userOverrides.size() << "user overrides for:" << m_currentLanguage;
 }
 
-void TranslationManager::saveUserOverrides()
+bool TranslationManager::saveUserOverrides()
 {
     if (m_currentLanguage == "en") {
-        return;
+        return true;   // English has no overrides file; not a failure
     }
 
     QString overridesPath = translationsDir() + "/" + m_currentLanguage + "_overrides.json";
 
     if (m_userOverrides.isEmpty()) {
-        QFile::remove(overridesPath);
-        return;
+        QFile::remove(overridesPath);   // deliberate: an empty set is represented by absence
+        return true;
     }
 
     QJsonObject root;
@@ -2730,11 +2837,7 @@ void TranslationManager::saveUserOverrides()
     }
     root["overrides"] = overrides;
 
-    QFile file(overridesPath);
-    if (file.open(QIODevice::WriteOnly)) {
-        file.write(QJsonDocument(root).toJson());
-        file.close();
-    }
+    return writeJsonFile(overridesPath, QJsonDocument(root), tr("your customised strings"));
 }
 
 void TranslationManager::checkForLanguageUpdate()

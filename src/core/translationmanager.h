@@ -252,16 +252,20 @@ private:
     void loadTranslations();
     // Returns false if it refused (the local file failed to load, so the in-memory map is empty
     // by failure) or the write failed. Callers that report success must honour it.
+    // Atomic JSON write with a reported verdict. All the save* helpers route through this;
+    // see the comment on the definition for why the old QFile+if(open) shape was a bug factory.
+    bool writeJsonFile(const QString& path, const QJsonDocument& doc, const QString& what);
+
     bool saveTranslations();
     void loadLanguageMetadata();
-    void saveLanguageMetadata();
+    bool saveLanguageMetadata();
     // Runs the once-per-launch community-translation merge as soon as the network is up.
     // Replaces a fixed 3s delay; see the definition for why that delay was wrong in both
     // directions.
     void scheduleLanguageUpdateCheck();
 
     void loadStringRegistry();
-    void saveStringRegistry();
+    bool saveStringRegistry();
 
     // Record the CURRENT English for a key, and deal with the case where it changed.
     //
@@ -287,11 +291,11 @@ private:
     bool parseAutoTranslateResponse(const QByteArray& data);
     QString buildTranslationPrompt(const QVariantList& strings) const;
     void loadAiTranslations();
-    void saveAiTranslations();
+    bool saveAiTranslations();
 
     // Language update helpers
     void loadUserOverrides();
-    void saveUserOverrides();
+    bool saveUserOverrides();
 
     Settings* m_settings;
     QNetworkAccessManager* m_networkManager;
@@ -310,6 +314,11 @@ private:
     QString m_lastError;
     QString m_retryStatus;
     QByteArray m_pendingUploadData;
+
+    // The language m_pendingUploadData was built for. These two must travel together: the 429
+    // retry used to re-derive the language from m_currentLanguage at fire time, so switching
+    // language during the wait published one language's strings under another's name.
+    QString m_uploadingLangCode;
 
     // translations[key] = translated_text
     QMap<QString, QString> m_translations;
