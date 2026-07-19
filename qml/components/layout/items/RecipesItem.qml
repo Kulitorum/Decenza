@@ -57,16 +57,23 @@ Item {
         }
     }
 
-    // The five most-recently-used non-archived recipes (inventoryReady is
-    // MRU-ordered); the full list lives on the Recipes page.
+    // The full MRU-ordered non-archived recipe list (inventoryReady is MRU-ordered);
+    // the popup pages through it five at a time (add-idle-pill-pagination). The full
+    // list also lives on the Recipes page.
     property var inventoryRecipes: []
+    readonly property int pillPageSize: 5
+    property int recipePageIndex: 0
+    readonly property int recipePageCount: Math.max(1, Math.ceil(inventoryRecipes.length / root.pillPageSize))
+    readonly property var visibleRecipes: inventoryRecipes.slice(recipePageIndex * root.pillPageSize,
+                                                                recipePageIndex * root.pillPageSize + root.pillPageSize)
 
     Component.onCompleted: MainController.recipeStorage.requestInventory()
 
     Connections {
         target: MainController.recipeStorage
         function onInventoryReady(recipes) {
-            root.inventoryRecipes = recipes.slice(0, 5)
+            root.inventoryRecipes = recipes
+            root.recipePageIndex = Math.max(0, Math.min(root.recipePageIndex, root.recipePageCount - 1))
         }
         function onRecipesChanged() {
             MainController.recipeStorage.requestInventory()
@@ -163,9 +170,11 @@ Item {
 
         // Announce the list for screen-reader users (feature parity with the
         // full-mode path, which announces via IdlePage).
+        onAboutToShow: root.recipePageIndex = 0  // Always open on the most-recent five.
+
         onOpened: {
             if (typeof AccessibilityManager === "undefined" || !AccessibilityManager.enabled) return
-            var recipes = root.inventoryRecipes
+            var recipes = root.visibleRecipes
             if (recipes.length === 0) return
             var names = []
             var selectedName = ""
@@ -232,7 +241,7 @@ Item {
             // drinkType, with a block-derived fallback for legacy rows (the
             // DrinkType singleton — no profile lookup). A stale recipe (its
             // linked bag finished) dims but still activates.
-            presets: root.inventoryRecipes.map(function(r) {
+            presets: root.visibleRecipes.map(function(r) {
                 return { name: r.name,
                          icon: DrinkType.icon(DrinkType.fromRecipeMap(r)),
                          dimmed: r.stale === true,
@@ -240,15 +249,23 @@ Item {
                              "recipes.pill.bagFinished", "bag finished") : "" }
             })
             selectedIndex: {
-                var list = root.inventoryRecipes
+                var list = root.visibleRecipes
                 for (var i = 0; i < list.length; ++i) {
                     if (list[i].id === MainController.selectedRecipeId) return i
                 }
                 return -1
             }
 
+            pageCount: root.recipePageCount
+            pageIndex: root.recipePageIndex
+            prevPageAccessibleName: TranslationManager.translate("idle.pagination.previousRecipes", "Previous recipes")
+            nextPageAccessibleName: TranslationManager.translate("idle.pagination.nextRecipes", "Next recipes")
+            onPageChangeRequested: function(delta) {
+                root.recipePageIndex = Math.max(0, Math.min(root.recipePageIndex + delta, root.recipePageCount - 1))
+            }
+
             onPresetSelected: function(index) {
-                var recipe = root.inventoryRecipes[index]
+                var recipe = root.visibleRecipes[index]
                 if (!recipe) return
                 // First tap selects (activates); tapping the selected recipe
                 // again starts the shot — same as the regular-layout pill row.

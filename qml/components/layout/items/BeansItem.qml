@@ -23,9 +23,15 @@ Item {
     // Inventory bags shown as pills (bean-bag-inventory: pills are bags now,
     // not presets — visibility criterion is inInventory, selection is
     // activeBagId, and there is no dirty state because bag edits write
-    // through). Capped to the 5 most recently used (inventoryReady is
-    // MRU-ordered); the full inventory lives on the Beans page.
+    // through). The full MRU inventory (inventoryReady is MRU-ordered) is kept
+    // and paged five at a time (add-idle-pill-pagination); the full inventory
+    // also lives on the Beans page.
     property var inventoryBags: []
+    readonly property int pillPageSize: 5
+    property int beanPageIndex: 0
+    readonly property int beanPageCount: Math.max(1, Math.ceil(inventoryBags.length / root.pillPageSize))
+    readonly property var visibleBags: inventoryBags.slice(beanPageIndex * root.pillPageSize,
+                                                          beanPageIndex * root.pillPageSize + root.pillPageSize)
 
     function bagLabel(bag) {
         if (!bag) return ""
@@ -38,7 +44,8 @@ Item {
     Connections {
         target: MainController.bagStorage
         function onInventoryReady(bags) {
-            root.inventoryBags = bags.slice(0, 5)
+            root.inventoryBags = bags
+            root.beanPageIndex = Math.max(0, Math.min(root.beanPageIndex, root.beanPageCount - 1))
         }
         function onBagsChanged() {
             MainController.bagStorage.requestInventory()
@@ -142,9 +149,11 @@ Item {
         // Full-mode beans path runs IdlePage.onActivePresetFunctionChanged which announces
         // the bag list to TalkBack. The compact-mode popup bypasses that path, so
         // announce here directly to keep feature parity for screen-reader users.
+        onAboutToShow: root.beanPageIndex = 0  // Always open on the most-recent five.
+
         onOpened: {
             if (typeof AccessibilityManager === "undefined" || !AccessibilityManager.enabled) return
-            var bags = root.inventoryBags
+            var bags = root.visibleBags
             if (bags.length === 0) return
             var names = []
             var selectedName = ""
@@ -207,17 +216,25 @@ Item {
         contentItem: PresetPillRow {
             id: beansPillRow
             maxWidth: Theme.scaled(600)
-            presets: root.inventoryBags.map(function(b) { return { name: root.bagLabel(b) } })
+            presets: root.visibleBags.map(function(b) { return { name: root.bagLabel(b) } })
             selectedIndex: {
-                var list = root.inventoryBags
+                var list = root.visibleBags
                 for (var i = 0; i < list.length; ++i) {
                     if (list[i].id === Settings.dye.activeBagId) return i
                 }
                 return -1
             }
 
+            pageCount: root.beanPageCount
+            pageIndex: root.beanPageIndex
+            prevPageAccessibleName: TranslationManager.translate("idle.pagination.previousBeans", "Previous beans")
+            nextPageAccessibleName: TranslationManager.translate("idle.pagination.nextBeans", "Next beans")
+            onPageChangeRequested: function(delta) {
+                root.beanPageIndex = Math.max(0, Math.min(root.beanPageIndex + delta, root.beanPageCount - 1))
+            }
+
             onPresetSelected: function(index) {
-                var bag = root.inventoryBags[index]
+                var bag = root.visibleBags[index]
                 if (!bag) return
                 Settings.dye.activeBagId = bag.id
                 presetPopup.close()

@@ -121,11 +121,21 @@ Page {
         _publishOperationMode()
     }
 
+    // Idle pill rows page through their full MRU inventory five at a time
+    // (add-idle-pill-pagination). The recipe and bean rows keep the complete
+    // MRU-ordered list and hand PresetPillRow a windowed slice; the arrows only
+    // appear once there is more than one page (i.e. more than five items).
+    readonly property int pillPageSize: 5
+
     // Inventory bags for the beans pill row (bean-bag-inventory: pills are
     // bags, selection is activeBagId, no dirty state — edits write through).
-    // Capped to the 5 most recently used (inventoryReady is MRU-ordered);
-    // the full inventory lives on the Beans page.
+    // The full MRU inventory (inventoryReady is MRU-ordered) is kept and paged;
+    // the full inventory also lives on the Beans page.
     property var inventoryBags: []
+    property int beanPageIndex: 0
+    readonly property int beanPageCount: Math.max(1, Math.ceil(inventoryBags.length / idlePage.pillPageSize))
+    readonly property var visibleBags: inventoryBags.slice(beanPageIndex * idlePage.pillPageSize,
+                                                          beanPageIndex * idlePage.pillPageSize + idlePage.pillPageSize)
 
     function bagLabel(bag) {
         if (!bag) return ""
@@ -136,7 +146,9 @@ Page {
     Connections {
         target: MainController.bagStorage
         function onInventoryReady(bags) {
-            idlePage.inventoryBags = bags.slice(0, 5)
+            idlePage.inventoryBags = bags
+            // Keep the page valid if bags were added/removed/reordered.
+            idlePage.beanPageIndex = Math.max(0, Math.min(idlePage.beanPageIndex, idlePage.beanPageCount - 1))
         }
         function onBagsChanged() {
             MainController.bagStorage.requestInventory()
@@ -168,14 +180,20 @@ Page {
 
     // Recipes for the recipe pill row (add-recipes): pills are recipes,
     // selection is activeRecipeId, activation runs through MainController's
-    // single path. Capped to the 5 most recently used (inventoryReady is
-    // MRU-ordered); the full list lives on the Recipes page.
+    // single path. The full MRU list (inventoryReady is MRU-ordered) is kept
+    // and paged; the full list also lives on the Recipes page.
     property var inventoryRecipes: []
+    property int recipePageIndex: 0
+    readonly property int recipePageCount: Math.max(1, Math.ceil(inventoryRecipes.length / idlePage.pillPageSize))
+    readonly property var visibleRecipes: inventoryRecipes.slice(recipePageIndex * idlePage.pillPageSize,
+                                                                recipePageIndex * idlePage.pillPageSize + idlePage.pillPageSize)
 
     Connections {
         target: MainController.recipeStorage
         function onInventoryReady(recipes) {
-            idlePage.inventoryRecipes = recipes.slice(0, 5)
+            idlePage.inventoryRecipes = recipes
+            // Keep the page valid if recipes were added/removed/reordered.
+            idlePage.recipePageIndex = Math.max(0, Math.min(idlePage.recipePageIndex, idlePage.recipePageCount - 1))
         }
         function onRecipesChanged() {
             MainController.recipeStorage.requestInventory()
@@ -467,6 +485,9 @@ Page {
     // Auto-tare scale and announce presets when activePresetFunction changes
     onActivePresetFunctionChanged: {
         _publishOperationMode()
+        // Paged pill rows always (re)open on the first page — the most-recent five.
+        if (activePresetFunction === "recipes") recipePageIndex = 0
+        else if (activePresetFunction === "beans") beanPageIndex = 0
         // Auto-tare when steam pills appear so the scale starts at 0
         // before the user places the pitcher
         if (activePresetFunction === "steam" && typeof MachineState !== "undefined") {
@@ -505,10 +526,11 @@ Page {
                     }
                     break
                 case "beans":
-                    presets = idlePage.inventoryBags.map(function(b) { return { name: idlePage.bagLabel(b) } })
-                    for (var bi = 0; bi < idlePage.inventoryBags.length; ++bi) {
-                        if (idlePage.inventoryBags[bi].id === Settings.dye.activeBagId) {
-                            selectedName = idlePage.bagLabel(idlePage.inventoryBags[bi])
+                    // Announce the visible page (the row just reset to page 1).
+                    presets = idlePage.visibleBags.map(function(b) { return { name: idlePage.bagLabel(b) } })
+                    for (var bi = 0; bi < idlePage.visibleBags.length; ++bi) {
+                        if (idlePage.visibleBags[bi].id === Settings.dye.activeBagId) {
+                            selectedName = idlePage.bagLabel(idlePage.visibleBags[bi])
                             break
                         }
                     }
@@ -523,12 +545,13 @@ Page {
                     }
                     break
                 case "recipes":
-                    presets = idlePage.inventoryRecipes.map(function(r) { return { name: r.name } })
-                    for (var ri = 0; ri < idlePage.inventoryRecipes.length; ++ri) {
+                    // Announce the visible page (the row just reset to page 1).
+                    presets = idlePage.visibleRecipes.map(function(r) { return { name: r.name } })
+                    for (var ri = 0; ri < idlePage.visibleRecipes.length; ++ri) {
                         // Match the pill highlight (selectedIndex) — the synchronous
                         // MainController.selectedRecipeId, not the lagging activeRecipeId.
-                        if (idlePage.inventoryRecipes[ri].id === MainController.selectedRecipeId) {
-                            selectedName = idlePage.inventoryRecipes[ri].name
+                        if (idlePage.visibleRecipes[ri].id === MainController.selectedRecipeId) {
+                            selectedName = idlePage.visibleRecipes[ri].name
                             break
                         }
                     }
@@ -1034,17 +1057,25 @@ Page {
                 sourceComponent: PresetPillRow {
                     id: inlineBeanPresetRow
                     maxWidth: beanPresetLoader.width
-                    presets: idlePage.inventoryBags.map(function(b) { return { name: idlePage.bagLabel(b) } })
+                    presets: idlePage.visibleBags.map(function(b) { return { name: idlePage.bagLabel(b) } })
                     selectedIndex: {
-                        var list = idlePage.inventoryBags
+                        var list = idlePage.visibleBags
                         for (var i = 0; i < list.length; ++i) {
                             if (list[i].id === Settings.dye.activeBagId) return i
                         }
                         return -1
                     }
 
+                    pageCount: idlePage.beanPageCount
+                    pageIndex: idlePage.beanPageIndex
+                    prevPageAccessibleName: TranslationManager.translate("idle.pagination.previousBeans", "Previous beans")
+                    nextPageAccessibleName: TranslationManager.translate("idle.pagination.nextBeans", "Next beans")
+                    onPageChangeRequested: function(delta) {
+                        idlePage.beanPageIndex = Math.max(0, Math.min(idlePage.beanPageIndex + delta, idlePage.beanPageCount - 1))
+                    }
+
                     onPresetSelected: function(index) {
-                        var bag = idlePage.inventoryBags[index]
+                        var bag = idlePage.visibleBags[index]
                         if (!bag) return
                         Settings.dye.activeBagId = bag.id
                     }
@@ -1086,7 +1117,7 @@ Page {
                     maxWidth: recipePresetLoader.width
                     // Drink-type icon per pill; a stale recipe (linked bag
                     // finished) dims but still activates.
-                    presets: idlePage.inventoryRecipes.map(function(r) {
+                    presets: idlePage.visibleRecipes.map(function(r) {
                         return { name: r.name,
                                  icon: DrinkType.icon(DrinkType.fromRecipeMap(r)),
                                  dimmed: r.stale === true,
@@ -1094,15 +1125,23 @@ Page {
                                      "recipes.pill.bagFinished", "bag finished") : "" }
                     })
                     selectedIndex: {
-                        var list = idlePage.inventoryRecipes
+                        var list = idlePage.visibleRecipes
                         for (var i = 0; i < list.length; ++i) {
                             if (list[i].id === MainController.selectedRecipeId) return i
                         }
                         return -1
                     }
 
+                    pageCount: idlePage.recipePageCount
+                    pageIndex: idlePage.recipePageIndex
+                    prevPageAccessibleName: TranslationManager.translate("idle.pagination.previousRecipes", "Previous recipes")
+                    nextPageAccessibleName: TranslationManager.translate("idle.pagination.nextRecipes", "Next recipes")
+                    onPageChangeRequested: function(delta) {
+                        idlePage.recipePageIndex = Math.max(0, Math.min(idlePage.recipePageIndex + delta, idlePage.recipePageCount - 1))
+                    }
+
                     onPresetSelected: function(index) {
-                        var recipe = idlePage.inventoryRecipes[index]
+                        var recipe = idlePage.visibleRecipes[index]
                         if (!recipe) return
                         // Match the profile/espresso pills: first tap selects the
                         // recipe (kicks off activation); tapping the selected
