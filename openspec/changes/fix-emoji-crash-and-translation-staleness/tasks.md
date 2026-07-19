@@ -788,9 +788,30 @@ decide with, rather than guessing.
       Same principle as 7.8r: hammering someone else's server 100 times is the infrastructure
       version of spending tokens people are not expecting.
 
-- [ ] 7.9 A faint cloud indicator in Shot History rows is very low-contrast in light mode. Could
-      not locate its source by grepping ShotHistoryPage; may be deliberate de-emphasis for an
-      "uploaded" state. Look at it directly before assuming either way.
+- [x] 7.9 A faint cloud indicator in Shot History rows is very low-contrast in light mode.
+      FOUND AND FIXED — not deliberate de-emphasis. It was a plain `Image` on the Twemoji
+      asset `qrc:/emoji/2601.svg`, whose two fills are baked in at `#CCD6DD` and `#E1E8ED`.
+      Both are near-white, so on a light row it was nearly invisible, and being fills inside
+      the SVG it could not follow the theme at any brightness.
+      This is the case CLAUDE.md already names: "Not in place of a themed icon for chrome —
+      emoji carry fixed colours and will not adapt to light/dark or a custom palette." The
+      monochrome, tintable `qrc:/icons/CloudUpload.svg` already existed and was already used
+      for this exact indicator on ShotDetailPage and PostShotReviewPage; only the history row
+      reached for the emoji. Now a `ThemedIcon` with `Theme.successColor`, matching those.
+      I missed it last time by grepping ShotHistoryPage for "cloud" — the string never
+      appears, since the asset is named by codepoint.
+      Fixed alongside it, in the same expression: the row's `Accessible.name` never mentioned
+      upload state, and the icon is `Accessible.ignored`, so "uploaded" was carried by the
+      picture alone — unreachable by screen reader, the exact failure mode behind the "never
+      the only carrier of meaning" rule. It now appends the same
+      `shotdetail.uploadedtovisualizer` string ShotDetailPage uses. The four quality-issue
+      labels in that expression were also hardcoded English ("puck failed", "channeling", …);
+      they now reuse the `badges.*` keys the visible badges render from, so the spoken row and
+      the badges cannot disagree in a translated locale.
+      Left alone deliberately: three other Twemoji-as-chrome sites (`2705` in DescalingPage
+      and CustomItem, `1f4c5` in ChangeBeansDialog). They are the same style deviation but not
+      the same bug — both assets are strongly coloured and legible on either theme — and they
+      sit in files this change does not otherwise touch.
 
 ## 8. Close-out
 
