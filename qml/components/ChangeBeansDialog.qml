@@ -1981,20 +1981,24 @@ Dialog {
         Layout.rightMargin: Theme.scaled(20)
         spacing: Theme.scaled(6)
 
-        // The colon is PUNCTUATION, not part of the label, so it is appended here rather than
-        // baked into each translated string.
+        // No colon, by decision. These labels sit beside their values in a two-column form and
+        // read fine without one.
         //
-        // It used to live in the fallback text, which meant this dialog needed its own copy of
-        // every label ("Origin:") separate from the details popup's ("Origin"). Two keys, two
-        // English strings, one concept — and because the AI cache is keyed by English, each was
-        // translated independently. On a real machine that produced German showing
-        // "Aufbereitung:" here and "Prozess" in the popup, and "Varietät:" against "Sorte": the
-        // same field, two different words, on adjacent screens. Any language can diverge this
-        // way and every translator pays for the duplicate.
+        // The history is worth keeping because two attempts failed first. Originally the colon
+        // lived in the fallback text, which forced this dialog to carry its own copy of every
+        // label ("Origin:") separate from the details popup's ("Origin") — two keys, two English
+        // strings, one concept. The AI cache is keyed by English, so each was translated
+        // independently, and on a real machine that produced German reading "Aufbereitung:" here
+        // against "Prozess" in the popup, and "Varietät:" against "Sorte".
         //
-        // One key, one English, colon added at render time. The divergence cannot recur.
+        // The second attempt appended ":" here instead. That fixed the divergence and broke
+        // French, which writes "Jardin :" with a space before the colon — a convention the
+        // existing translations already got right and a hardcoded ":" cannot express.
+        //
+        // Dropping the punctuation keeps the win (one key, one English, divergence impossible)
+        // without inventing per-language typography rules.
         Text {
-            text: TranslationManager.translate(labelKey, labelFallback) + ":"
+            text: TranslationManager.translate(labelKey, labelFallback)
             font: Theme.bodyFont
             color: Theme.textSecondaryColor
             Layout.alignment: Qt.AlignVCenter
