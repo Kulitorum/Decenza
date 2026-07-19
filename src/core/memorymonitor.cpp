@@ -1,4 +1,5 @@
 #include "memorymonitor.h"
+#include "sanitizers.h"
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDebug>
@@ -239,17 +240,10 @@ double MemoryMonitor::currentRssMB() const
 
 bool MemoryMonitor::instrumentedBuild() const
 {
-#if defined(__has_feature)
-#  if __has_feature(address_sanitizer) || __has_feature(thread_sanitizer) \
-   || __has_feature(memory_sanitizer) || __has_feature(undefined_behavior_sanitizer)
-    return true;
-#  endif
-#endif
-#if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__)
-    return true;
-#endif
-#ifndef QT_NO_DEBUG
-    // An unoptimised build is heavier than Release even without a sanitizer.
+    // Broader than "has a sanitizer": callers use this to relax memory
+    // thresholds, and an unoptimised Debug build is heavier than Release even
+    // with no sanitizer attached.
+#if defined(DECENZA_SANITIZERS_PRESENT) || !defined(QT_NO_DEBUG)
     return true;
 #else
     return false;

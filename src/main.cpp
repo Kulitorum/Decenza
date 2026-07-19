@@ -11,26 +11,14 @@
 // call during their own init — see the constraints on them below; they are far
 // tighter than they look. Each runtime appends ".<pid>" to log_path, so
 // concurrent runs never collide.
-// DECENZA_SANITIZERS_ACTIVE comes from CMakeLists.txt, which knows which
-// sanitizers were requested. Do NOT infer this from compiler macros alone:
-// clang has __has_feature(...), GCC defines __SANITIZE_ADDRESS__ for ASan — and
-// GCC defines NOTHING for UBSan. The nightly ubsan leg is GCC, so a macro-only
-// guard left these hooks uncompiled and the banner below reporting "none" on an
-// instrumented binary. The macro checks are kept as a secondary signal for a
-// build that passes -fsanitize by hand without the CMake options.
-#if defined(DECENZA_SANITIZERS_ACTIVE)
-#  define DECENZA_SANITIZER_HOOKS 1
-#endif
-#if defined(__has_feature)
-#  if __has_feature(address_sanitizer) || __has_feature(undefined_behavior_sanitizer)
-#    define DECENZA_SANITIZER_HOOKS 1
-#  endif
-#endif
-#if defined(__SANITIZE_ADDRESS__)
-#  define DECENZA_SANITIZER_HOOKS 1
-#endif
+//
+// Whether this build is instrumented at all is decided by core/sanitizers.h,
+// which explains why three separate detection routes are needed. It is included
+// before everything else deliberately: these hooks must be compiled or not
+// compiled, and that decision cannot depend on Qt headers.
+#include "core/sanitizers.h"
 
-#ifdef DECENZA_SANITIZER_HOOKS
+#ifdef DECENZA_SANITIZERS_PRESENT
 
 // These two hooks are called by the sanitizer runtimes during their OWN
 // initialisation, which happens from __malloc_init — before libSystem is
@@ -79,7 +67,7 @@ extern "C" const char* __ubsan_default_options()
 // The Qt-side reporting function is defined further down, after the Qt headers.
 // Unlike these hooks it runs normally from main() and may allocate freely.
 
-#endif  // DECENZA_SANITIZER_HOOKS
+#endif  // DECENZA_SANITIZERS_PRESENT
 
 #include <QApplication>
 #include <QQmlApplicationEngine>
@@ -410,7 +398,7 @@ void runAppNameMigrationOnce()
 
 }  // namespace
 
-#ifdef DECENZA_SANITIZER_HOOKS
+#ifdef DECENZA_SANITIZERS_PRESENT
 // Fold sanitizer report files into the app's own log.
 //
 // ASan aborts the process, so the run that produced a report cannot report it —
@@ -500,7 +488,7 @@ void announceSanitizerReports(const QString& whenLabel)
                            << "): none pending in" << dir.path();
     }
 }
-#endif  // DECENZA_SANITIZER_HOOKS
+#endif  // DECENZA_SANITIZERS_PRESENT
 
 int main(int argc, char *argv[])
 {
@@ -842,7 +830,7 @@ int main(int argc, char *argv[])
     // by whoever built the binary.
     {
         QStringList activeSanitizers;
-        // CMake-defined first — see the note on DECENZA_SANITIZER_HOOKS above
+        // CMake-defined first — see the note on DECENZA_SANITIZERS_PRESENT above
         // for why compiler macros alone cannot answer this on GCC + UBSan.
 #if defined(DECENZA_ASAN_ACTIVE)
         activeSanitizers << QStringLiteral("ASan");
@@ -890,7 +878,7 @@ int main(int argc, char *argv[])
     //
     // Reports are renamed to .reported once logged, so a finding is announced
     // on the next launch and not on every launch forever.
-#ifdef DECENZA_SANITIZER_HOOKS
+#ifdef DECENZA_SANITIZERS_PRESENT
     announceSanitizerReports(QStringLiteral("previous run"));
 
     // UBSan does NOT abort (it recovers, by design, so a developer running the

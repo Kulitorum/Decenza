@@ -752,6 +752,7 @@ set(HEADERS
     src/core/widgetlibrary.h
     src/core/batterymanager.h
     src/core/memorymonitor.h
+    src/core/sanitizers.h
     src/core/accessibilitymanager.h
     src/core/autowakemanager.h
     src/core/crashhandler.h
