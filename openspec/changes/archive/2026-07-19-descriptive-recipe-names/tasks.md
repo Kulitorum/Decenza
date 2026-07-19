@@ -41,4 +41,4 @@
 ## 6. Verify
 
 - [x] 6.1 Build and drive the wizard: confirmed a first recipe shows `bean + type + profile`, a `D-Flow/` profile is cleaned, a hot-water tea shows no profile token, a same-profile duplicate gains a yield/dose qualifier, and a user-typed name is never overwritten (user tested the build 2026-07-19).
-- [ ] 6.2 Build and drive every paged idle pill row (Recipes, Beans, Profiles, Equipment, Flush, Hot water) — in BOTH the compact-bar popup and the center-zone expansion — with long names: confirm pills never exceed two rows, the per-page count adapts to name length, arrows appear only when more than one page exists, paging doesn't activate/select/reorder, and a tap on a later page acts on the correct (absolute) item.
+- [x] 6.2 Build and drive every paged idle pill row (Recipes, Beans, Profiles, Equipment, Flush, Hot water) — in BOTH the compact-bar popup and the center-zone expansion — with long names: confirm pills never exceed two rows, the per-page count adapts to name length, arrows appear only when more than one page exists, paging doesn't activate/select/reorder, and a tap on a later page acts on the correct (absolute) item.
