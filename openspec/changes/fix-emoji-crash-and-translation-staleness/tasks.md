@@ -613,6 +613,25 @@ decide with, rather than guessing.
       existed for the long form. Unifying changed only the ENGLISH: one key already meant one
       German string shown in both places, so no translation was invalidated.
 
+- [x] 7.8o MERGE FIX VERIFIED against the exact action that destroyed German twice. Jeff pressed
+      Update on the fixed build:
+        before the fix:  3429 -> 1515   (1910 lost)
+        after the fix:   3431 -> 3474   (0 lost)
+      It GREW, absorbing the 43 strings the server had that he did not, and discarded nothing.
+      Log agrees: `Loaded 3432 translations for: "de"` and `Propagated translations to 2 keys`.
+      A follow-up AI pass then filled the 40 new `.accessible` keys from 7.8n (openai, 2 batches,
+      40/40). Coverage 3028/3028.
+
+      Server still shows de=1227 because Update DOWNLOADS. Uploading needs the button, which is
+      hidden behind `Settings.app.developerTranslationUpload` — confirmed absent from the plist,
+      so it defaults to false and the button never renders. That is why it could not be found:
+      Debug -> Übersetzungs-Entwicklertools -> "Übersetzungsupload aktivieren", then it appears
+      in Sprache & Zugriff under the string browser. ar and fr are already up at 3431 each.
+
+      Incidental, not a defect: `OpenType support missing for "Decenza Sans", script 11` (and for
+      .AppleIndicFont) is Devanagari in the language picker rendering through a platform
+      fallback, exactly as the bundled-font note in CLAUDE.md describes.
+
 - [ ] 7.8b The glyph class IS statically catchable — `redraw-icon-set` task 4.4 guessed it was not.
       `scripts/check_font_glyph_coverage.py` already does it. Worth landing as a test, but it cannot
       be green until 7.8's 29 sites are fixed, so it lands WITH the fix (no allowlist — an allowlist
