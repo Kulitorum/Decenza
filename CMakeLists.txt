@@ -249,8 +249,25 @@ if(ENABLE_UBSAN)
     if(MSVC)
         message(FATAL_ERROR "ENABLE_UBSAN is not supported with MSVC (it has no UBSan). Use clang or GCC.")
     else()
-        message(STATUS ">>> UBSan ENABLED (undefined + local-bounds + float-divide-by-zero, no-recover) <<<")
-        set(_ubsan_checks "-fsanitize=undefined,local-bounds,float-divide-by-zero -fno-sanitize-recover=all -fno-omit-frame-pointer")
+        # -fno-sanitize=vptr is required, not preference. The vptr check
+        # instruments downcasts through a polymorphic hierarchy and needs the
+        # target type's typeinfo at link time. decentscalewifi.cpp downcasts
+        # QObjectPrivate* to QWebSocketPrivate* (to reach the inner QTcpSocket
+        # and set DSCP/TCP_NODELAY), and Qt does not export typeinfo for its
+        # private classes on Linux, so the link fails with "undefined reference
+        # to `typeinfo for QWebSocketPrivate'".
+        #
+        # Found by this very gate: it links on macOS, where Apple's toolchain
+        # emits that typeinfo, and fails on Linux/GCC — the same shape as the
+        # iOS break that motivated the six-platform rule, caught this time
+        # before merge rather than at a release tag.
+        #
+        # What this costs, stated rather than buried: bad-downcast detection is
+        # off everywhere, including for that Qt-private downcast, whose validity
+        # rests on a convention the code's own comment says to re-verify on every
+        # Qt upgrade. That check is exactly what vptr would have enforced.
+        message(STATUS ">>> UBSan ENABLED (undefined + local-bounds + float-divide-by-zero, no vptr, no-recover) <<<")
+        set(_ubsan_checks "-fsanitize=undefined,local-bounds,float-divide-by-zero -fno-sanitize=vptr -fno-sanitize-recover=all -fno-omit-frame-pointer")
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${_ubsan_checks}")
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${_ubsan_checks}")
         set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=undefined")

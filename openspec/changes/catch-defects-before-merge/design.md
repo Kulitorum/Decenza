@@ -109,6 +109,22 @@ So the response to a clean run is four changes that either close the ambiguity o
 
 The honest limit on all of this: sanitizers only see code the tests execute. Strengthening the instrumentation raises the yield *per executed line*; it does nothing for the lines no test reaches, and test coverage here is unmeasured. ThreadSanitizer is the remaining untouched class — 31 files use threads and 25 do background-thread database work, which is exactly the shape that produces races — and no detector in this change covers it.
 
+### The gate justified itself on its first run
+
+The first pre-merge run on real CI **failed at link**, on Linux, on a tree that builds and tests clean on macOS:
+
+```
+/usr/bin/ld: decentscalewifi.cpp.o: undefined reference to `typeinfo for QWebSocketPrivate'
+```
+
+UBSan's `vptr` check (part of the default `undefined` group) instruments downcasts through a polymorphic hierarchy and needs the target type's typeinfo at link time. `decentscalewifi.cpp` downcasts `QObjectPrivate*` to `QWebSocketPrivate*` to reach the inner `QTcpSocket` and set DSCP/TCP_NODELAY. Qt does not export typeinfo for its private classes on Linux; Apple's toolchain emits it, so macOS links and Linux does not.
+
+This is the same shape as the `-Werror=unused-result` iOS break that motivated the six-platform rule — a change verified on one platform, broken on another, invisible until something compiled it there. The difference is that this time it was caught **before merge, by the gate, on its first run**, rather than at a release tag. That is the entire argument for the change, demonstrated rather than asserted.
+
+The fix is `-fno-sanitize=vptr`, which is a requirement rather than a preference: the check cannot function against a library that does not export the typeinfo it needs. The cost is stated in the build file rather than buried — bad-downcast detection is now off everywhere, **including for that very downcast**, whose validity rests on a convention the code's own comment says to re-verify on every Qt upgrade. `vptr` is precisely the check that would have enforced it. That is a real loss, and the alternative (not instrumenting at all, or rearchitecting the QoS feature) is worse.
+
+Worth noting for the runtime budget: the failing run took **24m 45s** to reach the link step on a completely cold cache — no Qt, no ccache. That number bounds nothing yet, because the interesting figure is a warm run, which only became measurable once a run got far enough to save a cache.
+
 ## Risks / Trade-offs
 
 - **Sanitizer slowdown makes the flaky tests flakier** → The two clock-cadence tests already flake under CPU contention. Measure instrumented runtime before enabling; keep `--repeat until-pass:3`; if a test becomes unreliable under instrumentation, exclude that specific test from the sanitized run with a comment naming it, rather than dropping the repeat guard or the sanitizer.
