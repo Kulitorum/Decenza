@@ -266,8 +266,27 @@ if(ENABLE_UBSAN)
         # off everywhere, including for that Qt-private downcast, whose validity
         # rests on a convention the code's own comment says to re-verify on every
         # Qt upgrade. That check is exactly what vptr would have enforced.
-        message(STATUS ">>> UBSan ENABLED (undefined + local-bounds + float-divide-by-zero, no vptr, no-recover) <<<")
-        set(_ubsan_checks "-fsanitize=undefined,local-bounds,float-divide-by-zero -fno-sanitize=vptr -fno-sanitize-recover=all -fno-omit-frame-pointer")
+        # The optional checks are PROBED, not assumed. `local-bounds` is
+        # clang-only — GCC fails the whole compile with "unrecognized argument
+        # to '-fsanitize=' option", which is how this was found: verified on
+        # Apple clang, broken on Linux/GCC, exactly the mistake the
+        # six-platform rule exists to prevent. Probing rather than branching on
+        # compiler id keeps that true for the platforms not built here (iOS,
+        # Android, Windows) without anyone having to predict their toolchains.
+        set(_ubsan_extra "")
+        include(CheckCXXCompilerFlag)
+        foreach(_check local-bounds float-divide-by-zero)
+            set(CMAKE_REQUIRED_LINK_OPTIONS "-fsanitize=undefined")
+            check_cxx_compiler_flag("-fsanitize=${_check}" _ubsan_has_${_check})
+            unset(CMAKE_REQUIRED_LINK_OPTIONS)
+            if(_ubsan_has_${_check})
+                string(APPEND _ubsan_extra ",${_check}")
+            else()
+                message(STATUS "UBSan: ${_check} unsupported by this compiler, skipping")
+            endif()
+        endforeach()
+        message(STATUS ">>> UBSan ENABLED (undefined${_ubsan_extra}, no vptr, no-recover) <<<")
+        set(_ubsan_checks "-fsanitize=undefined${_ubsan_extra} -fno-sanitize=vptr -fno-sanitize-recover=all -fno-omit-frame-pointer")
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${_ubsan_checks}")
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${_ubsan_checks}")
         set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=undefined")

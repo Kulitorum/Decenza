@@ -125,6 +125,18 @@ The fix is `-fno-sanitize=vptr`, which is a requirement rather than a preference
 
 Worth noting for the runtime budget: the failing run took **24m 45s** to reach the link step on a completely cold cache — no Qt, no ccache. That number bounds nothing yet, because the interesting figure is a warm run, which only became measurable once a run got far enough to save a cache.
 
+### ThreadSanitizer is not usable here, and the reason is worth recording
+
+Task 3b.6 asked whether TSan should join the set, given 31 files using threads and 25 doing background-thread database work. It was built and run rather than reasoned about. The answer is **no**, and without the measurement it would have looked like an obvious win.
+
+The run produced **10,194 data-race reports** and aborted 5 tests. That looks like a goldmine until the reports are read: **9,568 of them (94%) pass through `QCallableObject` / `postEvent` / `QMetaCallEvent`** — Qt's queued-connection machinery. The dominant single site, with 4,653 reports, is a `requestDistinctCache()` handoff; the canonical shape is `SerialDbWorker::post()` doing exactly what the project's own concurrency rule prescribes: `QMetaObject::invokeMethod(m_context, task, Qt::QueuedConnection)`.
+
+These are false positives, and the cause is structural: `nm -u` on the installed QtCore reports **zero `__tsan` symbols**. Qt is not built with instrumentation, so TSan cannot observe the mutexes inside `QCoreApplication`'s event queue that establish the happens-before edge between poster and worker. Every correct cross-thread handoff therefore looks like a race.
+
+Making TSan usable would mean rebuilding Qt itself with `-fsanitize=thread` and maintaining that toolchain — a large, ongoing cost, for a signal that would still need the 94% filtered out. So TSan is **not** wired into CI. Recording the numbers here matters more than the conclusion: a future contributor who reaches for TSan will otherwise repeat the experiment, or worse, wire up a permanently-red job and teach everyone to ignore it.
+
+The consequence is honest and should not be softened: **data races remain the one plausible defect class this change does not cover.** The mitigations that do apply are the project's existing rules — the `withTempDb` helper and the `QThread::create()` + queued-connection pattern — which are conventions, not detectors.
+
 ## Risks / Trade-offs
 
 - **Sanitizer slowdown makes the flaky tests flakier** → The two clock-cadence tests already flake under CPU contention. Measure instrumented runtime before enabling; keep `--repeat until-pass:3`; if a test becomes unreliable under instrumentation, exclude that specific test from the sanitized run with a comment naming it, rather than dropping the repeat guard or the sanitizer.

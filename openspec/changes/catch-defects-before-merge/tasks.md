@@ -33,7 +33,8 @@ Added after the first clean run. A gate that reports nothing is indistinguishabl
 - [x] 3b.3 Add `local-bounds` and `float-divide-by-zero`; deliberately exclude the `integer` group and record why (legal wrapping arithmetic in CRC/hashing would make it cry wolf)
 - [x] 3b.4 Enable hardened standard-library assertions and `QT_FORCE_ASSERTS` for sanitizer builds, closing the in-allocation out-of-bounds `operator[]` gap that both ASan and UBSan miss
 - [x] 3b.5 Run the suite under the strengthened configuration and fix or file whatever it surfaces
-- [ ] 3b.6 Evaluate ThreadSanitizer against the 31 files using threads and the 25 using background-thread DB access — the data-race class no other detector here covers
+- [x] 3b.6 Evaluate ThreadSanitizer against the 31 files using threads and the 25 using background-thread DB access — the data-race class no other detector here covers. **Verdict: not usable.** Built and run: 10,194 race reports, 94% of them through Qt's queued-connection machinery, because the installed QtCore carries zero `__tsan` symbols and TSan cannot see the event-queue mutexes that establish happens-before. Would require rebuilding Qt with instrumentation. Not wired to CI; evidence recorded in design.md so the experiment is not repeated blind.
+- [x] 3b.8 Probe optional sanitizer checks with `check_cxx_compiler_flag` instead of hardcoding them — `local-bounds` is clang-only and broke the GCC build, found by the gate on its second run
 - [x] 3b.7 Confirm the strengthened build's runtime still fits the budget
 
 ## 4. Promote to a gate
