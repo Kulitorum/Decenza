@@ -340,6 +340,7 @@ private:
     QStringList m_batchLanguageQueue;
     QStringList m_batchProviderQueue;
     QString m_originalProvider;
+    QString m_originalLanguage;   // restored when a batch finishes; see translateAndUploadAllLanguages
     QString m_batchCurrentProvider;  // Bypasses QSettings cache during batch ops
     bool m_batchProcessing = false;
 

@@ -596,7 +596,7 @@ Item {
                             id: modeComboBox
                             Layout.preferredWidth: Theme.scaled(160)
                             Layout.maximumWidth: Theme.scaled(180)
-                            accessibleLabel: TranslationManager.translate("settings.accessibility.announcementMode", "Announcement mode")
+                            accessibleLabel: TranslationManager.translate("settings.accessibility.announcementMode.accessible", "Announcement mode")
                             enabled: AccessibilityManager.enabled && AccessibilityManager.extractionAnnouncementsEnabled
                             model: [
                                 TranslationManager.translate("settings.accessibility.modeBoth", "Time + Milestones"),
@@ -638,7 +638,7 @@ Item {
                             to: 30
                             stepSize: 5
                             suffix: "s"
-                            accessibleName: TranslationManager.translate("settings.accessibility.updateInterval", "Update Interval")
+                            accessibleName: TranslationManager.translate("settings.accessibility.updateInterval.accessible", "Update Interval")
                             enabled: AccessibilityManager.enabled && AccessibilityManager.extractionAnnouncementsEnabled
                             onValueModified: function(newValue) {
                                 AccessibilityManager.extractionAnnouncementInterval = newValue

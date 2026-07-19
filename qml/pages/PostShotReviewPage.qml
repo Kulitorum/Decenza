@@ -1647,7 +1647,7 @@ Page {
                             spacing: Theme.scaled(4)
                             Tr {
                                 key: "postshotreview.label.tds"
-                                fallback: "TDS%"
+                                fallback: "TDS"
                                 color: Theme.textSecondaryColor
                                 font.pixelSize: Theme.scaled(10)
                                 Accessible.ignored: true

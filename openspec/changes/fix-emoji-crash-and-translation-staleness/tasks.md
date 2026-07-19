@@ -578,6 +578,41 @@ decide with, rather than guessing.
       readable and the behaviour was wrong, and only using it showed that. It also cost real
       money before it was caught, which the earlier findings did not.
 
+- [x] 7.8n Jeff pressed "Alle übersetzen & hochladen" and asked what happened. Three findings,
+      two of them defects, one of them mine.
+
+      WHAT THE BATCH DID: uploaded ar and fr (both now 3431 on the server, up from ~1225) and
+      SKIPPED de, which is the one he wanted. Cause: a language with nothing left to translate
+      was skipped entirely — including its upload. The comment above that branch has always
+      read "Check if translation is needed or just upload"; the "just upload" half was never
+      written. Being fully translated locally is precisely the state a language is in AFTER
+      someone runs the AI pass, so the languages most worth publishing were the ones passed
+      over. Three sites had the same shape (the first-language block, processNext, and the
+      "already translated" result inside autoTranslateFinished); all three now upload.
+
+      LANGUAGE LEFT CHANGED: the batch switches currentLanguage per language and restored only
+      the AI PROVIDER at the end. Now saves and restores m_originalLanguage too.
+
+      MY CHECKER WAS WRONG. scripts/check_translation_key_conflicts.py reported a clean tree
+      while the app's log was full of oscillation warnings for settings.tab.languageAccess and
+      others. It only matched labelKey/translationKey pairs on ONE line; those keys use the
+      plain key:/fallback: form spread across lines, which scanAllStrings has always handled
+      with a nearest-fallback-within-200-characters pairing. The checker was narrower than the
+      thing it checked: it found 0 where there were 20. Widened to mirror all three scanner
+      patterns — 3221 keys.
+
+      So the earlier claim in 7.8f that all conflicts were fixed was WRONG, and the guard I
+      added to prove it was the thing that hid them. What actually caught it was the warning
+      text from 7.8e, which says repeats for one key mean two QML sites disagree — written
+      before I knew it would be needed for this.
+
+      All 20 now fixed on the same evidence rule as 7.8f — the German decides which variant
+      keeps the key. 11 unified (colons on settings.data.*, casing on visualizer/debug), 8 split
+      to `.accessible` (Mode/Announcement mode, Type/Screensaver type, Temperature/Steam
+      Temperature, ...), and settings.tab.languageAccess now uses the `.full` key that already
+      existed for the long form. Unifying changed only the ENGLISH: one key already meant one
+      German string shown in both places, so no translation was invalidated.
+
 - [ ] 7.8b The glyph class IS statically catchable — `redraw-icon-set` task 4.4 guessed it was not.
       `scripts/check_font_glyph_coverage.py` already does it. Worth landing as a test, but it cannot
       be green until 7.8's 29 sites are fixed, so it lands WITH the fix (no allowlist — an allowlist

@@ -2536,8 +2536,9 @@ void TranslationManager::translateAndUploadAllLanguages()
         return;
     }
 
-    // Save original provider to restore later
+    // Save original provider AND language to restore later — the batch switches both.
     m_originalProvider = m_settings->ai()->aiProvider();
+    m_originalLanguage = m_currentLanguage;
 
     // Ensure all strings are scanned first
     if (!m_scanning) {
@@ -2600,16 +2601,32 @@ void TranslationManager::translateAndUploadAllLanguages()
                 qDebug() << "****************** MISSING TRANSLATIONS:" << (m_stringRegistry.size() - m_translations.size()) << "******************";
             }
             if (untranslated == 0) {
-                qDebug() << "Batch:" << nextLang << "is fully translated, skipping (no changes needed)";
-                (*processNext)();
+                // Nothing to translate — but that is NOT a reason to skip the upload, which is
+                // what this branch used to do (the comment above it has always promised "or
+                // just upload"; the branch was never written). Being fully translated locally
+                // is exactly the state a language is in AFTER someone runs the AI pass, so the
+                // languages most worth publishing were the ones silently passed over. Observed:
+                // a batch uploaded ar and fr, both of which had gaps, and skipped de at 100%,
+                // leaving the server on a copy 2200 strings poorer.
+                qDebug() << "Batch:" << nextLang << "is fully translated — uploading as-is";
+                submitTranslation();
             } else {
                 qDebug() << "Batch:" << nextLang << "has" << untranslated << "untranslated strings, translating...";
                 autoTranslate();
             }
         } else {
-            // All done - restore original provider and clear batch state
+            // All done - restore original provider AND language, then clear batch state.
+            //
+            // The language was missing here: the batch switches currentLanguage per language
+            // and only ever put the PROVIDER back, so it ended wherever the queue finished and
+            // the user's UI silently changed under them. Restoring it is the same courtesy the
+            // provider already got.
             m_batchCurrentProvider.clear();
             m_settings->ai()->setAiProvider(m_originalProvider);
+            if (!m_originalLanguage.isEmpty() && m_originalLanguage != m_currentLanguage) {
+                qDebug() << "Batch: restoring language to" << m_originalLanguage;
+                setCurrentLanguage(m_originalLanguage);
+            }
             m_batchProcessing = false;
             disconnect(*autoConn);
             disconnect(*submitConn);
@@ -2631,8 +2648,11 @@ void TranslationManager::translateAndUploadAllLanguages()
         if (success) {
             // Check if there were actual translations made (not "all already translated")
             if (message.contains("already translated")) {
-                qDebug() << "Batch: Skipping upload for" << m_currentLanguage << "(no changes needed)";
-                (*processNext)();
+                // Same reasoning as the untranslated == 0 branch: nothing NEW was translated,
+                // but the local set can still be far ahead of the server's, and this is the
+                // only thing that would ever push it.
+                qDebug() << "Batch: nothing new for" << m_currentLanguage << "— uploading as-is";
+                submitTranslation();
             } else {
                 // Translation done with changes, now upload
                 qDebug() << "Batch: Uploading" << m_currentLanguage << "...";
@@ -2679,8 +2699,8 @@ void TranslationManager::translateAndUploadAllLanguages()
         qDebug() << "****************** MISSING TRANSLATIONS:" << (m_stringRegistry.size() - m_translations.size()) << "******************";
     }
     if (untranslated == 0) {
-        qDebug() << "Batch:" << firstLang << "is fully translated, skipping (no changes needed)";
-        (*processNext)();
+        qDebug() << "Batch:" << firstLang << "is fully translated — uploading as-is";
+        submitTranslation();
     } else {
         qDebug() << "Batch:" << firstLang << "has" << untranslated << "untranslated strings, translating...";
         autoTranslate();
