@@ -247,7 +247,7 @@ private slots:
         // What a download carries: an update for the shared key, and nothing for the local one.
         QJsonObject incoming;
         incoming[shared] = QStringLiteral("Neu");
-        tm.mergeLanguageUpdate(incoming);
+        QVERIFY2(tm.mergeLanguageUpdate(incoming), "a healthy merge must not refuse");
 
         QCOMPARE(tm.translateString(shared, QStringLiteral("Shared")), QStringLiteral("Neu"));
         QVERIFY2(tm.hasTranslation(localOnly),
@@ -827,13 +827,15 @@ private slots:
 
         QTest::ignoreMessage(QtWarningMsg,
             QRegularExpression(QStringLiteral("placeholders do not match")));
-        tm.mergeLanguageUpdate(QJsonObject{{key, QStringLiteral("Hintergrundbild")}});
+        // "Skipped a bad string" is still a successful merge, not a refusal — refusal is
+        // reserved for "could not read the local file".
+        QVERIFY(tm.mergeLanguageUpdate(QJsonObject{{key, QStringLiteral("Hintergrundbild")}}));
 
         QVERIFY2(!tm.hasTranslation(key),
                  "a download that dropped its placeholders must be skipped, not applied");
 
         // The correctly-placeholdered version is accepted, reordered or not.
-        tm.mergeLanguageUpdate(QJsonObject{{key, QStringLiteral("Hintergrundbild %1 von %2")}});
+        QVERIFY(tm.mergeLanguageUpdate(QJsonObject{{key, QStringLiteral("Hintergrundbild %1 von %2")}}));
         QCOMPARE(tm.translateString(key, QStringLiteral("Background image %1 of %2")),
                  QStringLiteral("Hintergrundbild %1 von %2"));
     }

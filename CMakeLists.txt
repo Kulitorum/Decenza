@@ -216,6 +216,19 @@ if(ENABLE_ASAN OR (NOT CMAKE_CONFIGURATION_TYPES AND CMAKE_BUILD_TYPE STREQUAL "
     endif()
 endif()
 
+# A discarded [[nodiscard]] verdict is a build ERROR, not a warning. Seven bugs on one branch
+# had the identical shape — a bool-returning save whose refusal a caller silently dropped, then
+# reported success over — and the last two were written while fixing the previous ones, so a
+# convention demonstrably did not hold. Scoped to exactly this diagnostic (not a general
+# -Werror), and placed AFTER the third-party FetchContent blocks so Paho does not inherit it;
+# it applies to the app target and tests, which are created below. A deliberate discard is
+# written `(void)call();` with a comment saying why the failure is tolerable.
+if(MSVC)
+    add_compile_options(/we4834)
+else()
+    add_compile_options(-Werror=unused-result)
+endif()
+
 # Enable parallel builds
 if(NOT DEFINED CMAKE_BUILD_PARALLEL_LEVEL)
     include(ProcessorCount)

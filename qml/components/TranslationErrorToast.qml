@@ -16,12 +16,21 @@ import Decenza
 // Self-subscribing on purpose. Wiring each call site individually is how the gap appeared in the
 // first place — a new refusal path would silently not surface. Mount this once per page that can
 // trigger one and every present and future refusal is covered.
+//
+// Also carries translationNotice — informational outcomes like "stopped, N strings saved" —
+// in non-error styling. Anything set on lastError gets error styling by default, which is the
+// right default for a message nobody classified; informational is opt-in at the C++ end.
 Rectangle {
     id: root
 
     // Auto-dismiss is one of the cases the project rules explicitly allow a timer for; this is a
     // transient notice, not a guard standing in for a condition.
     property int dismissAfterMs: 6000
+
+    // True while showing a translationNotice ("stopped, N strings saved") rather than an error.
+    // Notices are outcomes the user asked for — they get the accent border and a polite screen
+    // reader announcement instead of error red and an assertive interrupt.
+    property bool isNotice: false
 
     anchors.horizontalCenter: parent.horizontalCenter
     anchors.bottom: parent.bottom
@@ -31,7 +40,7 @@ Rectangle {
     color: Theme.surfaceColor
     radius: Theme.cardRadius
     border.width: 1
-    border.color: Theme.errorColor
+    border.color: root.isNotice ? Theme.primaryColor : Theme.errorColor
     opacity: 0
     visible: opacity > 0
     z: 1000
@@ -55,8 +64,15 @@ Rectangle {
             // An empty error is a clear, not a message.
             if (!TranslationManager.lastError || TranslationManager.lastError.length === 0)
                 return
+            root.isNotice = false
             messageText.text = TranslationManager.lastError
             AccessibilityManager.announce(TranslationManager.lastError, true)
+            showAnimation.restart()
+        }
+        function onTranslationNotice(message) {
+            root.isNotice = true
+            messageText.text = message
+            AccessibilityManager.announce(message, false)
             showAnimation.restart()
         }
     }

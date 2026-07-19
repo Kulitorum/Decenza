@@ -47,7 +47,9 @@ TranslationManager::TranslationManager(QNetworkAccessManager* networkManager, Se
             {"nativeName", "English"},
             {"isRtl", false}
         };
-        saveLanguageMetadata();
+        // Tolerable discard: the English entry is re-seeded on every launch, so a failed write
+        // here costs nothing that the next start does not restore. The helper has warned.
+        (void)saveLanguageMetadata();
     }
 
     // Update available languages list
@@ -71,7 +73,9 @@ TranslationManager::TranslationManager(QNetworkAccessManager* networkManager, Se
             m_stringRegistry.remove(key);
         }
         qDebug() << "TranslationManager: Cleaned up" << keysToRemove.size() << "empty registry entries";
-        saveStringRegistry();
+        // Tolerable discard: this cleanup re-runs on every launch, so a failed write only
+        // defers it. The helper has warned.
+        (void)saveStringRegistry();
     }
 
     // Load translations for current language
@@ -91,7 +95,11 @@ TranslationManager::TranslationManager(QNetworkAccessManager* networkManager, Se
     registrySaveTimer->setInterval(5000);  // Save every 5 seconds if dirty
     connect(registrySaveTimer, &QTimer::timeout, this, [this]() {
         if (m_registryDirty) {
-            saveStringRegistry();
+            // Tolerable discard: the registry is rebuilt by rendering — every string
+            // re-registers the next time it is drawn — so a lost batch is rediscovered, not
+            // gone. Clearing the dirty flag regardless is deliberate: retrying a broken disk
+            // every 5 seconds would toast the user at the same cadence.
+            (void)saveStringRegistry();
             recalculateUntranslatedCount();
             m_registryDirty = false;
             emit totalStringCountChanged();
@@ -436,7 +444,14 @@ void TranslationManager::addLanguage(const QString& langCode, const QString& dis
         {"isRtl", isRtl}
     };
 
-    saveLanguageMetadata();
+    // Honour the verdict: a language that exists only in memory shows in the picker today and
+    // vanishes at restart, which reads as data loss. Refuse the add instead — the helper has
+    // already warned and set lastError.
+    if (!saveLanguageMetadata()) {
+        m_languageMetadata.remove(langCode);
+        qWarning() << "Language" << langCode << "was NOT added - its metadata could not be saved";
+        return;
+    }
 
     // Create an empty translation file ONLY if there is not one already.
     //
@@ -455,7 +470,9 @@ void TranslationManager::addLanguage(const QString& langCode, const QString& dis
         root["displayName"] = displayName;
         root["nativeName"] = nativeName.isEmpty() ? displayName : nativeName;
         root["translations"] = QJsonObject();
-        writeJsonFile(newLangPath, QJsonDocument(root), tr("the new %1 language file").arg(langCode));
+        // Tolerable discard: this file is an empty scaffold, and the first real save of a
+        // translation writes the same path in full. The helper has warned.
+        (void)writeJsonFile(newLangPath, QJsonDocument(root), tr("the new %1 language file").arg(langCode));
     }
 
     m_availableLanguages = m_languageMetadata.keys();
@@ -470,8 +487,17 @@ void TranslationManager::deleteLanguage(const QString& langCode)
         return;  // Can't delete English
     }
 
-    m_languageMetadata.remove(langCode);
-    saveLanguageMetadata();
+    const QVariantMap removed = m_languageMetadata.take(langCode);
+
+    // Honour the verdict BEFORE deleting the translation file. With the old order a failed
+    // metadata save left the language listed on disk while its file was already gone — at the
+    // next launch it reappears in the picker holding nothing, which reads as corruption.
+    if (!saveLanguageMetadata()) {
+        m_languageMetadata[langCode] = removed;
+        qWarning() << "Language" << langCode << "was NOT deleted - the metadata could not be saved,"
+                   << "so its translation file has been left in place";
+        return;
+    }
 
     // Delete translation file
     QFile::remove(languageFilePath(langCode));
@@ -513,7 +539,9 @@ void TranslationManager::registerString(const QString& key, const QString& fallb
     }
 
     if (noteSourceString(key, fallback)) {
-        saveStringRegistry();
+        // Tolerable discard: a lost registry write is rediscovered the next time the string
+        // renders (this very function re-runs). The helper has warned.
+        (void)saveStringRegistry();
         recalculateUntranslatedCount();
         emit totalStringCountChanged();
     }
@@ -725,7 +753,9 @@ void TranslationManager::scanAllStrings()
 
     // Save the updated registry
     if (stringsFound > 0) {
-        saveStringRegistry();
+        // Tolerable discard: the scan can simply be run again, and rendering re-registers
+        // strings anyway. The helper has warned.
+        (void)saveStringRegistry();
         recalculateUntranslatedCount();
         emit totalStringCountChanged();
     }
@@ -890,7 +920,9 @@ void TranslationManager::onLanguageListFetched(QNetworkReply* reply)
         }
     }
 
-    saveLanguageMetadata();
+    // Tolerable discard: this is a cache of the server's language list, refetched on the next
+    // visit to the language page. The helper has warned.
+    (void)saveLanguageMetadata();
     m_availableLanguages = m_languageMetadata.keys();
     emit availableLanguagesChanged();
     emit languageListDownloaded(true);
@@ -1056,7 +1088,14 @@ void TranslationManager::applyFetchedLanguage(const QString& langCode, const QJs
         {"isRtl", root["isRtl"].toBool(false)},
         {"isRemote", false}  // Now downloaded locally
     };
-    saveLanguageMetadata();
+    // Warn-and-continue, not refuse: the translations themselves persisted above, so the
+    // download genuinely succeeded. A lost metadata write can hide the language from the picker
+    // after a restart, but addLanguage() now preserves an orphaned file, so re-adding recovers
+    // it. The helper has set lastError, which the toast surfaces.
+    if (!saveLanguageMetadata()) {
+        qWarning() << "Downloaded" << langCode << "but its metadata could not be saved -"
+                   << "the language may be missing from the picker after a restart";
+    }
 
     // Update available languages list (overwrites, no duplicates)
     m_availableLanguages = m_languageMetadata.keys();
@@ -1275,7 +1314,12 @@ void TranslationManager::importTranslation(const QString& filePath)
         {"isRtl", root["isRtl"].toBool(false)},
         {"isRemote", false}
     };
-    saveLanguageMetadata();
+    // Same warn-and-continue as the download path: the imported translations persisted above,
+    // and addLanguage() recovers an orphaned file if the metadata is lost.
+    if (!saveLanguageMetadata()) {
+        qWarning() << "Imported" << langCode << "but its metadata could not be saved -"
+                   << "the language may be missing from the picker after a restart";
+    }
 
     m_availableLanguages = m_languageMetadata.keys();
     emit availableLanguagesChanged();
@@ -1776,8 +1820,18 @@ void TranslationManager::mergeGroupTranslation(const QString& key)
 
     // Set this key to use the most common translation
     if (!mostCommon.isEmpty()) {
+        // Rollback on a refused save, like every other edit path: no QML calls this today, but
+        // it is a Q_INVOKABLE — one line of QML away from reachable — and an exposed mutator
+        // that displays a change it could not persist is the exact bug this file kept growing.
+        const bool hadPrevious = m_translations.contains(key);
+        const QString previous = m_translations.value(key);
         m_translations[key] = mostCommon;
-        saveTranslations();
+        if (!saveTranslations()) {
+            if (hadPrevious) m_translations[key] = previous;
+            else m_translations.remove(key);
+            qWarning() << "Group merge for" << key << "was NOT saved and has been rolled back";
+            return;
+        }
         m_translationVersion++;
         emit translationsChanged();
     }
@@ -2093,8 +2147,10 @@ bool TranslationManager::noteSourceString(const QString& key, const QString& fal
     // Persist immediately rather than leaving it to the batched save. translateString() is one
     // of the callers and only marks the registry dirty, so on that path the new English could
     // be lost if the process ended first, and the next launch would rediscover the same change.
-    // A change here is rare by construction, so the write is cheap.
-    saveStringRegistry();
+    // A change here is rare by construction, so the write is cheap. Tolerable discard: if it
+    // fails, the next launch rediscovers the same change — exactly the situation this write
+    // exists to shorten, not to guarantee. The helper has warned.
+    (void)saveStringRegistry();
 
     // Report, do NOT touch the translation.
     //
@@ -2185,7 +2241,10 @@ void TranslationManager::propagateTranslationsToAllKeys()
 
     if (propagated > 0) {
         qDebug() << "TranslationManager: Propagated translations to" << propagated << "keys";
-        saveTranslations();  // Save propagated translations to file
+        // Tolerable discard: propagation is deterministic — the same copies are recomputed
+        // from the registry on the next recalculate, which runs at every launch — and the
+        // source translations it copied FROM are already on disk. The helper has warned.
+        (void)saveTranslations();
     }
 }
 
@@ -2480,10 +2539,14 @@ void TranslationManager::onAutoTranslateBatchReply(QNetworkReply* reply)
             if (m_autoTranslateProgress > 0) {
                 qDebug() << "Persisting" << m_autoTranslateProgress << "strings applied before the stop";
                 drainSaved = saveTranslations();
-                if (drainSaved)
-                    saveAiTranslations();
-                else
+                if (!drainSaved)
                     m_autoTranslateFatal = true;   // a local failure, same as the completion path
+                // Attempt the AI cache EVEN IF the main save failed: _ai.json is then the only
+                // record of the paid AI output, re-applicable via copyAiToFinal after repair.
+                if (!saveAiTranslations() && drainSaved)
+                    // Only the AI-provenance cache failed. Strings keep working but lose their
+                    // "AI generated" marking after a restart.
+                    qWarning() << "Stopped run saved, but the AI cache file did not";
                 recalculateUntranslatedCount();
                 m_translationVersion++;
                 emit translationsChanged();
@@ -2491,16 +2554,19 @@ void TranslationManager::onAutoTranslateBatchReply(QNetworkReply* reply)
 
             // A user-initiated cancel sets no error, which left this emitting an empty or, worse,
             // a stale unrelated message. Say which of the two actually happened.
+            QString finishMessage = m_lastError;
             if (!drainSaved) {
                 // saveTranslations() has already set m_lastError explaining why.
                 qWarning().noquote() << "AI translation stopped and could NOT persist"
                                      << m_autoTranslateProgress << "applied strings:" << m_lastError;
-            } else if (m_lastError.isEmpty()) {
-                m_lastError = tr("Translation stopped. %1 strings were translated and saved.")
-                                  .arg(m_autoTranslateProgress);
-                emit lastErrorChanged();
+            } else if (finishMessage.isEmpty()) {
+                // A clean user stop is an outcome, not an error — the notice channel keeps the
+                // toast from dressing "your work is saved" in error styling.
+                finishMessage = tr("Translation stopped. %1 strings were translated and saved.")
+                                    .arg(m_autoTranslateProgress);
+                emit translationNotice(finishMessage);
             }
-            emit autoTranslateFinished(false, m_lastError);
+            emit autoTranslateFinished(false, finishMessage);
         }
         return;
     }
@@ -2543,7 +2609,12 @@ void TranslationManager::onAutoTranslateBatchReply(QNetworkReply* reply)
         // "Translated 3429 strings". That is round two's bug reproduced on round three's guard,
         // on the path this branch itself identified as the one users actually take.
         const bool saved = saveTranslations();
-        saveAiTranslations();
+        // Attempt the AI cache EVEN IF the main save failed: _ai.json is then the only record
+        // of the paid AI output, and copyAiToFinal can re-apply it once the disk is repaired.
+        if (!saveAiTranslations() && saved)
+            // Main file persisted, provenance cache did not: translations survive a restart
+            // but stop being marked "AI generated". Worth a line, not a failed run.
+            qWarning() << "Completed run saved, but the AI cache file did not";
         recalculateUntranslatedCount();
         m_translationVersion++;
         emit translationsChanged();
@@ -2568,20 +2639,26 @@ void TranslationManager::onAutoTranslateBatchReply(QNetworkReply* reply)
             qWarning().noquote() << "AI translation: applied" << m_autoTranslateProgress
                                  << "strings but could NOT persist them -" << m_lastError;
             emit autoTranslateFinished(false, m_lastError);
-        } else if (m_autoTranslateParseFailures > 0 || m_autoTranslateCancelled) {
-            if (m_autoTranslateParseFailures > 0) {
-                m_lastError = tr("%1 returned %2 unusable response(s); %3 strings were "
-                                 "translated. Nothing was uploaded.")
-                                  .arg(selectedProviderLabel())
-                                  .arg(m_autoTranslateParseFailures)
-                                  .arg(m_autoTranslateProgress);
-            } else if (m_lastError.isEmpty()) {
-                m_lastError = tr("Translation stopped early; %1 strings were translated. "
-                                 "Nothing was uploaded.").arg(m_autoTranslateProgress);
-            }
+        } else if (m_autoTranslateParseFailures > 0) {
+            // A provider returning garbage is a genuine failure — error channel.
+            m_lastError = tr("%1 returned %2 unusable response(s); %3 strings were "
+                             "translated. Nothing was uploaded.")
+                              .arg(selectedProviderLabel())
+                              .arg(m_autoTranslateParseFailures)
+                              .arg(m_autoTranslateProgress);
             emit lastErrorChanged();
             qWarning().noquote() << "AI translation:" << m_lastError;
             emit autoTranslateFinished(false, m_lastError);
+        } else if (m_autoTranslateCancelled) {
+            QString finishMessage = m_lastError;
+            if (finishMessage.isEmpty()) {
+                // A stop the user asked for, with the work saved — an outcome, not an error.
+                finishMessage = tr("Translation stopped early; %1 strings were translated. "
+                                   "Nothing was uploaded.").arg(m_autoTranslateProgress);
+                emit translationNotice(finishMessage);
+            }
+            qWarning().noquote() << "AI translation:" << finishMessage;
+            emit autoTranslateFinished(false, finishMessage);
         } else {
             QString okMsg = QString("Translated %1 strings").arg(m_autoTranslateProgress);
             if (m_autoTranslateRejected > 0) {
@@ -2863,9 +2940,8 @@ void TranslationManager::clearAllAiTranslations()
         return;
     }
     QFile::remove(aiPath);
-
-    // Save updated translations
-    saveTranslations();
+    // (No second save here: the guard above already persisted the fully-mutated state — the
+    // map edits all happen before it — so a repeat write was pure redundancy.)
     recalculateUntranslatedCount();
 
     qDebug() << "Cleared AI translations for" << m_currentLanguage
@@ -3066,8 +3142,11 @@ void TranslationManager::checkForLanguageUpdate()
             return;
         }
 
-        // Merge new translations, preserving user overrides
-        mergeLanguageUpdate(newTranslations);
+        // Merge new translations, preserving user overrides. Tolerable discard: this is the
+        // silent launch-time check — a refusal has already warned and set lastError, and there
+        // is no operation in flight to abort; the user can Update manually from the language
+        // page, where the refusal IS surfaced.
+        (void)mergeLanguageUpdate(newTranslations);
     });
 }
 

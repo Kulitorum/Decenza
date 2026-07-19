@@ -174,7 +174,7 @@ public:
     // is not evidence of an empty language and merging into it would replace the user's
     // translations with the server's. Callers must honour it: this was void, and the refusal
     // fell through to a success emit that told the user the update had applied.
-    bool mergeLanguageUpdate(const QJsonObject& newTranslations);
+    [[nodiscard]] bool mergeLanguageUpdate(const QJsonObject& newTranslations);
 
     Q_INVOKABLE void downloadLanguageList();
     Q_INVOKABLE void downloadLanguage(const QString& langCode);
@@ -224,6 +224,11 @@ signals:
     void downloadingChanged();
     void uploadingChanged();
     void lastErrorChanged();
+    // An outcome the user should see that is NOT a failure — "stopped, N strings saved". These
+    // used to travel through lastError, which made the toast dress a successful stop in error
+    // styling. Informational is opt-in via this signal; anything set on lastError still gets
+    // error styling by default, which is the correct default for a message nobody classified.
+    void translationNotice(const QString& message);
     void retryStatusChanged();
     void translationSubmitted(bool success, const QString& message);
     void scanningChanged();
@@ -250,22 +255,31 @@ private slots:
 
 private:
     void loadTranslations();
+    // Every verdict-returning helper below is [[nodiscard]], and CMake promotes a discarded
+    // verdict to a hard build error (-Werror=unused-result / MSVC /we4834). This is not
+    // decoration: seven bugs on one branch had the identical shape — a save whose refusal a
+    // caller silently dropped, then reported success over — and the last two were introduced
+    // while fixing the previous ones, so a convention demonstrably did not hold. A deliberate
+    // discard must be written `(void)call();` with a comment saying why the failure is
+    // tolerable (in practice: the data is rediscovered or rewritten on the next launch, and
+    // the helper has already warned and set lastError).
+    //
     // Returns false if it refused (the local file failed to load, so the in-memory map is empty
     // by failure) or the write failed. Callers that report success must honour it.
     // Atomic JSON write with a reported verdict. All the save* helpers route through this;
     // see the comment on the definition for why the old QFile+if(open) shape was a bug factory.
-    bool writeJsonFile(const QString& path, const QJsonDocument& doc, const QString& what);
+    [[nodiscard]] bool writeJsonFile(const QString& path, const QJsonDocument& doc, const QString& what);
 
-    bool saveTranslations();
+    [[nodiscard]] bool saveTranslations();
     void loadLanguageMetadata();
-    bool saveLanguageMetadata();
+    [[nodiscard]] bool saveLanguageMetadata();
     // Runs the once-per-launch community-translation merge as soon as the network is up.
     // Replaces a fixed 3s delay; see the definition for why that delay was wrong in both
     // directions.
     void scheduleLanguageUpdateCheck();
 
     void loadStringRegistry();
-    bool saveStringRegistry();
+    [[nodiscard]] bool saveStringRegistry();
 
     // Record the CURRENT English for a key, and deal with the case where it changed.
     //
@@ -288,18 +302,18 @@ private:
     // Returns false when the provider answered but the reply was unusable — empty content, or
     // not the JSON object that was asked for. That is a FAILED batch, not zero translations,
     // and the difference matters: inside the bulk run a "success" triggers the upload.
-    bool parseAutoTranslateResponse(const QByteArray& data);
+    [[nodiscard]] bool parseAutoTranslateResponse(const QByteArray& data);
 
     // Placeholders a string carries, e.g. {1, 2} for "%1 of %2". A translation must carry the
     // same set: reordering is fine and expected, losing or inventing one is not.
     static QSet<int> placeholderSet(const QString& text);
     QString buildTranslationPrompt(const QVariantList& strings) const;
     void loadAiTranslations();
-    bool saveAiTranslations();
+    [[nodiscard]] bool saveAiTranslations();
 
     // Language update helpers
     void loadUserOverrides();
-    bool saveUserOverrides();
+    [[nodiscard]] bool saveUserOverrides();
 
     Settings* m_settings;
     QNetworkAccessManager* m_networkManager;
@@ -452,7 +466,7 @@ private:
     // apply step — merge, metadata, signals — rather than just the merge helper.
     void applyFetchedLanguage(const QString& langCode, const QJsonObject& root);
 
-    bool mergeDownloadedLanguageFile(const QString& langCode, const QJsonObject& root);
+    [[nodiscard]] bool mergeDownloadedLanguageFile(const QString& langCode, const QJsonObject& root);
 
     // Helper to get provider for AI requests (uses batch override if active)
     QString getActiveProvider() const;
