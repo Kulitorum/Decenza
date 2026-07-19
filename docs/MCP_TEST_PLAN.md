@@ -631,7 +631,7 @@ or pass `keys:["…"]` to bypass categories entirely.
 
 | Category | Notable keys |
 |---|---|
-| `machine` | `autoSleepMinutes`, `keepSteamHeaterOn`, `themeMode`, `darkThemeName`, `lightThemeName`, `screenBrightness`, `autoWakeEnabled`, `autoWakeStayAwakeEnabled`, `autoWakeStayAwakeMinutes`, `defaultShotRating`, `launcherMode`, `postShotReviewTimeout`, `refillKitOverride`, `steamAutoFlushSeconds`, `steamTwoTapStop`, `waterLevelDisplayUnit`, `waterRefillPoint` |
+| `machine` | `autoSleepMinutes`, `keepSteamHeaterOn`, `themeMode`, `darkThemeName`, `lightThemeName`, `screenBrightness`, `autoWakeEnabled`, `autoWakeStayAwakeEnabled`, `autoWakeStayAwakeMinutes`, `launcherMode`, `postShotReviewTimeout`, `refillKitOverride`, `steamAutoFlushSeconds`, `steamTwoTapStop`, `waterLevelDisplayUnit`, `waterRefillPoint` |
 | `calibration` | `autoFlowCalibration`, `flowCalibrationMultiplier`, `ignoreVolumeWithScale`, `useFlowScale` |
 | `connections` | `machineAddress`, `scaleAddress`, `scaleName`, `scaleType`, `showScaleDialogs`, `usbSerialEnabled` |
 | `screensaver` | `screensaverType`, `dimDelayMinutes`, `dimPercent`, `cacheEnabled`, `flipClockUse3D`, `imageDisplayDuration`, `pipesSpeed`, `pipesCameraSpeed`, `pipesShowClock`, `videosShowClock`, `attractorShowClock`, `showDateOnPersonal`, `shotMapShape`, `shotMapTexture`, `shotMapShowClock`, `shotMapShowProfiles`, `shotMapShowTerminator` |

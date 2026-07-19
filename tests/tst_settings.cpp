@@ -91,7 +91,6 @@ private:
     double m_origSteamTemp;
     QString m_origScaleAddress;
     QString m_origThemeMode;
-    int m_origShotRating;
     bool m_origIgnoreVolume;
     bool m_origAutoUpdate;
     QString m_origDyeBeanBrand;
@@ -121,7 +120,6 @@ private slots:
         // a trailing reset inside each test — a trailing reset does not run when an
         // assertion fails mid-test, which is exactly when leaked state does most harm.
         m_origCustomFontSizes = m_settings.theme()->customFontSizes();
-        m_origShotRating = m_settings.visualizer()->defaultShotRating();
         m_origIgnoreVolume = m_settings.brew()->ignoreVolumeWithScale();
         m_origAutoUpdate = m_settings.visualizer()->visualizerAutoUpdate();
         m_origDyeBeanBrand = m_settings.dye()->dyeBeanBrand();
@@ -151,7 +149,6 @@ private slots:
         m_settings.brew()->setSteamTemperature(m_origSteamTemp);
         m_settings.setScaleAddress(m_origScaleAddress);
         m_settings.theme()->setThemeMode(m_origThemeMode);
-        m_settings.visualizer()->setDefaultShotRating(m_origShotRating);
         m_settings.brew()->setIgnoreVolumeWithScale(m_origIgnoreVolume);
         m_settings.visualizer()->setVisualizerAutoUpdate(m_origAutoUpdate);
         m_settings.dye()->setDyeBeanBrand(m_origDyeBeanBrand);
@@ -212,11 +209,6 @@ private slots:
     void themeModeRoundTrip() {
         m_settings.theme()->setThemeMode("light");
         QCOMPARE(m_settings.theme()->themeMode(), QString("light"));
-    }
-
-    void defaultShotRatingRoundTrip() {
-        m_settings.visualizer()->setDefaultShotRating(50);
-        QCOMPARE(m_settings.visualizer()->defaultShotRating(), 50);
     }
 
     void visualizerAutoUpdateDefaultIsTrue() {
@@ -324,23 +316,6 @@ private slots:
     }
 
     // ==========================================
-    // Cross-domain wiring (Visualizer -> Dye)
-    // ==========================================
-
-    void defaultShotRatingPropagatesToDyeEnjoyment() {
-        // Settings::Settings() wires defaultShotRatingChanged -> setDyeEspressoEnjoyment
-        // so any caller of SettingsVisualizer::setDefaultShotRating sees the new
-        // value reflected in dye/espressoEnjoyment without going through Settings.
-        const int origEnjoyment = m_settings.dye()->dyeEspressoEnjoyment();
-        const int newRating = (m_origShotRating == 42) ? 43 : 42;
-        m_settings.visualizer()->setDefaultShotRating(newRating);
-        QCOMPARE(m_settings.dye()->dyeEspressoEnjoyment(), newRating);
-        // Restore (cleanup() also restores defaultShotRating, but enjoyment is
-        // a derived persisted value — leave it consistent for the next test).
-        m_settings.dye()->setDyeEspressoEnjoyment(origEnjoyment);
-    }
-
-    // ==========================================
     // Edge cases
     // ==========================================
 
@@ -348,6 +323,27 @@ private slots:
         // 0 means disabled (no SAW)
         m_settings.brew()->setTargetWeight(0.0);
         QCOMPARE(m_settings.brew()->targetWeight(), 0.0);
+    }
+
+    void dyeEspressoEnjoymentDefaultsToUnrated() {
+        // The default-shot-rating feature was removed: an untasted shot is never
+        // auto-rated. With no persisted per-shot value, enjoyment is 0 (unrated) —
+        // it must NOT fall back to any non-zero default. A fresh SettingsDye read
+        // against a store with the key removed proves the default in isolation
+        // (the shared suite store may carry a value from a prior test).
+        QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+        const QVariant prior = raw.value("dye/espressoEnjoyment");
+        raw.remove("dye/espressoEnjoyment");
+        raw.sync();
+
+        SettingsDye fresh;  // reads the now-clean store
+        QCOMPARE(fresh.dyeEspressoEnjoyment(), 0);
+
+        // Restore so later tests see the store they expect.
+        if (prior.isValid()) {
+            raw.setValue("dye/espressoEnjoyment", prior);
+            raw.sync();
+        }
     }
 
     void emptyScaleAddressIsValid() {

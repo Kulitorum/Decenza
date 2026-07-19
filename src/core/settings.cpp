@@ -57,7 +57,7 @@ Settings::Settings(QObject* parent)
     , m_visualizer(new SettingsVisualizer(this))
     , m_mcp(new SettingsMcp(this))
     , m_brew(new SettingsBrew(this))
-    , m_dye(new SettingsDye(m_visualizer, this))
+    , m_dye(new SettingsDye(this))
     , m_network(new SettingsNetwork(this))
     , m_app(new SettingsApp(this))
     , m_calibration(new SettingsCalibration(this, this))
@@ -365,18 +365,6 @@ Settings::Settings(QObject* parent)
     if (m_settings.value("mcp/apiKey", "").toString().isEmpty()) {
         m_settings.setValue("mcp/apiKey", QUuid::createUuid().toString(QUuid::WithoutBraces));
     }
-
-    // Cross-domain wiring: when the user changes the default shot rating
-    // (Visualizer settings tab, MCP, settings import), also overwrite the
-    // persisted dye/espressoEnjoyment so the new value is reflected in the
-    // BrewDialog and on the next shot save — both in-progress and future
-    // shots see the change. Pre-split this was a side effect inside
-    // Settings::setDefaultShotRating(); it now lives here so any caller
-    // of SettingsVisualizer::setDefaultShotRating gets the same behaviour.
-    // Bean-modified tracking lives entirely inside SettingsDye now.
-    connect(m_visualizer, &SettingsVisualizer::defaultShotRatingChanged, this, [this]() {
-        m_dye->setDyeEspressoEnjoyment(m_visualizer->defaultShotRating());
-    });
 
     // Cross-domain wiring: SettingsCalibration::resetSawLearning() emits
     // sawLearningResetRequested so SettingsBrew can reset the hot-water SAW

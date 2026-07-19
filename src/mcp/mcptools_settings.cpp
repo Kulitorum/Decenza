@@ -128,7 +128,6 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             if (include("waterRefillPoint", "machine")) result["waterRefillPoint"] = settings->app()->waterRefillPoint();
             if (include("waterLevelDisplayUnit", "machine")) result["waterLevelDisplayUnit"] = settings->app()->waterLevelDisplayUnit();
             if (include("screenBrightness", "machine")) result["screenBrightness"] = settings->theme()->screenBrightness();
-            if (include("defaultShotRating", "machine")) result["defaultShotRating"] = settings->visualizer()->defaultShotRating();
             if (include("launcherMode", "machine")) result["launcherMode"] = settings->app()->launcherMode();
             {
                 auto* aw = settings->autoWake();
