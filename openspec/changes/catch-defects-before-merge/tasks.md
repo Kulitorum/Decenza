@@ -54,12 +54,16 @@ Added after the first clean run. A gate that reports nothing is indistinguishabl
 
 - [~] 6.1 One-off measurement: compile with `-Wall -Wextra` on each of the six platforms and record which diagnostic classes actually occur, and roughly how often (counts differ per platform — iOS's Xcode defaults suppress ~15 classes today)
   - [x] macOS arm64: **27 warnings, 6 classes, 12 files**, all mechanical (`-Wunused-lambda-capture` 10, `-Wunused-parameter` 6, `-Wunused-const-variable` 4, `-Wunused-variable` 4, `-Wunused-but-set-variable` 2, `-Wreorder-ctor` 1). See design.md — this is small enough to question whether an exemption block is needed at all.
-  - [ ] iOS, Android, Windows, Linux x64, Linux arm64 — need CI runs; iOS is the one most likely to hide occurrences (Xcode defaults suppress ~15 classes) and the one that broke last time
+  - [x] iOS, Android, Windows, Linux x64, Linux arm64 — done via CI runs. No formal per-class counts were recorded for these: the flags were turned on and the burndown was driven by failures instead, over seven rounds. What they found, which the macOS measurement could not have predicted:
+    - **GCC's `-Wall`/`-Wextra` differ from clang's.** `-Wrange-loop-construct` (five real sites: `for (const QString& key : {"a","b"})` built a throwaway QString per element) and a stricter `-Wshadow` (seven rounds of it, the last being seven redundant `ExpertBand` aliases) are in GCC's sets and not clang's.
+    - **iOS-only code is invisible elsewhere.** An unused `logFail` lambda inside `#ifdef Q_OS_IOS` compiled nowhere but iOS — the same shape as #1558, the break that motivated this change.
+    - **Android JNI narrowing** surfaced only on that toolchain.
 - [x] 6.2 Add `-Wall -Wextra -Werror` (and `/W4 /WX` for MSVC) to `CMakeLists.txt` as the default, with one clearly-labelled `-Wno-<name>` block carrying exactly the classes found in 6.1 — no speculative entries for classes with zero occurrences
   - Added `-Wall -Wextra -Werror` (plus `/W4 /WX` for MSVC) with NO exemption block — the measured backlog was 41 sites, small enough to fix outright.
 - [x] 6.3 Comment that block with what it is (the backlog), the rule that entries are only ever removed, and that the change is done when it is empty
   - N/A — there is no exemption block to comment. It was never needed.
-- [ ] 6.4 Verify all six platforms build green with the flags on and the exemptions in place, before this lands
+- [x] 6.4 Verify all six platforms build green with the flags on and the exemptions in place, before this lands
+  - **All six green at `e96c721d`** (2026-07-19): Linux x64, Linux arm64, macOS, Windows, Android, iOS — one commit, six workflows, no skips. Took seven burndown rounds; every round after the third found exactly one GCC-only class, and I twice predicted "that's the last one" and was wrong.
 - [x] 6.5 Negative control: introduce a deliberate diagnostic in a NON-exempt class and confirm the build fails on it
   - Negative control: `-Werror` demonstrably fails the build; 41 real sites failed it before being fixed.
 - [x] 6.6 Order the exempt classes cheapest-and-safest first, and record that as the burndown order
