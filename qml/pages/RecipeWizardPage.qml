@@ -87,6 +87,17 @@ Page {
             _detailsPage = pages[i + 1]
         }
     }
+    // "Move on" from a details window: a window opened FROM the summary returns
+    // there; in the creation walk it steps to the next window. Backs both the
+    // Continue button and the equipment tiles' auto-advance on selection.
+    function detailsContinue() {
+        if (_fromSummary) {
+            _fromSummary = false
+            currentStep = "summary"
+        } else {
+            detailsAdvance()
+        }
+    }
 
     function openStep(step) {
         _fromSummary = (currentStep === "summary")
@@ -901,9 +912,8 @@ Page {
         applyDetailsPrefill()
     }
 
-    // Link (or clear) the recipe's equipment package. Shared by the equipment
-    // window's inline tiles and the equipment picker dialog so the two can
-    // never set different state. `pkg` is a flattened package map, or a
+    // Link (or clear) the recipe's equipment package, from the equipment
+    // window's inline tiles. `pkg` is a flattened package map, or a
     // { isNone: true } sentinel / null to clear.
     function selectEquipment(pkg) {
         if (!pkg || pkg.isNone) {
@@ -932,6 +942,35 @@ Page {
                 arr.push(p)
         }
         return arr
+    }
+
+    // Snapshot the chosen steam pitcher preset onto the recipe BY VALUE (never
+    // a preset index). Shared by the steam window's tiles.
+    function selectPitcher(preset) {
+        fPitcherName = preset.name || ""
+        fPitcherDurationSec = preset.duration || 0
+        fPitcherFlow = preset.flow || 0
+        fPitcherTemperatureC = preset.temperature || 0
+    }
+
+    // The steam window's tile model: the enabled pitcher presets.
+    function pitcherTileModel() {
+        var arr = []
+        var presets = Settings.brew.steamPitcherPresets
+        for (var i = 0; i < presets.length; ++i)
+            if (!presets[i].disabled)
+                arr.push(presets[i])
+        return arr
+    }
+
+    // Compact "45s · 62°C" metadata line for a pitcher preset tile.
+    function pitcherTileMeta(preset) {
+        var parts = []
+        if ((preset.duration || 0) > 0)
+            parts.push(preset.duration + "s")
+        if ((preset.temperature || 0) > 0)
+            parts.push(Theme.formatTemperature(preset.temperature, 0))
+        return parts.join(" · ")
     }
 
     // --- details prefill (history → tea bag data → profile defaults) -------
@@ -1089,7 +1128,8 @@ Page {
     function bagImageLink() {
         if (fBagBlob === "")
             return ""
-        try { return JSON.parse(fBagBlob).link || "" } catch (e) { return "" }
+        try { return JSON.parse(fBagBlob).link || "" }
+        catch (e) { console.warn("RecipeWizard: bad bag blob JSON:", e); return "" }
     }
 
     // Profile card: a RICH read-out of what PICKING A PROFILE brings to the
@@ -1150,7 +1190,8 @@ Page {
         if (fn && fn !== "")
             return ProfileManager.getProfileByFilename(fn)
         if (fProfileJson !== "") {
-            try { return JSON.parse(fProfileJson) } catch (e) { return null }
+            try { return JSON.parse(fProfileJson) }
+            catch (e) { console.warn("RecipeWizard: embedded profile JSON unparsable:", e); return null }
         }
         return null
     }
@@ -1793,6 +1834,60 @@ Page {
                 + TranslationManager.translate("recipes.wizard.accessible.tapToAdjust", "tap to adjust")
             accessibleItem: sectionCard
             onAccessibleClicked: sectionCard.expanded = true
+        }
+    }
+
+    // A tap-to-select tile used by the equipment and steam windows: title +
+    // optional metadata line, highlighted when selected, emits chosen() on tap.
+    component ChoiceTile: Rectangle {
+        id: choiceTile
+        property string title: ""
+        property string meta: ""
+        property bool selected: false
+        signal chosen()
+        width: Math.min(Theme.scaled(240),
+            (parent && parent.width > 0) ? parent.width : Theme.scaled(240))
+        implicitHeight: choiceTileCol.implicitHeight + 2 * Theme.spacingMedium
+        radius: Theme.cardRadius
+        color: selected ? Qt.alpha(Theme.primaryColor, 0.12) : Theme.cardBackgroundColor
+        border.color: selected ? Theme.primaryColor : Theme.borderColor
+        border.width: selected ? 2 : 1
+        ColumnLayout {
+            id: choiceTileCol
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.leftMargin: Theme.spacingMedium
+            anchors.rightMargin: Theme.spacingMedium
+            spacing: Theme.scaled(2)
+            Label {
+                Layout.fillWidth: true
+                text: choiceTile.title
+                font: Theme.bodyFont
+                color: Theme.textColor
+                wrapMode: Text.WordWrap
+                maximumLineCount: 2
+                elide: Text.ElideRight
+                Accessible.ignored: true
+            }
+            Label {
+                visible: choiceTile.meta !== ""
+                Layout.fillWidth: true
+                text: choiceTile.meta
+                font: Theme.captionFont
+                color: Theme.textSecondaryColor
+                elide: Text.ElideRight
+                Accessible.ignored: true
+            }
+        }
+        AccessibleMouseArea {
+            anchors.fill: parent
+            accessibleName: choiceTile.title
+                + (choiceTile.meta !== "" ? ", " + choiceTile.meta : "")
+                + (choiceTile.selected
+                    ? ", " + TranslationManager.translate("common.selected", "selected") : "")
+            accessibleItem: choiceTile
+            onAccessibleClicked: choiceTile.chosen()
         }
     }
 
@@ -2513,14 +2608,7 @@ Page {
                                     ? TranslationManager.translate("recipes.wizard.review", "Review")
                                     : TranslationManager.translate("common.continue", "Continue"))
                             accessibleName: text
-                            onClicked: {
-                                if (wizardPage._fromSummary) {
-                                    wizardPage._fromSummary = false
-                                    wizardPage.currentStep = "summary"
-                                } else {
-                                    wizardPage.detailsAdvance()
-                                }
-                            }
+                            onClicked: wizardPage.detailsContinue()
                         }
                     }
 
@@ -2560,9 +2648,7 @@ Page {
                             // so the fields show expanded (no collapse chrome).
                             visible: wizardPage._detailsPage === "numbers"
                             collapsible: false
-                            // Concrete title: name the fields, not "numbers"
-                            // — the collapsed row must explain itself beside
-                            // its value summary.
+                            // Concrete title: name the fields, not "numbers".
                             title: wizardPage.isTeaDrink
                                 ? TranslationManager.translate("recipes.wizard.sectionLeafTemp", "Leaf & temperature")
                                 : TranslationManager.translate("recipes.wizard.sectionDoseYield", "Dose, yield & temperature")
@@ -2815,73 +2901,35 @@ Page {
                             }
                             // The in-inventory packages as inline, tap-to-select
                             // tiles (no dialog): the current one is highlighted,
-                            // and "None" clears the link.
+                            // "None" clears the link, and picking one moves on.
                             Flow {
                                 Layout.fillWidth: true
                                 spacing: Theme.spacingMedium
                                 Repeater {
                                     model: wizardPage.equipmentTileModel()
-                                    delegate: Rectangle {
-                                        id: eqTile
+                                    delegate: ChoiceTile {
                                         readonly property bool isNone: modelData.isNone === true
-                                        readonly property bool selected: isNone
-                                            ? wizardPage.fEquipmentId <= 0
-                                            : modelData.id === wizardPage.fEquipmentId
-                                        readonly property string tileTitle: isNone ? trNone.text
-                                            : (modelData.name
-                                               || ((modelData.grinderBrand || "") + " " + (modelData.grinderModel || "")).trim()
-                                               || ((modelData.basketBrand || "") + " " + (modelData.basketModel || "")).trim())
-                                        readonly property string tileMeta: {
+                                        readonly property string grinder:
+                                            ((modelData.grinderBrand || "") + " " + (modelData.grinderModel || "")).trim()
+                                        readonly property string basket:
+                                            ((modelData.basketBrand || "") + " " + (modelData.basketModel || "")).trim()
+                                        title: isNone ? trNone.text
+                                            : (modelData.name || grinder || basket)
+                                        meta: {
                                             if (isNone) return ""
                                             var parts = []
-                                            var grinder = ((modelData.grinderBrand || "") + " " + (modelData.grinderModel || "")).trim()
-                                            var basket = ((modelData.basketBrand || "") + " " + (modelData.basketModel || "")).trim()
-                                            if (grinder !== "" && grinder !== tileTitle) parts.push(grinder)
+                                            if (grinder !== "" && grinder !== title) parts.push(grinder)
                                             if (basket !== "") parts.push(basket)
                                             return parts.join(" · ")
                                         }
-                                        width: Math.min(Theme.scaled(240),
-                                            parent.width > 0 ? parent.width : Theme.scaled(240))
-                                        implicitHeight: eqTileCol.implicitHeight + 2 * Theme.spacingMedium
-                                        radius: Theme.cardRadius
-                                        color: selected ? Qt.alpha(Theme.primaryColor, 0.12) : Theme.cardBackgroundColor
-                                        border.color: selected ? Theme.primaryColor : Theme.borderColor
-                                        border.width: selected ? 2 : 1
-                                        ColumnLayout {
-                                            id: eqTileCol
-                                            anchors.left: parent.left
-                                            anchors.right: parent.right
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            anchors.margins: Theme.spacingMedium
-                                            spacing: Theme.scaled(2)
-                                            Label {
-                                                Layout.fillWidth: true
-                                                text: eqTile.tileTitle
-                                                font: Theme.bodyFont
-                                                color: Theme.textColor
-                                                wrapMode: Text.WordWrap
-                                                maximumLineCount: 2
-                                                elide: Text.ElideRight
-                                                Accessible.ignored: true
-                                            }
-                                            Label {
-                                                visible: eqTile.tileMeta !== ""
-                                                Layout.fillWidth: true
-                                                text: eqTile.tileMeta
-                                                font: Theme.captionFont
-                                                color: Theme.textSecondaryColor
-                                                elide: Text.ElideRight
-                                                Accessible.ignored: true
-                                            }
-                                        }
-                                        AccessibleMouseArea {
-                                            anchors.fill: parent
-                                            accessibleName: eqTile.tileTitle
-                                                + (eqTile.tileMeta !== "" ? ", " + eqTile.tileMeta : "")
-                                                + (eqTile.selected
-                                                    ? ", " + TranslationManager.translate("common.selected", "selected") : "")
-                                            accessibleItem: eqTile
-                                            onAccessibleClicked: wizardPage.selectEquipment(eqTile.isNone ? null : modelData)
+                                        selected: isNone
+                                            ? wizardPage.fEquipmentId <= 0
+                                            : modelData.id === wizardPage.fEquipmentId
+                                        onChosen: {
+                                            wizardPage.selectEquipment(isNone ? null : modelData)
+                                            // Picking a tile is the choice — move
+                                            // on without a second Continue tap.
+                                            wizardPage.detailsContinue()
                                         }
                                     }
                                 }
@@ -2984,12 +3032,24 @@ Page {
                                 color: Theme.textSecondaryColor
                                 wrapMode: Text.WordWrap
                             }
-                            PickerField {
+                            // The pitcher presets as inline, tap-to-select
+                            // tiles (like equipment): the chosen one is
+                            // highlighted, and picking one moves on.
+                            Flow {
                                 Layout.fillWidth: true
-                                label: TranslationManager.translate("recipes.composer.pitcher", "Pitcher")
-                                value: wizardPage.fPitcherName
-                                placeholder: TranslationManager.translate("recipes.composer.choosePitcher", "Choose pitcher…")
-                                onActivated: pitcherPicker.open()
+                                spacing: Theme.spacingMedium
+                                Repeater {
+                                    model: wizardPage.pitcherTileModel()
+                                    delegate: ChoiceTile {
+                                        title: modelData.name || ""
+                                        meta: wizardPage.pitcherTileMeta(modelData)
+                                        selected: (modelData.name || "") === wizardPage.fPitcherName
+                                        onChosen: {
+                                            wizardPage.selectPitcher(modelData)
+                                            wizardPage.detailsContinue()
+                                        }
+                                    }
+                                }
                             }
                         }
 
@@ -3352,55 +3412,6 @@ Page {
     }
 
 
-    PickerDialog {
-        id: pitcherPicker
-        height: Math.min(Theme.scaled(420), parent.height - Theme.scaled(80))
-        contentItem: ListView {
-            clip: true
-            model: Settings.brew.steamPitcherPresets
-            delegate: ItemDelegate {
-                width: ListView.view.width
-                visible: !modelData.disabled
-                height: modelData.disabled ? 0 : implicitHeight
-                // Preset metadata on the row: steam duration and temperature.
-                readonly property string rowMeta: {
-                    var parts = []
-                    if ((modelData.duration || 0) > 0) parts.push(modelData.duration + "s")
-                    if ((modelData.temperature || 0) > 0)
-                        parts.push(Theme.formatTemperature(modelData.temperature, 0))
-                    return parts.join(" · ")
-                }
-                contentItem: ColumnLayout {
-                    spacing: 0
-                    Label {
-                        Layout.fillWidth: true
-                        text: modelData.name || ""
-                        font: Theme.bodyFont
-                        color: Theme.textColor
-                        elide: Text.ElideRight
-                    }
-                    Label {
-                        visible: rowMeta !== ""
-                        Layout.fillWidth: true
-                        text: rowMeta
-                        font: Theme.captionFont
-                        color: Theme.textSecondaryColor
-                        elide: Text.ElideRight
-                    }
-                }
-                Accessible.role: Accessible.Button
-                Accessible.name: (modelData.name || "") + (rowMeta !== "" ? ", " + rowMeta : "")
-                onClicked: {
-                    // Snapshot BY VALUE (never a preset index).
-                    wizardPage.fPitcherName = modelData.name || ""
-                    wizardPage.fPitcherDurationSec = modelData.duration || 0
-                    wizardPage.fPitcherFlow = modelData.flow || 0
-                    wizardPage.fPitcherTemperatureC = modelData.temperature || 0
-                    pitcherPicker.close()
-                }
-            }
-        }
-    }
 
     PickerDialog {
         id: vesselPicker
