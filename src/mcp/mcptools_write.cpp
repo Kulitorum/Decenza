@@ -1771,7 +1771,31 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             const QString dbPath = shotHistory->databasePath();
 
             // Load the just-updated bag on a background thread and respond.
+            // Always create the reader thread ON THE MAIN THREAD.
+            //
+            // This lambda is invoked from two places: the storage-instance path
+            // (already on the main thread, via invokeMethod(qApp, ...)) and the
+            // headless fallback path — from INSIDE a QThread::create worker.
+            //
+            // In that second case the QThread built below inherited the
+            // WORKER's thread affinity, so deleteLater() on its finished()
+            // signal posted a DeferredDelete to the WORKER's event queue. A
+            // QThread::create thread never calls exec(), and has usually exited
+            // by then, so nothing ever processed that event: the QThread and
+            // its internals were never freed.
+            //
+            // Measured as 6,540 bytes / 70 allocations leaked in
+            // tst_mcptools_write. It survived a 250 ms drain of the MAIN
+            // thread's event queue — because the pending delete was never on
+            // the main thread's queue at all, which is what made two earlier
+            // explanations of this leak wrong. Confirmed by probe: on the
+            // fallback path this lambda reported
+            // currentThread() != qApp->thread() on every call.
+            //
+            // The hop makes affinity identical on both paths, so the deferred
+            // delete always lands on an event loop that actually runs.
             auto respondWithBag = [dbPath, bagId, bagToJson, respond]() {
+              QMetaObject::invokeMethod(qApp, [dbPath, bagId, bagToJson, respond]() {
                 QThread* t = QThread::create([dbPath, bagId, bagToJson, respond]() {
                     CoffeeBag updated;
                     withTempDb(dbPath, "mcp_bagupd_read", [&](QSqlDatabase& db) {
@@ -1791,6 +1815,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 });
                 QObject::connect(t, &QThread::finished, t, &QObject::deleteLater);
                 t->start();
+              }, Qt::QueuedConnection);
             };
 
             auto proceed = [dbPath, bagId, bagStorage, respondWithBag, respond](const QVariantMap& finalFields) {
