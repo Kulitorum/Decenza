@@ -145,6 +145,7 @@ just harder to scan.
   - Rule of thumb: colour picture in the emoji keyboard → emoji, fine. Line-drawing symbol in your text colour → font glyph, also fine now, but confirm coverage with the script. Toolbar/navigation affordance → neither; use a themed SVG.
 - **The bundled font covers Latin (incl. Extended), Greek and Cyrillic only.** In CJK, Arabic, Hebrew, Devanagari and Thai locales every glyph comes from a platform fallback, so the metric determinism the bundled font provides does **not** apply there. Layout tolerance (wrap/elide/content-driven sizing) is what keeps those UIs from clipping — never rely on a fixed width that only fits the design font.
 - **`elide` is dead on `Text.RichText`**: use `Text.StyledText` for HTML-ish labels (elide works, and it's lighter); RichText silently disables `elide` → mid-glyph clipping.
+- **Measuring text in a binding**: use `FontMetrics.advanceWidth(str)`, never a mutated `TextMetrics` (`.text=`/read `.width`) — the latter self-triggers a binding loop. Mutated `TextMetrics` is only safe in an imperative Timer/handler writing a plain property. Runtime-only; a clean build won't catch it.
 - **Accessibility on interactive elements**: every interactive element needs `Accessible.role`, `Accessible.name`, `Accessible.focusable: true`, and `Accessible.onPressAction`. Prefer `AccessibleButton` / `AccessibleMouseArea` over raw `Rectangle+MouseArea`. Full rules in `docs/CLAUDE_MD/ACCESSIBILITY.md`.
 
 ### MCP Tool Responses (`src/mcp/`)
