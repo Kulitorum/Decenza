@@ -172,6 +172,9 @@ Item {
         padding: Theme.spacingMedium
         closePolicy: Popup.CloseOnPressOutside
 
+        // Reopen on the first (most-recent) page, matching RecipesItem/BeansItem.
+        onAboutToShow: root.profilePageIndex = 0
+
         width: {
             var win = root.Window.window
             var w = Theme.scaled(600) + 2 * padding

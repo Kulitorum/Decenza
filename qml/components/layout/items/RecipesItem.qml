@@ -60,8 +60,8 @@ Item {
     }
 
     // The full MRU-ordered non-archived recipe list (inventoryReady is MRU-ordered);
-    // the popup pages through it five at a time (add-idle-pill-pagination). The full
-    // list also lives on the Recipes page.
+    // the popup pages through it so each page occupies at most two rows (see the
+    // live-fit block below). The full list also lives on the Recipes page.
     property var inventoryRecipes: []
     property int recipePageIndex: 0
 

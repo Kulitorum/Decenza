@@ -169,9 +169,14 @@ Item {
         padding: Theme.spacingMedium
         closePolicy: Popup.CloseOnPressOutside
 
+        // Reopen on the first (most-recent) page, matching BeansItem/RecipesItem.
+        onAboutToShow: root.equipmentPageIndex = 0
+
         onOpened: {
             if (typeof AccessibilityManager === "undefined" || !AccessibilityManager.enabled) return
-            var pkgs = root.inventoryEquipment
+            // Announce the visible page (just reset to page 1), not the full
+            // inventory — matches every sibling pill row.
+            var pkgs = root.visibleEquipment
             if (pkgs.length === 0) return
             var names = []
             var selectedName = ""

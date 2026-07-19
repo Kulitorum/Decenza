@@ -5,9 +5,12 @@
 // Returns an array of per-page pill COUNTS — the count varies with the names'
 // widths and may differ from page to page (a page of long names holds fewer).
 //
-// Used by RecipesItem.qml and BeansItem.qml to replace the old fixed "5 per
-// page" windowing so the longer bean+type+profile recipe names never spill past
-// two rows. The caller measures widths with a TextMetrics that MIRRORS
+// Used by every idle pill row — RecipesItem, BeansItem, EspressoItem,
+// EquipmentItem, FlushItem, HotWaterItem, and IdlePage's center-zone loaders —
+// replacing three prior behaviors (recipes/beans: fixed 5 per page; equipment:
+// fixed cap of 5; profiles/flush/hot-water: unbounded wrap) so the longer
+// bean+type+profile names never spill past two rows. The caller measures widths
+// with FontMetrics.advanceWidth() using a font that MIRRORS
 // PresetPillRow's pill metrics (font 16 bold, pillPadding, pillSpacing, icon) —
 // keep those in sync with PresetPillRow.qml; only the width formula is mirrored,
 // never the available width itself (the caller reads the row's real

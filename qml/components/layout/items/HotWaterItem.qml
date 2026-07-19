@@ -143,20 +143,25 @@ Item {
         padding: Theme.spacingMedium
         closePolicy: Popup.CloseOnPressOutside
 
+        // Reopen on the first (most-recent) page, matching RecipesItem/BeansItem.
+        onAboutToShow: root.hotWaterPageIndex = 0
+
         // Full-mode hot-water path runs IdlePage.onActivePresetFunctionChanged which
         // announces the preset list to TalkBack. The compact-mode popup bypasses that
         // path, so announce here directly to keep feature parity for screen-reader users.
         onOpened: {
             if (typeof AccessibilityManager === "undefined" || !AccessibilityManager.enabled) return
-            var presets = Settings.brew.waterVesselPresets
+            // Announce the visible page (just reset to page 1), not the full list.
+            var presets = root.visibleWaterVessels
             if (presets.length === 0) return
             var names = []
             var selectedName = ""
             for (var i = 0; i < presets.length; ++i) {
                 names.push(presets[i].name)
             }
-            if (Settings.brew.selectedWaterVessel >= 0 && Settings.brew.selectedWaterVessel < presets.length) {
-                selectedName = presets[Settings.brew.selectedWaterVessel].name
+            var selRel = Settings.brew.selectedWaterVessel - root._hotWaterPageStart
+            if (selRel >= 0 && selRel < presets.length) {
+                selectedName = presets[selRel].name
             }
             var announcement = presets.length + " " + TranslationManager.translate("idle.accessible.presets", "presets") + ": " + names.join(", ")
             if (selectedName !== "") {
