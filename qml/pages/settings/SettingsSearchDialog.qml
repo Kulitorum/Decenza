@@ -127,19 +127,19 @@ Dialog {
             Layout.fillWidth: true
             spacing: Theme.scaled(8)
 
-            Image {
+            // ThemedIcon: the white-stroked search.svg sits on a light surface in light
+            // mode and was invisible there. Same fix as SettingsPage.qml.
+            ThemedIcon {
                 source: "qrc:/icons/search.svg"
-                sourceSize.width: Theme.scaled(20)
-                sourceSize.height: Theme.scaled(20)
+                iconSize: Theme.scaled(20)
                 Layout.alignment: Qt.AlignVCenter
-                visible: source != ""
                 Accessible.ignored: true
             }
 
             StyledTextField {
                 id: searchField
                 Layout.fillWidth: true
-                placeholder: TranslationManager.translate("settings.search.placeholder", "Search settings...")
+                placeholder: TranslationManager.translate("settings.search.placeholder", "Search settings")
                 accessibleName: TranslationManager.translate("settings.search.placeholder", "Search settings")
                 // Hint the Android IME away from autocorrect; some IMEs ignore this,
                 // so the filter above also reads displayText rather than text.

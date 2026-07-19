@@ -6,15 +6,18 @@ import "../components"
 
 Page {
     id: multiImportPage
+    // Declarative so it re-evaluates on a language change. This used to be an
+    // imperative assignment in onCompleted/onActivated, which ran once and left
+    // page titles in the previous language until you navigated away and back.
+    readonly property string pageTitle: TranslationManager.translate("visualizerImport.pageTitle", "Import Shared Profiles")
+
     objectName: "visualizerMultiImportPage"
     background: ThemedPageBackground {}
 
     Component.onCompleted: {
-        root.currentPageTitle = TranslationManager.translate("visualizerImport.pageTitle", "Import Shared Profiles")
         // Auto-fetch shared profiles on page load
         MainController.visualizerImporter.fetchSharedShots()
     }
-    StackView.onActivated: root.currentPageTitle = TranslationManager.translate("visualizerImport.pageTitle", "Import Shared Profiles")
 
     property var selectedShot: null
     property bool showCodeInput: false

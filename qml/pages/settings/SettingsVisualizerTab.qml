@@ -289,7 +289,7 @@ KeyboardAwareContainer {
 
                         Tr {
                             key: "settings.visualizer.autoUpload"
-                            fallback: "Auto-Upload Shots"
+                            fallback: "Auto-upload shots"
                             color: Theme.textColor
                             font.pixelSize: Theme.scaled(14)
                         }
@@ -326,7 +326,7 @@ KeyboardAwareContainer {
 
                         Tr {
                             key: "settings.visualizer.autoUpdate"
-                            fallback: "Auto-Update Shots"
+                            fallback: "Auto-update shots"
                             color: Theme.textColor
                             font.pixelSize: Theme.scaled(14)
                         }

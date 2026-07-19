@@ -28,6 +28,8 @@ private slots:
     void init() { QTest::failOnWarning(); }
     void initTestCase();
     void escapesAmpersandAndLessThan();
+    void neutralisesRemoteImageInAStyledTextValue();
+    void unbundledEmojiIsDroppedNotTofu();
     void doesNotEscapeGreaterThan();
     void tagInjectionIsNeutralised();
     void replaceEmojiEscapesByDefault();
@@ -123,6 +125,60 @@ QString TestTextEscaping::call(const QString& fn, const QJSValueList& args)
     if (r.isError())
         return QStringLiteral("ERROR: ") + r.toString();
     return r.toString();
+}
+
+// An emoji the bundled set does not carry must DISAPPEAR, not survive as a raw codepoint.
+//
+// This is the contract CLAUDE.md states ("An emoji with no bundled asset is silently stripped")
+// and it was being broken in the UI, though not by this function: ShotPlanText, BeanSummary and
+// SteamPlanText escaped user text into StyledText without ever routing it through
+// replaceEmojiWithImg. A bean name of "Milk U+1F322 Blend" rendered a tofu box on screen — and
+// the same gap meant a BUNDLED colour emoji reached the platform text renderer, which is the
+// macOS path this whole change exists to avoid. Verified by typing it into a real bean name.
+//
+// 399 assigned codepoints sit in the ranges _isEmoji matches with no asset behind them, so this
+// is a live case rather than a hypothetical: U+1F322 BLACK DROPLET is one a user can type.
+void TestTextEscaping::unbundledEmojiIsDroppedNotTofu()
+{
+    // Bundled: becomes an <img>, never a glyph.
+    const QString bundled = call("replaceEmojiWithImg", {QJSValue(QStringLiteral("Milk \u2615 Blend")), QJSValue(16)});
+    QVERIFY2(bundled.contains(QStringLiteral("<img")), "a bundled emoji must render as an image");
+    QVERIFY2(!bundled.contains(QChar(0x2615)), "the raw codepoint must not survive to the renderer");
+
+    // Unbundled: dropped entirely, leaving the surrounding text intact.
+    const QString payload = QStringLiteral("Milk ") + QString::fromUcs4(U"\U0001F322") + QStringLiteral(" Blend");
+    const QString out = call("replaceEmojiWithImg", {QJSValue(payload), QJSValue(16)});
+    QVERIFY2(!out.contains(QString::fromUcs4(U"\U0001F322")),
+             "an emoji with no bundled asset must be stripped, not passed through as tofu");
+    QVERIFY2(!out.contains(QStringLiteral("<img")), "nothing should be emitted for a missing asset");
+    QCOMPARE(out, QStringLiteral("Milk  Blend"));
+}
+
+// The payload this escaping exists to stop, written out rather than described.
+//
+// Community translations are downloaded and merged automatically at launch, and uploading one
+// is unauthenticated, so a translated string is attacker-influenceable in a way a literal is
+// not. BeanBaseDetailsRow binds one to a Text with textFormat: Text.StyledText, and StyledText
+// renders <img> -- the emoji pipeline depends on exactly that. Unescaped, a remote img in a
+// translation is fetched by every user of that language when the row renders.
+//
+// escapeHtml only has to break the tag open: with `<` encoded there is no element for Qt to
+// parse, so the source is never resolved and the text renders as the literal characters.
+void TestTextEscaping::neutralisesRemoteImageInAStyledTextValue()
+{
+    const QString payload = QStringLiteral("Linked <img src=\"https://example.invalid/x.png\">");
+    const QString escaped = call("escapeHtml", {QJSValue(payload)});
+
+    QVERIFY2(!escaped.contains(QStringLiteral("<img")),
+             "an <img> tag survived escaping and would be rendered by StyledText");
+    QVERIFY2(escaped.contains(QStringLiteral("&lt;img")), "the tag should render as text");
+
+    // The URL still appears -- as inert characters. Asserting on its absence would pass for the
+    // wrong reason, which an earlier version of a sibling test in this branch actually did.
+    QVERIFY(escaped.contains(QStringLiteral("https://example.invalid/x.png")));
+
+    // The same holds for the other tags StyledText acts on.
+    QVERIFY(!call("escapeHtml", {QJSValue("<a href=\"x\">t</a>")}).contains(QStringLiteral("<a ")));
 }
 
 void TestTextEscaping::escapesAmpersandAndLessThan()

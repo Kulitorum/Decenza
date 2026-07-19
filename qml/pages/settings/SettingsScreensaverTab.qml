@@ -892,7 +892,7 @@ Item {
                     StyledComboBox {
                         id: typeComboBox
                         Layout.preferredWidth: Theme.scaled(220)
-                        accessibleLabel: TranslationManager.translate("settings.screensaver.type", "Screensaver type")
+                        accessibleLabel: TranslationManager.translate("settings.screensaver.type.accessible", "Screensaver type")
                         model: [
                             TranslationManager.translate("settings.screensaver.type.disabled", "Turn Screen Off"),
                             TranslationManager.translate("settings.screensaver.type.videos", "Videos & Images"),
@@ -1055,7 +1055,7 @@ Item {
                         StyledComboBox {
                             id: shotMapTextureCombo
                             Layout.preferredWidth: Theme.scaled(130)
-                            accessibleLabel: TranslationManager.translate("settings.screensaver.shotmap.texture", "Texture")
+                            accessibleLabel: TranslationManager.translate("settings.screensaver.shotmap.texture.accessible", "Texture")
                             model: [
                                 TranslationManager.translate("settings.screensaver.shotmap.dark", "Dark"),
                                 TranslationManager.translate("settings.screensaver.shotmap.bright", "Bright"),
@@ -1108,7 +1108,7 @@ Item {
 
                         StyledSwitch {
                             checked: ScreensaverManager.shotMapShowTerminator
-                            accessibleName: TranslationManager.translate("settings.screensaver.shotmap.terminator", "Day/Night terminator")
+                            accessibleName: TranslationManager.translate("settings.screensaver.shotmap.terminator.accessible", "Day/Night terminator")
                             onToggled: ScreensaverManager.shotMapShowTerminator = checked
                         }
                     }

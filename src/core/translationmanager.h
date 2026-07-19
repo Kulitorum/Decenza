@@ -127,12 +127,31 @@ public:
     //
     // Flow:
     //   1. User enters Language settings → scanAllStrings() runs
-    //   2. All QML files in :/qml/ are parsed with regex
+    //   2. All QML files under :/qt/qml/Decenza/qml are parsed with regex — that is where
+    //      qt_add_qml_module publishes them, NOT :/qml, which is what this said while the
+    //      scanner looked there and silently found zero files
     //   3. All translation patterns are extracted and registered
     //   4. AI translation / upload now has access to all strings
     //
+    // Decode the escapes a QML string literal can carry in this codebase. Deliberately a SUBSET
+    // of what the QML engine accepts: it handles the sequences our fallbacks actually use and
+    // leaves anything else byte-for-byte, where the engine would apply identity-escape rules
+    // (\q -> q) and also decode \b \f \v \0 \xNN \u{...}. Leaving an unknown escape alone is the
+    // safe direction for a scanner — it can only fail to decode, never invent a character.
+    //
+    // Why it must exist at all: the scanner reads QML as TEXT, so it sees the escape sequences,
+    // while the runtime sees the characters they denote. Those two must agree, because both
+    // write the registry — some fallbacks use \uXXXX (GraphLegend's
+    // superscript two, a degree sign) and a scanner that stored the literal backslash-u would
+    // disagree with the runtime forever, each seeing the other's value as a rewrite.
+    static QString unescapeQmlLiteral(const QString& literal);
+
     Q_INVOKABLE void registerString(const QString& key, const QString& fallback);
     Q_INVOKABLE void scanAllStrings();
+
+    // Public + static so tst_aiproviders can assert these stay equal to each provider's first
+    // catalog entry in aiprovider.cpp. That test is what stops this list going stale again.
+    static QString fallbackTranslationModel(const QString& providerId);
 
     // Community Translation Sharing
     // -----------------------------
@@ -147,6 +166,16 @@ public:
     //   GET  /v1/translations/languages/{code} - Download a translation file
     //   GET  /v1/translations/upload-url?lang= - Get pre-signed S3 URL for upload
     //
+    // Fold a downloaded set into the current one, keeping any local translation the download
+    // does not carry and never overwriting a user override. Public because it is the meaning of
+    // "apply a downloaded language", not an implementation detail: both the launch-time check
+    // and the Update button go through it, and a test pins that Update no longer replaces.
+    // Returns false if it REFUSED — the local file failed to load, so an empty in-memory map
+    // is not evidence of an empty language and merging into it would replace the user's
+    // translations with the server's. Callers must honour it: this was void, and the refusal
+    // fell through to a success emit that told the user the update had applied.
+    [[nodiscard]] bool mergeLanguageUpdate(const QJsonObject& newTranslations);
+
     Q_INVOKABLE void downloadLanguageList();
     Q_INVOKABLE void downloadLanguage(const QString& langCode);
     Q_INVOKABLE void exportTranslation(const QString& filePath);
@@ -195,6 +224,11 @@ signals:
     void downloadingChanged();
     void uploadingChanged();
     void lastErrorChanged();
+    // An outcome the user should see that is NOT a failure — "stopped, N strings saved". These
+    // used to travel through lastError, which made the toast dress a successful stop in error
+    // styling. Informational is opt-in via this signal; anything set on lastError still gets
+    // error styling by default, which is the correct default for a message nobody classified.
+    void translationNotice(const QString& message);
     void retryStatusChanged();
     void translationSubmitted(bool success, const QString& message);
     void scanningChanged();
@@ -221,11 +255,43 @@ private slots:
 
 private:
     void loadTranslations();
-    void saveTranslations();
+    // Every verdict-returning helper below is [[nodiscard]], and CMake promotes a discarded
+    // verdict to a hard build error (-Werror=unused-result / MSVC /we4834). This is not
+    // decoration: seven bugs on one branch had the identical shape — a save whose refusal a
+    // caller silently dropped, then reported success over — and the last two were introduced
+    // while fixing the previous ones, so a convention demonstrably did not hold. A deliberate
+    // discard must be written `(void)call();` with a comment saying why the failure is
+    // tolerable (in practice: the data is rediscovered or rewritten on the next launch, and
+    // the helper has already warned and set lastError).
+    //
+    // Returns false if it refused (the local file failed to load, so the in-memory map is empty
+    // by failure) or the write failed. Callers that report success must honour it.
+    // Atomic JSON write with a reported verdict. All the save* helpers route through this;
+    // see the comment on the definition for why the old QFile+if(open) shape was a bug factory.
+    [[nodiscard]] bool writeJsonFile(const QString& path, const QJsonDocument& doc, const QString& what);
+
+    [[nodiscard]] bool saveTranslations();
     void loadLanguageMetadata();
-    void saveLanguageMetadata();
+    [[nodiscard]] bool saveLanguageMetadata();
+    // Runs the once-per-launch community-translation merge as soon as the network is up.
+    // Replaces a fixed 3s delay; see the definition for why that delay was wrong in both
+    // directions.
+    void scheduleLanguageUpdateCheck();
+
     void loadStringRegistry();
-    void saveStringRegistry();
+    [[nodiscard]] bool saveStringRegistry();
+
+    // Record the CURRENT English for a key, and deal with the case where it changed.
+    //
+    // Every registry write used to be guarded by `if (!m_stringRegistry.contains(key))`, so a
+    // key's English was captured once and never revisited — including by a full rescan. The
+    // registry therefore drifted into holding text the app no longer displays, and since it is
+    // what the AI translator is prompted with and what the community upload publishes, the
+    // drift propagated outward. `settings.ai.remoteMcp.setupGuidance` is the worked example:
+    // rewritten in QML to drop its arrows, still stored here with them.
+    //
+    // Returns true when the registry changed, so callers can decide whether to save.
+    bool noteSourceString(const QString& key, const QString& fallback);
     void propagateTranslationsToAllKeys();
     void recalculateUntranslatedCount();
     QString translationsDir() const;
@@ -233,15 +299,21 @@ private:
 
     // AI translation helpers
     void sendNextAutoTranslateBatch();
-    void parseAutoTranslateResponse(const QByteArray& data);
+    // Returns false when the provider answered but the reply was unusable — empty content, or
+    // not the JSON object that was asked for. That is a FAILED batch, not zero translations,
+    // and the difference matters: inside the bulk run a "success" triggers the upload.
+    [[nodiscard]] bool parseAutoTranslateResponse(const QByteArray& data);
+
+    // Placeholders a string carries, e.g. {1, 2} for "%1 of %2". A translation must carry the
+    // same set: reordering is fine and expected, losing or inventing one is not.
+    static QSet<int> placeholderSet(const QString& text);
     QString buildTranslationPrompt(const QVariantList& strings) const;
     void loadAiTranslations();
-    void saveAiTranslations();
+    [[nodiscard]] bool saveAiTranslations();
 
     // Language update helpers
     void loadUserOverrides();
-    void saveUserOverrides();
-    void mergeLanguageUpdate(const QJsonObject& newTranslations);
+    [[nodiscard]] bool saveUserOverrides();
 
     Settings* m_settings;
     QNetworkAccessManager* m_networkManager;
@@ -261,12 +333,25 @@ private:
     QString m_retryStatus;
     QByteArray m_pendingUploadData;
 
+    // The language m_pendingUploadData was built for. These two must travel together: the 429
+    // retry used to re-derive the language from m_currentLanguage at fire time, so switching
+    // language during the wait published one language's strings under another's name.
+    QString m_uploadingLangCode;
+
     // translations[key] = translated_text
     QMap<QString, QString> m_translations;
+
+    // True when the local language file EXISTS but could not be read or parsed, so
+    // m_translations is empty by failure rather than by fact. mergeLanguageUpdate() refuses
+    // when this is set: merging into a wrongly-empty map and saving is a whole-file replace.
+    bool m_translationsLoadFailed = false;
 
     // Registry of all known string keys and their English fallbacks
     // registry[key] = english_fallback
     QMap<QString, QString> m_stringRegistry;
+
+    // Guards the launch-time language update so it runs once even if reachability flaps.
+    bool m_launchUpdateCheckDone = false;
 
     // Language metadata: {langCode: {displayName, nativeName, isRtl}}
     QMap<QString, QVariantMap> m_languageMetadata;
@@ -287,6 +372,21 @@ private:
     bool m_autoTranslating = false;
     bool m_autoTranslateCancelled = false;
     int m_autoTranslateProgress = 0;
+
+    // Batches the provider answered with something unusable. Reset per run; any non-zero value
+    // turns the run's result from success into a named failure, which also stops the bulk path
+    // from uploading an untranslated file.
+    int m_autoTranslateParseFailures = 0;
+
+    // Translations discarded this run because they did not preserve their placeholders.
+    int m_autoTranslateRejected = 0;
+
+    // True when a run failed for a reason that would recur for EVERY remaining language — the
+    // provider erroring, a user cancel, or a failed save. A batch stops on this. It exists
+    // because routing parse failures into autoTranslateFinished(false) made the bulk run treat
+    // one model reply of prose as grounds to abandon the other eleven languages, which the
+    // terminal branch was never meant to cover.
+    bool m_autoTranslateFatal = false;
     int m_autoTranslateTotal = 0;
     int m_pendingBatchCount = 0;  // Track parallel batch requests
     int m_translationRunId = 0;   // Increments each translation run to identify stale responses
@@ -308,17 +408,65 @@ private:
     QStringList m_batchLanguageQueue;
     QStringList m_batchProviderQueue;
     QString m_originalProvider;
+    QString m_originalLanguage;   // restored when a batch finishes; see translateAndUploadAllLanguages
+
+    // Languages whose upload failed during a batch, as "code: reason".
+    //
+    // The batch reported success unconditionally: the upload handler read its `success` flag
+    // only to choose a word for a qDebug line, then advanced regardless. A run that hit the
+    // hourly rate limit on languages 11 and 12 of 12 still finished "Batch processing complete"
+    // with two languages never sent. That is the same shape as the provider substitution this
+    // change set out to kill — a run reporting success for work it did not do — and it was
+    // thirty lines away in the same function.
+    QStringList m_batchFailedUploads;
     QString m_batchCurrentProvider;  // Bypasses QSettings cache during batch ops
     bool m_batchProcessing = false;
 
     // Retry state (for 429 rate limiting)
     int m_uploadRetryCount = 0;
     int m_downloadRetryCount = 0;
-    static constexpr int MAX_RETRIES = 100;
+    // Retries exist for a burst that clears in seconds, not for an exhausted quota.
+    //
+    // This was 100 retries at 10s — about 17 minutes of hammering a server we do not own,
+    // against a limit whose window is a FULL HOUR (the backend allows 10 translation
+    // upload-url requests per IP per hour). It could not succeed by construction: the window
+    // cannot reset inside the retry span, so every one of those 100 requests was guaranteed to
+    // fail. Worse, 429 was the ONLY status it retried — the one case where retrying is futile.
+    //
+    // Three quick attempts covers a genuine burst; past that the honest answer is that the
+    // quota is spent and the user should come back later, which retryStatus now says.
+    static constexpr int MAX_RETRIES = 3;
     static constexpr int RETRY_DELAY_MS = 10000;  // 10 seconds
 
-    // Helper to get all configured AI providers
+    // The backend's window for translation endpoints, used only to tell the user roughly how
+    // long to wait. Mirrors RATE_LIMIT_WINDOW_SECONDS in the shotmap backend.
+    static constexpr int RATE_LIMIT_WINDOW_MINUTES = 60;
+
+    // Which model to translate with: the user's configured model if set, else the catalog
+    // fallback for their provider.
+    QString translationModelFor(const QString& provider, const QString& fallback) const;
+
+    // Human-readable name of the selected provider, for error messages that must say which
+    // provider failed rather than just "translation failed".
+    QString selectedProviderLabel() const;
+
+    // The SELECTED provider, and nothing else — despite the plural name, this returns at most
+    // one entry. It used to return every provider holding a key, which is how a user with
+    // OpenAI selected got billed on Anthropic. The list shape is kept because callers iterate.
     QStringList getConfiguredProviders() const;
+
+    // Merge a download into the on-disk file of a language that is NOT currently loaded.
+    // Returns false if it refused or failed, having already warned and emitted
+    // languageDownloaded(..., false, reason).
+    //
+    // Note this is the RARE branch: both UI buttons set currentLanguage to the language they
+    // are about to download, so the in-memory path (mergeLanguageUpdate) is what normally runs.
+    // Reachable when the user switches language while a download is in flight.
+    // Body of the language-download reply slot. Separate so a test can drive the whole
+    // apply step — merge, metadata, signals — rather than just the merge helper.
+    void applyFetchedLanguage(const QString& langCode, const QJsonObject& root);
+
+    [[nodiscard]] bool mergeDownloadedLanguageFile(const QString& langCode, const QJsonObject& root);
 
     // Helper to get provider for AI requests (uses batch override if active)
     QString getActiveProvider() const;
@@ -329,4 +477,13 @@ private:
     //   GET /v1/translations/upload-url?lang=  - returns pre-signed S3 URL for uploads
     //   GET /v1/translations/languages         - returns list of available languages
     //   GET /v1/translations/languages/{code}  - returns translation file for a language
+
+#ifdef DECENZA_TESTING
+    // getConfiguredProviders() is the one function in this class with money attached: it decides
+    // whose API key gets spent. Reachable from a test for that reason — the rule that it returns
+    // ONLY the selected provider is otherwise enforced by nothing, and re-adding a single
+    // `if (!openaiApiKey().isEmpty())` would leave the whole suite green while billing a user
+    // on an account they did not choose. That is exactly how the retired-model bug survived.
+    friend class TestTranslationSourceDrift;
+#endif
 };

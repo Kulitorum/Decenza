@@ -295,7 +295,7 @@ KeyboardAwareContainer {
 
                     Tr {
                         key: "settings.data.backuptime"
-                        fallback: "Backup Time:"
+                        fallback: "Backup time"
                         color: Theme.textColor
                         font.pixelSize: Theme.scaled(12)
                     }
@@ -439,7 +439,7 @@ KeyboardAwareContainer {
                 // Restore from backup section
                 Tr {
                     key: "settings.data.restorefrombackup"
-                    fallback: "Restore from Backup:"
+                    fallback: "Restore backup"
                     color: Theme.textColor
                     font.pixelSize: Theme.scaled(12)
                 }
@@ -682,7 +682,7 @@ KeyboardAwareContainer {
 
                     Tr {
                         key: "settings.data.shots"
-                        fallback: "Shots:"
+                        fallback: "Shots"
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(11)
                     }
@@ -694,7 +694,7 @@ KeyboardAwareContainer {
 
                     Tr {
                         key: "settings.data.profiles"
-                        fallback: "Profiles:"
+                        fallback: "Profiles"
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(11)
                     }
@@ -1043,7 +1043,7 @@ KeyboardAwareContainer {
 
                 Tr {
                     key: "settings.data.settings"
-                    fallback: "Settings:"
+                    fallback: "Settings"
                     color: Theme.textSecondaryColor
                     font.pixelSize: Theme.scaled(13)
                     visible: importCompletePopup.settingsCount > 0
@@ -1057,7 +1057,7 @@ KeyboardAwareContainer {
 
                 Tr {
                     key: "settings.data.profiles"
-                    fallback: "Profiles:"
+                    fallback: "Profiles"
                     color: Theme.textSecondaryColor
                     font.pixelSize: Theme.scaled(13)
                 }
@@ -1069,7 +1069,7 @@ KeyboardAwareContainer {
 
                 Tr {
                     key: "settings.data.shots"
-                    fallback: "Shots:"
+                    fallback: "Shots"
                     color: Theme.textSecondaryColor
                     font.pixelSize: Theme.scaled(13)
                 }
@@ -1081,7 +1081,7 @@ KeyboardAwareContainer {
 
                 Tr {
                     key: "settings.data.media"
-                    fallback: "Media:"
+                    fallback: "Media"
                     color: Theme.textSecondaryColor
                     font.pixelSize: Theme.scaled(13)
                     visible: importCompletePopup.mediaCount > 0
@@ -1095,7 +1095,7 @@ KeyboardAwareContainer {
 
                 Tr {
                     key: "settings.data.aiconversations"
-                    fallback: "AI Conversations:"
+                    fallback: "AI Conversations"
                     color: Theme.textSecondaryColor
                     font.pixelSize: Theme.scaled(13)
                     visible: importCompletePopup.aiConversationsCount > 0
@@ -1343,7 +1343,7 @@ KeyboardAwareContainer {
                         Layout.fillWidth: true
                         text: TranslationManager.translate("settings.data.settingsai", "Settings")
                         primary: restoreConfirmDialog.restoreSettings
-                        accessibleName: TranslationManager.translate("settings.data.settingsai", "Settings & AI Conversations") + ", " +
+                        accessibleName: TranslationManager.translate("settings.data.settingsai.accessible", "Settings & AI Conversations") + ", " +
                             (restoreConfirmDialog.restoreSettings
                                 ? TranslationManager.translate("accessibility.selected", "selected")
                                 : TranslationManager.translate("accessibility.notselected", "not selected"))

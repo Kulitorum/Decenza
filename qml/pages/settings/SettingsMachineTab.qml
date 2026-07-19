@@ -1112,7 +1112,7 @@ KeyboardAwareContainer {
 
                             StyledSwitch {
                                 checked: Settings.app.waterLevelDisplayUnit === "ml"
-                                accessibleName: TranslationManager.translate("settings.options.showInMl", "Show in milliliters")
+                                accessibleName: TranslationManager.translate("settings.options.showInMl", "Show in milliliters (ml)")
                                 onToggled: {
                                     Settings.app.waterLevelDisplayUnit = checked ? "ml" : "percent"
                                 }

@@ -96,13 +96,53 @@ JavaScript `||` treats `0` as falsy, so `value || 0.6` returns `0.6` when `value
 
 `native` is a reserved JavaScript keyword — use `nativeName` instead.
 
-## No Unicode symbols as icons (but emoji are fine)
+## Unicode symbols in text — covered by a bundled fallback font
 
-Never use non-emoji Unicode symbols as icons in text (`"✎"`, `"✗"`, `"☰"`, `"▶"`). They render as font glyphs, are absent from Decenza Sans's cmap, and fall back to a platform font whose metrics vary per machine — that is the class of bug behind #1537. Use SVG icons from `qrc:/icons/` with `Image`; for buttons/menu items use a `Row { Image {} Text {} }` contentItem.
+Decenza Sans carries 927 glyphs: Latin, Greek, Cyrillic, and no symbols at all. Arrows and
+geometric shapes written in QML used to be resolved by whatever the host offered, which is why the
+same screen could measure differently on two machines. The app now bundles **Noto Sans Math**
+(SIL OFL, `resources/fonts/NotoSansMath-Regular.ttf`) purely as a symbol fallback:
 
-Safe literals (present in the bundled font): `°`, `·`, `—`, `×`, `•`, `…`.
+- Chained after the UI family in `Theme.fontFamilies`, used by all eight font roles, and set on the
+  application font in `main.cpp` so elements that specify only `font.pixelSize` inherit it too.
+- Qt consults a later family ONLY for codepoints the earlier one lacks, so letterforms are
+  unchanged — Decenza Sans still draws all the text.
+- It is a text font, so symbols stay monochrome and take the element's colour. That is the property
+  emoji lack, and the reason symbols here are not emoji.
 
-**`→` is NOT safe** — an earlier version of this section listed it as safe, which was wrong. Arrows (`→ ← ↔ ↗ ⇒`) are absent from the bundled font.
+So `→ ← ↗ ↕ ▶ ◀ ⧉` are fine to use. Before introducing a symbol the app does not already use, run
+`python3 scripts/check_font_glyph_coverage.py`: it reads both cmaps and reports anything still
+falling through to the host. Add another OFL face if needed rather than reaching for an emoji.
+
+Use the script rather than grepping for symbols you happen to think of. Hand-grepping for `→` found
+one glyph type; the scan found several more, including `↗`, `⧉`, and the `▶`/`◀` that
+are the entire visible content of FlowCalibrationPage's prev/next buttons. It also correctly leaves
+`AddLanguagePage`'s native language names alone — those are *supposed* to use a platform fallback.
+
+**Two things that are still wrong:**
+
+- **A bare U+FE0F on a symbol** (`▶️` instead of `▶`) explicitly requests colour-emoji presentation.
+  In a plain `Text` — which is what `AccessibleButton.text` and most labels are — that is the macOS
+  render-thread crash below. The variation selector makes a working symbol worse.
+- **A glyph is not an icon.** For toolbar and navigation affordances use an SVG from `qrc:/icons/`
+  with `Image` (buttons: a `Row { Image {} Text {} }` contentItem). Those follow `Theme.iconColor`
+  and scale as artwork; a symbol is text that happens to look like a picture.
+
+**On #1537.** This section previously banned symbols outright and cited #1537 as the bug class. The
+citation does not support the ban: #1537 dropped the "fi" ligature from "Profile", a word entirely
+inside the bundled font, so whatever caused it, it was not a missing glyph and says nothing about
+fallbacks. Nothing in this app has been traced to a missing glyph. Recorded so the ban is not
+reinstated from memory.
+
+Do not go further than that and state what #1537 *was*. `src/main.cpp` carries two candidate
+explanations — a bundled-font family-name collision with a host copy of Roboto making family
+lookup ambiguous, and distance-field re-caching during resize — and says in as many words that they
+are not reconciled.
+
+Two earlier drafts of this very paragraph got that wrong in two different ways: the first asserted
+the distance-field theory as settled fact, and the second described the other hypothesis as a
+"race", which is a mechanism main.cpp never mentions. Both are the same move that produced the
+wrong citation this paragraph exists to correct. Read main.cpp before restating it.
 
 **Emoji are a different case and are encouraged.** `☕`/`⚠️`/`🔒` never reach the text renderer: the app ships the complete Twemoji set and rewrites every emoji to a bundled `<img>`, so metrics are identical everywhere. Render them through `Theme.emojiToImage()` or `Theme.replaceEmojiWithImg()` — putting one in a plain `Text` lets a colour glyph reach the platform renderer and **crashes the render thread on macOS**. See "Using emoji well" in CLAUDE.md.
 

@@ -1,0 +1,79 @@
+name: Text invariants
+
+# Three invariants about how text reaches the screen. Each one was violated in the tree at the
+# time its checker was written, each violation was found by a person reading code rather than by
+# anything automatic, and none of them is expressible as a unit test — they are properties of the
+# whole QML corpus, not of any one function.
+#
+# They are checked here because guidance alone did not hold. Only check_font_glyph_coverage.py
+# was documented in CLAUDE.md, as a "run this before you add a symbol" step; the other two were
+# described only in the change that created them. All three were wired to nothing, which is the
+# same as not having them: the invariant that justifies a load-bearing decision elsewhere in the
+# code was enforced by whether someone remembered.
+#
+# What each one protects:
+#
+#   check_translation_key_conflicts.py — one English string per translation key. This is not
+#     cosmetic. TranslationManager::noteSourceString persists the registry INLINE, on the render
+#     path, and its justification for doing so is that a key's English changes rarely. If a key
+#     regains two spellings, the two call sites alternate on every render and each flip triggers
+#     a full registry write plus a warning. The symptom is a stutter, not a failure, so nothing
+#     else would catch it.
+#
+#   check_translated_richtext.py — no translated string reaches a StyledText/RichText renderer
+#     unescaped. Community translations are fetched from the backend and uploading one is
+#     unauthenticated, so these strings are attacker-influenceable; StyledText renders <img>,
+#     which means an unescaped one fetches a remote URL for every user of that language.
+#
+#   check_font_glyph_coverage.py — every non-emoji symbol in the QML has a glyph in a bundled
+#     font. A symbol that falls through to a host font is why the same screen used to measure
+#     differently on two machines. Advisory: it reports, and does not fail the job, because the
+#     honest answer for a genuinely uncovered glyph is sometimes "bundle another face", which is
+#     a decision rather than a fix. Note the script itself exits non-zero for anything uncovered
+#     outside AddLanguagePage (which it already exempts) — it is the `|| true` on the step that
+#     makes this advisory, not the script.
+#
+# Runs on PRs that touch the surfaces involved. Fast (seconds, no build, no network).
+
+on:
+  pull_request:
+    paths:
+      - 'qml/**'
+      - 'scripts/check_*.py'
+      - 'resources/fonts/**'
+      - '.github/workflows/text-invariants.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'qml/**'
+      - 'scripts/check_*.py'
+      - 'resources/fonts/**'
+      - '.github/workflows/text-invariants.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  text-invariants:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Blocking: a conflict here silently degrades the running app.
+      - name: One English string per translation key
+        run: python3 scripts/check_translation_key_conflicts.py
+
+      # Blocking: this one is a security property, not a style preference.
+      - name: No unescaped translated text in rich-text renderers
+        run: python3 scripts/check_translated_richtext.py
+
+      # Advisory by the `|| true`, not by the script: it exits non-zero for any uncovered glyph
+      # outside AddLanguagePage, which it already exempts. Non-blocking because bundling another
+      # OFL face is a judgement call rather than a mechanical fix.
+      - name: Symbol glyph coverage (advisory)
+        run: python3 scripts/check_font_glyph_coverage.py || true

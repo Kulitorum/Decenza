@@ -42,10 +42,20 @@ Item {
             color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
 
-            ColumnLayout {
+            // Scrollable: this column is taller than the card whenever the window is short, and
+            // without this everything below the fold is simply unreachable — there is no other
+            // route to it. The "Submit to Community" button sits at the very bottom and was
+            // invisible on a 2560x1080 display with the window part-height.
+            ScrollView {
+                id: languageColumnScroll
                 anchors.fill: parent
                 anchors.margins: Theme.scaled(15)
-                spacing: Theme.scaled(12)
+                clip: true
+                contentWidth: availableWidth   // vertical only; never scroll sideways
+
+                ColumnLayout {
+                    width: languageColumnScroll.availableWidth
+                    spacing: Theme.scaled(12)
 
                 Tr {
                     key: "language.languages"
@@ -174,7 +184,9 @@ Item {
                     AccessibleButton {
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.scaled(40)
-                        text: TranslationManager.downloading ? "..." : "Update"
+                        text: TranslationManager.downloading
+                            ? "..."
+                            : TranslationManager.translate("language.button.update", "Update")
                         accessibleName: TranslationManager.downloading ? TranslationManager.translate("language.accessible.downloading", "Downloading") : TranslationManager.translate("language.accessible.update", "Update community translations")
                         accessibleDescription: TranslationManager.translate("language.accessible.update.description", "Download latest translations from the community")
                         primary: true
@@ -221,7 +233,17 @@ Item {
                             Layout.fillWidth: true
 
                             Text {
-                                text: TranslationManager.getLanguageDisplayName(TranslationManager.currentLanguage)
+                                // The language's NATIVE name — this card sits inside that
+                                // language's own UI, so "العربية" belongs here and "Arabic" does
+                                // not. The list above still shows "English (Native)" for
+                                // languages you are choosing between; this is the one you are in.
+                                text: {
+                                    var code = TranslationManager.currentLanguage
+                                    var nativeName = TranslationManager.getLanguageNativeName(code)
+                                    return nativeName.length > 0
+                                           ? nativeName
+                                           : TranslationManager.getLanguageDisplayName(code)
+                                }
                                 font.family: Theme.bodyFont.family
                                 font.pixelSize: Theme.scaled(13)
                                 font.bold: true
@@ -252,7 +274,10 @@ Item {
                                 var total = TranslationManager.totalStringCount
                                 var translated = total - TranslationManager.untranslatedCount
                                 var percent = Math.round((translated / Math.max(1, total)) * 100)
-                                return "Translation progress: " + percent + " percent, " + translated + " of " + total + " strings"
+                                return TranslationManager.translate(
+                                    "language.accessible.progress",
+                                    "Translation progress: %1 percent, %2 of %3 strings")
+                                    .arg(percent).arg(translated).arg(total)
                             }
 
                             background: Rectangle {
@@ -280,8 +305,12 @@ Item {
                                 // directly beneath the "2974 / 2977" that disproved it, while the
                                 // language list showed 99% because getTranslationPercent() uses
                                 // integer division. Same number, two roundings, one of them lying.
-                                if (translated >= total && total > 0) return "Translation complete!"
-                                return TranslationManager.untranslatedCount + " strings need translation"
+                                if (translated >= total && total > 0)
+                                    return TranslationManager.translate(
+                                        "language.progress.complete", "Translation complete!")
+                                return TranslationManager.translate(
+                                    "language.progress.needed", "%1 strings need translation")
+                                    .arg(TranslationManager.untranslatedCount)
                             }
                             font: Theme.labelFont
                             color: Theme.textSecondaryColor
@@ -329,7 +358,9 @@ Item {
                     Layout.fillWidth: true
                     Layout.preferredHeight: Theme.scaled(40)
                     activeFocusOnTab: false
-                    text: TranslationManager.uploading ? "Uploading..." : "Submit to Community"
+                    text: TranslationManager.uploading
+                        ? TranslationManager.translate("language.button.uploading", "Uploading...")
+                        : TranslationManager.translate("language.button.submit", "Submit to Community")
                     accessibleName: TranslationManager.uploading ? TranslationManager.translate("language.accessible.uploading", "Uploading translation") : TranslationManager.translate("language.accessible.submit", "Submit to community")
                     accessibleDescription: TranslationManager.translate("language.accessible.submit.description", "Share your translations with the community")
                     primary: true
@@ -338,7 +369,7 @@ Item {
                     onClicked: TranslationManager.submitTranslation()
                 }
 
-                Item { Layout.fillHeight: true }
+                }
             }
         }
 
@@ -350,10 +381,18 @@ Item {
             color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
 
-            ColumnLayout {
-                id: accessibilityColumn
+            // Same treatment as the left column: this list grows with the accessibility
+            // options and would clip the last few on a short window.
+            ScrollView {
+                id: accessibilityColumnScroll
                 anchors.fill: parent
                 anchors.margins: Theme.scaled(12)
+                clip: true
+                contentWidth: availableWidth
+
+            ColumnLayout {
+                id: accessibilityColumn
+                width: accessibilityColumnScroll.availableWidth
                 spacing: Theme.scaled(6)
 
                     Tr {
@@ -592,7 +631,7 @@ Item {
                             id: modeComboBox
                             Layout.preferredWidth: Theme.scaled(160)
                             Layout.maximumWidth: Theme.scaled(180)
-                            accessibleLabel: TranslationManager.translate("settings.accessibility.announcementMode", "Announcement mode")
+                            accessibleLabel: TranslationManager.translate("settings.accessibility.announcementMode.accessible", "Announcement mode")
                             enabled: AccessibilityManager.enabled && AccessibilityManager.extractionAnnouncementsEnabled
                             model: [
                                 TranslationManager.translate("settings.accessibility.modeBoth", "Time + Milestones"),
@@ -634,7 +673,7 @@ Item {
                             to: 30
                             stepSize: 5
                             suffix: "s"
-                            accessibleName: TranslationManager.translate("settings.accessibility.updateInterval", "Update Interval")
+                            accessibleName: TranslationManager.translate("settings.accessibility.updateInterval.accessible", "Update Interval")
                             enabled: AccessibilityManager.enabled && AccessibilityManager.extractionAnnouncementsEnabled
                             onValueModified: function(newValue) {
                                 AccessibilityManager.extractionAnnouncementInterval = newValue
@@ -642,6 +681,7 @@ Item {
                         }
                     }
                 }
+            }
             }
         }
 
@@ -1079,4 +1119,9 @@ Item {
             }
         }
     }
+
+    // Refusals from TranslationManager reach the user here instead of only the log. Without this
+    // a guarded save looks exactly like a broken button — which is how it was found: an edit was
+    // correctly refused, nothing said so, and the tester had to ask whether the feature worked.
+    TranslationErrorToast {}
 }

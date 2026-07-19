@@ -121,7 +121,7 @@ Item {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     spacing: Theme.scaled(4)
-                    MiniGHCButton { translationKey: "idle.button.hotwater"; translationFallback: "Water"; iconSource: "qrc:/icons/water.svg"; buttonColor: Theme.primaryColor; onTapped: DE1Device.startHotWater() }
+                    MiniGHCButton { translationKey: "idle.button.hotwater.short"; translationFallback: "Water"; iconSource: "qrc:/icons/water.svg"; buttonColor: Theme.primaryColor; onTapped: DE1Device.startHotWater() }
                     MiniGHCButton { translationKey: "idle.button.flush";    translationFallback: "Flush"; iconSource: "qrc:/icons/flush.svg"; buttonColor: Theme.primaryColor; onTapped: DE1Device.startFlush() }
                 }
 

@@ -24,6 +24,11 @@ import "../components"
 // ProfileManager) — the single source shared with the ranking helpers.
 Page {
     id: wizardPage
+    // Declarative so it re-evaluates on a language change. This used to be an
+    // imperative assignment in onCompleted/onActivated, which ran once and left
+    // page titles in the previous language until you navigated away and back.
+    readonly property string pageTitle: mode === "edit" ? TranslationManager.translate("recipes.wizard.editTitle", "Edit Recipe") : TranslationManager.translate("recipes.wizard.createTitle", "New Recipe")
+
     objectName: "recipeWizardPage"
     background: ThemedPageBackground {}
 
@@ -327,14 +332,8 @@ Page {
         _autoName = suggestion
     }
 
-    StackView.onActivated: root.currentPageTitle = mode === "edit"
-        ? TranslationManager.translate("recipes.wizard.editTitle", "Edit Recipe")
-        : TranslationManager.translate("recipes.wizard.createTitle", "New Recipe")
 
     Component.onCompleted: {
-        root.currentPageTitle = mode === "edit"
-            ? TranslationManager.translate("recipes.wizard.editTitle", "Edit Recipe")
-            : TranslationManager.translate("recipes.wizard.createTitle", "New Recipe")
         if (mode === "edit" && editRecipeId > 0) {
             currentStep = "summary"
             _enteredAtSummary = true

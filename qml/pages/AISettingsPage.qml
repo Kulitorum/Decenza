@@ -6,11 +6,14 @@ import "../components"
 
 Page {
     id: aiSettingsPage
+    // Declarative so it re-evaluates on a language change. This used to be an
+    // imperative assignment in onCompleted/onActivated, which ran once and left
+    // page titles in the previous language until you navigated away and back.
+    readonly property string pageTitle: TranslationManager.translate("aisettings.title", "AI Dialing Assistant")
+
     objectName: "aiSettingsPage"
     background: ThemedPageBackground {}
 
-    Component.onCompleted: root.currentPageTitle = TranslationManager.translate("aisettings.title", "AI Dialing Assistant")
-    StackView.onActivated: root.currentPageTitle = TranslationManager.translate("aisettings.title", "AI Dialing Assistant")
 
     property string testResultMessage: ""
     property bool testResultSuccess: false

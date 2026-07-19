@@ -47,7 +47,7 @@ Item {
 
                     Tr {
                         key: "settings.debug.windowResolution"
-                        fallback: "Window Resolution"
+                        fallback: "Window resolution"
                         color: Theme.textColor
                         font.pixelSize: Theme.scaled(16)
                         font.bold: true

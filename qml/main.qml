@@ -671,8 +671,23 @@ ApplicationWindow {
         goToScreensaver()
     }
 
-    // Current page title - set by each page
-    property string currentPageTitle: ""
+    // Current page title — BOUND to the current page's own `pageTitle` property.
+    //
+    // Pages used to PUSH this value with `root.currentPageTitle = translate(...)` in
+    // Component.onCompleted and StackView.onActivated. That is an imperative assignment, not a
+    // binding, so it ran once and never re-evaluated: after a language change every page title
+    // stayed in the old language until you navigated away and back. It was the visible remnant
+    // of the staleness bug after `translate` became a notifying property, because there was no
+    // binding for that mechanism to re-run.
+    //
+    // Pulling instead of pushing makes it a real binding: it re-evaluates when the page changes
+    // AND when the page's own pageTitle does — which is itself a binding over translate().
+    //
+    // Any page without a `pageTitle` property yields "" rather than an error.
+    readonly property string currentPageTitle: {
+        var it = pageStack.currentItem
+        return (it && it.pageTitle !== undefined) ? it.pageTitle : ""
+    }
 
     // Flag to prevent premature UI display
     property bool appInitialized: false

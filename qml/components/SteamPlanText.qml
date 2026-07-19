@@ -98,10 +98,12 @@ Item {
     // Plain: for the accessibility label + `visible: text !== ""`.
     readonly property string text: _build(function(v, live) { return _argSafe(v) }, "  ·  ")
     // Rich: same content, live values bolded, all HTML-escaped; styled bold safe-dot · separator.
-    readonly property string _rich: _build(function(v, live) {
+    // Same treatment as ShotPlanText: escaping makes user text safe as markup but leaves emoji
+    // as raw codepoints for the text renderer. Pitcher names are user-supplied.
+    readonly property string _rich: Theme.replaceEmojiWithImg(_build(function(v, live) {
         var e = Theme.escapeHtml(_argSafe(v))
         return live ? ("<b>" + e + "</b>") : e
-    }, Theme.bulletSep)
+    }, Theme.bulletSep), Theme.bodyFont.pixelSize, true)
 
     implicitWidth: row.implicitWidth
     implicitHeight: row.implicitHeight

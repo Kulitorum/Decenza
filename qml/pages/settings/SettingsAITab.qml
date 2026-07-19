@@ -1818,7 +1818,7 @@ KeyboardAwareContainer {
 
                     AccessibleButton {
                         text: TranslationManager.translate("common.close", "Close")
-                        accessibleName: TranslationManager.translate("common.accessibility.dismissDialog", "Close dialog")
+                        accessibleName: TranslationManager.translate("common.accessibility.dismissDialog", "Dismiss dialog")
                         onClicked: mcpHelpDialog.close()
                     }
                 }

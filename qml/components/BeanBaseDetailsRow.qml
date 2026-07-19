@@ -59,9 +59,20 @@ Item {
 
             Text {
                 Layout.fillWidth: true
+                // Both branches must be HTML-safe: this is StyledText, so whatever lands here
+                // is parsed as markup. summaryLineRich is escaped by joinWithBullet; the
+                // translated fallback is escaped here.
+                //
+                // Not theoretical for a translated string. Community translations are fetched
+                // from the backend and merged automatically, and uploading one is
+                // unauthenticated — so this value is attacker-influenceable, unlike the bean
+                // data above it. StyledText renders <img>, which the emoji pipeline relies on
+                // (Theme.replaceEmojiWithImg), so an unescaped remote img here would be fetched
+                // by every user of that language on opening this row. Escaping is the cheap end
+                // of that; the backend side was reviewed separately and accepted as-is.
                 text: root.summaryLine.length > 0
                     ? root.summaryLineRich
-                    : TranslationManager.translate("beanbase.row.linked", "Linked to Bean Base")
+                    : Theme.escapeHtml(TranslationManager.translate("beanbase.row.linked", "Linked to Bean Base"))
                 textFormat: Text.StyledText
                 color: Theme.textColor
                 font.pixelSize: Theme.scaled(12)

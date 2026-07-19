@@ -43,6 +43,13 @@ class SettingsTheme : public QObject {
     // font role explicitly instead of relying on application-font inheritance (#1537).
     Q_PROPERTY(QString bundledFontFamily READ bundledFontFamily CONSTANT)
 
+    // Symbol fallback family, chained after bundledFontFamily in Theme's font roles so
+    // arrows and geometric shapes come from the bundle rather than a per-machine host
+    // font. Empty when registration failed, which Theme must treat as "omit it" — a
+    // stray empty string in a families list resolves to the application default and
+    // would silently reinstate the platform fallback this exists to remove.
+    Q_PROPERTY(QString symbolFontFamily READ symbolFontFamily CONSTANT)
+
     // Theme mode (light/dark/system)
     Q_PROPERTY(QString themeMode READ themeMode WRITE setThemeMode NOTIFY themeModeChanged)
     Q_PROPERTY(bool isDarkMode READ isDarkMode NOTIFY isDarkModeChanged)
@@ -145,6 +152,8 @@ public:
     // exists. Static because SettingsTheme is not constructed yet at that point.
     static void setBundledFontFamily(const QString& family);
     static QString bundledFontFamily();
+    static void setSymbolFontFamily(const QString& family);
+    static QString symbolFontFamily();
 
     QVariantMap customFontSizes() const;
     QVariantMap effectiveFontSizes() const;

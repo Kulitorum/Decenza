@@ -7,11 +7,14 @@ import "../components"
 
 Page {
     id: profileSelectorPage
+    // Declarative so it re-evaluates on a language change. This used to be an
+    // imperative assignment in onCompleted/onActivated, which ran once and left
+    // page titles in the previous language until you navigated away and back.
+    readonly property string pageTitle: TranslationManager.translate("profileselector.title", "Profiles")
+
     objectName: "profileSelectorPage"
     background: ThemedPageBackground {}
 
-    Component.onCompleted: root.currentPageTitle = TranslationManager.translate("profileselector.title", "Profiles")
-    StackView.onActivated: root.currentPageTitle = TranslationManager.translate("profileselector.title", "Profiles")
 
     RowLayout {
         anchors.fill: parent

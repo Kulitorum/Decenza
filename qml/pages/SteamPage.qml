@@ -21,7 +21,6 @@ Page {
     // mid-session doesn't clobber the user's in-progress settings or re-issue
     // a redundant BLE write.
     StackView.onActivated: {
-        root.currentPageTitle = pageTitle
         if (!isSteaming) {
             var preset = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
             if (preset && preset.disabled) {
@@ -1055,7 +1054,7 @@ Page {
                 AccessibleTapHandler {
                     id: stopTapHandler
                     anchors.fill: parent
-                    accessibleName: steamSoftStopped ? TranslationManager.translate("steam.accessible.purge", "Purge steam wand") : TranslationManager.translate("steam.accessible.stop", "Stop steaming")
+                    accessibleName: steamSoftStopped ? TranslationManager.translate("steam.accessible.purge", "Purge the steam wand") : TranslationManager.translate("steam.accessible.stop", "Stop steaming")
                     accessibleItem: steamStopButton
                     onAccessibleClicked: {
                         if (!Settings.hardware.steamTwoTapStop) {
@@ -1600,7 +1599,7 @@ Page {
                             // Stored in Celsius; shown and entered in the user's unit.
                             value: Theme.cToDisplay(Settings.brew.steamTemperature)
                             valueColor: Theme.temperatureColor
-                            accessibleName: TranslationManager.translate("steam.label.temperature", "Steam Temperature")
+                            accessibleName: TranslationManager.translate("steam.label.temperature.accessible", "Steam Temperature")
                             KeyNavigation.tab: pitcherWeightInput
                             KeyNavigation.backtab: flowSlider
                             onValueModified: function(newValue) {
@@ -1688,7 +1687,7 @@ Page {
                                 return preset ? (preset.pitcherWeightG ?? 0) : 0
                             }
                             valueColor: Theme.weightColor
-                            accessibleName: TranslationManager.translate("steam.label.pitcherWeight", "Milk pitcher weight")
+                            accessibleName: TranslationManager.translate("steam.label.pitcherWeight.accessible", "Milk pitcher weight")
                             // tareBtn lives in the scale-gated sub-row; skip straight to
                             // the steam-rate field when no scale is connected so Tab
                             // never lands on a hidden element.
@@ -1883,7 +1882,7 @@ Page {
                                 suffix: TranslationManager.translate("steam.rate.suffix", " s/g")
                                 value: Settings.brew.steamSecondsPerGram
                                 valueColor: Theme.primaryColor
-                                accessibleName: TranslationManager.translate("steam.rate.title", "Steam rate seconds per gram")
+                                accessibleName: TranslationManager.translate("steam.rate.title.accessible", "Steam rate seconds per gram")
                                 KeyNavigation.tab: pitcherRepeater.count > 0 ? pitcherRepeater.itemAt(0).focusTarget : addPitcherButton
                                 KeyNavigation.backtab: (steamPage.realScaleConnected) ? savePitcherWeightBtn : pitcherWeightInput
                                 onValueModified: function(newValue) {

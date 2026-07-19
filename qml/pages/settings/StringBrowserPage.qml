@@ -6,6 +6,11 @@ import "../../components"
 
 Page {
     id: stringBrowserPage
+    // Declarative so it re-evaluates on a language change. This used to be an
+    // imperative assignment in onCompleted/onActivated, which ran once and left
+    // page titles in the previous language until you navigated away and back.
+    readonly property string pageTitle: isEnglish ? TranslationManager.translate("stringBrowser.titleCustomizer", "String Customizer") : TranslationManager.translate("stringBrowser.titleBrowser", "Translation Browser")
+
     objectName: "stringBrowserPage"
     background: ThemedPageBackground {}
 
@@ -14,11 +19,9 @@ Page {
     property bool isEnglish: TranslationManager.currentLanguage === "en"
 
     Component.onCompleted: {
-        root.currentPageTitle = isEnglish ? TranslationManager.translate("stringBrowser.titleCustomizer", "String Customizer") : TranslationManager.translate("stringBrowser.titleBrowser", "Translation Browser")
         stringModel.refresh()
     }
     StackView.onActivated: {
-        root.currentPageTitle = isEnglish ? TranslationManager.translate("stringBrowser.titleCustomizer", "String Customizer") : TranslationManager.translate("stringBrowser.titleBrowser", "Translation Browser")
     }
 
     function handleBack() {
@@ -508,17 +511,6 @@ Page {
                     editingIndex = idx
                 }
 
-                function saveAndExitEditing(fallbackKey, newText, oldText) {
-                    if (newText !== oldText) {
-                        TranslationManager.setGroupTranslation(fallbackKey, newText)
-                        // Clear AI translation when user manually edits (non-English)
-                        if (newText !== "" && TranslationManager.currentLanguage !== "en") {
-                            TranslationManager.clearAiTranslation(fallbackKey)
-                        }
-                    }
-                    setEditing(false, -1)
-                }
-
                 // Accessibility: announce the English text and translation status
                 Accessible.role: Accessible.ListItem
                 Accessible.name: {
@@ -762,10 +754,33 @@ Page {
                                     delegateRoot.setEditing(true, index)
                                     centerTimer.start()
                                 } else {
-                                    // Save on focus lost
+                                    // THE single save path. Losing focus is the one event that
+                                    // means "this edit is finished", and it happens whether the
+                                    // user pressed Enter or clicked away — so saving anywhere
+                                    // else duplicates it.
+                                    //
+                                    // Having two paths is what produced two writes per edit, and
+                                    // the first attempt to fix it made that worse rather than
+                                    // better: reordering exitEditing() so focus dropped BEFORE
+                                    // the save meant this handler ran while the row was still
+                                    // live, did the real save here, destroyed the delegate, and
+                                    // left exitEditing's remaining statements — including a
+                                    // second setGroupTranslation with the pre-edit oldText — to
+                                    // run on a dead object. Two no-op-plus-real became two real.
+                                    //
+                                    // Order below is deliberate: read the model, leave edit mode,
+                                    // and make the mutation the last statement, because it
+                                    // destroys this delegate.
+                                    var fallbackKey = model.fallback
+                                    // A detached row (the model refreshed under us) reports an
+                                    // empty fallback. Saving from one is never legitimate.
+                                    if (!fallbackKey || fallbackKey.length === 0)
+                                        return
                                     var newText = text.trim()
-                                    if (newText !== (model.translation || "")) {
-                                        TranslationManager.setGroupTranslation(model.fallback, newText)
+                                    var changed = newText !== (model.translation || "")
+                                    delegateRoot.setEditing(false, -1)
+                                    if (changed) {
+                                        TranslationManager.setGroupTranslation(fallbackKey, newText)
                                     }
                                 }
                             }
@@ -786,11 +801,16 @@ Page {
                                 }
                             }
 
+                            // Releases focus, nothing more. onActiveFocusChanged above is the
+                            // only place that saves, so Enter and click-away take the identical
+                            // route and cannot each fire their own write.
+                            //
+                            // `focus = false` is LAST because it propagates synchronously: the
+                            // handler it triggers saves, which destroys this delegate, so any
+                            // statement after it would run on a dead object.
                             function exitEditing() {
-                                var newText = text.trim()
-                                delegateRoot.saveAndExitEditing(model.fallback, newText, model.translation || "")
-                                focus = false
                                 Qt.inputMethod.hide()
+                                focus = false
                             }
                         }
 
@@ -1191,4 +1211,9 @@ Page {
         title: isEnglish ? TranslationManager.translate("stringBrowser.titleCustomizer", "String Customizer") : TranslationManager.translate("stringBrowser.titleBrowser", "Translation Browser")
         onBackClicked: handleBack()
     }
+
+    // Refusals from TranslationManager reach the user here instead of only the log. Without this
+    // a guarded save looks exactly like a broken button — which is how it was found: an edit was
+    // correctly refused, nothing said so, and the tester had to ask whether the feature worked.
+    TranslationErrorToast {}
 }

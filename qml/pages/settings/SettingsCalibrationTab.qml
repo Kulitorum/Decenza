@@ -53,7 +53,7 @@ Item {
                             Layout.fillWidth: true
 
                             Text {
-                                text: TranslationManager.translate("settings.preferences.autoCalibration", "Auto calibration — learns from your scale after each shot")
+                                text: TranslationManager.translate("settings.preferences.autoCalibration.description", "Auto calibration — learns from your scale after each shot")
                                 Layout.fillWidth: true
                                 wrapMode: Text.WordWrap
                                 color: Theme.textSecondaryColor
@@ -360,7 +360,7 @@ Item {
                         spacing: Theme.spacingSmall
 
                         Text {
-                            text: TranslationManager.translate("settings.calibration.preferWeightOverVolume", "Prefer Weight over Volume")
+                            text: TranslationManager.translate("settings.calibration.preferWeightOverVolume", "Prefer weight over volume")
                             color: Theme.textColor
                             font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(16)

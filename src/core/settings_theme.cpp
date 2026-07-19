@@ -609,10 +609,13 @@ void SettingsTheme::resetThemeToDefault() {
 namespace {
 // Set from main.cpp before the QML engine is created; read-only thereafter.
 QString g_bundledFontFamily;
+QString g_symbolFontFamily;
 }
 
 void SettingsTheme::setBundledFontFamily(const QString& family) { g_bundledFontFamily = family; }
 QString SettingsTheme::bundledFontFamily() { return g_bundledFontFamily; }
+void SettingsTheme::setSymbolFontFamily(const QString& family) { g_symbolFontFamily = family; }
+QString SettingsTheme::symbolFontFamily() { return g_symbolFontFamily; }
 
 const QMap<QString, SettingsTheme::FontRole>& SettingsTheme::fontRoles() {
     //                          default  min  max

@@ -141,8 +141,14 @@ Item {
 
     // Display text — separators rendered as a slightly bigger/bolder bullet so the
     // info sections read as distinct. StyledText; user data is HTML-escaped.
+    // Bean names are user-typed and the picker encourages emoji in them. Escaping alone left
+    // them as raw codepoints in a StyledText: a colour emoji then reaches the platform text
+    // renderer (the macOS path this change exists to avoid) and an unbundled one draws tofu
+    // instead of being dropped. allowMarkup is true because the input is markup we just built.
     readonly property string summaryRich:
-        hasBeans ? Theme.joinWithBullet(_parts) : Theme.escapeHtml(summaryText)
+        Theme.replaceEmojiWithImg(
+            hasBeans ? Theme.joinWithBullet(_parts) : Theme.escapeHtml(summaryText),
+            Theme.bodyFont.pixelSize, true)
 
     implicitHeight: contentColumn.implicitHeight
     implicitWidth: contentColumn.implicitWidth

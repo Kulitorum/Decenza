@@ -6,6 +6,11 @@ import "../components"
 
 Page {
     id: shotHistoryPage
+    // Declarative so it re-evaluates on a language change. This used to be an
+    // imperative assignment in onCompleted/onActivated, which ran once and left
+    // page titles in the previous language until you navigated away and back.
+    readonly property string pageTitle: TranslationManager.translate("shothistory.title", "Shot History")
+
     objectName: "shotHistoryPage"
     background: ThemedPageBackground {}
 
@@ -76,7 +81,6 @@ Page {
     })
 
     StackView.onActivated: {
-        root.currentPageTitle = TranslationManager.translate("shothistory.title", "Shot History")
         if (!_initialized) {
             _initialized = true
             if (initialFilter) {
@@ -492,8 +496,9 @@ Page {
 
             // Sort field button
             AccessibleButton {
-                text: sortFieldLabels[sortField] || "Date"
-                accessibleName: TranslationManager.translate("shothistory.sortBy", "Sort by %1").arg(sortFieldLabels[sortField] || "Date")
+                text: sortFieldLabels[sortField] || TranslationManager.translate("shothistory.sort.date", "Date")
+                accessibleName: TranslationManager.translate("shothistory.sortBy", "Sort by %1").arg(sortFieldLabels[sortField]
+                                  || TranslationManager.translate("shothistory.sort.date", "Date"))
                 onClicked: sortPickerDialog.open()
             }
 
@@ -649,12 +654,25 @@ Page {
                     if (doseVal > 0 && yieldVal > 0)
                         parts.push(doseVal.toFixed(1) + "g to " + yieldVal.toFixed(1) + "g")
                     if (shotDelegate.shotEnjoyment > 0) parts.push(shotDelegate.shotEnjoyment + "%")
+                    // Same keys the visible QualityBadges use, so the spoken row and the
+                    // badges cannot drift apart or disagree in a translated locale. These
+                    // were four hardcoded English strings until this change.
                     var issues = []
-                    if (model.pourTruncatedDetected) issues.push("puck failed")
-                    if (model.channelingDetected) issues.push("channeling")
-                    if (model.grindIssueDetected) issues.push("grind issue")
-                    if (model.skipFirstFrameDetected) issues.push("first step skipped")
+                    if (model.pourTruncatedDetected)
+                        issues.push(TranslationManager.translate("badges.puckFailed", "Puck failed"))
+                    if (model.channelingDetected)
+                        issues.push(TranslationManager.translate("badges.channeling", "Channeling detected"))
+                    if (model.grindIssueDetected)
+                        issues.push(TranslationManager.translate("badges.grindIssue", "Grind issue"))
+                    if (model.skipFirstFrameDetected)
+                        issues.push(TranslationManager.translate("badges.skipFirstFrame", "First step skipped"))
                     if (issues.length > 0) parts.push(issues.join(", "))
+                    // The cloud icon is the only thing carrying "uploaded" in this row, and it
+                    // is Accessible.ignored — without this the state was unreachable by screen
+                    // reader, which is the failure CLAUDE.md means by "never the only carrier".
+                    if (model.hasVisualizerUpload)
+                        parts.push(TranslationManager.translate("shotdetail.uploadedtovisualizer",
+                                                                "Uploaded to Visualizer"))
                     return parts.join(", ")
                 }
                 Accessible.focusable: true
@@ -779,11 +797,17 @@ Page {
                                 Accessible.ignored: true
                             }
 
-                            Image {
-                                source: "qrc:/emoji/2601.svg"  // Cloud icon
-                                sourceSize.width: Theme.scaled(16)
-                                sourceSize.height: Theme.scaled(16)
+                            // "Uploaded to Visualizer". Chrome, so a themed icon rather than
+                            // the Twemoji cloud this used to reach for: that asset's fills are
+                            // baked in at #CCD6DD/#E1E8ED, near-white, which all but vanished
+                            // against a light-mode row and could not follow the theme at all.
+                            // Matches the same indicator on ShotDetailPage.
+                            ThemedIcon {
+                                source: "qrc:/icons/CloudUpload.svg"
+                                iconSize: Theme.scaled(16)
+                                color: Theme.successColor
                                 visible: model.hasVisualizerUpload
+                                // Announced as part of the row's Accessible.name instead.
                                 Accessible.ignored: true
                             }
 

@@ -352,7 +352,16 @@ Item {
             var b = live ? ("<b>" + e + "</b>") : e
             return overridden ? ("<font color=\"" + root._hlHex + "\">" + b + "</font>") : b
         }, Theme.bulletSep, root.stacked ? "<br>" : Theme.bulletSep)
-        return (_isCleaning && r !== "") ? ("<b>" + r + "</b>") : r
+        r = (_isCleaning && r !== "") ? ("<b>" + r + "</b>") : r
+
+        // Emoji here come from USER-TYPED data — bean and recipe names, which the picker
+        // actively encourages emoji in. escapeHtml() above makes them safe as markup but
+        // leaves them as raw codepoints, so they reached the platform text renderer: a colour
+        // emoji in a plain StyledText, which is the macOS render-thread path this whole change
+        // exists to avoid, and an emoji with no bundled asset showed as tofu rather than being
+        // dropped. allowMarkup is true because `r` is markup we just built ourselves from
+        // already-escaped values.
+        return Theme.replaceEmojiWithImg(r, Theme.bodyFont.pixelSize, true)
     }
 
     readonly property color _color: mouseArea.pressed ? Theme.accentColor

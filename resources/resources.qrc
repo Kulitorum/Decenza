@@ -18,6 +18,14 @@
         <file>fonts/DecenzaSans-Medium.ttf</file>
         <file>fonts/DecenzaSans-Bold.ttf</file>
         <file>fonts/DecenzaSans-Light.ttf</file>
+        <!-- Symbol fallback (Noto Sans Math, SIL OFL 1.1). Decenza Sans covers Latin/Greek/
+             Cyrillic and 927 glyphs total — no arrows, no geometric shapes. Symbols written
+             in QML therefore came from a per-machine platform fallback. This font supplies
+             every symbol the app actually uses (→ ← ↗ ↕ ▶ ◀ ⧉) from the bundle instead, so
+             they are monochrome, follow Theme colours, and are identical on every platform.
+             Chained after Decenza Sans in Theme's font roles — it is never the primary face.
+             Verify coverage with scripts/check_font_glyph_coverage.py. -->
+        <file>fonts/NotoSansMath-Regular.ttf</file>
         <!-- Splash screens (random on startup) -->
         <file>splash/splash1.png</file>
         <file>splash/splash2.png</file>
