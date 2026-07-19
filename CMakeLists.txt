@@ -930,6 +930,7 @@ set(QML_FILES
     qml/components/layout/SleepEditorPopup.qml
     qml/components/layout/ScreensaverEditorPopup.qml
     qml/components/layout/ShotPlanConfig.js
+    qml/components/layout/PillFit.js
     qml/components/layout/EmojiPicker.qml
     qml/components/layout/EmojiData.js
     qml/components/library/LibraryPanel.qml

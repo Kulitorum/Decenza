@@ -5,6 +5,7 @@ import QtQuick.Effects
 import QtQuick.Window
 import Decenza
 import "../.."
+import "../PillFit.js" as PillFit
 
 Item {
     id: root
@@ -32,6 +33,66 @@ Item {
     // presetPopup instead of setting activePresetFunction — while its popup is open.
     readonly property bool isActive:
         (idlePage ? idlePage.activePresetFunction : "") === "espresso" || presetPopup.visible
+
+    // Live two-row fit for the favorite-profile pills (descriptive-recipe-names,
+    // mirrors RecipesItem/BeansItem): pack the favorites into pages of AT MOST
+    // TWO ROWS at the pill row's real available width instead of wrapping
+    // unbounded. The selected pill may carry a modified marker ("*"/" (modified)")
+    // that widens it, so its measurement includes that marker. Widths MIRROR
+    // PresetPillRow's pill metrics (font 16 bold, padding 40, spacing 12);
+    // profile pills carry no icon. Keep in sync with PresetPillRow.qml/PillFit.js.
+    property int profilePageIndex: 0
+    readonly property real _pillFitAvail: profilesPillRow ? profilesPillRow.effectiveMaxWidth : Theme.scaled(600)
+    // FontMetrics.advanceWidth() (not a mutated TextMetrics.text/.width) so
+    // measuring inside a reactive binding doesn't self-trigger a binding loop.
+    FontMetrics { id: profilePillMetrics; font.pixelSize: Theme.scaled(16); font.bold: true }
+    function _profilePillWidths() {
+        var favs = Settings.app.favoriteProfiles
+        var sel = Settings.app.selectedFavoriteProfile
+        var out = []
+        for (var i = 0; i < favs.length; ++i) {
+            var name = (favs[i] && favs[i].name) || ""
+            // Match PresetPillRow.pillLayoutName's modified marker on the selected pill.
+            if (ProfileManager.profileModified && i === sel)
+                name = ProfileManager.isCurrentProfileReadOnly
+                    ? name + " " + TranslationManager.translate("presets.modified", "(modified)")
+                    : "*" + name
+            out.push(profilePillMetrics.advanceWidth(name) + Theme.scaled(40))
+        }
+        return out
+    }
+    readonly property var _profilePageSizes: {
+        var _m = ProfileManager.profileModified  // re-measure when the marker toggles
+        var widths = _profilePillWidths()
+        var sizes = PillFit.packPageSizes(widths, Theme.scaled(12), _pillFitAvail, 2)
+        if (sizes.length <= 1)
+            return sizes
+        return PillFit.packPageSizes(widths, Theme.scaled(12),
+                                     Math.max(0, _pillFitAvail - 2 * Theme.scaled(48)), 2)
+    }
+    readonly property int profilePageCount: Math.max(1, _profilePageSizes.length)
+    // Absolute index of the first favorite on the current page.
+    readonly property int _profilePageStart: {
+        var idx = Math.max(0, Math.min(profilePageIndex, _profilePageSizes.length - 1))
+        var start = 0
+        for (var p = 0; p < idx; ++p)
+            start += _profilePageSizes[p]
+        return start
+    }
+    readonly property var visibleProfiles: {
+        var favs = Settings.app.favoriteProfiles
+        if (!favs || favs.length === 0)
+            return []
+        var idx = Math.max(0, Math.min(profilePageIndex, _profilePageSizes.length - 1))
+        return favs.slice(_profilePageStart, _profilePageStart + (_profilePageSizes[idx] || 0))
+    }
+    // Keep the current page in range when favorites change.
+    Connections {
+        target: Settings.app
+        function onFavoriteProfilesChanged() {
+            root.profilePageIndex = Math.max(0, Math.min(root.profilePageIndex, root.profilePageCount - 1))
+        }
+    }
 
     // Compact (bar) rendering only: full-size placements of this type compile to
     // CustomItem in LayoutItemDelegate (isCompiled), so this item never loads
@@ -111,6 +172,9 @@ Item {
         padding: Theme.spacingMedium
         closePolicy: Popup.CloseOnPressOutside
 
+        // Reopen on the first (most-recent) page, matching RecipesItem/BeansItem.
+        onAboutToShow: root.profilePageIndex = 0
+
         width: {
             var win = root.Window.window
             var w = Theme.scaled(600) + 2 * padding
@@ -163,17 +227,34 @@ Item {
             spacing: Theme.scaled(8)
 
             PresetPillRow {
+                id: profilesPillRow
                 maxWidth: Theme.scaled(600)
-                presets: Settings.app.favoriteProfiles
-                selectedIndex: Settings.app.selectedFavoriteProfile
+                // Windowed to the current two-row page; selection and taps map
+                // back to absolute favorite indices via _profilePageStart.
+                presets: root.visibleProfiles
+                selectedIndex: {
+                    var sel = Settings.app.selectedFavoriteProfile
+                    if (sel < 0) return -1
+                    var rel = sel - root._profilePageStart
+                    return (rel >= 0 && rel < root.visibleProfiles.length) ? rel : -1
+                }
                 supportLongPress: true
                 modified: ProfileManager.profileModified
                 modifiedIsReadOnly: ProfileManager.isCurrentProfileReadOnly
 
+                pageCount: root.profilePageCount
+                pageIndex: root.profilePageIndex
+                prevPageAccessibleName: TranslationManager.translate("idle.pagination.previousProfiles", "Previous profiles")
+                nextPageAccessibleName: TranslationManager.translate("idle.pagination.nextProfiles", "Next profiles")
+                onPageChangeRequested: function(delta) {
+                    root.profilePageIndex = Math.max(0, Math.min(root.profilePageIndex + delta, root.profilePageCount - 1))
+                }
+
                 onPresetSelected: function(index) {
-                    var wasAlreadySelected = (index === Settings.app.selectedFavoriteProfile)
-                    Settings.app.selectedFavoriteProfile = index
-                    var preset = Settings.app.getFavoriteProfile(index)
+                    var absIndex = root._profilePageStart + index
+                    var wasAlreadySelected = (absIndex === Settings.app.selectedFavoriteProfile)
+                    Settings.app.selectedFavoriteProfile = absIndex
+                    var preset = Settings.app.getFavoriteProfile(absIndex)
 
                     if (wasAlreadySelected) {
                         if (MachineState.isReady && root.canStartOperations) {

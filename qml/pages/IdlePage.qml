@@ -5,6 +5,7 @@ import QtQuick.Window
 import Decenza
 import "../components"
 import "../components/layout"
+import "../components/layout/PillFit.js" as PillFit
 
 Page {
     id: idlePage
@@ -124,11 +125,43 @@ Page {
         _publishOperationMode()
     }
 
-    // Idle pill rows page through their full MRU inventory five at a time
-    // (add-idle-pill-pagination). The recipe and bean rows keep the complete
-    // MRU-ordered list and hand PresetPillRow a windowed slice; the arrows only
-    // appear once there is more than one page (i.e. more than five items).
-    readonly property int pillPageSize: 5
+    // Idle pill rows pack their full MRU inventory into pages of AT MOST TWO
+    // ROWS at each row's available width (descriptive-recipe-names) — the longer
+    // bean+type+profile recipe names made a fixed "5 per page" spill past two
+    // rows. Each row keeps its complete MRU list and hands PresetPillRow a
+    // windowed slice; the per-page count varies with name length and from page
+    // to page, and the arrows appear only once there is more than one page.
+    // Pill-width measurement MIRRORS PresetPillRow's pill metrics (font 16 bold,
+    // padding 40, spacing 12, icon 20+6) — keep in sync (see PillFit.js). The
+    // available width is the pill row's Loader width (its parent), used directly
+    // because the pill-row id lives inside the Loader's Component scope.
+    // FontMetrics.advanceWidth() (not a mutated TextMetrics.text/.width) so
+    // measuring inside a reactive page-size binding doesn't self-trigger a
+    // binding loop. Font MIRRORS PresetPillRow's pill font (16 bold).
+    FontMetrics { id: idlePillMetrics; font.pixelSize: Theme.scaled(16); font.bold: true }
+    function _pillPagesFor(widths, availWidth) {
+        var sizes = PillFit.packPageSizes(widths, Theme.scaled(12), availWidth, 2)
+        if (sizes.length <= 1)
+            return sizes
+        // Paginating → arrows appear → repack against the width minus the
+        // symmetric arrow gutters (matches PresetPillRow.pillsAvailableWidth).
+        return PillFit.packPageSizes(widths, Theme.scaled(12),
+                                     Math.max(0, availWidth - 2 * Theme.scaled(48)), 2)
+    }
+    function _pillPageStart(sizes, pageIndex) {
+        var idx = Math.max(0, Math.min(pageIndex, sizes.length - 1))
+        var start = 0
+        for (var p = 0; p < idx; ++p)
+            start += sizes[p]
+        return start
+    }
+    function _pillPageSlice(list, sizes, pageIndex) {
+        if (!list || list.length === 0)
+            return []
+        var idx = Math.max(0, Math.min(pageIndex, sizes.length - 1))
+        var start = _pillPageStart(sizes, pageIndex)
+        return list.slice(start, start + (sizes[idx] || 0))
+    }
 
     // Inventory bags for the beans pill row (bean-bag-inventory: pills are
     // bags, selection is activeBagId, no dirty state — edits write through).
@@ -136,9 +169,14 @@ Page {
     // the full inventory also lives on the Beans page.
     property var inventoryBags: []
     property int beanPageIndex: 0
-    readonly property int beanPageCount: Math.max(1, Math.ceil(inventoryBags.length / idlePage.pillPageSize))
-    readonly property var visibleBags: inventoryBags.slice(beanPageIndex * idlePage.pillPageSize,
-                                                          beanPageIndex * idlePage.pillPageSize + idlePage.pillPageSize)
+    readonly property var _beanPageSizes: {
+        var w = []
+        for (var i = 0; i < inventoryBags.length; ++i)
+            w.push(idlePillMetrics.advanceWidth(bagLabel(inventoryBags[i])) + Theme.scaled(40))
+        return _pillPagesFor(w, beanPresetLoader.width)
+    }
+    readonly property int beanPageCount: Math.max(1, _beanPageSizes.length)
+    readonly property var visibleBags: _pillPageSlice(inventoryBags, _beanPageSizes, beanPageIndex)
 
     function bagLabel(bag) {
         if (!bag) return ""
@@ -159,10 +197,20 @@ Page {
     }
 
     // Equipment packages for the equipment pill row (add-basket-equipment): pills
-    // are packages, selection is activeEquipmentId. Capped to the 5 most recently
-    // used (inventoryReady is MRU-ordered); the full inventory lives on the
+    // are packages, selection is activeEquipmentId. The full MRU inventory is
+    // kept and paged into two-row pages (descriptive-recipe-names — previously
+    // capped to 5 with no paging); the full inventory also lives on the
     // Equipment page.
     property var inventoryEquipment: []
+    property int equipmentPageIndex: 0
+    readonly property var _equipmentPageSizes: {
+        var w = []
+        for (var i = 0; i < inventoryEquipment.length; ++i)
+            w.push(idlePillMetrics.advanceWidth(equipmentLabel(inventoryEquipment[i])) + Theme.scaled(40))
+        return _pillPagesFor(w, equipmentPresetLoader.width)
+    }
+    readonly property int equipmentPageCount: Math.max(1, _equipmentPageSizes.length)
+    readonly property var visibleEquipment: _pillPageSlice(inventoryEquipment, _equipmentPageSizes, equipmentPageIndex)
 
     function equipmentLabel(pkg) {
         if (!pkg) return ""
@@ -174,7 +222,8 @@ Page {
     Connections {
         target: MainController.equipmentStorage
         function onInventoryReady(packages) {
-            idlePage.inventoryEquipment = packages.slice(0, 5)
+            idlePage.inventoryEquipment = packages
+            idlePage.equipmentPageIndex = Math.max(0, Math.min(idlePage.equipmentPageIndex, idlePage.equipmentPageCount - 1))
         }
         function onPackagesChanged() {
             MainController.equipmentStorage.requestInventory()
@@ -187,9 +236,16 @@ Page {
     // and paged; the full list also lives on the Recipes page.
     property var inventoryRecipes: []
     property int recipePageIndex: 0
-    readonly property int recipePageCount: Math.max(1, Math.ceil(inventoryRecipes.length / idlePage.pillPageSize))
-    readonly property var visibleRecipes: inventoryRecipes.slice(recipePageIndex * idlePage.pillPageSize,
-                                                                recipePageIndex * idlePage.pillPageSize + idlePage.pillPageSize)
+    readonly property var _recipePageSizes: {
+        var w = []
+        for (var i = 0; i < inventoryRecipes.length; ++i)
+            // Recipe pills always carry a drink-type icon → add its width.
+            w.push(idlePillMetrics.advanceWidth(inventoryRecipes[i].name || "")
+                   + Theme.scaled(20) + Theme.scaled(6) + Theme.scaled(40))
+        return _pillPagesFor(w, recipePresetLoader.width)
+    }
+    readonly property int recipePageCount: Math.max(1, _recipePageSizes.length)
+    readonly property var visibleRecipes: _pillPageSlice(inventoryRecipes, _recipePageSizes, recipePageIndex)
 
     Connections {
         target: MainController.recipeStorage
@@ -202,6 +258,57 @@ Page {
             MainController.recipeStorage.requestInventory()
         }
     }
+
+    // Favorite-profile pills (the espresso row) page the same way (descriptive-
+    // recipe-names). selectedFavoriteProfile is an ABSOLUTE index into the full
+    // favorites, so taps/selection map through _profilePageStart. The selected
+    // pill may carry a modified marker that widens it — its width includes that.
+    property int profilePageIndex: 0
+    readonly property var _profilePageSizes: {
+        var _m = ProfileManager.profileModified  // re-measure when the marker toggles
+        var favs = Settings.app.favoriteProfiles
+        var sel = Settings.app.selectedFavoriteProfile
+        var w = []
+        for (var i = 0; i < favs.length; ++i) {
+            var name = (favs[i] && favs[i].name) || ""
+            if (_m && i === sel)
+                name = ProfileManager.isCurrentProfileReadOnly
+                    ? name + " " + TranslationManager.translate("presets.modified", "(modified)")
+                    : "*" + name
+            w.push(idlePillMetrics.advanceWidth(name) + Theme.scaled(40))
+        }
+        return _pillPagesFor(w, espressoColumnLoader.width)
+    }
+    readonly property int profilePageCount: Math.max(1, _profilePageSizes.length)
+    readonly property int _profilePageStart: _pillPageStart(_profilePageSizes, profilePageIndex)
+    readonly property var visibleProfiles: _pillPageSlice(Settings.app.favoriteProfiles, _profilePageSizes, profilePageIndex)
+
+    // Flush and hot-water pill rows page the same way (descriptive-recipe-names).
+    // Both use an ABSOLUTE selected index (Settings.brew), so taps map through
+    // the page start. No icon on these pills.
+    property int flushPageIndex: 0
+    readonly property var _flushPageSizes: {
+        var favs = Settings.brew.flushPresets
+        var w = []
+        for (var i = 0; i < favs.length; ++i)
+            w.push(idlePillMetrics.advanceWidth((favs[i] && favs[i].name) || "") + Theme.scaled(40))
+        return _pillPagesFor(w, flushPresetLoader.width)
+    }
+    readonly property int flushPageCount: Math.max(1, _flushPageSizes.length)
+    readonly property int _flushPageStart: _pillPageStart(_flushPageSizes, flushPageIndex)
+    readonly property var visibleFlush: _pillPageSlice(Settings.brew.flushPresets, _flushPageSizes, flushPageIndex)
+
+    property int hotWaterPageIndex: 0
+    readonly property var _hotWaterPageSizes: {
+        var favs = Settings.brew.waterVesselPresets
+        var w = []
+        for (var i = 0; i < favs.length; ++i)
+            w.push(idlePillMetrics.advanceWidth((favs[i] && favs[i].name) || "") + Theme.scaled(40))
+        return _pillPagesFor(w, hotWaterPresetLoader.width)
+    }
+    readonly property int hotWaterPageCount: Math.max(1, _hotWaterPageSizes.length)
+    readonly property int _hotWaterPageStart: _pillPageStart(_hotWaterPageSizes, hotWaterPageIndex)
+    readonly property var visibleWaterVessels: _pillPageSlice(Settings.brew.waterVesselPresets, _hotWaterPageSizes, hotWaterPageIndex)
 
     // Recipe pill selection is the synchronous MainController.selectedRecipeId
     // (shared with the compact RecipesItem so both layouts behave identically —
@@ -488,9 +595,13 @@ Page {
     // Auto-tare scale and announce presets when activePresetFunction changes
     onActivePresetFunctionChanged: {
         _publishOperationMode()
-        // Paged pill rows always (re)open on the first page — the most-recent five.
+        // Paged pill rows always (re)open on the first page — the most-recent items.
         if (activePresetFunction === "recipes") recipePageIndex = 0
         else if (activePresetFunction === "beans") beanPageIndex = 0
+        else if (activePresetFunction === "espresso") profilePageIndex = 0
+        else if (activePresetFunction === "equipment") equipmentPageIndex = 0
+        else if (activePresetFunction === "flush") flushPageIndex = 0
+        else if (activePresetFunction === "hotwater") hotWaterPageIndex = 0
         // Auto-tare when steam pills appear so the scale starts at 0
         // before the user places the pitcher
         if (activePresetFunction === "steam" && typeof MachineState !== "undefined") {
@@ -505,9 +616,12 @@ Page {
             var selectedName = ""
             switch (activePresetFunction) {
                 case "espresso":
-                    presets = Settings.app.favoriteProfiles
-                    if (Settings.app.selectedFavoriteProfile >= 0 && Settings.app.selectedFavoriteProfile < presets.length) {
-                        selectedName = presets[Settings.app.selectedFavoriteProfile].name
+                    // Announce the visible page (the row just reset to page 1).
+                    presets = idlePage.visibleProfiles
+                    var selAbs = Settings.app.selectedFavoriteProfile
+                    var selRel = selAbs - idlePage._profilePageStart
+                    if (selRel >= 0 && selRel < presets.length) {
+                        selectedName = presets[selRel].name
                     }
                     break
                 case "steam":
@@ -517,15 +631,19 @@ Page {
                     }
                     break
                 case "hotwater":
-                    presets = Settings.brew.waterVesselPresets
-                    if (Settings.brew.selectedWaterVessel >= 0 && Settings.brew.selectedWaterVessel < presets.length) {
-                        selectedName = presets[Settings.brew.selectedWaterVessel].name
+                    // Announce the visible page (the row just reset to page 1).
+                    presets = idlePage.visibleWaterVessels
+                    var selWv = Settings.brew.selectedWaterVessel - idlePage._hotWaterPageStart
+                    if (selWv >= 0 && selWv < presets.length) {
+                        selectedName = presets[selWv].name
                     }
                     break
                 case "flush":
-                    presets = Settings.brew.flushPresets
-                    if (Settings.brew.selectedFlushPreset >= 0 && Settings.brew.selectedFlushPreset < presets.length) {
-                        selectedName = presets[Settings.brew.selectedFlushPreset].name
+                    // Announce the visible page (the row just reset to page 1).
+                    presets = idlePage.visibleFlush
+                    var selFl = Settings.brew.selectedFlushPreset - idlePage._flushPageStart
+                    if (selFl >= 0 && selFl < presets.length) {
+                        selectedName = presets[selFl].name
                     }
                     break
                 case "beans":
@@ -539,10 +657,11 @@ Page {
                     }
                     break
                 case "equipment":
-                    presets = idlePage.inventoryEquipment.map(function(p) { return { name: idlePage.equipmentLabel(p) } })
-                    for (var ei = 0; ei < idlePage.inventoryEquipment.length; ++ei) {
-                        if (idlePage.inventoryEquipment[ei].id === Settings.dye.activeEquipmentId) {
-                            selectedName = idlePage.equipmentLabel(idlePage.inventoryEquipment[ei])
+                    // Announce the visible page (the row just reset to page 1).
+                    presets = idlePage.visibleEquipment.map(function(p) { return { name: idlePage.equipmentLabel(p) } })
+                    for (var ei = 0; ei < idlePage.visibleEquipment.length; ++ei) {
+                        if (idlePage.visibleEquipment[ei].id === Settings.dye.activeEquipmentId) {
+                            selectedName = idlePage.equipmentLabel(idlePage.visibleEquipment[ei])
                             break
                         }
                     }
@@ -835,16 +954,32 @@ Page {
                         anchors.horizontalCenter: parent.horizontalCenter
                         maxWidth: espressoColumnLoader.width
 
-                        presets: Settings.app.favoriteProfiles
-                        selectedIndex: Settings.app.selectedFavoriteProfile
+                        // Windowed to the current two-row page; selection and taps
+                        // map back to absolute favorite indices via _profilePageStart.
+                        presets: idlePage.visibleProfiles
+                        selectedIndex: {
+                            var sel = Settings.app.selectedFavoriteProfile
+                            if (sel < 0) return -1
+                            var rel = sel - idlePage._profilePageStart
+                            return (rel >= 0 && rel < idlePage.visibleProfiles.length) ? rel : -1
+                        }
                         supportLongPress: true
                         modified: ProfileManager.profileModified
                         modifiedIsReadOnly: ProfileManager.isCurrentProfileReadOnly
 
+                        pageCount: idlePage.profilePageCount
+                        pageIndex: idlePage.profilePageIndex
+                        prevPageAccessibleName: TranslationManager.translate("idle.pagination.previousProfiles", "Previous profiles")
+                        nextPageAccessibleName: TranslationManager.translate("idle.pagination.nextProfiles", "Next profiles")
+                        onPageChangeRequested: function(delta) {
+                            idlePage.profilePageIndex = Math.max(0, Math.min(idlePage.profilePageIndex + delta, idlePage.profilePageCount - 1))
+                        }
+
                         onPresetSelected: function(index) {
-                            var wasAlreadySelected = (index === Settings.app.selectedFavoriteProfile)
-                            Settings.app.selectedFavoriteProfile = index
-                            var preset = Settings.app.getFavoriteProfile(index)
+                            var absIndex = idlePage._profilePageStart + index
+                            var wasAlreadySelected = (absIndex === Settings.app.selectedFavoriteProfile)
+                            Settings.app.selectedFavoriteProfile = absIndex
+                            var preset = Settings.app.getFavoriteProfile(absIndex)
 
                             if (wasAlreadySelected) {
                                 if (MachineState.isReady && idlePage.canStartOperations) {
@@ -862,10 +997,11 @@ Page {
                         }
 
                         onPresetLongPressed: function(index) {
-                            var preset = Settings.app.getFavoriteProfile(index)
+                            var absIndex = idlePage._profilePageStart + index
+                            var preset = Settings.app.getFavoriteProfile(absIndex)
                             if (preset && preset.filename) {
-                                if (index !== Settings.app.selectedFavoriteProfile) {
-                                    Settings.app.selectedFavoriteProfile = index
+                                if (absIndex !== Settings.app.selectedFavoriteProfile) {
+                                    Settings.app.selectedFavoriteProfile = absIndex
                                     ProfileManager.loadProfile(preset.filename)
                                 }
                                 profilePreviewPopup.profileFilename = preset.filename
@@ -992,13 +1128,27 @@ Page {
                 visible: active
                 sourceComponent: PresetPillRow {
                     maxWidth: hotWaterPresetLoader.width
-                    presets: Settings.brew.waterVesselPresets
-                    selectedIndex: Settings.brew.selectedWaterVessel
+                    // Windowed to the current two-row page; selection/taps map to
+                    // the absolute selectedWaterVessel via _hotWaterPageStart.
+                    presets: idlePage.visibleWaterVessels
+                    selectedIndex: {
+                        var rel = Settings.brew.selectedWaterVessel - idlePage._hotWaterPageStart
+                        return (rel >= 0 && rel < idlePage.visibleWaterVessels.length) ? rel : -1
+                    }
+
+                    pageCount: idlePage.hotWaterPageCount
+                    pageIndex: idlePage.hotWaterPageIndex
+                    prevPageAccessibleName: TranslationManager.translate("idle.pagination.previousHotWater", "Previous vessels")
+                    nextPageAccessibleName: TranslationManager.translate("idle.pagination.nextHotWater", "Next vessels")
+                    onPageChangeRequested: function(delta) {
+                        idlePage.hotWaterPageIndex = Math.max(0, Math.min(idlePage.hotWaterPageIndex + delta, idlePage.hotWaterPageCount - 1))
+                    }
 
                     onPresetSelected: function(index) {
-                        var wasAlreadySelected = (index === Settings.brew.selectedWaterVessel)
-                        Settings.brew.selectedWaterVessel = index
-                        var preset = Settings.brew.getWaterVesselPreset(index)
+                        var absIndex = idlePage._hotWaterPageStart + index
+                        var wasAlreadySelected = (absIndex === Settings.brew.selectedWaterVessel)
+                        Settings.brew.selectedWaterVessel = absIndex
+                        var preset = Settings.brew.getWaterVesselPreset(absIndex)
                         if (preset) {
                             Settings.brew.waterVolume = preset.volume
                         }
@@ -1025,13 +1175,27 @@ Page {
                 visible: active
                 sourceComponent: PresetPillRow {
                     maxWidth: flushPresetLoader.width
-                    presets: Settings.brew.flushPresets
-                    selectedIndex: Settings.brew.selectedFlushPreset
+                    // Windowed to the current two-row page; selection/taps map to
+                    // the absolute selectedFlushPreset via _flushPageStart.
+                    presets: idlePage.visibleFlush
+                    selectedIndex: {
+                        var rel = Settings.brew.selectedFlushPreset - idlePage._flushPageStart
+                        return (rel >= 0 && rel < idlePage.visibleFlush.length) ? rel : -1
+                    }
+
+                    pageCount: idlePage.flushPageCount
+                    pageIndex: idlePage.flushPageIndex
+                    prevPageAccessibleName: TranslationManager.translate("idle.pagination.previousFlush", "Previous flushes")
+                    nextPageAccessibleName: TranslationManager.translate("idle.pagination.nextFlush", "Next flushes")
+                    onPageChangeRequested: function(delta) {
+                        idlePage.flushPageIndex = Math.max(0, Math.min(idlePage.flushPageIndex + delta, idlePage.flushPageCount - 1))
+                    }
 
                     onPresetSelected: function(index) {
-                        var wasAlreadySelected = (index === Settings.brew.selectedFlushPreset)
-                        Settings.brew.selectedFlushPreset = index
-                        var preset = Settings.brew.getFlushPreset(index)
+                        var absIndex = idlePage._flushPageStart + index
+                        var wasAlreadySelected = (absIndex === Settings.brew.selectedFlushPreset)
+                        Settings.brew.selectedFlushPreset = absIndex
+                        var preset = Settings.brew.getFlushPreset(absIndex)
                         if (preset) {
                             Settings.brew.flushFlow = preset.flow
                             Settings.brew.flushSeconds = preset.seconds
@@ -1093,17 +1257,25 @@ Page {
                 visible: active
                 sourceComponent: PresetPillRow {
                     maxWidth: equipmentPresetLoader.width
-                    presets: idlePage.inventoryEquipment.map(function(p) { return { name: idlePage.equipmentLabel(p) } })
+                    presets: idlePage.visibleEquipment.map(function(p) { return { name: idlePage.equipmentLabel(p) } })
                     selectedIndex: {
-                        var list = idlePage.inventoryEquipment
+                        var list = idlePage.visibleEquipment
                         for (var i = 0; i < list.length; ++i) {
                             if (list[i].id === Settings.dye.activeEquipmentId) return i
                         }
                         return -1
                     }
 
+                    pageCount: idlePage.equipmentPageCount
+                    pageIndex: idlePage.equipmentPageIndex
+                    prevPageAccessibleName: TranslationManager.translate("idle.pagination.previousEquipment", "Previous equipment")
+                    nextPageAccessibleName: TranslationManager.translate("idle.pagination.nextEquipment", "Next equipment")
+                    onPageChangeRequested: function(delta) {
+                        idlePage.equipmentPageIndex = Math.max(0, Math.min(idlePage.equipmentPageIndex + delta, idlePage.equipmentPageCount - 1))
+                    }
+
                     onPresetSelected: function(index) {
-                        var pkg = idlePage.inventoryEquipment[index]
+                        var pkg = idlePage.visibleEquipment[index]
                         if (!pkg) return
                         Settings.dye.switchToEquipment(pkg)
                     }

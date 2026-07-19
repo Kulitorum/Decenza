@@ -5,6 +5,7 @@ import QtQuick.Effects
 import QtQuick.Window
 import Decenza
 import "../.."
+import "../PillFit.js" as PillFit
 
 Item {
     id: root
@@ -21,6 +22,41 @@ Item {
             p = p.parent
         }
         return null
+    }
+
+    // Live two-row fit for the water-vessel pills (descriptive-recipe-names,
+    // mirrors EspressoItem). selectedWaterVessel is an ABSOLUTE index → taps map
+    // through _hotWaterPageStart. No icon. Widths MIRROR PresetPillRow's metrics
+    // (font 16 bold, padding 40, spacing 12) — keep in sync (see PillFit.js).
+    property int hotWaterPageIndex: 0
+    readonly property real _pillFitAvail: hotWaterPillRow ? hotWaterPillRow.effectiveMaxWidth : Theme.scaled(600)
+    // FontMetrics.advanceWidth() (not a mutated TextMetrics.text/.width) so
+    // measuring inside a reactive binding doesn't self-trigger a binding loop.
+    FontMetrics { id: hotWaterPillMetrics; font.pixelSize: Theme.scaled(16); font.bold: true }
+    readonly property var _hotWaterPageSizes: {
+        var favs = Settings.brew.waterVesselPresets
+        var w = []
+        for (var i = 0; i < favs.length; ++i)
+            w.push(hotWaterPillMetrics.advanceWidth((favs[i] && favs[i].name) || "") + Theme.scaled(40))
+        var sizes = PillFit.packPageSizes(w, Theme.scaled(12), _pillFitAvail, 2)
+        if (sizes.length <= 1)
+            return sizes
+        return PillFit.packPageSizes(w, Theme.scaled(12), Math.max(0, _pillFitAvail - 2 * Theme.scaled(48)), 2)
+    }
+    readonly property int hotWaterPageCount: Math.max(1, _hotWaterPageSizes.length)
+    readonly property int _hotWaterPageStart: {
+        var idx = Math.max(0, Math.min(hotWaterPageIndex, _hotWaterPageSizes.length - 1))
+        var start = 0
+        for (var p = 0; p < idx; ++p)
+            start += _hotWaterPageSizes[p]
+        return start
+    }
+    readonly property var visibleWaterVessels: {
+        var favs = Settings.brew.waterVesselPresets
+        if (!favs || favs.length === 0)
+            return []
+        var idx = Math.max(0, Math.min(hotWaterPageIndex, _hotWaterPageSizes.length - 1))
+        return favs.slice(_hotWaterPageStart, _hotWaterPageStart + (_hotWaterPageSizes[idx] || 0))
     }
 
     // Highlight this button while its mode is selected on the home screen (the
@@ -107,20 +143,25 @@ Item {
         padding: Theme.spacingMedium
         closePolicy: Popup.CloseOnPressOutside
 
+        // Reopen on the first (most-recent) page, matching RecipesItem/BeansItem.
+        onAboutToShow: root.hotWaterPageIndex = 0
+
         // Full-mode hot-water path runs IdlePage.onActivePresetFunctionChanged which
         // announces the preset list to TalkBack. The compact-mode popup bypasses that
         // path, so announce here directly to keep feature parity for screen-reader users.
         onOpened: {
             if (typeof AccessibilityManager === "undefined" || !AccessibilityManager.enabled) return
-            var presets = Settings.brew.waterVesselPresets
+            // Announce the visible page (just reset to page 1), not the full list.
+            var presets = root.visibleWaterVessels
             if (presets.length === 0) return
             var names = []
             var selectedName = ""
             for (var i = 0; i < presets.length; ++i) {
                 names.push(presets[i].name)
             }
-            if (Settings.brew.selectedWaterVessel >= 0 && Settings.brew.selectedWaterVessel < presets.length) {
-                selectedName = presets[Settings.brew.selectedWaterVessel].name
+            var selRel = Settings.brew.selectedWaterVessel - root._hotWaterPageStart
+            if (selRel >= 0 && selRel < presets.length) {
+                selectedName = presets[selRel].name
             }
             var announcement = presets.length + " " + TranslationManager.translate("idle.accessible.presets", "presets") + ": " + names.join(", ")
             if (selectedName !== "") {
@@ -175,14 +216,27 @@ Item {
         }
 
         contentItem: PresetPillRow {
+            id: hotWaterPillRow
             maxWidth: Theme.scaled(600)
-            presets: Settings.brew.waterVesselPresets
-            selectedIndex: Settings.brew.selectedWaterVessel
+            presets: root.visibleWaterVessels
+            selectedIndex: {
+                var rel = Settings.brew.selectedWaterVessel - root._hotWaterPageStart
+                return (rel >= 0 && rel < root.visibleWaterVessels.length) ? rel : -1
+            }
+
+            pageCount: root.hotWaterPageCount
+            pageIndex: root.hotWaterPageIndex
+            prevPageAccessibleName: TranslationManager.translate("idle.pagination.previousHotWater", "Previous vessels")
+            nextPageAccessibleName: TranslationManager.translate("idle.pagination.nextHotWater", "Next vessels")
+            onPageChangeRequested: function(delta) {
+                root.hotWaterPageIndex = Math.max(0, Math.min(root.hotWaterPageIndex + delta, root.hotWaterPageCount - 1))
+            }
 
             onPresetSelected: function(index) {
-                var wasAlreadySelected = (index === Settings.brew.selectedWaterVessel)
-                Settings.brew.selectedWaterVessel = index
-                var preset = Settings.brew.getWaterVesselPreset(index)
+                var absIndex = root._hotWaterPageStart + index
+                var wasAlreadySelected = (absIndex === Settings.brew.selectedWaterVessel)
+                Settings.brew.selectedWaterVessel = absIndex
+                var preset = Settings.brew.getWaterVesselPreset(absIndex)
                 if (preset) {
                     Settings.brew.waterVolume = preset.volume
                 }
