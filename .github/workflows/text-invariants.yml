@@ -25,6 +25,16 @@ name: Text invariants
 #     unauthenticated, so these strings are attacker-influenceable; StyledText renders <img>,
 #     which means an unescaped one fetches a remote URL for every user of that language.
 #
+#   check_font_family_literals.py — no QML names a font family as a string literal. A literal
+#     family is a bet that it exists on every platform; when it does not, Qt falls back to a
+#     host font and the same screen measures differently on two machines. Blocking, because
+#     unlike glyph coverage there is always a correct fix: omit the family and inherit the
+#     bundled application font, or name real families via Qt.font({families: [...]}). Four
+#     instances existed when this was written ("serif", "monospace", "Arial" x4, and a
+#     "Material Icons" reference to a font this project does not bundle), and all four were
+#     found by reading warnings out of a running app's log — a poor way to discover something
+#     a grep finds at commit time.
+#
 #   check_font_glyph_coverage.py — every non-emoji symbol in the QML has a glyph in a bundled
 #     font. A symbol that falls through to a host font is why the same screen used to measure
 #     differently on two machines. Advisory: it reports, and does not fail the job, because the
@@ -71,6 +81,11 @@ jobs:
       # Blocking: this one is a security property, not a style preference.
       - name: No unescaped translated text in rich-text renderers
         run: python3 scripts/check_translated_richtext.py
+
+      # Blocking: a literal family silently degrades to a host font, and there is always a
+      # correct fix.
+      - name: No hardcoded font.family literals in QML
+        run: python3 scripts/check_font_family_literals.py
 
       # Advisory by the `|| true`, not by the script: it exits non-zero for any uncovered glyph
       # outside AddLanguagePage, which it already exempts. Non-blocking because bundling another

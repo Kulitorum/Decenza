@@ -2942,7 +2942,9 @@ bool ShotServer::setupTls()
 // ---------------------------------------------------------------------------
 
 // ASN.1 DER encoding helpers
-static QByteArray derLength(int len)
+// qsizetype, not int: callers pass QByteArray::size(). Inside #ifdef Q_OS_IOS,
+// so only the iOS build ever compiles this and only iOS reported the narrowing.
+static QByteArray derLength(qsizetype len)
 {
     QByteArray out;
     if (len < 128) {

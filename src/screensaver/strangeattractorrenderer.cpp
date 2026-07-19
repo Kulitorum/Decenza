@@ -957,12 +957,12 @@ void StrangeAttractorRenderer::updateImage() {
     QRgb* pixels = reinterpret_cast<QRgb*>(m_backBuffer.bits());
 
     for (int i = 0; i < m_bufferWidth * m_bufferHeight; i++) {
-        float d = m_density[i];
-        if (d <= 0) {
+        float density = m_density[i];
+        if (density <= 0) {
             pixels[i] = qRgb(0, 0, 0);
         } else {
             // Logarithmic scaling
-            float logD = qLn(1.0f + d);
+            float logD = qLn(1.0f + density);
             float normalized = logD / logMax;
 
             // Map to colormap index
@@ -1022,12 +1022,13 @@ void StrangeAttractorRenderer::stepAizawa(double& x, double& y, double& z, doubl
     const double a = 0.95;
     const double b = 0.7;
     const double c = 0.6;
-    const double d = 3.5;
+    // `d` collides with an inherited Qt member under GCC's -Wshadow
+    const double dCoeff = 3.5;
     const double e = 0.25;
     const double f = 0.1;
 
-    double dx = (z - b) * x - d * y;
-    double dy = d * x + (z - b) * y;
+    double dx = (z - b) * x - dCoeff * y;
+    double dy = dCoeff * x + (z - b) * y;
     double dz = c + a * z - (z * z * z) / 3.0 - (x * x + y * y) * (1.0 + e * z) + f * z * x * x * x;
 
     x += dx * dt;
@@ -1053,12 +1054,13 @@ void StrangeAttractorRenderer::stepDadras(double& x, double& y, double& z, doubl
     const double a = 3.0;
     const double b = 2.7;
     const double c = 1.7;
-    const double d = 2.0;
+    // `d` collides with an inherited Qt member under GCC's -Wshadow
+    const double dCoeff = 2.0;
     const double e = 9.0;
 
     double dx = y - a * x + b * y * z;
     double dy = c * y - x * z + z;
-    double dz = d * x * y - e * z;
+    double dz = dCoeff * x * y - e * z;
 
     x += dx * dt;
     y += dy * dt;
