@@ -25,6 +25,7 @@
 #include <QString>
 
 #include "ai/aiprovider.h"
+#include "core/translationmanager.h"
 
 namespace {
 
@@ -91,6 +92,43 @@ class tst_AIProviders : public QObject {
     Q_OBJECT
 
 private slots:
+    // The bulk translator keeps its own fallback model per provider (see
+    // TranslationManager::fallbackTranslationModel) because decenza_testlib compiles the
+    // translator but not the AI stack. This is the test that keeps the two in step.
+    //
+    // It exists because they went out of step and nobody noticed for months: the translator
+    // asked Anthropic for claude-3-5-haiku-20241022 long after it was retired, and asked
+    // OpenAI and Gemini for models the picker does not even offer. The failure was invisible
+    // -- a dead provider just falls through to the next configured one.
+    void translationFallbacksMatchTheProviderCatalogs()
+    {
+        QNetworkAccessManager nam;
+        struct Case { const char* id; AIProvider* provider; };
+        OpenAIProvider openai(&nam, QString());
+        AnthropicProvider anthropic(&nam, QString());
+        GeminiProvider gemini(&nam, QString());
+
+        const QList<QPair<QString, AIProvider*>> cases = {
+            {QStringLiteral("openai"), &openai},
+            {QStringLiteral("anthropic"), &anthropic},
+            {QStringLiteral("gemini"), &gemini},
+        };
+
+        for (const auto& c : cases) {
+            const QList<AIProvider::ModelOption> models = c.second->availableModels();
+            QVERIFY2(!models.isEmpty(), qPrintable(c.first + " has an empty model catalog"));
+
+            const QString fallback = TranslationManager::fallbackTranslationModel(c.first);
+            QVERIFY2(!fallback.isEmpty(),
+                     qPrintable("no translation fallback declared for " + c.first));
+
+            // Must be the FIRST entry: that is this codebase's definition of "recommended"
+            // (see each provider's constructor), so the translator and the picker agree on
+            // what the default is rather than merely both being valid.
+            QCOMPARE(fallback, models.first().id);
+        }
+    }
+
     void init() { QTest::failOnWarning(); }
     void openAiCatalogAndSelection()
     {

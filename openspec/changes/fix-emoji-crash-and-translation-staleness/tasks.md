@@ -662,6 +662,34 @@ decide with, rather than guessing.
       first provider was dead. Only a user with Anthropic alone would have noticed, by getting
       nothing at all.
 
+- [x] 7.8q "Are there specific translate models?" — NO, at any provider the app talks to.
+      Anthropic has no translation-specific model. OpenAI's /v1/audio/translations is SPEECH
+      (Whisper), not text. Google Cloud Translation IS a dedicated service but a separate
+      product from Gemini, with its own key and billing; the app talks to generativelanguage.
+      DeepL is the notable dedicated text engine and is not integrated. So the choice is only
+      ever WHICH GENERAL MODEL — which is exactly why it drifted unnoticed.
+
+      Jeff's call: best model is fine, but honour the selected provider. Done in 7.8p. What
+      remained was the fallback for an unconfigured provider, and the root cause of the drift:
+      the translator kept its own model strings. aiprovider.cpp already states the principle —
+      "Keeps the default a single source of truth (no parallel DEFAULT_MODEL constant to keep
+      in sync with the list order)" — and the translator WAS that parallel constant.
+
+      Attempted the obvious fix first (AIProvider::recommendedModelFor(), read the catalog at
+      runtime) and REVERTED it: decenza_testlib compiles translationmanager.cpp but not the AI
+      stack, so it failed to link, and satisfying it would drag the provider classes into
+      forty-odd test targets to read one string. The link error was a layering signal, not an
+      obstacle to route around.
+
+      Instead the fallback stays a local literal and `tst_aiproviders` asserts each equals its
+      provider's FIRST catalog entry — the codebase's own definition of "recommended". The
+      coupling lives in a test rather than the link line, and drift now fails CI instead of
+      silently 404ing for months.
+
+      Note the fallbacks are the CATALOG's recommendation, not the flashiest model: openai
+      gpt-5.4, anthropic claude-sonnet-4-6, gemini gemini-2.5-flash. A user wanting Sonnet 5
+      selects it, and 7.8p's change means that selection is now actually used.
+
 - [ ] 7.8b The glyph class IS statically catchable — `redraw-icon-set` task 4.4 guessed it was not.
       `scripts/check_font_glyph_coverage.py` already does it. Worth landing as a test, but it cannot
       be green until 7.8's 29 sites are fixed, so it lands WITH the fix (no allowlist — an allowlist

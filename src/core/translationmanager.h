@@ -141,6 +141,10 @@ public:
     Q_INVOKABLE void registerString(const QString& key, const QString& fallback);
     Q_INVOKABLE void scanAllStrings();
 
+    // Public + static so tst_aiproviders can assert these stay equal to each provider's first
+    // catalog entry in aiprovider.cpp. That test is what stops this list going stale again.
+    static QString fallbackTranslationModel(const QString& providerId);
+
     // Community Translation Sharing
     // -----------------------------
     // Translations are stored as: key → translated text (simple format)
@@ -351,6 +355,8 @@ private:
     static constexpr int RETRY_DELAY_MS = 10000;  // 10 seconds
 
     // Helper to get all configured AI providers
+    // Public + static so tst_aiproviders can assert these stay equal to each provider's first
+    // catalog entry in aiprovider.cpp. That test is what stops this list going stale again.
     QString translationModelFor(const QString& provider, const QString& fallback) const;
     QStringList getConfiguredProviders() const;
 

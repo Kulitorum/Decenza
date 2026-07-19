@@ -1914,7 +1914,7 @@ void TranslationManager::sendNextAutoTranslateBatch()
         request.setRawHeader("Authorization", ("Bearer " + m_settings->ai()->openaiApiKey()).toUtf8());
 
         QJsonObject json;
-        json["model"] = translationModelFor(provider, QStringLiteral("gpt-5.4-mini"));
+        json["model"] = translationModelFor(provider, QString());
         json["temperature"] = 0.3;
         QJsonArray messages;
         QJsonObject msg;
@@ -1931,7 +1931,7 @@ void TranslationManager::sendNextAutoTranslateBatch()
         request.setRawHeader("anthropic-version", "2023-06-01");
 
         QJsonObject json;
-        json["model"] = translationModelFor(provider, QStringLiteral("claude-haiku-4-5"));
+        json["model"] = translationModelFor(provider, QString());
         json["max_tokens"] = 4096;
         QJsonArray messages;
         QJsonObject msg;
@@ -1945,7 +1945,7 @@ void TranslationManager::sendNextAutoTranslateBatch()
         QString apiKey = m_settings->ai()->geminiApiKey();
         // Gemini carries the model in the PATH rather than the body, which is why it was the
         // easiest one to leave stale — "gemini-2.0-flash" is not in the app's own model list.
-        const QString geminiModel = translationModelFor(provider, QStringLiteral("gemini-2.5-flash"));
+        const QString geminiModel = translationModelFor(provider, QString());
         request.setUrl(QUrl("https://generativelanguage.googleapis.com/v1beta/models/"
                             + geminiModel + ":generateContent"));
         request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
@@ -2500,25 +2500,40 @@ void TranslationManager::mergeLanguageUpdate(const QJsonObject& newTranslations)
 
 // --- Batch Translate and Upload All Languages ---
 
-// The model to translate with for a given provider: whatever the user configured for it in
-// Settings, falling back to a cheap-and-fast default only when they have not chosen one.
+// The model each provider falls back to when the user has not chosen one. Kept in step with
+// aiprovider.cpp's catalogs by tst_aiproviders, which asserts each of these is that provider's
+// FIRST catalog entry — the codebase's existing definition of "recommended".
 //
-// Every cloud provider here used to hard-code its own model and ignore the user's choice
-// entirely. That is how the Anthropic path came to sit on claude-3-5-haiku-20241022 for months
-// after Anthropic retired it — nothing in Settings could correct it, because Settings was never
-// consulted. OpenAI was pinned to gpt-4o-mini and Gemini to gemini-2.0-flash, neither of which
-// appears in the app's own model list any more. Ollama was the only one that read its setting,
-// and it is the only one that never went stale.
+// Deliberately a literal rather than a call into AIProvider: decenza_testlib compiles
+// translationmanager.cpp but not the AI stack, so reaching for the catalog at runtime would
+// drag the provider classes into forty-odd test targets to read one string. The test carries
+// the coupling instead of the link line.
 //
-// The fallbacks are a floor for the unconfigured case, not a preference: they are cheap models
-// because translation is bulk and mechanical (2400+ strings, 25 to a request). If the user has
-// picked a model, that is the one that runs — including an expensive one. Respecting the choice
-// beats second-guessing it, and a surprising bill is more visible than a silently wrong model.
+// This is what had gone stale. All three cloud providers hard-coded a model and ignored both
+// the user's choice and the catalog: Anthropic on claude-3-5-haiku-20241022 (RETIRED
+// 2026-02-19, so every Anthropic translation was 404ing), OpenAI on gpt-4o-mini, Gemini on
+// gemini-2.0-flash — the latter two not even offered by the model picker. Ollama read its
+// setting and never went stale, which is the argument for reading settings.
+QString TranslationManager::fallbackTranslationModel(const QString& providerId)
+{
+    if (providerId == QLatin1String("openai"))    return QStringLiteral("gpt-5.4");
+    if (providerId == QLatin1String("anthropic")) return QStringLiteral("claude-sonnet-4-6");
+    if (providerId == QLatin1String("gemini"))    return QStringLiteral("gemini-2.5-flash");
+    return {};   // ollama has no catalog — its model is user-supplied
+}
+
+// The model to translate with: whatever the user configured for this provider, else the
+// fallback above. Translation is bulk (2400+ strings, 25 to a request), so a configured
+// model can be expensive — that is the user's call to make, and a surprising bill is more
+// visible than a silently wrong model.
 QString TranslationManager::translationModelFor(const QString& provider,
                                                 const QString& fallback) const
 {
     const QString configured = m_settings->ai()->providerModel(provider).trimmed();
-    return configured.isEmpty() ? fallback : configured;
+    if (!configured.isEmpty())
+        return configured;
+    const QString catalogued = fallbackTranslationModel(provider);
+    return catalogued.isEmpty() ? fallback : catalogued;
 }
 
 QStringList TranslationManager::getConfiguredProviders() const
