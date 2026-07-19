@@ -74,14 +74,15 @@ Item {
     // sync with PresetPillRow.qml / PillFit.js. Only the width formula is
     // mirrored; the available width comes from the row's real effectiveMaxWidth.
     readonly property real _pillFitAvail: recipesPillRow ? recipesPillRow.effectiveMaxWidth : Theme.scaled(600)
-    TextMetrics { id: recipePillMetrics; font.pixelSize: Theme.scaled(16); font.bold: true }
+    // FontMetrics.advanceWidth() (not a mutated TextMetrics.text/.width) so
+    // measuring inside a reactive binding doesn't self-trigger a binding loop.
+    FontMetrics { id: recipePillMetrics; font.pixelSize: Theme.scaled(16); font.bold: true }
     function _recipePillWidths() {
         var out = []
-        for (var i = 0; i < inventoryRecipes.length; ++i) {
-            recipePillMetrics.text = inventoryRecipes[i].name || ""
+        for (var i = 0; i < inventoryRecipes.length; ++i)
             // Recipe pills always carry a drink-type icon → always add its width.
-            out.push(recipePillMetrics.width + Theme.scaled(20) + Theme.scaled(6) + Theme.scaled(40))
-        }
+            out.push(recipePillMetrics.advanceWidth(inventoryRecipes[i].name || "")
+                     + Theme.scaled(20) + Theme.scaled(6) + Theme.scaled(40))
         return out
     }
     readonly property var _recipePageSizes: {

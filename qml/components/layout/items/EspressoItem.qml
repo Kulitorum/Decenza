@@ -43,7 +43,9 @@ Item {
     // profile pills carry no icon. Keep in sync with PresetPillRow.qml/PillFit.js.
     property int profilePageIndex: 0
     readonly property real _pillFitAvail: profilesPillRow ? profilesPillRow.effectiveMaxWidth : Theme.scaled(600)
-    TextMetrics { id: profilePillMetrics; font.pixelSize: Theme.scaled(16); font.bold: true }
+    // FontMetrics.advanceWidth() (not a mutated TextMetrics.text/.width) so
+    // measuring inside a reactive binding doesn't self-trigger a binding loop.
+    FontMetrics { id: profilePillMetrics; font.pixelSize: Theme.scaled(16); font.bold: true }
     function _profilePillWidths() {
         var favs = Settings.app.favoriteProfiles
         var sel = Settings.app.selectedFavoriteProfile
@@ -55,8 +57,7 @@ Item {
                 name = ProfileManager.isCurrentProfileReadOnly
                     ? name + " " + TranslationManager.translate("presets.modified", "(modified)")
                     : "*" + name
-            profilePillMetrics.text = name
-            out.push(profilePillMetrics.width + Theme.scaled(40))
+            out.push(profilePillMetrics.advanceWidth(name) + Theme.scaled(40))
         }
         return out
     }

@@ -38,13 +38,13 @@ Item {
     // spacing 12); bean pills carry no icon, so no icon term. Keep in sync with
     // PresetPillRow.qml / PillFit.js.
     readonly property real _pillFitAvail: beansPillRow ? beansPillRow.effectiveMaxWidth : Theme.scaled(600)
-    TextMetrics { id: beanPillMetrics; font.pixelSize: Theme.scaled(16); font.bold: true }
+    // FontMetrics.advanceWidth() (not a mutated TextMetrics.text/.width) so
+    // measuring inside a reactive binding doesn't self-trigger a binding loop.
+    FontMetrics { id: beanPillMetrics; font.pixelSize: Theme.scaled(16); font.bold: true }
     function _beanPillWidths() {
         var out = []
-        for (var i = 0; i < inventoryBags.length; ++i) {
-            beanPillMetrics.text = root.bagLabel(inventoryBags[i])
-            out.push(beanPillMetrics.width + Theme.scaled(40))
-        }
+        for (var i = 0; i < inventoryBags.length; ++i)
+            out.push(beanPillMetrics.advanceWidth(root.bagLabel(inventoryBags[i])) + Theme.scaled(40))
         return out
     }
     readonly property var _beanPageSizes: {

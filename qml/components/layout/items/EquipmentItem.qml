@@ -5,6 +5,7 @@ import QtQuick.Effects
 import QtQuick.Window
 import Decenza
 import "../.."
+import "../PillFit.js" as PillFit
 
 // Idle-page Equipment button (add-equipment-packages). Mirrors BeansItem: a tap
 // shows the recently-used equipment packages as quick-switch pills (inline pills
@@ -27,10 +28,12 @@ Item {
         return null
     }
 
-    // Recently-used equipment packages shown as pills. Capped to the 5 most
-    // recently used (inventoryReady is MRU-ordered); the full inventory lives on
+    // Recently-used equipment packages shown as pills (MRU-ordered). The full
+    // inventory is kept and paged into two-row pages (descriptive-recipe-names —
+    // previously capped to 5 with no paging); the full inventory also lives on
     // the Equipment page.
     property var inventoryEquipment: []
+    property int equipmentPageIndex: 0
 
     function equipmentLabel(pkg) {
         if (!pkg) return ""
@@ -39,12 +42,40 @@ Item {
                 .filter(function(s) { return s.length > 0 }).join(" ")
     }
 
+    // Live two-row fit (descriptive-recipe-names, mirrors RecipesItem). Equipment
+    // pills carry no icon. Widths MIRROR PresetPillRow's metrics — keep in sync
+    // (see PillFit.js).
+    readonly property real _pillFitAvail: equipmentPillRow ? equipmentPillRow.effectiveMaxWidth : Theme.scaled(600)
+    // FontMetrics.advanceWidth() (not a mutated TextMetrics.text/.width) so
+    // measuring inside a reactive binding doesn't self-trigger a binding loop.
+    FontMetrics { id: equipmentPillMetrics; font.pixelSize: Theme.scaled(16); font.bold: true }
+    readonly property var _equipmentPageSizes: {
+        var w = []
+        for (var i = 0; i < inventoryEquipment.length; ++i)
+            w.push(equipmentPillMetrics.advanceWidth(equipmentLabel(inventoryEquipment[i])) + Theme.scaled(40))
+        var sizes = PillFit.packPageSizes(w, Theme.scaled(12), _pillFitAvail, 2)
+        if (sizes.length <= 1)
+            return sizes
+        return PillFit.packPageSizes(w, Theme.scaled(12), Math.max(0, _pillFitAvail - 2 * Theme.scaled(48)), 2)
+    }
+    readonly property int equipmentPageCount: Math.max(1, _equipmentPageSizes.length)
+    readonly property var visibleEquipment: {
+        if (inventoryEquipment.length === 0)
+            return []
+        var idx = Math.max(0, Math.min(equipmentPageIndex, _equipmentPageSizes.length - 1))
+        var start = 0
+        for (var p = 0; p < idx; ++p)
+            start += _equipmentPageSizes[p]
+        return inventoryEquipment.slice(start, start + (_equipmentPageSizes[idx] || 0))
+    }
+
     Component.onCompleted: MainController.equipmentStorage.requestInventory()
 
     Connections {
         target: MainController.equipmentStorage
         function onInventoryReady(packages) {
-            root.inventoryEquipment = packages.slice(0, 5)
+            root.inventoryEquipment = packages
+            root.equipmentPageIndex = Math.max(0, Math.min(root.equipmentPageIndex, root.equipmentPageCount - 1))
         }
         function onPackagesChanged() {
             MainController.equipmentStorage.requestInventory()
@@ -203,17 +234,25 @@ Item {
         contentItem: PresetPillRow {
             id: equipmentPillRow
             maxWidth: Theme.scaled(600)
-            presets: root.inventoryEquipment.map(function(p) { return { name: root.equipmentLabel(p) } })
+            presets: root.visibleEquipment.map(function(p) { return { name: root.equipmentLabel(p) } })
             selectedIndex: {
-                var list = root.inventoryEquipment
+                var list = root.visibleEquipment
                 for (var i = 0; i < list.length; ++i) {
                     if (list[i].id === Settings.dye.activeEquipmentId) return i
                 }
                 return -1
             }
 
+            pageCount: root.equipmentPageCount
+            pageIndex: root.equipmentPageIndex
+            prevPageAccessibleName: TranslationManager.translate("idle.pagination.previousEquipment", "Previous equipment")
+            nextPageAccessibleName: TranslationManager.translate("idle.pagination.nextEquipment", "Next equipment")
+            onPageChangeRequested: function(delta) {
+                root.equipmentPageIndex = Math.max(0, Math.min(root.equipmentPageIndex + delta, root.equipmentPageCount - 1))
+            }
+
             onPresetSelected: function(index) {
-                var pkg = root.inventoryEquipment[index]
+                var pkg = root.visibleEquipment[index]
                 if (!pkg) return
                 Settings.dye.switchToEquipment(pkg)
                 presetPopup.close()

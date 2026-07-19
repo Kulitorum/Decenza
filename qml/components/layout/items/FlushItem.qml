@@ -5,6 +5,7 @@ import QtQuick.Effects
 import QtQuick.Window
 import Decenza
 import "../.."
+import "../PillFit.js" as PillFit
 
 Item {
     id: root
@@ -21,6 +22,41 @@ Item {
             p = p.parent
         }
         return null
+    }
+
+    // Live two-row fit for the flush pills (descriptive-recipe-names, mirrors
+    // EspressoItem). selectedFlushPreset is an ABSOLUTE index → taps map through
+    // _flushPageStart. No icon. Widths MIRROR PresetPillRow's metrics (font 16
+    // bold, padding 40, spacing 12) — keep in sync (see PillFit.js).
+    property int flushPageIndex: 0
+    readonly property real _pillFitAvail: flushPillRow ? flushPillRow.effectiveMaxWidth : Theme.scaled(600)
+    // FontMetrics.advanceWidth() (not a mutated TextMetrics.text/.width) so
+    // measuring inside a reactive binding doesn't self-trigger a binding loop.
+    FontMetrics { id: flushPillMetrics; font.pixelSize: Theme.scaled(16); font.bold: true }
+    readonly property var _flushPageSizes: {
+        var favs = Settings.brew.flushPresets
+        var w = []
+        for (var i = 0; i < favs.length; ++i)
+            w.push(flushPillMetrics.advanceWidth((favs[i] && favs[i].name) || "") + Theme.scaled(40))
+        var sizes = PillFit.packPageSizes(w, Theme.scaled(12), _pillFitAvail, 2)
+        if (sizes.length <= 1)
+            return sizes
+        return PillFit.packPageSizes(w, Theme.scaled(12), Math.max(0, _pillFitAvail - 2 * Theme.scaled(48)), 2)
+    }
+    readonly property int flushPageCount: Math.max(1, _flushPageSizes.length)
+    readonly property int _flushPageStart: {
+        var idx = Math.max(0, Math.min(flushPageIndex, _flushPageSizes.length - 1))
+        var start = 0
+        for (var p = 0; p < idx; ++p)
+            start += _flushPageSizes[p]
+        return start
+    }
+    readonly property var visibleFlush: {
+        var favs = Settings.brew.flushPresets
+        if (!favs || favs.length === 0)
+            return []
+        var idx = Math.max(0, Math.min(flushPageIndex, _flushPageSizes.length - 1))
+        return favs.slice(_flushPageStart, _flushPageStart + (_flushPageSizes[idx] || 0))
     }
 
     // Highlight this button while its mode is selected on the home screen (the
@@ -175,14 +211,27 @@ Item {
         }
 
         contentItem: PresetPillRow {
+            id: flushPillRow
             maxWidth: Theme.scaled(600)
-            presets: Settings.brew.flushPresets
-            selectedIndex: Settings.brew.selectedFlushPreset
+            presets: root.visibleFlush
+            selectedIndex: {
+                var rel = Settings.brew.selectedFlushPreset - root._flushPageStart
+                return (rel >= 0 && rel < root.visibleFlush.length) ? rel : -1
+            }
+
+            pageCount: root.flushPageCount
+            pageIndex: root.flushPageIndex
+            prevPageAccessibleName: TranslationManager.translate("idle.pagination.previousFlush", "Previous flushes")
+            nextPageAccessibleName: TranslationManager.translate("idle.pagination.nextFlush", "Next flushes")
+            onPageChangeRequested: function(delta) {
+                root.flushPageIndex = Math.max(0, Math.min(root.flushPageIndex + delta, root.flushPageCount - 1))
+            }
 
             onPresetSelected: function(index) {
-                var wasAlreadySelected = (index === Settings.brew.selectedFlushPreset)
-                Settings.brew.selectedFlushPreset = index
-                var preset = Settings.brew.getFlushPreset(index)
+                var absIndex = root._flushPageStart + index
+                var wasAlreadySelected = (absIndex === Settings.brew.selectedFlushPreset)
+                Settings.brew.selectedFlushPreset = absIndex
+                var preset = Settings.brew.getFlushPreset(absIndex)
                 if (preset) {
                     Settings.brew.flushFlow = preset.flow
                     Settings.brew.flushSeconds = preset.seconds
