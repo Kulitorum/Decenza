@@ -20,18 +20,31 @@ Two ways to fix a report from this script:
 """
 import collections, glob, io, re, sys
 
+# Mirror the THREE patterns scanAllStrings() uses, including its nearest-fallback-within-200-
+# characters pairing. An earlier version of this script only matched labelKey/translationKey on
+# a single line and so reported a clean tree while the running app was logging conflicts for
+# settings.tab.languageAccess and three others -- they use the plain key:/fallback: form, spread
+# across lines. A checker that is narrower than the thing it checks gives false assurance.
 DIRECT = re.compile(r'translate\s*\(\s*"([^"]+)"\s*,\s*"((?:[^"\\]|\\.)*)"\s*\)')
-PROP = re.compile(r'(labelKey|translationKey)\s*:\s*"([^"]+)"\s*;?\s*'
-                  r'(labelFallback|translationFallback)\s*:\s*"((?:[^"\\]|\\.)*)"')
+KEY_ANY = re.compile(r'\b(?:labelKey|translationKey|key)\s*:\s*"([^"]+)"')
+FB_ANY = re.compile(r'\b(?:labelFallback|translationFallback|fallback)\s*:\s*"((?:[^"\\]|\\.)*)"')
 
 def main() -> int:
     seen = collections.defaultdict(lambda: collections.defaultdict(list))
     for path in sorted(glob.glob("qml/**/*.qml", recursive=True)):
-        for lineno, line in enumerate(io.open(path, encoding="utf-8"), 1):
-            for m in DIRECT.finditer(line):
-                seen[m.group(1)][m.group(2)].append(f"{path}:{lineno}")
-            for m in PROP.finditer(line):
-                seen[m.group(2)][m.group(4)].append(f"{path}:{lineno}")
+        text = io.open(path, encoding="utf-8").read()
+        line_of = lambda pos: text.count("\n", 0, pos) + 1
+
+        for m in DIRECT.finditer(text):
+            seen[m.group(1)][m.group(2)].append(f"{path}:{line_of(m.start())}")
+
+        # key -> nearest following fallback within 200 characters, as scanAllStrings does.
+        fallbacks = [(m.start(), m.group(1)) for m in FB_ANY.finditer(text)]
+        for km in KEY_ANY.finditer(text):
+            for fpos, ftext in fallbacks:
+                if fpos > km.start() and fpos - km.start() < 200:
+                    seen[km.group(1)][ftext].append(f"{path}:{line_of(km.start())}")
+                    break
 
     conflicts = {k: v for k, v in seen.items() if len(v) > 1}
     print(f"Checked {len(seen)} translation keys across QML.")
