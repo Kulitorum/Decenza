@@ -1,6 +1,7 @@
 #include "shotserver.h"
 #include "webdebuglogger.h"
 #include "webtemplates.h"
+#include "exifdate.h"
 #include "../history/shothistorystorage.h"
 #include "../ble/de1device.h"
 #include "../core/crashhandler.h"
@@ -1328,62 +1329,13 @@ QDateTime ShotServer::extractImageDate(const QString& imagePath)
         return QDateTime();
     }
 
-    QByteArray data = file.read(65536);  // Read first 64KB for EXIF
+    const QByteArray data = file.read(65536);  // First 64KB is where EXIF lives
     file.close();
 
-    // Check for JPEG magic bytes
-    if (data.size() < 4 || (uchar)data[0] != 0xFF || (uchar)data[1] != 0xD8) {
-        return QDateTime();  // Not a JPEG
-    }
-
-    // Search for EXIF marker (APP1 = 0xFFE1)
-    int pos = 2;
-    while (pos < data.size() - 4) {
-        if ((uchar)data[pos] != 0xFF) {
-            pos++;
-            continue;
-        }
-
-        uchar marker = (uchar)data[pos + 1];
-        if (marker == 0xE1) {  // APP1 (EXIF)
-            int length = ((uchar)data[pos + 2] << 8) | (uchar)data[pos + 3];
-            QByteArray exifData = data.mid(pos + 4, length - 2);
-
-            // Check for "Exif\0\0" header
-            if (exifData.startsWith("Exif\0\0")) {
-                // Search for DateTimeOriginal tag (0x9003) in EXIF data
-                // Format: "YYYY:MM:DD HH:MM:SS"
-                QString exifStr = QString::fromLatin1(exifData);
-                QRegularExpression dateRe("(\\d{4}):(\\d{2}):(\\d{2}) (\\d{2}):(\\d{2}):(\\d{2})");
-                QRegularExpressionMatch match = dateRe.match(exifStr);
-                if (match.hasMatch()) {
-                    int year = match.captured(1).toInt();
-                    int month = match.captured(2).toInt();
-                    int day = match.captured(3).toInt();
-                    int hour = match.captured(4).toInt();
-                    int minute = match.captured(5).toInt();
-                    int second = match.captured(6).toInt();
-
-                    QDateTime parsedDt(QDate(year, month, day), QTime(hour, minute, second));
-                    if (parsedDt.isValid() && year >= 1990 && year <= 2100) {
-                        qDebug() << "Extracted EXIF date:" << parsedDt;
-                        return parsedDt;
-                    }
-                }
-            }
-            break;
-        } else if (marker == 0xD9 || marker == 0xDA) {
-            break;  // End of image or start of scan
-        } else if (marker >= 0xE0 && marker <= 0xEF) {
-            // Skip other APP markers
-            int length = ((uchar)data[pos + 2] << 8) | (uchar)data[pos + 3];
-            pos += 2 + length;
-        } else {
-            pos += 2;
-        }
-    }
-
-    return QDateTime();  // No date found
+    const QDateTime parsedDt = ExifDate::fromJpegBytes(data);
+    if (parsedDt.isValid())
+        qDebug() << "Extracted EXIF date:" << parsedDt;
+    return parsedDt;
 }
 
 QDateTime ShotServer::extractVideoDate(const QString& videoPath)

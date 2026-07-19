@@ -926,6 +926,15 @@ add_decenza_test(tst_steamhealth
 )
 target_link_libraries(tst_steamhealth PRIVATE decenza_shotlib)
 
+# --- tst_exifdate: EXIF date scanning from JPEG bytes.
+# Header-only and dependency-free, which is the point: the same logic inside
+# ShotServer::extractImageDate was untestable without linking a web server, a
+# storage backend, a DE1 device and an AI manager — so it was never tested, and
+# a rename silently made the whole path dead code. Nothing to link here.
+add_decenza_test(tst_exifdate
+    tst_exifdate.cpp
+)
+
 # --- tst_kb_schema: build-time KB validator (tools/validate_kb.py) coverage
 # (change: restructure-kb-as-validated-json, task 5.1). Shells out to the
 # same Python interpreter the root CMakeLists.txt's `validate_kb` build gate

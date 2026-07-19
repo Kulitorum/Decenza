@@ -412,8 +412,8 @@ endif()
 # The extra flags beyond -Wall -Wextra were chosen by MEASUREMENT, not taste:
 # every first-party TU was compiled with a wide candidate set and the hits
 # counted (scripts/measure_warnings.py). Flags that fired on real defects are
-# here; flags that fired mostly on idiom are not, and are listed at the bottom
-# with the counts, so nobody re-proposes them without new evidence.
+# enabled below; flags that fired mostly on idiom are not, and are listed after
+# them with their counts, so nobody re-proposes them without new evidence.
 if(MSVC)
     # NOT verified. /W4 is a different diagnostic set from -Wall -Wextra with no
     # measurement behind it here, and turning /WX on unmeasured is the same
@@ -431,8 +431,7 @@ else()
     add_compile_options(-Wall -Wextra -Werror)
 
     include(CheckCXXCompilerFlag)
-    # Chosen by MEASUREMENT, not taste — every first-party TU was compiled with
-    # a wide candidate set and the hits counted (scripts/measure_warnings.py).
+    # What the measurement said about the flags that ARE enabled:
     #
     #   -Wshorten-64-to-32   30 sites. CLAUDE.md already documents this hazard
     #                        (qsizetype -> int truncates on 64-bit) and the

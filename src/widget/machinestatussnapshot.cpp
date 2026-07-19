@@ -224,6 +224,13 @@ void MachineStatusSnapshot::platformWrite(const QByteArray& json)
     // Worth knowing when triaging: those iOS breadcrumbs go to the device
     // console, NOT to this app's debug log, so they are invisible to the MCP
     // log reader that Android and desktop failures do reach.
+    //
+    // Deliberately not Q_UNUSED, which is the convention nearly everywhere
+    // else here: Q_UNUSED is a statement that fakes a use, so it would have to
+    // sit after the declaration and would mark the lambda used on EVERY
+    // platform — including the ones where a future unused-lambda really would
+    // be a mistake worth hearing about. [[maybe_unused]] says "may be", which
+    // is the actual claim.
     [[maybe_unused]] auto logFail = [](const char* what) {
         const int n = failCount.fetch_add(1);
         if (n == 0 || n % 100 == 0)
