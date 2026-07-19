@@ -1720,6 +1720,10 @@ void ScreensaverVideoManager::migrateCacheToExternal()
     // Migrate cache index and files
     const QStringList files = fallbackDir.entryList(QDir::Files);
     int migrated = 0;
+    // Filenames that could not be moved. Their index entries must keep pointing
+    // at the fallback directory: the file is still there, and rewriting the path
+    // to a destination it never reached orphans it (see the rewrite loop below).
+    QSet<QString> failedToMove;
 
     for (const QString& file : files) {
         QString srcPath = fallbackDir.filePath(file);
@@ -1740,18 +1744,35 @@ void ScreensaverVideoManager::migrateCacheToExternal()
                 QFile::remove(srcPath);
                 migrated++;
             } else {
+                failedToMove.insert(file);
+                qWarning() << "[Screensaver] Cache migration: could not move" << file
+                           << "to" << externalPath << "- rename and copy both failed."
+                           << "Leaving it in" << fallbackPath << "and keeping the index"
+                           << "entry pointed there.";
             }
         }
     }
 
 
-    // Update cache index paths
+    // Update cache index paths — but only for files that actually arrived.
+    // Rewriting the path of a file that failed to move points the index at
+    // something that does not exist; loadCacheIndex() drops any entry whose
+    // localPath is missing, so the file would be orphaned in the fallback
+    // directory: still occupying space, no longer tracked, and re-downloaded.
     for (auto it = m_cacheIndex.begin(); it != m_cacheIndex.end(); ++it) {
         QString oldPath = it.value().localPath;
         if (oldPath.startsWith(fallbackPath)) {
             QString filename = QFileInfo(oldPath).fileName();
+            if (failedToMove.contains(filename))
+                continue;
             it.value().localPath = externalDir.filePath(filename);
         }
+    }
+
+    if (!failedToMove.isEmpty()) {
+        qWarning() << "[Screensaver] Cache migration incomplete:" << migrated << "moved,"
+                   << failedToMove.size() << "left in" << fallbackPath
+                   << "- those remain usable from there.";
     }
 
     // Update cache directory and save index
@@ -2051,7 +2072,6 @@ void ScreensaverVideoManager::clearPersonalMedia()
 {
     QString personalDir = m_cacheDir + "/personal";
 
-    qint64 freedBytes = 0;
     for (const VideoItem& item : std::as_const(m_personalCatalog)) {
         QString filePath = personalDir + "/" + item.path;
         if (QFile::exists(filePath)) {
@@ -2061,7 +2081,6 @@ void ScreensaverVideoManager::clearPersonalMedia()
         if (m_settings->theme()->backgroundImagePath() == filePath) {
             m_settings->theme()->setBackgroundImagePath("");
         }
-        freedBytes += item.bytes;
     }
 
     m_personalCatalog.clear();
