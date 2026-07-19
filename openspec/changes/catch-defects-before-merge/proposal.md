@@ -1,3 +1,22 @@
+> **Outcome note (added at archive time).** This proposal argues for a
+> **pre-merge CI gate**. That gate was built, run, and then **removed** before
+> this change landed — so the document below records what was proposed, not
+> what shipped.
+>
+> Why: three detectors (UBSan, ASan, `-Wall -Wextra`) were run for the first
+> time across eight months of previously unexamined code, and found **no
+> pre-existing runtime defects**. The only two failures the gate ever produced
+> were problems it created itself. A near-empty first harvest makes the
+> expected future yield low, and 10–15 minutes on every pull request is a poor
+> trade for a team of three that already runs the full suite locally.
+>
+> What shipped instead: `-Wall -Wextra -Werror` (plus twelve probed flags) in
+> every build on every machine, ASan+UBSan automatic in desktop Debug builds,
+> and two nightly workflows — sanitizers, and all six platforms. The
+> `pre-merge-verification` capability named below became `change-verification`,
+> which carries this reasoning so the gate is not reinstated without new
+> evidence.
+
 ## Why
 
 PR #1553 took **53 commits** to land, and six rounds of agent review plus roughly an hour of live clicking to stabilise. Most of those commits were not new work — they were repairs to the previous commit, of a small number of mechanically detectable defect classes. The follow-up PR #1558 then repeated the pattern in miniature: a build-breaking defect reached a release tag, and the review of the fix found the same bug class four more times in the same file.
