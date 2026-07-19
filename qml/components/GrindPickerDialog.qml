@@ -73,7 +73,7 @@ Dialog {
     }
 
     background: Rectangle {
-        color: Theme.surfaceColor
+        color: Theme.dialogBackgroundColor
         radius: Theme.cardRadius
         border.width: 1
         border.color: Theme.borderColor
