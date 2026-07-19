@@ -29,6 +29,7 @@ private slots:
     void initTestCase();
     void escapesAmpersandAndLessThan();
     void neutralisesRemoteImageInAStyledTextValue();
+    void unbundledEmojiIsDroppedNotTofu();
     void doesNotEscapeGreaterThan();
     void tagInjectionIsNeutralised();
     void replaceEmojiEscapesByDefault();
@@ -124,6 +125,33 @@ QString TestTextEscaping::call(const QString& fn, const QJSValueList& args)
     if (r.isError())
         return QStringLiteral("ERROR: ") + r.toString();
     return r.toString();
+}
+
+// An emoji the bundled set does not carry must DISAPPEAR, not survive as a raw codepoint.
+//
+// This is the contract CLAUDE.md states ("An emoji with no bundled asset is silently stripped")
+// and it was being broken in the UI, though not by this function: ShotPlanText, BeanSummary and
+// SteamPlanText escaped user text into StyledText without ever routing it through
+// replaceEmojiWithImg. A bean name of "Milk U+1F322 Blend" rendered a tofu box on screen — and
+// the same gap meant a BUNDLED colour emoji reached the platform text renderer, which is the
+// macOS path this whole change exists to avoid. Verified by typing it into a real bean name.
+//
+// 399 assigned codepoints sit in the ranges _isEmoji matches with no asset behind them, so this
+// is a live case rather than a hypothetical: U+1F322 BLACK DROPLET is one a user can type.
+void TestTextEscaping::unbundledEmojiIsDroppedNotTofu()
+{
+    // Bundled: becomes an <img>, never a glyph.
+    const QString bundled = call("replaceEmojiWithImg", {QJSValue(QStringLiteral("Milk \u2615 Blend")), QJSValue(16)});
+    QVERIFY2(bundled.contains(QStringLiteral("<img")), "a bundled emoji must render as an image");
+    QVERIFY2(!bundled.contains(QChar(0x2615)), "the raw codepoint must not survive to the renderer");
+
+    // Unbundled: dropped entirely, leaving the surrounding text intact.
+    const QString payload = QStringLiteral("Milk ") + QString::fromUcs4(U"\U0001F322") + QStringLiteral(" Blend");
+    const QString out = call("replaceEmojiWithImg", {QJSValue(payload), QJSValue(16)});
+    QVERIFY2(!out.contains(QString::fromUcs4(U"\U0001F322")),
+             "an emoji with no bundled asset must be stripped, not passed through as tofu");
+    QVERIFY2(!out.contains(QStringLiteral("<img")), "nothing should be emitted for a missing asset");
+    QCOMPARE(out, QStringLiteral("Milk  Blend"));
 }
 
 // The payload this escaping exists to stop, written out rather than described.

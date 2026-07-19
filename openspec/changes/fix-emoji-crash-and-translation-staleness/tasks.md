@@ -127,11 +127,31 @@ re-render, offline behaviour, eviction) no longer exist.
       live. Needs each page to expose a `pageTitle` property and main.qml to bind it — a
       one-line change per page plus a small refactor. Not done: it is a separate shape of bug
       from the binding fix, and this change is already large.
-- [ ] 6.5 Check pages that display externally-sourced text after the escaping change — bean names,
+- [x] 6.5 Check pages that display externally-sourced text after the escaping change — bean names,
       recipe names, shot history, screensaver author, AI conversation — and confirm no raw tags
-      appear.
-- [ ] 6.6 Exercise an emoji outside the bundled 745 in a bean name or recipe name: confirm it
+      appear. PASS. Audited every surface that renders external text as StyledText/RichText:
+      each one routes through an escaping helper before display — `Theme.joinWithBullet`
+      (BagCard's attrLineRich/metaLineRich, BeanBaseDetailsRow), `replaceEmojiWithImg` with no
+      `allowMarkup` (ShotHistoryPage, AutoFavoriteInfoPage), an explicit `Theme.escapeHtml`
+      (ShotDetailPage), and `MarkdownNoHTML` for the AI conversation. No unescaped path found.
+- [x] 6.6 Exercise an emoji outside the bundled set in a bean name or recipe name: confirm it
       fetches and renders, survives a restart, and strips cleanly with the network off.
+      **This found a real bug.** 399 assigned codepoints fall inside the ranges `_isEmoji`
+      matches with no bundled asset behind them, so this is reachable by typing, not a
+      hypothetical. Set a bean name to `Milk U+1F322 Blend U+2615 Espresso` and it rendered
+      **`Milk ▯ Blend`** — a tofu box, not the silent strip CLAUDE.md documents.
+      Root cause was not the emoji pipeline but a gap ahead of it: `ShotPlanText._rich` escaped
+      user text into `Text.StyledText` and never called `replaceEmojiWithImg`, so emoji reached
+      the renderer as raw codepoints. Two siblings had the same shape — `BeanSummary.qml` and
+      `SteamPlanText.qml` — found by scanning for "escapes into StyledText, no emoji pipeline".
+      Worth stating plainly: the tofu was the visible half. The same gap meant a *bundled*
+      colour emoji also reached the platform text renderer, which is the macOS render-thread
+      crash path this whole change exists to close. A bean name with ☕ in it was a live crash
+      route on the shot-plan line.
+      Fixed all three; a re-scan reports no remaining files of that shape. Pinned by
+      `tst_textescaping::unbundledEmojiIsDroppedNotTofu`, which asserts both halves against the
+      real shipped asset set: bundled becomes `<img>` with no raw codepoint surviving, unbundled
+      disappears entirely.
 - [x] 6.7 Android verification NOT REQUIRED for this change — Jeff's call, and correct.
       The rule is that PLATFORM/BLE/JNI code needs an Android CI build because a macOS compile
       skips `#ifdef Q_OS_ANDROID` branches. This change adds none: it is QML, three plain-Qt C++
