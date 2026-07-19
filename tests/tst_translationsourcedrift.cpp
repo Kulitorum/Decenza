@@ -28,6 +28,7 @@
 #include <QNetworkAccessManager>
 #include <QStandardPaths>
 #include "core/settings.h"
+#include "core/settings_ai.h"   // ai() returns SettingsAI*, forward-declared in settings.h
 #include "core/translationmanager.h"
 
 namespace {
@@ -277,6 +278,97 @@ private slots:
 
         // Runtime path: QML hands over the real characters.
         QCOMPARE(tm.translateString(key, QStringLiteral("Steam (°C)")), QStringLiteral("Dampf (°C)"));
+    }
+
+    // ---- The spend rule ----------------------------------------------------------------
+    //
+    // "A configured API key is not permission to spend on it." This is the one function in
+    // TranslationManager with money attached, and until this test it was enforced by nothing:
+    // re-adding a single `if (!openaiApiKey().isEmpty()) providers << "openai";` left the whole
+    // suite green while billing a user on an account they never selected.
+    //
+    // That is not hypothetical. The old code hard-ordered "Claude first, then OpenAI", which
+    // hid a retired Anthropic model for months — every Anthropic request 404'd and the batch
+    // quietly finished on OpenAI.
+    void onlyTheSelectedProviderIsEverUsed()
+    {
+        Settings settings;
+        TranslationManager tm(&m_nam, &settings);
+
+        // Every provider holds a key. A greedy implementation returns all four here.
+        settings.ai()->setOpenaiApiKey(QStringLiteral("sk-openai"));
+        settings.ai()->setAnthropicApiKey(QStringLiteral("sk-anthropic"));
+        settings.ai()->setGeminiApiKey(QStringLiteral("sk-gemini"));
+
+        settings.ai()->setAiProvider(QStringLiteral("anthropic"));
+        QCOMPARE(tm.getConfiguredProviders(), QStringList{QStringLiteral("anthropic")});
+
+        settings.ai()->setAiProvider(QStringLiteral("openai"));
+        QCOMPARE(tm.getConfiguredProviders(), QStringList{QStringLiteral("openai")});
+
+        settings.ai()->setAiProvider(QStringLiteral("gemini"));
+        QCOMPARE(tm.getConfiguredProviders(), QStringList{QStringLiteral("gemini")});
+    }
+
+    // The half that actually bills someone: the selected provider has NO key, but another does.
+    // Falling back here is the precise failure the rule exists to prevent, so an empty list —
+    // "cannot run, say so" — is the required answer, not a convenience substitution.
+    void anUnconfiguredSelectionDoesNotBorrowAnotherProvidersKey()
+    {
+        Settings settings;
+        TranslationManager tm(&m_nam, &settings);
+
+        settings.ai()->setOpenaiApiKey(QStringLiteral("sk-openai"));
+        settings.ai()->setAnthropicApiKey(QString());
+        settings.ai()->setAiProvider(QStringLiteral("anthropic"));
+
+        QVERIFY2(tm.getConfiguredProviders().isEmpty(),
+                 "selected provider has no key: the run must stop, not fall back to OpenAI");
+    }
+
+    // ---- The download must never replace a local file it could not read --------------------
+    //
+    // The merge fix lives in onLanguageFileFetched, NOT in mergeLanguageUpdate — that always
+    // merged correctly and the launch-time path used it properly the whole time. So a test that
+    // calls mergeLanguageUpdate directly (as the one above does) exercises the half that was
+    // never broken. This covers the half that was: the not-current-language branch, which does
+    // its own read/merge/write on the file.
+    //
+    // The specific hazard is that "no local file" and "local file I cannot read" both used to
+    // yield an empty base, so a locked or corrupt file was silently overwritten by the server's
+    // copy — the original destructive replace, reached from inside the branch written to stop it.
+    void acorruptLocalFileIsNotOverwrittenByTheServerCopy()
+    {
+        Settings settings;
+        TranslationManager tm(&m_nam, &settings);
+
+        const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+                            + QStringLiteral("/translations");
+        QDir().mkpath(dir);
+        const QString path = dir + QStringLiteral("/zz.json");
+
+        // A local file that exists but is not valid JSON.
+        {
+            QFile f(path);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write("{ this is not json");
+        }
+        const auto readBack = [&]() -> QByteArray {
+            QFile f(path);
+            return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray("<unreadable>");
+        };
+        const QByteArray before = readBack();
+
+        // The abort path warns by design, so failOnWarning() must not fire the test.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Language merge ABORTED")));
+
+        QJsonObject incoming{{QStringLiteral("translations"),
+                              QJsonObject{{QStringLiteral("a.key"), QStringLiteral("server value")}}}};
+        QVERIFY2(!tm.mergeDownloadedLanguageFile(QStringLiteral("zz"), incoming),
+                 "an unreadable local file must make the merge fail, not succeed silently");
+
+        const QByteArray after = readBack();
+        QCOMPARE(after, before);   // untouched, not replaced
     }
 
 };

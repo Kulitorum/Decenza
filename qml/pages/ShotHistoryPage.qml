@@ -497,7 +497,8 @@ Page {
             // Sort field button
             AccessibleButton {
                 text: sortFieldLabels[sortField] || TranslationManager.translate("shothistory.sort.date", "Date")
-                accessibleName: TranslationManager.translate("shothistory.sortBy", "Sort by %1").arg(sortFieldLabels[sortField] || "Date")
+                accessibleName: TranslationManager.translate("shothistory.sortBy", "Sort by %1").arg(sortFieldLabels[sortField]
+                                  || TranslationManager.translate("shothistory.sort.date", "Date"))
                 onClicked: sortPickerDialog.open()
             }
 

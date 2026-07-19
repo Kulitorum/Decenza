@@ -127,13 +127,21 @@ public:
     //
     // Flow:
     //   1. User enters Language settings → scanAllStrings() runs
-    //   2. All QML files in :/qml/ are parsed with regex
+    //   2. All QML files under :/qt/qml/Decenza/qml are parsed with regex — that is where
+    //      qt_add_qml_module publishes them, NOT :/qml, which is what this said while the
+    //      scanner looked there and silently found zero files
     //   3. All translation patterns are extracted and registered
     //   4. AI translation / upload now has access to all strings
     //
-    // Decode a QML string literal the way the QML engine does. The scanner reads QML as TEXT,
-    // so it sees the escape sequences; the runtime sees the characters they denote. Those two
-    // must agree, because both write the registry — six fallbacks use \uXXXX (GraphLegend's
+    // Decode the escapes a QML string literal can carry in this codebase. Deliberately a SUBSET
+    // of what the QML engine accepts: it handles the sequences our fallbacks actually use and
+    // leaves anything else byte-for-byte, where the engine would apply identity-escape rules
+    // (\q -> q) and also decode \b \f \v \0 \xNN \u{...}. Leaving an unknown escape alone is the
+    // safe direction for a scanner — it can only fail to decode, never invent a character.
+    //
+    // Why it must exist at all: the scanner reads QML as TEXT, so it sees the escape sequences,
+    // while the runtime sees the characters they denote. Those two must agree, because both
+    // write the registry — some fallbacks use \uXXXX (GraphLegend's
     // superscript two, a degree sign) and a scanner that stored the literal backslash-u would
     // disagree with the runtime forever, each seeing the other's value as a rewrite.
     static QString unescapeQmlLiteral(const QString& literal);
@@ -345,6 +353,16 @@ private:
     QStringList m_batchProviderQueue;
     QString m_originalProvider;
     QString m_originalLanguage;   // restored when a batch finishes; see translateAndUploadAllLanguages
+
+    // Languages whose upload failed during a batch, as "code: reason".
+    //
+    // The batch reported success unconditionally: the upload handler read its `success` flag
+    // only to choose a word for a qDebug line, then advanced regardless. A run that hit the
+    // hourly rate limit on languages 11 and 12 of 12 still finished "Batch processing complete"
+    // with two languages never sent. That is the same shape as the provider substitution this
+    // change set out to kill — a run reporting success for work it did not do — and it was
+    // thirty lines away in the same function.
+    QStringList m_batchFailedUploads;
     QString m_batchCurrentProvider;  // Bypasses QSettings cache during batch ops
     bool m_batchProcessing = false;
 
@@ -368,11 +386,22 @@ private:
     // long to wait. Mirrors RATE_LIMIT_WINDOW_SECONDS in the shotmap backend.
     static constexpr int RATE_LIMIT_WINDOW_MINUTES = 60;
 
-    // Helper to get all configured AI providers
-    // Public + static so tst_aiproviders can assert these stay equal to each provider's first
-    // catalog entry in aiprovider.cpp. That test is what stops this list going stale again.
+    // Which model to translate with: the user's configured model if set, else the catalog
+    // fallback for their provider.
     QString translationModelFor(const QString& provider, const QString& fallback) const;
+
+    // Human-readable name of the selected provider, for error messages that must say which
+    // provider failed rather than just "translation failed".
     QString selectedProviderLabel() const;
+
+    // The SELECTED provider, and nothing else — despite the plural name, this returns at most
+    // one entry. It used to return every provider holding a key, which is how a user with
+    // OpenAI selected got billed on Anthropic. The list shape is kept because callers iterate.
+    // Merge a download into the on-disk file of a language that is NOT currently loaded.
+    // Returns false if it refused or failed, having already warned and emitted
+    // languageDownloaded(..., false, reason).
+    bool mergeDownloadedLanguageFile(const QString& langCode, const QJsonObject& root);
+
     QStringList getConfiguredProviders() const;
 
     // Helper to get provider for AI requests (uses batch override if active)
@@ -384,4 +413,13 @@ private:
     //   GET /v1/translations/upload-url?lang=  - returns pre-signed S3 URL for uploads
     //   GET /v1/translations/languages         - returns list of available languages
     //   GET /v1/translations/languages/{code}  - returns translation file for a language
+
+#ifdef DECENZA_TESTING
+    // getConfiguredProviders() is the one function in this class with money attached: it decides
+    // whose API key gets spent. Reachable from a test for that reason — the rule that it returns
+    // ONLY the selected provider is otherwise enforced by nothing, and re-adding a single
+    // `if (!openaiApiKey().isEmpty())` would leave the whole suite green while billing a user
+    // on an account they did not choose. That is exactly how the retired-model bug survived.
+    friend class TestTranslationSourceDrift;
+#endif
 };

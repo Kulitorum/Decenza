@@ -46,8 +46,6 @@ public:
     // single source of truth for both the UI list and `shortModelName()`.
     virtual QList<ModelOption> availableModels() const { return {}; }
 
-
-
     // One-line guidance comparing the catalog's models, shown under the model
     // picker in both the in-app AI settings tab and the ShotServer web page.
     // Lives next to availableModels() so the catalog and its guidance share a

@@ -115,7 +115,7 @@ So `→ ← ↗ ↕ ▶ ◀ ⧉` are fine to use. Before introducing a symbol th
 falling through to the host. Add another OFL face if needed rather than reaching for an emoji.
 
 Use the script rather than grepping for symbols you happen to think of. Hand-grepping for `→` found
-16 sites of one glyph type; the scan found 29 across six, including `↗`, `⧉`, and the `▶`/`◀` that
+one glyph type; the scan found several more, including `↗`, `⧉`, and the `▶`/`◀` that
 are the entire visible content of FlowCalibrationPage's prev/next buttons. It also correctly leaves
 `AddLanguagePage`'s native language names alone — those are *supposed* to use a platform fallback.
 
@@ -128,10 +128,17 @@ are the entire visible content of FlowCalibrationPage's prev/next buttons. It al
   with `Image` (buttons: a `Row { Image {} Text {} }` contentItem). Those follow `Theme.iconColor`
   and scale as artwork; a symbol is text that happens to look like a picture.
 
-**On #1537.** This section previously banned symbols outright and cited #1537 as the bug class. That
-was wrong: #1537 was a Windows distance-field re-caching bug that dropped the "fi" ligature from
-"Profile" — a word entirely inside the bundled font, unrelated to fallbacks. Nothing in this app has
-been traced to a missing glyph. Recorded so the ban is not reinstated from memory.
+**On #1537.** This section previously banned symbols outright and cited #1537 as the bug class. The
+citation does not support the ban: #1537 dropped the "fi" ligature from "Profile", a word entirely
+inside the bundled font, so whatever caused it, it was not a missing glyph and says nothing about
+fallbacks. Nothing in this app has been traced to a missing glyph. Recorded so the ban is not
+reinstated from memory.
+
+Do not go further than that and state what #1537 *was*. `src/main.cpp` carries two candidate
+explanations — a font-registration race and distance-field re-caching during resize — and says in
+as many words that they are not reconciled. An earlier draft of this very paragraph asserted the
+distance-field theory as settled fact, which is the same move that produced the wrong citation it
+was written to correct.
 
 **Emoji are a different case and are encouraged.** `☕`/`⚠️`/`🔒` never reach the text renderer: the app ships the complete Twemoji set and rewrites every emoji to a bundled `<img>`, so metrics are identical everywhere. Render them through `Theme.emojiToImage()` or `Theme.replaceEmojiWithImg()` — putting one in a plain `Text` lets a colour glyph reach the platform renderer and **crashes the render thread on macOS**. See "Using emoji well" in CLAUDE.md.
 

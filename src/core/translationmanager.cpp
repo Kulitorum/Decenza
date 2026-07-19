@@ -843,6 +843,78 @@ void TranslationManager::onLanguageListFetched(QNetworkReply* reply)
     qDebug() << "Language list updated. Available:" << m_availableLanguages;
 }
 
+// Merge a downloaded language into the on-disk file for a language that is NOT loaded.
+//
+// Returns false if the merge was refused or the write failed, in which case it has already
+// warned and emitted languageDownloaded(..., false, reason) — the caller must simply return.
+//
+// Extracted from onLanguageFileFetched so a test can reach it. The bug this guards against
+// (a local file that exists but cannot be read being replaced wholesale by the server's copy)
+// lived in a network-reply slot, which is untestable, and was found by review rather than by
+// the suite for exactly that reason.
+bool TranslationManager::mergeDownloadedLanguageFile(const QString& langCode, const QJsonObject& root)
+{
+    // Not the active language, so it is not in memory. Merge on the file instead, keeping
+    // any local translation that the download does not carry.
+    // "No local file yet" and "local file exists but I could not read it" must be handled
+    // differently, and conflating them is how a merge turns back into the replace it was
+    // written to stop. If the file is there but locked, permission-denied, or corrupt, an
+    // empty `merged` is not the truth — it is a failure to read the truth, and writing the
+    // server's copy on top of it destroys exactly what this branch exists to protect.
+    const QString path = languageFilePath(langCode);
+    QJsonObject merged;
+    QFile existing(path);
+    if (existing.exists()) {
+        if (!existing.open(QIODevice::ReadOnly)) {
+            qWarning() << "Language merge ABORTED for" << langCode << "- cannot read"
+                       << path << ":" << existing.errorString()
+                       << "- refusing to overwrite it with the server copy";
+        emit languageDownloaded(langCode, false,
+                tr("Could not read the existing %1 file, so the update was not applied "
+                   "(your local translations are untouched).").arg(langCode));
+        return false;
+        }
+        QJsonParseError parseError;
+        const QJsonDocument localDoc = QJsonDocument::fromJson(existing.readAll(), &parseError);
+        existing.close();
+        if (parseError.error != QJsonParseError::NoError) {
+            qWarning() << "Language merge ABORTED for" << langCode << "- local file is not"
+                       << "valid JSON:" << parseError.errorString()
+                       << "- refusing to overwrite it";
+        emit languageDownloaded(langCode, false,
+                tr("The existing %1 file could not be parsed, so the update was not applied.")
+                    .arg(langCode));
+        return false;
+        }
+        merged = localDoc.object().value(QStringLiteral("translations")).toObject();
+    }
+
+    const QJsonObject incoming = root["translations"].toObject();
+    for (auto it = incoming.constBegin(); it != incoming.constEnd(); ++it)
+        merged[it.key()] = it.value();
+
+    QJsonObject out = root;
+    out["translations"] = merged;
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly)) {
+        qWarning() << "Failed to write merged language file" << path << ":" << file.errorString();
+        emit languageDownloaded(langCode, false,
+            tr("Could not save the updated %1 file.").arg(langCode));
+        return false;
+    }
+    const QByteArray payload = QJsonDocument(out).toJson();
+    const qint64 written = file.write(payload);
+    file.close();
+    if (written != payload.size()) {
+        qWarning() << "Short write on language file" << path << written << "of" << payload.size();
+        emit languageDownloaded(langCode, false,
+            tr("The updated %1 file was only partially saved.").arg(langCode));
+        return false;
+    }
+
+    return true;
+}
+
 void TranslationManager::onLanguageFileFetched(QNetworkReply* reply)
 {
     reply->deleteLater();
@@ -931,26 +1003,11 @@ void TranslationManager::onLanguageFileFetched(QNetworkReply* reply)
         // Loaded language: merge in memory, which preserves overrides, then persist that.
         mergeLanguageUpdate(root["translations"].toObject());
     } else {
-        // Not the active language, so it is not in memory. Merge on the file instead, keeping
-        // any local translation that the download does not carry.
-        QJsonObject merged;
-        QFile existing(languageFilePath(langCode));
-        if (existing.open(QIODevice::ReadOnly)) {
-            merged = QJsonDocument::fromJson(existing.readAll()).object()
-                         .value(QStringLiteral("translations")).toObject();
-            existing.close();
-        }
-        const QJsonObject incoming = root["translations"].toObject();
-        for (auto it = incoming.constBegin(); it != incoming.constEnd(); ++it)
-            merged[it.key()] = it.value();
-
-        QJsonObject out = root;
-        out["translations"] = merged;
-        QFile file(languageFilePath(langCode));
-        if (file.open(QIODevice::WriteOnly)) {
-            file.write(QJsonDocument(out).toJson());
-            file.close();
-        }
+        // Not the active language, so it is not in memory: merge on the FILE instead. Split out
+        // so it can be tested — the destructive-replace bug lived in exactly this branch, and a
+        // network-reply slot is not reachable from a test.
+        if (!mergeDownloadedLanguageFile(langCode, root))
+            return;   // helper has already warned and emitted languageDownloaded(false, ...)
     }
 
     // Update metadata
@@ -2649,6 +2706,7 @@ void TranslationManager::translateAndUploadAllLanguages()
     }
 
     m_batchProcessing = true;
+    m_batchFailedUploads.clear();   // a previous run's failures must not be reported by this one
     qDebug() << "=== BATCH TRANSLATE+UPLOAD START ===";
     qDebug() << "Languages:" << allLanguages.size() << allLanguages;
     qDebug() << "AI Providers:" << m_batchProviderQueue.size() << m_batchProviderQueue;
@@ -2720,7 +2778,21 @@ void TranslationManager::translateAndUploadAllLanguages()
             delete submitConn;
             qDebug() << "=== BATCH TRANSLATE+UPLOAD COMPLETE ===";
             qDebug() << "Restored provider:" << m_originalProvider;
-            emit batchTranslateUploadFinished(true, "Batch processing complete");
+
+            // Report what actually reached the server, not merely that the queue drained.
+            // Uploads fail for ordinary reasons — the hourly rate limit above all — and this
+            // used to finish "complete" regardless, so a user could publish 10 of 12 languages
+            // and be told all 12 went. Name the ones that did not.
+            if (m_batchFailedUploads.isEmpty()) {
+                emit batchTranslateUploadFinished(true, "Batch processing complete");
+            } else {
+                const QString failed = m_batchFailedUploads.join(QStringLiteral("; "));
+                qWarning() << "Batch: uploads FAILED for" << failed;
+                emit batchTranslateUploadFinished(
+                    false, QStringLiteral("Uploaded all but %1 language(s). Failed: %2")
+                               .arg(m_batchFailedUploads.size()).arg(failed));
+            }
+            m_batchFailedUploads.clear();
         }
     };
 
@@ -2771,6 +2843,14 @@ void TranslationManager::translateAndUploadAllLanguages()
 
         qDebug() << "Batch: Upload" << (success ? "SUCCEEDED" : "FAILED")
                  << "for" << m_currentLanguage << "-" << message;
+
+        // Record the failure rather than only logging it. A failed upload is not a reason to
+        // abandon the remaining languages — unlike a translation failure, which means the
+        // provider is unusable and everything after it would fail the same way — so the batch
+        // continues, but the final result must name what did not make it.
+        if (!success)
+            m_batchFailedUploads << QStringLiteral("%1 (%2)").arg(m_currentLanguage, message);
+
         (*processNext)();
     });
 
