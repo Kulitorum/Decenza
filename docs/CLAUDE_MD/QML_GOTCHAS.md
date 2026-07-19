@@ -193,3 +193,34 @@ Rectangle {
     opacity: Settings.theme.backgroundImagePath.length > 0 ? 0.99 : 1.0
 }
 ```
+
+## Measuring text in a binding — `FontMetrics.advanceWidth()`, never a mutated `TextMetrics`
+
+To measure a string's width, the obvious reach is `TextMetrics`: set `.text`, read `.width`. Inside a **reactive binding** that is a self-triggering loop. Reading `.width` registers it as a dependency of the binding; assigning `.text` in the same binding invalidates `.width`; the invalidation re-runs the binding, which re-assigns `.text` — forever. Qt reports `WARN … Binding loop detected for property "<name>"`, and the property never settles. Sharing one `TextMetrics` across several bindings makes it worse: each binding's `.text` write re-triggers every other binding that reads `.width`.
+
+Use `FontMetrics.advanceWidth(str)` instead — a pure function that reads only the (static) font and mutates nothing, so it registers no self-dependency.
+
+```qml
+// BROKEN — mutates .text and reads .width in the same binding => binding loop
+TextMetrics { id: tm; font.pixelSize: Theme.scaled(16); font.bold: true }
+readonly property var pageSizes: {
+    var w = []
+    for (var i = 0; i < items.length; ++i) {
+        tm.text = items[i].name          // invalidates tm.width...
+        w.push(tm.width + Theme.scaled(40))  // ...which this binding depends on => loop
+    }
+    return packPages(w, availWidth)
+}
+
+// WORKS — advanceWidth() is a pure call, no mutated-property dependency
+FontMetrics { id: fm; font.pixelSize: Theme.scaled(16); font.bold: true }
+readonly property var pageSizes: {
+    var w = []
+    for (var i = 0; i < items.length; ++i)
+        w.push(fm.advanceWidth(items[i].name) + Theme.scaled(40))
+    return packPages(w, availWidth)
+}
+```
+
+The mutated-`TextMetrics` form is only safe when the measurement runs **imperatively** — inside a Timer/handler that writes a plain (non-`readonly`) property — not inside a binding. That is exactly what `PresetPillRow.measureTextWidth()` does (called from the timer-driven `calculateRows()`), which is why it never loops. Binding loops are **runtime-only**: a clean C++/qmlcache build will not catch them — check the running app's log (`debug_get_log`) after the change. (Bitten during `descriptive-recipe-names` computing idle pill-row page sizes; the shared `FontMetrics` is the font-mirroring measurement in `PillFit.js`'s callers.)
+
