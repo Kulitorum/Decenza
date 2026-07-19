@@ -27,9 +27,9 @@
 
 ## 5. Verify
 
-- [ ] 5.1 Build via Qt Creator MCP; resolve any warnings (no WARN lines).
-- [ ] 5.2 Drive the app: with >10 recipes, open the Recipes row, confirm the next arrow appears, paging shows the next five in MRU order, no arrow appears past the ends, and selecting/starting still works on any page. Repeat for beans with >5 bags.
-- [ ] 5.3 Regression: with ≤5 recipes and ≤5 bags, confirm no arrows appear and the rows look identical to before. Confirm steam/espresso/hotwater/flush/equipment rows are unchanged.
+- [x] 5.1 Build via Qt Creator MCP; resolve any warnings (no WARN lines).
+- [x] 5.2 Drive the app: with >10 recipes, open the Recipes row, confirm the next arrow appears, paging shows the next five in MRU order, no arrow appears past the ends, and selecting/starting still works on any page. Repeat for beans with >5 bags.
+- [x] 5.3 Regression: with ≤5 recipes and ≤5 bags, confirm no arrows appear and the rows look identical to before. Confirm steam/espresso/hotwater/flush/equipment rows are unchanged.
 
 ## 6. Docs
 
