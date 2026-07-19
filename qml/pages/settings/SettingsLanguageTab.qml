@@ -1102,4 +1102,9 @@ Item {
             }
         }
     }
+
+    // Refusals from TranslationManager reach the user here instead of only the log. Without this
+    // a guarded save looks exactly like a broken button — which is how it was found: an edit was
+    // correctly refused, nothing said so, and the tester had to ask whether the feature worked.
+    TranslationErrorToast {}
 }

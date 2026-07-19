@@ -795,6 +795,7 @@ set(QML_FILES
     qml/components/ProfileDisplayButton.qml
     qml/components/BottomBar.qml
     qml/components/ThemedIcon.qml
+    qml/components/TranslationErrorToast.qml
     qml/components/AccessibleMouseArea.qml
     qml/components/AccessibleTapHandler.qml
     qml/components/AccessibleButton.qml

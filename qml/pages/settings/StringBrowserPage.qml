@@ -773,10 +773,21 @@ Page {
                                     delegateRoot.setEditing(true, index)
                                     centerTimer.start()
                                 } else {
-                                    // Save on focus lost
+                                    // Save on focus lost.
+                                    //
+                                    // Guard the detached case: when a save destroys this delegate
+                                    // the row goes away, focus is released as part of that
+                                    // teardown, and this handler runs against a model that no
+                                    // longer has a row — model.fallback reads back as "". Saving
+                                    // then is never right; at best it is a whole-file write that
+                                    // matches no keys, and it is indistinguishable from a real
+                                    // edit in the log.
+                                    var fallbackKey = model.fallback
+                                    if (!fallbackKey || fallbackKey.length === 0)
+                                        return
                                     var newText = text.trim()
                                     if (newText !== (model.translation || "")) {
-                                        TranslationManager.setGroupTranslation(model.fallback, newText)
+                                        TranslationManager.setGroupTranslation(fallbackKey, newText)
                                     }
                                 }
                             }
@@ -797,11 +808,23 @@ Page {
                                 }
                             }
 
+                            // Read the model and drop focus BEFORE saving. Saving destroys this
+                            // delegate (see saveAndExitEditing), so `model` is detached and
+                            // `focus = false` lands on a dead object if they come after.
+                            //
+                            // This is why every edit produced TWO saves. Releasing focus during
+                            // teardown fired onActiveFocusChanged below, which read model.fallback
+                            // from the detached row — getting "" — and called setGroupTranslation
+                            // again. That second call matched no keys and changed nothing, but
+                            // still wrote the whole ~300 KB language file, on the main thread,
+                            // for every single edit.
                             function exitEditing() {
                                 var newText = text.trim()
-                                delegateRoot.saveAndExitEditing(model.fallback, newText, model.translation || "")
+                                var fallbackKey = model.fallback
+                                var oldText = model.translation || ""
                                 focus = false
                                 Qt.inputMethod.hide()
+                                delegateRoot.saveAndExitEditing(fallbackKey, newText, oldText)
                             }
                         }
 
@@ -1202,4 +1225,9 @@ Page {
         title: isEnglish ? TranslationManager.translate("stringBrowser.titleCustomizer", "String Customizer") : TranslationManager.translate("stringBrowser.titleBrowser", "Translation Browser")
         onBackClicked: handleBack()
     }
+
+    // Refusals from TranslationManager reach the user here instead of only the log. Without this
+    // a guarded save looks exactly like a broken button — which is how it was found: an edit was
+    // correctly refused, nothing said so, and the tester had to ask whether the feature worked.
+    TranslationErrorToast {}
 }
