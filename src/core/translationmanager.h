@@ -279,7 +279,10 @@ private:
 
     // AI translation helpers
     void sendNextAutoTranslateBatch();
-    void parseAutoTranslateResponse(const QByteArray& data);
+    // Returns false when the provider answered but the reply was unusable — empty content, or
+    // not the JSON object that was asked for. That is a FAILED batch, not zero translations,
+    // and the difference matters: inside the bulk run a "success" triggers the upload.
+    bool parseAutoTranslateResponse(const QByteArray& data);
     QString buildTranslationPrompt(const QVariantList& strings) const;
     void loadAiTranslations();
     void saveAiTranslations();
@@ -340,6 +343,11 @@ private:
     bool m_autoTranslating = false;
     bool m_autoTranslateCancelled = false;
     int m_autoTranslateProgress = 0;
+
+    // Batches the provider answered with something unusable. Reset per run; any non-zero value
+    // turns the run's result from success into a named failure, which also stops the bulk path
+    // from uploading an untranslated file.
+    int m_autoTranslateParseFailures = 0;
     int m_autoTranslateTotal = 0;
     int m_pendingBatchCount = 0;  // Track parallel batch requests
     int m_translationRunId = 0;   // Increments each translation run to identify stale responses

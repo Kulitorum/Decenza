@@ -539,6 +539,59 @@ private slots:
         QCOMPARE(spy.at(0).at(0).toBool(), false);
     }
 
+    // A provider that answers 200 with something unusable must FAIL the batch, not report zero
+    // translations.
+    //
+    // The difference is not cosmetic and it is not only cosmetic inside the bulk run: a
+    // "success" there is what calls submitTranslation(), so a model replying with prose, or a
+    // reply truncated by max_tokens, produced a paid run that reported complete and then
+    // published an untranslated file over the community copy for that language.
+    //
+    // Driven through the parse step directly because the alternative is a live provider. The
+    // verdict this returns is the whole contract — the caller counts it, and the run's result
+    // is derived from that count.
+    void anUnusableProviderReplyIsAFailureNotZeroTranslations()
+    {
+        // NB: ordinary escaped string literals, not R"(...)". moc's parser silently produces an
+        // EMPTY .moc for this file when it meets a raw string, and the only symptom is a
+        // "missing vtable" link error that points at the class rather than at the literal.
+        Settings settings;
+        settings.ai()->setAiProvider(QStringLiteral("openai"));
+        settings.ai()->setOpenaiApiKey(QStringLiteral("sk-test"));
+        TranslationManager tm(&m_nam, &settings);
+
+        // A real OpenAI reply whose content is prose rather than the requested JSON.
+        const QByteArray prose =
+            "{\"choices\":[{\"message\":{\"content\":\"I cannot help with that.\"}}]}";
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("Failed to parse AI translation response")));
+        QVERIFY2(!tm.parseAutoTranslateResponse(prose),
+                 "prose instead of JSON must be reported as a failed batch");
+
+        // 200 with no usable content at all — how several providers signal quota and policy
+        // conditions.
+        const QByteArray empty = "{\"choices\":[]}";
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Empty AI response")));
+        QVERIFY2(!tm.parseAutoTranslateResponse(empty),
+                 "an empty completion must be reported as a failed batch");
+
+        // Truncated JSON — what hitting max_tokens looks like: valid-looking text with an
+        // unbalanced brace. The brace-slicing in the parser makes this the subtlest case.
+        const QByteArray truncated =
+            "{\"choices\":[{\"message\":{\"content\":\"{\\\"Hello\\\": \\\"Hallo\\\", \\\"Wor\"}}]}";
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("Failed to parse AI translation response")));
+        QVERIFY2(!tm.parseAutoTranslateResponse(truncated),
+                 "a truncated JSON body must be reported as a failed batch");
+
+        // Control: a well-formed reply is still accepted, so the guard has not simply been made
+        // to fail everything.
+        const QByteArray good =
+            "{\"choices\":[{\"message\":{\"content\":\"{\\\"Hello\\\": \\\"Hallo\\\"}\"}}]}";
+        QVERIFY2(tm.parseAutoTranslateResponse(good),
+                 "a well-formed reply must still succeed");
+    }
+
 };
 
 QTEST_MAIN(TestTranslationSourceDrift)

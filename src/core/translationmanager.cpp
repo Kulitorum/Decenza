@@ -2050,6 +2050,7 @@ void TranslationManager::autoTranslate()
     m_autoTranslating = true;
     m_autoTranslateCancelled = false;
     m_autoTranslateProgress = 0;
+    m_autoTranslateParseFailures = 0;   // per-run, like m_batchFailedUploads
     m_autoTranslateTotal = static_cast<int>(m_stringsToTranslate.size());
     m_pendingBatchCount = 0;
     emit autoTranslatingChanged();
@@ -2261,7 +2262,8 @@ void TranslationManager::onAutoTranslateBatchReply(QNetworkReply* reply)
     }
 
     QByteArray data = reply->readAll();
-    parseAutoTranslateResponse(data);
+    if (!parseAutoTranslateResponse(data))
+        m_autoTranslateParseFailures++;
 
     // Check if all batches are complete
     if (m_pendingBatchCount == 0) {
@@ -2273,11 +2275,41 @@ void TranslationManager::onAutoTranslateBatchReply(QNetworkReply* reply)
         recalculateUntranslatedCount();
         m_translationVersion++;
         emit translationsChanged();
-        emit autoTranslateFinished(true, QString("Translated %1 strings").arg(m_autoTranslateProgress));
+        // A batch the provider answered with something unusable is a FAILURE, not zero
+        // translations. This used to be an unconditional `true`: parseAutoTranslateResponse
+        // returned void, so a provider replying 200-with-prose produced
+        // autoTranslateFinished(true, "Translated 0 strings") — and inside the bulk run that
+        // success is what triggers submitTranslation(), publishing an untranslated file over
+        // the community copy. A paid run reported complete, having translated nothing and
+        // uploaded damage. Same "credit for work not done" shape as the upload accounting.
+        //
+        // m_autoTranslateCancelled is checked for the same reason. A transport error on a
+        // NON-last batch sets it and then waits for the remaining batches to drain — and this
+        // completion, reached by the last of those drains, reported success anyway. So a run
+        // that had already failed loudly on one batch still ended green, and in the bulk path
+        // still uploaded. Found while verifying the parse-failure fix; it is the same bug one
+        // door along, which is how every round of this review has gone.
+        if (m_autoTranslateParseFailures > 0 || m_autoTranslateCancelled) {
+            if (m_autoTranslateParseFailures > 0) {
+                m_lastError = tr("%1 returned %2 unusable response(s); %3 strings were "
+                                 "translated. Nothing was uploaded.")
+                                  .arg(selectedProviderLabel())
+                                  .arg(m_autoTranslateParseFailures)
+                                  .arg(m_autoTranslateProgress);
+            } else if (m_lastError.isEmpty()) {
+                m_lastError = tr("Translation stopped early; %1 strings were translated. "
+                                 "Nothing was uploaded.").arg(m_autoTranslateProgress);
+            }
+            emit lastErrorChanged();
+            qWarning().noquote() << "AI translation:" << m_lastError;
+            emit autoTranslateFinished(false, m_lastError);
+        } else {
+            emit autoTranslateFinished(true, QString("Translated %1 strings").arg(m_autoTranslateProgress));
+        }
     }
 }
 
-void TranslationManager::parseAutoTranslateResponse(const QByteArray& data)
+bool TranslationManager::parseAutoTranslateResponse(const QByteArray& data)
 {
     QString provider = getActiveProvider();
     QString content;
@@ -2308,8 +2340,11 @@ void TranslationManager::parseAutoTranslateResponse(const QByteArray& data)
     }
 
     if (content.isEmpty()) {
-        qWarning() << "Empty AI response for provider:" << provider;
-        return;
+        // HTTP 200 with nothing usable in it. Several providers answer this way for quota and
+        // content-policy conditions, so this is an ordinary failure, not a corrupt-server case.
+        qWarning() << "Empty AI response for provider:" << provider
+                   << "- treating this batch as FAILED, not as zero translations";
+        return false;
     }
 
     // Extract JSON from response (AI might include markdown code blocks)
@@ -2360,9 +2395,13 @@ void TranslationManager::parseAutoTranslateResponse(const QByteArray& data)
         emit autoTranslateProgressChanged();
 
         qDebug() << "AI translated" << count << "unique texts," << appliedCount << "keys applied, progress:" << m_autoTranslateProgress << "/" << m_autoTranslateTotal;
-    } else {
-        qWarning() << "Failed to parse AI translation response:" << content.left(200);
+        return true;
     }
+
+    // The model answered, but not with the JSON object it was asked for — prose, a truncated
+    // reply from hitting max_tokens, or an echo of the prompt. Nothing was applied.
+    qWarning() << "Failed to parse AI translation response:" << content.left(200);
+    return false;
 }
 
 // --- AI Translation Management ---
