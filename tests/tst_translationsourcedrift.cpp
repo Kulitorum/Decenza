@@ -196,6 +196,43 @@ private slots:
         QCOMPARE(tm.translateString(key, QStringLiteral("Archive")), QStringLiteral("Archivieren"));
     }
 
+    // The Update button must MERGE, not replace.
+    //
+    // It used to write the downloaded file straight over the local one. The server's copy is
+    // whatever someone last submitted, and nothing uploads automatically, so a machine that has
+    // AI-translated its gaps normally holds far MORE than the server does. One click replaced
+    // 3429 German strings with the server's 1515 and discarded the difference — twice, on a
+    // real machine, the second time destroying an AI pass that had just been paid for.
+    //
+    // The automatic launch check always merged. That the manual button did the opposite, for
+    // the same job, is what made this a trap rather than a preference.
+    void aDownloadMergesAndDoesNotDiscardLocalTranslations()
+    {
+        const QString localOnly = QStringLiteral("test.merge.localOnly");
+        const QString shared    = QStringLiteral("test.merge.shared");
+
+        // Local state: two translated strings, one of which the server has never heard of.
+        writeDownloadedLanguageFile(QStringLiteral("de"), {
+            {localOnly, QStringLiteral("Nur lokal")},
+            {shared,    QStringLiteral("Alt")},
+        });
+
+        Settings settings;
+        TranslationManager tm(&m_nam, &settings);
+        tm.setCurrentLanguage(QStringLiteral("de"));
+        QCOMPARE(tm.translateString(localOnly, QStringLiteral("Local only")), QStringLiteral("Nur lokal"));
+
+        // What a download carries: an update for the shared key, and nothing for the local one.
+        QJsonObject incoming;
+        incoming[shared] = QStringLiteral("Neu");
+        tm.mergeLanguageUpdate(incoming);
+
+        QCOMPARE(tm.translateString(shared, QStringLiteral("Shared")), QStringLiteral("Neu"));
+        QVERIFY2(tm.hasTranslation(localOnly),
+                 "a translation the server does not carry must survive a download");
+        QCOMPARE(tm.translateString(localOnly, QStringLiteral("Local only")), QStringLiteral("Nur lokal"));
+    }
+
     // The scanner reads QML as text and sees escape sequences; the runtime sees the characters
     // they denote. Both write the registry, so if they decode differently each sees the other's
     // value as a rewrite and they oscillate — dropping the translation and rewriting the

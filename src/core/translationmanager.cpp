@@ -890,15 +890,51 @@ void TranslationManager::onLanguageFileFetched(QNetworkReply* reply)
         return;
     }
 
-    // Save the downloaded file
-    QFile file(languageFilePath(langCode));
-    if (file.open(QIODevice::WriteOnly)) {
-        file.write(data);
-        file.close();
+    const QJsonObject root = doc.object();
+
+    // MERGE the download into what is already here — do not replace it.
+    //
+    // This used to write `data` straight over the language file. That made the Update button
+    // destructive: the server's copy is whatever was last submitted by someone, and a machine
+    // that has since AI-translated the gaps holds far more than that. One click replaced 3429
+    // German strings with the server's 1515 and silently discarded the difference, twice, on
+    // this machine. Nothing uploads automatically, so a richer local set is the NORMAL state,
+    // not an edge case.
+    //
+    // The automatic check at launch has always merged (mergeLanguageUpdate) and preserved user
+    // overrides. That the manual button did the opposite was the whole bug — the same action,
+    // by two paths, with opposite outcomes.
+    //
+    // Merging is also what makes the overrides file meaningful: it stores only KEY NAMES, and
+    // the text they refer to lives in this file. Replacing the file therefore threw away the
+    // user's own wording while leaving the key still marked as customised.
+    if (langCode == m_currentLanguage) {
+        // Loaded language: merge in memory, which preserves overrides, then persist that.
+        mergeLanguageUpdate(root["translations"].toObject());
+    } else {
+        // Not the active language, so it is not in memory. Merge on the file instead, keeping
+        // any local translation that the download does not carry.
+        QJsonObject merged;
+        QFile existing(languageFilePath(langCode));
+        if (existing.open(QIODevice::ReadOnly)) {
+            merged = QJsonDocument::fromJson(existing.readAll()).object()
+                         .value(QStringLiteral("translations")).toObject();
+            existing.close();
+        }
+        const QJsonObject incoming = root["translations"].toObject();
+        for (auto it = incoming.constBegin(); it != incoming.constEnd(); ++it)
+            merged[it.key()] = it.value();
+
+        QJsonObject out = root;
+        out["translations"] = merged;
+        QFile file(languageFilePath(langCode));
+        if (file.open(QIODevice::WriteOnly)) {
+            file.write(QJsonDocument(out).toJson());
+            file.close();
+        }
     }
 
     // Update metadata
-    QJsonObject root = doc.object();
     m_languageMetadata[langCode] = QVariantMap{
         {"displayName", root["displayName"].toString(langCode)},
         {"nativeName", root["nativeName"].toString(langCode)},
@@ -911,9 +947,11 @@ void TranslationManager::onLanguageFileFetched(QNetworkReply* reply)
     m_availableLanguages = m_languageMetadata.keys();
     emit availableLanguagesChanged();
 
-    // Reload if this is the current language
-    if (langCode == m_currentLanguage) {
-        loadTranslations();
+    // No reload for the current language: mergeLanguageUpdate() above already folded the
+    // download into the in-memory map, saved it, and refreshed the counts. Re-reading the file
+    // here would be harmless but pointless — and reloading BEFORE that merge existed is
+    // precisely how the replaced file became the live state.
+    if (langCode != m_currentLanguage) {
         recalculateUntranslatedCount();
     }
 

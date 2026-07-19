@@ -548,6 +548,36 @@ decide with, rather than guessing.
       just reached back to 3 short until someone re-translates. Fixing an untranslated string
       always looks like a small regression in the counter first.
 
+- [x] 7.8m The Update button was DESTRUCTIVE. Found by Jeff pressing it, twice, in front of me.
+      `onLanguageFileFetched` opened the language file WriteOnly and wrote the downloaded bytes
+      straight over it, then reloaded. The server's copy is whatever someone last submitted, and
+      NOTHING uploads automatically — Submit to Community is a separate button, itself gated
+      behind `Settings.app.developerTranslationUpload` — so a machine that has AI-translated its
+      own gaps normally holds far more than the server does. A richer local set is the normal
+      state, not an edge case.
+
+      Observed: German went 3429 -> 1515 on one click, discarding 1910 strings including an AI
+      pass Jeff had just paid for. Recovered fully: 1910 from the backup taken before testing,
+      4 more from de_ai.json, which survives because it is a separate file keyed by English text.
+      The server's copy was kept at de.json.server-copy.
+
+      The automatic launch check has always merged and preserved overrides. That the manual
+      button did the OPPOSITE, for the same job, is what made this a trap rather than a
+      preference — and it silently defeats the overrides file, which stores only KEY NAMES while
+      the text lives in the replaced file. A user's own wording was thrown away while the key
+      went on being marked as customised.
+
+      Fixed: the download now merges. Current language goes through mergeLanguageUpdate (in
+      memory, preserving overrides, saving once); other languages merge on the file, keeping
+      any local translation the download does not carry. The reload after the merge is gone —
+      re-reading the file is how the replaced content became live in the first place.
+      mergeLanguageUpdate promoted to public: it is the meaning of "apply a downloaded
+      language", both paths use it, and the regression test pins it.
+
+      This is the sharpest instance of the pattern this whole change keeps hitting: the code was
+      readable and the behaviour was wrong, and only using it showed that. It also cost real
+      money before it was caught, which the earlier findings did not.
+
 - [ ] 7.8b The glyph class IS statically catchable — `redraw-icon-set` task 4.4 guessed it was not.
       `scripts/check_font_glyph_coverage.py` already does it. Worth landing as a test, but it cannot
       be green until 7.8's 29 sites are fixed, so it lands WITH the fix (no allowlist — an allowlist

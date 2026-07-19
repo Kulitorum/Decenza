@@ -154,6 +154,12 @@ public:
     //   GET  /v1/translations/languages/{code} - Download a translation file
     //   GET  /v1/translations/upload-url?lang= - Get pre-signed S3 URL for upload
     //
+    // Fold a downloaded set into the current one, keeping any local translation the download
+    // does not carry and never overwriting a user override. Public because it is the meaning of
+    // "apply a downloaded language", not an implementation detail: both the launch-time check
+    // and the Update button go through it, and a test pins that Update no longer replaces.
+    void mergeLanguageUpdate(const QJsonObject& newTranslations);
+
     Q_INVOKABLE void downloadLanguageList();
     Q_INVOKABLE void downloadLanguage(const QString& langCode);
     Q_INVOKABLE void exportTranslation(const QString& filePath);
@@ -265,7 +271,6 @@ private:
     // Language update helpers
     void loadUserOverrides();
     void saveUserOverrides();
-    void mergeLanguageUpdate(const QJsonObject& newTranslations);
 
     Settings* m_settings;
     QNetworkAccessManager* m_networkManager;
