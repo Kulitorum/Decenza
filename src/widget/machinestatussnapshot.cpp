@@ -214,7 +214,17 @@ void MachineStatusSnapshot::platformWrite(const QByteArray& json)
     // counter must be atomic. Snapshot once via fetch_add so the gate and
     // the printed occurrence number are consistent.
     static std::atomic<int> failCount{0};
-    auto logFail = [](const char* what) {
+    // maybe_unused: the iOS branch below delegates to
+    // decenzaWriteWidgetSnapshotIOS(), which emits its own breadcrumbs via
+    // NSLog (App Group unavailable, UTF-8 decode failed), so it never calls
+    // this. Only iOS compiles that branch, so only iOS sees the lambda as
+    // unused — the attribute says "deliberately", rather than duplicating the
+    // platform #if around the declaration.
+    //
+    // Worth knowing when triaging: those iOS breadcrumbs go to the device
+    // console, NOT to this app's debug log, so they are invisible to the MCP
+    // log reader that Android and desktop failures do reach.
+    [[maybe_unused]] auto logFail = [](const char* what) {
         const int n = failCount.fetch_add(1);
         if (n == 0 || n % 100 == 0)
             qWarning().noquote()
