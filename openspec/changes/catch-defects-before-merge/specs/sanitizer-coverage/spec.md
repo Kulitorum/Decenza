@@ -17,8 +17,10 @@ UBSan is the highest-value sanitizer for this codebase because it detects a clas
 - **WHEN** CMake is configured with a multi-config generator (Visual Studio, Xcode) that does not set `CMAKE_BUILD_TYPE` at configure time
 - **THEN** sanitizer flags are not leaked into Release builds, consistent with the existing ASan guard
 
-### Requirement: The Test Suite Runs Under UndefinedBehaviorSanitizer in CI
-The pre-merge workflow SHALL run the `ctest` suite with UBSan instrumentation enabled, and a sanitizer diagnostic SHALL fail the run.
+### Requirement: The Test Suite Runs Under Sanitizers in CI
+A scheduled (nightly) workflow SHALL run the `ctest` suite with UBSan instrumentation enabled, and separately with ASan, as two independent builds. A sanitizer diagnostic SHALL fail the run.
+
+The two are separate jobs because their object files never hash-match and so cannot share a compiler cache, and because a finding from one says nothing about the other — cancelling the survivor would discard half the night's signal.
 
 #### Scenario: Test triggers undefined behaviour
 - **WHEN** a test exercises code that performs undefined behaviour under UBSan
@@ -31,8 +33,8 @@ The pre-merge workflow SHALL run the `ctest` suite with UBSan instrumentation en
 ### Requirement: Sanitizer Findings Are Distinguishable From Test Failures
 A CI failure SHALL make clear whether it was an assertion failure in a test or a sanitizer diagnostic, because the two require different responses.
 
-#### Scenario: Reading a failed pre-merge run
-- **WHEN** a maintainer opens a failed pre-merge workflow
+#### Scenario: Reading a failed nightly run
+- **WHEN** a maintainer opens a failed sanitizer workflow
 - **THEN** the summary distinguishes a failing test assertion from a sanitizer report, without requiring the full log to be read to tell them apart
 
 ### Requirement: The Sanitizer Proves It Is Armed

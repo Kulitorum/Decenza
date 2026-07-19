@@ -14,17 +14,19 @@ The flags go on immediately. Diagnostic classes with existing occurrences are ca
 - **THEN** the exemption block is deleted from `CMakeLists.txt` and `-Wall -Wextra -Werror` stands alone with nothing carved out of it
 
 ### Requirement: Diagnostics Add No Significant Build Time
-Enabling the diagnostics SHALL NOT measurably slow a normal build, and sanitizer instrumentation SHALL be off by default so that a routine local build is unaffected.
+Enabling the diagnostics SHALL NOT measurably slow a build, and sanitizer instrumentation SHALL NOT be applied to Release builds.
 
-`-Wall -Wextra` costs effectively nothing — the analyses run during ordinary semantic analysis whether or not diagnostics are emitted. The real cost risk in this change is sanitizer instrumentation and the new CI job, so both are scoped rather than assumed harmless.
+`-Wall -Wextra` costs effectively nothing — the analyses run during ordinary semantic analysis whether or not diagnostics are emitted. The cost risk is sanitizer instrumentation, which is scoped by configuration rather than assumed harmless.
 
-#### Scenario: Routine local build
-- **WHEN** a developer builds without naming any sanitizer option
+Note the deliberate asymmetry, which an earlier draft of this spec had backwards by requiring instrumentation to be off by default everywhere: desktop **Debug** builds are instrumented automatically, because a sanitizer nobody remembers to enable catches nothing. Debug builds are already unoptimised and not performance-sensitive; Release builds are, and are untouched.
+
+#### Scenario: Release build
+- **WHEN** a Release build is configured
 - **THEN** no sanitizer instrumentation is applied and build time is materially unchanged from before this change
 
-#### Scenario: Pre-merge job stays usable
-- **WHEN** the pre-merge job runs with a warm cache
-- **THEN** it completes within its documented budget, so waiting for it remains the path of least resistance
+#### Scenario: Debug build
+- **WHEN** a developer configures a desktop Debug build without naming any sanitizer option
+- **THEN** ASan and UBSan are applied automatically, and the resulting slowdown is accepted as the cost of a detector that is actually running
 
 ### Requirement: The Backlog Is An Explicit Exemption List That Only Shrinks
 The diagnostic classes not yet cleared SHALL be recorded as explicit `-Wno-<name>` entries in a single labelled block in `CMakeLists.txt`, and that block SHALL only ever have entries removed.
