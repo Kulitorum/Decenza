@@ -454,10 +454,21 @@ QtObject {
         return 0.2126 * linearise(c.r) + 0.7152 * linearise(c.g) + 0.0722 * linearise(c.b)
     }
 
-    // Card fill for page-level content cards (NOT dialogs/popups, which already
-    // sit above a dim Overlay and don't need the wallpaper showing through them).
+    // Card fill for page-level content cards. Dialogs/popups use
+    // dialogBackgroundColor below (same value, separately documented).
     // Opaque surfaceColor when no background image is set — zero visual change.
     readonly property color cardBackgroundColor: Settings.theme.backgroundImagePath.length > 0
+        ? scrimColor(surfaceColor)
+        : surfaceColor
+
+    // Frame fill for content dialogs/popups (Brew Settings, Grind Setting, Brew
+    // Ratio, etc.). When a custom background image is active these use the same
+    // tinted-glass scrim as the idle action tiles (Steam/Recipes/Beans) so the
+    // wallpaper shows through and the dialog matches the rest of the chrome
+    // rather than reading as an out-of-place opaque slab; opaque surfaceColor
+    // otherwise, so nothing changes with no background set. The modal Overlay
+    // dim behind the dialog keeps the glass legible over busy photos.
+    readonly property color dialogBackgroundColor: Settings.theme.backgroundImagePath.length > 0
         ? scrimColor(surfaceColor)
         : surfaceColor
 
