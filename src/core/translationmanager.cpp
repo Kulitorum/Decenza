@@ -496,9 +496,20 @@ void TranslationManager::scanAllStrings()
     m_scanProgress = 0;
     emit scanningChanged();
 
-    // Collect all QML files from the Qt resource system (:/qml/)
+    // Collect all QML files from the Qt resource system.
+    //
+    // The root is ":/qt/qml/Decenza/qml" — where qt_add_qml_module actually publishes, and what
+    // main.cpp loads ("qrc:/qt/qml/Decenza/qml/main.qml"). This used to iterate ":/qml", which
+    // does not exist in a Qt 6 module build, so the scan silently walked an empty tree and
+    // registered nothing. Every key in the registry got there by being RENDERED at runtime, so
+    // the registry has never been the app's string set — it is "strings this device happened to
+    // display". That is why machineStatus.idle and four siblings are absent while their
+    // rendered neighbours are present, why 446 keys have German translations the registry has
+    // never heard of, and why the translation percentage's denominator was wrong. It also
+    // means AI translation and community upload have never been offered the full string list.
     QStringList qmlFiles;
-    QDirIterator it(":/qml", QStringList() << "*.qml", QDir::Files, QDirIterator::Subdirectories);
+    QDirIterator it(QStringLiteral(":/qt/qml/Decenza/qml"), QStringList() << "*.qml",
+                    QDir::Files, QDirIterator::Subdirectories);
     while (it.hasNext()) {
         qmlFiles.append(it.next());
     }
@@ -506,6 +517,14 @@ void TranslationManager::scanAllStrings()
     m_scanTotal = static_cast<int>(qmlFiles.size());
     emit scanProgressChanged();
 
+    // A scan that finds no files is always a bug, never a valid state — the QML is compiled
+    // into the binary. Say so loudly; the silent zero is what let this sit unnoticed.
+    if (m_scanTotal == 0) {
+        qWarning() << "TranslationManager: string scan found NO QML files under"
+                   << ":/qt/qml/Decenza/qml — the resource root is wrong, so the registry will"
+                   << "only ever contain strings this device has rendered. AI translation and"
+                   << "community upload will be working from an incomplete list.";
+    }
     qDebug() << "Scanning" << m_scanTotal << "QML files for translatable strings...";
 
     // Pattern 1: Direct translate() calls - translate("key", "fallback")

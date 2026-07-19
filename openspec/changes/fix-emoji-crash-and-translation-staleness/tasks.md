@@ -120,7 +120,10 @@ re-render, offline behaviour, eviction) no longer exist.
       page was last activated and self-heal on navigation. See 6.9.
 - [x] 6.4 Update tab opened against v2.0.0 notes (which contain emoji): no crash, emoji render
       as bundled SVGs at inline size, full content present.
-- [ ] 6.9 DECIDE: fix the 35 imperative `currentPageTitle` assignments so page titles retranslate
+- [x] 6.9 DONE (commit d4be5c28): 29 pages now declare `readonly property string pageTitle`
+      and main.qml derives currentPageTitle from the current item, so titles retranslate live.
+      Marker was left stale. Original wording follows.
+      DECIDE: fix the 35 imperative `currentPageTitle` assignments so page titles retranslate
       live. Needs each page to expose a `pageTitle` property and main.qml to bind it — a
       one-line change per page plus a small refactor. Not done: it is a separate shape of bug
       from the binding fix, and this change is already large.
@@ -152,11 +155,33 @@ re-render, offline behaviour, eviction) no longer exist.
       Truncation is the safer of the two (it cannot claim 100 while anything is missing), so
       the QML side is the one to change. Two lines. `SettingsLanguageTab.qml` is NOT touched
       by this change, so this is a deliberate scope call, not an oversight.
-- [ ] 6.11 The 3 untranslated German strings are all long, multi-line MCP help text
+- [x] 6.11 RESOLVED — no length gap. German now has ZERO untranslated strings; the three MCP
+      help texts translated fine once a working provider ran. They were outstanding because
+      Anthropic was 404ing (see 7.8p), not because the AI path skips long strings. Hypothesis
+      tested and falsified rather than carried forward.
+      Original note: The 3 untranslated German strings are all long, multi-line MCP help text
       (`settings.ai.mcp.help.capabilities` / `.platformNote` / `.steps`). Every other string in
       the batch translated. Check whether the AI translation path skips or silently fails on
       strings past some length — if so, that is a real gap, not a coverage statistic.
-- [ ] 6.12 The percentage's DENOMINATOR may be wrong: it counts the string registry (2,977),
+- [x] 6.12 CONFIRMED, and the cause is far worse than a wrong denominator: **scanAllStrings()
+      has never scanned anything**. It iterated `:/qml`, which does not exist in a Qt 6
+      qt_add_qml_module build — main.cpp loads `qrc:/qt/qml/Decenza/qml/main.qml`. The log says
+      it outright: "Scanning 0 QML files ... Found 0 new strings. Total: 3042".
+
+      So the registry has never been the app's string set. It is "strings this device happened
+      to RENDER", accumulated over months and persisted. Everything 6.12 observed follows:
+      machineStatus.idle and four siblings (cleaning, descaling, refill, unknown) are missing
+      while their rendered neighbours are present; 446 keys have German translations the
+      registry has never heard of; and the percentage's denominator is a per-device artifact.
+      The real cost is not the statistic — AI translation and community upload have never been
+      offered the complete string list, only what this machine displayed.
+
+      Fixed: scan the correct root, and warn loudly when a scan finds zero files (a scan
+      finding nothing is always a bug — the QML is compiled into the binary).
+
+      Found by the "keys not in any QML file" report added in 7.8a: it printed all 3042 keys,
+      which is absurd on its face. The diagnostic caught what the code review did not — again.
+      Original note: The percentage's DENOMINATOR may be wrong: it counts the string registry (2,977),
       but `machineStatus.idle` is absent from the registry entirely — so it is invisible to
       both the percentage AND to AI translation, and can never be translated. That is why
       "Idle" stayed English while the rest of the UI switched to German (see 6.3). 450 keys
@@ -713,7 +738,9 @@ decide with, rather than guessing.
       was indistinguishable from success, and only a user with a single key could ever have
       noticed the provider was dead.
 
-- [ ] 7.8b The glyph class IS statically catchable — `redraw-icon-set` task 4.4 guessed it was not.
+- [x] 7.8b DONE: `scripts/check_font_glyph_coverage.py` ships and exits non-zero for CI;
+      redraw-icon-set 4.4 was corrected to say so. Marker was left stale.
+      The glyph class IS statically catchable — `redraw-icon-set` task 4.4 guessed it was not.
       `scripts/check_font_glyph_coverage.py` already does it. Worth landing as a test, but it cannot
       be green until 7.8's 29 sites are fixed, so it lands WITH the fix (no allowlist — an allowlist
       is how this becomes permanent debt). Update redraw-icon-set 4.4, which currently says
