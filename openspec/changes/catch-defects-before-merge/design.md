@@ -133,6 +133,30 @@ Because zero findings is exactly what a *broken* sanitizer setup also looks like
 
 **`prune-caches.yml` needed naming explicitly.** Its `workflow_run` trigger enumerates workflows by name, so a new one is not covered automatically; both `Pre-merge verification` and the ASan job were added to that list and to the in-progress skip gate.
 
+## The warning backlog is far smaller than assumed (macOS leg of task 6.1)
+
+Measured by re-running all 567 first-party translation units with `-Wall -Wextra -fsyntax-only` (third-party `_deps` TUs excluded, since the warning options sit after the FetchContent blocks and are never inherited there). macOS arm64, Apple clang:
+
+| Count | Files | Class |
+|---|---|---|
+| 10 | 6 | `-Wunused-lambda-capture` |
+| 6 | 3 | `-Wunused-parameter` |
+| 4 | 1 | `-Wunused-const-variable` |
+| 4 | 3 | `-Wunused-variable` |
+| 2 | 1 | `-Wunused-but-set-variable` |
+| 1 | 1 | `-Wreorder-ctor` |
+
+**27 warnings, 6 classes, 12 distinct files.** Every one is in a mechanical, zero-risk class — unused things and one constructor initialiser order.
+
+This does not match the premise section 6 was built on. The staged design — flags on with an exemption block, then one PR per class to burn it down — exists because "the composition of the backlog is currently unknown" and a big-bang flip would "convert an unmeasured backlog into a simultaneous outage on six platforms". Now that the macOS leg is measured, the backlog it was protecting against may not exist: 27 trivial warnings can plausibly be *fixed outright*, in which case `-Wall -Wextra -Werror` goes on with **no exemption block at all** and section 6 collapses from a multi-PR burndown into a single change.
+
+Two things must hold before acting on that, and neither is established yet:
+
+1. **The other five platforms.** This is one compiler on one platform, and the count that matters is the union. iOS is the specific worry: its Xcode defaults suppress roughly fifteen classes today, so it is the platform most likely to be hiding occurrences — and it is the platform that broke last time. Windows/MSVC `/W4` is a different diagnostic set again and does not map class-for-class onto clang's.
+2. **Test and QML-heavy TUs.** The sweep covers what the Ninja compdb contains for this configuration; a class absent here may still appear in a target this build does not compile.
+
+Until those are in hand, the exemption-list machinery stays in the plan as written. What changes is the expected *outcome*: plan for an empty or near-empty block, not a long one. If the six-platform union is still this small, tasks 6.6-6.9 (burndown order, one class per PR, delete the block) are satisfied vacuously by fixing all of it at once — which is strictly better and is what the spec's end state asks for.
+
 ## Open Questions — still open
 
 - Instrumented runtime *on the CI runner*, which is the number the budget in the `pre-merge-verification` spec actually refers to. Read it off the first real runs before flipping the job to a required check.

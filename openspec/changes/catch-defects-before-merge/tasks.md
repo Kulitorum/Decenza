@@ -39,7 +39,9 @@
 
 ## 6. Turn on `-Wall -Wextra -Werror`, then shrink the exemption list
 
-- [ ] 6.1 One-off measurement: compile with `-Wall -Wextra` on each of the six platforms and record which diagnostic classes actually occur, and roughly how often (counts differ per platform — iOS's Xcode defaults suppress ~15 classes today)
+- [~] 6.1 One-off measurement: compile with `-Wall -Wextra` on each of the six platforms and record which diagnostic classes actually occur, and roughly how often (counts differ per platform — iOS's Xcode defaults suppress ~15 classes today)
+  - [x] macOS arm64: **27 warnings, 6 classes, 12 files**, all mechanical (`-Wunused-lambda-capture` 10, `-Wunused-parameter` 6, `-Wunused-const-variable` 4, `-Wunused-variable` 4, `-Wunused-but-set-variable` 2, `-Wreorder-ctor` 1). See design.md — this is small enough to question whether an exemption block is needed at all.
+  - [ ] iOS, Android, Windows, Linux x64, Linux arm64 — need CI runs; iOS is the one most likely to hide occurrences (Xcode defaults suppress ~15 classes) and the one that broke last time
 - [ ] 6.2 Add `-Wall -Wextra -Werror` (and `/W4 /WX` for MSVC) to `CMakeLists.txt` as the default, with one clearly-labelled `-Wno-<name>` block carrying exactly the classes found in 6.1 — no speculative entries for classes with zero occurrences
 - [ ] 6.3 Comment that block with what it is (the backlog), the rule that entries are only ever removed, and that the change is done when it is empty
 - [ ] 6.4 Verify all six platforms build green with the flags on and the exemptions in place, before this lands
