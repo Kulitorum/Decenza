@@ -961,21 +961,45 @@ add_test(NAME failonwarning_lint
         -DLINT_DIR=${CMAKE_CURRENT_SOURCE_DIR}
         -P ${CMAKE_CURRENT_SOURCE_DIR}/lint_failonwarning.cmake)
 
-# --- sanitizer_canary: proof that the sanitizer is armed, not merely requested.
-# A silently-unapplied sanitizer yields the same green suite as a clean
-# codebase. This target commits deliberate signed overflow, so an instrumented
-# run must abort with a diagnostic; run_sanitizer_canary.cmake fails the test
-# if it does not. Registered only under ENABLE_UBSAN, so ordinary builds never
-# compile or run it. See the header comment in tests/sanitizer_canary.cpp.
-# Skipped when UBSan is in its auto-enabled Debug (recovering) mode: there the
-# sanitizer reports and continues by design, so the canary would exit 0 and
-# "fail" while everything is working correctly. It applies to the halting
-# configuration, which is what an explicit -DENABLE_UBSAN=ON and nightly CI use.
-if(ENABLE_UBSAN AND NOT _ubsan_recover)
+# --- Sanitizer canaries: proof that each sanitizer is armed, not merely asked
+# for. A silently-unapplied sanitizer yields the same green suite as a clean
+# codebase, so each canary commits a deliberate defect of its sanitizer's kind
+# and run_sanitizer_canary.cmake fails the test unless it was reported.
+# Registered only under the matching option, so ordinary builds never compile
+# or run them. See the header comments in the two canary sources.
+#
+# The UBSan canary runs in BOTH modes, which it previously did not. It used to
+# be skipped whenever UBSan was in its auto-enabled Debug (recovering) mode, on
+# the reasoning that a recovering sanitizer lets the process exit 0 and the
+# canary would "fail" while everything worked. True as far as it goes — but
+# recovering mode is every developer's local Debug build, i.e. exactly the gate
+# that runs most often, and it was the one configuration with no armed-ness
+# proof at all. The fix is to check the right evidence for the mode: an abort
+# where the build halts, and the diagnostic text alone where it recovers.
+if(ENABLE_UBSAN)
     add_executable(sanitizer_canary sanitizer_canary.cpp)
     set_target_properties(sanitizer_canary PROPERTIES AUTOMOC OFF)
+    if(_ubsan_recover)
+        set(_ubsan_expect_abort OFF)
+    else()
+        set(_ubsan_expect_abort ON)
+    endif()
     add_test(NAME sanitizer_canary
         COMMAND ${CMAKE_COMMAND}
             -DCANARY=$<TARGET_FILE:sanitizer_canary>
+            -DSANITIZER=ubsan
+            -DEXPECT_ABORT=${_ubsan_expect_abort}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/run_sanitizer_canary.cmake)
+endif()
+
+# ASan has no recovering mode for this defect class, so it always aborts.
+if(ENABLE_ASAN)
+    add_executable(asan_canary asan_canary.cpp)
+    set_target_properties(asan_canary PROPERTIES AUTOMOC OFF)
+    add_test(NAME asan_canary
+        COMMAND ${CMAKE_COMMAND}
+            -DCANARY=$<TARGET_FILE:asan_canary>
+            -DSANITIZER=asan
+            -DEXPECT_ABORT=ON
             -P ${CMAKE_CURRENT_SOURCE_DIR}/run_sanitizer_canary.cmake)
 endif()

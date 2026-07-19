@@ -443,6 +443,11 @@ else()
     #   the rest             scored ZERO in the sweep: free today, and a
     #                        first occurrence now fails the build rather than
     #                        drifting in unnoticed.
+    #
+    # Those two counts are from BEFORE the sites were fixed — fixing them is
+    # what let the flags be enabled. Re-running the sweep today reports 0 for
+    # both, which is the point, not a contradiction. The counts below, for the
+    # flags that were NOT enabled, do still reproduce as written.
     foreach(_w
             shorten-64-to-32
             shadow
@@ -467,10 +472,19 @@ else()
     # MEASURED AND DELIBERATELY NOT ENABLED. Re-proposing any of these needs
     # evidence that the instances are defects, not that the flag exists:
     #
-    #   -Wrange-loop-bind-reference  147 hits / 50 files. Almost entirely
-    #       `for (const QJsonValue& v : array)` — Qt 6 returns a proxy from
-    #       QJsonArray's iterator, so the reference binds to a temporary. A
-    #       per-iteration copy, not a bug; 147 edits would buy no correctness.
+    #   -Wrange-loop-bind-reference  147 hits / 50 files, and all 147 name a
+    #       QJsonArray range — `for (const QJsonValue& v : array)`, where Qt 6
+    #       returns a proxy from the iterator so the reference binds to a
+    #       temporary. A per-iteration copy, not a bug; 147 edits would buy no
+    #       correctness. (Verified, not assumed: every line of the sweep output
+    #       for this class matches "range of type ... QJsonArray".)
+    #
+    #       Do NOT read this as "range-loop warnings find nothing here."
+    #       GCC's sibling -Wrange-loop-construct — which is in -Wextra on GCC,
+    #       so it is already enabled and already enforced — found five REAL
+    #       sites on this branch (7137c9cf): `for (const QString& key : {"a",
+    #       "b", ...})` built a throwaway QString per element per call. Those
+    #       were worth fixing. The two flags share a name and nothing else.
     #   -Wfloat-equal                 74 hits / 28 files. Sampled sites are
     #       `a != 0` sentinel checks ("was this ever set?"), a legitimate idiom
     #       here. Real float-comparison bugs would be lost in the noise.
@@ -495,6 +509,15 @@ else()
     #       broken run and a clean one looked identical. That is the same
     #       silent-failure shape the sanitizer canary exists to prevent, in the
     #       measurement tooling itself. Trust a real build over a sweep.
+    #
+    #       That hole is now closed: measure_warnings.py probes each flag for
+    #       support before sweeping, counts TUs that failed to compile, and
+    #       exits non-zero when any did. Reproduce the counts above with:
+    #
+    #         ninja -C <build-dir> -t compdb > /tmp/cdb.json
+    #         python3 scripts/measure_warnings.py /tmp/cdb.json 10 /tmp/w.txt \
+    #             -Wrange-loop-bind-reference -Wfloat-equal -Wswitch-enum \
+    #             -Wdouble-promotion
 endif()
 
 # Enable parallel builds

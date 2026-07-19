@@ -159,7 +159,7 @@ jobs:
             echo "## Nightly $SANITIZER"
             if [ ! -f "$LOG" ]; then
               echo "Failed before the test step (configure or build)."
-            elif grep -qE "sanitizer_canary.*(Failed|\*\*\*)" "$LOG"; then
+            elif grep -qE "(sanitizer|asan)_canary.*(Failed|\*\*\*)" "$LOG"; then
               echo "**Canary failed — instrumentation is not in effect.** Every other"
               echo "result in this run is worth less than it looks, including the passes."
             elif grep -qE "ERROR: (Address|Leak)Sanitizer|SUMMARY: UndefinedBehaviorSanitizer" "$LOG"; then
