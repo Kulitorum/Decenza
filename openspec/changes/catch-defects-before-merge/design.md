@@ -109,7 +109,19 @@ So the response to a clean run is four changes that either close the ambiguity o
 
 The honest limit on all of this: sanitizers only see code the tests execute. Strengthening the instrumentation raises the yield *per executed line*; it does nothing for the lines no test reaches, and test coverage here is unmeasured. ThreadSanitizer is the remaining untouched class — 31 files use threads and 25 do background-thread database work, which is exactly the shape that produces races — and no detector in this change covers it.
 
-### The gate justified itself on its first run
+### What the gate has and has not caught — stated accurately
+
+An earlier draft of this section was headed "the gate justified itself on its first run". That was an overclaim and is corrected here, because the record matters more than the narrative.
+
+Both failures below were **self-inflicted**: neither is a pre-existing defect in the product. The `vptr` link break exists only because enabling UBSan introduced it, and the `local-bounds` rejection exists only because the flag list was wrong. The one genuine product bug found during this work — the screensaver cache-migration silent failure — came from the `-Wall -Wextra` measurement, which is **not part of this job at all**.
+
+So, to date: **the pre-merge job has found zero pre-existing defects.** It has demonstrated that it *can* catch Linux-only compile and link failures, which is worth something, but that is a capability demonstration, not a bug count.
+
+The honest case for the job is narrower and does not rest on either finding: **the 83 tests currently gate nothing.** They run once per release tag, so a pull request can merge today with a failing suite and nobody learns until a release build. Local discipline does not close that hole — this repo has direct precedent in `text-invariants.yml`'s own header, which records that its checks were "wired to nothing, which is the same as not having them: the invariant that justifies a load-bearing decision elsewhere in the code was enforced by whether someone remembered."
+
+Note also that the incident which motivated this change, #1558, was `#ifdef Q_OS_IOS` code. **A Linux-only gate would not have caught it**, and will not catch the next iOS or Windows break. That limitation is real and is not softened by the two findings below.
+
+### The two Linux-only breaks it did catch
 
 The first pre-merge run on real CI **failed at link**, on Linux, on a tree that builds and tests clean on macOS:
 
@@ -127,7 +139,20 @@ Worth noting for the runtime budget: the failing run took **24m 45s** to reach t
 
 ### Measured on real CI, green
 
-The fourth run passed end to end: **13m 20s total**, of which the instrumented suite was **32.06 s for all 83 tests**. That is still not a fully warm number — every push up to this point changed the sanitizer flag string, which invalidates every ccache entry and forces a full rebuild. The flags are stable now, so subsequent runs should be substantially faster; 13m 20s is therefore a safe upper bound rather than the steady state, and it already fits inside the 60-minute ceiling with room to spare.
+The fourth run passed end to end at **13m 20s**, but that number was an artifact: every push up to that point changed the sanitizer flag string, and flags are part of ccache's hash, so each one invalidated the whole cache and forced a full rebuild.
+
+The fifth run, the first with stable flags, is the real figure:
+
+| | |
+|---|---|
+| **Total job** | **3m 20s** |
+| Build step | 1m 36s |
+| Test step | 45 s (83 tests) |
+| ccache hit rate | **97.74%** (778/796) |
+
+This is the number the "is it worth it at PR time?" question turns on, and at 3m 20s the answer is straightforwardly yes — it is far below the threshold where people start merging without waiting.
+
+Two caveats on the steady state. That run restored from a pull-request-scoped cache, and PRs no longer save one (see the cache-budget decision), so once this merges the restore source becomes the `main`-scoped entry. A PR whose base has drifted from `main` will see a lower hit rate than 97.74%, so expect the realistic range to be a few minutes rather than a flat 3m 20s. Second, 97.74% reflects a build with no source changes to speak of; a PR touching a widely-included header will rebuild much more.
 
 Two things the CI log confirms that no local run could:
 
