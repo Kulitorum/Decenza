@@ -117,7 +117,11 @@ Both failures below were **self-inflicted**: neither is a pre-existing defect in
 
 So, to date: **the pre-merge job has found zero pre-existing defects.** It has demonstrated that it *can* catch Linux-only compile and link failures, which is worth something, but that is a capability demonstration, not a bug count.
 
-The honest case for the job is narrower and does not rest on either finding: **the 83 tests currently gate nothing.** They run once per release tag, so a pull request can merge today with a failing suite and nobody learns until a release build. Local discipline does not close that hole — this repo has direct precedent in `text-invariants.yml`'s own header, which records that its checks were "wired to nothing, which is the same as not having them: the invariant that justifies a load-bearing decision elsewhere in the code was enforced by whether someone remembered."
+An earlier version of this section argued that "the 83 tests currently gate nothing", since `ctest` runs only on a release tag. **That framing was wrong in practice**: the full suite is always run locally before a pull request is opened. The tests are already gated — by process rather than by CI — so "a PR can merge with a failing suite" describes a theoretical hole, not the one this project actually has.
+
+What that leaves is narrower, and it is worth being exact about it. Local runs happen on **macOS/clang**. Nobody compiles Linux/GCC, Windows/MSVC, iOS or Android before opening a pull request; those five platforms are first compiled at release-tag time, *after* merge. So the gap is not test coverage at all — it is **cross-toolchain compile coverage**, and the job's real contribution is being a second compiler.
+
+That contribution is demonstrated rather than hypothetical: both breaks below are things a macOS test run cannot catch, however diligently performed. But it should not be oversold either. GCC is one of five uncovered toolchains, and the platform that actually caused the motivating incident (#1558, iOS) remains uncovered. The 45-second test step is kept because it is nearly free and covers the exception to the local-testing norm rather than the norm itself — not because the norm is unreliable.
 
 Note also that the incident which motivated this change, #1558, was `#ifdef Q_OS_IOS` code. **A Linux-only gate would not have caught it**, and will not catch the next iOS or Windows break. That limitation is real and is not softened by the two findings below.
 

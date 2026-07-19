@@ -1,11 +1,19 @@
 name: Pre-merge verification
 
 # Compiles every pull request and runs the full ctest suite under
-# UndefinedBehaviorSanitizer, before merge. Until this existed, no PR was ever
-# compiled by CI: the six platform workflows trigger only on tag pushes, and the
-# only pull_request workflow (text-invariants.yml) runs text linters. The first
-# compile of a change happened at release time, which is how a build break
-# reached a release tag (#1558).
+# UndefinedBehaviorSanitizer, before merge.
+#
+# What this is actually for: a SECOND COMPILER. The full test suite is already
+# run locally before every pull request, so this job is not what stops a broken
+# test from merging — that is already handled by process. But local runs happen
+# on macOS/clang, and nobody compiles Linux/GCC, Windows/MSVC, iOS or Android
+# before opening a PR; those are first compiled at release-tag time, after
+# merge. That is how a build break reached a release tag (#1558). This job
+# closes one of those five toolchains, cheaply.
+#
+# Be clear about the size of that: GCC is one platform out of five uncovered,
+# and iOS — which caused #1558 — is still not covered here. The 45-second test
+# step is kept because it is nearly free, not because local testing is doubted.
 #
 # What this job covers — and, just as important, what it does NOT:
 #
