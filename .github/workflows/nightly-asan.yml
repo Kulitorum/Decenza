@@ -43,6 +43,10 @@ concurrency:
 jobs:
   asan:
     runs-on: ubuntu-24.04
+    # ASan roughly doubles runtime on top of a cold build, and nothing is
+    # waiting on this job — but an unbounded hang would still burn the 6-hour
+    # GitHub default every night before anyone noticed.
+    timeout-minutes: 90
 
     steps:
       - name: Checkout code

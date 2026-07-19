@@ -49,6 +49,12 @@ concurrency:
 jobs:
   build-and-test:
     runs-on: ubuntu-24.04
+    # The spec requires this job to stay fast enough that waiting for it is the
+    # path of least resistance. A ceiling makes a blown budget visible as a
+    # failure rather than as a job people learn to ignore, and stops a hung
+    # build burning the 6-hour GitHub default. Generous enough for a fully cold
+    # run (no Qt cache, no ccache); a warm run is a fraction of it.
+    timeout-minutes: 60
 
     steps:
       - name: Checkout code
