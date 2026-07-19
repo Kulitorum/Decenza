@@ -815,12 +815,23 @@ decide with, rather than guessing.
 
 ## 8. Close-out
 
-- [ ] 8.1 Archive this change. NOT DONE, deliberately — attempted 2026-07-18 and stopped.
-      The code is merged and live (#1550), but Android and Windows have had ZERO exercise and
-      this change touches text rendering on every platform plus 4,009 new assets. Archiving
-      would file the paperwork on a change whose riskiest claim is still unverified.
-      GATE UPDATED: 6.7/6.8 are closed — no platform-specific code, so no Android/Windows
-      build is owed ahead of the next beta. The remaining open items (5.6 wiki, 6.5/6.6 spot
-      checks, 6.11/6.12 translation findings, 7.8 arrow glyphs) are follow-ups rather than
-      verification of what shipped. The three specs are ADDED-only new capabilities, so
-      promotion is clean whenever the archive happens.
+- [x] 8.1 Archive this change. Done 2026-07-18, on the second attempt.
+      The first attempt was stopped deliberately and the reasoning is kept here rather than
+      overwritten, because the gate moving is the useful part of the record.
+      ORIGINAL HOLD: the code was merged and live (#1550), but Android and Windows had had zero
+      exercise and this change touches text rendering on every platform plus 4,009 new assets.
+      Archiving then would have filed paperwork on a change whose riskiest claim was unverified.
+      WHY THE GATE MOVED: 6.7/6.8 established the change contains no platform-conditional code —
+      it is QML, three plain-Qt C++ classes and resources, so a macOS build exercises the same
+      lines Android and Windows would. That removed the reason for the hold rather than merely
+      waiting it out.
+      GATE ITEMS AT ARCHIVE TIME, all closed: 5.6 (wiki), 6.5 (escaping audit — passed, no code
+      change), 6.6 (unbundled emoji — found and fixed a live macOS crash route), 6.11/6.12
+      (translation findings), 7.8 (symbol glyphs — fixed by bundling Noto Sans Math), 7.9 (the
+      low-contrast cloud — found and fixed, plus the screen-reader gap beside it).
+      70 of 71 tasks complete; this one is the 71st. Full suite green at 82/82, branch rebased
+      onto origin/main with no conflicts.
+      SPEC PROMOTION: the three capabilities (emoji-asset-resolution, translation-reactivity,
+      untrusted-text-rendering) were ADDED-only and none existed in `openspec/specs/`, so
+      promotion was a clean copy with a `## Purpose` written for each — no merge, nothing
+      overwritten. `openspec validate --specs` passes at 98/98 after promotion.
