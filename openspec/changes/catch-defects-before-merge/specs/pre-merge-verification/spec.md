@@ -1,9 +1,11 @@
 ## ADDED Requirements
 
 ### Requirement: Pull Requests Are Compiled by CI
-Every pull request targeting `main` SHALL be compiled by a GitHub Actions workflow before it can be merged. A pull request that does not compile SHALL fail its checks.
+Every pull request targeting `main` SHALL be compiled by a GitHub Actions workflow, and a pull request that does not compile SHALL show a failing check.
 
 Prior to this change no `pull_request`-triggered workflow invoked a compiler: all six platform workflows triggered only on `workflow_dispatch` and `push: tags: v*`, and the sole `pull_request` workflow (`text-invariants.yml`) ran Python text-linters. A compile error could therefore reach `main`, and did reach a release tag.
+
+The purpose is a **second compiler**, not a second test run. The full suite is already run locally before every pull request, so tests are gated by process; what is not covered is that those local runs happen on macOS/clang, while Linux/GCC, Windows/MSVC, iOS and Android are first compiled at release-tag time, after merge.
 
 #### Scenario: Pull request that does not compile
 - **WHEN** a pull request is opened or updated with code that fails to compile
@@ -13,10 +15,27 @@ Prior to this change no `pull_request`-triggered workflow invoked a compiler: al
 - **WHEN** a pull request is opened or updated with code that compiles cleanly
 - **THEN** the build step succeeds and the workflow proceeds to run the test suite
 
+### Requirement: Verification Is Advisory, Not A Required Check
+The pre-merge workflow SHALL report its result as a visible check and SHALL NOT be configured as a required status check for merging.
+
+This is a deliberate decision, not an unfinished migration. The project has three developers who already run the full suite before opening a pull request; a merge-blocking gate would add enforcement machinery where the behaviour it enforces is already the norm. The signal — a red check naming a Linux-only compile failure — is the whole value, and a human deciding what to do about it is sufficient at this size.
+
+This does not contradict the `compiler-diagnostics` rejection of advisory reporting. That rejection targets a job emitting a *number nobody acts on*; a failing check on a specific pull request names a specific break in that pull request's own code, which is actionable on its face.
+
+#### Scenario: Compile failure on a pull request
+- **WHEN** the workflow fails on a pull request
+- **THEN** the pull request shows a failing check a reviewer can see and act on, and merging is not mechanically blocked
+
+#### Scenario: Proposal to make it required
+- **WHEN** someone proposes marking the workflow a required status check
+- **THEN** it is weighed against team size and existing practice rather than adopted by default, since the value here is the signal and not the enforcement
+
 ### Requirement: Full Test Suite Runs Before Merge
 The complete `ctest` suite SHALL run on every pull request, not only on a release tag push. A failing test SHALL fail the pull request's checks.
 
-The suite already exists — 83 targets registered through `add_decenza_test` — but `ctest` is invoked in exactly one workflow (`linux-release.yml`) behind a tag-push trigger, so it runs after merge, once per release.
+The suite already exists — 83 targets registered through `add_decenza_test` — but `ctest` is invoked in exactly one workflow (`linux-release.yml`) behind a tag-push trigger, so in CI it runs after merge, once per release.
+
+This is kept because it costs about 45 seconds on top of a build that is happening anyway, not because local testing is doubted: the suite is already run locally before every pull request. What CI adds is running it against a *different toolchain* (Linux/GCC rather than macOS/clang), plus cover for the occasional exception to that norm.
 
 #### Scenario: Pull request breaks an existing test
 - **WHEN** a pull request is opened whose changes make any registered test fail
