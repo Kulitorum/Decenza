@@ -66,10 +66,16 @@ jobs:
           cache-key-prefix: 'qt-macos-v2'
 
       - name: Set up ccache
-        if: ${{ github.event_name != 'workflow_dispatch' || inputs.use_cache }}
         uses: hendrikmuhs/ccache-action@v1.2.23
         with:
-          key: macos-universal
+          # use_cache=false (nightly) must not skip this step — it is what
+          # INSTALLS ccache, and later steps still invoke it; skipping it
+          # failed the build with 'ccache: command not found' (exit 127).
+          # So the tool stays installed and the CACHE is defeated instead:
+          # a key that cannot match restores nothing, and save: false
+          # writes nothing. Cold build, no cache churn, ccache on PATH.
+          key: ${{ (github.event_name == 'workflow_dispatch' && !inputs.use_cache) && format('cold-no-restore-{0}', github.run_id) || 'macos-universal' }}
+          save: ${{ github.event_name != 'workflow_dispatch' || inputs.use_cache }}
           # macOS builds universal binaries (arm64 + x86_64), so each cache
           # entry holds a fat object ~2x the size of a single-arch entry.
           # At 500M, the cache sat at 99% full and evicted ~150 LRU entries
