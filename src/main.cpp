@@ -446,8 +446,17 @@ void announceSanitizerReports(const QString& whenLabel)
     if (announced > 0) {
         qWarning().noquote()
             << "Sanitizer: announced" << announced << "report(s) from" << whenLabel
-            << "- these are real findings; a sanitizer does not report unless it"
-            << "detected something.";
+            << "- a sanitizer does not write one unless it detected something, so"
+            << "treat each as real until the source location says otherwise.";
+    } else {
+        // Say so even when there is nothing. Otherwise silence means either
+        // "scanned, found nothing" or "never ran" — and those are the two
+        // readings a reporting mechanism must never conflate. The first version
+        // of this function logged only on a finding, so its own correctness was
+        // unobservable: exactly the ambiguity the sanitizer canary exists to
+        // remove, reproduced in the code that reports sanitizer results.
+        qDebug().noquote() << "Sanitizer report scan (" << whenLabel
+                           << "): none pending in" << dir.path();
     }
 }
 #endif  // DECENZA_SANITIZER_HOOKS
