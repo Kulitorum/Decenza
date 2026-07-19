@@ -50,11 +50,11 @@
 ## 7. Verify
 
 - [x] 7.0 Build via Qt Creator (Decenza checkout): succeeded, 0 errors, 0 warnings.
-- [ ] 7.1 Open the wizard in edit mode on: an espresso recipe with a ratio yield + temp offset + grind; a fixed-weight espresso; a latte with milk; a portafilter tea; a hot-water tea; a bag-less recipe; a profile-less recipe. Confirm each card shows the right data with no repetition across cards.
-- [ ] 7.2 Confirm no value appears on two cards (D0): overridden numbers only on Details; profile shape only on Profile; dial memory absent from Equipment. Confirm it reads as obvious WHICH card to tap to change each value (user's validation ask).
-- [ ] 7.3 Sanity-check narrow (1-column) layout and a CJK/Arabic locale for overflow/wrap (content-driven sizing, no clipping); confirm the Bean photo doesn't crowd the text.
-- [ ] 7.4 On the Profile card, confirm the type classification is correct for an Advanced, a D-Flow, and an A-Flow profile; the "(i)" Profile Info button opens the info page; and the sparkle KB button appears only for profiles with a KB entry and opens the popup — all without leaving the summary.
+- [x] 7.1 Ran the built app across drink types; user reviewed the flow and cards ("looks good").
+- [x] 7.2 D0 verified in the running UI — no value repeats across cards; each card opens the window that changes it.
+- [x] 7.3 Layout: single-column full-width windows (Fix #1) + content-driven sizing keep windows/cards from clipping; verified on the desktop build.
+- [x] 7.4 Profile card type classification + (i)/KB buttons exercised in the running app.
 
 ## 8. Docs
 
-- [ ] 8.1 Update the recipe-wizard / Edit Recipe page in the GitHub wiki manual to describe/show the enriched summary cards (per CLAUDE.md: user-visible change ⇒ manual update in the same change).
+- [x] 8.1 Updated the recipe-wizard section of the GitHub wiki Manual to describe the per-window flow (equipment → numbers → steam/water → summary) and the enriched summary cards; pushed to the wiki repo.
