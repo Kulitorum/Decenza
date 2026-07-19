@@ -362,10 +362,29 @@ bool TranslationManager::hasTranslation(const QString& key) const
 
 void TranslationManager::setTranslation(const QString& key, const QString& translation)
 {
+    // Same rollback contract as setGroupTranslation: an edit that cannot be persisted must not
+    // be left on screen looking applied. Note m_userOverrides in particular — recording a key as
+    // "user customised" while the text it refers to was never written is worse than doing
+    // nothing, because the override then protects a string that does not exist.
+    const bool hadPrevious = m_translations.contains(key);
+    const QString previous = m_translations.value(key);
+    const bool wasAiGenerated = m_aiGenerated.contains(key);
+    const bool wasOverride = m_userOverrides.contains(key);
+
     m_translations[key] = translation;
     m_aiGenerated.remove(key);  // User edited, no longer AI-generated
     m_userOverrides.insert(key);  // Track as user override (preserved during updates)
-    saveTranslations();
+
+    if (!saveTranslations()) {
+        if (hadPrevious) m_translations[key] = previous; else m_translations.remove(key);
+        if (wasAiGenerated) m_aiGenerated.insert(key);
+        if (!wasOverride) m_userOverrides.remove(key);
+        qWarning() << "Edit of" << key << "was NOT saved and has been rolled back";
+        emit translationsChanged();
+        emit translationChanged(key);
+        return;
+    }
+
     saveUserOverrides();
     recalculateUntranslatedCount();
     m_translationVersion++;
@@ -376,8 +395,15 @@ void TranslationManager::setTranslation(const QString& key, const QString& trans
 void TranslationManager::deleteTranslation(const QString& key)
 {
     if (m_translations.contains(key)) {
+        const QString previous = m_translations.value(key);
         m_translations.remove(key);
-        saveTranslations();
+        if (!saveTranslations()) {
+            m_translations[key] = previous;   // deletion not persisted; do not show it as gone
+            qWarning() << "Deletion of" << key << "was NOT saved and has been rolled back";
+            emit translationsChanged();
+            emit translationChanged(key);
+            return;
+        }
         recalculateUntranslatedCount();
         m_translationVersion++;
         emit translationsChanged();
@@ -1514,6 +1540,19 @@ QStringList TranslationManager::getKeysForFallback(const QString& fallback) cons
 void TranslationManager::setGroupTranslation(const QString& fallback, const QString& translation)
 {
     QStringList keys = getKeysForFallback(fallback);
+
+    // Snapshot so the edit can be rolled back if it cannot be persisted. Showing the user an
+    // edit that did not reach disk is the failure this whole area is about: they see it applied,
+    // close the app, and it is gone — with nothing having said so at any point.
+    QMap<QString, QString> previous;
+    QSet<QString> previouslyAiGenerated;
+    for (const QString& key : keys) {
+        if (m_translations.contains(key))
+            previous[key] = m_translations.value(key);
+        if (m_aiGenerated.contains(key))
+            previouslyAiGenerated.insert(key);
+    }
+
     for (const QString& key : keys) {
         if (translation.isEmpty()) {
             m_translations.remove(key);
@@ -1523,7 +1562,21 @@ void TranslationManager::setGroupTranslation(const QString& fallback, const QStr
         m_aiGenerated.remove(key);  // User edited, no longer AI-generated
     }
 
-    saveTranslations();
+    if (!saveTranslations()) {
+        // Roll back rather than display an edit that was not kept. m_lastError is already set.
+        for (const QString& key : keys) {
+            if (previous.contains(key))
+                m_translations[key] = previous.value(key);
+            else
+                m_translations.remove(key);
+            if (previouslyAiGenerated.contains(key))
+                m_aiGenerated.insert(key);
+        }
+        qWarning() << "Edit of" << fallback.left(40) << "was NOT saved and has been rolled back";
+        emit translationsChanged();   // repaint the reverted state, not the phantom edit
+        return;
+    }
+
     recalculateUntranslatedCount();
     m_translationVersion++;
     emit translationsChanged();

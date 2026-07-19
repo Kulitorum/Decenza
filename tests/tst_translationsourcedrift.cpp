@@ -522,7 +522,19 @@ private slots:
 
         // Editing a string is the likeliest response to seeing 0%.
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Refusing to save")));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("was NOT saved and has been rolled back")));
         tm.setTranslation(QStringLiteral("some.key"), QStringLiteral("edited"));
+
+        // The edit must be rolled back, not merely unsaved. Leaving it in the in-memory map is
+        // how the user ends up looking at an edit that no longer exists after a restart — the
+        // live run of this exact scenario showed the String Browser reporting the edit applied
+        // while the refusal had already blocked the write. And the override must not survive
+        // either: recording a key as user-customised while its text was never written leaves
+        // the override protecting a string that does not exist.
+        QVERIFY2(!tm.hasTranslation(QStringLiteral("some.key")),
+                 "a refused save must roll the edit back, not display it as applied");
+        QVERIFY2(!tm.m_userOverrides.contains(QStringLiteral("some.key")),
+                 "a refused save must not leave the key marked as a user override");
 
         const QByteArray after = [&]() -> QByteArray {
             QFile f(path);
