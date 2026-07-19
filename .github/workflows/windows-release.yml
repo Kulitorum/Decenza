@@ -9,6 +9,11 @@ on:
         required: true
         default: 'false'
         type: boolean
+      use_cache:
+        description: 'Restore/save the compiler cache (nightly builds pass false for a cold build)'
+        required: false
+        default: true
+        type: boolean
 
   # Trigger on version tags (pre-release and release)
   push:
@@ -93,6 +98,7 @@ jobs:
           Add-Content $env:GITHUB_PATH $ninja.DirectoryName
 
       - name: Set up sccache
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.use_cache }}
         uses: hendrikmuhs/ccache-action@v1.2.23
         with:
           variant: sccache

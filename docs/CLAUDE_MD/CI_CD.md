@@ -33,6 +33,14 @@ The full test suite is already run locally before every pull request, so tests a
 
 **Compiler enforcement has an annotation boundary — a clean build is not a clean codebase.** `-Werror=unused-result` caught a discarded `SecRandomCopyBytes` result because Apple annotates it `warn_unused_result`; the identical defect on the OpenSSL path — a discarded `RAND_bytes`, compiled by five of six platforms — produced no diagnostic at all, because OpenSSL does not annotate it. Where a checked result is deliberately ignored, write `(void)call();` with a comment saying why.
 
+### Nightly platform builds (`nightly-platforms.yml`)
+
+Runs at 02:11 UTC on `main`: dispatches all six release workflows in build-only mode (`upload_to_release=false`, `use_cache=false`). It does not run tests — `nightly-sanitizers.yml` does that — it answers one question: does it still compile everywhere?
+
+This exists because the five platforms nobody compiles locally are otherwise first built at release-tag time, after merge. Not hypothetical: enabling `-Wall -Wextra -Werror` produced findings that exactly one platform each could see (GCC's stricter `-Wshadow`, an iOS-only unused lambda capture behind `#ifdef Q_OS_IOS`, Android-only `-Wcast-align` and JNI narrowing). Two of those scored **zero** in the macOS measurement because that code is behind `#ifdef`.
+
+**`use_cache`** is a `workflow_dispatch` input on all six release workflows, default `true`. Nightly passes `false` so the builds are genuinely cold — nobody waits on them, so a compiler cache would only buy wall-clock nobody measures while writing a fresh timestamped generation into a cache store already near the 10 GB cap. The guard is `github.event_name != 'workflow_dispatch' || inputs.use_cache`, so a **tag push always caches**; without the event check, `inputs` is empty on a tag push and every release would silently go cold. The Qt install cache is unaffected — it is a stable-keyed download, not a compiler cache.
+
 **Cache pruning:** `prune-caches.yml` fires whenever a build workflow (including `nightly-sanitizers.yml`) completes (plus a daily cron fallback, since `workflow_run` for tag-triggered runs is an under-documented edge); it skips while any build is still queued/running (the last one to finish re-triggers it), then deletes all but the newest copy of each timestamped ccache/sccache entry per (prefix, ref). Stable-keyed `qt-*`/`openssl-*` caches are never touched. This keeps the repo's cache store (10 GB GitHub cap) from filling with stale compiler-cache generations; it replaced the old KEEP=2 prune step inside `macos-release.yml`, which ran before late-finishing builds (and macOS itself) had saved their fresh caches.
 
 ### Quick commands

@@ -466,6 +466,19 @@ else()
     #       enumerator.
     #   -Wdouble-promotion            14 hits / 3 files. float->double in
     #       arithmetic that is double anyway. Harmless.
+    #   -Wshadow-all                  clang-only superset of -Wshadow. Fires on
+    #       `post([..., work = std::move(work), done = std::move(done)] ...)` in
+    #       dbutils.h — the canonical C++14 move-into-lambda idiom, where
+    #       reusing the name is the entire point. Reporting intent as a defect,
+    #       same reason -Wfloat-equal is out.
+    #
+    #       Worth recording HOW this was nearly added by mistake: a sweep script
+    #       reported "0 hits across 567 TUs", and the real build immediately
+    #       produced three. The script counted lines matching "warning:" and had
+    #       no way to tell "compiled clean" from "failed to compile" — so a
+    #       broken run and a clean one looked identical. That is the same
+    #       silent-failure shape the sanitizer canary exists to prevent, in the
+    #       measurement tooling itself. Trust a real build over a sweep.
 endif()
 
 # Enable parallel builds
