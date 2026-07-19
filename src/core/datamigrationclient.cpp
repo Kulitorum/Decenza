@@ -1402,10 +1402,10 @@ void DataMigrationClient::sendDiscoveryBroadcasts()
                              << "Broadcast:" << (broadcast.isNull() ? "none" : broadcast.toString());
                 }
                 if (!broadcast.isNull() && broadcast != QHostAddress::Broadcast) {
-                    qint64 sent = m_discoverySocket->writeDatagram(discoveryMessage, broadcast, DISCOVERY_PORT);
-                    if (sent > 0) {
+                    const qint64 bytesSent = m_discoverySocket->writeDatagram(discoveryMessage, broadcast, DISCOVERY_PORT);
+                    if (bytesSent > 0) {
                         qDebug() << "DataMigrationClient:   Sent discovery to" << broadcast.toString()
-                                 << "(burst" << burst << "," << sent << "bytes)";
+                                 << "(burst" << burst << "," << bytesSent << "bytes)";
                     } else {
                         qWarning() << "DataMigrationClient:   Failed to send to" << broadcast.toString()
                                    << "(burst" << burst << "):" << m_discoverySocket->errorString();

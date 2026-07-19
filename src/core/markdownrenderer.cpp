@@ -50,13 +50,13 @@ QString MarkdownRenderer::toHtml(const QString& markdown) const
         return full;
     };
 
-    const int bodyOpen = full.indexOf(QStringLiteral("<body"));
+    const qsizetype bodyOpen = full.indexOf(QStringLiteral("<body"));
     if (bodyOpen < 0)
         return bail("no <body>");
-    const int contentStart = full.indexOf('>', bodyOpen);
+    const qsizetype contentStart = full.indexOf('>', bodyOpen);
     if (contentStart < 0)
         return bail("unterminated <body>");
-    const int bodyClose = full.lastIndexOf(QStringLiteral("</body>"));
+    const qsizetype bodyClose = full.lastIndexOf(QStringLiteral("</body>"));
     if (bodyClose < 0 || bodyClose <= contentStart)
         return bail("no </body>");
 

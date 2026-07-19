@@ -33,9 +33,9 @@ When seeding raw pre-construction settings state in a test, write through the **
 
 `--repeat until-pass:3` covers two clock-cadence tests — `tst_settling` (feeds samples at real `qWait` intervals and asserts plateau detection over time windows) and `tst_decentscalewifi` — that can occasionally miss a timing window under heavy CPU contention when many tests run at once. The retry re-runs only a failed test; a genuine regression fails all three attempts. In Qt Creator's CTest settings you can add the same flag, or just re-run a lone flaky result.
 
-### Running under UBSan (what pre-merge CI does)
+### Running under UBSan
 
-The pre-merge CI job runs the suite instrumented with UndefinedBehaviorSanitizer. To reproduce locally:
+Debug builds instrument automatically (see below). To run an explicit instrumented suite the way nightly CI does:
 
 ```bash
 # Separate build dir — sanitized objects don't mix with your normal build
@@ -63,7 +63,7 @@ UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
 
 The `integer` group (unsigned overflow, implicit conversions) is deliberately **not** enabled: that is legal C++ which CRC and hashing code wraps on purpose, so it would report intent as a defect.
 
-Two exclusions are forced rather than chosen, and both were found by the pre-merge job failing on Linux against a tree that was clean on macOS:
+Two exclusions are forced rather than chosen, and both were found by a Linux/GCC build failing on a tree that was clean on macOS:
 
 - **`vptr` is off** (`-fno-sanitize=vptr`). It instruments downcasts through a polymorphic hierarchy and needs the target's typeinfo at link time; `decentscalewifi.cpp` downcasts `QObjectPrivate*` to `QWebSocketPrivate*`, and Qt does not export typeinfo for private classes on Linux. The cost: bad-downcast detection is off everywhere, including for that downcast, whose validity rests on a convention the code's own comment says to re-verify on each Qt upgrade.
 - **Optional checks are probed, not assumed.** `local-bounds` is clang-only and GCC rejects the entire compile. `CMakeLists.txt` uses `check_cxx_compiler_flag` so unsupported checks are dropped per-toolchain — which also covers iOS, Android and Windows without predicting their compilers. If you add a check, add it to that probe list rather than to the flag string.
@@ -74,7 +74,9 @@ Two exclusions are forced rather than chosen, and both were found by the pre-mer
 
 ### CI
 
-Every **pull request** builds Linux x64 and runs the full suite under UBSan via `pre-merge.yml` (see `docs/CLAUDE_MD/CI_CD.md` → "Pre-merge verification"). On **tag push**, the Linux release workflow (`linux-release.yml`) builds and runs all tests (uninstrumented) before packaging the AppImage. Other platform workflows (Windows, macOS, Android, iOS) do not currently run the test suite.
+**There is no pull-request CI gate** — the suite is run locally before opening a PR, and that is the gate. `nightly-sanitizers.yml` runs the suite nightly on `main` under UBSan and ASan as two independent Linux builds. On **tag push**, `linux-release.yml` builds and runs all tests (uninstrumented) before packaging the AppImage. Other platform workflows do not run the suite.
+
+See `docs/CLAUDE_MD/CI_CD.md` for why there is no PR gate: the detectors found no pre-existing defects on their first run across eight months of code, so they were moved off the critical path of every push.
 
 ## Architecture
 

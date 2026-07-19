@@ -2634,7 +2634,7 @@ int main(int argc, char *argv[])
     // When USB scale discovered: wire it as the active scale (same pattern as BLE scale)
     QObject::connect(&usbScaleManager, &UsbScaleManager::scaleDiscovered,
                      [&physicalScale, &flowScale, &machineState, &mainController, &engine,
-                      &bleManager, &timingController, &weightProcessor, &usbScaleManager, &settings](UsbDecentScale* usbScale) {
+                      &bleManager, &timingController, &weightProcessor, &settings](UsbDecentScale* usbScale) {
         // Don't connect if we already have a connected BLE scale
         if (physicalScale && physicalScale->isConnected()) {
             qDebug() << "[USB Scale] BLE scale already connected, ignoring USB scale";
@@ -3539,7 +3539,7 @@ int main(int argc, char *argv[])
                      [&physicalScale, &machineState, &settings, &de1EverAwake,
                       &wasInSleep, &scaleLcdRestorePending,
                       &scaleAutoReconnectSuppressed, &scaleReconnectTimer,
-                      &scaleReconnectAttempt, &reconnectDelays]() {
+                      &scaleReconnectAttempt]() {
         auto phase = machineState.phase();
         if (phase == MachineState::Phase::Disconnected) {
             de1EverAwake = false;

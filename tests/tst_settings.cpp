@@ -1066,7 +1066,7 @@ private slots:
 
         // Calling it again with a plain "settings" item present must not add
         // a second one.
-        const int countBefore = net->getZoneItems("bottomRight").size();
+        const qsizetype countBefore = net->getZoneItems("bottomRight").size();
         net->ensureSettingsAccessible();
         QCOMPARE(net->getZoneItems("bottomRight").size(), countBefore);
 

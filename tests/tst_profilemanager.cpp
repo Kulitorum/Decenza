@@ -2354,7 +2354,6 @@ private slots:
     void uploadRecipeProfileRegeneratesFramesOnParamChange() {
         McpTestFixture f;
         loadDFlowProfile(f, "D-Flow / Test", 36.0, 93.0);
-        int framesBefore = f.profileManager.frameCount();
 
         QVariantMap recipe;
         recipe["editorType"] = "dflow";
@@ -2366,7 +2365,14 @@ private slots:
         recipe["pourFlow"] = 2.5;     // Changed from 2.0
         f.profileManager.uploadRecipeProfile(recipe);
 
-        // Frames should be regenerated (params changed)
+        // NOTE: this asserts only that frames EXIST, not that they were
+        // regenerated. The test captured a frameCount() from before the upload
+        // and never compared against it — the comparison was evidently intended
+        // and never written, and the unused variable (surfaced by -Werror) is
+        // the only reason anyone noticed. Left as-is rather than guessed at:
+        // whether D-Flow regeneration should change the frame COUNT for a
+        // scalar param change is a question for someone who knows the
+        // generator, and a confidently-wrong assertion is worse than a weak one.
         QVERIFY(f.profileManager.frameCount() > 0);
         QCOMPARE(f.profileManager.profileTargetWeight(), 40.0);
     }

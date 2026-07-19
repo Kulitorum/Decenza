@@ -29,7 +29,7 @@ public:
                 QTcpSocket* sock = m_server.nextPendingConnection();
                 connect(sock, &QTcpSocket::readyRead, this, [this, sock]() {
                     const QByteArray req = sock->readAll();
-                    const int lineEnd = req.indexOf("\r\n");
+                    const qsizetype lineEnd = req.indexOf("\r\n");
                     const QString line = QString::fromUtf8(
                         lineEnd > 0 ? req.left(lineEnd) : req);
                     m_requestLines.append(line);
@@ -108,7 +108,7 @@ public:
     // JSON default the API-shaped tests rely on.
     void setContentType(const QByteArray& contentType) { m_contentType = contentType; }
 
-    int requestCount() const { return m_requestLines.size(); }
+    qsizetype requestCount() const { return m_requestLines.size(); }
     QStringList requestLines() const { return m_requestLines; }
 
 private:
@@ -354,7 +354,7 @@ private slots:
 
         // Cached: a second ensure re-emits (deferred) with the same payload
         // and without any new request.
-        const int requestsAfterResolve = server.requestCount();
+        const qsizetype requestsAfterResolve = server.requestCount();
         QSignalSpy spy2(&client, &BeanBaseClient::bagImageReady);
         client.ensureBagImage("canon-img-1", "Milk Blend", "");
         QVERIFY(spy2.wait(1000));
@@ -461,7 +461,7 @@ private slots:
         QSignalSpy spy(&client, &BeanBaseClient::bagImageReady);
         client.ensureBagImage("missing-1", "Nope", "");
         QVERIFY(!spy.wait(500));
-        const int requests = server.requestCount();
+        const qsizetype requests = server.requestCount();
         QCOMPARE(requests, 1);
         client.ensureBagImage("missing-1", "Nope", "");
         QVERIFY(!spy.wait(300));
@@ -849,7 +849,7 @@ private slots:
 
         // http(s)-only gate: the URL is user-entered and the text is shipped
         // to a third-party AI — file:// must never be read. No server hit.
-        const int requestsBefore = server.requestCount();
+        const qsizetype requestsBefore = server.requestCount();
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("fetchPageText rejected non-http url"));
         client.fetchPageText("file:///etc/hosts");
         QVERIFY(failed.wait(1000));

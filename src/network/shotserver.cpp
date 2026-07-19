@@ -443,14 +443,14 @@ bool ShotServer::start()
                            << "socketDescriptor:" << m_server->socketDescriptor()
                            << "isListening:" << m_server->isListening();
             });
-            connect(sslServer, &QSslServer::sslErrors, this, [](QSslSocket* socket, const QList<QSslError>& errors) {
+            connect(sslServer, &QSslServer::sslErrors, this, [](QSslSocket* /*socket*/, const QList<QSslError>& errors) {
                 for (const auto& err : errors)
                     qWarning() << "ShotServer: SSL error:" << err.errorString();
             });
-            connect(sslServer, &QSslServer::handshakeInterruptedOnError, this, [](QSslSocket* socket, const QSslError& error) {
+            connect(sslServer, &QSslServer::handshakeInterruptedOnError, this, [](QSslSocket* /*socket*/, const QSslError& error) {
                 qWarning() << "ShotServer: SSL handshake interrupted:" << error.errorString();
             });
-            connect(sslServer, &QSslServer::peerVerifyError, this, [](QSslSocket* socket, const QSslError& error) {
+            connect(sslServer, &QSslServer::peerVerifyError, this, [](QSslSocket* /*socket*/, const QSslError& error) {
                 qWarning() << "ShotServer: SSL peer verify error:" << error.errorString();
             });
 
@@ -2172,7 +2172,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         }
 
         int lastIndex = 0;
-        QStringList lines;
+        QStringList bodyLines;
         if (WebDebugLogger::instance()) {
             lines = WebDebugLogger::instance()->getLines(afterIndex, &lastIndex);
         }

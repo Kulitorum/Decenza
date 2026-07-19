@@ -230,7 +230,7 @@ private slots:
         // control; there is no spacing governor to swallow anything). Stretch
         // is captured by the first loop iteration (cues begin on the first tick).
         QStringList texts;
-        int lastCount = 0;
+        qsizetype lastCount = 0;
         for (double t = 0.1; t <= 19.9; t += 0.1) {
             fx.tick(t);
             if (fx.cueSpy.count() > lastCount) {
@@ -279,8 +279,8 @@ private slots:
         // invariant.
         fx.tick(19.0);
         fx.flowStopped();
-        const int cuesAfterDone = fx.cueSpy.count();
-        const int speaksAfterDone = fx.speakSpy.count();
+        const qsizetype cuesAfterDone = fx.cueSpy.count();
+        const qsizetype speaksAfterDone = fx.speakSpy.count();
         fx.flowStopped();  // duplicate event (emitter is once-latched too — belt and suspenders)
         fx.tick(19.0);     // frozen-clock re-tick
         QCOMPARE(fx.cueSpy.count(), cuesAfterDone);
@@ -291,8 +291,8 @@ private slots:
         Fixture fx(true, true, 60);
         fx.startSteam();
         fx.tick(10.0);    // stretch fires here (first tick)
-        const int cuesBefore = fx.cueSpy.count();
-        const int speaksBefore = fx.speakSpy.count();
+        const qsizetype cuesBefore = fx.cueSpy.count();
+        const qsizetype speaksBefore = fx.speakSpy.count();
         fx.flowStopped(); // 50s remaining — deliberate abort, no announcement
         QCOMPARE(fx.cueSpy.count(), cuesBefore);
         QCOMPARE(fx.speakSpy.count(), speaksBefore);
@@ -385,8 +385,8 @@ private slots:
         fx.tick(0.1);     // stretch
         fx.tick(21.0);    // roll
         QCOMPARE(fx.coach.cueText(), QString::fromUtf8(ROLL));
-        const int cuesBefore = fx.cueSpy.count();   // 2
-        const int speaksBefore = fx.speakSpy.count();
+        const qsizetype cuesBefore = fx.cueSpy.count();   // 2
+        const qsizetype speaksBefore = fx.speakSpy.count();
 
         fx.coach.setDurationMilkDerived(false);     // mid-steam preset switch
         fx.tick(22.0);

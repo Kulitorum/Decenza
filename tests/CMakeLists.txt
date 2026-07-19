@@ -967,7 +967,11 @@ add_test(NAME failonwarning_lint
 # run must abort with a diagnostic; run_sanitizer_canary.cmake fails the test
 # if it does not. Registered only under ENABLE_UBSAN, so ordinary builds never
 # compile or run it. See the header comment in tests/sanitizer_canary.cpp.
-if(ENABLE_UBSAN)
+# Skipped when UBSan is in its auto-enabled Debug (recovering) mode: there the
+# sanitizer reports and continues by design, so the canary would exit 0 and
+# "fail" while everything is working correctly. It applies to the halting
+# configuration, which is what an explicit -DENABLE_UBSAN=ON and nightly CI use.
+if(ENABLE_UBSAN AND NOT _ubsan_recover)
     add_executable(sanitizer_canary sanitizer_canary.cpp)
     set_target_properties(sanitizer_canary PROPERTIES AUTOMOC OFF)
     add_test(NAME sanitizer_canary

@@ -66,7 +66,7 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
             // titled "Tea/Some Variant" map to category "Tea"; titles
             // without a slash get null (treated as Espresso recipes).
             auto categoryOf = [](const QString& title) -> QString {
-                const int slash = title.indexOf('/');
+                const qsizetype slash = title.indexOf('/');
                 // Built-in profile titles use "Foo / Bar" with whitespace
                 // around the slash ("D-Flow / default", "A-Flow / ...",
                 // also produced by profiles_create), so trim to keep

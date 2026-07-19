@@ -193,7 +193,7 @@ void SteamHealthTracker::clearHistory() {
 // not limescale — changing the steam temperature setting would spuriously trigger.
 
 void SteamHealthTracker::checkTrend(QList<SteamSessionSummary>& history,
-                                     int steamFlow, int steamTemp) {
+                                     int /*steamFlow*/, int steamTemp) {
     qsizetype n = history.size();
     if (n < MIN_SESSIONS_FOR_TREND) {
         qDebug() << "SteamHealth [trend] not enough sessions:"
@@ -361,7 +361,7 @@ void SteamHealthTracker::checkTrend(QList<SteamSessionSummary>& history,
 }
 
 void SteamHealthTracker::updateCachedStats(const QList<SteamSessionSummary>& history,
-                                            int steamTemp) {
+                                            int /*steamTemp*/) {
     if (history.isEmpty()) {
         m_baselinePressure = 0.0;
         m_baselineTemperature = 0.0;

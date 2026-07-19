@@ -609,7 +609,7 @@ QString AIConversation::processShotForConversation(const QString& shotSummary, c
         // (issue #1039). Falls back to legacy prose regex automatically
         // when either message predates the JSON envelope.
         const ShotFields curr = extractShotFields(processed);
-        const ShotFields prev = extractShotFields(prevContent);
+        const ShotFields prevFields = extractShotFields(prevContent);
 
         QStringList changes;
 
@@ -619,14 +619,14 @@ QString AIConversation::processShotForConversation(const QString& shotSummary, c
                 changes << QString("%1 %2%3\u2192%4%5")
                     .arg(label, a, unit, b, unit);
         };
-        diffField(prev.doseG, curr.doseG, QStringLiteral("Dose"), QStringLiteral("g"));
-        diffField(prev.yieldG, curr.yieldG, QStringLiteral("Yield"), QStringLiteral("g"));
-        diffField(prev.durationSec, curr.durationSec, QStringLiteral("Duration"), QStringLiteral("s"));
+        diffField(prevFields.doseG, curr.doseG, QStringLiteral("Dose"), QStringLiteral("g"));
+        diffField(prevFields.yieldG, curr.yieldG, QStringLiteral("Yield"), QStringLiteral("g"));
+        diffField(prevFields.durationSec, curr.durationSec, QStringLiteral("Duration"), QStringLiteral("s"));
         // Grinder diff string keeps a different separator (" \u2192 " with
         // spaces) for legibility \u2014 the grinder string can be long
         // ("Niche Zero (63mm conical) at 4.0").
-        if (!prev.grinder.isEmpty() && !curr.grinder.isEmpty() && prev.grinder != curr.grinder)
-            changes << "Grinder " + prev.grinder + " \u2192 " + curr.grinder;
+        if (!prevFields.grinder.isEmpty() && !curr.grinder.isEmpty() && prevFields.grinder != curr.grinder)
+            changes << "Grinder " + prevFields.grinder + " \u2192 " + curr.grinder;
 
         // Prepend changes section
         QString changesSection;

@@ -180,13 +180,11 @@ ShotFileParser::ParseResult ShotFileParser::parse(const QByteArray& fileContents
 
     // Parse phase markers from timers
     QString preinfStartStr = extractValue(content, "timers(espresso_preinfusion_start)");
-    QString preinfStopStr = extractValue(content, "timers(espresso_preinfusion_stop)");
     QString pourStartStr = extractValue(content, "timers(espresso_pour_start)");
     QString espressoStartStr = extractValue(content, "timers(espresso_start)");
 
     qint64 espressoStart = espressoStartStr.toLongLong();
     qint64 preinfStart = preinfStartStr.toLongLong();
-    qint64 preinfStop = preinfStopStr.toLongLong();
     qint64 pourStart = pourStartStr.toLongLong();
 
     if (espressoStart > 0) {

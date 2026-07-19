@@ -57,7 +57,9 @@ Read [`docs/SHOT_REVIEW.md`](https://github.com/Kulitorum/Decenza/blob/main/docs
 
 **Don't build automatically** — let the user build in Qt Creator (~50× faster than CLI). Only run CLI builds when the user explicitly asks. CLI commands for Windows/macOS/iOS live in `docs/CLAUDE_MD/PLATFORM_BUILD.md`.
 
-**Every pull request is compiled and tested by CI** (`pre-merge.yml`): Linux x64, Release, full `ctest` suite under UBSan. A PR that doesn't build or breaks a test fails its checks before merge. That gate is one platform in one configuration — platform-guarded code (`#ifdef Q_OS_IOS` etc.) is only compiled by the tag-push release workflows, so verify platform-specific changes with a CI test build of that platform (see `docs/CLAUDE_MD/CI_CD.md`).
+**There is no pull-request CI gate — run the full suite locally before opening a PR.** That is the gate. `nightly-sanitizers.yml` re-runs the suite on `main` each night under UBSan and ASan. Platform-guarded code (`#ifdef Q_OS_IOS` etc.) is compiled only by the tag-push release workflows, so verify platform-specific changes with a CI test build of that platform (see `docs/CLAUDE_MD/CI_CD.md`).
+
+**Debug builds are sanitizer-instrumented automatically** (UBSan on all desktop platforms, ASan additionally on non-Apple), so a normal local test run already reports undefined behaviour. Release builds are untouched.
 
 ## Project Structure
 

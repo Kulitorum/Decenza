@@ -1096,10 +1096,15 @@ void StrangeAttractorRenderer::stepRossler(double& x, double& y, double& z, doub
 }
 
 void StrangeAttractorRenderer::stepSprott(double& x, double& y, double& z, double dt) {
-    // Sprott attractor (Sprott-Linz D)
-    const double a = 2.07;
-    const double b = 1.79;
-
+    // Nose-Hoover form: dx = y, dy = -x + y*z, dz = a - y^2.
+    //
+    // NOTE: this carried `const double a = 2.07; const double b = 1.79;`
+    // labelled "Sprott-Linz D", and neither was ever referenced — `dz` uses a
+    // hard-coded 1.0 where `a` belongs, and `b` appears in no form of this
+    // system. The constants were removed rather than wired in, because doing
+    // the latter would change what the screensaver actually draws; a = 1.0 is
+    // what has always shipped. If the intent was a = 2.07, that is a
+    // deliberate visual change, not a warning fix.
     double dx = y;
     double dy = -x + y * z;
     double dz = 1.0 - y * y;

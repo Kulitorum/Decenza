@@ -632,7 +632,7 @@ private slots:
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Spike rejected.*500"));
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Spike rejected.*500"));
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Spike filter reset"));
-        int countBefore = flowSpy.count();
+        qsizetype countBefore = flowSpy.count();
         wp.processWeight(500.0); m_fakeClock += 200;
         wp.processWeight(500.0); m_fakeClock += 200;
         wp.processWeight(500.0); m_fakeClock += 200;
@@ -651,7 +651,7 @@ private slots:
         // Build stable 2 g/s flow
         feedRising(wp, 0.0, 2.0, 10);
 
-        int countBefore = flowSpy.count();
+        qsizetype countBefore = flowSpy.count();
         double flowBefore = flowSpy.last().at(2).toDouble();  // flowRateShort
 
         // Inject spike — rejected, no new signal emitted
@@ -767,7 +767,7 @@ private slots:
 
         // SAW should fire exactly once (m_stopTriggered guard)
         QVERIFY(stopSpy.count() >= 1);
-        int firstCount = stopSpy.count();
+        qsizetype firstCount = stopSpy.count();
 
         // Continue feeding — count should not increase
         feedRising(wp, 50.0, 2.0, 10);

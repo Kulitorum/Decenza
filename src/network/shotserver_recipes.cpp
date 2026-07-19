@@ -305,7 +305,7 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
             const bool opened = withTempDb(dbPath, "web_recipe_promote", [&](QSqlDatabase& db) {
                 record = ShotHistoryStorage::loadShotRecordStatic(db, shotId);
             });
-            QMetaObject::invokeMethod(qApp, [opened, record, shotId, name, hasMilkProvided,
+            QMetaObject::invokeMethod(qApp, [opened, record, name, hasMilkProvided,
                                              hasMilk, fallbackSteam, recipeStorage, respondJson]() {
                 if (!opened) {
                     respondJson(QJsonObject{{"error", "Could not open database"}}, 500);

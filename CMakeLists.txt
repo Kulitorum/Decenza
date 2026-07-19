@@ -245,6 +245,31 @@ endif()
 # implicit conversions). That is legal, well-defined C++ that CRC and hashing
 # code wraps on purpose, so it reports intent as if it were a defect. A
 # detector that cries wolf gets switched off, which costs more than it finds.
+# UBSan auto-enables for single-config Debug builds, on Apple too. This is the
+# main place undefined behaviour actually gets caught, because the full test
+# suite is run locally before every pull request and there is no CI gate — so
+# instrumenting the Debug build instruments the run that already happens.
+#
+# Note the existing ASan condition above excludes APPLE, which meant that on
+# macOS — the platform this is developed on — a Debug build carried NO
+# sanitizer at all. UBSan is verified working on macOS (the full 83-test suite
+# passes instrumented), so there is no reason to exclude Apple here.
+#
+# Android is excluded for the same reason ASan excludes it: the runtime needs
+# packaging into the APK (wrap.sh + shared lib) that this file does not do.
+#
+# An auto-enabled Debug build gets RECOVERING UBSan — it prints a diagnostic
+# and keeps going. An explicit -DENABLE_UBSAN=ON gets the halting kind. The
+# distinction matters: a developer running the app should be told about
+# undefined behaviour, not have the app killed under them mid-session, whereas
+# a test run wants a hard failure it cannot ignore.
+if(NOT ENABLE_UBSAN AND NOT CMAKE_CONFIGURATION_TYPES
+   AND CMAKE_BUILD_TYPE STREQUAL "Debug" AND NOT ANDROID AND NOT MSVC)
+    set(ENABLE_UBSAN ON)
+    set(_ubsan_recover ON)
+    message(STATUS ">>> UBSan auto-enabled for Debug build (reports, does not abort) <<<")
+endif()
+
 if(ENABLE_UBSAN)
     if(MSVC)
         message(FATAL_ERROR "ENABLE_UBSAN is not supported with MSVC (it has no UBSan). Use clang or GCC.")
@@ -285,8 +310,17 @@ if(ENABLE_UBSAN)
                 message(STATUS "UBSan: ${_check} unsupported by this compiler, skipping")
             endif()
         endforeach()
-        message(STATUS ">>> UBSan ENABLED (undefined${_ubsan_extra}, no vptr, no-recover) <<<")
-        set(_ubsan_checks "-fsanitize=undefined${_ubsan_extra} -fno-sanitize=vptr -fno-sanitize-recover=all -fno-omit-frame-pointer")
+        # Recovering in an auto-enabled Debug build, halting when asked for
+        # explicitly — see the auto-enable block above for why.
+        if(_ubsan_recover)
+            set(_ubsan_halt "")
+            set(_ubsan_mode "reports")
+        else()
+            set(_ubsan_halt " -fno-sanitize-recover=all")
+            set(_ubsan_mode "aborts on finding")
+        endif()
+        message(STATUS ">>> UBSan ENABLED (undefined${_ubsan_extra}, no vptr, ${_ubsan_mode}) <<<")
+        set(_ubsan_checks "-fsanitize=undefined${_ubsan_extra} -fno-sanitize=vptr${_ubsan_halt} -fno-omit-frame-pointer")
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${_ubsan_checks}")
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${_ubsan_checks}")
         set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=undefined")
@@ -330,6 +364,76 @@ if(MSVC)
     add_compile_options(/we4834)
 else()
     add_compile_options(-Werror=unused-result)
+endif()
+
+# Warnings are errors. This is where defects are cheapest to catch — the
+# developer's own build, before anything is committed — and it is deliberately
+# the ONLY place diagnostics are enforced. There is no CI warning job: a count
+# in a log has no forcing function, and a red build does.
+#
+# Placed after the FetchContent blocks so third-party code (Paho, mdns, tsnet)
+# never inherits it; it applies to the app target and tests, created below.
+#
+# The extra flags beyond -Wall -Wextra were chosen by MEASUREMENT, not taste:
+# every first-party TU was compiled with a wide candidate set and the hits
+# counted (scripts/measure_warnings.py). Flags that fired on real defects are
+# here; flags that fired mostly on idiom are not, and are listed at the bottom
+# with the counts, so nobody re-proposes them without new evidence.
+if(MSVC)
+    add_compile_options(/W4 /WX)
+else()
+    add_compile_options(
+        -Wall
+        -Wextra
+        -Werror
+
+        # 30 real sites. CLAUDE.md already warns about this exact hazard:
+        # QVector/QString::size() return qsizetype (64-bit on iOS/macOS) and
+        # assigning to int truncates. Documented convention did not hold; this
+        # makes it hold.
+        -Wshorten-64-to-32
+
+        # 8 sites. A shadowed variable reads as the outer one and compiles
+        # silently — a genuine defect class, and a trivially small backlog.
+        -Wshadow
+    )
+
+    # These scored ZERO across all 568 first-party TUs, so they cost nothing
+    # today and lock in the cleanliness: a first occurrence becomes a build
+    # error rather than a slow drift.
+    add_compile_options(
+        -Wnon-virtual-dtor          # delete through a base pointer = UB
+        -Wconditional-uninitialized # used-uninitialized on some paths
+        -Wimplicit-fallthrough      # missing break in a switch
+        -Wself-assign
+        -Wpessimizing-move
+        -Wredundant-move
+        -Wcomma                     # comma operator where ';' was meant
+        -Wsuggest-override
+        -Wextra-semi
+        -Wformat=2
+        -Wcast-align
+    )
+
+    # MEASURED AND DELIBERATELY NOT ENABLED. Re-proposing any of these needs
+    # evidence that the instances are defects, not that the flag exists:
+    #
+    #   -Wrange-loop-bind-reference  147 hits / 50 files. Almost entirely
+    #       `for (const QJsonValue& v : array)` — Qt 6 returns a proxy from
+    #       QJsonArray's iterator, so the reference binds to a temporary. A
+    #       per-iteration copy, not a bug; 147 edits would buy no correctness.
+    #   -Wfloat-equal                 74 hits / 28 files. Sampled sites are
+    #       `a != 0` sentinel checks ("was this ever set?"), which is a
+    #       legitimate idiom here. Real float-comparison bugs would be lost in
+    #       the noise.
+    #   -Wswitch-enum                 46 hits / 31 files. Tempting, because
+    #       "new machine phase added, switch silently falls to default:" is a
+    #       real class in this codebase — but it fires on every switch with a
+    #       deliberate `default:`, which is most of them. -Wswitch (in -Wall)
+    #       already covers the dangerous case: a switch with NO default that
+    #       misses an enumerator.
+    #   -Wdouble-promotion            14 hits / 3 files. float->double in
+    #       arithmetic that is double anyway. Harmless.
 endif()
 
 # Enable parallel builds

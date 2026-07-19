@@ -254,6 +254,13 @@ private:
     int         m_chunkPumpIntervalMs  = 1;
     int         m_eraseTimeoutMs       = 30000;
     int         m_verifyTimeoutMs      = 60000;   // bumped from 10000; see below
+    // Settle delay between the last firmware chunk and the verify request.
+    // Matches Kal Freese's reference Python (asyncio.sleep(1)) — gives the
+    // DE1's BLE queue time to drain the upload tail before we ask "did it
+    // work?". Without it the verify request lands behind the last few chunks
+    // still in flight, and the DE1 either ignores it or its response races our
+    // timeout. (This explanation lived beside a duplicate constexpr in the .cpp
+    // that nothing referenced; it belongs with the value actually used.)
     int         m_postUploadSettleMs   = 1500;    // delay after last ACK → verify
 
     std::function<uint32_t()> m_installedVersionProvider;

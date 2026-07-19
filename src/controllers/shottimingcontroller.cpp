@@ -411,12 +411,12 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
                              << "g below stop weight" << QString::number(m_weightAtStop, 'f', 1)
                              << "g - not settling yet";
                 if (weightAboveAvg && m_settlingAvgStableSince > 0) {
-                    qint64 now = QDateTime::currentMSecsSinceEpoch();
-                    if (now - m_lastDripOngoingLogMs >= 1000) {
+                    const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+                    if (nowMs - m_lastDripOngoingLogMs >= 1000) {
                         qDebug() << "[SAW] Weight" << QString::number(weight, 'f', 1)
                                  << "g still above avg" << QString::number(avg, 'f', 1)
                                  << "g - drip still ongoing";
-                        m_lastDripOngoingLogMs = now;
+                        m_lastDripOngoingLogMs = nowMs;
                     }
                 }
                 m_settlingAvgStableSince = 0;

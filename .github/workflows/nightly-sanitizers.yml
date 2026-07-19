@@ -1,0 +1,179 @@
+name: Nightly sanitizers
+
+# Runs the test suite under AddressSanitizer and UndefinedBehaviorSanitizer once
+# a night on main, as two independent builds.
+#
+# Why nightly and not per-pull-request. A pre-merge version of this existed
+# briefly and was removed. The evidence for removing it is worth keeping: three
+# detectors (UBSan, ASan, -Wall -Wextra) were run for the first time over eight
+# months of previously unexamined code — the moment when a new tool's harvest
+# should be at its largest — and they found no pre-existing runtime defects at
+# all. The only two failures the PR job ever produced were problems it created
+# itself (a vptr typeinfo link break from enabling UBSan, and a clang-only flag
+# that GCC rejected). A near-empty first harvest is evidence the codebase is
+# clean on these axes, which makes the expected future yield low as well, and a
+# low-yield detector does not earn a place on the critical path of every push.
+#
+# It still earns a nightly slot: cost here is idle CI time nobody waits on, and
+# a regression gets caught within a day instead of at a release tag.
+#
+# What this does NOT cover, so nobody reads a green night as more than it is:
+#   - One platform (Linux x64). #1558, the build break that motivated all of
+#     this, was inside #ifdef Q_OS_IOS and would not be caught here.
+#   - Only code the 83 tests execute. Coverage is unmeasured.
+#   - Data races. ThreadSanitizer is unusable against an uninstrumented Qt —
+#     measured at 10,194 reports, 94% of them false positives from Qt's own
+#     queued-connection machinery. See docs/CLAUDE_MD/TESTING.md.
+#
+# Compiler diagnostics are deliberately NOT here. -Wall -Wextra -Werror runs in
+# every build, on every developer's machine, which is where a warning should be
+# found — not in a log read once a day.
+#
+# Expect the first ASan runs to surface leaks at exit; LeakSanitizer is on by
+# default on Linux and Qt/QML exit paths are noisy. Those are findings to fix or
+# file, never to silence for a green night.
+
+on:
+  schedule:
+    # 04:23 UTC — offset from prune-caches.yml's 03:17 cron so the prune has
+    # settled before this writes new cache generations.
+    - cron: '23 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  sanitize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    strategy:
+      # Independent builds: ASan and UBSan objects never hash-match, so they
+      # cannot share a ccache. fail-fast off because a finding from one
+      # sanitizer says nothing about the other, and cancelling the survivor
+      # would throw away the half of the night's signal that still works.
+      fail-fast: false
+      matrix:
+        include:
+          - sanitizer: ubsan
+            cmake_flag: -DENABLE_UBSAN=ON
+          - sanitizer: asan
+            cmake_flag: -DENABLE_ASAN=ON
+
+    name: ${{ matrix.sanitizer }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            ninja-build \
+            libgl1-mesa-dev \
+            libxkbcommon-dev \
+            libxkbcommon-x11-0 \
+            libxcb-cursor0 \
+            libxcb-icccm4 \
+            libxcb-image0 \
+            libxcb-keysyms1 \
+            libxcb-randr0 \
+            libxcb-render-util0 \
+            libxcb-shape0 \
+            libxcb-xinerama0 \
+            libxcb-xfixes0 \
+            libpulse0 \
+            libspeechd2
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.11.1'
+          target: 'desktop'
+          arch: 'linux_gcc_64'
+          modules: 'qtquick3d qtshadertools qtgraphs qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtserialport qtimageformats qtcanvaspainter'
+          cache: true
+          cache-key-prefix: 'qt-linux-v4'
+
+      # One cache entry per sanitizer, both on the default branch (schedule runs
+      # there), so this contributes 2 entries total rather than scaling with
+      # anything. The repo sits near 7 GB of GitHub's 10 GB cap and the
+      # least-recently-used entries are the tag-push ones that keep RELEASE
+      # builds warm, so max-size is set rather than left to the default.
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1.2.23
+        with:
+          key: nightly-${{ matrix.sanitizer }}-linux-x86_64
+          max-size: 500M
+
+      - name: Configure ccache for CI
+        run: ccache --set-config=compiler_check=content
+
+      - name: Configure CMake
+        env:
+          SANITIZER_FLAG: ${{ matrix.cmake_flag }}
+        run: |
+          mkdir -p build
+          cd build
+          $QT_ROOT_DIR/bin/qt-cmake .. -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DBUILD_TESTS=ON \
+            "$SANITIZER_FLAG"
+
+      - name: Build
+        run: |
+          cd build
+          ninja -j$(nproc)
+
+      # Both option sets are exported unconditionally; each sanitizer reads only
+      # its own variable, so the inactive one is inert. halt_on_error matters:
+      # UBSan's default is report-and-continue, so without it a run can print
+      # undefined behaviour and still exit 0. (-fno-sanitize-recover=all in
+      # CMakeLists.txt already forces this; the variable is belt-and-braces.)
+      - name: Run tests under sanitizer
+        env:
+          QT_QPA_PLATFORM: offscreen
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+          ASAN_OPTIONS: print_stacktrace=1:detect_leaks=1
+        run: |
+          cd build
+          set -o pipefail
+          # --repeat until-pass:3 absorbs the rare timing flake in the two
+          # clock-cadence tests (tst_settling, tst_decentscalewifi) under CPU
+          # contention. A real failure still fails all 3 attempts.
+          ctest --output-on-failure -j$(nproc) --repeat until-pass:3 2>&1 | tee ctest.log
+
+      - name: Summarise
+        if: always()
+        env:
+          SANITIZER: ${{ matrix.sanitizer }}
+        run: |
+          LOG=build/ctest.log
+          {
+            echo "## Nightly $SANITIZER"
+            if [ ! -f "$LOG" ]; then
+              echo "Failed before the test step (configure or build)."
+            elif grep -qE "sanitizer_canary.*(Failed|\*\*\*)" "$LOG"; then
+              echo "**Canary failed — instrumentation is not in effect.** Every other"
+              echo "result in this run is worth less than it looks, including the passes."
+            elif grep -qE "ERROR: (Address|Leak)Sanitizer|SUMMARY: UndefinedBehaviorSanitizer" "$LOG"; then
+              echo "**Sanitizer finding(s):**"
+              echo '```'
+              grep -E "ERROR: (Address|Leak)Sanitizer.*|runtime error:.*|SUMMARY: UndefinedBehaviorSanitizer.*" "$LOG" | sort -u | head -40
+              echo '```'
+            else
+              echo "No sanitizer findings."
+            fi
+            grep -E "^[0-9]+% tests passed" "$LOG" 2>/dev/null || true
+          } >> "$GITHUB_STEP_SUMMARY"

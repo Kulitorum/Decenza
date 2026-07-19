@@ -668,9 +668,9 @@ void TranslationManager::scanAllStrings()
             }
 
             // Match keys with their nearest following fallback
-            for (auto it = keyPositions.constBegin(); it != keyPositions.constEnd(); ++it) {
-                qsizetype keyPos = it.key();
-                QString key = it.value();
+            for (auto posIt = keyPositions.constBegin(); posIt != keyPositions.constEnd(); ++posIt) {
+                qsizetype keyPos = posIt.key();
+                QString key = posIt.value();
 
                 // Find the nearest fallback after this key (within 200 chars)
                 for (auto fbIt = fallbackPositions.constBegin(); fbIt != fallbackPositions.constEnd(); ++fbIt) {
@@ -710,9 +710,9 @@ void TranslationManager::scanAllStrings()
             }
 
             // Match keys with their nearest fallback (within 200 chars, in either direction)
-            for (auto it = trKeyPositions.constBegin(); it != trKeyPositions.constEnd(); ++it) {
-                qsizetype keyPos = it.key();
-                QString key = it.value();
+            for (auto posIt = trKeyPositions.constBegin(); posIt != trKeyPositions.constEnd(); ++posIt) {
+                qsizetype keyPos = posIt.key();
+                QString key = posIt.value();
 
                 // Find the nearest fallback (can be before or after the key)
                 QString fallback;
@@ -775,9 +775,9 @@ void TranslationManager::scanAllStrings()
     // apart from a C++-registered key needs a human, and deleting a live one silently
     // untranslates it in every language.
     QStringList notInQml;
-    for (auto it = m_stringRegistry.constBegin(); it != m_stringRegistry.constEnd(); ++it) {
-        if (!seenInQml.contains(it.key()))
-            notInQml << it.key();
+    for (auto regIt = m_stringRegistry.constBegin(); regIt != m_stringRegistry.constEnd(); ++regIt) {
+        if (!seenInQml.contains(regIt.key()))
+            notInQml << regIt.key();
     }
     if (!notInQml.isEmpty()) {
         notInQml.sort();
