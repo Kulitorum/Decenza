@@ -69,6 +69,8 @@ class TestExifDate : public QObject
     Q_OBJECT
 
 private slots:
+    void init() { QTest::failOnWarning(); }
+
     // The case the dead-code bug broke: a real EXIF date must come back.
     void readsDateTimeOriginal()
     {

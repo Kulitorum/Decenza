@@ -316,7 +316,7 @@ Item {
                     color: digitColor
                     font.pixelSize: cardHeight * 0.75
                     font.bold: true
-                    }
+                }
             }
         }
 
@@ -365,7 +365,7 @@ Item {
                         color: digitColor
                         font.pixelSize: cardHeight * 0.75
                         font.bold: true
-                            }
+                    }
                 }
             }
         }

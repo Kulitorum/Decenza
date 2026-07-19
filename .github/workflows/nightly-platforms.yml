@@ -62,27 +62,28 @@ jobs:
         run: |
           set -uo pipefail
           failed=0
-          # iOS takes a differently-named input; everything else uses
-          # upload_to_release. Both default to false, but they are passed
-          # explicitly so a future default flip cannot turn this into a
-          # workflow that publishes something.
-          for wf in android-release.yml linux-release.yml linux-arm64-release.yml \
-                    macos-release.yml windows-release.yml; do
+          # Each entry is "<workflow>:<name of its publish input>". iOS calls
+          # that input upload_to_appstore; every other platform calls it
+          # upload_to_release — which is the whole reason this carries a value
+          # per workflow rather than one flag for the loop. All of them default
+          # to false, but each is passed explicitly so a future default flip
+          # cannot quietly turn this nightly into something that publishes.
+          for entry in android-release.yml:upload_to_release \
+                       linux-release.yml:upload_to_release \
+                       linux-arm64-release.yml:upload_to_release \
+                       macos-release.yml:upload_to_release \
+                       windows-release.yml:upload_to_release \
+                       ios-release.yml:upload_to_appstore; do
+            wf="${entry%%:*}"
+            publish_input="${entry##*:}"
             if gh workflow run "$wf" --repo "$GITHUB_REPOSITORY" --ref main \
-                 -f upload_to_release=false -f use_cache=false; then
+                 -f "$publish_input=false" -f use_cache=false; then
               echo "- \`$wf\`: dispatched" >> "$GITHUB_STEP_SUMMARY"
             else
               echo "::warning::Failed to dispatch $wf"
               failed=1
             fi
           done
-          if gh workflow run ios-release.yml --repo "$GITHUB_REPOSITORY" --ref main \
-               -f upload_to_appstore=false -f use_cache=false; then
-            echo "- \`ios-release.yml\`: dispatched" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "::warning::Failed to dispatch ios-release.yml"
-            failed=1
-          fi
           {
             echo ""
             echo "Results appear as separate workflow runs — this job only starts them,"
