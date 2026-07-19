@@ -29,6 +29,17 @@ FocusScope {
     // one render exactly as before. Colorized to match the pill text.
     readonly property real pillIconSize: Theme.scaled(20)
 
+    // Optional pagination (add-idle-pill-pagination). Opt-in: a caller that owns a
+    // longer list passes a windowed slice as `presets` plus the page metadata, and
+    // reacts to pageChangeRequested by re-windowing. Defaults keep every existing
+    // (non-paginated) row untouched — pageCount 1 → no arrows, no reserved gutter.
+    property int pageCount: 1
+    property int pageIndex: 0
+    signal pageChangeRequested(int delta)  // delta is -1 (prev) or +1 (next)
+    // Screen-reader names for the arrows; callers set context ("Previous recipes").
+    property string prevPageAccessibleName: TranslationManager.translate("presets.pagination.previous", "Previous")
+    property string nextPageAccessibleName: TranslationManager.translate("presets.pagination.next", "Next")
+
     // Effective max width - ensures we never exceed parent width even if maxWidth is larger
     readonly property real effectiveMaxWidth: {
         var parentW = parent ? parent.width : 0
@@ -37,6 +48,13 @@ FocusScope {
         }
         return maxWidth > 0 ? maxWidth : Theme.scaled(825)
     }
+
+    // When paginating, reserve a symmetric gutter on both sides for the arrows so
+    // the pill block never overlaps an arrow and does not shift as an end arrow
+    // appears/disappears. No gutter when not paginating → the ≤5 layout is
+    // pixel-identical to before. calculateRows() flows pills into pillsAvailableWidth.
+    readonly property real arrowGutter: pageCount > 1 ? Theme.scaled(48) : 0
+    readonly property real pillsAvailableWidth: Math.max(0, effectiveMaxWidth - 2 * arrowGutter)
 
     signal presetSelected(int index)
     signal presetLongPressed(int index)
@@ -49,12 +67,31 @@ FocusScope {
     activeFocusOnTab: true
 
     Keys.onLeftPressed: {
-        if (focusedIndex > 0) focusedIndex--
-        announceCurrentPill()
+        if (focusedIndex > 0) {
+            focusedIndex--
+            announceCurrentPill()
+        } else if (pageCount > 1 && pageIndex > 0) {
+            // At the first pill of a later page — page back and land on the last
+            // pill of the new page, so keyboard-only users can reach every page.
+            pageChangeRequested(-1)
+            focusedIndex = Math.max(0, presets.length - 1)
+            announcePage()
+        } else {
+            announceCurrentPill()  // at the edge, no page to turn — re-announce
+        }
     }
     Keys.onRightPressed: {
-        if (focusedIndex < presets.length - 1) focusedIndex++
-        announceCurrentPill()
+        if (focusedIndex < presets.length - 1) {
+            focusedIndex++
+            announceCurrentPill()
+        } else if (pageCount > 1 && pageIndex < pageCount - 1) {
+            // At the last pill — page forward and land on the first pill.
+            pageChangeRequested(1)
+            focusedIndex = 0
+            announcePage()
+        } else {
+            announceCurrentPill()  // at the edge, no page to turn — re-announce
+        }
     }
     Keys.onReturnPressed: presetSelected(focusedIndex)
     Keys.onEnterPressed: presetSelected(focusedIndex)
@@ -124,7 +161,9 @@ FocusScope {
     // Recalculate when presets, width, modified state, or suffix changes (deferred
     // via timer to avoid destroying Repeater delegates during signal handler chains)
     onPresetsChanged: recalcTimer.restart()
-    onEffectiveMaxWidthChanged: recalcTimer.restart()
+    // pillsAvailableWidth folds in both effectiveMaxWidth and the arrow gutter, so a
+    // change in either (incl. pagination turning on/off) re-flows the rows.
+    onPillsAvailableWidthChanged: recalcTimer.restart()
     onPillSuffixFnChanged: recalcTimer.restart()
     onPillLabelFnChanged: recalcTimer.restart()
     // Dirty-state changes alter pill widths ("*Name" / " (modified)") so they trigger a
@@ -147,8 +186,8 @@ FocusScope {
     function calculateRows() {
         if (presets.length === 0) return []
 
-        // Use effective max width for calculations
-        var availableWidth = effectiveMaxWidth
+        // Flow into the pill area (effective width minus any reserved arrow gutters)
+        var availableWidth = pillsAvailableWidth
         if (availableWidth <= 0) {
             // Width not yet determined, will recalculate when layout completes
             return []
@@ -236,6 +275,102 @@ FocusScope {
         }
 
         return rows
+    }
+
+    // Announce the resulting page for screen-reader users after a page change.
+    // The caller updates pageIndex synchronously inside pageChangeRequested, so by
+    // the time this runs both the new position and the windowed `presets` are in
+    // effect — announce the position and the pills now shown so the user hears the
+    // contents, not just "page 2 of 3".
+    function announcePage() {
+        if (typeof AccessibilityManager === "undefined" || !AccessibilityManager.enabled) return
+        var msg = TranslationManager.translate("presets.pagination.pagePosition", "Page %1 of %2")
+                    .replace("%1", (pageIndex + 1)).replace("%2", pageCount)
+        if (presets.length > 0) {
+            var names = []
+            for (var i = 0; i < presets.length; ++i) names.push(pillLayoutName(i))
+            msg += ": " + names.join(", ")
+        }
+        AccessibilityManager.announce(msg)
+    }
+
+    // Previous-page arrow — only present while paginating, only visible off page 1.
+    Rectangle {
+        id: prevArrowButton
+        visible: root.pageCount > 1 && root.pageIndex > 0
+        anchors.left: parent.left
+        anchors.verticalCenter: contentColumn.verticalCenter
+        width: root.arrowGutter
+        height: Theme.scaled(50)
+        radius: Theme.scaled(10)
+        color: prevArrowArea.pressed ? Theme.surfaceColor : "transparent"
+        Accessible.ignored: true
+
+        Image {
+            anchors.centerIn: parent
+            source: "qrc:/icons/ArrowLeft.svg"
+            sourceSize.width: root.pillIconSize
+            sourceSize.height: root.pillIconSize
+            fillMode: Image.PreserveAspectFit
+            Accessible.ignored: true
+            layer.enabled: true
+            layer.smooth: true
+            layer.effect: MultiEffect {
+                colorization: 1.0
+                colorizationColor: Theme.iconColor
+            }
+        }
+
+        AccessibleMouseArea {
+            id: prevArrowArea
+            anchors.fill: parent
+            accessibleName: root.prevPageAccessibleName
+            accessibleItem: parent
+            onAccessibleClicked: {
+                root.pageChangeRequested(-1)
+                root.announcePage()
+            }
+        }
+    }
+
+    // Next-page arrow — the same asset rotated 180°, only visible off the last page.
+    Rectangle {
+        id: nextArrowButton
+        visible: root.pageCount > 1 && root.pageIndex < root.pageCount - 1
+        anchors.right: parent.right
+        anchors.verticalCenter: contentColumn.verticalCenter
+        width: root.arrowGutter
+        height: Theme.scaled(50)
+        radius: Theme.scaled(10)
+        color: nextArrowArea.pressed ? Theme.surfaceColor : "transparent"
+        Accessible.ignored: true
+
+        Image {
+            anchors.centerIn: parent
+            source: "qrc:/icons/ArrowLeft.svg"
+            sourceSize.width: root.pillIconSize
+            sourceSize.height: root.pillIconSize
+            fillMode: Image.PreserveAspectFit
+            rotation: 180
+            Accessible.ignored: true
+            layer.enabled: true
+            layer.smooth: true
+            layer.effect: MultiEffect {
+                colorization: 1.0
+                colorizationColor: Theme.iconColor
+            }
+        }
+
+        AccessibleMouseArea {
+            id: nextArrowArea
+            anchors.fill: parent
+            accessibleName: root.nextPageAccessibleName
+            accessibleItem: parent
+            onAccessibleClicked: {
+                root.pageChangeRequested(1)
+                root.announcePage()
+            }
+        }
     }
 
     Column {
