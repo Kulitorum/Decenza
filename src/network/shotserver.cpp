@@ -3104,10 +3104,20 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
         derSet(derSequence(derOid(OID_CN, 3) + derUtf8String("Decenza")))
     );
 
-    // Serial number (16 random bytes)
+    // Serial number (16 random bytes).
+    //
+    // The buffer is deliberately Qt::Uninitialized, so on a failed draw the serial would be
+    // whatever heap bytes were already there — plausibly all-zero, and so identical across
+    // devices and across regenerations, when RFC 5280 §4.1.2.2 wants it unique per issuer.
+    // Failing cert generation is the better outcome: setupTls() and start() both propagate it,
+    // and the server declines to start rather than serving an identity that is quietly garbage.
     QByteArray serialBytes(16, Qt::Uninitialized);
-    SecRandomCopyBytes(kSecRandomDefault, serialBytes.size(),
-                        reinterpret_cast<uint8_t*>(serialBytes.data()));
+    if (SecRandomCopyBytes(kSecRandomDefault, serialBytes.size(),
+                           reinterpret_cast<uint8_t*>(serialBytes.data())) != errSecSuccess) {
+        CFRelease(privateKey);
+        qWarning() << "ShotServer: could not draw random bytes for the certificate serial number";
+        return false;
+    }
     // Ensure positive
     serialBytes[0] = serialBytes[0] & 0x7F;
 
@@ -3180,17 +3190,38 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
                          base64Wrapped(privKeyDer) +
                          "-----END RSA PRIVATE KEY-----\n";
 
+    // open() was checked but write() was not, and the function then returned true
+    // unconditionally — so a full disk or a hit quota produced a truncated cert or key on disk
+    // and reported success. setupTls() would then load the fragment and fail somewhere further
+    // away, with nothing pointing back at the write. Check the byte count and the device's error
+    // state (close() flushes, so a deferred write error surfaces there, not at write()).
     QFile certFile(certPath);
     if (!certFile.open(QIODevice::WriteOnly)) return false;
-    certFile.write(certPem);
+    const bool certWritten = certFile.write(certPem) == certPem.size();
     certFile.close();
+    if (!certWritten || certFile.error() != QFileDevice::NoError) {
+        qWarning() << "ShotServer: could not write the certificate to" << certPath
+                   << "-" << certFile.errorString();
+        return false;
+    }
 
     QFile keyFile(keyPath);
     if (!keyFile.open(QIODevice::WriteOnly)) return false;
-    keyFile.write(keyPem);
+    const bool keyWritten = keyFile.write(keyPem) == keyPem.size();
     keyFile.close();
+    if (!keyWritten || keyFile.error() != QFileDevice::NoError) {
+        qWarning() << "ShotServer: could not write the private key to" << keyPath
+                   << "-" << keyFile.errorString();
+        return false;
+    }
 
-    QFile::setPermissions(keyPath, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+    // Warn rather than fail: the key is usable, just less protected than intended, and refusing
+    // to serve over a permissions quirk would be a worse outcome than saying so. On iOS the app
+    // sandbox already isolates this file; the warning matters on a shared desktop account.
+    if (!QFile::setPermissions(keyPath, QFileDevice::ReadOwner | QFileDevice::WriteOwner)) {
+        qWarning() << "ShotServer: could not restrict permissions on the private key" << keyPath
+                   << "- it may be readable by other users of this machine";
+    }
     return true;
 }
 
@@ -3221,10 +3252,19 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
         // Set version to v3
         X509_set_version(x509, 2);
 
-        // Set serial number (random)
+        // Set serial number (random).
+        //
+        // Same rule as the iOS branch above, and the same reason: serial_bytes is a bare stack
+        // array, so a failed draw leaves stack residue as the certificate's identity when
+        // RFC 5280 §4.1.2.2 wants it unique per issuer. RAND_bytes returns 1 for success —
+        // 0 or -1 mean it could not produce the bytes, not that it produced weak ones.
+        //
+        // -Werror=unused-result did NOT catch this one: OpenSSL does not mark RAND_bytes
+        // warn_unused_result the way Apple marks SecRandomCopyBytes. The flag found the iOS
+        // instance and was silent on the branch that five of the six platforms actually build.
         ASN1_INTEGER* serialNumber = X509_get_serialNumber(x509);
         unsigned char serial_bytes[16];
-        RAND_bytes(serial_bytes, sizeof(serial_bytes));
+        if (RAND_bytes(serial_bytes, sizeof(serial_bytes)) != 1) break;
         BIGNUM* bn = BN_bin2bn(serial_bytes, sizeof(serial_bytes), nullptr);
         BN_to_ASN1_INTEGER(bn, serialNumber);
         BN_free(bn);
@@ -3266,20 +3306,40 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
         // Sign with our private key
         if (X509_sign(x509, pkey, EVP_sha256()) <= 0) break;
 
-        // Write certificate to PEM file
+        // Write certificate to PEM file.
+        //
+        // The fopen was checked but the write was not, and success = true below ran regardless,
+        // so a disk that filled up mid-write yielded a truncated cert and a reported success.
+        // Both PEM_write_* return 1 on success. fclose is checked too and deliberately runs
+        // BEFORE the verdict: buffered output is flushed at close, so that is where a
+        // write-out-of-space error usually appears, and breaking early would leak the FILE*.
         FILE* certFile = fopen(certPath.toLocal8Bit().constData(), "wb");
         if (!certFile) break;
-        PEM_write_X509(certFile, x509);
-        fclose(certFile);
+        const bool certWritten = PEM_write_X509(certFile, x509) == 1;
+        const bool certClosed = fclose(certFile) == 0;
+        if (!certWritten || !certClosed) {
+            qWarning() << "ShotServer: could not write the certificate to" << certPath;
+            break;
+        }
 
         // Write private key to PEM file
         FILE* keyFile = fopen(keyPath.toLocal8Bit().constData(), "wb");
         if (!keyFile) break;
-        PEM_write_PrivateKey(keyFile, pkey, nullptr, nullptr, 0, nullptr, nullptr);
-        fclose(keyFile);
+        const bool keyWritten =
+            PEM_write_PrivateKey(keyFile, pkey, nullptr, nullptr, 0, nullptr, nullptr) == 1;
+        const bool keyClosed = fclose(keyFile) == 0;
+        if (!keyWritten || !keyClosed) {
+            qWarning() << "ShotServer: could not write the private key to" << keyPath;
+            break;
+        }
 
-        // Restrict private key file permissions (owner-only)
-        QFile::setPermissions(keyPath, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+        // Restrict private key file permissions (owner-only). Warn rather than break, for the
+        // reason given on the iOS branch: the key works, it is just less protected, and this
+        // matters most on a shared desktop account.
+        if (!QFile::setPermissions(keyPath, QFileDevice::ReadOwner | QFileDevice::WriteOwner)) {
+            qWarning() << "ShotServer: could not restrict permissions on the private key" << keyPath
+                       << "- it may be readable by other users of this machine";
+        }
 
         success = true;
     } while (false);
