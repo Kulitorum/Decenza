@@ -838,6 +838,47 @@ private slots:
                  QStringLiteral("Hintergrundbild %1 von %2"));
     }
 
+    // The scanner must not capture across a line.
+    //
+    // It did, and the result was registered, translated into four languages and uploaded to the
+    // community server. AISettingsPage contains `fallback: "How to get an API key:"` — the TEXT
+    // ends in "key:", so the Tr-component pattern matched at `key:"` INSIDE the string literal
+    // and then ran to the next quote in the file, capturing 249 characters of QML source as a
+    // translation key.
+    //
+    // A QML string literal never spans a raw newline, so a key or fallback that appears to is
+    // always the regex having escaped its own quotes.
+    void theScannerNeverCapturesAcrossALine()
+    {
+        // The exact shape that broke it: a literal whose text ends in "key:", followed by
+        // ordinary QML on the lines after.
+        const QString qml = QStringLiteral(
+            "Tr {\n"
+            "    key: \"real.key\"\n"
+            "    fallback: \"How to get an API key:\"\n"
+            "}\n"
+            "Text {\n"
+            "    color: Theme.textColor\n"
+            "    font: Theme.subtitleFont\n"
+            "}\n"
+            "Tr { key: \"second.key\"; fallback: \"Second\" }\n");
+
+        QRegularExpression keyRe(QStringLiteral("\\bkey\\s*:\\s*\"([^\"\\n]+)\""));
+        QStringList captured;
+        auto it = keyRe.globalMatch(qml);
+        while (it.hasNext())
+            captured << it.next().captured(1);
+
+        for (const QString& c : captured) {
+            QVERIFY2(!c.contains(QLatin1Char('\n')),
+                     qPrintable(QStringLiteral("captured a key spanning lines: %1").arg(c.left(40))));
+            QVERIFY2(!c.contains(QStringLiteral("Theme.")),
+                     qPrintable(QStringLiteral("captured QML source as a key: %1").arg(c.left(40))));
+        }
+        QVERIFY2(captured.contains(QStringLiteral("real.key")), "must still find genuine keys");
+        QVERIFY2(captured.contains(QStringLiteral("second.key")), "must still find keys on one line");
+    }
+
 };
 
 QTEST_MAIN(TestTranslationSourceDrift)

@@ -570,15 +570,28 @@ void TranslationManager::scanAllStrings()
     qDebug() << "Scanning" << m_scanTotal << "QML files for translatable strings...";
 
     // Pattern 1: Direct translate() calls - translate("key", "fallback")
-    QRegularExpression directCallRegex("translate\\s*\\(\\s*\"([^\"]+)\"\\s*,\\s*\"([^\"]+)\"\\s*\\)");
+    QRegularExpression directCallRegex("translate\\s*\\(\\s*\"([^\"\\n]+)\"\\s*,\\s*\"([^\"\\n]+)\"\\s*\\)");
 
     // Pattern 2: ActionButton's translationKey/translationFallback properties
-    QRegularExpression propKeyRegex("translationKey\\s*:\\s*\"([^\"]+)\"");
-    QRegularExpression propFallbackRegex("translationFallback\\s*:\\s*\"([^\"]+)\"");
+    QRegularExpression propKeyRegex("translationKey\\s*:\\s*\"([^\"\\n]+)\"");
+    QRegularExpression propFallbackRegex("translationFallback\\s*:\\s*\"([^\"\\n]+)\"");
 
     // Pattern 3: Tr component's key/fallback properties - Tr { key: "..."; fallback: "..." }
-    QRegularExpression trKeyRegex("\\bkey\\s*:\\s*\"([^\"]+)\"");
-    QRegularExpression trFallbackRegex("\\bfallback\\s*:\\s*\"([^\"]+)\"");
+    // [^"\n] — the capture must NOT cross a line.
+    //
+    // With [^"]+ this matched inside a string literal and then ran away. AISettingsPage has
+    // `fallback: "How to get an API key:"`, whose TEXT ends in `key:` — so `\bkey\s*:\s*"`
+    // matched at `key:"` and captured everything up to the next quote in the file: 249
+    // characters of QML source, registered as a translation key.
+    //
+    // It was then dutifully AI-translated into every language and uploaded to the community
+    // server, where "How to get an API key:" is now stored against a key made of
+    // `color: Theme.textColor / font: Theme.subtitleFont / switch(Settings.ai.aiProvider)`.
+    //
+    // No QML string literal spans a raw newline, so excluding it costs nothing and stops the
+    // regex escaping its own quotes.
+    QRegularExpression trKeyRegex("\\bkey\\s*:\\s*\"([^\"\\n]+)\"");
+    QRegularExpression trFallbackRegex("\\bfallback\\s*:\\s*\"([^\"\\n]+)\"");
 
     int stringsFound = 0;
     qsizetype initialCount = m_stringRegistry.size();
