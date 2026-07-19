@@ -52,6 +52,19 @@ UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
 
 **Debug builds instrument themselves.** A Debug configure turns on ASan *and* UBSan on every desktop platform including macOS (Android is excluded — its ASan needs `wrap.sh` packaging this project does not do). UBSan runs in **recovering** mode there: it prints a diagnostic and the app keeps going, so you are told about undefined behaviour without losing your session.
 
+**LeakSanitizer is Linux-only — your local run cannot detect leaks.** This is worth stating plainly because the natural inference from "ASan is on locally" is wrong, and it has already been drawn:
+
+```
+$ ASAN_OPTIONS=detect_leaks=1 ./tests/tst_mcptools_write
+==11353==AddressSanitizer: detect_leaks is not supported on this platform.
+```
+
+The runtime refuses the option; there is no flag that turns it on. On macOS, ASan covers use-after-free, heap-buffer-overflow, stack-use-after-return and double-free — a leak is invisible to it. So "84/84 passed under ASan" on a Mac means *no memory errors*, never *no leaks*.
+
+The nightly Linux ASan job (`ASAN_OPTIONS=detect_leaks=1`) is the only place leaks are caught. Its first run found two that the local suite had been passing over: `tst_decentscalewifi` (131,068 bytes / 1,372 allocations) and `tst_mcptools_write` (6,540 bytes / 70 allocations), byte-identical across all three retry attempts.
+
+To chase a leak on macOS, use the platform tools instead: `leaks <pid>`, or `MallocStackLogging=1` for allocation stacks.
+
 A **Release** build carries no instrumentation unless you ask. `-DENABLE_UBSAN=ON` gives the **halting** mode CI uses, where a finding aborts. `-DENABLE_ASAN=ON` does the same for memory errors, and the two combine. UBSan is not supported with MSVC (configure fails fast).
 
 **What the instrumented build turns on beyond plain UBSan**, and why each one is there:
