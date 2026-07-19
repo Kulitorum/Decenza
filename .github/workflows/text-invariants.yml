@@ -5,10 +5,11 @@ name: Text invariants
 # anything automatic, and none of them is expressible as a unit test — they are properties of the
 # whole QML corpus, not of any one function.
 #
-# They are checked here because guidance alone did not hold. All three scripts existed for a
-# while as "run this before you add a symbol" instructions in CLAUDE.md, wired to nothing, which
-# is the same as not having them: the invariant that justifies a load-bearing decision elsewhere
-# in the code was enforced by whether someone remembered.
+# They are checked here because guidance alone did not hold. Only check_font_glyph_coverage.py
+# was documented in CLAUDE.md, as a "run this before you add a symbol" step; the other two were
+# described only in the change that created them. All three were wired to nothing, which is the
+# same as not having them: the invariant that justifies a load-bearing decision elsewhere in the
+# code was enforced by whether someone remembered.
 #
 # What each one protects:
 #
@@ -28,7 +29,9 @@ name: Text invariants
 #     font. A symbol that falls through to a host font is why the same screen used to measure
 #     differently on two machines. Advisory: it reports, and does not fail the job, because the
 #     honest answer for a genuinely uncovered glyph is sometimes "bundle another face", which is
-#     a decision rather than a fix.
+#     a decision rather than a fix. Note the script itself exits non-zero for anything uncovered
+#     outside AddLanguagePage (which it already exempts) — it is the `|| true` on the step that
+#     makes this advisory, not the script.
 #
 # Runs on PRs that touch the surfaces involved. Fast (seconds, no build, no network).
 
@@ -45,6 +48,7 @@ on:
       - 'qml/**'
       - 'scripts/check_*.py'
       - 'resources/fonts/**'
+      - '.github/workflows/text-invariants.yml'
   workflow_dispatch:
 
 permissions:
@@ -68,7 +72,8 @@ jobs:
       - name: No unescaped translated text in rich-text renderers
         run: python3 scripts/check_translated_richtext.py
 
-      # Advisory: reports uncovered glyphs without failing. Adding an OFL face is a judgement
-      # call, and CJK/Thai/Arabic language names are *supposed* to use a platform fallback.
+      # Advisory by the `|| true`, not by the script: it exits non-zero for any uncovered glyph
+      # outside AddLanguagePage, which it already exempts. Non-blocking because bundling another
+      # OFL face is a judgement call rather than a mechanical fix.
       - name: Symbol glyph coverage (advisory)
         run: python3 scripts/check_font_glyph_coverage.py || true

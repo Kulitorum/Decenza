@@ -135,10 +135,14 @@ fallbacks. Nothing in this app has been traced to a missing glyph. Recorded so t
 reinstated from memory.
 
 Do not go further than that and state what #1537 *was*. `src/main.cpp` carries two candidate
-explanations — a font-registration race and distance-field re-caching during resize — and says in
-as many words that they are not reconciled. An earlier draft of this very paragraph asserted the
-distance-field theory as settled fact, which is the same move that produced the wrong citation it
-was written to correct.
+explanations — a bundled-font family-name collision with a host copy of Roboto making family
+lookup ambiguous, and distance-field re-caching during resize — and says in as many words that they
+are not reconciled.
+
+Two earlier drafts of this very paragraph got that wrong in two different ways: the first asserted
+the distance-field theory as settled fact, and the second described the other hypothesis as a
+"race", which is a mechanism main.cpp never mentions. Both are the same move that produced the
+wrong citation this paragraph exists to correct. Read main.cpp before restating it.
 
 **Emoji are a different case and are encouraged.** `☕`/`⚠️`/`🔒` never reach the text renderer: the app ships the complete Twemoji set and rewrites every emoji to a bundled `<img>`, so metrics are identical everywhere. Render them through `Theme.emojiToImage()` or `Theme.replaceEmojiWithImg()` — putting one in a plain `Text` lets a colour glyph reach the platform renderer and **crashes the render thread on macOS**. See "Using emoji well" in CLAUDE.md.
 

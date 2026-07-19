@@ -20,6 +20,7 @@
 // 11 German strings on the first real run before being reverted. See tasks.md 7.8a/7.8e.
 
 #include <QtTest>
+#include <QSignalSpy>
 #include <QRegularExpression>
 #include <QDir>
 #include <QFile>
@@ -81,6 +82,17 @@ private slots:
         const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
                             + QStringLiteral("/translations");
         QDir(dir).removeRecursively();
+
+        // The QSettings store is process-scoped and shared by every test in this binary, so
+        // wiping only the translations directory left half the state behind. The provider tests
+        // persist an aiProvider and three API keys; they are order-independent today only
+        // because each one writes every value it reads, which is a property of how they happen
+        // to be written rather than of the fixture. Clear the AI settings too.
+        Settings settings;
+        settings.ai()->setAiProvider(QString());
+        settings.ai()->setOpenaiApiKey(QString());
+        settings.ai()->setAnthropicApiKey(QString());
+        settings.ai()->setGeminiApiKey(QString());
     }
 
     // The baseline the old guard did get right. Kept so the drift fix cannot regress into
@@ -369,6 +381,58 @@ private slots:
 
         const QByteArray after = readBack();
         QCOMPARE(after, before);   // untouched, not replaced
+    }
+
+    // The same protection, on the branch the UI ACTUALLY reaches.
+    //
+    // This exists because the first attempt at this fix was theatre. It guarded
+    // mergeDownloadedLanguageFile and tested it — but both Update buttons set currentLanguage
+    // to the language they are about to download, so `langCode == m_currentLanguage` always
+    // holds and that helper never runs. The test passed against code no user could reach while
+    // the destructive replace shipped on the path they took.
+    //
+    // The route: loadTranslations() on a corrupt file left m_translations empty, which is
+    // indistinguishable from "nothing translated yet"; mergeLanguageUpdate() then folded the
+    // server's copy into that empty map and saved. The user sees 0% translated, presses Update
+    // *because* it says 0%, and the click destroys what the corrupt file still held.
+    void aFailedLoadBlocksTheInMemoryMergeToo()
+    {
+        Settings settings;
+
+        const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+                            + QStringLiteral("/translations");
+        QDir().mkpath(dir);
+        const QString path = dir + QStringLiteral("/de.json");
+        {
+            QFile f(path);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write("{ truncated by a crash");
+        }
+        const QByteArray before = [&]() -> QByteArray {
+            QFile f(path);
+            return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray("<unreadable>");
+        }();
+
+        // Constructing the manager loads "de" and must notice the file is unreadable.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Invalid translation file")));
+        TranslationManager tm(&m_nam, &settings);
+        tm.setCurrentLanguage(QStringLiteral("de"));
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Refusing to merge")));
+        QSignalSpy spy(&tm, &TranslationManager::languageDownloaded);
+        tm.mergeLanguageUpdate(QJsonObject{{QStringLiteral("a.key"), QStringLiteral("server value")}});
+
+        const QByteArray after = [&]() -> QByteArray {
+            QFile f(path);
+            return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray("<unreadable>");
+        }();
+        QCOMPARE(after, before);   // the corrupt file is left alone, not replaced
+
+        // And the refusal is reported rather than merely logged — the earlier version of this
+        // guard returned quietly, which is its own kind of silent failure.
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(spy.at(0).at(1).toBool(), false);
+        QVERIFY(!spy.at(0).at(2).toString().isEmpty());
     }
 
 };

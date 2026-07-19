@@ -305,6 +305,11 @@ private:
     // translations[key] = translated_text
     QMap<QString, QString> m_translations;
 
+    // True when the local language file EXISTS but could not be read or parsed, so
+    // m_translations is empty by failure rather than by fact. mergeLanguageUpdate() refuses
+    // when this is set: merging into a wrongly-empty map and saving is a whole-file replace.
+    bool m_translationsLoadFailed = false;
+
     // Registry of all known string keys and their English fallbacks
     // registry[key] = english_fallback
     QMap<QString, QString> m_stringRegistry;
@@ -397,12 +402,16 @@ private:
     // The SELECTED provider, and nothing else — despite the plural name, this returns at most
     // one entry. It used to return every provider holding a key, which is how a user with
     // OpenAI selected got billed on Anthropic. The list shape is kept because callers iterate.
+    QStringList getConfiguredProviders() const;
+
     // Merge a download into the on-disk file of a language that is NOT currently loaded.
     // Returns false if it refused or failed, having already warned and emitted
     // languageDownloaded(..., false, reason).
+    //
+    // Note this is the RARE branch: both UI buttons set currentLanguage to the language they
+    // are about to download, so the in-memory path (mergeLanguageUpdate) is what normally runs.
+    // Reachable when the user switches language while a download is in flight.
     bool mergeDownloadedLanguageFile(const QString& langCode, const QJsonObject& root);
-
-    QStringList getConfiguredProviders() const;
 
     // Helper to get provider for AI requests (uses batch override if active)
     QString getActiveProvider() const;

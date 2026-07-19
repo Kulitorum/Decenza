@@ -6,6 +6,7 @@
 #include <QDir>
 #include <QDirIterator>
 #include <QFile>
+#include <QSaveFile>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -869,10 +870,11 @@ bool TranslationManager::mergeDownloadedLanguageFile(const QString& langCode, co
             qWarning() << "Language merge ABORTED for" << langCode << "- cannot read"
                        << path << ":" << existing.errorString()
                        << "- refusing to overwrite it with the server copy";
-        emit languageDownloaded(langCode, false,
-                tr("Could not read the existing %1 file, so the update was not applied "
-                   "(your local translations are untouched).").arg(langCode));
-        return false;
+            m_lastError = tr("Could not read the existing %1 file, so the update was not applied "
+                             "(your local translations are untouched).").arg(langCode);
+            emit lastErrorChanged();
+            emit languageDownloaded(langCode, false, m_lastError);
+            return false;
         }
         QJsonParseError parseError;
         const QJsonDocument localDoc = QJsonDocument::fromJson(existing.readAll(), &parseError);
@@ -881,10 +883,11 @@ bool TranslationManager::mergeDownloadedLanguageFile(const QString& langCode, co
             qWarning() << "Language merge ABORTED for" << langCode << "- local file is not"
                        << "valid JSON:" << parseError.errorString()
                        << "- refusing to overwrite it";
-        emit languageDownloaded(langCode, false,
-                tr("The existing %1 file could not be parsed, so the update was not applied.")
-                    .arg(langCode));
-        return false;
+            m_lastError = tr("The existing %1 file could not be parsed, so the update was not "
+                             "applied.").arg(langCode);
+            emit lastErrorChanged();
+            emit languageDownloaded(langCode, false, m_lastError);
+            return false;
         }
         merged = localDoc.object().value(QStringLiteral("translations")).toObject();
     }
@@ -895,20 +898,33 @@ bool TranslationManager::mergeDownloadedLanguageFile(const QString& langCode, co
 
     QJsonObject out = root;
     out["translations"] = merged;
-    QFile file(path);
+
+    // QSaveFile, not QFile: it writes to a temporary and renames on commit(), so a failure
+    // leaves the original file exactly as it was.
+    //
+    // With plain QFile this had a hole that defeated the point of the whole function.
+    // QIODevice::WriteOnly TRUNCATES on open, so the moment the open succeeded the user's
+    // translations were already gone — a full disk, a crash, or a short write between there and
+    // the end left them with an empty or half-written file. The previous version checked the
+    // write length and reported a loss it had no way to reverse. Detecting destruction is not
+    // the same as preventing it, and this function exists to prevent it.
+    QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly)) {
         qWarning() << "Failed to write merged language file" << path << ":" << file.errorString();
-        emit languageDownloaded(langCode, false,
-            tr("Could not save the updated %1 file.").arg(langCode));
+        m_lastError = tr("Could not save the updated %1 file.").arg(langCode);
+        emit lastErrorChanged();
+        emit languageDownloaded(langCode, false, m_lastError);
         return false;
     }
     const QByteArray payload = QJsonDocument(out).toJson();
-    const qint64 written = file.write(payload);
-    file.close();
-    if (written != payload.size()) {
-        qWarning() << "Short write on language file" << path << written << "of" << payload.size();
-        emit languageDownloaded(langCode, false,
-            tr("The updated %1 file was only partially saved.").arg(langCode));
+    file.write(payload);
+    if (!file.commit()) {   // commit() reports short writes and rename failures alike
+        qWarning() << "Failed to commit merged language file" << path << ":" << file.errorString()
+                   << "- the existing file is unchanged";
+        m_lastError = tr("Could not save the updated %1 file (your existing translations are "
+                         "unchanged).").arg(langCode);
+        emit lastErrorChanged();
+        emit languageDownloaded(langCode, false, m_lastError);
         return false;
     }
 
@@ -1570,10 +1586,25 @@ void TranslationManager::loadTranslations()
 {
     m_translations.clear();
 
+    // "No file yet" and "there is a file but I could not read it" both used to leave
+    // m_translations empty and indistinguishable, and that ambiguity is a data-loss bug rather
+    // than an untidiness: mergeLanguageUpdate() folds a download into this map and saves the
+    // result, so merging into a wrongly-empty map REPLACES the user's file with the server's
+    // copy. The likely sequence is bleak — a corrupt file shows the language at 0% translated,
+    // the user presses Update precisely because it says 0%, and that click destroys the strings
+    // the corrupt file still held.
+    m_translationsLoadFailed = false;
+
     // Load translations for any language (including English customizations)
     QFile file(languageFilePath(m_currentLanguage));
-    if (!file.open(QIODevice::ReadOnly)) {
+    if (!file.exists()) {
         qDebug() << "No translation file for:" << m_currentLanguage;
+        return;   // genuinely absent: an empty map is the truth
+    }
+    if (!file.open(QIODevice::ReadOnly)) {
+        qWarning() << "Translation file for" << m_currentLanguage << "exists but cannot be read:"
+                   << file.errorString() << "- refusing to treat it as empty";
+        m_translationsLoadFailed = true;
         return;
     }
 
@@ -1582,7 +1613,9 @@ void TranslationManager::loadTranslations()
 
     QJsonDocument doc = QJsonDocument::fromJson(data);
     if (!doc.isObject()) {
-        qWarning() << "Invalid translation file for:" << m_currentLanguage;
+        qWarning() << "Invalid translation file for:" << m_currentLanguage
+                   << "- refusing to treat it as empty";
+        m_translationsLoadFailed = true;
         return;
     }
 
@@ -1719,7 +1752,10 @@ QString TranslationManager::unescapeQmlLiteral(const QString& literal)
             break;
         }
         default:
-            // Not an escape the QML engine recognises either — leave it exactly as written
+            // An escape this scanner does not model. The engine may well decode it (identity
+            // escapes, \b \f \v \0 \xNN, \u{...}), so leaving it written verbatim is the
+            // deliberate choice: a scanner that guesses can invent a character, one that
+            // declines can only fail to decode. See the header for the full subset.
             // rather than silently eating the backslash.
             out += u'\\';
             out += esc;
@@ -2544,6 +2580,24 @@ void TranslationManager::checkForLanguageUpdate()
 
 void TranslationManager::mergeLanguageUpdate(const QJsonObject& newTranslations)
 {
+    // Refuse when the local file failed to LOAD. m_translations being empty is ambiguous —
+    // it means either "nothing translated yet" or "I could not read what was there" — and
+    // merging into the second case then saving replaces the user's translations with the
+    // server's copy. That is the destructive replace this whole area exists to prevent, and it
+    // reaches it by a different door than the one that was guarded: the file-level merge got a
+    // read guard, but this in-memory path is the one both UI buttons actually take, because
+    // they set currentLanguage to the language they are about to download.
+    if (m_translationsLoadFailed) {
+        qWarning() << "Refusing to merge into" << m_currentLanguage
+                   << "- its local file could not be read, so an empty in-memory map is not"
+                   << "evidence of an empty language. Fix or delete the file and retry.";
+        m_lastError = tr("The existing %1 file could not be read, so the update was not applied "
+                         "(your local translations are untouched).").arg(m_currentLanguage);
+        emit lastErrorChanged();
+        emit languageDownloaded(m_currentLanguage, false, m_lastError);
+        return;
+    }
+
     int added = 0;
     int updated = 0;
     int preserved = 0;
@@ -2796,7 +2850,7 @@ void TranslationManager::translateAndUploadAllLanguages()
         }
     };
 
-    *autoConn = connect(this, &TranslationManager::autoTranslateFinished, this, [this, processNext](bool success, const QString& message) {
+    *autoConn = connect(this, &TranslationManager::autoTranslateFinished, this, [this, processNext, autoConn, submitConn](bool success, const QString& message) {
         if (!m_batchProcessing) return;
 
         qDebug() << "Batch: autoTranslateFinished for" << m_currentLanguage
@@ -2829,10 +2883,33 @@ void TranslationManager::translateAndUploadAllLanguages()
                 setCurrentLanguage(m_originalLanguage);
             m_lastError = QStringLiteral("Translation failed on %1 for %2: %3")
                               .arg(selectedProviderLabel(), m_currentLanguage, message);
+
+            // Languages that were translated but never reached the server must still be named.
+            // Reporting only the translation failure repeats, on this branch, exactly the
+            // "credit for work not done" bug the upload accounting was added to fix — and this
+            // is the branch MORE likely to run, since translation and upload draw on the same
+            // hourly quota and fail together.
+            if (!m_batchFailedUploads.isEmpty()) {
+                m_lastError += QStringLiteral(" Uploads had already failed for: %1.")
+                                   .arg(m_batchFailedUploads.join(QStringLiteral("; ")));
+                m_batchFailedUploads.clear();
+            }
             emit lastErrorChanged();
             qWarning().noquote() << "Batch:" << m_lastError
                                  << "— stopping. The selected provider is the only one used;"
                                  << "nothing was silently retried elsewhere.";
+
+            // Tear down the same connections the completion path does. Without this the
+            // lambdas stay attached to `this`: the NEXT batch sets m_batchProcessing back to
+            // true, the stale handlers pass their guard and run alongside the fresh ones, and
+            // processNext() fires twice per completion — taking two languages off the queue
+            // each time and silently skipping about half of them. This terminal branch did not
+            // exist before this change, so the leak is new to it.
+            disconnect(*autoConn);
+            disconnect(*submitConn);
+            delete autoConn;
+            delete submitConn;
+
             emit batchTranslateUploadFinished(false, m_lastError);
             return;
         }
