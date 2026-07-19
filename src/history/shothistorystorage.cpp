@@ -861,7 +861,9 @@ bool ShotHistoryStorage::runMigrations()
     //      MainController can re-PATCH them with the corrected rating.
     //   2) Reset every inferred row's enjoyment to the user's configured
     //      default rating (QSettings shot/defaultRating, fallback 75 —
-    //      matching SettingsVisualizer::defaultShotRating).
+    //      matching the former SettingsVisualizer::defaultShotRating default,
+    //      removed in the remove-default-shot-rating change; this frozen
+    //      migration still reads the raw legacy key for old DBs).
     if (currentVersion < 16) {
         qDebug() << "ShotHistoryStorage: Running migration to version 16 (drop enjoyment_source)";
 

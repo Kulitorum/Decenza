@@ -95,7 +95,6 @@ class SettingsDye : public QObject {
     Q_PROPERTY(QString activeBagYieldMode READ activeBagYieldMode NOTIFY activeBagYieldSpecChanged)
 
 public:
-    // visualizer is non-owning and must outlive this object (Settings owns both).
     explicit SettingsDye(QObject* parent = nullptr);
 
     // Non-owning; attached by main.cpp once ShotHistoryStorage has run the

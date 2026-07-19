@@ -325,6 +325,27 @@ private slots:
         QCOMPARE(m_settings.brew()->targetWeight(), 0.0);
     }
 
+    void dyeEspressoEnjoymentDefaultsToUnrated() {
+        // The default-shot-rating feature was removed: an untasted shot is never
+        // auto-rated. With no persisted per-shot value, enjoyment is 0 (unrated) —
+        // it must NOT fall back to any non-zero default. A fresh SettingsDye read
+        // against a store with the key removed proves the default in isolation
+        // (the shared suite store may carry a value from a prior test).
+        QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+        const QVariant prior = raw.value("dye/espressoEnjoyment");
+        raw.remove("dye/espressoEnjoyment");
+        raw.sync();
+
+        SettingsDye fresh;  // reads the now-clean store
+        QCOMPARE(fresh.dyeEspressoEnjoyment(), 0);
+
+        // Restore so later tests see the store they expect.
+        if (prior.isValid()) {
+            raw.setValue("dye/espressoEnjoyment", prior);
+            raw.sync();
+        }
+    }
+
     void emptyScaleAddressIsValid() {
         m_settings.setScaleAddress("");
         QCOMPARE(m_settings.scaleAddress(), QString(""));
