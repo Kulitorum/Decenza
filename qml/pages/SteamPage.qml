@@ -1100,11 +1100,19 @@ Page {
                     anchors.margins: Theme.scaled(12)
                     spacing: Theme.scaled(15)
 
-                    // Heating icon (animated)
-                    Text {
-                        text: "\ue88a"  // heating icon (whatshot)
-                        font.family: "Material Icons"
-                        font.pixelSize: Theme.scaled(28)
+                    // Heating icon (animated).
+                    //
+                    // Was `text: "\ue88a"` in font.family "Material Icons" — a
+                    // private-use codepoint in a font this app does not bundle
+                    // (resources/fonts/ carries only Decenza Sans and Noto Sans
+                    // Math). It was the ONLY Material Icons reference left in the
+                    // tree, so nothing supplied that family and the glyph
+                    // resolved to whatever the host happened to have, or to a
+                    // missing-glyph box. Now a themed SVG, which is what the rest
+                    // of the app's chrome uses and which follows Theme colours.
+                    ThemedIcon {
+                        source: "qrc:/icons/temperature.svg"
+                        iconSize: Theme.scaled(28)
                         color: Theme.warningColor
 
                         SequentialAnimation on opacity {

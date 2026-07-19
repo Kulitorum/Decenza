@@ -1,3 +1,76 @@
+// ---------------------------------------------------------------------------
+// Sanitizer report capture
+//
+// ASan is FATAL: on a use-after-free it prints its report and SIGABRTs, so the
+// app is gone before it can log anything itself. The report therefore has to be
+// written by the sanitizer runtime directly, to a file that survives the crash
+// — otherwise it lands on a stderr nobody was watching and the only evidence a
+// user can give you is "it closed".
+//
+// __asan_default_options / __ubsan_default_options are weak hooks the runtimes
+// call during their own init — see the constraints on them below; they are far
+// tighter than they look. Each runtime appends ".<pid>" to log_path, so
+// concurrent runs never collide.
+#if defined(__has_feature)
+#  if __has_feature(address_sanitizer) || __has_feature(undefined_behavior_sanitizer)
+#    define DECENZA_SANITIZER_HOOKS 1
+#  endif
+#endif
+#if defined(__SANITIZE_ADDRESS__)
+#  define DECENZA_SANITIZER_HOOKS 1
+#endif
+
+#ifdef DECENZA_SANITIZER_HOOKS
+
+// These two hooks are called by the sanitizer runtimes during their OWN
+// initialisation, which happens from __malloc_init — before libSystem is
+// initialised, before the C++ runtime, before main(). Almost nothing is legal
+// here, and each function may do exactly one thing: return a pointer to a
+// string literal.
+//
+// This took two crashes to get right, both SIGSEGV before main():
+//
+//   attempt 1: static const std::string built by a lambda
+//              -> __cxa_guard_acquire + malloc, re-entering the allocator that
+//                 was still initialising.   crash in sanitizerReportDir()
+//   attempt 2: static char buffer + getenv + snprintf
+//              -> "allocation-free", but snprintf is still libc, and libc is
+//                 not up yet.               crash in buildSanitizerLogPath()
+//
+// So the paths are compile-time literals. That rules out $HOME, which is why
+// the reports land in /tmp rather than beside the app's other data — /tmp needs
+// no lookup and no mkdir (a log_path whose directory does not exist silently
+// falls back to stderr, which would defeat the point). announceSanitizerReports()
+// reads them from there later, where normal code rules apply.
+//
+// An ASAN_OPTIONS / UBSAN_OPTIONS environment variable still overrides these.
+// They are defaults, not overrides, which is what makes baking them in safe.
+
+// Prefixes; each runtime appends ".<pid>", so concurrent runs never collide.
+#define DECENZA_ASAN_LOG  "/tmp/decenza-asan"
+#define DECENZA_UBSAN_LOG "/tmp/decenza-ubsan"
+
+extern "C" const char* __asan_default_options()
+{
+    // halt_on_error stays at ASan's default (fatal). Continuing past a
+    // use-after-free means reading memory the allocator has already handed out
+    // again, so everything after the first report is fiction.
+    return "log_path=" DECENZA_ASAN_LOG ":print_stacktrace=1:detect_leaks=0";
+}
+
+extern "C" const char* __ubsan_default_options()
+{
+    // Recovering, matching the Debug build's -fsanitize-recover: a developer
+    // running the app should be TOLD about undefined behaviour, not have the app
+    // killed mid-session. The report reaches the file either way.
+    return "log_path=" DECENZA_UBSAN_LOG ":print_stacktrace=1:halt_on_error=0";
+}
+
+// The Qt-side reporting function is defined further down, after the Qt headers.
+// Unlike these hooks it runs normally from main() and may allocate freely.
+
+#endif  // DECENZA_SANITIZER_HOOKS
+
 #include <QApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -326,6 +399,58 @@ void runAppNameMigrationOnce()
 }
 
 }  // namespace
+
+#ifdef DECENZA_SANITIZER_HOOKS
+// Fold sanitizer report files into the app's own log.
+//
+// ASan aborts the process, so the run that produced a report cannot report it —
+// the evidence exists only as a file, and until something reads that file the
+// user's account of the incident is "it closed". Putting it in the debug log is
+// what makes it reachable over MCP rather than only to whoever had a terminal
+// open at the time.
+//
+// Called at startup for reports left by a previous run, and again at shutdown
+// for anything UBSan produced during this one (UBSan recovers, so its findings
+// would otherwise wait for the next launch). Files are renamed .reported once
+// announced, so a finding is reported once and not on every launch forever.
+void announceSanitizerReports(const QString& whenLabel)
+{
+    // Matches the literal paths in the __*_default_options hooks above; each
+    // runtime appends ".<pid>" to the prefix.
+    QDir dir(QStringLiteral("/tmp"));
+    const QStringList found =
+        dir.entryList({QStringLiteral("decenza-asan.*"),
+                       QStringLiteral("decenza-ubsan.*")},
+                      QDir::Files, QDir::Time);
+    int announced = 0;
+    for (const QString& name : found) {
+        if (name.endsWith(QStringLiteral(".reported")))
+            continue;
+        QFile f(dir.filePath(name));
+        if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+            continue;
+        // Cap the excerpt — a report can run to hundreds of lines, and the point
+        // is to make the finding visible, not to move the file into the log. The
+        // full path is logged so the rest is findable.
+        const QByteArray head = f.read(4000);
+        f.close();
+        if (head.trimmed().isEmpty())
+            continue;
+        qWarning().noquote() << "SANITIZER REPORT (" << whenLabel << ") —"
+                             << dir.filePath(name) << "\n"
+                             << QString::fromUtf8(head).trimmed();
+        (void)QFile::rename(dir.filePath(name),
+                            dir.filePath(name + QStringLiteral(".reported")));
+        ++announced;
+    }
+    if (announced > 0) {
+        qWarning().noquote()
+            << "Sanitizer: announced" << announced << "report(s) from" << whenLabel
+            << "- these are real findings; a sanitizer does not report unless it"
+            << "detected something.";
+    }
+}
+#endif  // DECENZA_SANITIZER_HOOKS
 
 int main(int argc, char *argv[])
 {
@@ -693,6 +818,33 @@ int main(int argc, char *argv[])
             qDebug().noquote() << "Sanitizers active:" << activeSanitizers.join(QStringLiteral(", "))
                                << "- a clean run means something in this build";
     }
+
+    // Surface any report the sanitizer runtimes wrote during a PREVIOUS run.
+    //
+    // ASan aborts the process, so the run that produced a report cannot report
+    // it — the evidence only exists as a file, and until something reads that
+    // file the user's account of the incident is "it closed". Folding it into
+    // the app's own log puts it where the debug log already goes, which is what
+    // makes it reachable over MCP rather than only to whoever had a terminal
+    // open at the time.
+    //
+    // Reports are renamed to .reported once logged, so a finding is announced
+    // on the next launch and not on every launch forever.
+#ifdef DECENZA_SANITIZER_HOOKS
+    announceSanitizerReports(QStringLiteral("previous run"));
+
+    // UBSan does NOT abort (it recovers, by design, so a developer running the
+    // app is told about undefined behaviour rather than having it killed
+    // mid-session). That means a finding produced during THIS run would
+    // otherwise sit in its file until the next launch. Scanning again on the
+    // way out puts it in the same session's log, where it belongs.
+    //
+    // ASan needs no equivalent: it aborts, so aboutToQuit never runs and the
+    // next launch is the only chance to announce it.
+    QObject::connect(&app, &QCoreApplication::aboutToQuit, &app, []() {
+        announceSanitizerReports(QStringLiteral("this run"));
+    });
+#endif
     qDebug() << "Platform:" << QSysInfo::prettyProductName().simplified()
              << "arch:" << QSysInfo::currentCpuArchitecture()
              << "kernel:" << QSysInfo::kernelType() << QSysInfo::kernelVersion();

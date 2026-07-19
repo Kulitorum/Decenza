@@ -44,7 +44,10 @@ Item {
             font.pixelSize: Theme.scaled(14)
             font.bold: true
             font.italic: true
-            font.family: "serif"
+            // No family: inherits the bundled application font (Decenza Sans).
+            // Was `font.family: "serif"`, a generic alias no platform provides
+            // as a real family, which made Qt run a full font-alias sweep
+            // (~45 ms, with a warning) and then fall back to a host font.
             color: Theme.primaryColor
             Accessible.ignored: true
         }

@@ -1597,8 +1597,20 @@ KeyboardAwareContainer {
                         anchors.margins: Theme.scaled(8)
                         text: tailscaleSetupDialog.aclSnippet
                         color: Theme.textColor
-                        font.family: "monospace"
-                        font.pixelSize: Theme.scaled(11)
+                        // Real family names, not the generic "monospace" alias:
+                        // no platform provides a family by that name, so Qt ran
+                        // a full font-alias sweep (~66 ms, with a warning) and
+                        // fell back to a host font anyway. Ordered macOS /
+                        // Windows / Linux; Qt takes the first that exists.
+                        //
+                        // Built with Qt.font() rather than `font.families:`,
+                        // which is not assignable as a grouped property — that
+                        // spelling fails at load with "Cannot assign to
+                        // non-existent property". Same pattern as Theme.qml.
+                        font: Qt.font({
+                            families: ["Menlo", "Consolas", "DejaVu Sans Mono", "Courier New"],
+                            pixelSize: Theme.scaled(11)
+                        })
                         wrapMode: Text.WrapAnywhere
                         Accessible.name: TranslationManager.translate("settings.ai.remoteMcp.setup.snippetAccessible", "Tailscale ACL rule to grant Funnel")
                     }
