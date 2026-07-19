@@ -22,7 +22,7 @@
 - [x] 3.6 Add `concurrency` with `cancel-in-progress: true`, matching the existing workflows so superseded pushes stop immediately
 - [x] 3.7 Assert the job does NOT upload artifacts, touch `versioncode.txt`, or interact with any GitHub Release
 - [x] 3.8 Make the ctest step surface whether a failure was an assertion or a sanitizer diagnostic in the job summary, so the two are distinguishable without reading the full log
-- [ ] 3.9 Land the workflow NON-BLOCKING (not a required check) and let it run against real pull requests first
+- [x] 3.9 Land the workflow NON-BLOCKING (not a required check) and let it run against real pull requests first
 
 ## 3b. Make the detectors actually detect
 
@@ -39,8 +39,8 @@ Added after the first clean run. A gate that reports nothing is indistinguishabl
 
 ## 4. Promote to a gate
 
-- [ ] 4.1 Watch the job across several real pull requests; record runtime, flake rate, and any UBSan findings
-- [ ] 4.2 Fix or file everything the first runs surface — do not suppress a finding to make the job green
+- [~] 4.1 Watch the job across several real pull requests; record runtime, flake rate, and any UBSan findings. **First four runs on this PR:** 2 real Linux-only failures caught (vptr typeinfo link break; clang-only `local-bounds` rejected by GCC), then green — 13m 20s total, 32.06 s for 83 tests, canary confirmed armed on GCC. Still needs runs on *other* PRs before 4.3.
+- [x] 4.2 Fix or file everything the first runs surface — do not suppress a finding to make the job green. Both surfaced breaks fixed at root (`-fno-sanitize=vptr` with its cost documented; `check_cxx_compiler_flag` probing). Nothing suppressed.
 - [ ] 4.3 Once it is genuinely green and its runtime is known, mark it a required check for merge to `main`
 - [ ] 4.4 If the instrumented runtime blew the budget, pick one of: longer job, sanitized subset, or slow pair moved to nightly — and write down which and why, rather than letting the job silently become a long wait
 

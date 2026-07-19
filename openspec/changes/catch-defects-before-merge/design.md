@@ -123,7 +123,16 @@ This is the same shape as the `-Werror=unused-result` iOS break that motivated t
 
 The fix is `-fno-sanitize=vptr`, which is a requirement rather than a preference: the check cannot function against a library that does not export the typeinfo it needs. The cost is stated in the build file rather than buried — bad-downcast detection is now off everywhere, **including for that very downcast**, whose validity rests on a convention the code's own comment says to re-verify on every Qt upgrade. `vptr` is precisely the check that would have enforced it. That is a real loss, and the alternative (not instrumenting at all, or rearchitecting the QoS feature) is worse.
 
-Worth noting for the runtime budget: the failing run took **24m 45s** to reach the link step on a completely cold cache — no Qt, no ccache. That number bounds nothing yet, because the interesting figure is a warm run, which only became measurable once a run got far enough to save a cache.
+Worth noting for the runtime budget: the failing run took **24m 45s** to reach the link step on a completely cold cache — no Qt, no ccache.
+
+### Measured on real CI, green
+
+The fourth run passed end to end: **13m 20s total**, of which the instrumented suite was **32.06 s for all 83 tests**. That is still not a fully warm number — every push up to this point changed the sanitizer flag string, which invalidates every ccache entry and forces a full rebuild. The flags are stable now, so subsequent runs should be substantially faster; 13m 20s is therefore a safe upper bound rather than the steady state, and it already fits inside the 60-minute ceiling with room to spare.
+
+Two things the CI log confirms that no local run could:
+
+- `sanitizer_canary ... Passed` **on Linux/GCC**. The instrumentation is proven armed on the platform that actually gates merges, not merely on the developer machine where it was written.
+- `UBSan: local-bounds unsupported by this compiler, skipping` — the probe doing exactly its job on the toolchain that rejected the hardcoded flag, rather than failing the build.
 
 ### ThreadSanitizer is not usable here, and the reason is worth recording
 
