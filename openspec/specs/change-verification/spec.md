@@ -32,20 +32,24 @@ A near-empty first harvest is evidence the codebase is clean on these axes, whic
 - **WHEN** a change is prepared for a pull request
 - **THEN** the full `ctest` suite is run locally first, and that run is the gate
 
-### Requirement: Cross-Platform Divergence Is Covered By Nightly Builds
-Because the local gate runs on one platform, the project SHALL build all six platforms on a schedule, so a toolchain-specific break is found within a day rather than at a release tag.
+### Requirement: Cross-Platform Coverage Comes From The Pre-Release Cadence
+The six platform workflows SHALL remain the cross-platform check, driven by the project's existing pre-release cadence. There SHALL NOT be a scheduled six-platform build.
 
-The gap this closes is specific and demonstrated. Local verification happens on macOS/clang; Linux/GCC, Windows/MSVC, iOS and Android were first compiled at release-tag time. #1558 — the build break that motivated this whole change — was inside `#ifdef Q_OS_IOS` and compiled nowhere else.
+**A scheduled version of this existed and was removed within a day of shipping, because it was slower than what the project already does.**
 
-That gap is not theoretical: enabling these diagnostics took **seven** rounds of platform burndown, and every round after the third found exactly one GCC-only diagnostic class that macOS could not have surfaced.
+Measured over the 14 days to 2026-07-19, each platform workflow ran **37-48 times** — Linux 48, iOS 42, Linux arm64 43, Windows 37, macOS 37 — roughly **three builds per platform per day**, driven by near-daily pre-releases against a rolling `v2.0.0` beta. A nightly would have compiled these platforms at *one third* the existing frequency. It was not redundant coverage; it was worse coverage with an added standing cost.
 
-#### Scenario: Toolchain-specific break introduced
-- **WHEN** a change compiles on the author's platform but not on another
-- **THEN** the nightly six-platform run fails, and the break is found within a day instead of at the next release tag
+Note that the version-tag list does not show this: those tags land every 1-2 weeks, and reading them as the build cadence understates it by an order of magnitude. The pre-release runs are the real signal.
 
-#### Scenario: Nightly builds are cold
-- **WHEN** the nightly platform builds run
-- **THEN** they build without a warm compiler cache, since nobody waits on them and the shared cache budget is better spent keeping release builds warm
+The gap this was aimed at is nonetheless real and demonstrated: local verification happens on macOS/clang, and #1558 — the break that motivated this whole change — was inside `#ifdef Q_OS_IOS` and compiled nowhere else. Enabling these diagnostics took **seven** rounds of platform burndown, each finding a class exactly one platform could see. But that burndown was the one-off cost of turning the flags on, and the pre-release cadence already closes the ongoing gap at a rate no nightly could match.
+
+#### Scenario: Change touches platform-guarded code
+- **WHEN** a change modifies code inside `#ifdef Q_OS_IOS`, `Q_OS_ANDROID`, or another platform guard
+- **THEN** it is compiled by the next pre-release run of that platform, typically the same day; dispatching that platform build-only is available when the author does not want to wait
+
+#### Scenario: Proposal to restore a scheduled build
+- **WHEN** a scheduled six-platform build is proposed again
+- **THEN** it is first measured against the actual pre-release build frequency, since a nightly is only worth adding if it would run *more* often than the platforms already build
 
 ### Requirement: Scheduled Verification Is Not Release-Gated
 Scheduled verification workflows SHALL be independent of the six platform release workflows: they SHALL NOT upload artifacts, bump the version code, or publish to any release.
