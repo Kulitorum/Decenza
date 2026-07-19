@@ -6,11 +6,12 @@ The wizard's auto-suggested recipe name is built from only the bean and drink-ty
 
 - The wizard's auto-suggested recipe name gains the **profile**, applied from the first recipe (not only on collision): `bean + drink-type short label + profile`, e.g. `"Yirgacheffe Latte · Cremina"`.
 - The profile token is **cleaned** before use: the `D-Flow/` / `A-Flow/` editor-membership title prefix is stripped, and a profile whose trailing word repeats the drink type is de-stuttered (mirroring the existing bean stutter guard) so the name never reads `"… Espresso · Blooming Espresso"`.
-- **Residual collisions** (same bean + drink type + profile — rare) append a qualifier from the first differing dial-in axis: yield/ratio, then dose. Never a numeric counter.
+- **Name collisions**: when the composed name matches an existing non-archived recipe's display name, the wizard appends a qualifier from the draft's own dial-in values — the yield (ratio/target), else the dose — trying yield first and falling back to dose, so the suggestion stays distinct. Never a numeric counter.
 - The existing guards are preserved: the suggestion is applied only while the name field is empty or still holds the previous suggestion (never over a user edit), and the type word is dropped when the bean already ends with it.
+- **Idle pill rows fit the longer names (Recipes, Beans, AND Profiles)**: the idle pill rows windowed the MRU list into fixed pages of five (recipes/beans) or wrapped unbounded (favorite profiles), which with the longer descriptive names can overflow into three or more rows. All three rows change to a **live fit** — as many pills as comfortably fit within **at most two rows** at the row's real available width, computed from measured pill widths, so the per-page count varies with name length and from page to page. This applies to **both rendering paths** of each widget: the compact-bar popup (`RecipesItem`/`BeansItem`/`EspressoItem`) and the `IdlePage` center-zone expansion. `PresetPillRow`'s width-flow, arrow gutter, and pagination arrows are reused unchanged; a shared `PillFit.packPageSizes()` helper computes the per-page counts, and the fixed `pillPageSize: 5` windowing is replaced.
 - Manual (wiki) documentation of the auto-name behaviour is updated to match.
 
-Out of scope (belongs to the broader #1548 findability work): the 5-recipe pill limit, swipe-for-more, and the search/sort UI itself — all untouched here.
+Out of scope (belongs to the broader #1548 findability work): swipe-for-more and the search/sort UI itself — untouched here. (The fixed 5-pill count is in scope now: the longer names force the idle rows to become fit-aware.)
 
 ## Capabilities
 
@@ -19,10 +20,15 @@ Out of scope (belongs to the broader #1548 findability work): the 5-recipe pill 
 
 ### Modified Capabilities
 - `recipe-wizard`: the "Name auto-suggestion from bean and drink type" requirement changes to include the cleaned profile token and the collision qualifier.
+- `recipe-quick-switch`: the Recipes idle pill row changes from fixed pages of five to a live fit within at most two rows (both rendering paths).
+- `bag-inventory-view`: the Beans idle pill row makes the same fit-based change, for consistency (both rendering paths).
+- `idle-default-layout`: adds the favorite-profile idle pills to the same two-row live fit (previously unpaginated; both rendering paths).
 
 ## Impact
 
-- **Code**: `qml/pages/RecipeWizardPage.qml` — `suggestName()` and its call sites; a small profile-title cleanup helper (candidate home: the `DrinkType` QML singleton or a local wizard function). Collision detection needs the set of existing recipe names for the same bean + drink type, available from `MainController.recipeStorage`.
-- **Behaviour**: only the auto-suggested string changes. No storage, migration, activation, MCP, or web changes — names remain free-form and uniqueness is still not enforced.
+- **Code**:
+  - `qml/pages/RecipeWizardPage.qml` — `suggestName()` and its call sites; a local `cleanProfileForName()` helper; collision detection against the set of existing non-archived recipe names cached from `MainController.recipeStorage`.
+  - `qml/components/layout/items/RecipesItem.qml`, `BeansItem.qml`, `EspressoItem.qml` (compact popups) and `qml/pages/IdlePage.qml` (center-zone expansion) — replace `pillPageSize: 5` slicing / unbounded wrap with a live two-row fit computed from measured pill widths against each row's real available width. `PresetPillRow.qml` is unchanged (its width-flow and pagination arrows are reused); a shared `qml/components/layout/PillFit.js` helper covers all rows.
+- **Behaviour**: the auto-suggested string changes, and the idle pill rows show a name-length-dependent (and page-dependent) number of pills capped at two rows. No storage, migration, activation, MCP, or web changes — names remain free-form and uniqueness is still not enforced.
 - **Docs**: wiki Manual entry for recipe naming; `docs/CLAUDE_MD/RECIPES.md` `suggestName()` note.
-- **Tests**: QML is tested manually in this project (no QML test harness); the naming logic stays in QML and is verified by the manual walk, not an automated test.
+- **Tests**: QML is tested manually in this project (no QML test harness); the naming logic and pill fit stay in QML and are verified by the manual walk, not an automated test.

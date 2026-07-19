@@ -7,7 +7,7 @@ The profile token SHALL be cleaned before use: the `D-Flow/` or `A-Flow/` editor
 
 When the bean name already ends with the drink-type word (case-insensitive), the suggestion SHALL NOT append the drink-type word again.
 
-When another non-archived recipe already carries the suggested name (same bean, drink type, and cleaned profile), the wizard SHALL append a qualifier drawn from the first differing dial-in axis — the yield (ratio or target weight), else the dose — so the suggestion stays distinct. The wizard SHALL NOT disambiguate with a bare numeric counter.
+When the composed name matches the display name of an existing non-archived recipe (a plain case-insensitive name-string match — the wizard caches existing names, not their bean/type/profile identity), the wizard SHALL append a qualifier drawn from the draft recipe's OWN dial-in values — the yield (ratio or target weight) tried first, else the dose — retrying against the name set so the suggestion stays distinct where possible. The wizard SHALL NOT disambiguate with a bare numeric counter.
 
 #### Scenario: Suggestion follows selections
 - **WHEN** the user picks a bean and drink type without typing a name
@@ -38,8 +38,8 @@ When another non-archived recipe already carries the suggested name (same bean, 
 - **THEN** the suggestion is composed from the bean and drink type only, with no profile token
 
 #### Scenario: Collision falls to a dial-in qualifier
-- **WHEN** a recipe named "Yirgacheffe Espresso · Cremina" already exists and the user builds another with the same bean, drink type, and profile but a different yield
-- **THEN** the suggestion appends the differing yield (ratio or target weight), not a numeric counter
+- **WHEN** a recipe named "Yirgacheffe Espresso · Cremina" already exists and the user builds another whose composed name matches it
+- **THEN** the suggestion appends the draft's own yield (ratio or target weight), else its dose, not a numeric counter
 
 #### Scenario: User edit wins
 - **WHEN** the user types their own name and then changes the profile

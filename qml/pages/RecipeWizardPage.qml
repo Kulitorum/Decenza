@@ -345,10 +345,11 @@ Page {
         if (base === "")
             return
 
-        // Disambiguate an exact-name collision with an existing recipe by
-        // appending the first differing dial-in axis — yield, else dose. Never
-        // a bare counter. Best-effort: with the inventory not yet loaded (or no
-        // usable axis) the plain descriptive `base` still ships.
+        // When the composed name matches an existing recipe's display name
+        // (a plain name-string match — we cache names, not their identity),
+        // disambiguate by appending the DRAFT's own dial-in value: yield tried
+        // first, else dose. Never a bare counter. Best-effort: with the
+        // inventory not yet loaded (or no usable value) the plain `base` ships.
         var suggestion = base
         if (nameCollides(base)) {
             var yq = yieldQualifierText()
@@ -426,9 +427,6 @@ Page {
 
 
     Component.onCompleted: {
-        // Load existing recipe names for auto-name collision disambiguation
-        // (onInventoryReady caches them); harmless for every entry mode.
-        MainController.recipeStorage.requestInventory()
         if (mode === "edit" && editRecipeId > 0) {
             currentStep = "summary"
             _enteredAtSummary = true
@@ -445,6 +443,12 @@ Page {
             nameField.selectAll()
             captureBaseline()
         } else {
+            // Only the blank-create walk auto-suggests a name, so only it needs
+            // the existing-name set for collision disambiguation. Edit/promote/
+            // clone set the name directly (the _autoName guard then blocks
+            // suggestName), so requesting the heavy full-inventory scan for them
+            // would only queue ahead of their own load on the FIFO DB worker.
+            MainController.recipeStorage.requestInventory()
             currentStep = "drink"
             captureBaseline()
         }

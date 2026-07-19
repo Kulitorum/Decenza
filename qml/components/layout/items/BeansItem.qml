@@ -5,6 +5,7 @@ import QtQuick.Effects
 import QtQuick.Window
 import Decenza
 import "../.."
+import "../PillFit.js" as PillFit
 
 Item {
     id: root
@@ -24,14 +25,46 @@ Item {
     // not presets — visibility criterion is inInventory, selection is
     // activeBagId, and there is no dirty state because bag edits write
     // through). The full MRU inventory (inventoryReady is MRU-ordered) is kept
-    // and paged five at a time (add-idle-pill-pagination); the full inventory
-    // also lives on the Beans page.
+    // and paged so each page occupies at most two rows (descriptive-recipe-
+    // names — mirrors RecipesItem); the full inventory also lives on the Beans
+    // page.
     property var inventoryBags: []
-    readonly property int pillPageSize: 5
     property int beanPageIndex: 0
-    readonly property int beanPageCount: Math.max(1, Math.ceil(inventoryBags.length / root.pillPageSize))
-    readonly property var visibleBags: inventoryBags.slice(beanPageIndex * root.pillPageSize,
-                                                          beanPageIndex * root.pillPageSize + root.pillPageSize)
+
+    // Live two-row fit (descriptive-recipe-names) — same approach as
+    // RecipesItem: pack the MRU list into pages of AT MOST TWO ROWS at the pill
+    // row's real available width, per-page count varying with name length.
+    // Widths MIRROR PresetPillRow's pill metrics (font 16 bold, padding 40,
+    // spacing 12); bean pills carry no icon, so no icon term. Keep in sync with
+    // PresetPillRow.qml / PillFit.js.
+    readonly property real _pillFitAvail: beansPillRow ? beansPillRow.effectiveMaxWidth : Theme.scaled(600)
+    TextMetrics { id: beanPillMetrics; font.pixelSize: Theme.scaled(16); font.bold: true }
+    function _beanPillWidths() {
+        var out = []
+        for (var i = 0; i < inventoryBags.length; ++i) {
+            beanPillMetrics.text = root.bagLabel(inventoryBags[i])
+            out.push(beanPillMetrics.width + Theme.scaled(40))
+        }
+        return out
+    }
+    readonly property var _beanPageSizes: {
+        var widths = _beanPillWidths()
+        var sizes = PillFit.packPageSizes(widths, Theme.scaled(12), _pillFitAvail, 2)
+        if (sizes.length <= 1)
+            return sizes
+        return PillFit.packPageSizes(widths, Theme.scaled(12),
+                                     Math.max(0, _pillFitAvail - 2 * Theme.scaled(48)), 2)
+    }
+    readonly property int beanPageCount: Math.max(1, _beanPageSizes.length)
+    readonly property var visibleBags: {
+        if (inventoryBags.length === 0)
+            return []
+        var idx = Math.max(0, Math.min(beanPageIndex, _beanPageSizes.length - 1))
+        var start = 0
+        for (var p = 0; p < idx; ++p)
+            start += _beanPageSizes[p]
+        return inventoryBags.slice(start, start + (_beanPageSizes[idx] || 0))
+    }
 
     function bagLabel(bag) {
         if (!bag) return ""

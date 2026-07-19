@@ -5,6 +5,7 @@ import QtQuick.Window
 import Decenza
 import "../components"
 import "../components/layout"
+import "../components/layout/PillFit.js" as PillFit
 
 Page {
     id: idlePage
@@ -124,11 +125,40 @@ Page {
         _publishOperationMode()
     }
 
-    // Idle pill rows page through their full MRU inventory five at a time
-    // (add-idle-pill-pagination). The recipe and bean rows keep the complete
-    // MRU-ordered list and hand PresetPillRow a windowed slice; the arrows only
-    // appear once there is more than one page (i.e. more than five items).
-    readonly property int pillPageSize: 5
+    // Idle pill rows pack their full MRU inventory into pages of AT MOST TWO
+    // ROWS at each row's available width (descriptive-recipe-names) — the longer
+    // bean+type+profile recipe names made a fixed "5 per page" spill past two
+    // rows. Each row keeps its complete MRU list and hands PresetPillRow a
+    // windowed slice; the per-page count varies with name length and from page
+    // to page, and the arrows appear only once there is more than one page.
+    // Pill-width measurement MIRRORS PresetPillRow's pill metrics (font 16 bold,
+    // padding 40, spacing 12, icon 20+6) — keep in sync (see PillFit.js). The
+    // available width is the pill row's Loader width (its parent), used directly
+    // because the pill-row id lives inside the Loader's Component scope.
+    TextMetrics { id: idlePillMetrics; font.pixelSize: Theme.scaled(16); font.bold: true }
+    function _pillPagesFor(widths, availWidth) {
+        var sizes = PillFit.packPageSizes(widths, Theme.scaled(12), availWidth, 2)
+        if (sizes.length <= 1)
+            return sizes
+        // Paginating → arrows appear → repack against the width minus the
+        // symmetric arrow gutters (matches PresetPillRow.pillsAvailableWidth).
+        return PillFit.packPageSizes(widths, Theme.scaled(12),
+                                     Math.max(0, availWidth - 2 * Theme.scaled(48)), 2)
+    }
+    function _pillPageStart(sizes, pageIndex) {
+        var idx = Math.max(0, Math.min(pageIndex, sizes.length - 1))
+        var start = 0
+        for (var p = 0; p < idx; ++p)
+            start += sizes[p]
+        return start
+    }
+    function _pillPageSlice(list, sizes, pageIndex) {
+        if (!list || list.length === 0)
+            return []
+        var idx = Math.max(0, Math.min(pageIndex, sizes.length - 1))
+        var start = _pillPageStart(sizes, pageIndex)
+        return list.slice(start, start + (sizes[idx] || 0))
+    }
 
     // Inventory bags for the beans pill row (bean-bag-inventory: pills are
     // bags, selection is activeBagId, no dirty state — edits write through).
@@ -136,9 +166,16 @@ Page {
     // the full inventory also lives on the Beans page.
     property var inventoryBags: []
     property int beanPageIndex: 0
-    readonly property int beanPageCount: Math.max(1, Math.ceil(inventoryBags.length / idlePage.pillPageSize))
-    readonly property var visibleBags: inventoryBags.slice(beanPageIndex * idlePage.pillPageSize,
-                                                          beanPageIndex * idlePage.pillPageSize + idlePage.pillPageSize)
+    readonly property var _beanPageSizes: {
+        var w = []
+        for (var i = 0; i < inventoryBags.length; ++i) {
+            idlePillMetrics.text = bagLabel(inventoryBags[i])
+            w.push(idlePillMetrics.width + Theme.scaled(40))
+        }
+        return _pillPagesFor(w, beanPresetLoader.width)
+    }
+    readonly property int beanPageCount: Math.max(1, _beanPageSizes.length)
+    readonly property var visibleBags: _pillPageSlice(inventoryBags, _beanPageSizes, beanPageIndex)
 
     function bagLabel(bag) {
         if (!bag) return ""
@@ -187,9 +224,17 @@ Page {
     // and paged; the full list also lives on the Recipes page.
     property var inventoryRecipes: []
     property int recipePageIndex: 0
-    readonly property int recipePageCount: Math.max(1, Math.ceil(inventoryRecipes.length / idlePage.pillPageSize))
-    readonly property var visibleRecipes: inventoryRecipes.slice(recipePageIndex * idlePage.pillPageSize,
-                                                                recipePageIndex * idlePage.pillPageSize + idlePage.pillPageSize)
+    readonly property var _recipePageSizes: {
+        var w = []
+        for (var i = 0; i < inventoryRecipes.length; ++i) {
+            idlePillMetrics.text = inventoryRecipes[i].name || ""
+            // Recipe pills always carry a drink-type icon → add its width.
+            w.push(idlePillMetrics.width + Theme.scaled(20) + Theme.scaled(6) + Theme.scaled(40))
+        }
+        return _pillPagesFor(w, recipePresetLoader.width)
+    }
+    readonly property int recipePageCount: Math.max(1, _recipePageSizes.length)
+    readonly property var visibleRecipes: _pillPageSlice(inventoryRecipes, _recipePageSizes, recipePageIndex)
 
     Connections {
         target: MainController.recipeStorage
@@ -202,6 +247,31 @@ Page {
             MainController.recipeStorage.requestInventory()
         }
     }
+
+    // Favorite-profile pills (the espresso row) page the same way (descriptive-
+    // recipe-names). selectedFavoriteProfile is an ABSOLUTE index into the full
+    // favorites, so taps/selection map through _profilePageStart. The selected
+    // pill may carry a modified marker that widens it — its width includes that.
+    property int profilePageIndex: 0
+    readonly property var _profilePageSizes: {
+        var _m = ProfileManager.profileModified  // re-measure when the marker toggles
+        var favs = Settings.app.favoriteProfiles
+        var sel = Settings.app.selectedFavoriteProfile
+        var w = []
+        for (var i = 0; i < favs.length; ++i) {
+            var name = (favs[i] && favs[i].name) || ""
+            if (_m && i === sel)
+                name = ProfileManager.isCurrentProfileReadOnly
+                    ? name + " " + TranslationManager.translate("presets.modified", "(modified)")
+                    : "*" + name
+            idlePillMetrics.text = name
+            w.push(idlePillMetrics.width + Theme.scaled(40))
+        }
+        return _pillPagesFor(w, espressoColumnLoader.width)
+    }
+    readonly property int profilePageCount: Math.max(1, _profilePageSizes.length)
+    readonly property int _profilePageStart: _pillPageStart(_profilePageSizes, profilePageIndex)
+    readonly property var visibleProfiles: _pillPageSlice(Settings.app.favoriteProfiles, _profilePageSizes, profilePageIndex)
 
     // Recipe pill selection is the synchronous MainController.selectedRecipeId
     // (shared with the compact RecipesItem so both layouts behave identically —
@@ -488,9 +558,10 @@ Page {
     // Auto-tare scale and announce presets when activePresetFunction changes
     onActivePresetFunctionChanged: {
         _publishOperationMode()
-        // Paged pill rows always (re)open on the first page — the most-recent five.
+        // Paged pill rows always (re)open on the first page — the most-recent items.
         if (activePresetFunction === "recipes") recipePageIndex = 0
         else if (activePresetFunction === "beans") beanPageIndex = 0
+        else if (activePresetFunction === "espresso") profilePageIndex = 0
         // Auto-tare when steam pills appear so the scale starts at 0
         // before the user places the pitcher
         if (activePresetFunction === "steam" && typeof MachineState !== "undefined") {
@@ -505,9 +576,12 @@ Page {
             var selectedName = ""
             switch (activePresetFunction) {
                 case "espresso":
-                    presets = Settings.app.favoriteProfiles
-                    if (Settings.app.selectedFavoriteProfile >= 0 && Settings.app.selectedFavoriteProfile < presets.length) {
-                        selectedName = presets[Settings.app.selectedFavoriteProfile].name
+                    // Announce the visible page (the row just reset to page 1).
+                    presets = idlePage.visibleProfiles
+                    var selAbs = Settings.app.selectedFavoriteProfile
+                    var selRel = selAbs - idlePage._profilePageStart
+                    if (selRel >= 0 && selRel < presets.length) {
+                        selectedName = presets[selRel].name
                     }
                     break
                 case "steam":
@@ -835,16 +909,32 @@ Page {
                         anchors.horizontalCenter: parent.horizontalCenter
                         maxWidth: espressoColumnLoader.width
 
-                        presets: Settings.app.favoriteProfiles
-                        selectedIndex: Settings.app.selectedFavoriteProfile
+                        // Windowed to the current two-row page; selection and taps
+                        // map back to absolute favorite indices via _profilePageStart.
+                        presets: idlePage.visibleProfiles
+                        selectedIndex: {
+                            var sel = Settings.app.selectedFavoriteProfile
+                            if (sel < 0) return -1
+                            var rel = sel - idlePage._profilePageStart
+                            return (rel >= 0 && rel < idlePage.visibleProfiles.length) ? rel : -1
+                        }
                         supportLongPress: true
                         modified: ProfileManager.profileModified
                         modifiedIsReadOnly: ProfileManager.isCurrentProfileReadOnly
 
+                        pageCount: idlePage.profilePageCount
+                        pageIndex: idlePage.profilePageIndex
+                        prevPageAccessibleName: TranslationManager.translate("idle.pagination.previousProfiles", "Previous profiles")
+                        nextPageAccessibleName: TranslationManager.translate("idle.pagination.nextProfiles", "Next profiles")
+                        onPageChangeRequested: function(delta) {
+                            idlePage.profilePageIndex = Math.max(0, Math.min(idlePage.profilePageIndex + delta, idlePage.profilePageCount - 1))
+                        }
+
                         onPresetSelected: function(index) {
-                            var wasAlreadySelected = (index === Settings.app.selectedFavoriteProfile)
-                            Settings.app.selectedFavoriteProfile = index
-                            var preset = Settings.app.getFavoriteProfile(index)
+                            var absIndex = idlePage._profilePageStart + index
+                            var wasAlreadySelected = (absIndex === Settings.app.selectedFavoriteProfile)
+                            Settings.app.selectedFavoriteProfile = absIndex
+                            var preset = Settings.app.getFavoriteProfile(absIndex)
 
                             if (wasAlreadySelected) {
                                 if (MachineState.isReady && idlePage.canStartOperations) {
@@ -862,10 +952,11 @@ Page {
                         }
 
                         onPresetLongPressed: function(index) {
-                            var preset = Settings.app.getFavoriteProfile(index)
+                            var absIndex = idlePage._profilePageStart + index
+                            var preset = Settings.app.getFavoriteProfile(absIndex)
                             if (preset && preset.filename) {
-                                if (index !== Settings.app.selectedFavoriteProfile) {
-                                    Settings.app.selectedFavoriteProfile = index
+                                if (absIndex !== Settings.app.selectedFavoriteProfile) {
+                                    Settings.app.selectedFavoriteProfile = absIndex
                                     ProfileManager.loadProfile(preset.filename)
                                 }
                                 profilePreviewPopup.profileFilename = preset.filename
