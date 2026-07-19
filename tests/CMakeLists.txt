@@ -808,6 +808,12 @@ add_decenza_test(tst_mcptools_profiles
 )
 target_link_libraries(tst_mcptools_profiles PRIVATE Qt6::Graphs Qt6::Quick paho-mqtt3a-static)
 target_include_directories(tst_mcptools_profiles PRIVATE ${CMAKE_BINARY_DIR})
+# Built-in profiles QRC, as tst_profilemanager and tst_tclimport already do.
+# Without it ProfileManager cannot open ":/profiles/default.json" and falls
+# back to whatever a PREVIOUS test left on disk — so this passed on a developer
+# machine and on CI retry, and failed on the first attempt of every clean run.
+# See the note on the ctest retry in linux-release.yml.
+target_sources(tst_mcptools_profiles PRIVATE ${PROFILES_QRC})
 
 # --- tst_mcptools_write: Write MCP tools (settings_set temp/weight BLE upload) ---
 # mcptools_write.cpp includes all write tools, pulling in Accessibility/Screensaver/Translation/Battery
@@ -824,6 +830,8 @@ add_decenza_test(tst_mcptools_write
 )
 target_link_libraries(tst_mcptools_write PRIVATE decenza_shotlib Qt6::TextToSpeech Qt6::Multimedia paho-mqtt3a-static)
 target_include_directories(tst_mcptools_write PRIVATE ${CMAKE_BINARY_DIR})
+# Same missing built-in profiles QRC as tst_mcptools_profiles above.
+target_sources(tst_mcptools_write PRIVATE ${PROFILES_QRC})
 
 # --- tst_mcptools_presets: steam-pitcher / water-vessel preset MCP tools ---
 # (unit conversions, partial-update merge, apply-on-select). MainController is

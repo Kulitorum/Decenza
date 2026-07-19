@@ -118,10 +118,44 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: |
           cd build
+          set -o pipefail
           # -j parallelises; --repeat until-pass:3 absorbs the rare timing flake
           # in the two clock-cadence tests (tst_settling, tst_decentscalewifi)
           # under heavy CPU contention. A real failure still fails all 3 attempts.
-          ctest --output-on-failure -j$(nproc) --repeat until-pass:3
+          ctest --output-on-failure -j$(nproc) --repeat until-pass:3 2>&1 | tee ctest.log
+
+      # "A real failure still fails all 3 attempts" is true and was not enough.
+      # tst_mcptools_profiles and tst_mcptools_write failed the FIRST attempt of
+      # every clean run — a missing profiles QRC, entirely deterministic — and
+      # passed the second because the first attempt had left the file on disk.
+      # The retry turned a reproducible bug into a green tick, and it stayed
+      # that way until someone read a log line-by-line for an unrelated reason.
+      #
+      # This does not fail the job: a genuine flake is still worth retrying, and
+      # making retries fatal would just delete the mechanism. It makes them
+      # VISIBLE, so "passed on retry" is a thing someone can notice.
+      - name: Report tests that only passed on retry
+        if: always()
+        run: |
+          cd build
+          [ -f ctest.log ] || exit 0
+          # A retried test prints "***Failed" and later "Passed" for the same
+          # test number; collect the numbers that show both.
+          retried=$(grep -oE "Test +#[0-9]+: +[a-zA-Z_0-9]+ +\.+\*\*\*Failed" ctest.log \
+                    | grep -oE "#[0-9]+: +[a-zA-Z_0-9]+" | sort -u || true)
+          if [ -n "$retried" ]; then
+            {
+              echo "### Tests that failed at least one attempt"
+              echo ""
+              echo "These passed only because of \`--repeat until-pass:3\`. A test that"
+              echo "fails deterministically on attempt 1 is a bug, not a flake — check"
+              echo "before assuming timing."
+              echo '```'
+              echo "$retried"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::Some tests passed only on retry; see the job summary."
+          fi
 
       - name: Get version
         id: version
