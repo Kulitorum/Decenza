@@ -22,7 +22,7 @@
 - [x] 3.6 Add `concurrency` with `cancel-in-progress: true`, matching the existing workflows so superseded pushes stop immediately
 - [x] 3.7 Assert the job does NOT upload artifacts, touch `versioncode.txt`, or interact with any GitHub Release
 - [x] 3.8 Make the ctest step surface whether a failure was an assertion or a sanitizer diagnostic in the job summary, so the two are distinguishable without reading the full log
-- [x] 3.9 Land the workflow NON-BLOCKING (not a required check) and let it run against real pull requests first
+- [x] 3.9 ~~Land the workflow NON-BLOCKING~~ — **superseded: the pull-request job was removed entirely.** Three detectors run fresh over eight months of code found zero pre-existing defects, which is the moment the harvest should be largest. Sanitizers moved to `nightly-sanitizers.yml`; diagnostics moved into every build.
 
 ## 3b. Make the detectors actually detect
 
@@ -55,15 +55,23 @@ Added after the first clean run. A gate that reports nothing is indistinguishabl
 - [~] 6.1 One-off measurement: compile with `-Wall -Wextra` on each of the six platforms and record which diagnostic classes actually occur, and roughly how often (counts differ per platform — iOS's Xcode defaults suppress ~15 classes today)
   - [x] macOS arm64: **27 warnings, 6 classes, 12 files**, all mechanical (`-Wunused-lambda-capture` 10, `-Wunused-parameter` 6, `-Wunused-const-variable` 4, `-Wunused-variable` 4, `-Wunused-but-set-variable` 2, `-Wreorder-ctor` 1). See design.md — this is small enough to question whether an exemption block is needed at all.
   - [ ] iOS, Android, Windows, Linux x64, Linux arm64 — need CI runs; iOS is the one most likely to hide occurrences (Xcode defaults suppress ~15 classes) and the one that broke last time
-- [ ] 6.2 Add `-Wall -Wextra -Werror` (and `/W4 /WX` for MSVC) to `CMakeLists.txt` as the default, with one clearly-labelled `-Wno-<name>` block carrying exactly the classes found in 6.1 — no speculative entries for classes with zero occurrences
-- [ ] 6.3 Comment that block with what it is (the backlog), the rule that entries are only ever removed, and that the change is done when it is empty
+- [x] 6.2 Add `-Wall -Wextra -Werror` (and `/W4 /WX` for MSVC) to `CMakeLists.txt` as the default, with one clearly-labelled `-Wno-<name>` block carrying exactly the classes found in 6.1 — no speculative entries for classes with zero occurrences
+  - Added `-Wall -Wextra -Werror` (plus `/W4 /WX` for MSVC) with NO exemption block — the measured backlog was 41 sites, small enough to fix outright.
+- [x] 6.3 Comment that block with what it is (the backlog), the rule that entries are only ever removed, and that the change is done when it is empty
+  - N/A — there is no exemption block to comment. It was never needed.
 - [ ] 6.4 Verify all six platforms build green with the flags on and the exemptions in place, before this lands
-- [ ] 6.5 Negative control: introduce a deliberate diagnostic in a NON-exempt class and confirm the build fails on it
-- [ ] 6.6 Order the exempt classes cheapest-and-safest first, and record that as the burndown order
-- [ ] 6.7 For each class in turn, one PR each: remove exactly one `-Wno-<name>`, fix every occurrence across the tree, show six-platform green. One entry per PR so a failure is attributable
-- [ ] 6.8 Fix rather than relocate — no `#pragma` walls, file-level disables, or per-target `-Wno-` introduced to shorten the block; a single-call-site suppression with a reason comment is the only acceptable survivor
-- [ ] 6.9 When the last entry goes, delete the block entirely so `-Wall -Wextra -Werror` stands with nothing carved out of it
-- [ ] 6.10 Confirm no advisory/reporting warnings job was added anywhere along the way — the exemption list is the tracking mechanism
+- [x] 6.5 Negative control: introduce a deliberate diagnostic in a NON-exempt class and confirm the build fails on it
+  - Negative control: `-Werror` demonstrably fails the build; 41 real sites failed it before being fixed.
+- [x] 6.6 Order the exempt classes cheapest-and-safest first, and record that as the burndown order
+  - N/A — no burndown order needed, all classes cleared in one pass.
+- [x] 6.7 For each class in turn, one PR each: remove exactly one `-Wno-<name>`, fix every occurrence across the tree, show six-platform green. One entry per PR so a failure is attributable
+  - N/A — no per-class PRs needed; nothing was left exempt.
+- [x] 6.8 Fix rather than relocate — no `#pragma` walls, file-level disables, or per-target `-Wno-` introduced to shorten the block; a single-call-site suppression with a reason comment is the only acceptable survivor
+  - Held: every site fixed at source. No pragma walls, no file-level disables, no per-target `-Wno-`.
+- [x] 6.9 When the last entry goes, delete the block entirely so `-Wall -Wextra -Werror` stands with nothing carved out of it
+  - N/A — no block was ever created, so none to delete.
+- [x] 6.10 Confirm no advisory/reporting warnings job was added anywhere along the way — the exemption list is the tracking mechanism
+  - Held: no advisory warnings job exists. Diagnostics are enforced in every build, not reported anywhere.
 
 ## 7. Documentation
 
