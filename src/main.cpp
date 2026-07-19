@@ -658,6 +658,41 @@ int main(int argc, char *argv[])
 #endif
              << "built" << __DATE__ << __TIME__
              << "at" << QDateTime::currentDateTime().toString(Qt::ISODate);
+
+    // Say which sanitizers are compiled in. A sanitizer that is silently not
+    // applied produces exactly the same clean run as code with no defects, so
+    // "is it actually on?" must be answerable without running otool over the
+    // binary. It is also the first thing worth knowing when triaging a report
+    // in a log — these logs are read by users' assistants over MCP, not only
+    // by whoever built the binary.
+    {
+        QStringList activeSanitizers;
+#if defined(__has_feature)
+#  if __has_feature(address_sanitizer)
+        activeSanitizers << QStringLiteral("ASan");
+#  endif
+#  if __has_feature(undefined_behavior_sanitizer)
+        activeSanitizers << QStringLiteral("UBSan");
+#  endif
+#  if __has_feature(thread_sanitizer)
+        activeSanitizers << QStringLiteral("TSan");
+#  endif
+#endif
+        // GCC spells these as predefined macros rather than __has_feature.
+#if defined(__SANITIZE_ADDRESS__)
+        if (!activeSanitizers.contains(QStringLiteral("ASan")))
+            activeSanitizers << QStringLiteral("ASan");
+#endif
+#if defined(__SANITIZE_THREAD__)
+        if (!activeSanitizers.contains(QStringLiteral("TSan")))
+            activeSanitizers << QStringLiteral("TSan");
+#endif
+        if (activeSanitizers.isEmpty())
+            qDebug() << "Sanitizers: none (uninstrumented build)";
+        else
+            qDebug() << "Sanitizers active:" << activeSanitizers.join(QStringLiteral(", "))
+                     << "- a clean run means something in this build";
+    }
     qDebug() << "Platform:" << QSysInfo::prettyProductName().simplified()
              << "arch:" << QSysInfo::currentCpuArchitecture()
              << "kernel:" << QSysInfo::kernelType() << QSysInfo::kernelVersion();
