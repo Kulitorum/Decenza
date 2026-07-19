@@ -1,6 +1,6 @@
 ## CI/CD (GitHub Actions)
 
-All platforms build automatically when a `v*` tag is pushed. Each workflow can also be triggered manually via `workflow_dispatch` for **test builds only** (no version bump, no uploads by default).
+CI runs at two moments: **every pull request** is compiled and tested by `pre-merge.yml` (see "Pre-merge verification" below), and **all platforms build** when a `v*` tag is pushed. Each release workflow can also be triggered manually via `workflow_dispatch` for **test builds only** (no version bump, no uploads by default).
 
 All workflows have concurrency controls — if the same workflow triggers twice for the same ref, the older run is cancelled. Artifacts use 1-day retention with overwrite, so only the latest artifact per platform exists at any time. Dependabot (`.github/dependabot.yml`) checks weekly for Actions dependency updates.
 
@@ -17,7 +17,17 @@ All workflows have concurrency controls — if the same workflow triggers twice 
 
 On tag push: all workflows bump version code and build. All except iOS upload to GitHub Release; iOS uploads to App Store Connect instead. On `workflow_dispatch`: build only, no version bump, no upload (unless explicitly opted in).
 
-**Cache pruning:** `prune-caches.yml` fires whenever a build workflow completes (plus a daily cron fallback, since `workflow_run` for tag-triggered runs is an under-documented edge); it skips while any build is still queued/running (the last one to finish re-triggers it), then deletes all but the newest copy of each timestamped ccache/sccache entry per (prefix, ref). Stable-keyed `qt-*`/`openssl-*` caches are never touched. This keeps the repo's cache store (10 GB GitHub cap) from filling with stale compiler-cache generations; it replaced the old KEEP=2 prune step inside `macos-release.yml`, which ran before late-finishing builds (and macOS itself) had saved their fresh caches.
+### Pre-merge verification (`pre-merge.yml`)
+
+Runs on every `pull_request` and on `push` to `main`: builds Linux x64 (Release, ccache) with `-DBUILD_TESTS=ON -DENABLE_UBSAN=ON` and runs the full `ctest` suite under UndefinedBehaviorSanitizer with `UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1`, so a sanitizer finding fails the job rather than printing into a green run. It uploads nothing, never touches `versioncode.txt`, and never interacts with a GitHub Release. On failure, the job summary states whether the cause was a **test assertion** or a **UBSan diagnostic** — the two need different responses.
+
+**What a green run means — and doesn't.** It means the change compiles on Linux and the 83 tests pass instrumented. It is one platform in one configuration: code behind `#ifdef Q_OS_IOS` / `Q_OS_WIN` / `Q_OS_ANDROID` is invisible to it. The tag-push workflows remain the only full six-platform check.
+
+**Six-platform evidence rule for promoting a diagnostic to `-Werror`.** Before any diagnostic is added as `-Werror=<name>`, show a green build on all six platforms (Windows, macOS, iOS, Android, Linux x64, Linux arm64). This rule exists because `-Werror=unused-result` (#1553) was verified on macOS and Android only, and broke the iOS release build on code inside `#ifdef Q_OS_IOS` — platform-guarded code is invisible to every platform that does not compile it, so evidence from a subset is not evidence.
+
+**Compiler enforcement has an annotation boundary — a clean build is not a clean codebase.** `-Werror=unused-result` caught a discarded `SecRandomCopyBytes` result because Apple annotates it `warn_unused_result`; the *identical* defect on the OpenSSL path — a discarded `RAND_bytes` result, compiled by five of the six platforms — produced no diagnostic at all, because OpenSSL does not annotate it. A diagnostic's reach is bounded by third-party annotations; compiler silence about an unannotated API carries no information. Where a checked result is deliberately ignored, write `(void)call();` with a comment saying why the failure is tolerable (see CLAUDE.md C++ conventions).
+
+**Cache pruning:** `prune-caches.yml` fires whenever a build workflow (including `pre-merge.yml`, whose per-PR cadence makes it the fastest cache producer) completes (plus a daily cron fallback, since `workflow_run` for tag-triggered runs is an under-documented edge); it skips while any build is still queued/running (the last one to finish re-triggers it), then deletes all but the newest copy of each timestamped ccache/sccache entry per (prefix, ref). Stable-keyed `qt-*`/`openssl-*` caches are never touched. This keeps the repo's cache store (10 GB GitHub cap) from filling with stale compiler-cache generations; it replaced the old KEEP=2 prune step inside `macos-release.yml`, which ran before late-finishing builds (and macOS itself) had saved their fresh caches.
 
 ### Quick commands
 ```bash

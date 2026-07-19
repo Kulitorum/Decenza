@@ -52,6 +52,14 @@ endif()
 # ASan block further down in this file, which handles MSVC vs GCC/Clang flags.
 option(ENABLE_ASAN "Enable Address Sanitizer" OFF)
 
+# Undefined Behavior Sanitizer — catches signed overflow, invalid shifts,
+# misaligned loads, out-of-range enum/bool values, etc.
+# Enable in Qt Creator: Projects → Build → CMake → add ENABLE_UBSAN=ON
+# Or configure from CLI: cmake ... -DENABLE_UBSAN=ON
+# The pre-merge CI job builds with this ON; off by default so routine local
+# builds are uninstrumented. Not supported on MSVC (no UBSan there).
+option(ENABLE_UBSAN "Enable Undefined Behavior Sanitizer" OFF)
+
 # Optional features (Quick3D not available on all platforms, e.g. Raspberry Pi)
 option(ENABLE_QUICK3D "Enable Qt Quick3D for 3D screensavers" ON)
 
@@ -213,6 +221,23 @@ if(ENABLE_ASAN OR (NOT CMAKE_CONFIGURATION_TYPES AND CMAKE_BUILD_TYPE STREQUAL "
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address -fno-omit-frame-pointer")
         set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address")
         set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fsanitize=address")
+    endif()
+endif()
+
+# Undefined Behavior Sanitizer - opt-in only (-DENABLE_UBSAN=ON), never
+# auto-enabled, so a routine local build carries no instrumentation. The
+# pre-merge CI job turns it on to run the test suite instrumented. Run with
+# UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 so a finding fails the run
+# instead of printing into a passing one (UBSan's default is report-and-continue).
+if(ENABLE_UBSAN)
+    if(MSVC)
+        message(FATAL_ERROR "ENABLE_UBSAN is not supported with MSVC (it has no UBSan). Use clang or GCC.")
+    else()
+        message(STATUS ">>> UBSan ENABLED <<<")
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=undefined -fno-omit-frame-pointer")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=undefined -fno-omit-frame-pointer")
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=undefined")
+        set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fsanitize=undefined")
     endif()
 endif()
 

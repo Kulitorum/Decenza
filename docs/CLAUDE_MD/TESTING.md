@@ -33,9 +33,28 @@ When seeding raw pre-construction settings state in a test, write through the **
 
 `--repeat until-pass:3` covers two clock-cadence tests — `tst_settling` (feeds samples at real `qWait` intervals and asserts plateau detection over time windows) and `tst_decentscalewifi` — that can occasionally miss a timing window under heavy CPU contention when many tests run at once. The retry re-runs only a failed test; a genuine regression fails all three attempts. In Qt Creator's CTest settings you can add the same flag, or just re-run a lone flaky result.
 
+### Running under UBSan (what pre-merge CI does)
+
+The pre-merge CI job runs the suite instrumented with UndefinedBehaviorSanitizer. To reproduce locally:
+
+```bash
+# Separate build dir — sanitized objects don't mix with your normal build
+mkdir build-ubsan && cd build-ubsan
+cmake -G Ninja -DCMAKE_PREFIX_PATH=~/Qt/6.11.1/macos -DCMAKE_BUILD_TYPE=Release \
+      -DBUILD_TESTS=ON -DENABLE_UBSAN=ON ..
+ninja
+
+# halt_on_error=1 is essential: without it UBSan prints the diagnostic and the
+# test still exits 0, so a green run can hide findings.
+UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
+  ctest --output-on-failure -j$(sysctl -n hw.ncpu) --repeat until-pass:3
+```
+
+`ENABLE_UBSAN` is off by default and never auto-enabled, so routine builds are uninstrumented. It is not supported with MSVC (configure fails fast). ASan (`-DENABLE_ASAN=ON`, auto-on for non-Apple Debug builds) works the same way for memory errors; the two can be combined (`-DENABLE_ASAN=ON -DENABLE_UBSAN=ON`).
+
 ### CI
 
-The Linux release workflow (`linux-release.yml`) builds and runs all tests before packaging the AppImage. Tests run on every tag push (releases and pre-releases) and manual workflow dispatch. Other platform workflows (Windows, macOS, Android, iOS) do not currently run the test suite.
+Every **pull request** builds Linux x64 and runs the full suite under UBSan via `pre-merge.yml` (see `docs/CLAUDE_MD/CI_CD.md` → "Pre-merge verification"). On **tag push**, the Linux release workflow (`linux-release.yml`) builds and runs all tests (uninstrumented) before packaging the AppImage. Other platform workflows (Windows, macOS, Android, iOS) do not currently run the test suite.
 
 ## Architecture
 
