@@ -84,10 +84,15 @@ jobs:
           cache: true
           cache-key-prefix: 'qt-linux-v4'
 
+      # No pull_request trigger here, so this cannot multiply per open PR the
+      # way pre-merge would — schedule runs on the default branch, giving one
+      # entry. max-size still bounds it: ASan objects are larger than UBSan's,
+      # and the repo has limited headroom under GitHub's 10 GB cap.
       - name: Set up ccache
         uses: hendrikmuhs/ccache-action@v1.2.23
         with:
           key: nightly-asan-linux-x86_64
+          max-size: 500M
 
       - name: Configure ccache for CI
         run: ccache --set-config=compiler_check=content

@@ -94,10 +94,31 @@ jobs:
 
       # Separate ccache key from linux-release.yml: UBSan objects and release
       # objects never hash-match, so sharing a key would just thrash both caches.
+      #
+      # save is restricted to main, and that is a capacity decision, not a
+      # detail. GitHub scopes caches by ref and prune-caches.yml keeps one
+      # generation per (prefix, ref) — and every pull request is its own ref.
+      # Left saving on PRs, this job costs ~0.3 GB per OPEN PR rather than
+      # ~0.3 GB total: measured at 0.60 GB across 4 generations from a single
+      # PR in one afternoon. The repo sits at ~7 GB of GitHub's 10 GB cap, and
+      # the least-recently-used entries are the tag-push ones (qt-macos 0.61 GB,
+      # qt-android 0.46 GB, gradle 0.36 GB), so the eviction this would cause
+      # lands on exactly the caches that keep RELEASE builds warm — the failure
+      # prune-caches.yml exists to prevent.
+      #
+      # Restore still works on PRs: a pull request can read the default
+      # branch's cache scope, so it warms from whatever main last saved. The
+      # cost is that successive pushes within one PR do not build on each
+      # other, only on main. That is the right trade — bounded, predictable
+      # usage over a marginally warmer second push.
       - name: Set up ccache
         uses: hendrikmuhs/ccache-action@v1.2.23
         with:
           key: pre-merge-ubsan-linux-x86_64
+          # Bounds one generation, so a pathological build cannot quietly
+          # grow this entry into the headroom the release caches need.
+          max-size: 400M
+          save: ${{ github.event_name == 'push' }}
 
       - name: Configure ccache for CI
         run: ccache --set-config=compiler_check=content
