@@ -35,7 +35,7 @@ DialingHelpers::ShotDiffInputs toDiffInputs(const ShotProjection& s)
 {
     DialingHelpers::ShotDiffInputs d;
     d.grinderSetting = s.grinderSetting;
-    d.rpm = s.rpm;
+    d.rpm = static_cast<int>(s.rpm);
     d.beanBrand = s.beanBrand;
     d.doseWeightG = s.doseWeightG;
     d.finalWeightG = s.finalWeightG;
@@ -515,7 +515,7 @@ QJsonObject buildSawPredictionBlock(Settings* settings,
         settings->calibration()->sawModelSource(profileFilename, scaleType);
     const double learnedLagSec =
         settings->calibration()->sawLearnedLagFor(profileFilename, scaleType);
-    const int sampleCount =
+    const qsizetype sampleCount =
         settings->calibration()->perProfileSawHistory(profileFilename, scaleType).size();
 
     QJsonObject sawPrediction;

@@ -256,7 +256,7 @@ void DiFluidR2::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& service
     m_initTimer.start();
 }
 
-void DiFluidR2::onCharacteristicChanged(const QBluetoothUuid& characteristicUuid,
+void DiFluidR2::onCharacteristicChanged(const QBluetoothUuid& /*characteristicUuid*/,
                                         const QByteArray& value) {
     // Accept data from any characteristic on our service
     handlePacket(value);

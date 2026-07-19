@@ -160,6 +160,16 @@ Page {
 
     property int videoSkipCount: 0  // Guard against deep recursion when skipping broken videos
     property int videoTransitionCount: 0  // Track transitions for memory leak monitoring
+
+    // RSS at which video playback is abandoned (see the ceiling check below).
+    // 500 MB suits a Release build, which starts around 180 MB. An instrumented
+    // build does not: ASan+UBSan Debug starts at ~463 MB on macOS and plateaus
+    // near 1280 MB after the decoder's buffers reach their high-water mark —
+    // so the Release threshold is breached from launch and the guard fires on
+    // essentially every screensaver session, stopping videos when nothing is
+    // actually wrong. Scaled rather than disabled: a real runaway still gets
+    // caught well before it reaches SIGBUS territory.
+    readonly property real videoRssCeilingMB: MemoryMonitor.instrumentedBuild ? 2000 : 500
     property string pendingVideoSource: ""  // Source queued for next video after decoder teardown
     property real preDestroyRss: 0  // RSS before MediaPlayer destroy (for delta logging)
 
@@ -261,10 +271,14 @@ Page {
                 // Qt's FFmpeg/VideoToolbox backend leaks ~5-10 MB per video transition
                 // on macOS (CVPixelBufferPool not fully released). Restart the screensaver
                 // when RSS grows too high to prevent eventual SIGBUS crash.
-                if (liveRss > 500 && videoTransitionCount > 5) {
+                if (liveRss > root.videoRssCeilingMB && videoTransitionCount > 5) {
                     console.warn("[Screensaver] RSS ceiling exceeded (" + liveRss.toFixed(0) +
+                                 " MB of " + root.videoRssCeilingMB +
                                  " MB at transition #" + videoTransitionCount +
-                                 ") — stopping video playback (Qt FFmpeg leak is unrecoverable)")
+                                 ") — stopping video playback (Qt FFmpeg leak is unrecoverable)" +
+                                 (MemoryMonitor.instrumentedBuild
+                                    ? " [instrumented build: ceiling scaled up, so this is a real"
+                                      + " runaway rather than sanitizer overhead]" : ""))
                     // Qt's FFmpeg/VideoToolbox backend leaks Metal/IOSurface memory
                     // that survives both Loader destruction and full page teardown.
                     // Stop playing videos to prevent the leak from reaching SIGBUS.

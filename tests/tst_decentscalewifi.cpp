@@ -566,7 +566,7 @@ private slots:
         DecentScaleWifi driver;
         QSignalSpy connectedSpy(&driver, &ScaleDevice::connectedChanged);
         connectAndHandshake(driver, server);
-        const int initialConnections = connectedSpy.count();
+        const qsizetype initialConnections = connectedSpy.count();
 
         QTest::ignoreMessage(QtWarningMsg,
             QRegularExpression(".*Scale shut down: low_battery.*"));

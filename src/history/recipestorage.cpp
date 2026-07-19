@@ -522,21 +522,21 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
                            << recipeId << "-" << db.lastError().text();
                 return;
             }
-            QVariantMap fields = patchFields;
+            QVariantMap mergedFields = patchFields;
             // A patch that re-points the bag link adopts the bag's bean
             // identity unless the caller set it explicitly — the identity
             // fields are the display fallback and relink matching key, and
             // must follow the bag (manual re-point to a different bean).
-            const qint64 patchBagId = fields.value(QStringLiteral("bagId")).toLongLong();
+            const qint64 patchBagId = mergedFields.value(QStringLiteral("bagId")).toLongLong();
             if (patchBagId > 0) {
                 const CoffeeBag bag = CoffeeBagStorage::loadBagStatic(db, patchBagId);
                 if (bag.isValid()) {
-                    if (!fields.contains(QStringLiteral("beanBaseId")))
-                        fields.insert(QStringLiteral("beanBaseId"), bag.beanBaseId);
-                    if (!fields.contains(QStringLiteral("roasterName")))
-                        fields.insert(QStringLiteral("roasterName"), bag.roasterName);
-                    if (!fields.contains(QStringLiteral("coffeeName")))
-                        fields.insert(QStringLiteral("coffeeName"), bag.coffeeName);
+                    if (!mergedFields.contains(QStringLiteral("beanBaseId")))
+                        mergedFields.insert(QStringLiteral("beanBaseId"), bag.beanBaseId);
+                    if (!mergedFields.contains(QStringLiteral("roasterName")))
+                        mergedFields.insert(QStringLiteral("roasterName"), bag.roasterName);
+                    if (!mergedFields.contains(QStringLiteral("coffeeName")))
+                        mergedFields.insert(QStringLiteral("coffeeName"), bag.coffeeName);
                 } else {
                     // Same rule as create: a dangling bag id drops the LINK
                     // KEY, not the whole patch — the web editor re-sends the
@@ -547,8 +547,8 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
                     qWarning() << "RecipeStorage: update for recipe" << recipeId
                                << "carried unknown bag id" << patchBagId
                                << "- dropping the bag-link field, applying the rest";
-                    fields.remove(QStringLiteral("bagId"));
-                    if (fields.isEmpty()) {
+                    mergedFields.remove(QStringLiteral("bagId"));
+                    if (mergedFields.isEmpty()) {
                         // The patch was ONLY the dangling link: nothing left
                         // to apply — succeed as a no-op rather than failing.
                         db.rollback();
@@ -557,7 +557,7 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
                     }
                 }
             }
-            *success = updateRecipeFieldsStatic(db, recipeId, fields);
+            *success = updateRecipeFieldsStatic(db, recipeId, mergedFields);
             if (!*success) {
                 db.rollback();
                 return;
@@ -589,10 +589,10 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
             // from the embedded JSON when present (installed-profile lookup
             // isn't available on this thread — the wizard stores the exact
             // type on its own saves anyway).
-            const bool touchesBlocks = fields.contains(QStringLiteral("steamJson"))
-                || fields.contains(QStringLiteral("hotWaterJson"))
-                || fields.contains(QStringLiteral("profileTitle"));
-            if (touchesBlocks && !fields.contains(QStringLiteral("drinkType"))) {
+            const bool touchesBlocks = mergedFields.contains(QStringLiteral("steamJson"))
+                || mergedFields.contains(QStringLiteral("hotWaterJson"))
+                || mergedFields.contains(QStringLiteral("profileTitle"));
+            if (touchesBlocks && !mergedFields.contains(QStringLiteral("drinkType"))) {
                 QString bev = hintedBev;
                 if (bev.isEmpty() && !updated.profileJson.isEmpty())
                     bev = QJsonDocument::fromJson(updated.profileJson.toUtf8())
@@ -602,7 +602,7 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
                 // steam-settings stamp on an active TEA recipe would
                 // re-derive it into "latte" (beverage_type unresolvable
                 // on this thread for installed profiles).
-                if (bev.isEmpty() && !fields.contains(QStringLiteral("profileTitle"))) {
+                if (bev.isEmpty() && !mergedFields.contains(QStringLiteral("profileTitle"))) {
                     if (updated.drinkType == QLatin1String("tea"))
                         bev = QStringLiteral("tea_portafilter");
                     else if (updated.drinkType == QLatin1String("filter"))

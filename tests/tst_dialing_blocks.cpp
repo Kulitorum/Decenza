@@ -41,28 +41,34 @@ namespace {
 
 // One shot's input fields. Keep this near-identical to ShotSaveData so
 // the parameter list is grep-able from the production save path.
+// Every member carries an explicit default initializer, including the QStrings.
+// A bare `QString x;` has no default member initializer, so GCC's
+// -Wmissing-field-initializers (part of -Wextra) fires on every designated
+// initialisation below that omits it — and omitting most fields is the entire
+// point of these fixtures. clang does not warn here, so this only showed up on
+// the Linux build.
 struct ShotRow {
-    QString uuid;
+    QString uuid{};
     qint64 timestamp = 0;
-    QString profileName;
-    QString profileKbId;
+    QString profileName{};
+    QString profileKbId{};
     QString beverageType = QStringLiteral("espresso");
     double duration = 30.0;
     double finalWeight = 36.0;
     double doseWeight = 18.0;
-    QString beanBrand;
-    QString beanType;
-    QString roastLevel;
-    QString grinderBrand;
-    QString grinderModel;
-    QString grinderBurrs;
-    QString grinderSetting;
+    QString beanBrand{};
+    QString beanType{};
+    QString roastLevel{};
+    QString grinderBrand{};
+    QString grinderModel{};
+    QString grinderBurrs{};
+    QString grinderSetting{};
     int enjoyment = 0;
-    QString espressoNotes;
+    QString espressoNotes{};
     // Issue #1158: profile recipe snapshot + SAW target. Empty/0 by
     // default so existing fixtures are unaffected (pourControl /
     // targetWeightG simply stay absent, exactly as before this PR).
-    QString profileJson;
+    QString profileJson{};
     double targetWeight = 0.0;  // → shots.yield_override
     // #1164 finding #3: per-shot temperature override → shots
     // .temperature_override. 0 by default so existing fixtures are
@@ -70,14 +76,14 @@ struct ShotRow {
     double temperatureOverride = 0.0;
     // #1161: why the shot ended → shots.stopped_by. "" by default so
     // existing fixtures are unaffected (sparse-omitted from the blocks).
-    QString stoppedBy;
+    QString stoppedBy{};
     // Bean storage lifecycle snapshot (bean-freshness-followup) → shots
     // frozen_date/defrost_date/storage_hint/opened_date. "" by default so
     // existing fixtures are unaffected (sparse-omitted from the blocks).
-    QString frozenDate;
-    QString defrostDate;
-    QString storageHint;
-    QString openedDate;
+    QString frozenDate{};
+    QString defrostDate{};
+    QString storageHint{};
+    QString openedDate{};
 };
 
 // Run work with a scoped raw SQLite connection on `path`. Same pattern
@@ -2637,7 +2643,6 @@ private slots:
     // stored kbId loses the band; the fresh title resolution recovers it.
     void expertBand_staleKbId_freshTitleResolutionRecoversBand()
     {
-        using ExpertBand = ShotAnalysis::ExpertBand;
 
         // The stale stored value the buggy path used → no band (this is
         // exactly why shot 819 wrongly read "Clean shot").
@@ -2683,7 +2688,6 @@ private slots:
     // every A-Flow shot silently lose its band in production.
     void expertBand_aflow_resolvesFromTitle()
     {
-        using ExpertBand = ShotAnalysis::ExpertBand;
 
         const QString kb = ShotSummarizer::computeProfileKbId(
             QStringLiteral("A-Flow / default-medium"), QStringLiteral("aflow"));
@@ -2723,7 +2727,6 @@ private slots:
     // `## Londinium` rename and the Damian-LR separation in one shot.
     void expertBand_londinium_resolvesAndDoesNotCatchDamianLR()
     {
-        using ExpertBand = ShotAnalysis::ExpertBand;
 
         const auto band = ShotSummarizer::expertBandForKbId(
             ShotSummarizer::computeProfileKbId(QStringLiteral("Londinium"),
@@ -2757,7 +2760,6 @@ private slots:
     // pick up this band.
     void expertBand_adaptiveV2_resolvesAndDoesNotCatchGagne()
     {
-        using ExpertBand = ShotAnalysis::ExpertBand;
         const auto band = ShotSummarizer::expertBandForKbId(
             ShotSummarizer::computeProfileKbId(QStringLiteral("Adaptive v2"),
                                                QStringLiteral("advanced")));
@@ -2781,7 +2783,6 @@ private slots:
     // its aliases resolve to the single `## Allonge` section.
     void expertBand_allonge_resolvesAsOneSidedFlowFloor()
     {
-        using ExpertBand = ShotAnalysis::ExpertBand;
         for (const QString& title : { QStringLiteral("Rao Allongé"),
                                       QStringLiteral("Allongé"),
                                       QStringLiteral("Allonge") }) {
@@ -2807,7 +2808,6 @@ private slots:
     // single completeness pin across all five canonical entries.)
     void expertBand_allShippedRows_seedCoverage()
     {
-        using ExpertBand = ShotAnalysis::ExpertBand;
         using Axis = ExpertBand::Axis;
         struct Row {
             QString title; QString editor; Axis axis;
@@ -3244,7 +3244,6 @@ private slots:
     // -------------------------------------------------------------------
     void assembledBlob_bandRenderedOnceFromStruct_notDuplicatedInProse()
     {
-        using ExpertBand = ShotAnalysis::ExpertBand;
 
         const QString kbId = ShotSummarizer::computeProfileKbId(
             QStringLiteral("A-Flow / default-medium"), QStringLiteral("aflow"));

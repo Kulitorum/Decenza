@@ -66,7 +66,7 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
             // titled "Tea/Some Variant" map to category "Tea"; titles
             // without a slash get null (treated as Espresso recipes).
             auto categoryOf = [](const QString& title) -> QString {
-                const int slash = title.indexOf('/');
+                const qsizetype slash = title.indexOf('/');
                 // Built-in profile titles use "Foo / Bar" with whitespace
                 // around the slash ("D-Flow / default", "A-Flow / ...",
                 // also produced by profiles_create), so trim to keep
@@ -261,8 +261,14 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
                 }
 
                 if (editorType == "dflow" || editorType == "aflow") {
-                    // D-Flow/A-Flow editor fields
-                    for (const QString& key : {"fillTemperature", "fillPressure", "fillFlow", "fillTimeout",
+                    // D-Flow/A-Flow editor fields.
+                    // const char*, not const QString&: binding a QString
+                    // reference to a braced list of literals constructs a
+                    // temporary per element, for every key in the list rather
+                    // than only the ones present. GCC's -Wall flags it
+                    // (-Wrange-loop-construct); clang's does not, which is why
+                    // the macOS warning measurement never saw these five.
+                    for (const char* key : {"fillTemperature", "fillPressure", "fillFlow", "fillTimeout",
                                                 "infuseEnabled", "infusePressure", "infuseTime", "infuseWeight", "infuseVolume",
                                                 "pourTemperature", "pourPressure", "pourFlow"}) {
                         if (recipeJson.contains(key))
@@ -270,27 +276,27 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
                     }
                     if (editorType == "aflow") {
                         // A-Flow-only fields
-                        for (const QString& key : {"rampTime", "rampDownEnabled", "flowExtractionUp", "secondFillEnabled"}) {
+                        for (const char* key : {"rampTime", "rampDownEnabled", "flowExtractionUp", "secondFillEnabled"}) {
                             if (recipeJson.contains(key))
                                 result[key] = recipeJson[key];
                         }
                     }
                 } else {
                     // Pressure/Flow editor fields
-                    for (const QString& key : {"preinfusionTime", "preinfusionFlowRate", "preinfusionStopPressure",
+                    for (const char* key : {"preinfusionTime", "preinfusionFlowRate", "preinfusionStopPressure",
                                                 "holdTime", "simpleDeclineTime",
                                                 "tempStart", "tempPreinfuse", "tempHold", "tempDecline"}) {
                         if (recipeJson.contains(key))
                             result[key] = recipeJson[key];
                     }
                     if (editorType == "pressure") {
-                        for (const QString& key : {"espressoPressure", "pressureEnd", "limiterValue", "limiterRange"}) {
+                        for (const char* key : {"espressoPressure", "pressureEnd", "limiterValue", "limiterRange"}) {
                             if (recipeJson.contains(key))
                                 result[key] = recipeJson[key];
                         }
                     } else {
                         // flow
-                        for (const QString& key : {"holdFlow", "flowEnd", "limiterValue", "limiterRange"}) {
+                        for (const char* key : {"holdFlow", "flowEnd", "limiterValue", "limiterRange"}) {
                             if (recipeJson.contains(key))
                                 result[key] = recipeJson[key];
                         }

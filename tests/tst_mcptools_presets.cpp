@@ -122,9 +122,9 @@ private slots:
     }
 
     void steamUpdateDisabledRejected() {
-        const int before = m_settings.brew()->steamPitcherPresets().size();
+        const qsizetype before = m_settings.brew()->steamPitcherPresets().size();
         call("steam_pitcher_add", {{"name", "Off"}, {"disabled", true}});
-        const int idx = m_settings.brew()->steamPitcherPresets().size() - 1;
+        const qsizetype idx = m_settings.brew()->steamPitcherPresets().size() - 1;
         QVERIFY(idx >= before);
         QJsonObject r = call("steam_pitcher_update", {{"index", idx}, {"temperatureC", 150.0}});
         QVERIFY(!r["success"].toBool());

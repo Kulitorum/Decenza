@@ -251,7 +251,11 @@ Item {
                 color: digitColor
                 font.pixelSize: cardHeight * 0.75
                 font.bold: true
-                font.family: "Arial"
+                // No font.family: inherits the bundled application font.
+                // These carried `font.family: "Arial"`, which exists on macOS
+                // and Windows but frequently not on Linux or Android — the
+                // digits would fall back to a host font with different metrics,
+                // and a flip clock's two halves have to line up exactly.
             }
         }
 
@@ -277,7 +281,6 @@ Item {
                 color: digitColor
                 font.pixelSize: cardHeight * 0.75
                 font.bold: true
-                font.family: "Arial"
             }
         }
 
@@ -313,7 +316,6 @@ Item {
                     color: digitColor
                     font.pixelSize: cardHeight * 0.75
                     font.bold: true
-                    font.family: "Arial"
                 }
             }
         }
@@ -363,7 +365,6 @@ Item {
                         color: digitColor
                         font.pixelSize: cardHeight * 0.75
                         font.bold: true
-                        font.family: "Arial"
                     }
                 }
             }

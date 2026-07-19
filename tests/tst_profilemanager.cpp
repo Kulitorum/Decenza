@@ -2354,7 +2354,6 @@ private slots:
     void uploadRecipeProfileRegeneratesFramesOnParamChange() {
         McpTestFixture f;
         loadDFlowProfile(f, "D-Flow / Test", 36.0, 93.0);
-        int framesBefore = f.profileManager.frameCount();
 
         QVariantMap recipe;
         recipe["editorType"] = "dflow";
@@ -2366,8 +2365,31 @@ private slots:
         recipe["pourFlow"] = 2.5;     // Changed from 2.0
         f.profileManager.uploadRecipeProfile(recipe);
 
-        // Frames should be regenerated (params changed)
-        QVERIFY(f.profileManager.frameCount() > 0);
+        // Assert the frames were REGENERATED, by checking that the changed
+        // params reached them — not merely that some frames exist.
+        //
+        // The earlier version of this test captured frameCount() before the
+        // upload and never compared against it. The comparison was clearly
+        // intended and never written, and -Werror on the unused variable is
+        // the only reason anyone looked. A count comparison would have been
+        // the weaker check anyway: D-Flow emits the same three frames for a
+        // scalar change, so a correct regeneration and a no-op are identical
+        // by count. The frame CONTENT is what distinguishes them.
+        QCOMPARE(f.profileManager.frameCount(), 3);
+
+        const QVariantMap filling = f.profileManager.getFrameAt(0);
+        const QVariantMap pouring = f.profileManager.getFrameAt(2);
+        QCOMPARE(filling["name"].toString(), QStringLiteral("Filling"));
+        QCOMPARE(pouring["name"].toString(), QStringLiteral("Pouring"));
+
+        // pourFlow 2.0 -> 2.5 is the change under test; it lands on the
+        // flow-controlled Pouring frame.
+        QCOMPARE(pouring["pump"].toString(), QStringLiteral("flow"));
+        QCOMPARE(pouring["flow"].toDouble(), 2.5);
+        // fillFlow and pourTemperature must survive the same regeneration.
+        QCOMPARE(filling["flow"].toDouble(), 4.0);
+        QCOMPARE(pouring["temperature"].toDouble(), 95.0);
+
         QCOMPARE(f.profileManager.profileTargetWeight(), 40.0);
     }
 

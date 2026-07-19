@@ -482,7 +482,7 @@ bool loadDecenzaFormat(const QJsonObject& root, LoadedShot& out, QString* errOut
             if (lastMode < 0 || modeChanged || setpointShift) {
                 // Advance to the next step on a transition — unless this is
                 // the very first marker (lastMode < 0).
-                if (lastMode >= 0) stepIdx = std::min<int>(stepIdx + 1, steps.size() - 1);
+                if (lastMode >= 0) stepIdx = static_cast<int>(std::min<qsizetype>(stepIdx + 1, steps.size() - 1));
                 const QJsonObject step = steps[stepIdx].toObject();
                 HistoryPhaseMarker m;
                 m.time = t;
@@ -555,7 +555,7 @@ struct EvaluatedShot {
     double maskPct = 0.0;
     bool grindIssue = false;
     double grindDelta = 0.0;
-    int grindSamples = 0;
+    qsizetype grindSamples = 0;
     bool grindHasData = false;
     bool grindSkipped = false;
     bool skippedInProd = false;  // production-path short-circuit (cleaning/filter/etc)

@@ -31,6 +31,14 @@ public:
 
     double currentRssMB() const;
     Q_INVOKABLE double liveRssMB() const;  // Fresh read (not cached) — for diagnostic logging
+
+    // True when this build carries sanitizer instrumentation or is an
+    // unoptimised debug build. Both inflate RSS substantially — measured on
+    // macOS, an ASan+UBSan Debug build starts at ~463 MB against ~180 MB for
+    // Release, roughly 2.6x — so any threshold tuned against a Release build
+    // will misfire here. Consumers should scale, not branch on the platform.
+    Q_PROPERTY(bool instrumentedBuild READ instrumentedBuild CONSTANT)
+    bool instrumentedBuild() const;
     double peakRssMB() const;
     double startupRssMB() const;
     int qobjectCount() const { return m_lastQObjectCount; }

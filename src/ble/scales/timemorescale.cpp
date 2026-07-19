@@ -173,7 +173,7 @@ void TimemoreScale::sendInitSequence() {
     for (int round = 0; round < 2; ++round) {
         for (int i = 0; i < 6; ++i) {
             QByteArray cmd = CMD_INIT[i]; // copy for lambda capture
-            QTimer::singleShot(delay, this, [this, cmd, round, i]() {
+            QTimer::singleShot(delay, this, [this, cmd]() {
                 if (!m_transport || !m_characteristicsReady) return;
                 sendCommand(cmd);
             });

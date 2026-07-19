@@ -268,7 +268,7 @@ void WeatherManager::fetchFromOpenMeteo(double lat, double lon)
     request.setHeader(QNetworkRequest::UserAgentHeader, USER_AGENT);
 
     QNetworkReply* reply = m_networkManager->get(request);
-    connect(reply, &QNetworkReply::finished, this, [this, reply, lat, lon]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         reply->deleteLater();
 
         if (reply->error() != QNetworkReply::NoError) {

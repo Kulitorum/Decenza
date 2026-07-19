@@ -60,14 +60,14 @@ void TestTextEscaping::initTestCase()
     // Pull out `function <name>(...) { ... }` blocks by brace matching.
     auto extract = [&src](const QString& name) -> QString {
         const QString needle = "function " + name + "(";
-        const int start = src.indexOf(needle);
+        const qsizetype start = src.indexOf(needle);
         if (start < 0) return QString();
         // Theme.qml is comment-dense and its comments name these functions. Taking the first
         // textual hit would silently extract prose if a comment ever contained the pattern.
         if (src.indexOf(needle, start + 1) >= 0)
             return QString();  // ambiguous — fail loudly via the caller's QVERIFY2
         int depth = 0;
-        int i = src.indexOf('{', start);
+        qsizetype i = src.indexOf('{', start);
         if (i < 0) return QString();
         for (; i < src.size(); ++i) {
             if (src[i] == '{') ++depth;

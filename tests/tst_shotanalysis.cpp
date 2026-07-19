@@ -1577,7 +1577,9 @@ private slots:
         };
         QVector<QPointF> pressure;
 
-        for (const QString& bev : {"filter", "pourover", "tea", "steam", "cleaning"}) {
+        for (const QString& bev : {QStringLiteral("filter"), QStringLiteral("pourover"),
+                                   QStringLiteral("tea"), QStringLiteral("steam"),
+                                   QStringLiteral("cleaning")}) {
             const auto r = ShotAnalysis::analyzeFlowVsGoal(
                 flow, flowGoal, phases, 0.0, 60.0, bev, {}, pressure,
                 40.0, 200.0);
@@ -1697,7 +1699,9 @@ private slots:
     void pourTruncated_nonEspressoBeverage_skips()
     {
         auto pressure = flatSeries(0.0, 10.0, 0.5);
-        for (const QString& bev : {"filter", "pourover", "tea", "steam", "cleaning"}) {
+        for (const QString& bev : {QStringLiteral("filter"), QStringLiteral("pourover"),
+                                   QStringLiteral("tea"), QStringLiteral("steam"),
+                                   QStringLiteral("cleaning")}) {
             QCOMPARE(ShotAnalysis::detectPourTruncated(pressure, 0.0, 10.0, bev), false);
         }
         // Unknown / empty beverage type defaults to espresso-style check.

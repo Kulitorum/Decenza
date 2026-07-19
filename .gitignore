@@ -7,7 +7,7 @@
 
 # Build directories
 build/
-build-android/
+build-*/
 cmake-build-*/
 
 # Qt Creator user files

@@ -9,6 +9,11 @@ on:
         required: true
         default: 'false'
         type: boolean
+      use_cache:
+        description: 'Restore/save the compiler cache (nightly builds pass false for a cold build)'
+        required: false
+        default: true
+        type: boolean
 
   # Trigger on version tags (pre-release and release)
   push:
@@ -99,9 +104,10 @@ jobs:
           echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/$QT_NDK_VERSION" >> $GITHUB_ENV
 
       - name: Set up ccache
-        uses: hendrikmuhs/ccache-action@v1.2.23
+        uses: ./.github/actions/setup-compiler-cache
         with:
-          key: android-arm64
+          key: 'android-arm64'
+          use_cache: ${{ inputs.use_cache }}
           # At 500M the cache sat at 99.8% full and evicted at save time
           # (a full build is ~600 objects ≈ one cache-full). 1G fits in the
           # repo cache budget now that prune-caches.yml keeps 1 copy/group.

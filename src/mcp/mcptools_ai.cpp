@@ -201,12 +201,16 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                         respond(QJsonObject{{"error", QString("Shot not found: %1").arg(resolvedShotId)}});
                         return;
                     }
-                    AIManager* ai = aiPtr.data();
+                    // Re-fetched from the QPointer rather than reusing the outer
+                    // `ai`: this runs queued on the main thread, and the manager
+                    // may have been destroyed in between. Distinct name because
+                    // it is a distinct fact — the outer one is the pre-gate value.
+                    AIManager* aiLive = aiPtr.data();
 
                     // Re-check the busy gate on the main thread for live
                     // calls — between the gate above and here, the user
                     // may have triggered an in-app advisor call.
-                    if (!dryRun && ai->isAnalyzing()) {
+                    if (!dryRun && aiLive->isAnalyzing()) {
                         respond(QJsonObject{{"error", "AI advisor busy with another request — try again in a moment."}});
                         return;
                     }
@@ -237,12 +241,12 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                         // built here on the main thread). Same shape the
                         // in-app advisor produces — both surfaces call
                         // the same helpers in DialingBlocks.
-                        QJsonObject userPromptObj = ai->buildUserPromptObjectForShot(shot);
+                        QJsonObject userPromptObj = aiLive->buildUserPromptObjectForShot(shot);
                         if (userPromptObj.isEmpty()) {
                             respond(QJsonObject{{"error", "Failed to assemble shot summary for shot " + QString::number(resolvedShotId)}});
                             return;
                         }
-                        ai->enrichUserPromptObject(userPromptObj, shot,
+                        aiLive->enrichUserPromptObject(userPromptObj, shot,
                             dialInSessions, bestRecentShot, grinderContext, recentAdvice,
                             grinderCalibration);
                         userPrompt = QString::fromUtf8(
@@ -254,8 +258,8 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                     if (dryRun) {
                         respond(QJsonObject{
                             {"shotId", static_cast<double>(resolvedShotId)},
-                            {"provider", ai->selectedProvider()},
-                            {"model", ai->currentModelName()},
+                            {"provider", aiLive->selectedProvider()},
+                            {"model", aiLive->currentModelName()},
                             {"systemPromptUsed", systemPrompt},
                             {"userPromptUsed", userPrompt},
                             {"dryRun", true}
@@ -283,13 +287,13 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                     };
                     auto* state = new CallState();
                     state->startMs = QDateTime::currentMSecsSinceEpoch();
-                    state->timeout = new QTimer(ai);
+                    state->timeout = new QTimer(aiLive);
                     state->timeout->setSingleShot(true);
                     state->timeout->setInterval(kAdvisorMcpTimeoutMs);
 
-                    const QString providerId = ai->selectedProvider();
-                    const QString modelName = ai->currentModelName();
-                    QPointer<AIManager> aiPtrInner(ai);
+                    const QString providerId = aiLive->selectedProvider();
+                    const QString modelName = aiLive->currentModelName();
+                    QPointer<AIManager> aiPtrInner(aiLive);
 
                     auto finalize = [state, aiPtrInner, providerId, modelName,
                                      systemPrompt, userPrompt, resolvedShotId, respond](
@@ -323,8 +327,8 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                         delete state;
                     };
 
-                    state->successConn = QObject::connect(ai, &AIManager::recommendationReceived,
-                        ai, [finalize, aiPtrInner, shot, resolvedShotId, userPrompt](
+                    state->successConn = QObject::connect(aiLive, &AIManager::recommendationReceived,
+                        aiLive, [finalize, aiPtrInner, shot, resolvedShotId, userPrompt](
                                 const QString& response) {
                             // Surface the trailing structured `nextShot`
                             // block (issue #1054) as a top-level field
@@ -369,12 +373,12 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                             }
                             finalize(body);
                         });
-                    state->errorConn = QObject::connect(ai, &AIManager::errorOccurred,
-                        ai, [finalize](const QString& error) {
+                    state->errorConn = QObject::connect(aiLive, &AIManager::errorOccurred,
+                        aiLive, [finalize](const QString& error) {
                             finalize(QJsonObject{{"error", error}});
                         });
                     state->timeoutConn = QObject::connect(state->timeout, &QTimer::timeout,
-                        ai, [finalize]() {
+                        aiLive, [finalize]() {
                             finalize(QJsonObject{{"error",
                                 QString("Advisor call timed out after %1s")
                                     .arg(kAdvisorMcpTimeoutMs / 1000)}});
@@ -387,13 +391,13 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                     // clean error rather than a hang+leak. Receiver is
                     // QCoreApplication::instance() — it outlives AIManager,
                     // so this connection still fires.
-                    state->destroyedConn = QObject::connect(ai, &QObject::destroyed,
+                    state->destroyedConn = QObject::connect(aiLive, &QObject::destroyed,
                         QCoreApplication::instance(), [finalize]() {
                             finalize(QJsonObject{{"error", "AI manager destroyed before advisor reply"}});
                         });
 
                     state->timeout->start();
-                    ai->analyze(systemPrompt, userPrompt);
+                    aiLive->analyze(systemPrompt, userPrompt);
                 }, Qt::QueuedConnection);
             });
 

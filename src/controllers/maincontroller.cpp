@@ -69,12 +69,14 @@ MainController::MainController(QNetworkAccessManager* networkManager,
                                ProfileStorage* profileStorage,
                                QObject* parent)
     : QObject(parent)
+    // Order matches the declaration order in the header; members are always
+    // initialised in declaration order regardless of how they are listed here.
+    , m_networkManager(networkManager)
     , m_settings(settings)
     , m_device(device)
     , m_machineState(machineState)
     , m_shotDataModel(shotDataModel)
     , m_profileStorage(profileStorage)
-    , m_networkManager(networkManager)
 {
     // Create ProfileManager — owns all profile lifecycle operations
     m_profileManager = new ProfileManager(m_settings, m_device, m_machineState, m_profileStorage, this);

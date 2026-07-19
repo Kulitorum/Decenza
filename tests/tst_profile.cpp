@@ -546,7 +546,7 @@ private slots:
         QJsonObject obj = makeAdvancedProfileJson("My Advanced");
 
         Profile p = Profile::fromJson(QJsonDocument(obj));
-        int framesBefore = p.steps().size();
+        qsizetype framesBefore = p.steps().size();
         p.regenerateFromRecipe();
         QCOMPARE(p.steps().size(), framesBefore);  // Unchanged
     }

@@ -1066,7 +1066,7 @@ private slots:
 
         // Calling it again with a plain "settings" item present must not add
         // a second one.
-        const int countBefore = net->getZoneItems("bottomRight").size();
+        const qsizetype countBefore = net->getZoneItems("bottomRight").size();
         net->ensureSettingsAccessible();
         QCOMPARE(net->getZoneItems("bottomRight").size(), countBefore);
 
@@ -1178,8 +1178,10 @@ private slots:
         QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
                  QStringList({"flush", "history", "equipment", "espresso", "settings"}));
         // No Auto-Favorites anywhere in the default.
-        for (const QString& zone : {"centerTop", "centerMiddle", "centerStatus", "bottomLeft",
-                                     "bottomRight", "topLeft", "topRight", "lowerMidBar"})
+        for (const QString& zone : {QStringLiteral("centerTop"), QStringLiteral("centerMiddle"),
+                                    QStringLiteral("centerStatus"), QStringLiteral("bottomLeft"),
+                                    QStringLiteral("bottomRight"), QStringLiteral("topLeft"),
+                                    QStringLiteral("topRight"), QStringLiteral("lowerMidBar")})
             QVERIFY(!typesOf(net->getZoneItems(zone)).contains("autofavorites"));
 
         net->setLayoutConfiguration(orig);

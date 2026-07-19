@@ -100,10 +100,10 @@ int AndroidUsbScaleHelper::write(const QByteArray& data)
 {
     QJniEnvironment env;
 
-    jbyteArray jarray = env->NewByteArray(data.size());
+    jbyteArray jarray = env->NewByteArray(static_cast<jsize>(data.size()));
     if (!jarray) return -1;
 
-    env->SetByteArrayRegion(jarray, 0, data.size(),
+    env->SetByteArrayRegion(jarray, 0, static_cast<jsize>(data.size()),
                             reinterpret_cast<const jbyte*>(data.constData()));
 
     jint result = QJniObject::callStaticMethod<jint>(

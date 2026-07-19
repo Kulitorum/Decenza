@@ -982,13 +982,23 @@ void ScreensaverVideoManager::loadCacheIndex()
 
 }
 
-void ScreensaverVideoManager::saveCacheIndex()
+// Returns false if the index could not be fully written. This used to be void
+// with a bare `return` on open failure — a writer that cannot report failure,
+// which is the exact defect shape (#1553) the rest of this file guards against.
+// It matters most on the migration path: if the destination directory does not
+// exist, every write here fails silently, the in-memory index is never
+// persisted, and loadCacheIndex() then drops every entry whose file it cannot
+// find. The user's whole video cache is re-downloaded, with nothing in the log.
+bool ScreensaverVideoManager::saveCacheIndex()
 {
     QString indexPath = m_cacheDir + "/cache_index.json";
     QFile file(indexPath);
 
     if (!file.open(QIODevice::WriteOnly)) {
-        return;
+        qWarning() << "[Screensaver] Could not write cache index" << indexPath
+                   << "-" << file.errorString()
+                   << "— cached videos will be re-downloaded on next start";
+        return false;
     }
 
     QJsonObject root;
@@ -1002,8 +1012,19 @@ void ScreensaverVideoManager::saveCacheIndex()
         root[it.key()] = cached;  // key is video URL
     }
 
-    file.write(QJsonDocument(root).toJson());
+    const QByteArray payload = QJsonDocument(root).toJson();
+    const qint64 written = file.write(payload);
+    // close() flushes; a failure here means the bytes never reached disk even
+    // though write() reported success.
+    const bool closedOk = file.flush();
     file.close();
+    if (written != payload.size() || !closedOk) {
+        qWarning() << "[Screensaver] Cache index write incomplete" << indexPath
+                   << "- wrote" << written << "of" << payload.size() << "bytes"
+                   << "-" << file.errorString();
+        return false;
+    }
+    return true;
 }
 
 void ScreensaverVideoManager::updateCacheUsedBytes()
@@ -1711,15 +1732,23 @@ void ScreensaverVideoManager::migrateCacheToExternal()
         return;
     }
 
-    // Create external directory
+    // Create external directory. A failure here makes every move below fail, so
+    // abort rather than pressing on and repointing m_cacheDir at a directory
+    // that does not exist — that combination silently discards the whole index.
     QDir externalDir(externalPath);
-    if (!externalDir.exists()) {
-        externalDir.mkpath(".");
+    if (!externalDir.exists() && !externalDir.mkpath(".")) {
+        qWarning() << "[Screensaver] Cannot create external cache dir" << externalPath
+                   << "— staying on" << fallbackPath << "and leaving the cache intact";
+        return;
     }
 
     // Migrate cache index and files
     const QStringList files = fallbackDir.entryList(QDir::Files);
     int migrated = 0;
+    // Filenames that could not be moved. Their index entries must keep pointing
+    // at the fallback directory: the file is still there, and rewriting the path
+    // to a destination it never reached orphans it (see the rewrite loop below).
+    QSet<QString> failedToMove;
 
     for (const QString& file : files) {
         QString srcPath = fallbackDir.filePath(file);
@@ -1740,23 +1769,48 @@ void ScreensaverVideoManager::migrateCacheToExternal()
                 QFile::remove(srcPath);
                 migrated++;
             } else {
+                failedToMove.insert(file);
+                qWarning() << "[Screensaver] Cache migration: could not move" << file
+                           << "to" << externalPath << "- rename and copy both failed."
+                           << "Leaving it in" << fallbackPath << "and keeping the index"
+                           << "entry pointed there.";
             }
         }
     }
 
 
-    // Update cache index paths
+    // Update cache index paths — but only for files that actually arrived.
+    // Rewriting the path of a file that failed to move points the index at
+    // something that does not exist; loadCacheIndex() drops any entry whose
+    // localPath is missing, so the file would be orphaned in the fallback
+    // directory: still occupying space, no longer tracked, and re-downloaded.
     for (auto it = m_cacheIndex.begin(); it != m_cacheIndex.end(); ++it) {
         QString oldPath = it.value().localPath;
         if (oldPath.startsWith(fallbackPath)) {
             QString filename = QFileInfo(oldPath).fileName();
+            if (failedToMove.contains(filename))
+                continue;
             it.value().localPath = externalDir.filePath(filename);
         }
     }
 
-    // Update cache directory and save index
+    if (!failedToMove.isEmpty()) {
+        qWarning() << "[Screensaver] Cache migration incomplete:" << migrated << "moved,"
+                   << failedToMove.size() << "left in" << fallbackPath
+                   << "- those remain usable from there.";
+    }
+
+    // Update cache directory and save index. If the index cannot be persisted,
+    // put m_cacheDir back: an index describing the new location that was never
+    // written is worse than not having migrated at all, because the next start
+    // reads the OLD index and finds nothing where it points.
+    const QString previousCacheDir = m_cacheDir;
     m_cacheDir = externalPath;
-    saveCacheIndex();
+    if (!saveCacheIndex()) {
+        qWarning() << "[Screensaver] Cache index could not be saved after migration"
+                   << "— reverting cache dir to" << previousCacheDir;
+        m_cacheDir = previousCacheDir;
+    }
 
     // Try to remove old fallback directory if empty
     fallbackDir.rmdir(".");
@@ -2051,7 +2105,6 @@ void ScreensaverVideoManager::clearPersonalMedia()
 {
     QString personalDir = m_cacheDir + "/personal";
 
-    qint64 freedBytes = 0;
     for (const VideoItem& item : std::as_const(m_personalCatalog)) {
         QString filePath = personalDir + "/" + item.path;
         if (QFile::exists(filePath)) {
@@ -2061,7 +2114,6 @@ void ScreensaverVideoManager::clearPersonalMedia()
         if (m_settings->theme()->backgroundImagePath() == filePath) {
             m_settings->theme()->setBackgroundImagePath("");
         }
-        freedBytes += item.bytes;
     }
 
     m_personalCatalog.clear();

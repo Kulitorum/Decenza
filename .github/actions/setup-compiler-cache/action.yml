@@ -1,0 +1,56 @@
+name: 'Set up compiler cache'
+description: >
+  Installs ccache/sccache and wires it to the shared cache, with one switch to
+  build genuinely cold. Wraps hendrikmuhs/ccache-action so the cold-build logic
+  lives in one place instead of six near-identical copies.
+
+# Why this exists as an action rather than six pasted blocks.
+#
+# The cold-build switch below is subtle enough to get wrong, and it WAS wrong:
+# the first attempt guarded the whole step with `if: inputs.use_cache`, which
+# also skipped the thing that INSTALLS ccache — while later steps still invoked
+# it. Linux failed with 'ccache: command not found' (exit 127).
+#
+# The correct shape is to always install the tool and defeat the CACHE instead:
+# a key that cannot match restores nothing, and save: false writes nothing.
+#
+# Six copies of that reasoning had already drifted into two different wordings
+# before this action existed, which is exactly how the next person ends up
+# fixing five of six call sites. The explanation belongs in one file.
+
+inputs:
+  key:
+    description: 'Cache key for a warm build. Ignored when use_cache is false.'
+    required: true
+  use_cache:
+    description: >
+      'true' for a normal warm build; 'false' for a cold one (nightly). Pass the
+      workflow input as a string — composite action inputs are always strings,
+      so a boolean workflow input needs no conversion at the call site.
+    required: false
+    default: 'true'
+  variant:
+    description: "'ccache' or 'sccache' (Windows/MSVC uses sccache)."
+    required: false
+    default: 'ccache'
+  max-size:
+    description: 'Cache size cap passed through to the underlying action.'
+    required: false
+    default: '500M'
+
+runs:
+  using: composite
+  steps:
+    - name: Set up ${{ inputs.variant }}
+      uses: hendrikmuhs/ccache-action@v1.2.23
+      with:
+        variant: ${{ inputs.variant }}
+        # Cold when this is a manual dispatch that asked for no cache. Any
+        # other trigger (tag push, schedule) is always warm.
+        #
+        # github.run_id makes the key unique per run, so it can never restore;
+        # save: false means it never writes. The tool itself is still installed,
+        # which is the whole point — see the note at the top of this file.
+        key: ${{ (github.event_name == 'workflow_dispatch' && inputs.use_cache == 'false') && format('cold-no-restore-{0}', github.run_id) || inputs.key }}
+        save: ${{ !(github.event_name == 'workflow_dispatch' && inputs.use_cache == 'false') }}
+        max-size: ${{ inputs.max-size }}

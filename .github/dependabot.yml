@@ -1,6 +1,26 @@
 version: 2
 updates:
+  # Scans .github/workflows/ only. It does NOT descend into composite actions,
+  # which is why the second entry exists — see the note there before adding a
+  # composite action of your own.
   - package-ecosystem: "github-actions"
     directory: "/"
+    schedule:
+      interval: "daily"
+
+  # Composite actions keep their own `uses:` pins, and the "/" entry above does
+  # not cover them: for the github-actions ecosystem, `directory` names the
+  # folder holding the manifest, and each composite action is its own folder.
+  #
+  # This is not hypothetical. hendrikmuhs/ccache-action was pinned in six
+  # workflow files and Dependabot updated it twice on its own (PRs #578, #816).
+  # Consolidating those six copies into .github/actions/setup-compiler-cache/
+  # was a real improvement that also, silently, moved the pin somewhere nobody
+  # was watching — the kind of regression that only shows up as an old version
+  # a year later.
+  #
+  # A new composite action needs its own entry here. There is no glob.
+  - package-ecosystem: "github-actions"
+    directory: "/.github/actions/setup-compiler-cache"
     schedule:
       interval: "daily"

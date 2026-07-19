@@ -443,14 +443,14 @@ bool ShotServer::start()
                            << "socketDescriptor:" << m_server->socketDescriptor()
                            << "isListening:" << m_server->isListening();
             });
-            connect(sslServer, &QSslServer::sslErrors, this, [](QSslSocket* socket, const QList<QSslError>& errors) {
+            connect(sslServer, &QSslServer::sslErrors, this, [](QSslSocket* /*socket*/, const QList<QSslError>& errors) {
                 for (const auto& err : errors)
                     qWarning() << "ShotServer: SSL error:" << err.errorString();
             });
-            connect(sslServer, &QSslServer::handshakeInterruptedOnError, this, [](QSslSocket* socket, const QSslError& error) {
+            connect(sslServer, &QSslServer::handshakeInterruptedOnError, this, [](QSslSocket* /*socket*/, const QSslError& error) {
                 qWarning() << "ShotServer: SSL handshake interrupted:" << error.errorString();
             });
-            connect(sslServer, &QSslServer::peerVerifyError, this, [](QSslSocket* socket, const QSslError& error) {
+            connect(sslServer, &QSslServer::peerVerifyError, this, [](QSslSocket* /*socket*/, const QSslError& error) {
                 qWarning() << "ShotServer: SSL peer verify error:" << error.errorString();
             });
 
@@ -2172,15 +2172,21 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         }
 
         int lastIndex = 0;
-        QStringList lines;
+        QStringList bodyLines;
         if (WebDebugLogger::instance()) {
-            lines = WebDebugLogger::instance()->getLines(afterIndex, &lastIndex);
+            bodyLines = WebDebugLogger::instance()->getLines(afterIndex, &lastIndex);
+        } else {
+            // No logger: say so rather than returning an empty success. An empty
+            // "lines" array is indistinguishable from "the log is empty".
+            sendJson(socket, QJsonDocument(QJsonObject{
+                {"error", "debug logger unavailable"}}).toJson(QJsonDocument::Compact));
+            return;
         }
 
         QJsonObject result;
         result["lastIndex"] = lastIndex;
         QJsonArray linesArray;
-        for (const QString& line : std::as_const(lines)) {
+        for (const QString& line : std::as_const(bodyLines)) {
             linesArray.append(line);
         }
         result["lines"] = linesArray;
@@ -2942,7 +2948,9 @@ bool ShotServer::setupTls()
 // ---------------------------------------------------------------------------
 
 // ASN.1 DER encoding helpers
-static QByteArray derLength(int len)
+// qsizetype, not int: callers pass QByteArray::size(). Inside #ifdef Q_OS_IOS,
+// so only the iOS build ever compiles this and only iOS reported the narrowing.
+static QByteArray derLength(qsizetype len)
 {
     QByteArray out;
     if (len < 128) {

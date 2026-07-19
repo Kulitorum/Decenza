@@ -1,0 +1,92 @@
+name: Nightly platform builds
+
+# Builds all six platforms on main every night, by dispatching the existing
+# release workflows in their build-only mode (no version bump, no upload).
+#
+# Why this exists. The five platforms nobody compiles locally — Linux/GCC,
+# Linux arm64, Windows/MSVC, iOS, Android — are otherwise first compiled at
+# release-tag time, AFTER merge. That is how a build break reached a release
+# tag (#1558), and it is not a hypothetical gap: enabling -Wall -Wextra -Werror
+# produced three findings that only one platform each could see —
+#
+#   Linux/GCC   -Wshadow is stricter than clang's and caught a lambda parameter
+#               shadowing an enclosing local.
+#   iOS         a lambda captured `this` whose whole body sits inside
+#               #if !defined(Q_OS_IOS), so on iOS it captured and used nothing.
+#   Android     -Wcast-align inside vendored header-only mdns code that only
+#               Android compiles.
+#
+# The macOS measurement scored ZERO on the latter two, because that code is
+# behind #ifdef. A one-platform check structurally cannot see them, and this is
+# the cheapest way to see all six.
+#
+# Cost: the repository is public, so GitHub Actions standard runners are free;
+# the real budget here is wall-clock nobody waits on and cache churn, not money.
+#
+# These runs pass use_cache=false, so they build genuinely cold. Nobody waits on
+# a nightly, so the only thing a compiler cache buys here is wall-clock nobody
+# measures — and it would cost the scarce resource instead: the repo sits near
+# 7 GB of GitHub's 10 GB cache cap, and every cached run writes a fresh
+# timestamped generation for prune-caches.yml to clean up. A cold build also
+# verifies more: nothing is served from a cache entry built by an earlier commit.
+#
+# The Qt installation cache is untouched by that flag and still restores — it is
+# a stable-keyed download, not a compiler cache, and re-downloading Qt six times
+# a night would be waste with no diagnostic value.
+#
+# This does NOT run the test suite; nightly-sanitizers.yml covers that under
+# UBSan and ASan. This job answers one question: does it still compile
+# everywhere?
+
+on:
+  schedule:
+    # 02:11 UTC — before prune-caches.yml's 03:17 and nightly-sanitizers'
+    # 04:23, so each night runs builds first, then prunes what they produced.
+    - cron: '11 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write  # gh workflow run
+
+concurrency:
+  group: nightly-platforms
+  cancel-in-progress: true
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Dispatch build-only runs of all six platform workflows
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          failed=0
+          # Each entry is "<workflow>:<name of its publish input>". iOS calls
+          # that input upload_to_appstore; every other platform calls it
+          # upload_to_release — which is the whole reason this carries a value
+          # per workflow rather than one flag for the loop. All of them default
+          # to false, but each is passed explicitly so a future default flip
+          # cannot quietly turn this nightly into something that publishes.
+          for entry in android-release.yml:upload_to_release \
+                       linux-release.yml:upload_to_release \
+                       linux-arm64-release.yml:upload_to_release \
+                       macos-release.yml:upload_to_release \
+                       windows-release.yml:upload_to_release \
+                       ios-release.yml:upload_to_appstore; do
+            wf="${entry%%:*}"
+            publish_input="${entry##*:}"
+            if gh workflow run "$wf" --repo "$GITHUB_REPOSITORY" --ref main \
+                 -f "$publish_input=false" -f use_cache=false; then
+              echo "- \`$wf\`: dispatched" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "::warning::Failed to dispatch $wf"
+              failed=1
+            fi
+          done
+          {
+            echo ""
+            echo "Results appear as separate workflow runs — this job only starts them,"
+            echo "so a green tick here means 'six builds were launched', not 'six builds passed'."
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $failed

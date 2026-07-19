@@ -9,6 +9,11 @@ on:
         required: true
         default: 'false'
         type: boolean
+      use_cache:
+        description: 'Restore/save the compiler cache (nightly builds pass false for a cold build)'
+        required: false
+        default: true
+        type: boolean
 
   # Trigger on version tags (pre-release and release)
   push:
@@ -93,11 +98,11 @@ jobs:
           Add-Content $env:GITHUB_PATH $ninja.DirectoryName
 
       - name: Set up sccache
-        uses: hendrikmuhs/ccache-action@v1.2.23
+        uses: ./.github/actions/setup-compiler-cache
         with:
           variant: sccache
-          key: sccache-windows-x64-qt6.11.1-vs2026
-          max-size: 500M
+          key: 'sccache-windows-x64-qt6.11.1-vs2026'
+          use_cache: ${{ inputs.use_cache }}
 
       - name: Locate OpenSSL 3
         id: openssl

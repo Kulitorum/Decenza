@@ -808,6 +808,12 @@ add_decenza_test(tst_mcptools_profiles
 )
 target_link_libraries(tst_mcptools_profiles PRIVATE Qt6::Graphs Qt6::Quick paho-mqtt3a-static)
 target_include_directories(tst_mcptools_profiles PRIVATE ${CMAKE_BINARY_DIR})
+# Built-in profiles QRC, as tst_profilemanager and tst_tclimport already do.
+# Without it ProfileManager cannot open ":/profiles/default.json" and falls
+# back to whatever a PREVIOUS test left on disk — so this passed on a developer
+# machine and on CI retry, and failed on the first attempt of every clean run.
+# See the note on the ctest retry in linux-release.yml.
+target_sources(tst_mcptools_profiles PRIVATE ${PROFILES_QRC})
 
 # --- tst_mcptools_write: Write MCP tools (settings_set temp/weight BLE upload) ---
 # mcptools_write.cpp includes all write tools, pulling in Accessibility/Screensaver/Translation/Battery
@@ -824,6 +830,8 @@ add_decenza_test(tst_mcptools_write
 )
 target_link_libraries(tst_mcptools_write PRIVATE decenza_shotlib Qt6::TextToSpeech Qt6::Multimedia paho-mqtt3a-static)
 target_include_directories(tst_mcptools_write PRIVATE ${CMAKE_BINARY_DIR})
+# Same missing built-in profiles QRC as tst_mcptools_profiles above.
+target_sources(tst_mcptools_write PRIVATE ${PROFILES_QRC})
 
 # --- tst_mcptools_presets: steam-pitcher / water-vessel preset MCP tools ---
 # (unit conversions, partial-update merge, apply-on-select). MainController is
@@ -926,6 +934,15 @@ add_decenza_test(tst_steamhealth
 )
 target_link_libraries(tst_steamhealth PRIVATE decenza_shotlib)
 
+# --- tst_exifdate: EXIF date scanning from JPEG bytes.
+# Header-only and dependency-free, which is the point: the same logic inside
+# ShotServer::extractImageDate was untestable without linking a web server, a
+# storage backend, a DE1 device and an AI manager — so it was never tested, and
+# a rename silently made the whole path dead code. Nothing to link here.
+add_decenza_test(tst_exifdate
+    tst_exifdate.cpp
+)
+
 # --- tst_kb_schema: build-time KB validator (tools/validate_kb.py) coverage
 # (change: restructure-kb-as-validated-json, task 5.1). Shells out to the
 # same Python interpreter the root CMakeLists.txt's `validate_kb` build gate
@@ -960,3 +977,46 @@ add_test(NAME failonwarning_lint
     COMMAND ${CMAKE_COMMAND}
         -DLINT_DIR=${CMAKE_CURRENT_SOURCE_DIR}
         -P ${CMAKE_CURRENT_SOURCE_DIR}/lint_failonwarning.cmake)
+
+# --- Sanitizer canaries: proof that each sanitizer is armed, not merely asked
+# for. A silently-unapplied sanitizer yields the same green suite as a clean
+# codebase, so each canary commits a deliberate defect of its sanitizer's kind
+# and run_sanitizer_canary.cmake fails the test unless it was reported.
+# Registered only under the matching option, so ordinary builds never compile
+# or run them. See the header comments in the two canary sources.
+#
+# The UBSan canary runs in BOTH modes, which it previously did not. It used to
+# be skipped whenever UBSan was in its auto-enabled Debug (recovering) mode, on
+# the reasoning that a recovering sanitizer lets the process exit 0 and the
+# canary would "fail" while everything worked. True as far as it goes — but
+# recovering mode is every developer's local Debug build, i.e. exactly the gate
+# that runs most often, and it was the one configuration with no armed-ness
+# proof at all. The fix is to check the right evidence for the mode: an abort
+# where the build halts, and the diagnostic text alone where it recovers.
+if(ENABLE_UBSAN)
+    add_executable(sanitizer_canary sanitizer_canary.cpp)
+    set_target_properties(sanitizer_canary PROPERTIES AUTOMOC OFF)
+    if(_ubsan_recover)
+        set(_ubsan_expect_abort OFF)
+    else()
+        set(_ubsan_expect_abort ON)
+    endif()
+    add_test(NAME sanitizer_canary
+        COMMAND ${CMAKE_COMMAND}
+            -DCANARY=$<TARGET_FILE:sanitizer_canary>
+            -DSANITIZER=ubsan
+            -DEXPECT_ABORT=${_ubsan_expect_abort}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/run_sanitizer_canary.cmake)
+endif()
+
+# ASan has no recovering mode for this defect class, so it always aborts.
+if(ENABLE_ASAN)
+    add_executable(asan_canary asan_canary.cpp)
+    set_target_properties(asan_canary PROPERTIES AUTOMOC OFF)
+    add_test(NAME asan_canary
+        COMMAND ${CMAKE_COMMAND}
+            -DCANARY=$<TARGET_FILE:asan_canary>
+            -DSANITIZER=asan
+            -DEXPECT_ABORT=ON
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/run_sanitizer_canary.cmake)
+endif()

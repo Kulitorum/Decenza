@@ -57,6 +57,10 @@ Read [`docs/SHOT_REVIEW.md`](https://github.com/Kulitorum/Decenza/blob/main/docs
 
 **Don't build automatically** — let the user build in Qt Creator (~50× faster than CLI). Only run CLI builds when the user explicitly asks. CLI commands for Windows/macOS/iOS live in `docs/CLAUDE_MD/PLATFORM_BUILD.md`.
 
+**There is no pull-request CI gate — run the full suite locally before opening a PR.** That is the gate. `nightly-sanitizers.yml` re-runs the suite on `main` each night under UBSan and ASan. Platform-guarded code (`#ifdef Q_OS_IOS` etc.) is compiled only by the tag-push release workflows, so verify platform-specific changes with a CI test build of that platform (see `docs/CLAUDE_MD/CI_CD.md`).
+
+**Debug builds are sanitizer-instrumented automatically** — ASan *and* UBSan on every desktop platform including macOS, so a normal local test run already reports undefined behaviour and memory errors. UBSan is in recovering mode there (it reports and continues); an explicit `-DENABLE_UBSAN=ON` gives the halting mode CI uses. Release builds are untouched.
+
 ## Project Structure
 
 See `docs/CLAUDE_MD/PROJECT_STRUCTURE.md` for the full source tree, signal/slot flow, scale system, machine phases, AI/MCP overview, and profile pipeline. Top-level: `src/` (C++), `qml/` (UI), `resources/`, `shaders/`, `tests/`, `docs/`, `openspec/`, `android/`, `installer/`.
@@ -73,6 +77,7 @@ See `docs/CLAUDE_MD/PROJECT_STRUCTURE.md` for the full source tree, signal/slot 
 - Classes: `PascalCase`; methods/variables: `camelCase`; members: `m_` prefix; slots: `onEventName()`
 - Use `Q_PROPERTY` with `NOTIFY` for bindable properties
 - Use `qsizetype` (not `int`) for container sizes — `QVector::size()`, `QList::size()`, `QString::size()` etc. return `qsizetype` (64-bit on iOS/macOS). Assigning to `int` causes `-Wshorten-64-to-32` warnings.
+- A discarded `[[nodiscard]]`/`warn_unused_result` value is a build **error** (`-Werror=unused-result`). To deliberately ignore one, write `(void)call();` with a comment saying why losing that failure is tolerable — never a bare call, never a file-wide suppression. Note the compiler only enforces this for *annotated* APIs: it caught a dropped `SecRandomCopyBytes` (Apple annotates it) and said nothing about the identical dropped `RAND_bytes` (OpenSSL doesn't) — so check unannotated results yourself.
 
 ### QML
 - Files: `PascalCase.qml` — new QML files **must** be added to `CMakeLists.txt` (in the `qt_add_qml_module` file list) to be included in the Qt resource system. Without this, the file won't be found at runtime.

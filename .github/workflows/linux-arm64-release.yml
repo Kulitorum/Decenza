@@ -9,6 +9,11 @@ on:
         required: true
         default: 'false'
         type: boolean
+      use_cache:
+        description: 'Restore/save the compiler cache (nightly builds pass false for a cold build)'
+        required: false
+        default: true
+        type: boolean
 
   # Trigger on version tags (pre-release and release)
   push:
@@ -78,9 +83,10 @@ jobs:
           cache-key-prefix: 'qt-linux-arm64-v1'
 
       - name: Set up ccache
-        uses: hendrikmuhs/ccache-action@v1.2.23
+        uses: ./.github/actions/setup-compiler-cache
         with:
-          key: linux-arm64
+          key: 'linux-arm64'
+          use_cache: ${{ inputs.use_cache }}
 
       - name: Configure ccache for CI
         run: ccache --set-config=compiler_check=content

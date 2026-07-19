@@ -52,6 +52,15 @@ endif()
 # ASan block further down in this file, which handles MSVC vs GCC/Clang flags.
 option(ENABLE_ASAN "Enable Address Sanitizer" OFF)
 
+# Undefined Behavior Sanitizer — catches signed overflow, invalid shifts,
+# misaligned loads, out-of-range enum/bool values, etc.
+# Enable in Qt Creator: Projects → Build → CMake → add ENABLE_UBSAN=ON
+# Or configure from CLI: cmake ... -DENABLE_UBSAN=ON
+# nightly-sanitizers.yml builds with this ON (halting mode). Debug builds
+# auto-enable it in RECOVERING mode; see the block further down. Not supported
+# on MSVC (no UBSan there).
+option(ENABLE_UBSAN "Enable Undefined Behavior Sanitizer" OFF)
+
 # Optional features (Quick3D not available on all platforms, e.g. Raspberry Pi)
 option(ENABLE_QUICK3D "Enable Qt Quick3D for 3D screensavers" ON)
 
@@ -202,7 +211,26 @@ endif()
 # don't set CMAKE_BUILD_TYPE at configure time, so auto-enable is skipped to avoid
 # leaking flags into Release builds. Android requires special ASan packaging
 # (wrap.sh + shared lib in APK) that isn't handled here.
-if(ENABLE_ASAN OR (NOT CMAKE_CONFIGURATION_TYPES AND CMAKE_BUILD_TYPE STREQUAL "Debug" AND NOT ANDROID AND NOT APPLE))
+#
+# APPLE was excluded here for a long time because the instrumented app would not
+# START — the test suite was fine, so the fault was in launching the bundle, not
+# in the instrumentation. macOS is back in, because a Debug build is exactly
+# where memory errors should surface and excluding the development platform made
+# ASan dead configuration for the people most able to act on it.
+#
+# If the app fails to launch under ASan, the two causes worth checking first:
+#
+#  1. dyld cannot find the runtime. clang links it as
+#     @rpath/libclang_rt.asan_osx_dynamic.dylib and adds an rpath pointing INTO
+#     the Xcode toolchain (…/clang/<major>/lib/darwin). That path contains an
+#     Xcode version, so a major Xcode upgrade can strand every previously-linked
+#     binary. Symptom is a dyld error naming the dylib, before any app code runs.
+#     `otool -l <binary> | grep -A2 LC_RPATH` shows what it is actually looking for.
+#  2. ASan found a real defect during startup and aborted. This looks like "the
+#     app won't start" but is the tool working: the console carries an
+#     "ERROR: AddressSanitizer: …" block naming the location. That is a bug to
+#     fix, not a reason to turn the sanitizer off.
+if(ENABLE_ASAN OR (NOT CMAKE_CONFIGURATION_TYPES AND CMAKE_BUILD_TYPE STREQUAL "Debug" AND NOT ANDROID))
     if(MSVC)
         message(STATUS ">>> ASan ENABLED for debug build (MSVC) <<<")
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /fsanitize=address")
@@ -213,6 +241,150 @@ if(ENABLE_ASAN OR (NOT CMAKE_CONFIGURATION_TYPES AND CMAKE_BUILD_TYPE STREQUAL "
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address -fno-omit-frame-pointer")
         set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address")
         set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fsanitize=address")
+    endif()
+endif()
+
+# Undefined Behavior Sanitizer. Auto-enabled for Debug builds (see the block
+# below) and available anywhere via -DENABLE_UBSAN=ON; a Release build carries
+# no instrumentation unless asked. The nightly job turns it on explicitly to run
+# the suite in HALTING mode — see the recover/halt split further down.
+#
+# -fno-sanitize-recover=all is what makes a finding FAIL rather than warn.
+# UBSan's default is report-and-continue: a run can print undefined behaviour
+# and still exit 0 (verified — a deliberate overflow exits 0 by default and
+# 134 with this on). UBSAN_OPTIONS=halt_on_error=1 does the same job, but it
+# lives in the CI workflow where it can be dropped by an edit that looks
+# unrelated, and it is absent from a developer's local run entirely. Baking it
+# into the build makes "instrumented" and "fails on a finding" the same switch.
+#
+# Beyond the default `undefined` group:
+#   local-bounds        - array index out of bounds on locals; real UB that
+#                         plain -fsanitize=undefined does not include.
+#   float-divide-by-zero- defined as inf by IEEE 754, but in flow/pressure/ratio
+#                         arithmetic it is a defect every time.
+# Deliberately NOT enabled: the `integer` group (unsigned-integer-overflow,
+# implicit conversions). That is legal, well-defined C++ that CRC and hashing
+# code wraps on purpose, so it reports intent as if it were a defect. A
+# detector that cries wolf gets switched off, which costs more than it finds.
+# UBSan auto-enables for single-config Debug builds, on Apple too. This is the
+# main place undefined behaviour actually gets caught, because the full test
+# suite is run locally before every pull request and there is no CI gate — so
+# instrumenting the Debug build instruments the run that already happens.
+#
+# The ASan condition above used to exclude APPLE, so a macOS Debug build once
+# carried no sanitizer at all. This branch removed that exclusion (see the
+# comment on the ASan block), so macOS Debug now gets BOTH. UBSan is verified
+# working there — the full suite passes instrumented.
+#
+# Android is excluded for the same reason ASan excludes it: the runtime needs
+# packaging into the APK (wrap.sh + shared lib) that this file does not do.
+#
+# An auto-enabled Debug build gets RECOVERING UBSan — it prints a diagnostic
+# and keeps going. An explicit -DENABLE_UBSAN=ON gets the halting kind. The
+# distinction matters: a developer running the app should be told about
+# undefined behaviour, not have the app killed under them mid-session, whereas
+# a test run wants a hard failure it cannot ignore.
+if(NOT ENABLE_UBSAN AND NOT CMAKE_CONFIGURATION_TYPES
+   AND CMAKE_BUILD_TYPE STREQUAL "Debug" AND NOT ANDROID AND NOT MSVC)
+    set(ENABLE_UBSAN ON)
+    set(_ubsan_recover ON)
+    message(STATUS ">>> UBSan auto-enabled for Debug build (reports, does not abort) <<<")
+endif()
+
+if(ENABLE_UBSAN)
+    if(MSVC)
+        message(FATAL_ERROR "ENABLE_UBSAN is not supported with MSVC (it has no UBSan). Use clang or GCC.")
+    else()
+        # -fno-sanitize=vptr is required, not preference. The vptr check
+        # instruments downcasts through a polymorphic hierarchy and needs the
+        # target type's typeinfo at link time. decentscalewifi.cpp downcasts
+        # QObjectPrivate* to QWebSocketPrivate* (to reach the inner QTcpSocket
+        # and set DSCP/TCP_NODELAY), and Qt does not export typeinfo for its
+        # private classes on Linux, so the link fails with "undefined reference
+        # to `typeinfo for QWebSocketPrivate'".
+        #
+        # Found by this very gate: it links on macOS, where Apple's toolchain
+        # emits that typeinfo, and fails on Linux/GCC — the same shape as the
+        # iOS break that motivated the six-platform rule, caught this time
+        # before merge rather than at a release tag.
+        #
+        # What this costs, stated rather than buried: bad-downcast detection is
+        # off everywhere, including for that Qt-private downcast, whose validity
+        # rests on a convention the code's own comment says to re-verify on every
+        # Qt upgrade. That check is exactly what vptr would have enforced.
+        # The optional checks are PROBED, not assumed. `local-bounds` is
+        # clang-only — GCC fails the whole compile with "unrecognized argument
+        # to '-fsanitize=' option", which is how this was found: verified on
+        # Apple clang, broken on Linux/GCC, exactly the mistake the
+        # six-platform rule exists to prevent. Probing rather than branching on
+        # compiler id keeps that true for the platforms not built here (iOS,
+        # Android, Windows) without anyone having to predict their toolchains.
+        set(_ubsan_extra "")
+        include(CheckCXXCompilerFlag)
+        foreach(_check local-bounds float-divide-by-zero)
+            set(CMAKE_REQUIRED_LINK_OPTIONS "-fsanitize=undefined")
+            check_cxx_compiler_flag("-fsanitize=${_check}" _ubsan_has_${_check})
+            unset(CMAKE_REQUIRED_LINK_OPTIONS)
+            if(_ubsan_has_${_check})
+                string(APPEND _ubsan_extra ",${_check}")
+            else()
+                message(STATUS "UBSan: ${_check} unsupported by this compiler, skipping")
+            endif()
+        endforeach()
+        # Recovering in an auto-enabled Debug build, halting when asked for
+        # explicitly — see the auto-enable block above for why.
+        if(_ubsan_recover)
+            set(_ubsan_halt "")
+            set(_ubsan_mode "reports")
+        else()
+            set(_ubsan_halt " -fno-sanitize-recover=all")
+            set(_ubsan_mode "aborts on finding")
+        endif()
+        message(STATUS ">>> UBSan ENABLED (undefined${_ubsan_extra}, no vptr, ${_ubsan_mode}) <<<")
+        set(_ubsan_checks "-fsanitize=undefined${_ubsan_extra} -fno-sanitize=vptr${_ubsan_halt} -fno-omit-frame-pointer")
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${_ubsan_checks}")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${_ubsan_checks}")
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=undefined")
+        set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fsanitize=undefined")
+    endif()
+endif()
+
+# Hardened standard library + live Qt assertions, tied to whichever sanitizer
+# build is running. These catch a defect class BOTH sanitizers miss: an
+# out-of-bounds std::vector/QVector operator[] that lands inside the
+# allocation. ASan sees nothing (the memory is validly owned), UBSan sees
+# nothing (no UB at the language level), and the read silently returns garbage
+# that propagates into a shot. Verified: `v[argc+10]` on a 3-element vector
+# prints garbage and exits 0 unhardened, and traps with this on.
+#
+# QT_FORCE_ASSERTS keeps Q_ASSERT live in a Release-configured sanitizer build.
+# Without it every Q_ASSERT in Qt's own code and in ours compiles to nothing,
+# so the invariants they document go unchecked in exactly the run built to
+# check invariants.
+if(ENABLE_ASAN OR ENABLE_UBSAN)
+    # Tell the C++ side which sanitizers are actually on. This has to come from
+    # CMake, not from compiler macros: clang exposes __has_feature(...), and GCC
+    # defines __SANITIZE_ADDRESS__ for ASan — but GCC defines NOTHING for UBSan.
+    # The nightly job's ubsan leg is GCC on ubuntu-24.04, so a C++-side guess
+    # left the report hooks uncompiled and the startup banner announcing
+    # "Sanitizers: none" on an instrumented binary — the precise failure the
+    # banner exists to rule out.
+    if(ENABLE_ASAN)
+        add_compile_definitions(DECENZA_ASAN_ACTIVE)
+    endif()
+    if(ENABLE_UBSAN)
+        add_compile_definitions(DECENZA_UBSAN_ACTIVE)
+    endif()
+    add_compile_definitions(DECENZA_SANITIZERS_ACTIVE)
+    add_compile_definitions(QT_FORCE_ASSERTS)
+    if(NOT MSVC)
+        # libc++ (Apple/clang) and libstdc++ (GCC) spell this differently and
+        # ignore each other's macro, so both are set rather than branched on
+        # the compiler — the wrong one is inert, not an error.
+        add_compile_definitions(
+            _LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE
+            _GLIBCXX_ASSERTIONS
+        )
     endif()
 endif()
 
@@ -227,6 +399,124 @@ if(MSVC)
     add_compile_options(/we4834)
 else()
     add_compile_options(-Werror=unused-result)
+endif()
+
+# Warnings are errors. This is where defects are cheapest to catch — the
+# developer's own build, before anything is committed — and it is deliberately
+# the ONLY place diagnostics are enforced. There is no CI warning job: a count
+# in a log has no forcing function, and a red build does.
+#
+# Placed after the FetchContent blocks so third-party code (Paho, mdns, tsnet)
+# never inherits it; it applies to the app target and tests, created below.
+#
+# The extra flags beyond -Wall -Wextra were chosen by MEASUREMENT, not taste:
+# every first-party TU was compiled with a wide candidate set and the hits
+# counted (scripts/measure_warnings.py). Flags that fired on real defects are
+# enabled below; flags that fired mostly on idiom are not, and are listed after
+# them with their counts, so nobody re-proposes them without new evidence.
+if(MSVC)
+    # NOT verified. /W4 is a different diagnostic set from -Wall -Wextra with no
+    # measurement behind it here, and turning /WX on unmeasured is the same
+    # mistake as the one recorded below. Left as a plain warning level until
+    # someone builds Windows and counts what it produces.
+    add_compile_options(/W4)
+else()
+    # -Wall -Wextra -Werror are universally supported; everything else is
+    # PROBED. This is the second time this lesson was learned in one sitting:
+    # `-fsanitize=local-bounds` was hardcoded, GCC rejected it, the probe below
+    # was written to fix it — and then these warning flags were hardcoded too,
+    # and GCC rejected -Wshorten-64-to-32, -Wconditional-uninitialized,
+    # -Wcomma and -Wself-assign in exactly the same way. A flag that exists in
+    # clang is not a flag that exists.
+    add_compile_options(-Wall -Wextra -Werror)
+
+    include(CheckCXXCompilerFlag)
+    # What the measurement said about the flags that ARE enabled:
+    #
+    #   -Wshorten-64-to-32   30 sites. CLAUDE.md already documents this hazard
+    #                        (qsizetype -> int truncates on 64-bit) and the
+    #                        convention did not hold on its own.
+    #   -Wshadow              8 sites, two of which hid genuine confusion
+    #                        between an inner and outer variable of different
+    #                        types.
+    #   the rest             scored ZERO in the sweep: free today, and a
+    #                        first occurrence now fails the build rather than
+    #                        drifting in unnoticed.
+    #
+    # Those two counts are from BEFORE the sites were fixed — fixing them is
+    # what let the flags be enabled. Re-running the sweep today reports 0 for
+    # both, which is the point, not a contradiction. The counts below, for the
+    # flags that were NOT enabled, do still reproduce as written.
+    foreach(_w
+            shorten-64-to-32
+            shadow
+            non-virtual-dtor
+            conditional-uninitialized
+            implicit-fallthrough
+            self-assign
+            pessimizing-move
+            redundant-move
+            comma
+            suggest-override
+            extra-semi
+            format=2
+            cast-align)
+        string(MAKE_C_IDENTIFIER "${_w}" _w_id)
+        check_cxx_compiler_flag("-W${_w}" _have_w_${_w_id})
+        if(_have_w_${_w_id})
+            add_compile_options("-W${_w}")
+        endif()
+    endforeach()
+
+    # MEASURED AND DELIBERATELY NOT ENABLED. Re-proposing any of these needs
+    # evidence that the instances are defects, not that the flag exists:
+    #
+    #   -Wrange-loop-bind-reference  147 hits / 50 files, and all 147 name a
+    #       QJsonArray range — `for (const QJsonValue& v : array)`, where Qt 6
+    #       returns a proxy from the iterator so the reference binds to a
+    #       temporary. A per-iteration copy, not a bug; 147 edits would buy no
+    #       correctness. (Verified, not assumed: every line of the sweep output
+    #       for this class matches "range of type ... QJsonArray".)
+    #
+    #       Do NOT read this as "range-loop warnings find nothing here."
+    #       GCC's sibling -Wrange-loop-construct — which is in -Wextra on GCC,
+    #       so it is already enabled and already enforced — found five REAL
+    #       sites on this branch (7137c9cf): `for (const QString& key : {"a",
+    #       "b", ...})` built a throwaway QString per element per call. Those
+    #       were worth fixing. The two flags share a name and nothing else.
+    #   -Wfloat-equal                 74 hits / 28 files. Sampled sites are
+    #       `a != 0` sentinel checks ("was this ever set?"), a legitimate idiom
+    #       here. Real float-comparison bugs would be lost in the noise.
+    #   -Wswitch-enum                 46 hits / 31 files. Tempting, because
+    #       "new machine phase added, switch silently falls to default:" is a
+    #       real class here — but it fires on every switch with a deliberate
+    #       `default:`, which is most of them. -Wswitch (in -Wall) already
+    #       covers the dangerous case: a switch with NO default that misses an
+    #       enumerator.
+    #   -Wdouble-promotion            14 hits / 3 files. float->double in
+    #       arithmetic that is double anyway. Harmless.
+    #   -Wshadow-all                  clang-only superset of -Wshadow. Fires on
+    #       `post([..., work = std::move(work), done = std::move(done)] ...)` in
+    #       dbutils.h — the canonical C++14 move-into-lambda idiom, where
+    #       reusing the name is the entire point. Reporting intent as a defect,
+    #       same reason -Wfloat-equal is out.
+    #
+    #       Worth recording HOW this was nearly added by mistake: a sweep script
+    #       reported zero hits, and the real build immediately
+    #       produced three. The script counted lines matching "warning:" and had
+    #       no way to tell "compiled clean" from "failed to compile" — so a
+    #       broken run and a clean one looked identical. That is the same
+    #       silent-failure shape the sanitizer canary exists to prevent, in the
+    #       measurement tooling itself. Trust a real build over a sweep.
+    #
+    #       That hole is now closed: measure_warnings.py probes each flag for
+    #       support before sweeping, counts TUs that failed to compile, and
+    #       exits non-zero when any did. Reproduce the counts above with:
+    #
+    #         ninja -C <build-dir> -t compdb > /tmp/cdb.json
+    #         python3 scripts/measure_warnings.py /tmp/cdb.json 10 /tmp/w.txt \
+    #             -Wrange-loop-bind-reference -Wfloat-equal -Wswitch-enum \
+    #             -Wdouble-promotion
 endif()
 
 # Enable parallel builds
@@ -461,6 +751,7 @@ set(HEADERS
     src/core/widgetlibrary.h
     src/core/batterymanager.h
     src/core/memorymonitor.h
+    src/core/sanitizers.h
     src/core/accessibilitymanager.h
     src/core/autowakemanager.h
     src/core/crashhandler.h
@@ -714,7 +1005,13 @@ target_include_directories(Decenza PRIVATE
     ${CMAKE_BINARY_DIR}  # For version.h
 )
 if(ANDROID)
-    target_include_directories(Decenza PRIVATE ${mdns_lib_SOURCE_DIR})
+    # SYSTEM: mjansson/mdns is vendored third-party code, and it is header-only,
+    # so without this it compiles INSIDE our translation units and inherits
+    # -Werror. Android caught -Wcast-align on its sockaddr -> sockaddr_in casts,
+    # which is idiomatic BSD-socket code we are in no position to "fix".
+    # SYSTEM keeps our diagnostics on our code, matching the reason the warning
+    # options sit after the FetchContent blocks.
+    target_include_directories(Decenza SYSTEM PRIVATE ${mdns_lib_SOURCE_DIR})
 endif()
 if(IOS)
     target_include_directories(Decenza PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/ios)

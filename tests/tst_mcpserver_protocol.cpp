@@ -97,7 +97,7 @@ private:
         client.waitForReadyRead(1000);
         const QByteArray raw = client.readAll();
 
-        const int firstLineEnd = raw.indexOf("\r\n");
+        const qsizetype firstLineEnd = raw.indexOf("\r\n");
         if (firstLineEnd > 0) {
             const QByteArray statusLine = raw.left(firstLineEnd);
             const auto parts = statusLine.split(' ');

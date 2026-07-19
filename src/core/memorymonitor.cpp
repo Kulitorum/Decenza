@@ -1,4 +1,5 @@
 #include "memorymonitor.h"
+#include "sanitizers.h"
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDebug>
@@ -235,6 +236,18 @@ int MemoryMonitor::countQObjects()
 double MemoryMonitor::currentRssMB() const
 {
     return m_lastRss / (1024.0 * 1024.0);
+}
+
+bool MemoryMonitor::instrumentedBuild() const
+{
+    // Broader than "has a sanitizer": callers use this to relax memory
+    // thresholds, and an unoptimised Debug build is heavier than Release even
+    // with no sanitizer attached.
+#if defined(DECENZA_SANITIZERS_PRESENT) || !defined(QT_NO_DEBUG)
+    return true;
+#else
+    return false;
+#endif
 }
 
 double MemoryMonitor::liveRssMB() const

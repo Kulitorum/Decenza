@@ -9,6 +9,11 @@ on:
         required: true
         default: 'false'
         type: boolean
+      use_cache:
+        description: 'Restore/save the compiler cache (nightly builds pass false for a cold build)'
+        required: false
+        default: true
+        type: boolean
 
   # Trigger on version tags (pre-release and release)
   push:
@@ -61,9 +66,10 @@ jobs:
           cache-key-prefix: 'qt-macos-v2'
 
       - name: Set up ccache
-        uses: hendrikmuhs/ccache-action@v1.2.23
+        uses: ./.github/actions/setup-compiler-cache
         with:
-          key: macos-universal
+          key: 'macos-universal'
+          use_cache: ${{ inputs.use_cache }}
           # macOS builds universal binaries (arm64 + x86_64), so each cache
           # entry holds a fat object ~2x the size of a single-arch entry.
           # At 500M, the cache sat at 99% full and evicted ~150 LRU entries

@@ -1194,14 +1194,16 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                     return;
                 }
 
-                bool shotsRestored = success;
+                // Named for the field it feeds below; also avoids shadowing the
+                // outer shotsRestored, which serves the synchronous path.
+                bool shotsImported = success;
                 if (success && m_storage) {
                     m_storage->refreshTotalShots();
                     qDebug() << "ShotServer: Imported shots from backup (async)";
                 }
 
                 qDebug() << "ShotServer: Restore complete - settings:" << settingsRestored
-                         << "shots:" << shotsRestored
+                         << "shots:" << shotsImported
                          << "profiles:" << profilesImported << "(skipped:" << profilesSkipped << ")"
                          << "media:" << mediaImported << "(skipped:" << mediaSkipped << ")"
                          << "aiConversations:" << aiConversationsImported;
@@ -1210,7 +1212,7 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                     QJsonObject result;
                     result["success"] = true;
                     result["settings"] = settingsRestored;
-                    result["shotsImported"] = shotsRestored;
+                    result["shotsImported"] = shotsImported;
                     result["profilesImported"] = profilesImported;
                     result["profilesSkipped"] = profilesSkipped;
                     result["mediaImported"] = mediaImported;

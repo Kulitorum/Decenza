@@ -9,6 +9,11 @@ on:
         required: true
         default: 'false'
         type: boolean
+      use_cache:
+        description: 'Restore/save the compiler cache (nightly builds pass false for a cold build)'
+        required: false
+        default: true
+        type: boolean
 
   # Trigger on version tags (pre-release and release)
   push:
@@ -90,7 +95,7 @@ jobs:
           cache: false
 
       - name: Set up ccache
-        uses: hendrikmuhs/ccache-action@v1.2.23
+        uses: ./.github/actions/setup-compiler-cache
         with:
           # Key includes a shim-revision tag (s2 = "shim revision 2: also
           # unsets IPHONEOS_DEPLOYMENT_TARGET"). Bump this whenever the
@@ -99,8 +104,8 @@ jobs:
           # %compiler% -v) sees the same banner from clang.real regardless
           # of which env vars the shim drops, so a key bump is the only
           # reliable way to invalidate.
-          key: ios-arm64-xcode26.4.1-s2
-          max-size: 500M
+          key: 'ios-arm64-xcode26.4.1-s2'
+          use_cache: ${{ inputs.use_cache }}
 
       - name: Configure ccache for CI
         # Run %compiler% -v so the hash captures the real compiler the shim

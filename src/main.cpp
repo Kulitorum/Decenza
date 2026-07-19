@@ -1,3 +1,74 @@
+// ---------------------------------------------------------------------------
+// Sanitizer report capture
+//
+// ASan is FATAL: on a use-after-free it prints its report and SIGABRTs, so the
+// app is gone before it can log anything itself. The report therefore has to be
+// written by the sanitizer runtime directly, to a file that survives the crash
+// — otherwise it lands on a stderr nobody was watching and the only evidence a
+// user can give you is "it closed".
+//
+// __asan_default_options / __ubsan_default_options are weak hooks the runtimes
+// call during their own init — see the constraints on them below; they are far
+// tighter than they look. Each runtime appends ".<pid>" to log_path, so
+// concurrent runs never collide.
+//
+// Whether this build is instrumented at all is decided by core/sanitizers.h,
+// which explains why three separate detection routes are needed. It is included
+// before everything else deliberately: these hooks must be compiled or not
+// compiled, and that decision cannot depend on Qt headers.
+#include "core/sanitizers.h"
+
+#ifdef DECENZA_SANITIZERS_PRESENT
+
+// These two hooks are called by the sanitizer runtimes during their OWN
+// initialisation, which happens from __malloc_init — before libSystem is
+// initialised, before the C++ runtime, before main(). Almost nothing is legal
+// here, and each function may do exactly one thing: return a pointer to a
+// string literal.
+//
+// This took two crashes to get right, both SIGSEGV before main():
+//
+//   attempt 1: static const std::string built by a lambda
+//              -> __cxa_guard_acquire + malloc, re-entering the allocator that
+//                 was still initialising.   crash in sanitizerReportDir()
+//   attempt 2: static char buffer + getenv + snprintf
+//              -> "allocation-free", but snprintf is still libc, and libc is
+//                 not up yet.               crash in buildSanitizerLogPath()
+//
+// So the paths are compile-time literals. That rules out $HOME, which is why
+// the reports land in /tmp rather than beside the app's other data — /tmp needs
+// no lookup and no mkdir (a log_path whose directory does not exist silently
+// falls back to stderr, which would defeat the point). announceSanitizerReports()
+// reads them from there later, where normal code rules apply.
+//
+// An ASAN_OPTIONS / UBSAN_OPTIONS environment variable still overrides these.
+// They are defaults, not overrides, which is what makes baking them in safe.
+
+// Prefixes; each runtime appends ".<pid>", so concurrent runs never collide.
+#define DECENZA_ASAN_LOG  "/tmp/decenza-asan"
+#define DECENZA_UBSAN_LOG "/tmp/decenza-ubsan"
+
+extern "C" const char* __asan_default_options()
+{
+    // halt_on_error stays at ASan's default (fatal). Continuing past a
+    // use-after-free means reading memory the allocator has already handed out
+    // again, so everything after the first report is fiction.
+    return "log_path=" DECENZA_ASAN_LOG ":print_stacktrace=1:detect_leaks=0";
+}
+
+extern "C" const char* __ubsan_default_options()
+{
+    // Recovering, matching the Debug build's -fsanitize-recover: a developer
+    // running the app should be TOLD about undefined behaviour, not have the app
+    // killed mid-session. The report reaches the file either way.
+    return "log_path=" DECENZA_UBSAN_LOG ":print_stacktrace=1:halt_on_error=0";
+}
+
+// The Qt-side reporting function is defined further down, after the Qt headers.
+// Unlike these hooks it runs normally from main() and may allocate freely.
+
+#endif  // DECENZA_SANITIZERS_PRESENT
+
 #include <QApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -326,6 +397,98 @@ void runAppNameMigrationOnce()
 }
 
 }  // namespace
+
+#ifdef DECENZA_SANITIZERS_PRESENT
+// Fold sanitizer report files into the app's own log.
+//
+// ASan aborts the process, so the run that produced a report cannot report it —
+// the evidence exists only as a file, and until something reads that file the
+// user's account of the incident is "it closed". Putting it in the debug log is
+// what makes it reachable over MCP rather than only to whoever had a terminal
+// open at the time.
+//
+// Called at startup for reports left by a previous run, and again at shutdown
+// for anything UBSan produced during this one (UBSan recovers, so its findings
+// would otherwise wait for the next launch). Files are renamed .reported once
+// announced, so a finding is reported once and not on every launch forever.
+void announceSanitizerReports(const QString& whenLabel)
+{
+    // Matches the literal paths in the __*_default_options hooks above; each
+    // runtime appends ".<pid>" to the prefix.
+    QDir dir(QStringLiteral("/tmp"));
+    const QStringList found =
+        dir.entryList({QStringLiteral("decenza-asan.*"),
+                       QStringLiteral("decenza-ubsan.*")},
+                      QDir::Files, QDir::Time);
+    int announced = 0;
+    int unreadable = 0;
+    for (const QString& name : found) {
+        if (name.endsWith(QStringLiteral(".reported")))
+            continue;
+        QFile f(dir.filePath(name));
+        if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            // Counted, not skipped silently. A bare `continue` here would leave
+            // `announced` at zero and print "none pending" below while an
+            // unreadable report sat in the directory — the exact conflation the
+            // else-branch was added to prevent, reintroduced one level up.
+            ++unreadable;
+            continue;
+        }
+        // Cap the excerpt — a report can run to hundreds of lines, and the point
+        // is to make the finding visible, not to move the file into the log. The
+        // full path is logged so the rest is findable.
+        const QByteArray head = f.read(4000);
+        f.close();
+        if (head.trimmed().isEmpty()) {
+            // An ASan report truncated to zero bytes by the abort. Still
+            // evidence that something happened; do not count it as "none".
+            ++unreadable;
+            continue;
+        }
+        qWarning().noquote() << "SANITIZER REPORT (" << whenLabel << ") —"
+                             << dir.filePath(name) << "\n"
+                             << QString::fromUtf8(head).trimmed();
+        // The rename is what stops a finding being re-announced forever, so
+        // its failure has to be visible. It fails when the destination already
+        // exists — and it will, because the runtimes append ".<pid>" and PIDs
+        // are reused. Without this branch a fixed crash gets re-diagnosed on
+        // every launch, in a log that assistants read over MCP and act on.
+        if (!QFile::rename(dir.filePath(name),
+                           dir.filePath(name + QStringLiteral(".reported")))) {
+            qWarning().noquote()
+                << "Sanitizer: could not mark" << dir.filePath(name)
+                << "as reported — it will be announced again next launch."
+                << "Delete it by hand once the finding is dealt with.";
+        }
+        ++announced;
+    }
+    if (announced > 0) {
+        qWarning().noquote()
+            << "Sanitizer: announced" << announced << "report(s) from" << whenLabel
+            << "- a sanitizer does not write one unless it detected something, so"
+            << "treat each as real until the source location says otherwise.";
+    }
+    if (unreadable > 0) {
+        qWarning().noquote()
+            << "Sanitizer:" << unreadable << "report file(s) in" << dir.path()
+            << "could not be read or were empty. Something was written; its"
+            << "contents are lost. Inspect them by hand.";
+    }
+    if (announced == 0 && unreadable == 0) {
+        // Say so even when there is nothing. Otherwise silence means either
+        // "scanned, found nothing" or "never ran" — and those are the two
+        // readings a reporting mechanism must never conflate. The first version
+        // of this function logged only on a finding, so its own correctness was
+        // unobservable: exactly the ambiguity the sanitizer canary exists to
+        // remove, reproduced in the code that reports sanitizer results.
+        //
+        // Gated on `unreadable` too: claiming "none pending" while an
+        // unreadable file sits there would be the same lie in a new place.
+        qDebug().noquote() << "Sanitizer report scan (" << whenLabel
+                           << "): none pending in" << dir.path();
+    }
+}
+#endif  // DECENZA_SANITIZERS_PRESENT
 
 int main(int argc, char *argv[])
 {
@@ -658,6 +821,78 @@ int main(int argc, char *argv[])
 #endif
              << "built" << __DATE__ << __TIME__
              << "at" << QDateTime::currentDateTime().toString(Qt::ISODate);
+
+    // Say which sanitizers are compiled in. A sanitizer that is silently not
+    // applied produces exactly the same clean run as code with no defects, so
+    // "is it actually on?" must be answerable without running otool over the
+    // binary. It is also the first thing worth knowing when triaging a report
+    // in a log — these logs are read by users' assistants over MCP, not only
+    // by whoever built the binary.
+    {
+        QStringList activeSanitizers;
+        // CMake-defined first — see the note on DECENZA_SANITIZERS_PRESENT above
+        // for why compiler macros alone cannot answer this on GCC + UBSan.
+#if defined(DECENZA_ASAN_ACTIVE)
+        activeSanitizers << QStringLiteral("ASan");
+#endif
+#if defined(DECENZA_UBSAN_ACTIVE)
+        activeSanitizers << QStringLiteral("UBSan");
+#endif
+#if defined(__has_feature)
+#  if __has_feature(address_sanitizer)
+        if (!activeSanitizers.contains(QStringLiteral("ASan")))
+            activeSanitizers << QStringLiteral("ASan");
+#  endif
+#  if __has_feature(undefined_behavior_sanitizer)
+        if (!activeSanitizers.contains(QStringLiteral("UBSan")))
+            activeSanitizers << QStringLiteral("UBSan");
+#  endif
+#  if __has_feature(thread_sanitizer)
+        activeSanitizers << QStringLiteral("TSan");
+#  endif
+#endif
+        // GCC spells these as predefined macros rather than __has_feature.
+#if defined(__SANITIZE_ADDRESS__)
+        if (!activeSanitizers.contains(QStringLiteral("ASan")))
+            activeSanitizers << QStringLiteral("ASan");
+#endif
+#if defined(__SANITIZE_THREAD__)
+        if (!activeSanitizers.contains(QStringLiteral("TSan")))
+            activeSanitizers << QStringLiteral("TSan");
+#endif
+        if (activeSanitizers.isEmpty())
+            qDebug() << "Sanitizers: none (uninstrumented build)";
+        else
+            qDebug().noquote() << "Sanitizers active:" << activeSanitizers.join(QStringLiteral(", "))
+                               << "- a clean run means something in this build";
+    }
+
+    // Surface any report the sanitizer runtimes wrote during a PREVIOUS run.
+    //
+    // ASan aborts the process, so the run that produced a report cannot report
+    // it — the evidence only exists as a file, and until something reads that
+    // file the user's account of the incident is "it closed". Folding it into
+    // the app's own log puts it where the debug log already goes, which is what
+    // makes it reachable over MCP rather than only to whoever had a terminal
+    // open at the time.
+    //
+    // Reports are renamed to .reported once logged, so a finding is announced
+    // on the next launch and not on every launch forever.
+#ifdef DECENZA_SANITIZERS_PRESENT
+    announceSanitizerReports(QStringLiteral("previous run"));
+
+    // UBSan does NOT abort (it recovers, by design, so a developer running the
+    // app is told about undefined behaviour rather than having it killed
+    // mid-session). That means a finding produced during THIS run would
+    // otherwise sit in its file until the next launch. Scanning again on the
+    // way out puts it in the same session's log, where it belongs.
+    //
+    // ASan needs no equivalent: it aborts, so aboutToQuit never runs and the
+    // next launch is the only chance to announce it.
+    QObject::connect(&app, &QCoreApplication::aboutToQuit, &app, []() {
+        announceSanitizerReports(QStringLiteral("this run"));
+    });
+#endif
     qDebug() << "Platform:" << QSysInfo::prettyProductName().simplified()
              << "arch:" << QSysInfo::currentCpuArchitecture()
              << "kernel:" << QSysInfo::kernelType() << QSysInfo::kernelVersion();
@@ -2573,9 +2808,21 @@ int main(int argc, char *argv[])
             qDebug() << "Refractometer reconnect: already connected, stopping retries";
             return;
         }
-        qDebug().noquote() << QString("[R2-diag] reconnect tick attempt=%1 isRefractometerConnected=%2 — will scan")
-            .arg(refractometerReconnectAttempt + 1)
-            .arg(bleManager.isRefractometerConnected() ? QStringLiteral("true") : QStringLiteral("false"));
+        // BLE off (simulator mode) means tryDirectConnectToRefractometer below
+        // returns without scanning, so ticking is pure noise: it announced an
+        // attempt, wrote a user-visible "R2 auto-reconnect attempt N" line, and
+        // then did nothing — once a minute, forever. Stop instead, and let the
+        // disabledChanged handler re-arm when BLE comes back. Same shape as the
+        // two guards above, which also stop rather than reschedule.
+        if (bleManager.isDisabled()) {
+            qDebug() << "Refractometer reconnect: BLE disabled (simulator mode), "
+                        "pausing retries until BLE is re-enabled";
+            return;
+        }
+        // Past every guard, so this really does scan. It previously said
+        // "— will scan" before the disabled check existed, and then no-op'd.
+        qDebug().noquote() << QString("[R2-diag] reconnect tick attempt=%1 — scanning")
+            .arg(refractometerReconnectAttempt + 1);
         qDebug() << "Refractometer reconnect: attempt" << (refractometerReconnectAttempt + 1);
         // Bounded ramp only in the user-visible log (the 60s tail is endless).
         if (refractometerReconnectAttempt < static_cast<int>(reconnectDelays.size())) {
@@ -2616,6 +2863,25 @@ int main(int argc, char *argv[])
         }
     });
 
+    // Re-arm the R2 reconnect when BLE comes back, because the tick above stops
+    // (rather than reschedules) while BLE is disabled. Without this, turning
+    // simulator mode off would leave a saved R2 unreachable until the next app
+    // start — the timer having quietly retired the last time it fired.
+    QObject::connect(&bleManager, &BLEManager::disabledChanged,
+                     [&bleManager, &settings, &refractometerReconnectTimer,
+                      &refractometerReconnectAttempt, &reconnectDelays]() {
+        if (bleManager.isDisabled())
+            return;
+        if (settings.savedRefractometerAddress().isEmpty()
+            || bleManager.isRefractometerConnected()
+            || refractometerReconnectTimer.isActive())
+            return;
+        refractometerReconnectAttempt = 0;
+        refractometerReconnectTimer.start(reconnectDelays[0]);
+        qDebug() << "Refractometer reconnect: BLE re-enabled, resuming retries in"
+                 << reconnectDelays[0] << "ms";
+    });
+
     // Auto-reconnect refractometer on startup. tryDirectConnect kicks one
     // scan; also arm the persistent reconnect timer so an R2 that is powered
     // off at startup (and therefore never produces a connect→disconnect
@@ -2634,7 +2900,7 @@ int main(int argc, char *argv[])
     // When USB scale discovered: wire it as the active scale (same pattern as BLE scale)
     QObject::connect(&usbScaleManager, &UsbScaleManager::scaleDiscovered,
                      [&physicalScale, &flowScale, &machineState, &mainController, &engine,
-                      &bleManager, &timingController, &weightProcessor, &usbScaleManager, &settings](UsbDecentScale* usbScale) {
+                      &bleManager, &timingController, &weightProcessor, &settings](UsbDecentScale* usbScale) {
         // Don't connect if we already have a connected BLE scale
         if (physicalScale && physicalScale->isConnected()) {
             qDebug() << "[USB Scale] BLE scale already connected, ignoring USB scale";
@@ -3539,7 +3805,7 @@ int main(int argc, char *argv[])
                      [&physicalScale, &machineState, &settings, &de1EverAwake,
                       &wasInSleep, &scaleLcdRestorePending,
                       &scaleAutoReconnectSuppressed, &scaleReconnectTimer,
-                      &scaleReconnectAttempt, &reconnectDelays]() {
+                      &scaleReconnectAttempt]() {
         auto phase = machineState.phase();
         if (phase == MachineState::Phase::Disconnected) {
             de1EverAwake = false;

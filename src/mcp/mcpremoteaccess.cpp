@@ -540,7 +540,7 @@ void McpRemoteAccess::processBuffer(QTcpSocket* socket)
                                                    static_cast<int>(pending.contentLength));
 
         // Parse the request line (first line of the header block).
-        const int lineEnd = headerBlock.indexOf("\r\n");
+        const qsizetype lineEnd = headerBlock.indexOf("\r\n");
         const QByteArray requestLine = lineEnd >= 0 ? headerBlock.left(lineEnd) : headerBlock;
         const QList<QByteArray> parts = requestLine.split(' ');
         const QString method = parts.size() > 0 ? QString::fromLatin1(parts[0]) : QString();
@@ -575,7 +575,7 @@ void McpRemoteAccess::routeRequest(QTcpSocket* socket, const QString& method,
     // Strip any query string, then require an exact `/mcp/<token>` path with no
     // trailing segments.
     QString cleanPath = path;
-    const int q = cleanPath.indexOf('?');
+    const qsizetype q = cleanPath.indexOf('?');
     if (q >= 0)
         cleanPath = cleanPath.left(q);
 
