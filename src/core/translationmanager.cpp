@@ -1128,7 +1128,8 @@ void TranslationManager::onUploadUrlReceived(QNetworkReply* reply)
                      << "seconds... (attempt" << m_uploadRetryCount << "of" << MAX_RETRIES << ")";
 
             // Show retry status to user
-            m_retryStatus = QString("Server busy, retrying upload %1/%2...").arg(m_uploadRetryCount).arg(MAX_RETRIES);
+            m_retryStatus = QString("Upload rate limited, retrying %1/%2...")
+                                .arg(m_uploadRetryCount).arg(MAX_RETRIES);
             emit retryStatusChanged();
 
             // Schedule retry after delay
@@ -1154,7 +1155,12 @@ void TranslationManager::onUploadUrlReceived(QNetworkReply* reply)
         m_uploadRetryCount = 0;  // Reset for next upload
         m_retryStatus.clear();
         emit retryStatusChanged();
-        m_lastError = QString("Failed to get upload URL: %1").arg(reply->errorString());
+        const int statusCodeFinal = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        m_lastError = statusCodeFinal == 429
+            ? QString("Upload limit reached. The server allows a limited number of translation "
+                      "uploads per hour — try again in up to %1 minutes.")
+                  .arg(RATE_LIMIT_WINDOW_MINUTES)
+            : QString("Failed to get upload URL: %1").arg(reply->errorString());
         emit uploadingChanged();
         emit lastErrorChanged();
         emit translationSubmitted(false, m_lastError);

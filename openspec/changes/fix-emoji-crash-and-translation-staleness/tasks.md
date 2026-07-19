@@ -746,6 +746,28 @@ decide with, rather than guessing.
       is how this becomes permanent debt). Update redraw-icon-set 4.4, which currently says
       "Probably not statically".
 
+- [x] 6.12a VERIFIED after the scan fix: registry 3042 -> 3667 (+625 keys) and
+      `machineStatus.idle` is now present. The scan reads the QML for the first time.
+
+- [x] 7.10 "Server busy, retrying upload 2/100" — a real limit AND a real bug behind it.
+      The limit is genuine: the backend allows 10 translation upload-url requests per IP per
+      hour (`checkRateLimitCustom("TRANSLATION#"+ip, 10)`, 3600s window), and the batch had
+      already spent them on ar+fr+de.
+
+      The bug is the response to it. MAX_RETRIES was 100 at 10s = ~17 minutes of hammering a
+      server we do not own, against a window of a FULL HOUR — it could not succeed by
+      construction, because the window cannot reset inside the retry span. And 429 was the
+      ONLY status it retried, i.e. the one case where retrying is futile; genuine transient
+      failures got no retry at all.
+
+      Now 3 attempts (enough for a real burst), and on exhaustion the message names the cause:
+      "Upload limit reached. The server allows a limited number of translation uploads per hour
+      — try again in up to 60 minutes." Previously it said "Server busy", which points the user
+      at the wrong thing entirely.
+
+      Same principle as 7.8r: hammering someone else's server 100 times is the infrastructure
+      version of spending tokens people are not expecting.
+
 - [ ] 7.9 A faint cloud indicator in Shot History rows is very low-contrast in light mode. Could
       not locate its source by grepping ShotHistoryPage; may be deliberate de-emphasis for an
       "uploaded" state. Look at it directly before assuming either way.

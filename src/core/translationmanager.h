@@ -351,8 +351,22 @@ private:
     // Retry state (for 429 rate limiting)
     int m_uploadRetryCount = 0;
     int m_downloadRetryCount = 0;
-    static constexpr int MAX_RETRIES = 100;
+    // Retries exist for a burst that clears in seconds, not for an exhausted quota.
+    //
+    // This was 100 retries at 10s — about 17 minutes of hammering a server we do not own,
+    // against a limit whose window is a FULL HOUR (the backend allows 10 translation
+    // upload-url requests per IP per hour). It could not succeed by construction: the window
+    // cannot reset inside the retry span, so every one of those 100 requests was guaranteed to
+    // fail. Worse, 429 was the ONLY status it retried — the one case where retrying is futile.
+    //
+    // Three quick attempts covers a genuine burst; past that the honest answer is that the
+    // quota is spent and the user should come back later, which retryStatus now says.
+    static constexpr int MAX_RETRIES = 3;
     static constexpr int RETRY_DELAY_MS = 10000;  // 10 seconds
+
+    // The backend's window for translation endpoints, used only to tell the user roughly how
+    // long to wait. Mirrors RATE_LIMIT_WINDOW_SECONDS in the shotmap backend.
+    static constexpr int RATE_LIMIT_WINDOW_MINUTES = 60;
 
     // Helper to get all configured AI providers
     // Public + static so tst_aiproviders can assert these stay equal to each provider's first
