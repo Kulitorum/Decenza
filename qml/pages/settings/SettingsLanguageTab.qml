@@ -42,10 +42,20 @@ Item {
             color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
 
-            ColumnLayout {
+            // Scrollable: this column is taller than the card whenever the window is short, and
+            // without this everything below the fold is simply unreachable — there is no other
+            // route to it. The "Submit to Community" button sits at the very bottom and was
+            // invisible on a 2560x1080 display with the window part-height.
+            ScrollView {
+                id: languageColumnScroll
                 anchors.fill: parent
                 anchors.margins: Theme.scaled(15)
-                spacing: Theme.scaled(12)
+                clip: true
+                contentWidth: availableWidth   // vertical only; never scroll sideways
+
+                ColumnLayout {
+                    width: languageColumnScroll.availableWidth
+                    spacing: Theme.scaled(12)
 
                 Tr {
                     key: "language.languages"
@@ -342,7 +352,7 @@ Item {
                     onClicked: TranslationManager.submitTranslation()
                 }
 
-                Item { Layout.fillHeight: true }
+                }
             }
         }
 
@@ -354,10 +364,18 @@ Item {
             color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
 
-            ColumnLayout {
-                id: accessibilityColumn
+            // Same treatment as the left column: this list grows with the accessibility
+            // options and would clip the last few on a short window.
+            ScrollView {
+                id: accessibilityColumnScroll
                 anchors.fill: parent
                 anchors.margins: Theme.scaled(12)
+                clip: true
+                contentWidth: availableWidth
+
+            ColumnLayout {
+                id: accessibilityColumn
+                width: accessibilityColumnScroll.availableWidth
                 spacing: Theme.scaled(6)
 
                     Tr {
@@ -646,6 +664,7 @@ Item {
                         }
                     }
                 }
+            }
             }
         }
 
