@@ -879,6 +879,40 @@ private slots:
         QVERIFY2(captured.contains(QStringLiteral("second.key")), "must still find keys on one line");
     }
 
+    // "Use AI translation" cannot re-inject a placeholder-broken string.
+    //
+    // The AI cache is filled from two places: the apply path, which checks, and
+    // loadAiTranslations(), which reads a file written before the check existed. So every
+    // _ai.json on disk predates the rule and may still hold the strings it was added to stop.
+    // This button pushes a cached value straight into the main file, from where it uploads —
+    // the propagation loop the rule breaks, entered through a button instead of a download.
+    void copyingACachedAiTranslationAlsoObeysThePlaceholderRule()
+    {
+        Settings settings;
+        TranslationManager tm(&m_nam, &settings);
+        tm.setCurrentLanguage(QStringLiteral("de"));
+
+        const QString key = QStringLiteral("bg.thumb");
+        const QString english = QStringLiteral("Background image %1 of %2");
+        tm.registerString(key, english);
+
+        // A cache entry of the kind that shipped: placeholders gone.
+        tm.m_aiTranslations[english] = QStringLiteral("Hintergrundbild");
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("Refusing to copy AI translation")));
+        tm.copyAiToFinal(english);
+
+        QVERIFY2(!tm.hasTranslation(key),
+                 "a cached AI translation missing its placeholders must not be copied into the "
+                 "main file, where it would then be uploaded");
+
+        // A well-formed cached value still copies.
+        tm.m_aiTranslations[english] = QStringLiteral("Hintergrundbild %1 von %2");
+        tm.copyAiToFinal(english);
+        QCOMPARE(tm.translateString(key, english), QStringLiteral("Hintergrundbild %1 von %2"));
+    }
+
 };
 
 QTEST_MAIN(TestTranslationSourceDrift)

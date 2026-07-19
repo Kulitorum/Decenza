@@ -946,9 +946,27 @@ bool TranslationManager::mergeDownloadedLanguageFile(const QString& langCode, co
         merged = localDoc.object().value(QStringLiteral("translations")).toObject();
     }
 
+    // Same placeholder rule as mergeLanguageUpdate. This branch is narrow — both Update buttons
+    // set currentLanguage first, so it is reached only when the language changes while a
+    // download is in flight — but the check costs nothing and a sibling path enforcing a rule
+    // its twin does not is exactly how the seven broken strings survived in the first place.
     const QJsonObject incoming = root["translations"].toObject();
-    for (auto it = incoming.constBegin(); it != incoming.constEnd(); ++it)
+    int skippedBadPlaceholders = 0;
+    for (auto it = incoming.constBegin(); it != incoming.constEnd(); ++it) {
+        const QString sourceEnglish = m_stringRegistry.value(it.key());
+        if (!sourceEnglish.isEmpty()
+            && placeholderSet(it.value().toString()) != placeholderSet(sourceEnglish)) {
+            qWarning().noquote() << "Skipping community translation for" << it.key()
+                                 << "- placeholders do not match. source=" << sourceEnglish
+                                 << "incoming=" << it.value().toString();
+            skippedBadPlaceholders++;
+            continue;
+        }
         merged[it.key()] = it.value();
+    }
+    if (skippedBadPlaceholders > 0)
+        qWarning() << "Language file merge for" << langCode << "skipped"
+                   << skippedBadPlaceholders << "string(s) with broken placeholders";
 
     QJsonObject out = root;
     out["translations"] = merged;
@@ -2453,18 +2471,31 @@ void TranslationManager::onAutoTranslateBatchReply(QNetworkReply* reply)
             // so ten good batches followed by one transport error left the user billed for
             // eleven and holding none. Only the completion path saved, and the two exits
             // disagreeing about that is the bug.
+            // Honour the verdict here too. Writing this block while fixing the identical bug on
+            // the completion path ten lines below, and still calling saveTranslations() bare, is
+            // how the message below came to promise "and saved" for work that may never have
+            // reached disk. The two exits disagreeing about the save is the bug this block was
+            // added to fix; it then disagreed in the other direction.
+            bool drainSaved = true;
             if (m_autoTranslateProgress > 0) {
                 qDebug() << "Persisting" << m_autoTranslateProgress << "strings applied before the stop";
-                saveTranslations();
-                saveAiTranslations();
+                drainSaved = saveTranslations();
+                if (drainSaved)
+                    saveAiTranslations();
+                else
+                    m_autoTranslateFatal = true;   // a local failure, same as the completion path
                 recalculateUntranslatedCount();
                 m_translationVersion++;
                 emit translationsChanged();
             }
 
             // A user-initiated cancel sets no error, which left this emitting an empty or, worse,
-            // a stale unrelated message.
-            if (m_lastError.isEmpty()) {
+            // a stale unrelated message. Say which of the two actually happened.
+            if (!drainSaved) {
+                // saveTranslations() has already set m_lastError explaining why.
+                qWarning().noquote() << "AI translation stopped and could NOT persist"
+                                     << m_autoTranslateProgress << "applied strings:" << m_lastError;
+            } else if (m_lastError.isEmpty()) {
                 m_lastError = tr("Translation stopped. %1 strings were translated and saved.")
                                   .arg(m_autoTranslateProgress);
                 emit lastErrorChanged();
@@ -2717,6 +2748,25 @@ void TranslationManager::copyAiToFinal(const QString& fallback)
     if (aiTranslation.isEmpty()) return;
 
     QStringList keys = getKeysForFallback(fallback);
+    // The cached value must satisfy the placeholder rule too.
+    //
+    // m_aiTranslations is filled from two places: parseAutoTranslateResponse, which now checks,
+    // and loadAiTranslations(), which reads a file written before the check existed. So every
+    // _ai.json on disk today may still hold the placeholder-losing strings the rule was added to
+    // stop — and this button pushes them straight into the main file, from where they upload.
+    // That is the propagation loop the check exists to break, entered through a button rather
+    // than a download.
+    const QString sourceEnglish = m_stringRegistry.value(keys.isEmpty() ? QString() : keys.first());
+    if (!sourceEnglish.isEmpty()
+        && placeholderSet(aiTranslation) != placeholderSet(sourceEnglish)) {
+        qWarning().noquote() << "Refusing to copy AI translation for" << fallback
+                             << "- placeholders do not match. source=" << sourceEnglish
+                             << "ai=" << aiTranslation;
+        m_lastError = tr("That AI translation is missing a value placeholder, so it was not used.");
+        emit lastErrorChanged();
+        return;
+    }
+
     // Snapshot for rollback: the edit paths were hardened to never display a change that was
     // not persisted, and this button — "use the AI translation" — is on the same page and just
     // as reachable. It was skipped in that pass.
@@ -2749,6 +2799,10 @@ void TranslationManager::copyAiToFinal(const QString& fallback)
 
 void TranslationManager::clearAiTranslation(const QString& fallback)
 {
+    // NOTE: saveAiTranslations() below is checked. setGroupTranslation() calls this on its
+    // SUCCESS path, so a silently failed write leaves the main file saying "not AI generated"
+    // while _ai.json still holds the old value — the two files disagree and nothing says so.
+
     if (!m_aiTranslations.contains(fallback)) return;
 
     m_aiTranslations.remove(fallback);
@@ -2759,7 +2813,9 @@ void TranslationManager::clearAiTranslation(const QString& fallback)
         m_aiGenerated.remove(key);
     }
 
-    saveAiTranslations();
+    if (!saveAiTranslations())
+        qWarning() << "AI translation cleared in memory but the AI file was NOT saved for"
+                   << fallback << "- it will reappear on restart";
     m_translationVersion++;
     emit translationsChanged();
 }
