@@ -51,7 +51,8 @@ public class MachineStatusWidgetProvider extends AppWidgetProvider {
             Map.entry("Flushing", "Flushing"),
             Map.entry("Refill", "Refill"),
             Map.entry("Descaling", "Descaling"),
-            Map.entry("Cleaning", "Cleaning"));
+            Map.entry("Cleaning", "Cleaning"),
+            Map.entry("Transport", "Transport"));
 
     @Override
     public void onUpdate(Context context, AppWidgetManager mgr, int[] ids) {

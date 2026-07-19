@@ -31,6 +31,14 @@ Page {
         if (isPurging) wasPurging = true
     }
 
+    // If the page is created while a drain is already running (auto-nav on the
+    // Transport phase, or reopened mid-drain), onIsPurgingChanged won't fire for
+    // the initial binding value, so latch it here too — otherwise the end-of-
+    // drain handler would early-return on !wasPurging and skip the confirmation.
+    Component.onCompleted: {
+        if (isPurging) wasPurging = true
+    }
+
     // When the drain ends, decide what to show. We only reach here after the
     // machine actually entered the Transport phase (wasPurging), so a request
     // the firmware refused outright never produces a false "complete".
@@ -39,18 +47,28 @@ Page {
         function onPhaseChanged() {
             if (!wasPurging || isPurging || !transportPage.visible)
                 return
+            // Only a settled landing means the drain actually ran to a stop:
+            // Idle/Ready normally, or Heating if the machine briefly reheats
+            // afterward. A lost connection (updatePhase() forces Disconnected on
+            // a BLE drop) or Sleep is NOT completion — the steam/espresso paths
+            // in machinestate.cpp warn that a dropped link must not be treated
+            // as a completion event. Whitelisting avoids that trap.
+            var phase = MachineState.phase
+            if (phase !== MachineStateType.Phase.Idle &&
+                phase !== MachineStateType.Phase.Ready &&
+                phase !== MachineStateType.Phase.Heating)
+                return
             wasPurging = false
             if (userStopped) {
-                // User aborted the drain — the machine may still hold water, so
-                // do NOT claim it is empty. Return to the prepare view.
+                // User aborted via the in-app STOP — return to the prepare view.
                 userStopped = false
                 showComplete = false
                 return
             }
-            // The drain ended on its own. The terminal phase varies (the machine
-            // may briefly reheat, mapping to Heating rather than Idle/Ready), so
-            // treat any non-Transport landing as completion rather than
-            // whitelisting two phases.
+            // The drain left the Transport phase for a settled state. We cannot
+            // positively confirm the tank is empty — a physical GHC stop lands
+            // here too, indistinguishable from a natural end — so the completion
+            // view gives conditional guidance rather than asserting emptiness.
             showComplete = true
         }
     }
@@ -197,7 +215,7 @@ Page {
 
                             Tr {
                                 key: "transport.complete.title"
-                                fallback: "Machine is empty"
+                                fallback: "Draining finished"
                                 font: Theme.titleFont
                                 color: Theme.primaryColor
                             }
@@ -213,7 +231,7 @@ Page {
                         Tr {
                             Layout.fillWidth: true
                             key: "transport.complete.desc"
-                            fallback: "You can now power off the machine. It is ready to be stored or transported."
+                            fallback: "If the machine ran until no more water came out, it is empty and ready to power off for storage or transport. If it was stopped early, it may still hold water — run Transport Mode again to finish draining."
                             font: Theme.bodyFont
                             color: Theme.textSecondaryColor
                             wrapMode: Text.WordWrap

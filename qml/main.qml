@@ -3237,7 +3237,7 @@ ApplicationWindow {
             if (phase === MachineStateType.Phase.Disconnected) {
                 root.startupGracePeriod = true
                 // If we're on an operation page, navigate to idle (#575)
-                if (currentPage === "espressoPage" || currentPage === "steamPage" || currentPage === "hotWaterPage" || currentPage === "flushPage" || currentPage === "descalingPage") {
+                if (currentPage === "espressoPage" || currentPage === "steamPage" || currentPage === "hotWaterPage" || currentPage === "flushPage" || currentPage === "descalingPage" || currentPage === "transportPage") {
                     console.log("Disconnected while on operation page (" + currentPage + ") - navigating to idle")
                     if (!pageStack.busy) {
                         pageStack.replace(null, idlePage)
