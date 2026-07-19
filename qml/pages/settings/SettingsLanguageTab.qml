@@ -233,7 +233,17 @@ Item {
                             Layout.fillWidth: true
 
                             Text {
-                                text: TranslationManager.getLanguageDisplayName(TranslationManager.currentLanguage)
+                                // The language's NATIVE name — this card sits inside that
+                                // language's own UI, so "العربية" belongs here and "Arabic" does
+                                // not. The list above still shows "English (Native)" for
+                                // languages you are choosing between; this is the one you are in.
+                                text: {
+                                    var code = TranslationManager.currentLanguage
+                                    var nativeName = TranslationManager.getLanguageNativeName(code)
+                                    return nativeName.length > 0
+                                           ? nativeName
+                                           : TranslationManager.getLanguageDisplayName(code)
+                                }
                                 font.family: Theme.bodyFont.family
                                 font.pixelSize: Theme.scaled(13)
                                 font.bold: true
@@ -264,7 +274,10 @@ Item {
                                 var total = TranslationManager.totalStringCount
                                 var translated = total - TranslationManager.untranslatedCount
                                 var percent = Math.round((translated / Math.max(1, total)) * 100)
-                                return "Translation progress: " + percent + " percent, " + translated + " of " + total + " strings"
+                                return TranslationManager.translate(
+                                    "language.accessible.progress",
+                                    "Translation progress: %1 percent, %2 of %3 strings")
+                                    .arg(percent).arg(translated).arg(total)
                             }
 
                             background: Rectangle {
@@ -292,8 +305,12 @@ Item {
                                 // directly beneath the "2974 / 2977" that disproved it, while the
                                 // language list showed 99% because getTranslationPercent() uses
                                 // integer division. Same number, two roundings, one of them lying.
-                                if (translated >= total && total > 0) return "Translation complete!"
-                                return TranslationManager.untranslatedCount + " strings need translation"
+                                if (translated >= total && total > 0)
+                                    return TranslationManager.translate(
+                                        "language.progress.complete", "Translation complete!")
+                                return TranslationManager.translate(
+                                    "language.progress.needed", "%1 strings need translation")
+                                    .arg(TranslationManager.untranslatedCount)
                             }
                             font: Theme.labelFont
                             color: Theme.textSecondaryColor
