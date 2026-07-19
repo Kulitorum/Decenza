@@ -784,6 +784,9 @@ void DE1Device::requestState(DE1::State state) {
         case DE1::State::Clean:
             m_simulator->startClean();
             break;
+        case DE1::State::AirPurge:
+            m_simulator->startAirPurge();
+            break;
         case DE1::State::SkipToNext:
             m_simulator->skipFrame();
             break;
@@ -851,6 +854,10 @@ void DE1Device::startDescale() {
 
 void DE1Device::startClean() {
     requestState(DE1::State::Clean);
+}
+
+void DE1Device::startAirPurge() {
+    requestState(DE1::State::AirPurge);
 }
 
 void DE1Device::stopOperation() {

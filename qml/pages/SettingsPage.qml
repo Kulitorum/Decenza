@@ -253,6 +253,15 @@ Page {
                             saveThemeDialog.open()
                         })
                     }
+                    // Machine tab's Maintenance card forwards to global navigation
+                    if (tabId === "machine" && item) {
+                        item.openDescaling.connect(function() {
+                            root.goToDescaling()
+                        })
+                        item.openTransport.connect(function() {
+                            root.goToTransport()
+                        })
+                    }
                 }
             }
         }

@@ -428,7 +428,7 @@
     {
       "id": "cleaning-and-maintenance",
       "displayName": "Cleaning and Maintenance",
-      "alsoMatches": ["Cleaning/Forward flush", "Cleaning/Forward Flush x5", "Cleaning/Weber Spring Clean", "Cleaning/Descale Wizard", "Steam only", "Test/Flow calibration", "Test/pressure calibration", "Test/temperature calibration", "Test/temperature accuracy", "Test/for a small leak", "Test/low pressure leak", "Test/leakage stress test", "Test/profile_editor_demo"],
+      "alsoMatches": ["Cleaning/Forward flush", "Cleaning/Forward Flush x5", "Cleaning/Weber Spring Clean", "Steam only", "Test/Flow calibration", "Test/pressure calibration", "Test/temperature calibration", "Test/temperature accuracy", "Test/for a small leak", "Test/low pressure leak", "Test/leakage stress test", "Test/profile_editor_demo"],
       "analysisFlags": ["flow_trend_ok"],
       "family": "maintenance",
       "prose": "These profiles perform machine cleaning, descaling, steam sterilization, and diagnostic tests. They are not beverage extractions. DO NOT analyze these profiles for grind advice, extraction quality, or beverage technique — they are maintenance or calibration routines."

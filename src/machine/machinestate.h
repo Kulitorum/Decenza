@@ -44,7 +44,8 @@ public:
         Flushing,
         Refill,
         Descaling,           // Machine is running descale routine
-        Cleaning             // Machine is running clean routine
+        Cleaning,            // Machine is running clean routine
+        Transport            // Machine is draining water (air purge) for transport
     };
     Q_ENUM(Phase)
 

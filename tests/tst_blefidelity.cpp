@@ -34,7 +34,7 @@ private:
     }
 
     // Populate test rows with profiles that have encodable frames.
-    // Excludes wizard/utility profiles (e.g. descale_wizard) that have no steps.
+    // Excludes any utility profile that parses to no steps.
     static void addProfileRows() {
         QTest::addColumn<QString>("filePath");
         QTest::addColumn<QString>("fileName");

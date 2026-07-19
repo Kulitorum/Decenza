@@ -311,6 +311,10 @@ void MachineState::updatePhase() {
             m_phase = Phase::Cleaning;
             break;
 
+        case DE1::State::AirPurge:
+            m_phase = Phase::Transport;
+            break;
+
         default:
             m_phase = Phase::Idle;
             break;
