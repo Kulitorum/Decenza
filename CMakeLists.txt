@@ -226,18 +226,60 @@ endif()
 
 # Undefined Behavior Sanitizer - opt-in only (-DENABLE_UBSAN=ON), never
 # auto-enabled, so a routine local build carries no instrumentation. The
-# pre-merge CI job turns it on to run the test suite instrumented. Run with
-# UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 so a finding fails the run
-# instead of printing into a passing one (UBSan's default is report-and-continue).
+# pre-merge CI job turns it on to run the test suite instrumented.
+#
+# -fno-sanitize-recover=all is what makes a finding FAIL rather than warn.
+# UBSan's default is report-and-continue: a run can print undefined behaviour
+# and still exit 0 (verified — a deliberate overflow exits 0 by default and
+# 134 with this on). UBSAN_OPTIONS=halt_on_error=1 does the same job, but it
+# lives in the CI workflow where it can be dropped by an edit that looks
+# unrelated, and it is absent from a developer's local run entirely. Baking it
+# into the build makes "instrumented" and "fails on a finding" the same switch.
+#
+# Beyond the default `undefined` group:
+#   local-bounds        - array index out of bounds on locals; real UB that
+#                         plain -fsanitize=undefined does not include.
+#   float-divide-by-zero- defined as inf by IEEE 754, but in flow/pressure/ratio
+#                         arithmetic it is a defect every time.
+# Deliberately NOT enabled: the `integer` group (unsigned-integer-overflow,
+# implicit conversions). That is legal, well-defined C++ that CRC and hashing
+# code wraps on purpose, so it reports intent as if it were a defect. A
+# detector that cries wolf gets switched off, which costs more than it finds.
 if(ENABLE_UBSAN)
     if(MSVC)
         message(FATAL_ERROR "ENABLE_UBSAN is not supported with MSVC (it has no UBSan). Use clang or GCC.")
     else()
-        message(STATUS ">>> UBSan ENABLED <<<")
-        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=undefined -fno-omit-frame-pointer")
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=undefined -fno-omit-frame-pointer")
+        message(STATUS ">>> UBSan ENABLED (undefined + local-bounds + float-divide-by-zero, no-recover) <<<")
+        set(_ubsan_checks "-fsanitize=undefined,local-bounds,float-divide-by-zero -fno-sanitize-recover=all -fno-omit-frame-pointer")
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${_ubsan_checks}")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${_ubsan_checks}")
         set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=undefined")
         set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fsanitize=undefined")
+    endif()
+endif()
+
+# Hardened standard library + live Qt assertions, tied to whichever sanitizer
+# build is running. These catch a defect class BOTH sanitizers miss: an
+# out-of-bounds std::vector/QVector operator[] that lands inside the
+# allocation. ASan sees nothing (the memory is validly owned), UBSan sees
+# nothing (no UB at the language level), and the read silently returns garbage
+# that propagates into a shot. Verified: `v[argc+10]` on a 3-element vector
+# prints garbage and exits 0 unhardened, and traps with this on.
+#
+# QT_FORCE_ASSERTS keeps Q_ASSERT live in a Release-configured sanitizer build.
+# Without it every Q_ASSERT in Qt's own code and in ours compiles to nothing,
+# so the invariants they document go unchecked in exactly the run built to
+# check invariants.
+if(ENABLE_ASAN OR ENABLE_UBSAN)
+    add_compile_definitions(QT_FORCE_ASSERTS)
+    if(NOT MSVC)
+        # libc++ (Apple/clang) and libstdc++ (GCC) spell this differently and
+        # ignore each other's macro, so both are set rather than branched on
+        # the compiler — the wrong one is inert, not an error.
+        add_compile_definitions(
+            _LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE
+            _GLIBCXX_ASSERTIONS
+        )
     endif()
 endif()
 

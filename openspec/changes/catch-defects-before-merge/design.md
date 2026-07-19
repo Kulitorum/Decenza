@@ -93,6 +93,22 @@ The one thing the exemption list does not cover is a *new* warning in a class th
 
 `tst_dbmigration` and `tst_coffeebags` run ~350 s each and dominate the ~6 minute suite; `tst_settling` and `tst_decentscalewifi` are documented as timing-sensitive and already need `--repeat until-pass:3`. Under UBSan all of this gets worse. The implementation must measure the instrumented runtime first and, if it blows the budget, choose deliberately between a longer job, a subset for the sanitized run, or moving the slow pair to nightly — recording which, rather than letting the job quietly become a ten-minute wait.
 
+### A clean first run is a reason to strengthen the detectors, not to relax
+
+The first instrumented run found nothing. Two readings are available and they are not distinguishable from the result alone: the codebase executes no undefined behaviour under test, or the sanitizer is not actually doing anything. That ambiguity is permanent — every future green run will have it too — and it is the same silent-failure shape as a writer that cannot report failure and a caller that announces success, which is the defect class this whole effort started from.
+
+So the response to a clean run is four changes that either close the ambiguity or widen the net:
+
+**A canary that proves the sanitizer is armed.** `tests/sanitizer_canary.cpp` commits deliberate signed overflow; `run_sanitizer_canary.cmake` fails the suite unless the process both dies *and* prints a diagnostic. Checking the exit code alone would not do — a canary that failed to link also exits non-zero, and would be read as proof the sanitizer works. Registered only under `ENABLE_UBSAN`, so ordinary builds never see it.
+
+**Failing by construction rather than by environment.** `-fno-sanitize-recover=all` moves "a finding fails the run" out of the workflow's `UBSAN_OPTIONS` and into the build itself. The env var was doing real work — measured, a deliberate overflow exits 0 without it and 134 with it — but it lives in a YAML file where an unrelated edit can drop it, and it is absent from a developer's local run entirely, so the same code could report UB and exit zero on a laptop while failing in CI. The variable stays as belt-and-braces; it is no longer the mechanism.
+
+**Two more check groups, and a deliberate refusal of a third.** `local-bounds` and `float-divide-by-zero` are added: both are real defects in this codebase's terms, the latter because dividing by zero in flow, pressure or ratio arithmetic is a bug every time even though IEEE 754 defines it. The `integer` group — unsigned overflow, implicit conversions — is refused. It is legal, well-defined C++ that CRC and hashing code wraps on purpose, so enabling it would report intent as though it were a defect, and a detector that cries wolf gets switched off. That costs more than it finds.
+
+**The gap both sanitizers share.** An out-of-bounds `std::vector`/`QVector` `operator[]` whose index still lands inside the allocation is invisible to *both*: ASan sees validly-owned memory, UBSan sees no language-level UB. The read returns garbage that propagates into a shot. Hardened standard-library mode (`_LIBCPP_HARDENING_MODE`, `_GLIBCXX_ASSERTIONS`) traps it — verified against a plain build, which prints garbage and exits 0. `QT_FORCE_ASSERTS` closes the companion gap: the instrumented job configures a Release-type build, where every `Q_ASSERT` in Qt's code and ours compiles to nothing, so the invariants they document would go unchecked in exactly the run built to check invariants.
+
+The honest limit on all of this: sanitizers only see code the tests execute. Strengthening the instrumentation raises the yield *per executed line*; it does nothing for the lines no test reaches, and test coverage here is unmeasured. ThreadSanitizer is the remaining untouched class — 31 files use threads and 25 do background-thread database work, which is exactly the shape that produces races — and no detector in this change covers it.
+
 ## Risks / Trade-offs
 
 - **Sanitizer slowdown makes the flaky tests flakier** → The two clock-cadence tests already flake under CPU contention. Measure instrumented runtime before enabling; keep `--repeat until-pass:3`; if a test becomes unreliable under instrumentation, exclude that specific test from the sanitized run with a comment naming it, rather than dropping the repeat guard or the sanitizer.

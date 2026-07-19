@@ -24,6 +24,18 @@
 - [x] 3.8 Make the ctest step surface whether a failure was an assertion or a sanitizer diagnostic in the job summary, so the two are distinguishable without reading the full log
 - [ ] 3.9 Land the workflow NON-BLOCKING (not a required check) and let it run against real pull requests first
 
+## 3b. Make the detectors actually detect
+
+Added after the first clean run. A gate that reports nothing is indistinguishable from a gate that is switched off, and plain `-fsanitize=undefined` on the executed subset of an 82-test suite is a narrower net than "we run sanitizers" suggests.
+
+- [x] 3b.1 Add a sanitizer canary (`tests/sanitizer_canary.cpp` + `run_sanitizer_canary.cmake`) that commits deliberate UB and fails the suite if the sanitizer does not trap it — checking BOTH non-zero exit and the presence of a diagnostic, since exit status alone passes for a canary that merely failed to link
+- [x] 3b.2 Compile with `-fno-sanitize-recover=all` so a finding fails by construction rather than depending on `UBSAN_OPTIONS` reaching the process; keep the env var as belt-and-braces
+- [x] 3b.3 Add `local-bounds` and `float-divide-by-zero`; deliberately exclude the `integer` group and record why (legal wrapping arithmetic in CRC/hashing would make it cry wolf)
+- [x] 3b.4 Enable hardened standard-library assertions and `QT_FORCE_ASSERTS` for sanitizer builds, closing the in-allocation out-of-bounds `operator[]` gap that both ASan and UBSan miss
+- [x] 3b.5 Run the suite under the strengthened configuration and fix or file whatever it surfaces
+- [ ] 3b.6 Evaluate ThreadSanitizer against the 31 files using threads and the 25 using background-thread DB access — the data-race class no other detector here covers
+- [x] 3b.7 Confirm the strengthened build's runtime still fits the budget
+
 ## 4. Promote to a gate
 
 - [ ] 4.1 Watch the job across several real pull requests; record runtime, flake rate, and any UBSan findings

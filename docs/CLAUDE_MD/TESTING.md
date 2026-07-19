@@ -52,6 +52,19 @@ UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
 
 `ENABLE_UBSAN` is off by default and never auto-enabled, so routine builds are uninstrumented. It is not supported with MSVC (configure fails fast). ASan (`-DENABLE_ASAN=ON`, auto-on for non-Apple Debug builds) works the same way for memory errors; the two can be combined (`-DENABLE_ASAN=ON -DENABLE_UBSAN=ON`).
 
+**What the instrumented build turns on beyond plain UBSan**, and why each one is there:
+
+| Setting | Catches |
+|---|---|
+| `-fno-sanitize-recover=all` | Makes a finding *abort*. UBSan's default is report-and-continue, so without this a run prints undefined behaviour and still exits 0. Baked into the build so it does not depend on `UBSAN_OPTIONS` being set. |
+| `local-bounds`, `float-divide-by-zero` | Array overrun on locals; division by zero in flow/pressure/ratio maths (defined as inf by IEEE 754, but a bug every time here). |
+| `_LIBCPP_HARDENING_MODE` / `_GLIBCXX_ASSERTIONS` | Out-of-bounds `vector`/`QVector` `operator[]` **inside** the allocation — invisible to *both* sanitizers (ASan: memory is validly owned; UBSan: no language-level UB), and it silently returns garbage. |
+| `QT_FORCE_ASSERTS` | Keeps `Q_ASSERT` live. The sanitizer job is a Release-type build, where assertions would otherwise compile to nothing in the very run built to check invariants. |
+
+The `integer` group (unsigned overflow, implicit conversions) is deliberately **not** enabled: that is legal C++ which CRC and hashing code wraps on purpose, so it would report intent as a defect.
+
+**The `sanitizer_canary` test.** Registered only under `ENABLE_UBSAN`, it commits deliberate signed overflow and fails unless the sanitizer both kills the process *and* prints a diagnostic. It exists because a silently-unapplied sanitizer produces exactly the same green suite as a clean codebase — so without it, a gate that has rotted into a no-op is invisible by construction. If it fails, the instrumentation is not reaching the compile/link line; fix that before trusting any other green result.
+
 ### CI
 
 Every **pull request** builds Linux x64 and runs the full suite under UBSan via `pre-merge.yml` (see `docs/CLAUDE_MD/CI_CD.md` → "Pre-merge verification"). On **tag push**, the Linux release workflow (`linux-release.yml`) builds and runs all tests (uninstrumented) before packaging the AppImage. Other platform workflows (Windows, macOS, Android, iOS) do not currently run the test suite.

@@ -960,3 +960,18 @@ add_test(NAME failonwarning_lint
     COMMAND ${CMAKE_COMMAND}
         -DLINT_DIR=${CMAKE_CURRENT_SOURCE_DIR}
         -P ${CMAKE_CURRENT_SOURCE_DIR}/lint_failonwarning.cmake)
+
+# --- sanitizer_canary: proof that the sanitizer is armed, not merely requested.
+# A silently-unapplied sanitizer yields the same green suite as a clean
+# codebase. This target commits deliberate signed overflow, so an instrumented
+# run must abort with a diagnostic; run_sanitizer_canary.cmake fails the test
+# if it does not. Registered only under ENABLE_UBSAN, so ordinary builds never
+# compile or run it. See the header comment in tests/sanitizer_canary.cpp.
+if(ENABLE_UBSAN)
+    add_executable(sanitizer_canary sanitizer_canary.cpp)
+    set_target_properties(sanitizer_canary PROPERTIES AUTOMOC OFF)
+    add_test(NAME sanitizer_canary
+        COMMAND ${CMAKE_COMMAND}
+            -DCANARY=$<TARGET_FILE:sanitizer_canary>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/run_sanitizer_canary.cmake)
+endif()

@@ -139,7 +139,18 @@ jobs:
           [ -f "$LOG" ] || { echo "No ctest log — the failure happened before the test step (build or configure)." >> "$GITHUB_STEP_SUMMARY"; exit 0; }
           {
             echo "## Pre-merge failure triage"
-            if grep -q "SUMMARY: UndefinedBehaviorSanitizer" "$LOG"; then
+            # Checked first: if the canary failed, the sanitizer is not armed,
+            # and every OTHER result in this run is worth less than it looks —
+            # including the tests that passed.
+            if grep -qE "sanitizer_canary.*(Failed|\*\*\*)" "$LOG"; then
+              echo "**The sanitizer canary failed — instrumentation is not in effect.**"
+              echo "This is not a code defect. A deliberate signed overflow was not trapped,"
+              echo "so the rest of this run's green results are not evidence of anything."
+              echo "Check that the UBSan flags reached the compile and link lines."
+              echo '```'
+              grep -E -A6 "sanitizer_canary" "$LOG" | head -30
+              echo '```'
+            elif grep -q "SUMMARY: UndefinedBehaviorSanitizer" "$LOG"; then
               echo "**UBSan diagnostic(s) found** — undefined behaviour executed by the tests:"
               echo '```'
               grep -E "runtime error:|SUMMARY: UndefinedBehaviorSanitizer" "$LOG" | sort -u | head -40
