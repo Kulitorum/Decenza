@@ -400,7 +400,8 @@ ApplicationWindow {
                phase === MachineStateType.Phase.HotWater ||
                phase === MachineStateType.Phase.Flushing ||
                phase === MachineStateType.Phase.Descaling ||
-               phase === MachineStateType.Phase.Cleaning
+               phase === MachineStateType.Phase.Cleaning ||
+               phase === MachineStateType.Phase.Transport
     }
 
     // Sleep countdown timer - ticks every minute
@@ -1206,6 +1207,11 @@ ApplicationWindow {
         }
 
         Component {
+            id: transportPage
+            TransportPage {}
+        }
+
+        Component {
             id: visualizerBrowserPage
             VisualizerBrowserPage {}
         }
@@ -1283,6 +1289,7 @@ ApplicationWindow {
             "flowEditorPage": TranslationManager.translate("main.pageFlowEditor", "Flow profile editor"),
             "shotHistoryPage": TranslationManager.translate("main.pageShotHistory", "Shot history"),
             "descalingPage": TranslationManager.translate("main.pageDescalingScreen", "Descaling screen"),
+            "transportPage": TranslationManager.translate("main.pageTransportScreen", "Transport mode screen"),
             "visualizerBrowserPage": TranslationManager.translate("main.pageVisualizerBrowser", "Visualizer browser"),
             "profileImportPage": TranslationManager.translate("main.pageImportProfiles", "Import profiles"),
             "postShotReviewPage": TranslationManager.translate("main.pageShotReview", "Shot review"),
@@ -3230,7 +3237,7 @@ ApplicationWindow {
             if (phase === MachineStateType.Phase.Disconnected) {
                 root.startupGracePeriod = true
                 // If we're on an operation page, navigate to idle (#575)
-                if (currentPage === "espressoPage" || currentPage === "steamPage" || currentPage === "hotWaterPage" || currentPage === "flushPage" || currentPage === "descalingPage") {
+                if (currentPage === "espressoPage" || currentPage === "steamPage" || currentPage === "hotWaterPage" || currentPage === "flushPage" || currentPage === "descalingPage" || currentPage === "transportPage") {
                     console.log("Disconnected while on operation page (" + currentPage + ") - navigating to idle")
                     if (!pageStack.busy) {
                         pageStack.replace(null, idlePage)
@@ -3344,6 +3351,10 @@ ApplicationWindow {
             } else if (phase === MachineStateType.Phase.Descaling) {
                 if (currentPage !== "descalingPage" && !pageStack.busy) {
                     pageStack.replace(null, descalingPage)
+                }
+            } else if (phase === MachineStateType.Phase.Transport) {
+                if (currentPage !== "transportPage" && !pageStack.busy) {
+                    pageStack.replace(null, transportPage)
                 }
             } else if (phase === MachineStateType.Phase.Cleaning) {
                 // For now, cleaning uses the built-in machine routine
@@ -3506,6 +3517,11 @@ ApplicationWindow {
     function goToDescaling() {
         if (!startNavigation()) return
         pageStack.push(descalingPage)
+    }
+
+    function goToTransport() {
+        if (!startNavigation()) return
+        pageStack.push(transportPage)
     }
 
     function goToFlush() {
@@ -4287,6 +4303,7 @@ ApplicationWindow {
     Tr { id: trAnnounceFlushing; key: "main.accessibility.flushing"; fallback: "Flushing"; visible: false }
     Tr { id: trAnnounceDescaling; key: "main.accessibility.descaling"; fallback: "Descaling in progress"; visible: false }
     Tr { id: trAnnounceCleaning; key: "main.accessibility.cleaning"; fallback: "Cleaning in progress"; visible: false }
+    Tr { id: trAnnounceTransport; key: "main.accessibility.transport"; fallback: "Draining water for transport"; visible: false }
 
     Connections {
         target: MachineState
@@ -4338,6 +4355,9 @@ ApplicationWindow {
                     break
                 case MachineStateType.Phase.Cleaning:
                     announcement = trAnnounceCleaning.text
+                    break
+                case MachineStateType.Phase.Transport:
+                    announcement = trAnnounceTransport.text
                     break
             }
 

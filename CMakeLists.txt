@@ -1087,6 +1087,7 @@ set(QML_FILES
     qml/pages/FlowEditorPage.qml
     qml/pages/ProfileSelectorPage.qml
     qml/pages/DescalingPage.qml
+    qml/pages/TransportPage.qml
     qml/pages/ScreensaverPage.qml
     qml/pages/FlushPage.qml
     qml/pages/VisualizerBrowserPage.qml

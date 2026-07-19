@@ -98,6 +98,9 @@ private slots:
         QTest::newRow("Refill")
             << int(DE1::State::Refill) << int(DE1::SubState::Ready)
             << int(MachineState::Phase::Refill);
+        QTest::newRow("AirPurge")
+            << int(DE1::State::AirPurge) << int(DE1::SubState::Ready)
+            << int(MachineState::Phase::Transport);
     }
 
     void phaseMapping() {

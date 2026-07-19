@@ -1496,7 +1496,8 @@ int main(int argc, char *argv[])
             phase == Phase::Steaming ||
             phase == Phase::Flushing ||
             phase == Phase::Descaling ||
-            phase == Phase::Cleaning);
+            phase == Phase::Cleaning ||
+            phase == Phase::Transport);
 
         const bool exitingOp = s_inOperation && (
             phase == Phase::Idle ||

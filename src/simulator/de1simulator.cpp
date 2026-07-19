@@ -272,6 +272,15 @@ void DE1Simulator::startClean()
     setState(DE1::State::Clean, static_cast<DE1::SubState>(m_descaleStep));
 }
 
+void DE1Simulator::startAirPurge()
+{
+    if (m_state == DE1::State::Sleep) wakeUp();
+    qDebug() << "DE1Simulator: Starting air purge (transport mode)";
+    m_descaleStepStart = 0.0;  // reused as the air-purge start marker
+    startOperation(DE1::State::AirPurge);
+    setState(DE1::State::AirPurge, DE1::SubState::Ready);  // no dedicated air-purge substate
+}
+
 void DE1Simulator::stop()
 {
     qDebug() << "DE1Simulator: Stop requested";
@@ -395,6 +404,18 @@ void DE1Simulator::onSimulationTimerTick()
         // Simulate water flow through system
         m_flow = 3.0 + fractalNoise(elapsed * 0.8, 2) * 1.0;
         m_pressure = 1.5 + fractalNoise(elapsed * 1.2, 2) * 0.5;
+    } else if (m_state == DE1::State::AirPurge) {
+        // Transport mode: pump runs until the tank is dry, then the machine
+        // returns to Idle. Real hardware takes a while; the simulator uses a
+        // short fixed duration for testing (m_descaleStepStart is the start).
+        static constexpr double AIRPURGE_DURATION = 12.0;  // seconds
+        if (elapsed - m_descaleStepStart >= AIRPURGE_DURATION) {
+            qDebug() << "DE1Simulator: Air purge complete";
+            stopOperation();
+            return;
+        }
+        m_flow = 2.0 + fractalNoise(elapsed * 0.6, 2) * 1.0;
+        m_pressure = 0.5 + fractalNoise(elapsed * 1.0, 2) * 0.3;
     }
 
     // Send shot samples at 5Hz (every other tick at 10Hz)

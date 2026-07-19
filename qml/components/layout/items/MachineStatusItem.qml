@@ -42,6 +42,7 @@ Item {
             case MachineStateType.Phase.Refill:              return Theme.warningColor
             case MachineStateType.Phase.Descaling:           return Theme.accentColor
             case MachineStateType.Phase.Cleaning:            return Theme.accentColor
+            case MachineStateType.Phase.Transport:           return Theme.accentColor
             default:                                         return Theme.textSecondaryColor
         }
     }
@@ -63,6 +64,7 @@ Item {
             case MachineStateType.Phase.Refill:              return TranslationManager.translate("machineStatus.refill", "Refill")
             case MachineStateType.Phase.Descaling:           return TranslationManager.translate("machineStatus.descaling", "Descaling")
             case MachineStateType.Phase.Cleaning:            return TranslationManager.translate("machineStatus.cleaning", "Cleaning")
+            case MachineStateType.Phase.Transport:           return TranslationManager.translate("machineStatus.transport", "Transport")
             default:                                         return TranslationManager.translate("machineStatus.unknown", "Unknown")
         }
     }

@@ -248,7 +248,7 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
                 phase == Phase::Pouring || phase == Phase::Ending ||
                 phase == Phase::Steaming || phase == Phase::HotWater ||
                 phase == Phase::Flushing || phase == Phase::Descaling ||
-                phase == Phase::Cleaning;
+                phase == Phase::Cleaning || phase == Phase::Transport;
             if (!operationRunning) {
                 result["error"] = "No operation in progress";
                 return result;

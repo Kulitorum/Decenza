@@ -192,6 +192,7 @@ public slots:
     void startFlush();
     void startDescale();
     void startClean();
+    void startAirPurge();         // Transport mode: drains internal water via AirPurge state
     void stopOperation();         // Soft stop (for steam: stops flow, no purge)
     void stopOperationUrgent();   // Bypasses command queue for faster stop (SOW)
     void stopOperationUrgent(qint64 sawTriggerMs);  // Includes SAW trigger timestamp for latency tracing

@@ -9,6 +9,12 @@ KeyboardAwareContainer {
     textFields: [manualCityField]
     targetFlickable: contentFlickable
 
+    // Maintenance card actions. Tabs load through a Loader, which breaks `root`
+    // id resolution, so we emit signals that SettingsPage forwards to the global
+    // navigation functions (mirrors the themes tab's openSaveThemeDialog).
+    signal openDescaling()
+    signal openTransport()
+
     // Local properties
     property int postShotReviewTimeout: Settings.value("postShotReviewTimeout", 31)
     property bool configurePageScaleEnabled: Theme.configurePageScaleEnabled
@@ -518,6 +524,163 @@ KeyboardAwareContainer {
                                         }
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+
+                // Maintenance card
+                Rectangle {
+                    objectName: "maintenance"
+                    Layout.fillWidth: true
+                    implicitHeight: maintenanceContent.implicitHeight + Theme.scaled(30)
+                    color: Theme.cardBackgroundColor
+                    radius: Theme.cardRadius
+
+                    ColumnLayout {
+                        id: maintenanceContent
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.margins: Theme.scaled(15)
+                        spacing: Theme.scaled(10)
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(8)
+
+                            Image {
+                                source: Theme.emojiToImage("🧰")
+                                sourceSize.width: Theme.scaled(20)
+                                sourceSize.height: Theme.scaled(20)
+                                Accessible.ignored: true
+                            }
+
+                            Text {
+                                text: TranslationManager.translate("settings.maintenance.title", "Maintenance")
+                                color: Theme.textColor
+                                font.family: Theme.bodyFont.family
+                                font.pixelSize: Theme.scaled(16)
+                                font.bold: true
+                            }
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: TranslationManager.translate("settings.maintenance.description", "Keep your machine clean and ready for storage.")
+                            color: Theme.textSecondaryColor
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.scaled(12)
+                            wrapMode: Text.WordWrap
+                        }
+
+                        // Descaling Wizard row
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: Theme.scaled(58)
+                            radius: Theme.scaled(8)
+                            color: descaleRowMouse.isPressed ? Theme.backgroundColor : "transparent"
+                            border.color: Theme.borderColor
+                            border.width: 1
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: Theme.scaled(12)
+                                anchors.rightMargin: Theme.scaled(12)
+                                spacing: Theme.scaled(12)
+
+                                Image {
+                                    source: Theme.emojiToImage("🧽")
+                                    sourceSize.width: Theme.scaled(24)
+                                    sourceSize.height: Theme.scaled(24)
+                                    Accessible.ignored: true
+                                }
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: Theme.scaled(2)
+
+                                    Text {
+                                        text: TranslationManager.translate("settings.maintenance.descale.title", "Descaling Wizard")
+                                        color: Theme.textColor
+                                        font.family: Theme.bodyFont.family
+                                        font.pixelSize: Theme.scaled(14)
+                                        Accessible.ignored: true
+                                    }
+
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: TranslationManager.translate("settings.maintenance.descale.desc", "Remove scale buildup from the boiler")
+                                        color: Theme.textSecondaryColor
+                                        font.family: Theme.bodyFont.family
+                                        font.pixelSize: Theme.scaled(12)
+                                        wrapMode: Text.WordWrap
+                                        Accessible.ignored: true
+                                    }
+                                }
+                            }
+
+                            AccessibleMouseArea {
+                                id: descaleRowMouse
+                                anchors.fill: parent
+                                accessibleName: TranslationManager.translate("settings.maintenance.descale.accessible", "Open descaling wizard")
+                                accessibleItem: parent
+                                onAccessibleClicked: machineTab.openDescaling()
+                            }
+                        }
+
+                        // Transport Mode row
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: Theme.scaled(58)
+                            radius: Theme.scaled(8)
+                            color: transportRowMouse.isPressed ? Theme.backgroundColor : "transparent"
+                            border.color: Theme.borderColor
+                            border.width: 1
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: Theme.scaled(12)
+                                anchors.rightMargin: Theme.scaled(12)
+                                spacing: Theme.scaled(12)
+
+                                Image {
+                                    source: Theme.emojiToImage("🧳")
+                                    sourceSize.width: Theme.scaled(24)
+                                    sourceSize.height: Theme.scaled(24)
+                                    Accessible.ignored: true
+                                }
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: Theme.scaled(2)
+
+                                    Text {
+                                        text: TranslationManager.translate("settings.maintenance.transport.title", "Transport Mode")
+                                        color: Theme.textColor
+                                        font.family: Theme.bodyFont.family
+                                        font.pixelSize: Theme.scaled(14)
+                                        Accessible.ignored: true
+                                    }
+
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: TranslationManager.translate("settings.maintenance.transport.desc", "Drain all water before storage or transport")
+                                        color: Theme.textSecondaryColor
+                                        font.family: Theme.bodyFont.family
+                                        font.pixelSize: Theme.scaled(12)
+                                        wrapMode: Text.WordWrap
+                                        Accessible.ignored: true
+                                    }
+                                }
+                            }
+
+                            AccessibleMouseArea {
+                                id: transportRowMouse
+                                anchors.fill: parent
+                                accessibleName: TranslationManager.translate("settings.maintenance.transport.accessible", "Open transport mode")
+                                accessibleItem: parent
+                                onAccessibleClicked: machineTab.openTransport()
                             }
                         }
                     }

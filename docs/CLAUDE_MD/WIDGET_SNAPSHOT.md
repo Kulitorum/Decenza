@@ -75,6 +75,7 @@ crash.
 | Refill | Refill |
 | Descaling | Descaling |
 | Cleaning | Cleaning |
+| Transport | Transport |
 
 ## Display rules (consumers)
 

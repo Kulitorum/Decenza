@@ -50,6 +50,7 @@ public slots:
     void startFlush();
     void startDescale();
     void startClean();
+    void startAirPurge();
     void stop();
     void goToSleep();
     void wakeUp();

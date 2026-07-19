@@ -1771,7 +1771,8 @@ void ProfileManager::uploadCurrentProfile() {
                               phase == MachineState::Phase::HotWater ||
                               phase == MachineState::Phase::Flushing ||
                               phase == MachineState::Phase::Descaling ||
-                              phase == MachineState::Phase::Cleaning);
+                              phase == MachineState::Phase::Cleaning ||
+                              phase == MachineState::Phase::Transport);
 
         if (isActivePhase) {
             qWarning() << "uploadCurrentProfile() BLOCKED during active phase:"
