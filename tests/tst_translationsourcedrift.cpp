@@ -77,8 +77,6 @@ private slots:
     // a later test reporting strings a previous one had registered.
     void init()
     {
-        QTest::failOnWarning();
-
         const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
                             + QStringLiteral("/translations");
         QDir(dir).removeRecursively();
@@ -93,6 +91,17 @@ private slots:
         settings.ai()->setOpenaiApiKey(QString());
         settings.ai()->setAnthropicApiKey(QString());
         settings.ai()->setGeminiApiKey(QString());
+
+        // Also reset the persisted language. Without this, construction loads whatever the
+        // PREVIOUS test left behind, which made "the constructor loads de" true by declaration
+        // order rather than by anything the test did — and made the same test behave differently
+        // when run alone. Now construction always starts at "en" and a test that wants another
+        // language asks for it explicitly.
+        settings.setValue(QStringLiteral("localization/language"), QStringLiteral("en"));
+
+        // Armed last: Settings' own constructor may warn, and arming first would fail every
+        // test in this file with a message pointing nowhere near the cause.
+        QTest::failOnWarning();
     }
 
     // The baseline the old guard did get right. Kept so the drift fix cannot regress into
@@ -340,11 +349,14 @@ private slots:
 
     // ---- The download must never replace a local file it could not read --------------------
     //
-    // The merge fix lives in onLanguageFileFetched, NOT in mergeLanguageUpdate — that always
-    // merged correctly and the launch-time path used it properly the whole time. So a test that
-    // calls mergeLanguageUpdate directly (as the one above does) exercises the half that was
-    // never broken. This covers the half that was: the not-current-language branch, which does
-    // its own read/merge/write on the file.
+    // NOTE, since this paragraph used to say the opposite and the claim was wrong: it asserted
+    // that mergeLanguageUpdate "always merged correctly" and only the file branch needed
+    // guarding. Both halves needed it. mergeLanguageUpdate merged into a map that was empty by
+    // FAILURE whenever the local file would not load, and that is the branch the UI actually
+    // reaches. See aFailedLoadBlocksTheInMemoryMergeToo below.
+    //
+    // This test still earns its place: it is the only coverage of QSaveFile atomicity and of
+    // the not-current-language branch, which is reachable by switching language mid-download.
     //
     // The specific hazard is that "no local file" and "local file I cannot read" both used to
     // yield an empty base, so a locked or corrupt file was silently overwritten by the server's
@@ -413,26 +425,118 @@ private slots:
             return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray("<unreadable>");
         }();
 
-        // Constructing the manager loads "de" and must notice the file is unreadable.
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Invalid translation file")));
+        // setCurrentLanguage("de") is what runs loadTranslations() and sets the failure flag.
+        // (Not the constructor: it reads localization/language, which defaults to "en" — this
+        // comment used to credit the constructor, which was true only because earlier tests in
+        // this binary had persisted "de" into the shared settings store.)
         TranslationManager tm(&m_nam, &settings);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Invalid translation file")));
         tm.setCurrentLanguage(QStringLiteral("de"));
 
+        // The retry-then-refuse pair, both by design.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("previously failed to load")));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Invalid translation file")));
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Refusing to merge")));
-        QSignalSpy spy(&tm, &TranslationManager::languageDownloaded);
-        tm.mergeLanguageUpdate(QJsonObject{{QStringLiteral("a.key"), QStringLiteral("server value")}});
+        QVERIFY2(!tm.mergeLanguageUpdate(
+                     QJsonObject{{QStringLiteral("a.key"), QStringLiteral("server value")}}),
+                 "a failed load must make the merge refuse and say so via its return value");
 
         const QByteArray after = [&]() -> QByteArray {
             QFile f(path);
             return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray("<unreadable>");
         }();
         QCOMPARE(after, before);   // the corrupt file is left alone, not replaced
+        // What the USER ends up seeing is asserted by arefusedUpdateReportsFailureAndNothingElse,
+        // at the caller frame — the level where this kept going wrong.
+    }
 
-        // And the refusal is reported rather than merely logged — the earlier version of this
-        // guard returned quietly, which is its own kind of silent failure.
-        QCOMPARE(spy.count(), 1);
+    // Assert at the CALLER frame, because that is where every miss in this area has happened.
+    //
+    // Twice now a guard was added, tested, negative-controlled, and declared verified while the
+    // frame above it undid the guard. First the helper was unreachable; then the refusal was
+    // honoured by the helper but the caller emitted success straight afterwards, so the user got
+    // languageDownloaded(false) followed by languageDownloaded(true) and the UI acted on the
+    // second — reporting success, then offering to AI-translate, which would have destroyed the
+    // very file the refusal protected.
+    //
+    // So this drives applyFetchedLanguageForTest (the body of the network slot) and asserts on
+    // what the UI would actually receive: exactly one signal, and it says false.
+    void arefusedUpdateReportsFailureAndNothingElse()
+    {
+        Settings settings;
+
+        const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+                            + QStringLiteral("/translations");
+        QDir().mkpath(dir);
+        const QString path = dir + QStringLiteral("/de.json");
+        {
+            QFile f(path);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write("{ truncated");
+        }
+
+        TranslationManager tm(&m_nam, &settings);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Invalid translation file")));
+        tm.setCurrentLanguage(QStringLiteral("de"));   // this is what runs loadTranslations()
+
+        QSignalSpy spy(&tm, &TranslationManager::languageDownloaded);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("previously failed to load")));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Invalid translation file")));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Refusing to merge")));
+
+        QJsonObject root{
+            {QStringLiteral("translations"),
+             QJsonObject{{QStringLiteral("a.key"), QStringLiteral("server value")}}}};
+        tm.applyFetchedLanguage(QStringLiteral("de"), root);
+
+        QCOMPARE(spy.count(), 1);                        // not two — no success chaser
         QCOMPARE(spy.at(0).at(1).toBool(), false);
         QVERIFY(!spy.at(0).at(2).toString().isEmpty());
+    }
+
+    // The third door. A corrupt file shows the language at 0%, and the things a user does at 0%
+    // are edit a string and run AI Translate — neither of which goes near the download path that
+    // was guarded first. Both land in saveTranslations(), which used to truncate and write the
+    // empty-by-failure map straight over the file.
+    void aFailedLoadAlsoBlocksSavingAndUploading()
+    {
+        Settings settings;
+
+        const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+                            + QStringLiteral("/translations");
+        QDir().mkpath(dir);
+        const QString path = dir + QStringLiteral("/de.json");
+        {
+            QFile f(path);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write("{ truncated");
+        }
+        const QByteArray before = [&]() -> QByteArray {
+            QFile f(path);
+            return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray("<unreadable>");
+        }();
+
+        TranslationManager tm(&m_nam, &settings);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Invalid translation file")));
+        tm.setCurrentLanguage(QStringLiteral("de"));   // this is what runs loadTranslations()
+
+        // Editing a string is the likeliest response to seeing 0%.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Refusing to save")));
+        tm.setTranslation(QStringLiteral("some.key"), QStringLiteral("edited"));
+
+        const QByteArray after = [&]() -> QByteArray {
+            QFile f(path);
+            return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray("<unreadable>");
+        }();
+        QCOMPARE(after, before);   // the corrupt file still holds whatever it held
+
+        // And the upload must not publish the empty map — that would overwrite the community
+        // copy for every user of this language.
+        QSignalSpy spy(&tm, &TranslationManager::translationSubmitted);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Refusing to upload")));
+        tm.submitTranslation();
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(spy.at(0).at(0).toBool(), false);
     }
 
 };

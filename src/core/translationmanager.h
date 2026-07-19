@@ -170,7 +170,11 @@ public:
     // does not carry and never overwriting a user override. Public because it is the meaning of
     // "apply a downloaded language", not an implementation detail: both the launch-time check
     // and the Update button go through it, and a test pins that Update no longer replaces.
-    void mergeLanguageUpdate(const QJsonObject& newTranslations);
+    // Returns false if it REFUSED — the local file failed to load, so an empty in-memory map
+    // is not evidence of an empty language and merging into it would replace the user's
+    // translations with the server's. Callers must honour it: this was void, and the refusal
+    // fell through to a success emit that told the user the update had applied.
+    bool mergeLanguageUpdate(const QJsonObject& newTranslations);
 
     Q_INVOKABLE void downloadLanguageList();
     Q_INVOKABLE void downloadLanguage(const QString& langCode);
@@ -411,6 +415,10 @@ private:
     // Note this is the RARE branch: both UI buttons set currentLanguage to the language they
     // are about to download, so the in-memory path (mergeLanguageUpdate) is what normally runs.
     // Reachable when the user switches language while a download is in flight.
+    // Body of the language-download reply slot. Separate so a test can drive the whole
+    // apply step — merge, metadata, signals — rather than just the merge helper.
+    void applyFetchedLanguage(const QString& langCode, const QJsonObject& root);
+
     bool mergeDownloadedLanguageFile(const QString& langCode, const QJsonObject& root);
 
     // Helper to get provider for AI requests (uses batch override if active)

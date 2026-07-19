@@ -931,6 +931,81 @@ bool TranslationManager::mergeDownloadedLanguageFile(const QString& langCode, co
     return true;
 }
 
+// Apply a fetched language document. Split out of the network slot so it is reachable from a
+// test AT THE CALLER FRAME.
+//
+// That framing is deliberate. Two separate guards in this area were added, tested, and
+// negative-controlled while the frame ABOVE them undid the guard — first by never running it,
+// then by emitting success straight after its refusal. Both times the test was green and the
+// bug shipped. Testing the helper proves the helper; only this level proves the outcome.
+void TranslationManager::applyFetchedLanguage(const QString& langCode, const QJsonObject& root)
+{
+    // MERGE the download into what is already here — do not replace it.
+    //
+    // This used to write `data` straight over the language file. That made the Update button
+    // destructive: the server's copy is whatever was last submitted by someone, and a machine
+    // that has since AI-translated the gaps holds far more than that. One click replaced 3429
+    // German strings with the server's 1515 and silently discarded the difference, twice, on
+    // this machine. Nothing uploads automatically, so a richer local set is the NORMAL state,
+    // not an edge case.
+    //
+    // The automatic check at launch has always merged (mergeLanguageUpdate) and preserved user
+    // overrides. That the manual button did the opposite was the whole bug — the same action,
+    // by two paths, with opposite outcomes.
+    //
+    // Merging is also what makes the overrides file meaningful: it stores only KEY NAMES, and
+    // the text they refer to lives in this file. Replacing the file therefore threw away the
+    // user's own wording while leaving the key still marked as customised.
+    if (langCode == m_currentLanguage) {
+        // Loaded language: merge in memory, which preserves overrides, then persist that.
+        //
+        // The return value MUST be honoured. It used to be void, so a refusal here fell through
+        // to the success emit at the end of this function: the user got languageDownloaded(false)
+        // immediately followed by languageDownloaded(true), and both QML handlers act on the
+        // second. The Update button reported success having applied nothing — and worse, the
+        // success branch then offers to AI-translate, which writes the file and destroys exactly
+        // what the refusal had just protected. The guard was defeated by its own caller.
+        if (!mergeLanguageUpdate(root["translations"].toObject())) {
+            emit languageDownloaded(langCode, false, m_lastError);
+            return;
+        }
+    } else {
+        // Not the active language, so it is not in memory: merge on the FILE instead. Split out
+        // so it can be tested — the destructive-replace bug lived in exactly this branch, and a
+        // network-reply slot is not reachable from a test.
+        if (!mergeDownloadedLanguageFile(langCode, root))
+            return;   // helper has already warned and emitted languageDownloaded(false, ...)
+    }
+
+    // Update metadata
+    m_languageMetadata[langCode] = QVariantMap{
+        {"displayName", root["displayName"].toString(langCode)},
+        {"nativeName", root["nativeName"].toString(langCode)},
+        {"isRtl", root["isRtl"].toBool(false)},
+        {"isRemote", false}  // Now downloaded locally
+    };
+    saveLanguageMetadata();
+
+    // Update available languages list (overwrites, no duplicates)
+    m_availableLanguages = m_languageMetadata.keys();
+    emit availableLanguagesChanged();
+
+    // No reload for the current language: mergeLanguageUpdate() above already folded the
+    // download into the in-memory map, saved it, and refreshed the counts. Re-reading the file
+    // here would be harmless but pointless — and reloading BEFORE that merge existed is
+    // precisely how the replaced file became the live state.
+    if (langCode != m_currentLanguage) {
+        recalculateUntranslatedCount();
+    }
+
+    // Always increment version to refresh UI (language list colors/percentages)
+    m_translationVersion++;
+    emit translationsChanged();
+
+    emit languageDownloaded(langCode, true, QString());
+    qDebug() << "Downloaded language:" << langCode;
+}
+
 void TranslationManager::onLanguageFileFetched(QNetworkReply* reply)
 {
     reply->deleteLater();
@@ -999,60 +1074,7 @@ void TranslationManager::onLanguageFileFetched(QNetworkReply* reply)
 
     const QJsonObject root = doc.object();
 
-    // MERGE the download into what is already here — do not replace it.
-    //
-    // This used to write `data` straight over the language file. That made the Update button
-    // destructive: the server's copy is whatever was last submitted by someone, and a machine
-    // that has since AI-translated the gaps holds far more than that. One click replaced 3429
-    // German strings with the server's 1515 and silently discarded the difference, twice, on
-    // this machine. Nothing uploads automatically, so a richer local set is the NORMAL state,
-    // not an edge case.
-    //
-    // The automatic check at launch has always merged (mergeLanguageUpdate) and preserved user
-    // overrides. That the manual button did the opposite was the whole bug — the same action,
-    // by two paths, with opposite outcomes.
-    //
-    // Merging is also what makes the overrides file meaningful: it stores only KEY NAMES, and
-    // the text they refer to lives in this file. Replacing the file therefore threw away the
-    // user's own wording while leaving the key still marked as customised.
-    if (langCode == m_currentLanguage) {
-        // Loaded language: merge in memory, which preserves overrides, then persist that.
-        mergeLanguageUpdate(root["translations"].toObject());
-    } else {
-        // Not the active language, so it is not in memory: merge on the FILE instead. Split out
-        // so it can be tested — the destructive-replace bug lived in exactly this branch, and a
-        // network-reply slot is not reachable from a test.
-        if (!mergeDownloadedLanguageFile(langCode, root))
-            return;   // helper has already warned and emitted languageDownloaded(false, ...)
-    }
-
-    // Update metadata
-    m_languageMetadata[langCode] = QVariantMap{
-        {"displayName", root["displayName"].toString(langCode)},
-        {"nativeName", root["nativeName"].toString(langCode)},
-        {"isRtl", root["isRtl"].toBool(false)},
-        {"isRemote", false}  // Now downloaded locally
-    };
-    saveLanguageMetadata();
-
-    // Update available languages list (overwrites, no duplicates)
-    m_availableLanguages = m_languageMetadata.keys();
-    emit availableLanguagesChanged();
-
-    // No reload for the current language: mergeLanguageUpdate() above already folded the
-    // download into the in-memory map, saved it, and refreshed the counts. Re-reading the file
-    // here would be harmless but pointless — and reloading BEFORE that merge existed is
-    // precisely how the replaced file became the live state.
-    if (langCode != m_currentLanguage) {
-        recalculateUntranslatedCount();
-    }
-
-    // Always increment version to refresh UI (language list colors/percentages)
-    m_translationVersion++;
-    emit translationsChanged();
-
-    emit languageDownloaded(langCode, true, QString());
-    qDebug() << "Downloaded language:" << langCode;
+    applyFetchedLanguage(langCode, root);
 }
 
 void TranslationManager::exportTranslation(const QString& filePath)
@@ -1143,6 +1165,27 @@ void TranslationManager::importTranslation(const QString& filePath)
 void TranslationManager::submitTranslation()
 {
     if (m_uploading) {
+        // Silent no-op, and the batch has no other way to advance: if this is ever reached from
+        // the batch it stalls with m_batchProcessing stuck true, which then blocks every future
+        // batch for the life of the process. Say so rather than returning quietly.
+        qWarning() << "submitTranslation ignored - an upload is already in progress for"
+                   << m_currentLanguage;
+        emit translationSubmitted(false, tr("An upload is already in progress."));
+        return;
+    }
+
+    // Never publish a map that is empty by failure. This is the same ambiguity as the save and
+    // merge guards, but with the widest blast radius: the upload replaces the SERVER's copy for
+    // every user of this language, not just this machine's file. Reachable from the same
+    // corrupt-file-shows-0% state, and from the batch, which uploads without asking.
+    if (m_translationsLoadFailed) {
+        qWarning() << "Refusing to upload" << m_currentLanguage
+                   << "- its local file could not be read, so the in-memory map is empty by"
+                   << "failure. Publishing it would overwrite the community copy with nothing.";
+        m_lastError = tr("The %1 file could not be read, so nothing was uploaded.")
+                          .arg(m_currentLanguage);
+        emit lastErrorChanged();
+        emit translationSubmitted(false, m_lastError);
         return;
     }
 
@@ -1632,6 +1675,27 @@ void TranslationManager::loadTranslations()
 
 void TranslationManager::saveTranslations()
 {
+    // Refuse when the local file failed to LOAD, for the same reason mergeLanguageUpdate does:
+    // m_translations is empty by failure, not by fact, and writing it out replaces the user's
+    // file with that emptiness.
+    //
+    // This guard was originally put only on the download/merge path, which was the wrong half.
+    // A user whose file is corrupt sees the language at 0% translated, and the two things the
+    // UI invites at 0% are editing a string and running AI Translate — both of which land here
+    // via setTranslation() and the auto-translate pass, neither of which went anywhere near the
+    // guarded path. The guarded door was the one least likely to be used, and the AI route
+    // costs money before it destroys anything.
+    if (m_translationsLoadFailed) {
+        qWarning() << "Refusing to save" << m_currentLanguage
+                   << "- its local file could not be read, so the in-memory map is empty by"
+                   << "failure rather than by fact. Writing it would replace the file with"
+                   << "nothing. Repair or delete" << languageFilePath(m_currentLanguage);
+        m_lastError = tr("The %1 file could not be read earlier, so nothing was saved over it. "
+                         "Repair or delete that file, then restart.").arg(m_currentLanguage);
+        emit lastErrorChanged();
+        return;
+    }
+
     // Save translations for any language (including English customizations)
     QJsonObject root;
     root["language"] = m_currentLanguage;
@@ -1646,10 +1710,26 @@ void TranslationManager::saveTranslations()
     }
     root["translations"] = translations;
 
-    QFile file(languageFilePath(m_currentLanguage));
-    if (file.open(QIODevice::WriteOnly)) {
-        file.write(QJsonDocument(root).toJson());
-        file.close();
+    // QSaveFile: temp + atomic rename. This is the writer that RUNS on every string edit and
+    // after every AI pass, so it is the one most likely to produce the truncated file the load
+    // guard above then has to detect. Atomicity was applied first to the rare download-merge
+    // branch and not to this one, which had the priority exactly backwards.
+    const QString path = languageFilePath(m_currentLanguage);
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly)) {
+        qWarning() << "Failed to open" << path << "for writing:" << file.errorString()
+                   << "- translations NOT saved";
+        m_lastError = tr("Could not save translations for %1.").arg(m_currentLanguage);
+        emit lastErrorChanged();
+        return;
+    }
+    file.write(QJsonDocument(root).toJson());
+    if (!file.commit()) {
+        qWarning() << "Failed to commit" << path << ":" << file.errorString()
+                   << "- the previous file is intact";
+        m_lastError = tr("Could not save translations for %1 (the previous file is unchanged).")
+                          .arg(m_currentLanguage);
+        emit lastErrorChanged();
     }
 }
 
@@ -2578,7 +2658,7 @@ void TranslationManager::checkForLanguageUpdate()
     });
 }
 
-void TranslationManager::mergeLanguageUpdate(const QJsonObject& newTranslations)
+bool TranslationManager::mergeLanguageUpdate(const QJsonObject& newTranslations)
 {
     // Refuse when the local file failed to LOAD. m_translations being empty is ambiguous —
     // it means either "nothing translated yet" or "I could not read what was there" — and
@@ -2588,14 +2668,24 @@ void TranslationManager::mergeLanguageUpdate(const QJsonObject& newTranslations)
     // read guard, but this in-memory path is the one both UI buttons actually take, because
     // they set currentLanguage to the language they are about to download.
     if (m_translationsLoadFailed) {
+        // Retry the load before refusing. The flag is only recomputed inside loadTranslations(),
+        // which runs from the constructor, a genuine language CHANGE, and import — none of which
+        // fire when the user repairs the file and presses Update again, because
+        // setCurrentLanguage(sameLanguage) is a no-op. Without this the refusal told the user to
+        // "fix the file and retry" and then ignored them until an app restart, which is a worse
+        // failure than the one it was guarding: advice that does not work.
+        qWarning() << "Local" << m_currentLanguage << "file previously failed to load - retrying"
+                   << "before deciding whether to merge";
+        loadTranslations();
+    }
+    if (m_translationsLoadFailed) {
         qWarning() << "Refusing to merge into" << m_currentLanguage
-                   << "- its local file could not be read, so an empty in-memory map is not"
-                   << "evidence of an empty language. Fix or delete the file and retry.";
+                   << "- its local file still cannot be read, so an empty in-memory map is not"
+                   << "evidence of an empty language. Repair or delete the file, then retry.";
         m_lastError = tr("The existing %1 file could not be read, so the update was not applied "
                          "(your local translations are untouched).").arg(m_currentLanguage);
         emit lastErrorChanged();
-        emit languageDownloaded(m_currentLanguage, false, m_lastError);
-        return;
+        return false;
     }
 
     int added = 0;
@@ -2632,6 +2722,7 @@ void TranslationManager::mergeLanguageUpdate(const QJsonObject& newTranslations)
     } else {
         qDebug() << "Language is up to date";
     }
+    return true;
 }
 
 // --- Batch Translate and Upload All Languages ---
