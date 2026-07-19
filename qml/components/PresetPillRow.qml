@@ -67,12 +67,31 @@ FocusScope {
     activeFocusOnTab: true
 
     Keys.onLeftPressed: {
-        if (focusedIndex > 0) focusedIndex--
-        announceCurrentPill()
+        if (focusedIndex > 0) {
+            focusedIndex--
+            announceCurrentPill()
+        } else if (pageCount > 1 && pageIndex > 0) {
+            // At the first pill of a later page — page back and land on the last
+            // pill of the new page, so keyboard-only users can reach every page.
+            pageChangeRequested(-1)
+            focusedIndex = Math.max(0, presets.length - 1)
+            announcePage()
+        } else {
+            announceCurrentPill()  // at the edge, no page to turn — re-announce
+        }
     }
     Keys.onRightPressed: {
-        if (focusedIndex < presets.length - 1) focusedIndex++
-        announceCurrentPill()
+        if (focusedIndex < presets.length - 1) {
+            focusedIndex++
+            announceCurrentPill()
+        } else if (pageCount > 1 && pageIndex < pageCount - 1) {
+            // At the last pill — page forward and land on the first pill.
+            pageChangeRequested(1)
+            focusedIndex = 0
+            announcePage()
+        } else {
+            announceCurrentPill()  // at the edge, no page to turn — re-announce
+        }
     }
     Keys.onReturnPressed: presetSelected(focusedIndex)
     Keys.onEnterPressed: presetSelected(focusedIndex)
@@ -258,13 +277,20 @@ FocusScope {
         return rows
     }
 
-    // Announce the resulting page for screen-reader users after an arrow tap.
+    // Announce the resulting page for screen-reader users after a page change.
     // The caller updates pageIndex synchronously inside pageChangeRequested, so by
-    // the time this runs the new page position is already in effect.
+    // the time this runs both the new position and the windowed `presets` are in
+    // effect — announce the position and the pills now shown so the user hears the
+    // contents, not just "page 2 of 3".
     function announcePage() {
         if (typeof AccessibilityManager === "undefined" || !AccessibilityManager.enabled) return
         var msg = TranslationManager.translate("presets.pagination.pagePosition", "Page %1 of %2")
                     .replace("%1", (pageIndex + 1)).replace("%2", pageCount)
+        if (presets.length > 0) {
+            var names = []
+            for (var i = 0; i < presets.length; ++i) names.push(pillLayoutName(i))
+            msg += ": " + names.join(", ")
+        }
         AccessibilityManager.announce(msg)
     }
 
