@@ -3104,10 +3104,20 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
         derSet(derSequence(derOid(OID_CN, 3) + derUtf8String("Decenza")))
     );
 
-    // Serial number (16 random bytes)
+    // Serial number (16 random bytes).
+    //
+    // The verdict must be honoured: the buffer is deliberately Qt::Uninitialized, so on a failed
+    // draw the serial would be whatever heap bytes were already there — potentially identical
+    // across devices or across regenerations, when RFC 5280 requires it to be unique per issuer.
+    // Better to fail cert generation, which the caller already handles, than to mint a
+    // certificate whose identity is quietly garbage.
     QByteArray serialBytes(16, Qt::Uninitialized);
-    SecRandomCopyBytes(kSecRandomDefault, serialBytes.size(),
-                        reinterpret_cast<uint8_t*>(serialBytes.data()));
+    if (SecRandomCopyBytes(kSecRandomDefault, serialBytes.size(),
+                           reinterpret_cast<uint8_t*>(serialBytes.data())) != errSecSuccess) {
+        CFRelease(privateKey);
+        qWarning() << "ShotServer: could not draw random bytes for the certificate serial number";
+        return false;
+    }
     // Ensure positive
     serialBytes[0] = serialBytes[0] & 0x7F;
 
