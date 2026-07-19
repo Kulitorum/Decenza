@@ -253,6 +253,13 @@ Page {
     property string errorMessage: ""
     property string _autoName: ""
 
+    // Lowercased names of existing non-archived recipes (excluding the one
+    // being edited), used only to disambiguate an auto-name collision. Filled
+    // asynchronously by requestInventory() → onInventoryReady; empty until it
+    // lands, in which case the collision qualifier degrades to nothing and the
+    // plain descriptive name ships (never worse than before).
+    property var _existingRecipeNames: []
+
     // Yield anchor (add-yield-ratio-anchor): which of {yield, ratio} was last
     // written — "none" | "absolute" | "ratio". The non-anchored field shows
     // the derived value, dimmed, never blank; only the anchor is stored.
@@ -308,32 +315,120 @@ Page {
         hotWaterJson: buildHotWaterJson()
     })
 
-    // Auto-suggested name ("<Bean> <DrinkType>"): applied while the field is
-    // empty or still holds the previous suggestion — never over a user edit.
-    // SHORT type labels only ("Gran Bar Latte", never "… Latte / Cappuccino"),
-    // and the type word is skipped when the bean name already ends with it
-    // ("Milk Blend Espresso", not "Milk Blend Espresso Espresso").
+    // Auto-suggested name ("<Bean> <DrinkType> · <Profile>"): applied while the
+    // field is empty or still holds the previous suggestion — never over a
+    // user edit. SHORT type labels only ("Gran Bar Latte", never "… Latte /
+    // Cappuccino"), and the type word is skipped when the bean name already
+    // ends with it ("Milk Blend Espresso", not "Milk Blend Espresso Espresso").
+    // The profile is included from the first recipe (issue #1548: one bean made
+    // many ways needs the profile to be distinguishable AND searchable — users
+    // hunt by profile, e.g. "Crem Yir" = Cremina Yirgacheffe). The profile is
+    // cleaned first (editor prefix stripped, type-word stutter removed).
     function suggestName() {
         var bean = (fCoffee !== "" ? fCoffee : fRoaster).trim()
+        var typeWord = fDrinkType !== "" ? DrinkType.shortLabel(fDrinkType) : ""
         var parts = []
         if (bean !== "") parts.push(bean)
-        if (fDrinkType !== "") {
-            var typeWord = DrinkType.shortLabel(fDrinkType)
+        if (typeWord !== "") {
             var stutter = bean !== ""
                 && bean.toLowerCase().endsWith(" " + typeWord.toLowerCase())
             if (bean.toLowerCase() === typeWord.toLowerCase())
                 stutter = true
             if (!stutter) parts.push(typeWord)
         }
-        var suggestion = parts.join(" ")
+        var base = parts.join(" ")
+        // Append the cleaned profile (a hot-water tea recipe carries none).
+        var profile = cleanProfileForName(fProfileTitle, typeWord)
+        if (profile !== "")
+            base = base === "" ? profile : (base + " · " + profile)
+
+        if (base === "")
+            return
+
+        // Disambiguate an exact-name collision with an existing recipe by
+        // appending the first differing dial-in axis — yield, else dose. Never
+        // a bare counter. Best-effort: with the inventory not yet loaded (or no
+        // usable axis) the plain descriptive `base` still ships.
+        var suggestion = base
+        if (nameCollides(base)) {
+            var yq = yieldQualifierText()
+            var dq = doseQualifierText()
+            if (yq !== "" && !nameCollides(base + " " + yq))
+                suggestion = base + " " + yq
+            else if (dq !== "" && !nameCollides(base + " " + dq))
+                suggestion = base + " " + dq
+            else if (yq !== "")
+                suggestion = base + " " + yq       // best effort — still shown
+            else if (dq !== "")
+                suggestion = base + " " + dq
+        }
+
         if (suggestion === "" || (nameField.text !== "" && nameField.text !== _autoName))
             return
         nameField.text = suggestion
         _autoName = suggestion
     }
 
+    // Turn a profile title into the token used in a suggested recipe name:
+    // strip the D-Flow/ or A-Flow/ editor-membership prefix (see the project
+    // note "editor membership = title prefix"), then drop a trailing word that
+    // just repeats the drink-type word (the bean stutter rule, for the
+    // profile). Returns "" when no profile or nothing survives.
+    function cleanProfileForName(title, typeWord) {
+        var p = (title || "").trim()
+        if (p === "")
+            return ""
+        var lower = p.toLowerCase()
+        if (lower.indexOf("d-flow/") === 0 || lower.indexOf("a-flow/") === 0)
+            p = p.substring(p.indexOf("/") + 1).trim()
+        if (typeWord && typeWord !== "") {
+            var lp = p.toLowerCase(), lt = typeWord.toLowerCase()
+            if (lp === lt)
+                return ""
+            if (lp.endsWith(" " + lt))
+                p = p.substring(0, p.length - lt.length - 1).trim()
+        }
+        return p
+    }
+
+    // True when an existing non-archived recipe already carries this exact name
+    // (case-insensitive). The set excludes the recipe being edited.
+    function nameCollides(candidate) {
+        var c = (candidate || "").trim().toLowerCase()
+        if (c === "")
+            return false
+        for (var i = 0; i < _existingRecipeNames.length; ++i)
+            if (_existingRecipeNames[i] === c)
+                return true
+        return false
+    }
+
+    // Collision qualifiers from the current dial-in state. Ratio → "1:2.5",
+    // absolute yield / dose → "40g" (trailing ".0" trimmed).
+    function yieldQualifierText() {
+        if (fYieldMode === "ratio") {
+            var r = parseFloat(ratioField.text) || 0
+            return r > 0 ? "1:" + trimNumForName(r) : ""
+        }
+        if (fYieldMode === "absolute") {
+            var y = parseFloat(yieldField.text) || 0
+            return y > 0 ? trimNumForName(y) + "g" : ""
+        }
+        return ""
+    }
+    function doseQualifierText() {
+        var d = parseFloat(doseField.text) || 0
+        return d > 0 ? trimNumForName(d) + "g" : ""
+    }
+    function trimNumForName(v) {
+        return Number(v).toFixed(1).replace(/\.0$/, "")
+    }
+
 
     Component.onCompleted: {
+        // Load existing recipe names for auto-name collision disambiguation
+        // (onInventoryReady caches them); harmless for every entry mode.
+        MainController.recipeStorage.requestInventory()
         if (mode === "edit" && editRecipeId > 0) {
             currentStep = "summary"
             _enteredAtSummary = true
@@ -1298,6 +1393,10 @@ Page {
         grindHint = ""
         if (activeTemplate.grind && (hasBean || _selectedBagRoastLevel !== ""))
             MainController.shotHistory.requestLatestGrindForBean(fRoaster, fCoffee, _selectedBagRoastLevel)
+        // Dose/yield are now seeded — re-run so a collision qualifier (the rare
+        // same-bean+type+profile case) reflects real numbers. Guarded by
+        // _autoName, so a user-typed name is never touched.
+        suggestName()
     }
 
     // --- profile ranking ----------------------------------------------------
@@ -1555,6 +1654,9 @@ Page {
                 if (wizardPage.fEquipmentRpmCapable && shot.rpm > 0)
                     rpmField.text = String(shot.rpm)
             }
+            // History just overwrote dose/yield — refresh a still-auto name so a
+            // collision qualifier reflects the numbers that actually worked.
+            wizardPage.suggestName()
         }
     }
 
@@ -1605,6 +1707,20 @@ Page {
                     wizardPage.showSaveError()
                 }
             }
+        }
+        function onInventoryReady(list) {
+            // Cache existing recipe names (excluding the one being edited) so
+            // suggestName() can disambiguate a collision synchronously.
+            var names = []
+            for (var i = 0; i < list.length; ++i) {
+                var r = list[i]
+                if (wizardPage.mode === "edit" && (r.id || 0) === wizardPage.editRecipeId)
+                    continue
+                var n = ((r && r.name) || "").trim().toLowerCase()
+                if (n !== "")
+                    names.push(n)
+            }
+            wizardPage._existingRecipeNames = names
         }
         function onLastEquipmentForDrinkTypeReady(drinkType, equipmentId) {
             // Per-drink-type default: only fills an EMPTY equipment choice.
