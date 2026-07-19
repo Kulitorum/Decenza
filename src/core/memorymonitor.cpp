@@ -237,6 +237,25 @@ double MemoryMonitor::currentRssMB() const
     return m_lastRss / (1024.0 * 1024.0);
 }
 
+bool MemoryMonitor::instrumentedBuild() const
+{
+#if defined(__has_feature)
+#  if __has_feature(address_sanitizer) || __has_feature(thread_sanitizer) \
+   || __has_feature(memory_sanitizer) || __has_feature(undefined_behavior_sanitizer)
+    return true;
+#  endif
+#endif
+#if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__)
+    return true;
+#endif
+#ifndef QT_NO_DEBUG
+    // An unoptimised build is heavier than Release even without a sanitizer.
+    return true;
+#else
+    return false;
+#endif
+}
+
 double MemoryMonitor::liveRssMB() const
 {
     return readRss() / (1024.0 * 1024.0);
