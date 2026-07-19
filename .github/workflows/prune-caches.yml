@@ -29,7 +29,6 @@ on:
       - 'Windows Build'
       - 'Linux AppImage Build'
       - 'Linux ARM64 AppImage Build'
-      - 'Nightly sanitizers'
     types: [completed]
   # Nearly all builds run on TAG pushes, and GitHub's docs don't clearly
   # guarantee workflow_run fires for tag-triggered runs (no `branches:`
@@ -61,7 +60,7 @@ jobs:
           # cache hasn't been saved yet — pruning now would repeat the old
           # in-build prune's blind spot. Skip; the completion of that run
           # fires this workflow again.
-          BUILD_WORKFLOWS='Android APK Build|iOS App Store Build|macOS Build|Windows Build|Linux AppImage Build|Linux ARM64 AppImage Build|Nightly sanitizers'
+          BUILD_WORKFLOWS='Android APK Build|iOS App Store Build|macOS Build|Windows Build|Linux AppImage Build|Linux ARM64 AppImage Build'
           ACTIVE=$(gh run list --repo "$GITHUB_REPOSITORY" --limit 100 \
             --json workflowName,status \
             --jq '[.[] | select((.status == "in_progress" or .status == "queued"))

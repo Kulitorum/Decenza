@@ -380,40 +380,54 @@ endif()
 # here; flags that fired mostly on idiom are not, and are listed at the bottom
 # with the counts, so nobody re-proposes them without new evidence.
 if(MSVC)
-    add_compile_options(/W4 /WX)
+    # NOT verified. /W4 is a different diagnostic set from -Wall -Wextra with no
+    # measurement behind it here, and turning /WX on unmeasured is the same
+    # mistake as the one recorded below. Left as a plain warning level until
+    # someone builds Windows and counts what it produces.
+    add_compile_options(/W4)
 else()
-    add_compile_options(
-        -Wall
-        -Wextra
-        -Werror
+    # -Wall -Wextra -Werror are universally supported; everything else is
+    # PROBED. This is the second time this lesson was learned in one sitting:
+    # `-fsanitize=local-bounds` was hardcoded, GCC rejected it, the probe below
+    # was written to fix it — and then these warning flags were hardcoded too,
+    # and GCC rejected -Wshorten-64-to-32, -Wconditional-uninitialized,
+    # -Wcomma and -Wself-assign in exactly the same way. A flag that exists in
+    # clang is not a flag that exists.
+    add_compile_options(-Wall -Wextra -Werror)
 
-        # 30 real sites. CLAUDE.md already warns about this exact hazard:
-        # QVector/QString::size() return qsizetype (64-bit on iOS/macOS) and
-        # assigning to int truncates. Documented convention did not hold; this
-        # makes it hold.
-        -Wshorten-64-to-32
-
-        # 8 sites. A shadowed variable reads as the outer one and compiles
-        # silently — a genuine defect class, and a trivially small backlog.
-        -Wshadow
-    )
-
-    # These scored ZERO across all 568 first-party TUs, so they cost nothing
-    # today and lock in the cleanliness: a first occurrence becomes a build
-    # error rather than a slow drift.
-    add_compile_options(
-        -Wnon-virtual-dtor          # delete through a base pointer = UB
-        -Wconditional-uninitialized # used-uninitialized on some paths
-        -Wimplicit-fallthrough      # missing break in a switch
-        -Wself-assign
-        -Wpessimizing-move
-        -Wredundant-move
-        -Wcomma                     # comma operator where ';' was meant
-        -Wsuggest-override
-        -Wextra-semi
-        -Wformat=2
-        -Wcast-align
-    )
+    include(CheckCXXCompilerFlag)
+    # Chosen by MEASUREMENT, not taste — every first-party TU was compiled with
+    # a wide candidate set and the hits counted (scripts/measure_warnings.py).
+    #
+    #   -Wshorten-64-to-32   30 sites. CLAUDE.md already documents this hazard
+    #                        (qsizetype -> int truncates on 64-bit) and the
+    #                        convention did not hold on its own.
+    #   -Wshadow              8 sites, two of which hid genuine confusion
+    #                        between an inner and outer variable of different
+    #                        types.
+    #   the rest             scored ZERO across 568 TUs: free today, and a
+    #                        first occurrence now fails the build rather than
+    #                        drifting in unnoticed.
+    foreach(_w
+            shorten-64-to-32
+            shadow
+            non-virtual-dtor
+            conditional-uninitialized
+            implicit-fallthrough
+            self-assign
+            pessimizing-move
+            redundant-move
+            comma
+            suggest-override
+            extra-semi
+            format=2
+            cast-align)
+        string(MAKE_C_IDENTIFIER "${_w}" _w_id)
+        check_cxx_compiler_flag("-W${_w}" _have_w_${_w_id})
+        if(_have_w_${_w_id})
+            add_compile_options("-W${_w}")
+        endif()
+    endforeach()
 
     # MEASURED AND DELIBERATELY NOT ENABLED. Re-proposing any of these needs
     # evidence that the instances are defects, not that the flag exists:
@@ -423,15 +437,14 @@ else()
     #       QJsonArray's iterator, so the reference binds to a temporary. A
     #       per-iteration copy, not a bug; 147 edits would buy no correctness.
     #   -Wfloat-equal                 74 hits / 28 files. Sampled sites are
-    #       `a != 0` sentinel checks ("was this ever set?"), which is a
-    #       legitimate idiom here. Real float-comparison bugs would be lost in
-    #       the noise.
+    #       `a != 0` sentinel checks ("was this ever set?"), a legitimate idiom
+    #       here. Real float-comparison bugs would be lost in the noise.
     #   -Wswitch-enum                 46 hits / 31 files. Tempting, because
     #       "new machine phase added, switch silently falls to default:" is a
-    #       real class in this codebase — but it fires on every switch with a
-    #       deliberate `default:`, which is most of them. -Wswitch (in -Wall)
-    #       already covers the dangerous case: a switch with NO default that
-    #       misses an enumerator.
+    #       real class here — but it fires on every switch with a deliberate
+    #       `default:`, which is most of them. -Wswitch (in -Wall) already
+    #       covers the dangerous case: a switch with NO default that misses an
+    #       enumerator.
     #   -Wdouble-promotion            14 hits / 3 files. float->double in
     #       arithmetic that is double anyway. Harmless.
 endif()

@@ -103,19 +103,13 @@ jobs:
           cache: true
           cache-key-prefix: 'qt-linux-v4'
 
-      # One cache entry per sanitizer, both on the default branch (schedule runs
-      # there), so this contributes 2 entries total rather than scaling with
-      # anything. The repo sits near 7 GB of GitHub's 10 GB cap and the
-      # least-recently-used entries are the tag-push ones that keep RELEASE
-      # builds warm, so max-size is set rather than left to the default.
-      - name: Set up ccache
-        uses: hendrikmuhs/ccache-action@v1.2.23
-        with:
-          key: nightly-${{ matrix.sanitizer }}-linux-x86_64
-          max-size: 500M
-
-      - name: Configure ccache for CI
-        run: ccache --set-config=compiler_check=content
+      # No ccache, deliberately. Nobody waits on this job, so the only thing a
+      # cache buys is a shorter wall-clock nobody is measuring — paid for in
+      # the scarce resource: the repo sits near 7 GB of GitHub's 10 GB cache
+      # cap, and the least-recently-used entries are the tag-push ones that
+      # keep RELEASE builds warm. Two sanitizer caches would have evicted
+      # those to speed up a job with no reader. A cold build every night is
+      # the correct trade.
 
       - name: Configure CMake
         env:
@@ -126,8 +120,6 @@ jobs:
           $QT_ROOT_DIR/bin/qt-cmake .. -G Ninja \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DBUILD_TESTS=ON \
             "$SANITIZER_FLAG"
 
