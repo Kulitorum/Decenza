@@ -49,26 +49,27 @@
   violations in files touched.
 
 ## 5. Manual & docs
-- [ ] 5.1 Add a Maintenance section to the wiki manual
+- [x] 5.1 Add a Maintenance section to the wiki manual
   (`Kulitorum/Decenza.wiki`) covering Descaling Wizard (new location) and
   Transport Mode. Hold the push per the wiki-edits-held-for-release convention.
 
 ## 6. Verify & review
 - [x] 6.0 Clean build via Qt Creator — 0 errors, 0 warnings. (Confirms C++ +
   resource changes; QML is runtime-loaded so the screens still need a live run.)
-- [ ] 6.1 Run the Transport flow end-to-end in the simulator (start → Transport
-  phase → Idle → done); confirm auto-sleep is suppressed during the drain.
-- [ ] 6.2 Confirm Descale still launches and completes from its new location, and
-  that the placeholder descale profile is gone from the Profiles list.
-- [x] 6.3 Run `/pr-review-toolkit:review-pr`. Fixed: stale ProfileSelectorPage
-  comment; STOP-mid-drain no longer shows the false "machine is empty"
-  confirmation and completion now latches on any non-Transport landing phase
-  (not just Idle/Ready); added `Phase::Transport` to `MachineStatusItem` status
-  color/text and to the `machine_stop` MCP guard, the idle-GC `enteringOp` list,
-  and the `uploadCurrentProfile` active-phase guard; switched the checkmark to
-  `Theme.emojiToImage`. Rebuilt clean.
-- [ ] 6.4 **Hardware verify (real GHC machine, fw 1333/1352):** confirm AirPurge
-  self-terminates (returns to Idle on its own) and that the physical GHC stop
-  exits AirPurge. If it can hang with no on-screen stop on GHC, show the STOP
-  button on GHC machines too (currently `isHeadless`-gated, matching Descale).
-  Not fixed pending that observation.
+- [x] 6.1 Run the Transport flow end-to-end (start → Transport phase → Idle →
+  done); confirm auto-sleep is suppressed during the drain. Tested.
+- [x] 6.2 Confirm Descale still launches and completes from its new location, and
+  that the placeholder descale profile is gone from the Profiles list. Tested.
+- [x] 6.3 Ran `/pr-review-toolkit:review-pr` and the full `/review` panel. Fixes:
+  stale ProfileSelectorPage comment; STOP-mid-drain / BLE-disconnect / physical-
+  GHC-stop no longer show the false "machine is empty" confirmation (completion
+  whitelists settled landings Idle/Ready/Heating, excludes Disconnected/Sleep,
+  and the screen gives conditional guidance rather than asserting emptiness);
+  `transportPage` added to the disconnect-navigation whitelist; `Phase::Transport`
+  added to `MachineStatusItem`, the `machine_stop` MCP guard, idle-GC `enteringOp`,
+  and the `uploadCurrentProfile` guard; missing `AirPurge` row added to
+  `tst_machinestate`; iOS/Android/doc widget phase labels updated; checkmark via
+  `Theme.emojiToImage`. Build clean, tst_machinestate 47/0.
+- [x] 6.4 **Hardware verify (real GHC machine, fw 1333/1352):** confirmed on the
+  author's machine. AirPurge behaves as expected; the honest completion wording
+  keeps the software safe regardless of the stop path.
