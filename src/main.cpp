@@ -690,8 +690,8 @@ int main(int argc, char *argv[])
         if (activeSanitizers.isEmpty())
             qDebug() << "Sanitizers: none (uninstrumented build)";
         else
-            qDebug() << "Sanitizers active:" << activeSanitizers.join(QStringLiteral(", "))
-                     << "- a clean run means something in this build";
+            qDebug().noquote() << "Sanitizers active:" << activeSanitizers.join(QStringLiteral(", "))
+                               << "- a clean run means something in this build";
     }
     qDebug() << "Platform:" << QSysInfo::prettyProductName().simplified()
              << "arch:" << QSysInfo::currentCpuArchitecture()

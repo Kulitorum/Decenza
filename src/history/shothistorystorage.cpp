@@ -1979,13 +1979,13 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
 
         // Capture only the fields needed for logging (avoid copying the large compressedSamples blob)
         QString profileName = data.profileName;
-        double duration = data.duration;
+        double shotDuration = data.duration;
         int sampleCount = data.sampleCount;
         qsizetype compressedSize = data.compressedSamples.size();
 
         if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, shotId, destroyed,
-                                         profileName, duration, sampleCount, compressedSize]() {
+                                         profileName, shotDuration, sampleCount, compressedSize]() {
             if (*destroyed) {
                 qDebug() << "ShotHistoryStorage: saveShot callback dropped (object destroyed)";
                 return;
@@ -1997,7 +1997,7 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
 
                 qDebug() << "ShotHistoryStorage: Saved shot" << shotId
                          << "- Profile:" << profileName
-                         << "- Duration:" << duration << "s"
+                         << "- Duration:" << shotDuration << "s"
                          << "- Samples:" << sampleCount
                          << "- Compressed size:" << compressedSize << "bytes";
             } else {
