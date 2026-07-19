@@ -936,6 +936,23 @@ QString ProfileManager::findProfileByTitle(const QString& title) const {
     return QString();
 }
 
+QVariantMap ProfileManager::profileCatalogInfoForTitle(const QString& title) const {
+    for (const ProfileInfo& info : m_allProfiles) {
+        if (info.title != title)
+            continue;
+        QVariantMap m;
+        m["filename"] = info.filename;
+        m["title"] = info.title;
+        m["editorType"] = info.editorType;
+        m["beverageType"] = info.beverageType;
+        m["hasKnowledgeBase"] = info.hasKnowledgeBase;
+        m["espressoTemperatureC"] = info.espressoTemperature;
+        m["targetWeightG"] = info.targetWeight;
+        return m;
+    }
+    return QVariantMap();
+}
+
 QString ProfileManager::profileKnowledgeContent(const QString& profileTitle) const {
     return ShotSummarizer::findProfileSection(profileTitle);
 }

@@ -55,6 +55,38 @@ Page {
     // back from the summary then exits; in a creation walk it steps back
     // to details instead.
     property bool _enteredAtSummary: false
+    // The details step is walked as a sequence of one-facet WINDOWS, the same
+    // screens whether creating (walk forward) or editing (a summary card jumps
+    // straight to its window). `_detailsPage` names the current window:
+    // "equipment" → "numbers" (dose/yield/temp/grind) → "steam"/"water" (only
+    // the blocks the drink has). Equipment comes first because the grinder's
+    // rpm capability gates the rpm field on the numbers window.
+    property string _detailsPage: "equipment"
+
+    // The ordered details windows for the current drink — equipment and the
+    // numbers always; steam/water only when the recipe carries that block.
+    function detailsPages() {
+        var pages = ["equipment", "numbers"]
+        if (fHasMilk) pages.push("steam")
+        if (fHasWater) pages.push("water")
+        return pages
+    }
+    readonly property bool isLastDetailsPage: {
+        var pages = detailsPages()
+        return pages.indexOf(_detailsPage) >= pages.length - 1
+    }
+    // Forward through the details windows (creation walk); past the last one
+    // lands on the summary.
+    function detailsAdvance() {
+        var pages = detailsPages()
+        var i = pages.indexOf(_detailsPage)
+        if (i < 0 || i >= pages.length - 1) {
+            _fromSummary = false
+            currentStep = "summary"
+        } else {
+            _detailsPage = pages[i + 1]
+        }
+    }
 
     function openStep(step) {
         _fromSummary = (currentStep === "summary")
@@ -95,8 +127,14 @@ Page {
         case "profile":
             _enterStep("bean")
             break
-        case "details":
-            if (isHotWaterTea) {
+        case "details": {
+            // Step back through the details windows; from the first one, back
+            // out to the profile step (bean, for hot-water tea with no profile).
+            var pages = detailsPages()
+            var i = pages.indexOf(_detailsPage)
+            if (i > 0) {
+                _detailsPage = pages[i - 1]
+            } else if (isHotWaterTea) {
                 // "Just hot water" was picked ON the profile step — return
                 // there with the tea profile list restored (and undo the
                 // row's hot-water pre-seed; picking it again re-applies).
@@ -107,11 +145,16 @@ Page {
                 _enterStep("profile")
             }
             break
+        }
         case "summary":
             if (_enteredAtSummary)
                 requestExit()
-            else
+            else {
+                // Back into the creation walk: re-enter at the last details
+                // window so Continue-ing returns straight to the summary.
+                _detailsPage = detailsPages().slice(-1)[0]
                 _enterStep("details")
+            }
             break
         default:
             requestExit()
@@ -776,7 +819,7 @@ Page {
             fBagId = 0
             fBeanBaseId = ""; fRoaster = ""; fCoffee = ""; fBagBlob = ""
             fBagGrindDefault = ""; fBagRpmDefault = 0
-            _selectedBagRoastLevel = ""
+            _selectedBagRoastLevel = ""; _selectedBagRoastDate = ""
         } else {
             // The tile IS the bag: link exactly this one (two open bags of
             // the same bean are distinct choices — no identity resolution).
@@ -788,6 +831,7 @@ Page {
             fBagGrindDefault = bag.grinderSetting || ""
             fBagRpmDefault = bag.rpm || 0
             _selectedBagRoastLevel = bag.roastLevel || ""
+            _selectedBagRoastDate = bag.roastDate || ""
             // One-time editable default (recipe-model): a NEW recipe's grind
             // fields start from the bag's current dial. Only on create —
             // editing an existing recipe never re-offers the default — and
@@ -857,6 +901,39 @@ Page {
         applyDetailsPrefill()
     }
 
+    // Link (or clear) the recipe's equipment package. Shared by the equipment
+    // window's inline tiles and the equipment picker dialog so the two can
+    // never set different state. `pkg` is a flattened package map, or a
+    // { isNone: true } sentinel / null to clear.
+    function selectEquipment(pkg) {
+        if (!pkg || pkg.isNone) {
+            fEquipmentId = 0
+            fEquipmentName = ""
+            fEquipmentRpmCapable = false
+            _selectedPackage = ({})
+            return
+        }
+        fEquipmentId = pkg.id
+        fEquipmentName = pkg.name
+            || ((pkg.grinderBrand || "") + " " + (pkg.grinderModel || "")).trim()
+            || ((pkg.basketBrand || "") + " " + (pkg.basketModel || "")).trim()
+        fEquipmentRpmCapable = !!pkg.rpmCapable
+        _selectedPackage = pkg
+    }
+
+    // The equipment window's tile model: a "None" tile followed by the
+    // in-inventory packages (the currently-linked one is always kept, even if
+    // it has since been retired, so the selection stays visible).
+    function equipmentTileModel() {
+        var arr = [{ isNone: true }]
+        for (var i = 0; i < _packages.length; ++i) {
+            var p = _packages[i]
+            if (p.inInventory !== false || p.id === fEquipmentId)
+                arr.push(p)
+        }
+        return arr
+    }
+
     // --- details prefill (history → tea bag data → profile defaults) -------
 
     // Absolute tea temperature (vendor numbers are steeping temps; the tea
@@ -910,39 +987,197 @@ Page {
         return origin === "" ? why : origin + " " + why
     }
 
-    // One-line summaries for the collapsed details cards ("prefilled and
-    // optional" — the values read at a glance, tap to adjust).
-    readonly property string numbersSummary: {
+    // --- summary-card value builders (enrich-recipe-editor-cards) -----------
+    // Each card reads out the recipe values that EDITING THAT CARD changes,
+    // and no value repeats across cards: recipe-overridden numbers (dose,
+    // yield/ratio, effective temperature, grind, rpm) live on Details; profile
+    // shape on Profile; bag identity on Bean; package identity (minus the
+    // recipe-owned grind/rpm) on Equipment. A read establishes a binding
+    // dependency, so these re-evaluate as the f* fields change.
+
+    // The recipe's EFFECTIVE brew temperature, unit-aware (the same number the
+    // hero's plan line shows), with the signed offset tagged when non-zero.
+    // "" when nothing is set. Tea edits an absolute; espresso a profile offset.
+    function summaryEffectiveTempStr() {
+        if (isHotWaterTea)
+            return fVesselTemperatureC > 0 ? Theme.formatTemperature(fVesselTemperatureC, 0) : ""
+        if (isTeaDrink)
+            return fTeaTempC > 0 ? Theme.formatTemperature(fTeaTempC, 0) : ""
+        if (fProfileTempC > 0) {
+            var eff = Theme.formatTemperature(fProfileTempC + fTempDeltaC, 0)
+            if (Math.abs(fTempDeltaC) > 0.05) {
+                var d = Theme.cDeltaToDisplay(fTempDeltaC)
+                eff += " (" + (d > 0 ? "+" : "") + d.toFixed(0) + "°)"
+            }
+            return eff
+        }
+        // Unresolvable profile temp: show the offset alone rather than nothing.
+        if (Math.abs(fTempDeltaC) > 0.05) {
+            var dd = Theme.cDeltaToDisplay(fTempDeltaC)
+            return (dd > 0 ? "+" : "") + dd.toFixed(0) + "°"
+        }
+        return ""
+    }
+
+    // Details card: every value the details step pins, drink-type-scoped —
+    // dose→yield (ratio shown as such), effective temperature, grind (+ rpm
+    // only for an RPM-capable grinder). Tea omits grind; hot-water tea shows
+    // volume + temperature instead of dose→yield.
+    function summaryDetailsValue() {
         var parts = []
         var dose = parseFloat(doseField.text) || 0
         var yieldG = parseFloat(yieldField.text) || 0
         var ratioV = parseFloat(ratioField.text) || 0
-        if (fYieldMode === "ratio" && ratioV > 0 && !isHotWaterTea)
-            // Anchor mark: the ratio is the stored quantity; grams derive
-            // from the dose when one is known, else the ratio stands alone.
+        if (isHotWaterTea) {
+            if (fVesselVolume > 0)
+                parts.push(fVesselVolume + (fVesselMode === "volume" ? "ml" : "g"))
+        } else if (fYieldMode === "ratio" && ratioV > 0) {
             parts.push(dose > 0
                 ? dose.toFixed(1) + "g → " + (dose * ratioV).toFixed(1) + "g (1:" + ratioV.toFixed(1) + ")"
                 : "1:" + ratioV.toFixed(1))
-        else if (dose > 0 && yieldG > 0 && !isHotWaterTea)
+        } else if (dose > 0 && yieldG > 0) {
             parts.push(dose.toFixed(1) + "g → " + yieldG.toFixed(1) + "g")
-        else if (dose > 0)
+        } else if (dose > 0) {
             parts.push(dose.toFixed(1) + "g")
-        if (isHotWaterTea && fVesselTemperatureC > 0)
-            parts.push(Math.round(fVesselTemperatureC) + "°C")   // the vessel IS the temperature source
-        else if (isTeaDrink && fTeaTempC > 0)
-            parts.push(Math.round(fTeaTempC) + "°C")
-        else if (Math.abs(fTempDeltaC) > 0.05)
-            parts.push((fTempDeltaC > 0 ? "+" : "")
-                       + Theme.cDeltaToDisplay(fTempDeltaC).toFixed(0) + "°")
-        return parts.length > 0 ? parts.join(" · ")
-            : TranslationManager.translate("recipes.wizard.summary.notSet", "Not set")
+        }
+        var tempStr = summaryEffectiveTempStr()
+        if (tempStr !== "")
+            parts.push(tempStr)
+        if (activeTemplate.grind) {
+            var g = grindField.text.trim()
+            if (g !== "") {
+                var rpm = parseInt(rpmField.text) || 0
+                var grindStr = TranslationManager.translate("recipes.wizard.summary.grind", "grind %1").arg(g)
+                if (fEquipmentRpmCapable && rpm > 0)
+                    grindStr += " · " + TranslationManager.translate("equipment.card.lastRpm", "%1 rpm").arg(rpm)
+                parts.push(grindStr)
+            }
+        }
+        return parts.length > 0 ? parts.join(" · ") : "—"
     }
-    readonly property string grindSummary: {
-        var g = grindField.text.trim()
-        if (g === "")
-            return TranslationManager.translate("recipes.wizard.summary.notSet", "Not set")
-        var rpm = parseInt(rpmField.text) || 0
-        return g + (fEquipmentRpmCapable && rpm > 0 ? " · " + rpm + " rpm" : "")
+
+    // Bean card: coffee name, then roaster · roast level · roast age. The photo
+    // is rendered separately by the card's BeanThumbnail.
+    function summaryBeanValue() {
+        var name = (fCoffee !== "" ? fCoffee : fRoaster)
+        var detail = []
+        if (fCoffee !== "" && fRoaster !== "")
+            detail.push(fRoaster)
+        if (_selectedBagRoastLevel !== "")
+            detail.push(_selectedBagRoastLevel)
+        var age = bagRoastAgeLine()
+        if (age !== "")
+            detail.push(age)
+        return detail.length > 0 ? name + "\n" + detail.join(" · ") : name
+    }
+
+    // "<roast date> · <age>d" for the linked bag — mirrors the bean step's
+    // per-tile roastAgeLine, but reads the page-level selected-bag state.
+    function bagRoastAgeLine() {
+        var date = String(_selectedBagRoastDate || "")
+        if (date === "")
+            return ""
+        var parsed = Date.fromLocaleString(Qt.locale("C"), date, "yyyy-MM-dd")
+        if (isNaN(parsed.getTime()))
+            return date
+        var days = Math.floor((Date.now() - parsed.getTime()) / 86400000)
+        return days >= 0 ? date + " · " + days + "d" : date
+    }
+
+    // The bag's product-page link (bean-image cache key follows the bag), for
+    // the summary Bean card's BeanThumbnail.
+    function bagImageLink() {
+        if (fBagBlob === "")
+            return ""
+        try { return JSON.parse(fBagBlob).link || "" } catch (e) { return "" }
+    }
+
+    // Profile card: a RICH read-out of what PICKING A PROFILE brings to the
+    // recipe — name, editor/type classification, notable beverage type, and a
+    // pressure/flow shape summary — EXCLUDING the temp/dose/yield/grind the
+    // recipe overrides (those are Details-owned). The (i)/KB buttons live in
+    // the card header. "" profile → em dash handled by the caller.
+    function summaryProfileValue() {
+        if (fProfileTitle === "")
+            return "—"
+        var info = ProfileManager.profileCatalogInfoForTitle(fProfileTitle)
+        var parts = [fProfileTitle]
+        var meta = []
+        var et = profileEditorLabel(info ? (info.editorType || "") : "")
+        if (et !== "")
+            meta.push(et)
+        var bev = profileBeverageLabel(info ? (info.beverageType || "") : "")
+        if (bev !== "")
+            meta.push(bev)
+        if (meta.length > 0)
+            parts.push(meta.join(" · "))
+        var shape = summaryProfileShape()
+        if (shape !== "")
+            parts.push(shape)
+        return parts.join("\n")
+    }
+
+    // Editor/type classification label. D-Flow/A-Flow are proper nouns (the
+    // same names the wizard header shows); the rest are localized.
+    function profileEditorLabel(code) {
+        switch (code) {
+        case "dflow": return "D-Flow"
+        case "aflow": return "A-Flow"
+        case "pressure": return TranslationManager.translate("recipes.wizard.profileType.pressure", "Pressure profile")
+        case "flow": return TranslationManager.translate("recipes.wizard.profileType.flow", "Flow profile")
+        case "advanced": return TranslationManager.translate("recipes.wizard.profileType.advanced", "Advanced profile")
+        }
+        return ""
+    }
+
+    // Only NOTABLE beverage types earn a line — espresso is the default and is
+    // already conveyed by the drink card, so it (and empty) render nothing.
+    function profileBeverageLabel(bev) {
+        switch (String(bev).toLowerCase()) {
+        case "filter": return TranslationManager.translate("recipes.wizard.profileBeverage.filter", "Filter")
+        case "pourover": return TranslationManager.translate("recipes.wizard.profileBeverage.pourover", "Pour-over")
+        case "tea_portafilter": return TranslationManager.translate("recipes.wizard.profileBeverage.tea", "Tea")
+        }
+        return ""
+    }
+
+    // Resolve the picked profile's object (installed by title, else the
+    // embedded JSON fallback) — the same ladder refreshProfileTemp uses.
+    function resolveProfileObj() {
+        if (fProfileTitle === "")
+            return null
+        var fn = ProfileManager.findProfileByTitle(fProfileTitle)
+        if (fn && fn !== "")
+            return ProfileManager.getProfileByFilename(fn)
+        if (fProfileJson !== "") {
+            try { return JSON.parse(fProfileJson) } catch (e) { return null }
+        }
+        return null
+    }
+
+    // A concise pressure/flow SHAPE summary from the profile's frames — frame
+    // count plus peak pressure / max flow across steps. Profile-owned detail
+    // the recipe never overrides.
+    function summaryProfileShape() {
+        var d = resolveProfileObj()
+        if (!d)
+            return ""
+        var steps = d.steps || []
+        if (steps.length === 0)
+            return ""
+        var maxP = 0, maxF = 0
+        for (var i = 0; i < steps.length; ++i) {
+            var p = Number(steps[i].pressure) || 0
+            var f = Number(steps[i].flow) || 0
+            if (p > maxP) maxP = p
+            if (f > maxF) maxF = f
+        }
+        var bits = [TranslationManager.translate("recipes.wizard.profileShape.frames", "%1 frames").arg(steps.length)]
+        if (maxP > 0)
+            bits.push(TranslationManager.translate("recipes.wizard.profileShape.peakPressure", "peak %1 bar").arg(maxP.toFixed(1)))
+        if (maxF > 0)
+            bits.push(TranslationManager.translate("recipes.wizard.profileShape.maxFlow", "max %1 ml/s").arg(maxF.toFixed(1)))
+        return bits.join(" · ")
     }
 
     // Revert the numbers to the profile's own values (the card's "Reset to
@@ -975,11 +1210,12 @@ Page {
     }
 
     function applyDetailsPrefill() {
-        // Prefilled = optional: the numbers and grind cards open COLLAPSED
-        // to their summaries (they only need attention when nothing could be
-        // prefilled — no dose/yield anywhere, or no grind default to offer).
-        numbersCard.expanded = false
-        grindCard.expanded = activeTemplate.grind && grindField.text.trim() === ""
+        // The creation walk reaches details here — start at the first window
+        // (equipment), then Continue walks numbers → steam/water → summary.
+        _detailsPage = "equipment"
+        MainController.equipmentStorage.requestInventory()
+        // Each window shows its fields expanded and ready (one facet per
+        // window now — no collapse-to-summary).
         // Profile/bag seeds run synchronously so the details step is never
         // blank; the shot-history tier lands async via
         // latestShotForBeanProfileReady and OVERWRITES them (history that
@@ -1022,10 +1258,6 @@ Page {
         grindHint = ""
         if (activeTemplate.grind && (hasBean || _selectedBagRoastLevel !== ""))
             MainController.shotHistory.requestLatestGrindForBean(fRoaster, fCoffee, _selectedBagRoastLevel)
-        // Nothing could be prefilled → open the numbers card so the step
-        // isn't a dead end (hot-water tea needs no numbers at all).
-        if (doseField.text === "" && yieldField.text === "" && !isHotWaterTea)
-            numbersCard.expanded = true
     }
 
     // --- profile ranking ----------------------------------------------------
@@ -1051,6 +1283,10 @@ Page {
             MainController.shotHistory.requestRankedProfilesForBean(fRoaster, fCoffee, roastLevel, teaType)
     }
     property string _selectedBagRoastLevel: ""
+    // The linked bag's roast date, kept alongside the roast level so the
+    // summary Bean card can render "<date> · <age>d" (the same line the bean
+    // step's tiles show). Resolved from inventory / direct selection.
+    property string _selectedBagRoastDate: ""
 
     function rebuildProfileModel() {
         var filter = profileFilter.trim().toLowerCase()
@@ -1346,6 +1582,10 @@ Page {
 
     property var _bags: []
     property var _packages: []
+    // The full flattened map of the recipe's linked equipment package (from
+    // EquipmentPackageView.toVariantMap) — feeds the summary Equipment card's
+    // EquipmentSummary. Empty until inventory resolves / a package is picked.
+    property var _selectedPackage: ({})
     Connections {
         target: MainController.bagStorage
         function onInventoryReady(bags) {
@@ -1365,6 +1605,7 @@ Page {
                         wizardPage.fBagGrindDefault = b.grinderSetting || ""
                         wizardPage.fBagRpmDefault = b.rpm || 0
                         wizardPage._selectedBagRoastLevel = b.roastLevel || ""
+                        wizardPage._selectedBagRoastDate = b.roastDate || ""
                         if (wizardPage.fBagBlob === "")
                             wizardPage.fBagBlob = b.beanBaseData || ""
                         return
@@ -1386,10 +1627,12 @@ Page {
                             || ((packages[i].grinderBrand || "") + " " + (packages[i].grinderModel || "")).trim()
                             || ((packages[i].basketBrand || "") + " " + (packages[i].basketModel || "")).trim()
                         wizardPage.fEquipmentRpmCapable = !!packages[i].rpmCapable
+                        wizardPage._selectedPackage = packages[i]
                         return
                     }
                 }
                 wizardPage.fEquipmentRpmCapable = false
+                wizardPage._selectedPackage = ({})
             }
         }
     }
@@ -1562,52 +1805,109 @@ Page {
         property string label: ""
         property string value: ""
         property string step: ""
+        // Which details window this card edits ("equipment"/"numbers"/
+        // "steam"/"water"); tapping the card jumps straight to that window.
+        property string detailsPage: ""
+        // Optional leading photo (Bean card): a shared BeanThumbnail keyed the
+        // same way the hero / bean-step tiles are.
+        property bool showThumbnail: false
+        property string thumbnailKey: ""
+        property string thumbnailLink: ""
+        property string thumbnailIcon: "qrc:/icons/coffeebeans.svg"
+        property string thumbnailFallback: ""
+        // Optional extra controls in the header, left of the edit glyph (the
+        // Profile card's (i)/KB buttons). They keep their own tap areas, which
+        // win over the card-wide select target below (z:-1 — the profile-tile
+        // pattern).
+        property Component headerActions: null
+        // Optional body content that REPLACES the value Label (the Equipment
+        // card's EquipmentSummary). When null, `value` renders as text.
+        property Component contentComponent: null
+        // Announced value for accessibility when contentComponent is used.
+        property string accessibleValue: value
         Layout.fillWidth: true
         Layout.alignment: Qt.AlignTop
-        implicitHeight: summaryRowColumn.implicitHeight + 2 * Theme.spacingMedium
+        implicitHeight: summaryRowBody.implicitHeight + 2 * Theme.spacingMedium
         radius: Theme.cardRadius
         color: Theme.cardBackgroundColor
         border.color: Theme.borderColor
         border.width: 1
-        ColumnLayout {
-            id: summaryRowColumn
+        RowLayout {
+            id: summaryRowBody
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
             anchors.margins: Theme.spacingMedium
-            spacing: Theme.spacingSmall
-            RowLayout {
+            spacing: Theme.spacingMedium
+            BeanThumbnail {
+                visible: summaryRow.showThumbnail
+                Layout.preferredWidth: Theme.scaled(56)
+                Layout.preferredHeight: Theme.scaled(56)
+                Layout.alignment: Qt.AlignTop
+                imageKey: summaryRow.thumbnailKey
+                link: summaryRow.thumbnailLink
+                fallbackName: summaryRow.thumbnailFallback
+                iconSource: summaryRow.thumbnailIcon
+                iconSize: Theme.scaled(24)
+                imageSourceSize: Theme.scaled(120)
+            }
+            ColumnLayout {
+                id: summaryRowColumn
                 Layout.fillWidth: true
                 spacing: Theme.spacingSmall
-                Label {
+                RowLayout {
                     Layout.fillWidth: true
-                    text: summaryRow.label
-                    font: Theme.subtitleFont
+                    spacing: Theme.spacingSmall
+                    Label {
+                        text: summaryRow.label
+                        font: Theme.subtitleFont
+                        color: Theme.textColor
+                        Accessible.ignored: true
+                    }
+                    Item { Layout.fillWidth: true }
+                    Loader {
+                        active: summaryRow.headerActions !== null
+                        visible: active
+                        Layout.alignment: Qt.AlignVCenter
+                        sourceComponent: summaryRow.headerActions
+                    }
+                    ColoredIcon {
+                        source: "qrc:/icons/edit.svg"
+                        iconWidth: Theme.scaled(16)
+                        iconHeight: Theme.scaled(16)
+                        iconColor: Theme.textSecondaryColor
+                        Accessible.ignored: true
+                    }
+                }
+                Loader {
+                    Layout.fillWidth: true
+                    active: summaryRow.contentComponent !== null
+                    visible: active
+                    sourceComponent: summaryRow.contentComponent
+                }
+                Label {
+                    visible: summaryRow.contentComponent === null
+                    Layout.fillWidth: true
+                    text: summaryRow.value
+                    font: Theme.bodyFont
                     color: Theme.textColor
+                    wrapMode: Text.WordWrap
                     Accessible.ignored: true
                 }
-                ColoredIcon {
-                    source: "qrc:/icons/edit.svg"
-                    iconWidth: Theme.scaled(16)
-                    iconHeight: Theme.scaled(16)
-                    iconColor: Theme.textSecondaryColor
-                    Accessible.ignored: true
-                }
-            }
-            Label {
-                Layout.fillWidth: true
-                text: summaryRow.value
-                font: Theme.bodyFont
-                color: Theme.textColor
-                wrapMode: Text.WordWrap
-                Accessible.ignored: true
             }
         }
+        // Card-wide select target: sits UNDER the header-action buttons (z:-1)
+        // so their taps win, while a tap anywhere else opens the step.
         AccessibleMouseArea {
             anchors.fill: parent
-            accessibleName: summaryRow.label + ", " + summaryRow.value
+            z: -1
+            accessibleName: summaryRow.label + ", " + summaryRow.accessibleValue
             accessibleItem: parent
-            onAccessibleClicked: wizardPage.openStep(summaryRow.step)
+            onAccessibleClicked: {
+                if (summaryRow.step === "details" && summaryRow.detailsPage !== "")
+                    wizardPage._detailsPage = summaryRow.detailsPage
+                wizardPage.openStep(summaryRow.step)
+            }
         }
     }
 
@@ -2172,11 +2472,10 @@ Page {
                             // user hunting for a second Save press.
                             text: wizardPage._enteredAtSummary
                                 ? TranslationManager.translate("recipes.wizard.detailsOptionalEdit",
-                                      "Everything here is optional. "
-                                      + "Tap a section to adjust it, then Save.")
-                                : TranslationManager.translate("recipes.wizard.detailsOptionalReview",
-                                      "Everything here is optional — it's prefilled and ready to save. "
-                                      + "Tap a section to adjust it, then Review.")
+                                      "Everything here is optional — adjust it and Save.")
+                                : TranslationManager.translate("recipes.wizard.detailsWalk",
+                                      "Everything here is optional and prefilled. "
+                                      + "Adjust it if you like, then continue.")
                             font: Theme.captionFont
                             color: Theme.textSecondaryColor
                             wrapMode: Text.WordWrap
@@ -2203,12 +2502,25 @@ Page {
                             visible: !wizardPage._enteredAtSummary
                             Layout.alignment: Qt.AlignVCenter
                             primary: true
-                            // "Review", not "Continue": the next stop is the
-                            // named, WYSIWYG summary with the Save button —
-                            // a label that reads like a commit loses saves.
-                            text: TranslationManager.translate("recipes.wizard.review", "Review")
-                            accessibleName: TranslationManager.translate("recipes.wizard.accessible.review", "Review the recipe before saving")
-                            onClicked: { wizardPage._fromSummary = false; wizardPage.currentStep = "summary" }
+                            // A window opened FROM the summary returns there
+                            // ("Done"); in the creation walk, Continue steps to
+                            // the next window and the LAST one says "Review" —
+                            // the next stop is the named, WYSIWYG summary with
+                            // Save, so it never reads like a commit.
+                            text: wizardPage._fromSummary
+                                ? TranslationManager.translate("common.done", "Done")
+                                : (wizardPage.isLastDetailsPage
+                                    ? TranslationManager.translate("recipes.wizard.review", "Review")
+                                    : TranslationManager.translate("common.continue", "Continue"))
+                            accessibleName: text
+                            onClicked: {
+                                if (wizardPage._fromSummary) {
+                                    wizardPage._fromSummary = false
+                                    wizardPage.currentStep = "summary"
+                                } else {
+                                    wizardPage.detailsAdvance()
+                                }
+                            }
                         }
                     }
 
@@ -2234,15 +2546,20 @@ Page {
                     GridLayout {
                         id: detailsColumn
                         width: parent.width
-                        columns: wizardPage.width >= Theme.scaled(720) ? 2 : 1
+                        // One facet per window now, so a single column keeps each
+                        // window's card(s) full-width — no half-empty row from the
+                        // old 2-column all-in-one step. The numbers window's two
+                        // cards (dose/yield/temp + grind) simply stack.
+                        columns: 1
                         columnSpacing: Theme.spacingMedium
                         rowSpacing: Theme.spacingMedium
 
                         SectionCard {
                             id: numbersCard
-                            collapsible: true
-                            expanded: false
-                            summary: wizardPage.numbersSummary
+                            // The dose/yield/temp/grind window — its own screen,
+                            // so the fields show expanded (no collapse chrome).
+                            visible: wizardPage._detailsPage === "numbers"
+                            collapsible: false
                             // Concrete title: name the fields, not "numbers"
                             // — the collapsed row must explain itself beside
                             // its value summary.
@@ -2484,31 +2801,100 @@ Page {
                         // per-drink-type default; a row, not a step (it rarely
                         // changes once set).
                         SectionCard {
+                            // The equipment window — first in the walk.
+                            visible: wizardPage._detailsPage === "equipment"
                             title: TranslationManager.translate("recipes.composer.sectionEquipment", "Equipment")
                             Label {
                                 Layout.fillWidth: true
                                 text: TranslationManager.translate("recipes.wizard.equipmentHint",
-                                      "Prefilled from the gear you last used for this drink — change it "
-                                      + "only if this recipe uses a different grinder or basket.")
+                                      "Prefilled from the gear you last used for this drink — pick a "
+                                      + "different package only if this recipe uses another grinder or basket.")
                                 font: Theme.captionFont
                                 color: Theme.textSecondaryColor
                                 wrapMode: Text.WordWrap
                             }
-                            PickerField {
+                            // The in-inventory packages as inline, tap-to-select
+                            // tiles (no dialog): the current one is highlighted,
+                            // and "None" clears the link.
+                            Flow {
                                 Layout.fillWidth: true
-                                label: TranslationManager.translate("recipes.composer.equipmentLabel", "Grinder / basket package")
-                                value: wizardPage.fEquipmentId > 0 ? wizardPage.fEquipmentName : ""
-                                placeholder: trNone.text
-                                onActivated: { MainController.equipmentStorage.requestInventory(); equipmentPicker.open() }
+                                spacing: Theme.spacingMedium
+                                Repeater {
+                                    model: wizardPage.equipmentTileModel()
+                                    delegate: Rectangle {
+                                        id: eqTile
+                                        readonly property bool isNone: modelData.isNone === true
+                                        readonly property bool selected: isNone
+                                            ? wizardPage.fEquipmentId <= 0
+                                            : modelData.id === wizardPage.fEquipmentId
+                                        readonly property string tileTitle: isNone ? trNone.text
+                                            : (modelData.name
+                                               || ((modelData.grinderBrand || "") + " " + (modelData.grinderModel || "")).trim()
+                                               || ((modelData.basketBrand || "") + " " + (modelData.basketModel || "")).trim())
+                                        readonly property string tileMeta: {
+                                            if (isNone) return ""
+                                            var parts = []
+                                            var grinder = ((modelData.grinderBrand || "") + " " + (modelData.grinderModel || "")).trim()
+                                            var basket = ((modelData.basketBrand || "") + " " + (modelData.basketModel || "")).trim()
+                                            if (grinder !== "" && grinder !== tileTitle) parts.push(grinder)
+                                            if (basket !== "") parts.push(basket)
+                                            return parts.join(" · ")
+                                        }
+                                        width: Math.min(Theme.scaled(240),
+                                            parent.width > 0 ? parent.width : Theme.scaled(240))
+                                        implicitHeight: eqTileCol.implicitHeight + 2 * Theme.spacingMedium
+                                        radius: Theme.cardRadius
+                                        color: selected ? Qt.alpha(Theme.primaryColor, 0.12) : Theme.cardBackgroundColor
+                                        border.color: selected ? Theme.primaryColor : Theme.borderColor
+                                        border.width: selected ? 2 : 1
+                                        ColumnLayout {
+                                            id: eqTileCol
+                                            anchors.left: parent.left
+                                            anchors.right: parent.right
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            anchors.margins: Theme.spacingMedium
+                                            spacing: Theme.scaled(2)
+                                            Label {
+                                                Layout.fillWidth: true
+                                                text: eqTile.tileTitle
+                                                font: Theme.bodyFont
+                                                color: Theme.textColor
+                                                wrapMode: Text.WordWrap
+                                                maximumLineCount: 2
+                                                elide: Text.ElideRight
+                                                Accessible.ignored: true
+                                            }
+                                            Label {
+                                                visible: eqTile.tileMeta !== ""
+                                                Layout.fillWidth: true
+                                                text: eqTile.tileMeta
+                                                font: Theme.captionFont
+                                                color: Theme.textSecondaryColor
+                                                elide: Text.ElideRight
+                                                Accessible.ignored: true
+                                            }
+                                        }
+                                        AccessibleMouseArea {
+                                            anchors.fill: parent
+                                            accessibleName: eqTile.tileTitle
+                                                + (eqTile.tileMeta !== "" ? ", " + eqTile.tileMeta : "")
+                                                + (eqTile.selected
+                                                    ? ", " + TranslationManager.translate("common.selected", "selected") : "")
+                                            accessibleItem: eqTile
+                                            onAccessibleClicked: wizardPage.selectEquipment(eqTile.isNone ? null : modelData)
+                                        }
+                                    }
+                                }
                             }
                         }
 
                         SectionCard {
                             id: grindCard
-                            visible: wizardPage.activeTemplate.grind
-                            collapsible: true
-                            expanded: false
-                            summary: wizardPage.grindSummary
+                            // Grind rides with the numbers window — after
+                            // equipment, so the rpm field's grinder gate is set.
+                            // Shown expanded (its own screen, no collapse).
+                            visible: wizardPage.activeTemplate.grind && wizardPage._detailsPage === "numbers"
+                            collapsible: false
                             title: TranslationManager.translate("recipes.composer.grindLabel", "Grind")
                             Label {
                                 visible: wizardPage.hasBean
@@ -2584,7 +2970,8 @@ Page {
                         // (whose preset carries steam time/flow/temperature)
                         // and the milk INTENT, which drives the heater hold.
                         SectionCard {
-                            visible: wizardPage.fHasMilk
+                            // The steam window (milk drinks).
+                            visible: wizardPage.fHasMilk && wizardPage._detailsPage === "steam"
                             title: TranslationManager.translate("recipes.composer.sectionSteam", "Steam")
                             Label {
                                 Layout.fillWidth: true
@@ -2609,7 +2996,8 @@ Page {
                         // Hot-water block (americano/long black/hot-water tea
                         // templates, or added on the summary).
                         SectionCard {
-                            visible: wizardPage.fHasWater
+                            // The hot-water window.
+                            visible: wizardPage.fHasWater && wizardPage._detailsPage === "water"
                             title: TranslationManager.translate("recipes.composer.sectionHotWater", "Hot water")
                             PickerField {
                                 Layout.fillWidth: true
@@ -2745,40 +3133,101 @@ Page {
                             label: wizardPage.isTeaDrink
                                 ? TranslationManager.translate("recipes.wizard.rowTea", "Tea")
                                 : TranslationManager.translate("recipes.wizard.rowBean", "Bean")
+                            showThumbnail: wizardPage.hasBean
+                            thumbnailKey: wizardPage.fBeanBaseId !== ""
+                                ? wizardPage.fBeanBaseId
+                                : (wizardPage.fBagId > 0 ? "bag-" + wizardPage.fBagId : "")
+                            thumbnailLink: wizardPage.bagImageLink()
+                            thumbnailFallback: wizardPage.fCoffee
+                            thumbnailIcon: wizardPage.isTeaDrink
+                                ? "qrc:/icons/tea.svg" : "qrc:/icons/coffeebeans.svg"
                             value: wizardPage.hasBean
-                                ? (wizardPage.fRoaster + " " + wizardPage.fCoffee).trim()
+                                ? wizardPage.summaryBeanValue()
                                 : (wizardPage.isTeaDrink ? trNoTea.text : trNoBean.text)
                             step: "bean"
                         }
                         SummaryRow {
+                            id: profileSummaryRow
                             visible: !wizardPage.isHotWaterTea
                             label: TranslationManager.translate("recipes.wizard.rowProfile", "Profile")
-                            value: wizardPage.fProfileTitle !== "" ? wizardPage.fProfileTitle : "—"
+                            value: wizardPage.summaryProfileValue()
+                            accessibleValue: wizardPage.fProfileTitle !== "" ? wizardPage.fProfileTitle : "—"
                             step: "profile"
+                            // The two info affordances the profile-step tiles
+                            // offer — the sparkle KB popup and the Profile Info
+                            // page — reachable without leaving the summary.
+                            headerActions: RowLayout {
+                                spacing: Theme.spacingSmall
+                                readonly property string profileFilename:
+                                    wizardPage.fProfileTitle !== ""
+                                        ? ProfileManager.findProfileByTitle(wizardPage.fProfileTitle) : ""
+                                readonly property bool hasKb: {
+                                    if (wizardPage.fProfileTitle === "") return false
+                                    var info = ProfileManager.profileCatalogInfoForTitle(wizardPage.fProfileTitle)
+                                    return info && info.hasKnowledgeBase === true
+                                }
+                                ColoredIcon {
+                                    visible: parent.hasKb
+                                    source: "qrc:/icons/sparkle.svg"
+                                    iconWidth: Theme.scaled(18)
+                                    iconHeight: Theme.scaled(18)
+                                    iconColor: Theme.textSecondaryColor
+                                    Accessible.ignored: true
+                                    AccessibleMouseArea {
+                                        anchors.fill: parent
+                                        anchors.margins: Theme.scaled(-6)
+                                        accessibleName: TranslationManager.translate(
+                                            "profileselector.accessible.view_knowledge",
+                                            "View AI knowledge base")
+                                        accessibleItem: parent
+                                        onAccessibleClicked:
+                                            wizardKnowledgeDialog.openFor(wizardPage.fProfileTitle)
+                                    }
+                                }
+                                ProfileInfoButton {
+                                    visible: parent.profileFilename !== ""
+                                    Layout.preferredWidth: Theme.scaled(26)
+                                    Layout.preferredHeight: Theme.scaled(26)
+                                    buttonSize: Theme.scaled(26)
+                                    profileFilename: parent.profileFilename
+                                    profileName: wizardPage.fProfileTitle
+                                    onClicked: pageStack.push(
+                                        Qt.resolvedUrl("ProfileInfoPage.qml"),
+                                        { profileFilename: parent.profileFilename,
+                                          profileName: wizardPage.fProfileTitle })
+                                }
+                            }
+                        }
+                        // Equipment sits ABOVE dose/yield/temp: the grinder must
+                        // be chosen before grind/rpm (the rpm field is gated by
+                        // the grinder's capability), matching the walk order.
+                        SummaryRow {
+                            id: equipmentSummaryRow
+                            label: TranslationManager.translate("recipes.composer.sectionEquipment", "Equipment")
+                            // No package, or one not yet resolved from inventory:
+                            // fall back to the plain name / "None".
+                            value: wizardPage.fEquipmentId > 0 ? wizardPage.fEquipmentName : trNone.text
+                            accessibleValue: value
+                            step: "details"
+                            detailsPage: "equipment"
+                            // A resolved package renders through the shared
+                            // EquipmentSummary — grinder, basket, puck prep —
+                            // but NOT its dial memory (grind/rpm): those are
+                            // recipe-owned and shown on the Dose/yield/temp card.
+                            contentComponent: (wizardPage.fEquipmentId > 0
+                                && wizardPage._selectedPackage
+                                && wizardPage._selectedPackage.id === wizardPage.fEquipmentId)
+                                ? equipmentSummaryComponent : null
                         }
                         SummaryRow {
-                            label: TranslationManager.translate("recipes.wizard.rowDetails", "Details")
-                            value: {
-                                var parts = []
-                                var dose = parseFloat(doseField.text) || 0
-                                var yieldG = parseFloat(yieldField.text) || 0
-                                var ratioV = parseFloat(ratioField.text) || 0
-                                if (wizardPage.fYieldMode === "ratio" && ratioV > 0 && !wizardPage.isHotWaterTea)
-                                    parts.push(dose > 0
-                                        ? dose.toFixed(1) + "g → " + (dose * ratioV).toFixed(1) + "g (1:" + ratioV.toFixed(1) + ")"
-                                        : "1:" + ratioV.toFixed(1))
-                                else if (dose > 0 && yieldG > 0 && !wizardPage.isHotWaterTea)
-                                    parts.push(dose.toFixed(1) + "g → " + yieldG.toFixed(1) + "g")
-                                else if (dose > 0)
-                                    parts.push(dose.toFixed(1) + "g")
-                                if (wizardPage.isTeaDrink && wizardPage.fTeaTempC > 0)
-                                    parts.push(Math.round(wizardPage.fTeaTempC) + "°C")
-                                else if (Math.abs(wizardPage.fTempDeltaC) > 0.05)
-                                    parts.push((wizardPage.fTempDeltaC > 0 ? "+" : "")
-                                               + Theme.cDeltaToDisplay(wizardPage.fTempDeltaC).toFixed(0) + "°")
-                                return parts.length > 0 ? parts.join(" · ") : "—"
-                            }
+                            // Coffee drinks pin a grind; tea does not — keep the
+                            // title honest for each.
+                            label: wizardPage.activeTemplate.grind
+                                ? TranslationManager.translate("recipes.wizard.rowDoseYieldTempGrind", "Dose, yield, temp & grind")
+                                : TranslationManager.translate("recipes.wizard.rowDoseYieldTemp", "Dose, yield & temp")
+                            value: wizardPage.summaryDetailsValue()
                             step: "details"
+                            detailsPage: "numbers"
                         }
                         // Every stored block gets a visible row: a latte's
                         // milk shows ON the summary, not only behind an edit.
@@ -2795,6 +3244,7 @@ Page {
                                 return parts.length > 0 ? parts.join(" · ") : "—"
                             }
                             step: "details"
+                            detailsPage: "steam"
                         }
                         SummaryRow {
                             visible: wizardPage.fHasWater
@@ -2813,11 +3263,7 @@ Page {
                                 return parts.length > 0 ? parts.join(" · ") : "—"
                             }
                             step: "details"
-                        }
-                        SummaryRow {
-                            label: TranslationManager.translate("recipes.composer.sectionEquipment", "Equipment")
-                            value: wizardPage.fEquipmentId > 0 ? wizardPage.fEquipmentName : trNone.text
-                            step: "details"
+                            detailsPage: "water"
                         }
                         }
 
@@ -2878,6 +3324,23 @@ Page {
         id: wizardKnowledgeDialog
     }
 
+    // The summary Equipment card's body — the shared EquipmentSummary fed the
+    // resolved package's identity. Grind setting and rpm are DELIBERATELY not
+    // passed (grindSetting/rpm/rpmCapable left at defaults), so its dial line
+    // stays empty: those are recipe-owned and appear on the Details card.
+    Component {
+        id: equipmentSummaryComponent
+        EquipmentSummary {
+            grinderName: wizardPage._selectedPackage.name || ""
+            grinderBrand: wizardPage._selectedPackage.grinderBrand || ""
+            grinderModel: wizardPage._selectedPackage.grinderModel || ""
+            grinderBurrs: wizardPage._selectedPackage.grinderBurrs || ""
+            basketBrand: wizardPage._selectedPackage.basketBrand || ""
+            basketModel: wizardPage._selectedPackage.basketModel || ""
+            puckPrepCanonical: wizardPage._selectedPackage.puckPrepCanonical || ""
+        }
+    }
+
     // --- Pickers (selection-only dialogs, composer idiom) -------------------
 
     component PickerDialog: Dialog {
@@ -2888,63 +3351,6 @@ Page {
         background: Rectangle { color: Theme.surfaceColor; radius: Theme.cardRadius; border.color: Theme.borderColor; border.width: 1 }
     }
 
-    PickerDialog {
-        id: equipmentPicker
-        contentItem: ListView {
-            clip: true
-            model: [{ isNone: true }].concat(wizardPage._packages)
-            delegate: ItemDelegate {
-                width: ListView.view.width
-                // Preset metadata rides the row: package name plus its
-                // grinder and basket — never name-only.
-                readonly property string rowTitle: modelData.isNone ? trNone.text
-                    : (modelData.name
-                       || ((modelData.grinderBrand || "") + " " + (modelData.grinderModel || "")).trim()
-                       || ((modelData.basketBrand || "") + " " + (modelData.basketModel || "")).trim())
-                readonly property string rowMeta: {
-                    if (modelData.isNone) return ""
-                    var parts = []
-                    var grinder = ((modelData.grinderBrand || "") + " " + (modelData.grinderModel || "")).trim()
-                    var basket = ((modelData.basketBrand || "") + " " + (modelData.basketModel || "")).trim()
-                    if (grinder !== "" && grinder !== rowTitle) parts.push(grinder)
-                    if (basket !== "" && basket !== rowTitle) parts.push(basket)
-                    return parts.join(" · ")
-                }
-                contentItem: ColumnLayout {
-                    spacing: 0
-                    Label {
-                        Layout.fillWidth: true
-                        text: rowTitle
-                        font: Theme.bodyFont
-                        color: Theme.textColor
-                        elide: Text.ElideRight
-                    }
-                    Label {
-                        visible: rowMeta !== ""
-                        Layout.fillWidth: true
-                        text: rowMeta
-                        font: Theme.captionFont
-                        color: Theme.textSecondaryColor
-                        elide: Text.ElideRight
-                    }
-                }
-                Accessible.role: Accessible.Button
-                Accessible.name: rowTitle + (rowMeta !== "" ? ", " + rowMeta : "")
-                onClicked: {
-                    if (modelData.isNone) {
-                        wizardPage.fEquipmentId = 0
-                        wizardPage.fEquipmentName = ""
-                        wizardPage.fEquipmentRpmCapable = false
-                    } else {
-                        wizardPage.fEquipmentId = modelData.id
-                        wizardPage.fEquipmentName = rowTitle
-                        wizardPage.fEquipmentRpmCapable = !!modelData.rpmCapable
-                    }
-                    equipmentPicker.close()
-                }
-            }
-        }
-    }
 
     PickerDialog {
         id: pitcherPicker
