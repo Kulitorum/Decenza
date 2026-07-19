@@ -125,6 +125,28 @@ struct McpTestFixture {
 
         if (!responded)
             qWarning() << "callAsyncTool timed out waiting for response";
+
+        // NOTE on a leak that is NOT explained by this loop.
+        //
+        // tst_mcptools_write leaks 6540 bytes / 70 allocations under
+        // LeakSanitizer, with our frames at mcptools_write.cpp:1775, :1792,
+        // :1826, :1832, :1947 and :537 — the QThread::create sites in the
+        // headless static-fallback paths.
+        //
+        // Two explanations were proposed and BOTH are wrong, recorded so the
+        // next person does not spend the time again:
+        //
+        //   1. "There is no event loop, so deleteLater never runs." False —
+        //      the loop above is one.
+        //   2. "The loop returns the instant the response lands, before
+        //      QThread::finished fires, so the queued deleteLater is never
+        //      delivered." Plausible, and tested: draining events for 250 ms
+        //      here plus an explicit sendPostedEvents(DeferredDelete) changed
+        //      the leak by exactly ZERO bytes. Reverted rather than kept, since
+        //      a fix that does nothing is worse than none — it looks handled.
+        //
+        // Still open. LeakSanitizer only runs on Linux (not macOS), so this is
+        // only reproducible in the nightly ASan job.
         return result;
     }
 
