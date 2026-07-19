@@ -2808,9 +2808,21 @@ int main(int argc, char *argv[])
             qDebug() << "Refractometer reconnect: already connected, stopping retries";
             return;
         }
-        qDebug().noquote() << QString("[R2-diag] reconnect tick attempt=%1 isRefractometerConnected=%2 — will scan")
-            .arg(refractometerReconnectAttempt + 1)
-            .arg(bleManager.isRefractometerConnected() ? QStringLiteral("true") : QStringLiteral("false"));
+        // BLE off (simulator mode) means tryDirectConnectToRefractometer below
+        // returns without scanning, so ticking is pure noise: it announced an
+        // attempt, wrote a user-visible "R2 auto-reconnect attempt N" line, and
+        // then did nothing — once a minute, forever. Stop instead, and let the
+        // disabledChanged handler re-arm when BLE comes back. Same shape as the
+        // two guards above, which also stop rather than reschedule.
+        if (bleManager.isDisabled()) {
+            qDebug() << "Refractometer reconnect: BLE disabled (simulator mode), "
+                        "pausing retries until BLE is re-enabled";
+            return;
+        }
+        // Past every guard, so this really does scan. It previously said
+        // "— will scan" before the disabled check existed, and then no-op'd.
+        qDebug().noquote() << QString("[R2-diag] reconnect tick attempt=%1 — scanning")
+            .arg(refractometerReconnectAttempt + 1);
         qDebug() << "Refractometer reconnect: attempt" << (refractometerReconnectAttempt + 1);
         // Bounded ramp only in the user-visible log (the 60s tail is endless).
         if (refractometerReconnectAttempt < static_cast<int>(reconnectDelays.size())) {
@@ -2849,6 +2861,25 @@ int main(int argc, char *argv[])
             qDebug() << "Refractometer reconnect: scheduled first retry in"
                      << reconnectDelays[0] << "ms";
         }
+    });
+
+    // Re-arm the R2 reconnect when BLE comes back, because the tick above stops
+    // (rather than reschedules) while BLE is disabled. Without this, turning
+    // simulator mode off would leave a saved R2 unreachable until the next app
+    // start — the timer having quietly retired the last time it fired.
+    QObject::connect(&bleManager, &BLEManager::disabledChanged,
+                     [&bleManager, &settings, &refractometerReconnectTimer,
+                      &refractometerReconnectAttempt, &reconnectDelays]() {
+        if (bleManager.isDisabled())
+            return;
+        if (settings.savedRefractometerAddress().isEmpty()
+            || bleManager.isRefractometerConnected()
+            || refractometerReconnectTimer.isActive())
+            return;
+        refractometerReconnectAttempt = 0;
+        refractometerReconnectTimer.start(reconnectDelays[0]);
+        qDebug() << "Refractometer reconnect: BLE re-enabled, resuming retries in"
+                 << reconnectDelays[0] << "ms";
     });
 
     // Auto-reconnect refractometer on startup. tryDirectConnect kicks one
