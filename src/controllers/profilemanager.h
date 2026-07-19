@@ -187,6 +187,13 @@ public:
     Q_INVOKABLE void markProfileClean();
     Q_INVOKABLE QString titleToFilename(const QString& title) const;
     Q_INVOKABLE QString findProfileByTitle(const QString& title) const;
+    // Installed-catalog metadata for a profile title, for read-only display
+    // surfaces (e.g. the recipe wizard's Profile summary card) that want the
+    // scan-time metadata without a per-call file read. Returns an empty map
+    // when the title isn't installed. Keys: filename, title, editorType
+    // ("dflow"/"aflow"/"pressure"/"flow"/"advanced"), beverageType,
+    // hasKnowledgeBase (bool), espressoTemperatureC, targetWeightG.
+    Q_INVOKABLE QVariantMap profileCatalogInfoForTitle(const QString& title) const;
     Q_INVOKABLE bool profileExists(const QString& filename) const;
     Q_INVOKABLE bool isProfileInSelectedList(const QString& filename) const;
     Q_INVOKABLE void loadAutoLoadProfileIfNeeded();
