@@ -1368,7 +1368,7 @@ Dialog {
                     BeanDateField {
                         id: roastDateField
                         labelKey: "changebeans.form.roastDate"
-                        labelFallback: "Roasted:"
+                        labelFallback: "Roasted"
                         value: root.fRoastDate
                         fieldAccessibleName: TranslationManager.translate("changebeans.form.roastDate.accessible", "Roast date, optional.")
                         calendarAccessibleName: TranslationManager.translate("changebeans.form.roastDate.openCalendar", "Open calendar to pick roast date")
@@ -1382,7 +1382,7 @@ Dialog {
                     FieldRow {
                         visible: !root.isTea
                         labelKey: "changebeans.form.roastLevel"
-                        labelFallback: "Roast level:"
+                        labelFallback: "Roast level"
 
                         StyledComboBox {
                             id: roastLevelCombo
@@ -1496,7 +1496,7 @@ Dialog {
 
                         DetailField {
                             id: urlField
-                            labelKey: "changebeans.form.url"; labelFallback: "URL:"
+                            labelKey: "changebeans.form.url"; labelFallback: "URL"
                             accessibleText: TranslationManager.translate("changebeans.form.url.accessible", "Roaster product page URL")
                             value: root.fLink
                             onEdited: function(t) { root.fLink = t }
@@ -1543,14 +1543,14 @@ Dialog {
 
                         DetailField {
                             id: originField
-                            labelKey: "changebeans.details.origin"; labelFallback: "Origin:"
+                            labelKey: "beanbase.details.origin"; labelFallback: "Origin"
                             accessibleText: TranslationManager.translate("beanbase.details.origin", "Origin")
                             value: root.fOrigin
                             onEdited: function(t) { root.fOrigin = t }
                         }
                         DetailField {
                             id: regionField
-                            labelKey: "changebeans.details.region"; labelFallback: "Region:"
+                            labelKey: "beanbase.details.region"; labelFallback: "Region"
                             accessibleText: TranslationManager.translate("beanbase.details.region", "Region")
                             value: root.fRegion
                             onEdited: function(t) { root.fRegion = t }
@@ -1561,49 +1561,49 @@ Dialog {
                         // wizard (temp/dose), so they live here, not in notes.
                         DetailField {
                             visible: root.isTea
-                            labelKey: "changebeans.details.teaType"; labelFallback: "Type:"
+                            labelKey: "changebeans.details.teaType"; labelFallback: "Type"
                             accessibleText: TranslationManager.translate("changebeans.details.teaType.accessible", "Tea type, e.g. black, green, oolong")
                             value: root.fTeaType
                             onEdited: function(t) { root.fTeaType = t }
                         }
                         DetailField {
                             visible: root.isTea
-                            labelKey: "changebeans.details.garden"; labelFallback: "Garden:"
+                            labelKey: "changebeans.details.garden"; labelFallback: "Garden"
                             accessibleText: TranslationManager.translate("changebeans.details.garden.accessible", "Estate or garden")
                             value: root.fGarden
                             onEdited: function(t) { root.fGarden = t }
                         }
                         DetailField {
                             visible: root.isTea
-                            labelKey: "changebeans.details.cultivar"; labelFallback: "Cultivar:"
+                            labelKey: "changebeans.details.cultivar"; labelFallback: "Cultivar"
                             accessibleText: TranslationManager.translate("changebeans.details.cultivar.accessible", "Cultivar")
                             value: root.fCultivar
                             onEdited: function(t) { root.fCultivar = t }
                         }
                         DetailField {
                             visible: root.isTea
-                            labelKey: "changebeans.details.flush"; labelFallback: "Flush:"
+                            labelKey: "changebeans.details.flush"; labelFallback: "Flush"
                             accessibleText: TranslationManager.translate("changebeans.details.flush.accessible", "Harvest or flush")
                             value: root.fFlush
                             onEdited: function(t) { root.fFlush = t }
                         }
                         DetailField {
                             visible: root.isTea
-                            labelKey: "changebeans.details.brewTemp"; labelFallback: "Brew temp (°C):"
+                            labelKey: "changebeans.details.brewTemp"; labelFallback: "Brew temp (°C)"
                             accessibleText: TranslationManager.translate("changebeans.details.brewTemp.accessible", "Vendor brew temperature in Celsius")
                             value: root.fBrewTempC
                             onEdited: function(t) { root.fBrewTempC = t }
                         }
                         DetailField {
                             visible: root.isTea
-                            labelKey: "changebeans.details.leafRatio"; labelFallback: "Leaf (g/100ml):"
+                            labelKey: "changebeans.details.leafRatio"; labelFallback: "Leaf (g/100ml)"
                             accessibleText: TranslationManager.translate("changebeans.details.leafRatio.accessible", "Leaf grams per 100 milliliters of water")
                             value: root.fLeafRatio
                             onEdited: function(t) { root.fLeafRatio = t }
                         }
                         DetailField {
                             visible: root.isTea
-                            labelKey: "changebeans.details.steepTime"; labelFallback: "Steep time:"
+                            labelKey: "changebeans.details.steepTime"; labelFallback: "Steep time"
                             accessibleText: TranslationManager.translate("changebeans.details.steepTime.accessible", "Steep time, e.g. 3 to 5 minutes")
                             value: root.fSteepTime
                             onEdited: function(t) { root.fSteepTime = t }
@@ -1612,7 +1612,7 @@ Dialog {
                         DetailField {
                             id: farmField
                             visible: !root.isTea
-                            labelKey: "changebeans.details.farm"; labelFallback: "Farm:"
+                            labelKey: "beanbase.details.farm"; labelFallback: "Farm"
                             accessibleText: TranslationManager.translate("beanbase.details.farm", "Farm")
                             value: root.fFarm
                             onEdited: function(t) { root.fFarm = t }
@@ -1620,7 +1620,7 @@ Dialog {
                         DetailField {
                             id: producerField
                             visible: !root.isTea
-                            labelKey: "changebeans.details.producer"; labelFallback: "Producer:"
+                            labelKey: "beanbase.details.producer"; labelFallback: "Producer"
                             accessibleText: TranslationManager.translate("beanbase.details.producer", "Producer")
                             value: root.fProducer
                             onEdited: function(t) { root.fProducer = t }
@@ -1628,14 +1628,14 @@ Dialog {
                         DetailField {
                             id: varietyField
                             visible: !root.isTea
-                            labelKey: "changebeans.details.variety"; labelFallback: "Variety:"
+                            labelKey: "beanbase.details.variety"; labelFallback: "Variety"
                             accessibleText: TranslationManager.translate("beanbase.details.variety", "Variety")
                             value: root.fVariety
                             onEdited: function(t) { root.fVariety = t }
                         }
                         DetailField {
                             id: elevationField
-                            labelKey: "changebeans.details.elevation"; labelFallback: "Elevation:"
+                            labelKey: "beanbase.details.elevation"; labelFallback: "Elevation"
                             accessibleText: TranslationManager.translate("beanbase.details.elevation", "Elevation")
                             value: root.fElevation
                             onEdited: function(t) { root.fElevation = t }
@@ -1643,7 +1643,7 @@ Dialog {
                         DetailField {
                             id: processField
                             visible: !root.isTea
-                            labelKey: "changebeans.details.process"; labelFallback: "Process:"
+                            labelKey: "beanbase.details.process"; labelFallback: "Process"
                             accessibleText: TranslationManager.translate("beanbase.details.process", "Process")
                             value: root.fProcess
                             onEdited: function(t) { root.fProcess = t }
@@ -1651,28 +1651,28 @@ Dialog {
                         DetailField {
                             id: harvestField
                             visible: !root.isTea
-                            labelKey: "changebeans.details.harvest"; labelFallback: "Harvest:"
+                            labelKey: "beanbase.details.harvest"; labelFallback: "Harvest"
                             accessibleText: TranslationManager.translate("beanbase.details.harvest", "Harvest")
                             value: root.fHarvest
                             onEdited: function(t) { root.fHarvest = t }
                         }
                         DetailField {
                             id: qualityScoreField
-                            labelKey: "changebeans.details.qualityScore"; labelFallback: "Quality score:"
+                            labelKey: "beanbase.details.qualityScore"; labelFallback: "Quality score"
                             accessibleText: TranslationManager.translate("beanbase.details.qualityScore", "Quality score")
                             value: root.fQualityScore
                             onEdited: function(t) { root.fQualityScore = t }
                         }
                         DetailField {
                             id: placeOfPurchaseField
-                            labelKey: "changebeans.details.placeOfPurchase"; labelFallback: "Purchased at:"
+                            labelKey: "beanbase.details.placeOfPurchase"; labelFallback: "Purchased at"
                             accessibleText: TranslationManager.translate("beanbase.details.placeOfPurchase", "Purchased at")
                             value: root.fPlaceOfPurchase
                             onEdited: function(t) { root.fPlaceOfPurchase = t }
                         }
                         DetailField {
                             id: tastingNotesField
-                            labelKey: "changebeans.details.tastingNotes"; labelFallback: "Tasting notes:"
+                            labelKey: "beanbase.details.tastingNotes"; labelFallback: "Tasting notes"
                             accessibleText: TranslationManager.translate("beanbase.details.tastingNotes", "Tasting notes")
                             value: root.fTastingNotes
                             onEdited: function(t) { root.fTastingNotes = t }
@@ -1723,7 +1723,7 @@ Dialog {
                         id: frozenDateField
                         visible: root.fFreeze
                         labelKey: "changebeans.form.frozenDate"
-                        labelFallback: "Frozen:"
+                        labelFallback: "Frozen"
                         value: root.fFrozenDate
                         fieldAccessibleName: TranslationManager.translate("changebeans.form.frozenDate.accessible", "Frozen date.")
                         calendarAccessibleName: TranslationManager.translate("changebeans.form.frozenDate.openCalendar", "Open calendar to pick frozen date")
@@ -1736,7 +1736,7 @@ Dialog {
                         id: defrostDateField
                         visible: root.fFreeze && root.formMode === "edit"
                         labelKey: "changebeans.form.defrostDate"
-                        labelFallback: "Defrosted:"
+                        labelFallback: "Defrosted"
                         value: root.fDefrostDate
                         fieldAccessibleName: TranslationManager.translate("changebeans.form.defrostDate.accessible", "Defrost date, optional.")
                         calendarAccessibleName: TranslationManager.translate("changebeans.form.defrostDate.openCalendar", "Open calendar to pick defrost date")
@@ -1751,7 +1751,7 @@ Dialog {
                     // frozen-ness, so the two can never disagree. ---
                     FieldRow {
                         labelKey: "changebeans.form.storageHint"
-                        labelFallback: "Out of freezer:"
+                        labelFallback: "Out of freezer"
 
                         StyledComboBox {
                             id: storageHintCombo
@@ -1780,7 +1780,7 @@ Dialog {
                         id: openedDateField
                         visible: root.formMode === "edit"
                         labelKey: "changebeans.form.openedDate"
-                        labelFallback: "Opened:"
+                        labelFallback: "Opened"
                         value: root.fOpenedDate
                         fieldAccessibleName: TranslationManager.translate("changebeans.form.openedDate.accessible", "Opened date, optional.")
                         calendarAccessibleName: TranslationManager.translate("changebeans.form.openedDate.openCalendar", "Open calendar to pick opened date")
@@ -1792,7 +1792,7 @@ Dialog {
                     FieldRow {
                         visible: !root.isTea
                         labelKey: "changebeans.form.grindSetting"
-                        labelFallback: "Grind:"
+                        labelFallback: "Grind"
 
                         StyledTextField {
                             id: grindSettingInput
@@ -1806,7 +1806,7 @@ Dialog {
                     // RPM dial-in — only when the bag's grinder is rpm-adjustable.
                     FieldRow {
                         labelKey: "changebeans.form.rpm"
-                        labelFallback: "RPM:"
+                        labelFallback: "RPM"
                         visible: root.fEquipmentRpmCapable && !root.isTea
 
                         StyledTextField {
@@ -1824,7 +1824,7 @@ Dialog {
                     // info button to see the package's contents.
                     FieldRow {
                         labelKey: "changebeans.form.equipment"
-                        labelFallback: "Equipment:"
+                        labelFallback: "Equipment"
 
                         Text {
                             Layout.fillWidth: true
@@ -1835,7 +1835,7 @@ Dialog {
                             font: Theme.bodyFont
                             color: root.fEquipmentLabel.length > 0 ? Theme.textColor : Theme.textSecondaryColor
                             Accessible.role: Accessible.StaticText
-                            Accessible.name: TranslationManager.translate("changebeans.form.equipment", "Equipment:") + " " + text
+                            Accessible.name: TranslationManager.translate("changebeans.form.equipment", "Equipment") + " " + text
                         }
                         AccessibleButton {
                             visible: root.fEquipmentId > 0
@@ -1854,7 +1854,7 @@ Dialog {
 
                     FieldRow {
                         labelKey: "changebeans.form.dose"
-                        labelFallback: "Dose:"
+                        labelFallback: "Dose"
 
                         StyledTextField {
                             id: doseInput
@@ -1936,7 +1936,7 @@ Dialog {
 
                         FieldRow {
                             labelKey: "changebeans.form.notes"
-                            labelFallback: "Notes:"
+                            labelFallback: "Notes"
 
                             StyledTextField {
                                 id: notesInput
@@ -1981,9 +1981,20 @@ Dialog {
         Layout.rightMargin: Theme.scaled(20)
         spacing: Theme.scaled(6)
 
-        Tr {
-            key: labelKey
-            fallback: labelFallback
+        // The colon is PUNCTUATION, not part of the label, so it is appended here rather than
+        // baked into each translated string.
+        //
+        // It used to live in the fallback text, which meant this dialog needed its own copy of
+        // every label ("Origin:") separate from the details popup's ("Origin"). Two keys, two
+        // English strings, one concept — and because the AI cache is keyed by English, each was
+        // translated independently. On a real machine that produced German showing
+        // "Aufbereitung:" here and "Prozess" in the popup, and "Varietät:" against "Sorte": the
+        // same field, two different words, on adjacent screens. Any language can diverge this
+        // way and every translator pays for the duplicate.
+        //
+        // One key, one English, colon added at render time. The divergence cannot recur.
+        Text {
+            text: TranslationManager.translate(labelKey, labelFallback) + ":"
             font: Theme.bodyFont
             color: Theme.textSecondaryColor
             Layout.alignment: Qt.AlignVCenter
