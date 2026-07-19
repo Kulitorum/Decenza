@@ -52,16 +52,15 @@ Item {
             Layout.preferredWidth: ratioValue.implicitWidth + Theme.spacingMedium * 2
             Layout.preferredHeight: Theme.scaled(32)
             radius: height / 2
-            // Over a background image the solid capsule reads as an opaque chip on
-            // the photo; render it transparent so the ratio sits on the background
-            // like the Beans/Milk widgets. Otherwise use a zone-appropriate chip
-            // fill (Theme.zoneChipColor): a light capsule on the accentBar, a themed
+            // Always a visible chip: this pill is tappable (opens the ratio chooser),
+            // so it must read as a button — not a plain readout like Beans/Milk. Over
+            // a background image use the same neutral glass scrim as the Sleep/Quit
+            // buttons (Theme.actionButtonFill); otherwise a zone-appropriate solid
+            // chip (Theme.zoneChipColor): a light capsule on the accentBar, a themed
             // surface chip elsewhere so it isn't a white capsule in dark mode.
             readonly property bool hasBackgroundImage: Settings.theme.backgroundImagePath.length > 0
-            readonly property color pillFill: Theme.zoneChipColor(root.zoneStyle)
-            color: hasBackgroundImage
-                ? "transparent"
-                : (ratioMa.pressed ? Qt.darker(pillFill, 1.15) : pillFill)
+            readonly property color pillFill: Theme.actionButtonFill(Theme.zoneChipColor(root.zoneStyle))
+            color: ratioMa.pressed ? Qt.darker(pillFill, 1.15) : pillFill
 
             Accessible.role: Accessible.Button
             Accessible.name: root.labelText + " " + root.ratioText + ". "
@@ -73,10 +72,9 @@ Item {
                 id: ratioValue
                 anchors.centerIn: parent
                 text: root.ratioText
-                // Pill fill is the zone text color (light on an accentBar zone);
-                // accent-colored text reads against it in the intended placements.
-                // Over a background image the pill is transparent, so the base
-                // color becomes the zone text color to read against the photo.
+                // Accent-blue value reads against the solid chip; over a background
+                // image the chip is the neutral glass scrim, so the value uses the
+                // light zone text color (like the Sleep/Quit labels on their glass).
                 // Override-highlight when the session deviates from the active
                 // recipe's/bag's stored spec — consistent with the Brew Settings
                 // rows and the Shot Plan — and wins in both modes.
