@@ -241,6 +241,40 @@ if(ENABLE_ASAN OR (NOT CMAKE_CONFIGURATION_TYPES AND CMAKE_BUILD_TYPE STREQUAL "
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address -fno-omit-frame-pointer")
         set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address")
         set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fsanitize=address")
+
+        # GCC + ASan only: -Wmaybe-uninitialized becomes unreliable and must
+        # not be an error in this one configuration.
+        #
+        # Found by the first nightly ASan run, which failed to BUILD while the
+        # UBSan leg — same compiler, same flags, same commit — succeeded. The
+        # diagnostic fires on `s.lastShot = WidgetLastShot{...}` where
+        # `lastShot` is a default-constructed (disengaged) std::optional:
+        #
+        #   error: '((char16_t**)((char*)&s + offsetof(WidgetSnapshot,
+        #   ...std::_Optional_payload_base<WidgetLastShot>::_M_payload)))[3]'
+        #   may be used uninitialized [-Werror=maybe-uninitialized]
+        #
+        # A disengaged optional's payload bytes ARE uninitialized — that is the
+        # design — and optional's assignment operator constructs into them
+        # without reading them. The claim is false. What makes it appear is
+        # ASan's effect on inlining: GCC's dataflow analysis loses the
+        # engaged-ness guard across the changed inline boundary. Every member of
+        # WidgetLastShot and WidgetSnapshot carries an initializer; there is
+        # nothing to fix in the code.
+        #
+        # Scoped to exactly the configuration where the analysis is wrong. The
+        # plain Linux builds keep -Wmaybe-uninitialized as an error, and they
+        # are the ones that run constantly (37-48 times per fortnight per
+        # platform), so real instances are still caught. Do NOT widen this to
+        # all GCC builds — the warning does find genuine bugs uninstrumented.
+        #
+        # Recorded as a variable rather than applied here: the flag has to land
+        # AFTER the bare -Werror in the warning-policy block below, because GCC
+        # resolves these left-to-right and a later -Werror re-promotes what an
+        # earlier -Wno-error= exempted. See where this is consumed.
+        if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+            set(_gcc_asan_maybe_uninit_exempt TRUE)
+        endif()
     endif()
 endif()
 
@@ -467,6 +501,20 @@ else()
             add_compile_options("-W${_w}")
         endif()
     endforeach()
+
+    # Must be the LAST warning option added: GCC resolves -Werror and
+    # -Wno-error=<name> left-to-right, so a bare -Werror appearing after this
+    # would re-promote the very diagnostic being exempted. Set by the ASan block
+    # above, and only for GCC+ASan — see the long note there for why the
+    # diagnostic is wrong in that one configuration and correct everywhere else.
+    #
+    # -Wno-error=, not -Wno-: the warning is still printed. It is demoted from
+    # fatal, not hidden, so a real instance is still visible in the log.
+    if(_gcc_asan_maybe_uninit_exempt)
+        message(STATUS "GCC+ASan: -Wmaybe-uninitialized demoted to a warning "
+                       "(known std::optional false positive under instrumentation)")
+        add_compile_options(-Wno-error=maybe-uninitialized)
+    endif()
 
     # MEASURED AND DELIBERATELY NOT ENABLED. Re-proposing any of these needs
     # evidence that the instances are defects, not that the flag exists:

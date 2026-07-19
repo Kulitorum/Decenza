@@ -29,6 +29,11 @@ on:
       - 'Windows Build'
       - 'Linux AppImage Build'
       - 'Linux ARM64 AppImage Build'
+      # Added when the sanitizer nightly gained a ccache: it now writes two
+      # timestamped entries a night, so it needs pruning like any other. It is
+      # also in the gate regex below, so a prune cannot run while it is still
+      # building and miss the cache it is about to save.
+      - 'Nightly sanitizers'
     types: [completed]
   # Nearly all builds run on TAG pushes, and GitHub's docs don't clearly
   # guarantee workflow_run fires for tag-triggered runs (no `branches:`
@@ -60,7 +65,7 @@ jobs:
           # cache hasn't been saved yet — pruning now would repeat the old
           # in-build prune's blind spot. Skip; the completion of that run
           # fires this workflow again.
-          BUILD_WORKFLOWS='Android APK Build|iOS App Store Build|macOS Build|Windows Build|Linux AppImage Build|Linux ARM64 AppImage Build'
+          BUILD_WORKFLOWS='Android APK Build|iOS App Store Build|macOS Build|Windows Build|Linux AppImage Build|Linux ARM64 AppImage Build|Nightly sanitizers'
           ACTIVE=$(gh run list --repo "$GITHUB_REPOSITORY" --limit 100 \
             --json workflowName,status \
             --jq '[.[] | select((.status == "in_progress" or .status == "queued"))
@@ -105,6 +110,74 @@ jobs:
                   echo "::warning::Failed to delete cache $key (id $id)"
                 fi
               done
+      # Caches for refs that no longer exist. The step above dedupes WITHIN a
+      # ref and is correct at that job, but it has no concept of a ref that has
+      # ceased to exist: every entry on a deleted branch is the newest of its
+      # (prefix, ref) group, so prune inspects them and rightly finds nothing to
+      # collapse — while the branch was deleted hours ago.
+      #
+      # Measured on 2026-07-19, hours after one feature branch was merged and
+      # deleted: 4436 MB across 12 entries on that dead branch, plus 606 MB on
+      # its merged PR's refs/pull/N/merge — 5.0 GB, HALF the 10 GB cap, held by
+      # refs nothing could ever restore from. The repo sat at 9.91/10 GB and was
+      # LRU-evicting live entries to make room for dead ones.
+      #
+      # GitHub does eventually reclaim these on its own, but "eventually" is not
+      # a schedule, and at 99% of cap the dead entries are actively pushing out
+      # the live ones. Note this is not the same failure as the timestamped
+      # pile-up above; it needed a separate fix because it has a separate cause.
+      #
+      # Deliberately conservative about what counts as dead:
+      #   - branches: only if `git ls-remote` says the ref is gone
+      #   - PRs: only if the PR is CLOSED or MERGED
+      #   - refs/tags/* and anything unrecognised: never touched, since tag
+      #     caches warm release builds and a misfire there is expensive
+      - name: Drop caches for deleted branches and closed PRs
+        if: ${{ steps.gate.outputs.skip == 'false' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          freed=0
+          gh cache list --repo "$GITHUB_REPOSITORY" --limit 500 \
+            --json id,key,ref,sizeInBytes \
+            | jq -r '.[] | "\(.id)\t\(.ref)\t\(.sizeInBytes)\t\(.key)"' \
+            | while IFS=$'\t' read -r id ref size key; do
+                [ -n "$id" ] || continue
+                dead=""
+                case "$ref" in
+                  refs/pull/*/merge)
+                    num=$(echo "$ref" | sed -E 's#refs/pull/([0-9]+)/merge#\1#')
+                    state=$(gh pr view "$num" --repo "$GITHUB_REPOSITORY" \
+                              --json state --jq .state 2>/dev/null || echo "")
+                    case "$state" in
+                      CLOSED|MERGED) dead="PR #$num is $state" ;;
+                    esac
+                    ;;
+                  refs/heads/*)
+                    branch="${ref#refs/heads/}"
+                    # A tag-scoped entry can surface as refs/heads/refs/tags/X;
+                    # ls-remote would report it missing as a branch. Skip those.
+                    case "$branch" in
+                      refs/tags/*) continue ;;
+                    esac
+                    if [ -z "$(git ls-remote --heads \
+                         "https://github.com/$GITHUB_REPOSITORY" "$branch" 2>/dev/null)" ]; then
+                      dead="branch '$branch' no longer exists"
+                    fi
+                    ;;
+                esac
+                if [ -n "$dead" ]; then
+                  mb=$(( size / 1024 / 1024 ))
+                  if gh cache delete "$id" --repo "$GITHUB_REPOSITORY"; then
+                    echo "- deleted \`$key\` (${mb} MB) — $dead" >> "$GITHUB_STEP_SUMMARY"
+                    freed=$(( freed + mb ))
+                  else
+                    echo "::warning::Failed to delete cache $key (id $id)"
+                  fi
+                fi
+              done
+
           gh api "repos/$GITHUB_REPOSITORY/actions/cache/usage" --jq \
             '"Remaining: \(.active_caches_count) caches, \((.active_caches_size_in_bytes/1073741824)*100|round/100) GB / 10 GB cap"' \
             >> "$GITHUB_STEP_SUMMARY" || true

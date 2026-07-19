@@ -39,6 +39,23 @@ on:
     # settled before this writes new cache generations.
     - cron: '23 4 * * *'
   workflow_dispatch:
+    inputs:
+      use_cache:
+        description: 'Use the compiler cache (auto-yields when cache space is tight)'
+        required: false
+        default: true
+        type: boolean
+
+# The sanitizer cache is the FIRST thing that should go when the cache store
+# fills. Nobody waits on this job, so its cache is pure convenience, while the
+# release and Qt caches it would evict are on paths people do wait on.
+#
+# Below this much free space, the job yields: it builds cold AND deletes its own
+# cache entries, handing the space back rather than merely declining to grow.
+# Disabling without reclaiming would leave ~1.2 GB parked while pretending to
+# have helped.
+env:
+  CACHE_HEADROOM_MIN_GB: '2'
 
 permissions:
   contents: read
@@ -103,13 +120,86 @@ jobs:
           cache: true
           cache-key-prefix: 'qt-linux-v4'
 
-      # No ccache, deliberately. Nobody waits on this job, so the only thing a
-      # cache buys is a shorter wall-clock nobody is measuring — paid for in
-      # the scarce resource: the repo sits near 7 GB of GitHub's 10 GB cache
-      # cap, and the least-recently-used entries are the tag-push ones that
-      # keep RELEASE builds warm. Two sanitizer caches would have evicted
-      # those to speed up a job with no reader. A cold build every night is
-      # the correct trade.
+      # ccache, one entry per sanitizer. ASan and UBSan objects never
+      # hash-match, so they cannot share one; hence the matrix value in the key.
+      #
+      # This job originally ran WITHOUT a cache, reasoning that nobody waits on
+      # a nightly and the repo sat near GitHub's 10 GB cap, where two sanitizer
+      # caches would evict the entries keeping release builds warm. The premise
+      # was right and the conclusion was wrong: the cap pressure was not from
+      # live caches at all. Half the store — 5.0 GB — belonged to a deleted
+      # branch and a merged PR. See the dead-ref step in prune-caches.yml,
+      # which now reclaims that automatically.
+      #
+      # With the space back, the trade no longer holds: a cold build costs ~24
+      # minutes to run a 36-second suite (measured 2026-07-19, build 23m50s of
+      # a 25m45s job).
+      - name: Yield the compiler cache when space is tight
+        id: cachefit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MANUAL: ${{ github.event_name == 'workflow_dispatch' && inputs.use_cache || true }}
+          MINE: sanitizers-${{ matrix.sanitizer }}-linux-x86_64
+        run: |
+          set -uo pipefail
+          if [ "$MANUAL" != "true" ]; then
+            echo "use_cache=false" >> "$GITHUB_OUTPUT"
+            echo "Compiler cache disabled by workflow input." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # Sum the cache LIST, not the usage endpoint. The usage endpoint lags:
+          # observed reporting 8.57 GB / 19 entries immediately after a deletion
+          # the list already showed as complete at 5.1 GB / 9 entries. Deciding
+          # on a stale total would keep caching exactly when space ran out.
+          USED=$(gh cache list --repo "$GITHUB_REPOSITORY" --limit 500 \
+                   --json sizeInBytes --jq '[.[].sizeInBytes] | add // 0' 2>/dev/null || echo "")
+          if [ -z "$USED" ]; then
+            # Never fail the sanitizer run over a cache decision.
+            echo "use_cache=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::Could not read cache usage; proceeding with the cache."
+            exit 0
+          fi
+
+          CAP=$((10 * 1024 * 1024 * 1024))
+          FREE=$(( CAP - USED ))
+          MIN=$(( CACHE_HEADROOM_MIN_GB * 1024 * 1024 * 1024 ))
+          FREE_GB=$(awk "BEGIN{printf \"%.2f\", $FREE/1073741824}")
+
+          if [ "$FREE" -ge "$MIN" ]; then
+            echo "use_cache=true" >> "$GITHUB_OUTPUT"
+            echo "Compiler cache in use (${FREE_GB} GB free, need ${CACHE_HEADROOM_MIN_GB} GB)." \
+              >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # Yield: build cold, and hand back what this leg is holding.
+          echo "use_cache=false" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Compiler cache yielded"
+            echo ""
+            echo "Only **${FREE_GB} GB** free (threshold ${CACHE_HEADROOM_MIN_GB} GB)."
+            echo "Building cold and releasing this leg's cache entries."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # Only this leg's own entries — the other sanitizer leg manages its
+          # own, so the two matrix jobs cannot race on the same ids.
+          gh cache list --repo "$GITHUB_REPOSITORY" --limit 500 --json id,key,sizeInBytes \
+            | jq -r --arg mine "$MINE" \
+                '.[] | select(.key | startswith($mine)) | "\(.id)\t\(.sizeInBytes)\t\(.key)"' \
+            | while IFS=$'\t' read -r id size key; do
+                [ -n "$id" ] || continue
+                if gh cache delete "$id" --repo "$GITHUB_REPOSITORY"; then
+                  echo "- released \`$key\` ($(( size / 1024 / 1024 )) MB)" >> "$GITHUB_STEP_SUMMARY"
+                fi
+              done
+
+      - name: Set up ccache
+        uses: ./.github/actions/setup-compiler-cache
+        with:
+          key: sanitizers-${{ matrix.sanitizer }}-linux-x86_64
+          use_cache: ${{ steps.cachefit.outputs.use_cache }}
+          max-size: 600M
 
       - name: Configure CMake
         env:
