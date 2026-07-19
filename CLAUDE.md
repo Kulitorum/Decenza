@@ -61,6 +61,8 @@ Read [`docs/SHOT_REVIEW.md`](https://github.com/Kulitorum/Decenza/blob/main/docs
 
 **Debug builds are sanitizer-instrumented automatically** — ASan *and* UBSan on every desktop platform including macOS, so a normal local test run already reports undefined behaviour and memory errors. UBSan is in recovering mode there (it reports and continues); an explicit `-DENABLE_UBSAN=ON` gives the halting mode CI uses. Release builds are untouched.
 
+**But LeakSanitizer does not exist on macOS, so a green local run says nothing about leaks.** `ASAN_OPTIONS=detect_leaks=1` is refused outright — `AddressSanitizer: detect_leaks is not supported on this platform`. LSan is Linux-only, so on a Mac ASan covers use-after-free, buffer overflow and double-free, and cannot see a leak at all. The nightly Linux ASan job is the only place leaks are detected; it found two the local suite had passed over for months. To chase a leak on macOS use `leaks <pid>` or `MallocStackLogging=1`, not ASan.
+
 ## Project Structure
 
 See `docs/CLAUDE_MD/PROJECT_STRUCTURE.md` for the full source tree, signal/slot flow, scale system, machine phases, AI/MCP overview, and profile pipeline. Top-level: `src/` (C++), `qml/` (UI), `resources/`, `shaders/`, `tests/`, `docs/`, `openspec/`, `android/`, `installer/`.
