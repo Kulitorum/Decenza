@@ -76,6 +76,6 @@ Added after the first clean run. A gate that reports nothing is indistinguishabl
 
 ## 8. Close out
 
-- [ ] 8.1 Verify each spec scenario in `specs/pre-merge-verification/`, `specs/sanitizer-coverage/`, and `specs/compiler-diagnostics/` against the shipped behaviour, including the negative ones (a deliberately broken build fails the job; a deliberately introduced UB fails the job)
+- [~] 8.1 Verify each spec scenario in `specs/pre-merge-verification/`, `specs/sanitizer-coverage/`, and `specs/compiler-diagnostics/` against the shipped behaviour, including the negative ones (a deliberately broken build fails the job; a deliberately introduced UB fails the job)
 - [x] 8.2 Confirm `prune-caches.yml` covers the new workflow, or name it explicitly, so ccache generations do not accumulate against the 10 GB cap
 - [ ] 8.3 Run `/opsx:archive` as the final commit on the feature branch so the archive and spec promotion land inside the PR

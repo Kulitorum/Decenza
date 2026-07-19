@@ -63,6 +63,13 @@ UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
 
 The `integer` group (unsigned overflow, implicit conversions) is deliberately **not** enabled: that is legal C++ which CRC and hashing code wraps on purpose, so it would report intent as a defect.
 
+Two exclusions are forced rather than chosen, and both were found by the pre-merge job failing on Linux against a tree that was clean on macOS:
+
+- **`vptr` is off** (`-fno-sanitize=vptr`). It instruments downcasts through a polymorphic hierarchy and needs the target's typeinfo at link time; `decentscalewifi.cpp` downcasts `QObjectPrivate*` to `QWebSocketPrivate*`, and Qt does not export typeinfo for private classes on Linux. The cost: bad-downcast detection is off everywhere, including for that downcast, whose validity rests on a convention the code's own comment says to re-verify on each Qt upgrade.
+- **Optional checks are probed, not assumed.** `local-bounds` is clang-only and GCC rejects the entire compile. `CMakeLists.txt` uses `check_cxx_compiler_flag` so unsupported checks are dropped per-toolchain — which also covers iOS, Android and Windows without predicting their compilers. If you add a check, add it to that probe list rather than to the flag string.
+
+**ThreadSanitizer does not work here.** Qt ships uninstrumented (`nm -u` on QtCore shows zero `__tsan` symbols), so TSan cannot see the mutexes inside Qt's event queue that establish happens-before between a `Qt::QueuedConnection` poster and its worker. A trial run produced 10,194 reports, 94% of them through Qt's queued-connection machinery — every *correct* cross-thread handoff reads as a race. Making it usable means rebuilding Qt with `-fsanitize=thread`. Don't wire it to CI without that.
+
 **The `sanitizer_canary` test.** Registered only under `ENABLE_UBSAN`, it commits deliberate signed overflow and fails unless the sanitizer both kills the process *and* prints a diagnostic. It exists because a silently-unapplied sanitizer produces exactly the same green suite as a clean codebase — so without it, a gate that has rotted into a no-op is invisible by construction. If it fails, the instrumentation is not reaching the compile/link line; fix that before trusting any other green result.
 
 ### CI
