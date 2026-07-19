@@ -48,7 +48,7 @@ Never: `Settings.<property>` (flat, only valid for properties that remain on `Se
 // Right
 checked: Settings.mqtt.mqttEnabled
 text: Settings.theme.activeThemeName
-onValueModified: Settings.visualizer.defaultShotRating = newValue
+onValueModified: Settings.visualizer.visualizerMinDuration = newValue
 
 // Wrong — silently fails (Settings has no flat mqttEnabled property anymore)
 checked: Settings.mqttEnabled
@@ -100,12 +100,13 @@ Setters on a sub-object can't directly call methods on another domain (they only
 
 ```cpp
 // In Settings::Settings(), after all m_X members are constructed:
-connect(m_visualizer, &SettingsVisualizer::defaultShotRatingChanged, this, [this]() {
-    setDyeEspressoEnjoyment(m_visualizer->defaultShotRating());
+connect(m_calibration, &SettingsCalibration::sawLearningResetRequested, this, [this]() {
+    m_brew->setHotWaterSawOffset(2.0);  // Back to default
+    m_brew->setHotWaterSawSampleCount(0);
 });
 ```
 
-Don't try to inline the cross-call inside the sub-object's setter — `SettingsVisualizer::setDefaultShotRating` doesn't see `setDyeEspressoEnjoyment`, and adding the dependency would couple two domains that have no business knowing about each other.
+Don't try to inline the cross-call inside the sub-object's setter — `SettingsCalibration` doesn't see `SettingsBrew`'s setters, and adding the dependency would couple two domains that have no business knowing about each other.
 
 ### When `connect()` isn't enough: signal-out, then forward
 

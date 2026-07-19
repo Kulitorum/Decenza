@@ -3355,8 +3355,11 @@ void MainController::onShotEnded() {
                     qDebug() << "[metadata] Set dyeDrinkWeight to:" << finalWeight;
 
                     // Reset shot-specific metadata for the next shot
-                    // Bean/grinder info persists (sticky), but per-shot fields reset
-                    m_settings->dye()->setDyeEspressoEnjoyment(m_settings->visualizer()->defaultShotRating());
+                    // Bean/grinder info persists (sticky), but per-shot fields reset.
+                    // Enjoyment resets to 0 (unrated): a shot that hasn't been tasted
+                    // is never auto-rated — the user rates it on the review page or
+                    // via the AI taste intake.
+                    m_settings->dye()->setDyeEspressoEnjoyment(0);
                     m_settings->dye()->setDyeShotNotes("");
                     m_settings->dye()->setDyeDrinkTds(0);
                     m_settings->dye()->setDyeDrinkEy(0);
@@ -3707,8 +3710,8 @@ void MainController::generateFakeShotData() {
                     // Update drink weight
                     m_settings->dye()->setDyeDrinkWeight(pendingFinalWeight);
 
-                    // Reset shot-specific metadata for next shot
-                    m_settings->dye()->setDyeEspressoEnjoyment(m_settings->visualizer()->defaultShotRating());
+                    // Reset shot-specific metadata for next shot (enjoyment 0 = unrated)
+                    m_settings->dye()->setDyeEspressoEnjoyment(0);
                     m_settings->dye()->setDyeShotNotes("");
                     m_settings->dye()->setDyeDrinkTds(0);
                     m_settings->dye()->setDyeDrinkEy(0);

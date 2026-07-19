@@ -274,7 +274,6 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     visualizer["extendedMetadata"] = settings->visualizer()->visualizerExtendedMetadata();
     visualizer["showAfterShot"] = settings->visualizer()->visualizerShowAfterShot();
     visualizer["clearNotesOnStart"] = settings->visualizer()->visualizerClearNotesOnStart();
-    visualizer["defaultShotRating"] = settings->visualizer()->defaultShotRating();
     root["visualizer"] = visualizer;
 
     // AI settings
@@ -760,7 +759,6 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         if (visualizer.contains("extendedMetadata")) settings->visualizer()->setVisualizerExtendedMetadata(visualizer["extendedMetadata"].toBool());
         if (visualizer.contains("showAfterShot")) settings->visualizer()->setVisualizerShowAfterShot(visualizer["showAfterShot"].toBool());
         if (visualizer.contains("clearNotesOnStart")) settings->visualizer()->setVisualizerClearNotesOnStart(visualizer["clearNotesOnStart"].toBool());
-        if (visualizer.contains("defaultShotRating")) settings->visualizer()->setDefaultShotRating(visualizer["defaultShotRating"].toInt());
     }
 
     // AI settings

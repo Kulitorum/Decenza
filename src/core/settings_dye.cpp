@@ -3,7 +3,6 @@
 #include "../history/bagid.h"
 #include "../history/coffeebagstorage.h"
 #include "../history/equipmentstorage.h"
-#include "settings_visualizer.h"
 #include "grinderaliases.h"
 #include "yieldspec.h"
 #include "basketaliases.h"
@@ -11,21 +10,14 @@
 #include <QtMath>
 #include <QDebug>
 
-SettingsDye::SettingsDye(SettingsVisualizer* visualizer, QObject* parent)
+SettingsDye::SettingsDye(QObject* parent)
     : QObject(parent)
 #ifdef DECENZA_TESTING
     , m_settings(Settings::testQSettingsPath(), QSettings::IniFormat)
 #else
     , m_settings("DecentEspresso", "DE1Qt")
 #endif
-    , m_visualizer(visualizer)
 {
-    // The visualizer pointer is required — dyeEspressoEnjoyment() falls back
-    // to defaultShotRating() when no per-shot value is persisted, and a null
-    // visualizer would crash the getter on first read. Settings::Settings()
-    // always passes a fully-constructed instance.
-    Q_ASSERT(m_visualizer);
-
     // NOTE: do NOT seed bean/presets here. The legacy preset array is
     // consumed by ShotHistoryStorage::importLegacyBeanPresets() — re-seeding
     // an empty array would just create churn for the import to retire.
@@ -520,7 +512,9 @@ void SettingsDye::setDyeDrinkEy(double value) {
 }
 
 int SettingsDye::dyeEspressoEnjoyment() const {
-    return m_settings.value("dye/espressoEnjoyment", m_visualizer->defaultShotRating()).toInt();
+    // 0 = unrated. Untasted shots are never auto-rated; the user rates on the
+    // post-shot review page or via the AI taste intake.
+    return m_settings.value("dye/espressoEnjoyment", 0).toInt();
 }
 
 void SettingsDye::setDyeEspressoEnjoyment(int value) {

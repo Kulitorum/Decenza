@@ -98,17 +98,3 @@ void SettingsVisualizer::setVisualizerClearNotesOnStart(bool enabled) {
         emit visualizerClearNotesOnStartChanged();
     }
 }
-
-int SettingsVisualizer::defaultShotRating() const {
-    return m_settings.value("shot/defaultRating", 75).toInt();
-}
-
-void SettingsVisualizer::setDefaultShotRating(int rating) {
-    if (defaultShotRating() != rating) {
-        m_settings.setValue("shot/defaultRating", rating);
-        emit defaultShotRatingChanged();
-        // Cross-domain side effect (sync dye/espressoEnjoyment so the new default
-        // applies to the current shot) is wired in Settings::Settings() via
-        // connect(m_visualizer, &SettingsVisualizer::defaultShotRatingChanged, ...).
-    }
-}

@@ -6,14 +6,13 @@
 #include <QStringList>
 #include <QVariantMap>
 
-class SettingsVisualizer;
 class CoffeeBagStorage;
 class EquipmentStorage;
 
 // DYE (Describe Your Espresso) metadata. Split from Settings to keep
-// settings.h's transitive-include footprint small. Holds a non-owning
-// pointer to SettingsVisualizer so dyeEspressoEnjoyment can fall back to the
-// user-configured defaultShotRating when no per-shot value has been written.
+// settings.h's transitive-include footprint small. An unrated shot carries
+// enjoyment 0 ("unrated") — dyeEspressoEnjoyment defaults to 0 and resets to
+// 0 after each shot save, so untasted shots are never auto-rated.
 //
 // Bean model (bean-bag-inventory): the active coffee bag IS the bean state.
 // The dye/* QSettings keys act as a synchronous write-through cache of the
@@ -97,7 +96,7 @@ class SettingsDye : public QObject {
 
 public:
     // visualizer is non-owning and must outlive this object (Settings owns both).
-    explicit SettingsDye(SettingsVisualizer* visualizer, QObject* parent = nullptr);
+    explicit SettingsDye(QObject* parent = nullptr);
 
     // Non-owning; attached by main.cpp once ShotHistoryStorage has run the
     // migrations. Loads the active bag into the dye cache and subscribes to
@@ -319,7 +318,6 @@ private:
     void applyEquipmentIdentity(const QVariantMap& pkg);
 
     mutable QSettings m_settings;
-    SettingsVisualizer* m_visualizer = nullptr;  // Non-owning; for default-rating fallback.
     CoffeeBagStorage* m_bagStorage = nullptr;    // Non-owning; attached post-init.
     EquipmentStorage* m_equipmentStorage = nullptr; // Non-owning; attached post-init.
 

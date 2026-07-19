@@ -536,7 +536,6 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 {"waterLevelDisplayUnit", QJsonObject{{"type", "string"}, {"description", "Water level display unit"}}},
                 {"useFlowScale", QJsonObject{{"type", "boolean"}, {"description", "Use virtual flow scale"}}},
                 {"screenBrightness", QJsonObject{{"type", "number"}, {"description", "Screen brightness 0.0-1.0"}}},
-                {"defaultShotRating", QJsonObject{{"type", "integer"}, {"description", "Default shot enjoyment rating 0-100"}}},
                 {"launcherMode", QJsonObject{{"type", "boolean"}, {"description", "Enable kiosk/launcher mode (Android only)"}}},
                 {"flowCalibrationMultiplier", QJsonObject{{"type", "number"}, {"description", "Flow calibration multiplier"}}},
                 {"autoFlowCalibration", QJsonObject{{"type", "boolean"}, {"description", "Enable automatic flow calibration"}}},
@@ -961,11 +960,6 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 double v = args["screenBrightness"].toDouble();
                 addSetter([settings, v]() { settings->theme()->setScreenBrightness(v); });
                 updated << "screenBrightness";
-            }
-            if (args.contains("defaultShotRating")) {
-                int v = qBound(0, args["defaultShotRating"].toInt(), 100);
-                addSetter([settings, v]() { settings->visualizer()->setDefaultShotRating(v); });
-                updated << "defaultShotRating";
             }
             if (args.contains("launcherMode")) {
                 bool v = args["launcherMode"].toBool();
