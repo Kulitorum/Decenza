@@ -45,12 +45,21 @@ runs:
       uses: hendrikmuhs/ccache-action@v1.2.23
       with:
         variant: ${{ inputs.variant }}
-        # Cold when this is a manual dispatch that asked for no cache. Any
-        # other trigger (tag push, schedule) is always warm.
+        # Cold whenever the caller says use_cache is false, whatever the
+        # trigger. github.run_id makes the key unique per run so it can never
+        # restore; save: false means it never writes. The tool itself is still
+        # installed, which is the whole point — see the note at the top.
         #
-        # github.run_id makes the key unique per run, so it can never restore;
-        # save: false means it never writes. The tool itself is still installed,
-        # which is the whole point — see the note at the top of this file.
-        key: ${{ (github.event_name == 'workflow_dispatch' && inputs.use_cache == 'false') && format('cold-no-restore-{0}', github.run_id) || inputs.key }}
-        save: ${{ !(github.event_name == 'workflow_dispatch' && inputs.use_cache == 'false') }}
+        # This deliberately does NOT check github.event_name. An earlier version
+        # required `event_name == 'workflow_dispatch'` for the cold branch,
+        # which silently ignored use_cache on every other trigger — so a
+        # SCHEDULED job computing "skip the cache, we are low on space" would
+        # have been overruled and cached anyway. A caller passing a value is
+        # the signal; how the run was triggered is not this action's business.
+        #
+        # Tag pushes stay warm without needing the event check: the release
+        # workflows pass `${{ inputs.use_cache }}`, which is an empty string on
+        # a tag push, and empty is not 'false'.
+        key: ${{ inputs.use_cache == 'false' && format('cold-no-restore-{0}', github.run_id) || inputs.key }}
+        save: ${{ inputs.use_cache != 'false' }}
         max-size: ${{ inputs.max-size }}
