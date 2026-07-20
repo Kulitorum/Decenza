@@ -270,6 +270,37 @@ Page {
         return null
     }
 
+    // An "Off" preset's pill is hidden while steaming, and KeyNavigation silently
+    // refuses to focus an invisible target — Tab then does nothing at all, because
+    // the pills navigate via Keys handlers and so offer no chain to fall through to.
+    // Never target a pill by raw index; ask for one that is actually showing.
+    function firstVisiblePresetPill() {
+        for (var i = 0; i < livePresetRepeater.count; i++) {
+            var pill = livePresetRepeater.itemAt(i)
+            if (pill && pill.visible) return pill
+        }
+        return null
+    }
+
+    function lastVisiblePresetPill() {
+        for (var i = livePresetRepeater.count - 1; i >= 0; i--) {
+            var pill = livePresetRepeater.itemAt(i)
+            if (pill && pill.visible) return pill
+        }
+        return null
+    }
+
+    // What follows the preset pills going forward. The timer view leads into the
+    // -5s/+5s pair (which hide during heating and puffing, leaving the flow slider
+    // as the first stop); the chart view has neither, so focus goes straight to the
+    // action row. Without this the pills jumped over the whole timer column and the
+    // -5s/+5s buttons were reachable only by Shift+Tab.
+    function firstLiveControlAfterPresets() {
+        if (steamViewMode === "timer")
+            return decreaseTimeBtn.visible ? decreaseTimeBtn : steamingFlowSlider
+        return firstLiveActionButton()
+    }
+
     // --- Weight-scaled steaming (calibrated presets) -------------------------
     // Thin QML wrappers over the single source of truth in SettingsBrew, so the
     // scaling math, bounds, clamp, and the weight-timing toggle live in one place.
@@ -548,33 +579,49 @@ Page {
 
                             Keys.onReturnPressed: { livePitcherMa.clicked(null); event.accepted = true }
                             Keys.onSpacePressed:  { livePitcherMa.clicked(null); event.accepted = true }
+                            // Step over hidden ("Off") pills the same way Tab does, rather
+                            // than parking focus on one the user cannot see.
                             Keys.onLeftPressed: {
-                                if (index > 0) livePresetRepeater.itemAt(index - 1).forceActiveFocus()
+                                for (var i = index - 1; i >= 0; i--) {
+                                    var prior = livePresetRepeater.itemAt(i)
+                                    if (prior && prior.visible) { prior.forceActiveFocus(); break }
+                                }
                                 event.accepted = true
                             }
                             Keys.onRightPressed: {
-                                if (index < livePresetRepeater.count - 1) livePresetRepeater.itemAt(index + 1).forceActiveFocus()
+                                for (var j = index + 1; j < livePresetRepeater.count; j++) {
+                                    var candidate = livePresetRepeater.itemAt(j)
+                                    if (candidate && candidate.visible) { candidate.forceActiveFocus(); break }
+                                }
                                 event.accepted = true
                             }
                             Keys.onTabPressed: {
-                                var next = steamPage.firstLiveActionButton()
-                                if (index < livePresetRepeater.count - 1)
-                                    livePresetRepeater.itemAt(index + 1).forceActiveFocus()
-                                else if (next)
-                                    next.forceActiveFocus()
-                                else
-                                    livePresetRepeater.itemAt(0).forceActiveFocus()
-                                event.accepted = true
+                                var nextPill = null
+                                for (var i = index + 1; i < livePresetRepeater.count && !nextPill; i++) {
+                                    var candidate = livePresetRepeater.itemAt(i)
+                                    if (candidate && candidate.visible) nextPill = candidate
+                                }
+                                var target = nextPill
+                                             ?? steamPage.firstLiveControlAfterPresets()
+                                             ?? steamPage.firstVisiblePresetPill()
+                                if (target) {
+                                    target.forceActiveFocus()
+                                    event.accepted = true
+                                }
                             }
                             Keys.onBacktabPressed: {
-                                var prev = steamPage.lastLiveActionButton()
-                                if (index > 0)
-                                    livePresetRepeater.itemAt(index - 1).forceActiveFocus()
-                                else if (prev)
-                                    prev.forceActiveFocus()
-                                else
-                                    livePresetRepeater.itemAt(livePresetRepeater.count - 1).forceActiveFocus()
-                                event.accepted = true
+                                var prevPill = null
+                                for (var j = index - 1; j >= 0 && !prevPill; j--) {
+                                    var prior = livePresetRepeater.itemAt(j)
+                                    if (prior && prior.visible) prevPill = prior
+                                }
+                                var back = prevPill
+                                           ?? steamPage.lastLiveActionButton()
+                                           ?? steamPage.lastVisiblePresetPill()
+                                if (back) {
+                                    back.forceActiveFocus()
+                                    event.accepted = true
+                                }
                             }
 
                             Text {
@@ -652,16 +699,20 @@ Page {
                     Keys.onReturnPressed: { viewToggleMa.accessibleClicked(); event.accepted = true }
                     Keys.onSpacePressed:  { viewToggleMa.accessibleClicked(); event.accepted = true }
                     Keys.onTabPressed: {
-                        var next = steamPage.firstLiveActionButton()
-                        if (livePresetRepeater.count > 0) livePresetRepeater.itemAt(0).forceActiveFocus()
-                        else if (next) next.forceActiveFocus()
-                        event.accepted = true
+                        var next = steamPage.firstVisiblePresetPill()
+                                   ?? steamPage.firstLiveControlAfterPresets()
+                        if (next) {
+                            next.forceActiveFocus()
+                            event.accepted = true
+                        }
                     }
                     Keys.onBacktabPressed: {
-                        var prev = steamPage.lastLiveActionButton()
-                        if (livePresetRepeater.count > 0) livePresetRepeater.itemAt(livePresetRepeater.count - 1).forceActiveFocus()
-                        else if (prev) prev.forceActiveFocus()
-                        event.accepted = true
+                        var prev = steamPage.lastVisiblePresetPill()
+                                   ?? steamPage.lastLiveActionButton()
+                        if (prev) {
+                            prev.forceActiveFocus()
+                            event.accepted = true
+                        }
                     }
 
                     Image {
@@ -790,7 +841,10 @@ Page {
                         Keys.onReturnPressed: { decreaseMouseArea.clicked(null); event.accepted = true }
                         Keys.onSpacePressed:  { decreaseMouseArea.clicked(null); event.accepted = true }
                         KeyNavigation.tab: increaseTimeBtn
-                        KeyNavigation.backtab: steamingFlowSlider
+                        // Back to the pills, closing the loop. This used to point at the
+                        // flow slider, which sits AFTER this button going forward, so the
+                        // chain doubled back on itself and never reached the pills.
+                        KeyNavigation.backtab: steamPage.lastVisiblePresetPill() ?? steamingFlowSlider
 
                         Text {
                             anchors.centerIn: parent
@@ -934,8 +988,13 @@ Page {
                     displayText: flowToDisplay(value)
                     accessibleName: TranslationManager.translate("steam.label.steamFlow", "Steam Flow")
                     KeyNavigation.tab: steamPage.firstLiveActionButton()
-                                       ?? (livePresetRepeater.count > 0 ? livePresetRepeater.itemAt(0) : steamingFlowSlider)
-                    KeyNavigation.backtab: increaseTimeBtn
+                                       ?? steamPage.firstVisiblePresetPill()
+                                       ?? steamingFlowSlider
+                    // +5s hides during heating and puffing; fall back to the pills rather
+                    // than at an invisible target, which KeyNavigation refuses to focus.
+                    KeyNavigation.backtab: increaseTimeBtn.visible
+                                           ? increaseTimeBtn
+                                           : (steamPage.lastVisiblePresetPill() ?? steamingFlowSlider)
                     // BLE write deferred to commit (PR #782 pattern). The single
                     // commit-time MMR write is reliable because setSteamFlowImmediate
                     // routes through writeMMRVerified — write, read-back, retry on
@@ -1026,9 +1085,10 @@ Page {
                 visible: isSteaming || DE1Device.isHeadless
                 spacing: Theme.spacingMedium
 
-                // One source of truth for the button box, so the two can never drift
-                // apart again. They are peer actions in a shared row and read as
-                // mismatched the moment their boxes differ.
+                // One source of truth for the button BOX, so the two cannot drift apart
+                // on size. Radius and border are deliberately not shared: Stop keeps the
+                // heavier cardRadius and its contrast border to stay visually dominant as
+                // the stop control, while Purge stays a plain secondary button.
                 readonly property int buttonWidth: Theme.scaled(200)
                 readonly property int buttonHeight: Theme.scaled(60)
 
@@ -1043,17 +1103,20 @@ Page {
                 color: livePurgeTap.isPressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
 
                 activeFocusOnTab: true
+                // livePurgeTap carries role/name/focusable, so this Rectangle must step
+                // out of the accessibility tree rather than sit in it unnamed.
+                Accessible.ignored: true
                 Keys.onReturnPressed: { livePurgeTap.accessibleClicked(); event.accepted = true }
                 Keys.onSpacePressed:  { livePurgeTap.accessibleClicked(); event.accepted = true }
-                KeyNavigation.tab: steamStopButton.visible ? steamStopButton
-                                 : (livePresetRepeater.count > 0 ? livePresetRepeater.itemAt(0) : livePurgeButton)
+                KeyNavigation.tab: steamStopButton.visible
+                                   ? steamStopButton
+                                   : (steamPage.firstVisiblePresetPill() ?? livePurgeButton)
                 // The flow slider lives inside the timer-view subtree, so it is not a
                 // valid backtab target in chart view — fall back to the preset pills,
                 // which are shared by both views.
-                KeyNavigation.backtab: steamViewMode === "timer" ? steamingFlowSlider
-                                     : (livePresetRepeater.count > 0
-                                        ? livePresetRepeater.itemAt(livePresetRepeater.count - 1)
-                                        : livePurgeButton)
+                KeyNavigation.backtab: steamViewMode === "timer"
+                                       ? steamingFlowSlider
+                                       : (steamPage.lastVisiblePresetPill() ?? livePurgeButton)
 
                 Tr {
                     anchors.centerIn: parent
@@ -1066,10 +1129,12 @@ Page {
                     Accessible.ignored: true
                 }
 
-                // Using TapHandler for better touch responsiveness. Announce-first also
-                // matters more here than on a navigation control: this stops the steam
-                // and fires the wand purge, so a raw MouseArea would trigger it on the
-                // exploratory first touch instead of announcing itself.
+                // Using TapHandler for better touch responsiveness. It also brings
+                // announce-first, which matters more here than on a navigation control:
+                // this stops the steam and fires the wand purge. Under a screen reader
+                // (AccessibilityManager.enabled) a raw MouseArea would fire on the
+                // exploratory first touch, where this announces and waits for a
+                // confirming second tap. In normal mode both activate on release.
                 AccessibleTapHandler {
                     id: livePurgeTap
                     anchors.fill: parent
@@ -1096,25 +1161,28 @@ Page {
                 border.width: Theme.scaled(2)
 
                 activeFocusOnTab: true
+                // stopTapHandler carries role/name/focusable, so this Rectangle must step
+                // out of the accessibility tree rather than sit in it unnamed.
+                Accessible.ignored: true
                 Keys.onReturnPressed: { stopTapHandler.accessibleClicked(); event.accepted = true }
                 Keys.onSpacePressed:  { stopTapHandler.accessibleClicked(); event.accepted = true }
                 // Only swallow the key when there is somewhere to send focus. Accepting
                 // it unconditionally traps focus on this button when no preset pill
                 // exists to receive it.
                 Keys.onTabPressed: {
-                    if (livePresetRepeater.count > 0) {
-                        livePresetRepeater.itemAt(0).forceActiveFocus()
+                    var next = steamPage.firstVisiblePresetPill()
+                    if (next) {
+                        next.forceActiveFocus()
                         event.accepted = true
                     }
                 }
                 Keys.onBacktabPressed: {
                     // Purge precedes Stop in the shared action row, so it is the backtab
                     // target whenever it is showing.
-                    if (livePurgeButton.visible) {
-                        livePurgeButton.forceActiveFocus()
-                        event.accepted = true
-                    } else if (livePresetRepeater.count > 0) {
-                        livePresetRepeater.itemAt(livePresetRepeater.count - 1).forceActiveFocus()
+                    var back = livePurgeButton.visible ? livePurgeButton
+                                                       : steamPage.lastVisiblePresetPill()
+                    if (back) {
+                        back.forceActiveFocus()
                         event.accepted = true
                     }
                 }
@@ -1468,7 +1536,11 @@ Page {
                             border.width: 1
 
                             activeFocusOnTab: true
-                            KeyNavigation.tab: durationSlider
+                            // Its AccessibleTapHandler carries role/name/focusable, so this
+                            // Rectangle must step out of the accessibility tree rather than
+                            // sit in it unnamed.
+                            Accessible.ignored: true
+                            KeyNavigation.tab: settingsPurgeButton.visible ? settingsPurgeButton : durationSlider
                             KeyNavigation.backtab: pitcherRepeater.count > 0
                                 ? pitcherRepeater.itemAt(pitcherRepeater.count - 1).focusTarget
                                 : durationSlider
@@ -1557,6 +1629,14 @@ Page {
                             radius: Theme.buttonRadius
                             color: purgeTap.isPressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
                             activeFocusOnTab: true
+                            // purgeTap carries role/name/focusable, so this Rectangle must
+                            // step out of the accessibility tree rather than sit in it unnamed.
+                            Accessible.ignored: true
+                            // Sits between the add-preset button and the duration slider in
+                            // reading order. It was previously in no tab chain at all — both
+                            // neighbours pointed straight at each other, past this button.
+                            KeyNavigation.tab: durationSlider
+                            KeyNavigation.backtab: addPitcherButton
                             Keys.onReturnPressed: { purgeTap.accessibleClicked(); event.accepted = true }
                             Keys.onSpacePressed:  { purgeTap.accessibleClicked(); event.accepted = true }
                             Tr {
@@ -1565,8 +1645,10 @@ Page {
                                 color: Theme.primaryContrastColor; font: Theme.bodyFont
                                 Accessible.ignored: true
                             }
-                            // Using TapHandler for better touch responsiveness. Announce-first
-                            // keeps an exploratory touch from firing the wand purge.
+                            // Using TapHandler for better touch responsiveness. Under a screen
+                            // reader it also announces on the first touch and waits for a
+                            // confirming second tap, rather than firing the wand purge on an
+                            // exploratory one. In normal mode both activate on release.
                             AccessibleTapHandler {
                                 id: purgeTap
                                 anchors.fill: parent
@@ -1606,7 +1688,7 @@ Page {
                             valueColor: Theme.primaryColor
                             accessibleName: TranslationManager.translate("steam.label.duration", "Duration")
                             KeyNavigation.tab: flowSlider
-                            KeyNavigation.backtab: addPitcherButton
+                            KeyNavigation.backtab: settingsPurgeButton.visible ? settingsPurgeButton : addPitcherButton
                             onValueModified: function(newValue) {
                                 durationSlider.value = newValue
                                 Settings.brew.steamTimeout = newValue
