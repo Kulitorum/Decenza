@@ -1105,10 +1105,21 @@ Page {
                 Text {
                     id: stopButtonText
                     anchors.centerIn: parent
-                    text: (steamSoftStopped && Settings.hardware.steamTwoTapStop) ? "PURGE" : "STOP"
+                    // Reuses steam.label.purge rather than minting a second purge key:
+                    // the registry maps key -> one English string, so the same key with a
+                    // different fallback would oscillate between whichever site rendered
+                    // last (see scripts/check_translation_key_conflicts.py).
+                    text: (steamSoftStopped && Settings.hardware.steamTwoTapStop)
+                          ? TranslationManager.translate("steam.label.purge", "Purge")
+                          : TranslationManager.translate("steam.label.stop", "Stop")
                     color: Theme.primaryContrastColor
                     font.pixelSize: Theme.scaled(24)
                     font.weight: Font.Bold
+                    // The all-caps look is applied at render time, not baked into the
+                    // source strings. Translators supply natural case, scripts without a
+                    // case distinction are left alone, and the key stays shareable with
+                    // the sentence-case Purge button in the same row.
+                    font.capitalization: Font.AllUppercase
                     Accessible.ignored: true
                 }
 
