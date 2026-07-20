@@ -189,11 +189,22 @@ public:
     // (carry-borrow), while a plain-numeric input keeps `decimals` places so a
     // sub-0.5 quick-select step (e.g. 0.25) isn't truncated to the AI-dialing
     // convention's single decimal. Returns "" for a grinder not in the registry,
-    // a value the catalog can't parse, or a step below the dial floor (< 0), so
-    // the caller keeps its own letter / plain-numeric / history fallback.
+    // a value the catalog can't parse, or — click-indexed (Compound) grinders
+    // only — a candidate below the dial floor (< 0), so the caller keeps its own
+    // letter / plain-numeric / history fallback. Plain-numeric grinders step
+    // below zero freely: a stepless collar's zero is a user-set calibration
+    // reference (Niche Zero) and finer-than-zero is a real dial position.
     Q_INVOKABLE QString stepGrinderSetting(const QString& brand, const QString& model,
                                            const QString& current, double deltaUnits,
                                            int decimals = 1) const;
+
+    // True when the grinder's registry notation is click-indexed (Compound,
+    // e.g. Eureka Mignon "a+b", 1Zpresso). Callers whose own numeric stepping
+    // runs after stepGrinderSetting's "" fall-through use this to keep skipping
+    // negative candidates for such grinders — a negative linear position is
+    // meaningless on click-indexed hardware however the value is written —
+    // without also blocking stepless collars (replace-grind-inputs-with-picker).
+    Q_INVOKABLE bool grinderIsClickIndexed(const QString& brand, const QString& model) const;
 
     // Basket registry bridges for the vendor-first picker (add-basket-equipment).
     Q_INVOKABLE QStringList knownBasketBrands() const;

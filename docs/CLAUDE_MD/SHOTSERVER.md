@@ -30,6 +30,8 @@ The `/beans`, `/recipes`, and `/equipment` pages are designed to closely match t
 
 When adding or restyling any of these pages, use these helpers — do not paste a private `<style>` block or re-declare `esc`/`status`/`post`. When you touch the in-app version of one of these screens, update the web page to match (and vice-versa).
 
+**Deliberate divergence — grind/RPM entry.** In the app, grind and RPM are edited through the tap-to-open grind picker (wheels + keyboard mode, `GrindField`/`GrindPickerDialog`). The web forms deliberately do NOT reproduce the wheel: the tumbler is a touch-first affordance, and these pages are used with a keyboard where a text input is the better control. The web equivalent is `<input>` + `<datalist>` via the shared `webtemplates/grind_datalist_js.h` helper (`attachGrindDatalist`), fed by `GET /api/grind-candidates` — candidates are computed server-side by the same C++ stepping machinery as the app's wheels and resolved against the record's own grinder (the shot's, the bag's linked package, the recipe's package), never the active one. Free text stays accepted (grinder notation is opaque). This is a recorded exception to the keep-the-surfaces-in-sync rule, not drift — see `openspec` change `replace-grind-inputs-with-picker` (design D6).
+
 ## Async community endpoints (signal-based)
 
 - Community API calls (`browse`, `download`, `upload`, `delete`) are async — they connect to `LibrarySharing` signals and wait for a callback. Use the established pattern: `QPointer<QTcpSocket>` + `std::shared_ptr<bool>` fired guard + `QTimer` timeout + `PendingLibraryRequest` tracking.

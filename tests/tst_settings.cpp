@@ -10,6 +10,7 @@
 #include "core/settings_theme.h"
 #include "core/settings_visualizer.h"
 #include "core/settingsserializer.h"
+#include "network/grindcandidates.h"
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -1720,10 +1721,12 @@ private slots:
         QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "20", 2.0), QString("22"));
         QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "20", -3.0), QString("17"));
         QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "20", 0.5), QString("20.5"));
-        // Below the dial floor → "" (caller falls back / skips the row).
-        QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "1", -5.0), QString());
-        // Exactly 0 is a VALID dial position, not below the floor (the guard is
-        // stepped < 0, not <= 0) → returns "0", not "".
+        // Below zero is a VALID candidate on a plain-numeric grinder: a stepless
+        // collar's zero is a user-set calibration reference (Niche Zero) and
+        // finer-than-zero is a real dial position, so nothing is skipped
+        // (replace-grind-inputs-with-picker; previously returned "").
+        QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "1", -5.0), QString("-4"));
+        // Zero itself, and formatting on the way down, are unchanged.
         QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "2", -2.0), QString("0"));
         // Sub-0.5 step precision is honored, not truncated to a single decimal
         // (the grind widget's history-derived step goes to 2 decimals). Trailing
@@ -1755,6 +1758,166 @@ private slots:
         // A compound grinder whose setting is recorded as a plain number keeps
         // the numeric form (NOT re-notated to "0+3.5") — output follows the input.
         QCOMPARE(dye->stepGrinderSetting("Eureka", "Mignon Specialita", "2.5", 1.0, 2), QString("3.5"));
+    }
+
+    void stepGrinderSetting_negativeCandidates() {
+        SettingsDye* dye = m_settings.dye();
+        // Niche Zero — NumericWithSuffix, stepless collar whose zero is a
+        // user-set calibration reference: finer than zero is a real dial
+        // position, so the full ±window generates (replace-grind-inputs-with-
+        // picker). At 0.25 with a 0.25 step, 5 steps down reaches -1.
+        QCOMPARE(dye->stepGrinderSetting("Niche", "Zero", "0.25", -1.25, 2), QString("-1"));
+        QCOMPARE(dye->stepGrinderSetting("Niche", "Zero", "0.25", -0.25, 2), QString("0"));
+        // A ±5-step probe around a positive anchor stays positive (6.75..9.25
+        // at step 0.25) — the range the WEB datalist offers. The app wheel's
+        // window is ±400 steps and deliberately reaches negatives from any
+        // anchor; that is the guard-removal behaviour the assertions above
+        // cover.
+        QCOMPARE(dye->stepGrinderSetting("Niche", "Zero", "8", -1.25, 2), QString("6.75"));
+        QCOMPARE(dye->stepGrinderSetting("Niche", "Zero", "8", 1.25, 2), QString("9.25"));
+        // Click-indexed (Compound) grinders keep the skip, keyed on the
+        // grinder's REGISTRY notation, not the current value's written form:
+        // a Mignon logging plain "2.5" still refuses a negative candidate —
+        // a negative linear position is meaningless on click-indexed hardware
+        // however it is written.
+        QCOMPARE(dye->stepGrinderSetting("Eureka", "Mignon Specialita", "2.5", -3.0, 2), QString());
+    }
+
+    void grinderIsClickIndexed_followsRegistryNotation() {
+        SettingsDye* dye = m_settings.dye();
+        // The QML numeric fallback re-checks the click-indexed skip through this
+        // (stepGrinderSetting's "" falls through to the JS branch, which would
+        // otherwise resurrect the refused negative for numeric-logging Mignons).
+        QVERIFY(dye->grinderIsClickIndexed("Eureka", "Mignon Specialita"));
+        QVERIFY(!dye->grinderIsClickIndexed("Niche", "Zero"));
+        QVERIFY(!dye->grinderIsClickIndexed("Acme", "NotReal"));
+    }
+
+    // ==========================================
+    // Web <datalist> candidate generation (GrindCandidates::build) — the C++
+    // TWIN of GrindRowSource.qml's stepping, serving /api/grind-candidates.
+    // Extracted from ShotServer so it is testable at all (same reason as
+    // tst_exifdate): a hand-duplicate of the click-indexed negative rule is
+    // exactly the thing that rots silently, and the web helper's deliberately
+    // quiet .catch means a regression would surface as a wrong dropdown, not
+    // an error.
+    // ==========================================
+
+    // Helper: pull the "grind" array out as a QStringList.
+    static QStringList grindOf(const QJsonObject& o) {
+        QStringList out;
+        for (const QJsonValue& v : o.value("grind").toArray())
+            out << v.toString();
+        return out;
+    }
+
+    void grindCandidates_negativesForSteplessCollar() {
+        GrindCandidates::Inputs in;
+        in.brand = "Niche"; in.model = "Zero";
+        in.current = "0.25"; in.grindStep = 0.25;
+        const QStringList g = grindOf(GrindCandidates::build(m_settings.dye(), in));
+        // A stepless collar's zero is a user-set calibration reference, so the
+        // window runs straight through it (5 steps down from 0.25 = -1).
+        QVERIFY(g.contains("-1"));
+        QVERIFY(g.contains("0"));
+        QVERIFY(g.contains("1.5"));
+    }
+
+    void grindCandidates_positiveAnchorHasNoNegatives() {
+        GrindCandidates::Inputs in;
+        in.brand = "Niche"; in.model = "Zero";
+        in.current = "8"; in.grindStep = 0.25;
+        const QStringList g = grindOf(GrindCandidates::build(m_settings.dye(), in));
+        QCOMPARE(g.first(), QString("6.75"));
+        QCOMPARE(g.last(), QString("9.25"));
+        for (const QString& v : g)
+            QVERIFY(!v.startsWith('-'));
+    }
+
+    void grindCandidates_clickIndexedSkipsNegativesInNumericForm() {
+        // THE regression guard: the catalog returns "" for a compound
+        // grinder's below-floor rows, and those fall through to the numeric
+        // fallback — which must re-check the click-indexed rule or it
+        // resurrects the refused negative. A Mignon logging plain "2.5" takes
+        // exactly that path (the notation, not the written form, decides).
+        GrindCandidates::Inputs in;
+        in.brand = "Eureka"; in.model = "Mignon Specialita";
+        in.current = "3"; in.grindStep = 1.0;
+        const QStringList g = grindOf(GrindCandidates::build(m_settings.dye(), in));
+        // The floor holds: 5 steps down from 3 would reach -2.
+        QCOMPARE(g.first(), QString("0"));
+        QCOMPARE(g.last(), QString("8"));
+        for (const QString& v : g)
+            QVERIFY2(!v.startsWith('-'),
+                     qPrintable("negative candidate on a click-indexed grinder: " + v));
+
+        // Same grinder, value written as a PLAIN NUMBER rather than "a+b" —
+        // the path that falls through the catalog into the numeric fallback,
+        // where the skip has to be re-checked. Asserting the rule (no
+        // negatives) rather than a formatted value: at step 1.0 the labels
+        // round to 0 decimals, so the exact strings are a formatting detail,
+        // not the behaviour under test.
+        in.current = "2.5";
+        const QStringList gz = grindOf(GrindCandidates::build(m_settings.dye(), in));
+        QVERIFY(!gz.isEmpty());
+        for (const QString& v : gz)
+            QVERIFY2(!v.startsWith('-'),
+                     qPrintable("negative candidate from the numeric fallback: " + v));
+    }
+
+    void grindCandidates_fallsBackToObservedHistory() {
+        // Too few stepped candidates (an unparseable notation) → the observed
+        // list, with the current value prepended when it is not already in it.
+        GrindCandidates::Inputs in;
+        in.brand = "Acme"; in.model = "NotReal";
+        in.current = "medium-fine"; in.grindStep = 1.0;
+        in.observed = QStringList{"7.5", "8", "8.5"};
+        const QStringList g = grindOf(GrindCandidates::build(m_settings.dye(), in));
+        QCOMPARE(g, (QStringList{"medium-fine", "7.5", "8", "8.5"}));
+
+        // Already present → not duplicated.
+        in.current = "8";
+        QCOMPARE(grindOf(GrindCandidates::build(m_settings.dye(), in)).count("8"), 1);
+
+        // No current value at all (new bag): the history alone, capped.
+        in.current = "";
+        in.observed.clear();
+        for (int i = 0; i < 20; ++i)
+            in.observed << QString::number(i);
+        QCOMPARE(grindOf(GrindCandidates::build(m_settings.dye(), in)).size(),
+                 GrindCandidates::kHistoryCap);
+    }
+
+    void grindCandidates_decimalsFollowTheStep() {
+        QCOMPARE(GrindCandidates::stepDecimals(1.0), 0);
+        QCOMPARE(GrindCandidates::stepDecimals(0.5), 1);
+        QCOMPARE(GrindCandidates::stepDecimals(0.25), 2);
+        // A float-dirty step (0.1 + 0.2 = 0.30000000000000004) must not yield a
+        // 17-decimal label — the 3-decimal round-trip bounds it.
+        QCOMPARE(GrindCandidates::stepDecimals(0.1 + 0.2), 1);
+        // Trailing zeros stripped so labels match the display convention.
+        QCOMPARE(GrindCandidates::formatStepped(7.50, 2), QString("7.5"));
+        QCOMPARE(GrindCandidates::formatStepped(7.00, 2), QString("7"));
+    }
+
+    void grindCandidates_rpmGatedByCapability() {
+        GrindCandidates::Inputs in;
+        in.current = "8"; in.grindStep = 0.25; in.rpmStep = 50;
+
+        // Niche Zero is not RPM-capable: an EMPTY rpm list is the capability
+        // verdict the web helper hides the RPM field on.
+        in.brand = "Niche"; in.model = "Zero";
+        QVERIFY(GrindCandidates::build(m_settings.dye(), in).value("rpm").toArray().isEmpty());
+
+        // An RPM-capable grinder with no recorded RPM seeds from the neutral
+        // anchor, and never offers a non-positive speed (0 is the unset
+        // sentinel, so it must not appear as a pickable row).
+        in.brand = "Eureka"; in.model = "Mignon Turbo";
+        const QJsonArray rpm = GrindCandidates::build(m_settings.dye(), in).value("rpm").toArray();
+        QVERIFY(!rpm.isEmpty());
+        QVERIFY(rpm.contains(QJsonValue(double(GrindCandidates::kRpmDefaultAnchor))));
+        for (const QJsonValue& v : rpm)
+            QVERIFY(v.toDouble() > 0.0);
     }
 
     void stepGrinderSetting_customGrinderFallsBack() {

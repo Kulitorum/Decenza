@@ -392,6 +392,11 @@ bool SettingsDye::grinderRpmCapable(const QString& brand, const QString& model) 
     return EquipmentStorage::deriveRpmCapable(brand, model);
 }
 
+bool SettingsDye::grinderIsClickIndexed(const QString& brand, const QString& model) const {
+    const GrinderAliases::GrinderEntry* entry = GrinderAliases::findEntry(brand, model);
+    return entry && entry->notation == GrinderAliases::SettingNotation::Compound;
+}
+
 QStringList SettingsDye::suggestedBurrs(const QString& brand, const QString& model) const {
     return GrinderAliases::suggestedBurrs(brand, model);
 }
@@ -420,8 +425,15 @@ QString SettingsDye::stepGrinderSetting(const QString& brand, const QString& mod
     if (!linear)
         return QString();  // unparseable (e.g. pure letters) → caller's fallback
     const double stepped = *linear + deltaUnits;
-    if (stepped < 0.0)
-        return QString();  // below the dial floor → skip this row
+    // Below-zero candidates are skipped only on click-indexed (Compound)
+    // grinders, keyed on the grinder's registry notation — NOT the current
+    // value's written form — because a negative linear position is meaningless
+    // there however it is written ("2.5" on a Mignon still skips). A
+    // plain-numeric grinder can be a stepless collar whose zero is a user-set
+    // calibration reference (Niche Zero), where dialling finer than zero is a
+    // real operation, so negatives pass through.
+    if (stepped < 0.0 && entry->notation == GrinderAliases::SettingNotation::Compound)
+        return QString();  // below the click-indexed dial floor → skip this row
 
     // Compound rotation ("a+b") renders in its own notation (rev/position
     // carry-borrow). We gate on the CURRENT value actually being compound: a

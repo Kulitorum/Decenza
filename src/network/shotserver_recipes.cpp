@@ -15,6 +15,7 @@
 #include "../core/dbutils.h"
 #include "../core/settings.h"
 #include "../core/settings_dye.h"
+#include "webtemplates/grind_datalist_js.h"
 #include "../core/yieldspec.h"
 #include "../history/coffeebagstorage.h"
 #include "../history/recipepromotion.h"
@@ -660,11 +661,13 @@ QString ShotServer::generateRecipesPage() const
     html += WEB_JS_MENU;
     html += WEB_JS_POWER_CONTROL;
     html += WEB_JS_MANAGEMENT;
+    html += WEB_JS_GRIND_DATALIST;
     html += R"HTML(
         let editingId = null;
         let recipes = [];          // full list (active + archived), as fetched
         let bags = [];
         let bagsLoaded = false;
+        let equipmentList = [];    // grinder identity for the grind candidates
         let filterText = '';
         let showArchived = false;
 
@@ -953,6 +956,16 @@ QString ShotServer::generateRecipesPage() const
             el('fTemp').value = (r.tempOffsetC || 0) !== 0 ? r.tempOffsetC : '';
             el('fGrind').value = r.grindPinned || '';
             el('fRpm').value = r.rpmPinned > 0 ? r.rpmPinned : '';
+            // Stepped candidates for the RECIPE's selected package — the
+            // record's own grinder (grind-value-entry). A NEW recipe defaults
+            // to the ACTIVE package (never an empty identity), matching the
+            // app wizard; an existing recipe keeps its own.
+            {
+                const pkg = equipmentList.find(p => p.id === (r.equipmentId || 0))
+                    || (!id ? equipmentList.find(p => p.isActive) : undefined);
+                attachGrindDatalist(el('fGrind'), el('fRpm'),
+                                    pkg ? pkg.grinderBrand : '', pkg ? pkg.grinderModel : '');
+            }
             const steam = r.steam || {};
             el('fHasMilk').checked = !!steam.hasMilk;
             el('fMilk').value = steam.milkWeightG || '';
@@ -1022,14 +1035,43 @@ QString ShotServer::generateRecipesPage() const
             // means "clear this recipe's grind".
             if (!editingId && bodyData.grindPinned === '')
                 delete bodyData.grindPinned;
-            const req = editingId ? post('/api/recipe/' + editingId, bodyData)
-                                  : post('/api/recipes', bodyData);
-            req.then(() => { el('editor').close(); load(); })
-               .catch(e => status(e.message));
+            // Create: link the ACTIVE equipment package (never an empty one),
+            // matching the app wizard's default. Awaits the equipment list so a
+            // quick save right after page load, or a failed first fetch, does
+            // not silently produce an unlinked recipe. Update leaves the
+            // recipe's existing link untouched (no equipment editor here).
+            const ready = editingId ? Promise.resolve() : ensureEquipmentList();
+            ready.then(() => {
+                if (!editingId) {
+                    const ap = equipmentList.find(p => p.isActive);
+                    if (ap) bodyData.equipmentId = ap.id;
+                }
+                return editingId ? post('/api/recipe/' + editingId, bodyData)
+                                 : post('/api/recipes', bodyData);
+            })
+            .then(() => { el('editor').close(); load(); })
+            .catch(e => status(e.message));
         }
 
         load();
         loadBags();
+        // Equipment packages: resolve the RECIPE's grinder for the grind/RPM
+        // candidate lists AND supply the create-time active-package default.
+        // That second use is NOT enhancement-only data — a silently empty list
+        // would create recipes with no equipment link — so keep the promise and
+        // let saveEditor await it rather than racing page load.
+        let equipmentReady = getJson('/api/equipment')
+            .then(d => { equipmentList = d.equipment || []; })
+            .catch(e => { equipmentList = []; console.warn('Equipment list unavailable:', e); });
+        // Retry once on demand when a create needs the list and it came back
+        // empty (failed fetch, or none existed at load).
+        function ensureEquipmentList() {
+            if (equipmentList.length) return Promise.resolve();
+            equipmentReady = getJson('/api/equipment')
+                .then(d => { equipmentList = d.equipment || []; })
+                .catch(e => { equipmentList = []; console.warn('Equipment list unavailable:', e); });
+            return equipmentReady;
+        }
     </script>
 </body>
 </html>)HTML";
