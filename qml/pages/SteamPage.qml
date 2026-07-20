@@ -1061,15 +1061,12 @@ Page {
 
                 Tr {
                     anchors.centerIn: parent
-                    key: "steam.label.purge"; fallback: "Purge"
+                    // Same key and same type treatment as steamStopButton beside it, so
+                    // the pair reads as one row.
+                    key: "steam.button.purge"; fallback: "PURGE"
                     color: Theme.primaryContrastColor
-                    // Matches steamStopButton: same box, same casing, so the pair reads
-                    // as one row. Capitalised at render time for the same reason it is
-                    // on that button — the key stays sentence-case and shared with the
-                    // settings-view Purge, and case-less scripts are left alone.
                     font.pixelSize: Theme.scaled(24)
                     font.weight: Font.Bold
-                    font.capitalization: Font.AllUppercase
                     Accessible.ignored: true
                 }
 
@@ -1119,21 +1116,16 @@ Page {
                 Text {
                     id: stopButtonText
                     anchors.centerIn: parent
-                    // Reuses steam.label.purge rather than minting a second purge key:
-                    // the registry maps key -> one English string, so the same key with a
-                    // different fallback would oscillate between whichever site rendered
-                    // last (see scripts/check_translation_key_conflicts.py).
+                    // steam.button.* carries the shouted label, matching espresso/flush/
+                    // hotwater/descaling/transport. The sentence-case steam.label.purge
+                    // stays on the settings-view Purge button — one key holds one English
+                    // string, so a shared key could not serve both casings.
                     text: (steamSoftStopped && Settings.hardware.steamTwoTapStop)
-                          ? TranslationManager.translate("steam.label.purge", "Purge")
-                          : TranslationManager.translate("steam.label.stop", "Stop")
+                          ? TranslationManager.translate("steam.button.purge", "PURGE")
+                          : TranslationManager.translate("steam.button.stop", "STOP")
                     color: Theme.primaryContrastColor
                     font.pixelSize: Theme.scaled(24)
                     font.weight: Font.Bold
-                    // The all-caps look is applied at render time, not baked into the
-                    // source strings. Translators supply natural case, scripts without a
-                    // case distinction are left alone, and the key stays shareable with
-                    // the sentence-case Purge button in the same row.
-                    font.capitalization: Font.AllUppercase
                     Accessible.ignored: true
                 }
 
