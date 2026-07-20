@@ -326,7 +326,7 @@ private slots:
         QCOMPARE(m_settings.brew()->targetWeight(), 0.0);
     }
 
-    void staleEnjoymentKeyIsInert() {
+    void deadShotRatingKeysAreEvicted() {
         // A shot rating is never sourced from settings. It used to be: a sticky
         // dyeEspressoEnjoyment fed every shot save, so after the default-shot-
         // rating feature was removed the last value the field ever held (a 50,
@@ -334,23 +334,34 @@ private slots:
         // suppressed the AI taste intake, since that gate treats any non-zero
         // enjoyment as feedback the user already gave.
         //
-        // The property is gone, so the leak is a compile error now. What this
-        // test pins is the leftover on-disk key: a store upgraded from the old
-        // build still carries dye/espressoEnjoyment, and neither reading the
-        // dye settings nor round-tripping a backup may revive it as a rating.
+        // Removing the readers was not enough: both keys stayed on disk in
+        // every upgraded store, a bogus rating sitting around waiting to leak
+        // back into something. Constructing Settings evicts them.
         QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+        raw.setValue("shot/defaultRating", 50);
         raw.setValue("dye/espressoEnjoyment", 50);
         raw.sync();
 
-        Settings settings;
-        const QJsonObject backup = SettingsSerializer::exportToJson(&settings);
-        QVERIFY(!backup.value("dye").toObject().contains("espressoEnjoyment"));
+        {
+            Settings settings;
+            const QJsonObject backup = SettingsSerializer::exportToJson(&settings);
+            QVERIFY(!backup.value("dye").toObject().contains("espressoEnjoyment"));
 
-        // A freshly saved shot is unrated regardless of what the store holds.
-        QCOMPARE(ShotMetadata{}.espressoEnjoyment, 0);
+            // A freshly saved shot is unrated no matter what the store held.
+            QCOMPARE(ShotMetadata{}.espressoEnjoyment, 0);
+        }
 
-        raw.remove("dye/espressoEnjoyment");
-        raw.sync();
+        QSettings after(Settings::testQSettingsPath(), QSettings::IniFormat);
+        after.sync();
+        QVERIFY2(!after.contains("shot/defaultRating"),
+                 "shot/defaultRating must be evicted, not merely unread");
+        QVERIFY2(!after.contains("dye/espressoEnjoyment"),
+                 "dye/espressoEnjoyment must be evicted, not merely unread");
+
+        // Idempotent: a second construction against a clean store is a no-op.
+        { Settings settings2; Q_UNUSED(settings2); }
+        after.sync();
+        QVERIFY(!after.contains("shot/defaultRating"));
     }
 
     void emptyScaleAddressIsValid() {

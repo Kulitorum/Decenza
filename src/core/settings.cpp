@@ -72,6 +72,18 @@ Settings::Settings(QObject* parent)
     m_settings.sync();
     qDebug() << "Settings: sync() done, contains profile/favorites:" << m_settings.contains("profile/favorites");
 
+    // Evict the dead shot-rating keys. Both are orphans of the removed
+    // default-shot-rating feature: shot/defaultRating was the setting itself,
+    // and dye/espressoEnjoyment was the sticky field it fed, which kept
+    // stamping a rating onto freshly pulled shots for one shot after the
+    // feature was deleted. Nothing reads either one now — migration 16 was the
+    // last reader and no longer needs it — but a stale rating sitting in the
+    // store is exactly the shape of thing that leaks back into something, so
+    // it does not get to sit there. remove() on an absent key is a no-op, so
+    // this is idempotent and costs nothing on every launch after the first.
+    m_settings.remove(QStringLiteral("shot/defaultRating"));
+    m_settings.remove(QStringLiteral("dye/espressoEnjoyment"));
+
     // Snapshot whether this looks like a fresh install before any default-init
     // blocks below write keys. Used by one-shot migrations that need to behave
     // differently for new users vs upgrades.

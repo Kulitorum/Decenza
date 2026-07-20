@@ -859,11 +859,19 @@ bool ShotHistoryStorage::runMigrations()
     //   1) Stash the (shotId, visualizerId) pairs of inferred rows that
     //      were uploaded to Visualizer in a QSettings pending list so
     //      MainController can re-PATCH them with the corrected rating.
-    //   2) Reset every inferred row's enjoyment to the user's configured
-    //      default rating (QSettings shot/defaultRating, fallback 75 —
-    //      matching the former SettingsVisualizer::defaultShotRating default,
-    //      removed in the remove-default-shot-rating change; this frozen
-    //      migration still reads the raw legacy key for old DBs).
+    //   2) Reset every inferred row's enjoyment to 0 (unrated).
+    //
+    // That reset originally wrote the user's configured "Default Shot Rating"
+    // (QSettings shot/defaultRating), on the reasoning that landing the row on
+    // the user's default was closer to the truth than 0. Both halves of that
+    // have since stopped being true: the default-rating feature is gone, so
+    // there is no configured value to restore — reading the key would write a
+    // number from a deleted feature — and 0 no longer displays as "Rated
+    // 0/100" on Visualizer, because the PATCH builder sends null for 0 (see
+    // visualizeruploader.cpp, "espresso_enjoyment"). So the back-sync now
+    // clears these to Unrated, which is what an app-invented rating always
+    // should have been. Resetting them is not rewriting user data: the whole
+    // point of enjoyment_source='inferred' is that nobody chose the value.
     if (currentVersion < 16) {
         qDebug() << "ShotHistoryStorage: Running migration to version 16 (drop enjoyment_source)";
 
@@ -874,21 +882,20 @@ bool ShotHistoryStorage::runMigrations()
                 return false;
             }
 
-            // Read user's configured default rating up-front. MUST use
-            // the same QSettings scope the app's Settings object owns
-            // (settings.cpp: QSettings("DecentEspresso","DE1Qt")). A
-            // bare QSettings() resolves to org/app "DecentEspresso"/
-            // "Decenza" (main.cpp setApplicationName) — a DIFFERENT,
-            // empty store — which would silently return the 75 fallback
-            // and no-op the reset for every user whose default ≠ 75.
+            // The back-sync hand-off below MUST use the same QSettings scope
+            // the app's Settings object owns (settings.cpp:
+            // QSettings("DecentEspresso","DE1Qt")), because MainController
+            // reads the pending list from there. A bare QSettings() resolves
+            // to org/app "DecentEspresso"/"Decenza" (main.cpp
+            // setApplicationName) — a DIFFERENT, empty store — so the list
+            // would be written where nothing ever looks for it. This bit the
+            // rating read that used to live here; don't reintroduce it.
 #ifdef DECENZA_TESTING
             QSettings appSettings(Settings::testQSettingsPath(), QSettings::IniFormat);
 #else
             QSettings appSettings(QStringLiteral("DecentEspresso"),
                                   QStringLiteral("DE1Qt"));
 #endif
-            const int defaultRating = appSettings.value(
-                QStringLiteral("shot/defaultRating"), 75).toInt();
 
             // 1) Collect inferred rows that were uploaded to Visualizer so
             //    the cloud copy can be corrected after boot. Append to any
@@ -925,13 +932,11 @@ bool ShotHistoryStorage::runMigrations()
                 }
             }
 
-            // 2) Reset enjoyment on inferred rows to the user's default.
+            // 2) Reset enjoyment on inferred rows to 0 (unrated).
             {
                 QSqlQuery resetQ(m_db);
-                resetQ.prepare("UPDATE shots SET enjoyment = :rating "
-                               "WHERE enjoyment_source = 'inferred'");
-                resetQ.bindValue(":rating", defaultRating);
-                if (!resetQ.exec()) {
+                if (!resetQ.exec("UPDATE shots SET enjoyment = 0 "
+                                 "WHERE enjoyment_source = 'inferred'")) {
                     qWarning() << "ShotHistoryStorage: migration 16 UPDATE failed:"
                                << resetQ.lastError().text();
                     m_db.rollback();
