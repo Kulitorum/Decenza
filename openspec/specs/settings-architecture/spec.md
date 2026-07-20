@@ -27,7 +27,7 @@ The complete domain set SHALL be: `SettingsMqtt`, `SettingsAutoWake`, `SettingsH
 - **AND** QML expressions like `Settings.<domain>.<prop>` resolve to the sub-object's property at runtime, not to `undefined`
 
 #### Scenario: Cross-domain side effects use connect-based wiring
-- **WHEN** changing a property on one domain must trigger an update on another domain (e.g., `resetSawLearning` on `SettingsCalibration` must reset hot-water SAW offset state on `SettingsBrew`)
+- **WHEN** changing a property on one domain must trigger an update on another domain (e.g., `resetSawLearning` on `SettingsCalibration` must reset hot-water SAW offset state on `SettingsBrew`, or `setDefaultShotRating` on `SettingsVisualizer` triggers `setDyeEspressoEnjoyment` on `SettingsDye`)
 - **THEN** the wiring is established via `connect()` in the `Settings::Settings()` constructor body, after all `m_<domain>` members are constructed
 - **AND** the sub-object's setter does not directly call methods on another domain
 
