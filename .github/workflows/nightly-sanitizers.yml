@@ -201,6 +201,11 @@ jobs:
           use_cache: ${{ steps.cachefit.outputs.use_cache }}
           max-size: 600M
 
+      # Hash on file CONTENT rather than mtime, so a fresh checkout (every run
+      # here) still hits. Mirrors linux-release.yml.
+      - name: Configure ccache for CI
+        run: ccache --set-config=compiler_check=content
+
       - name: Configure CMake
         env:
           SANITIZER_FLAG: ${{ matrix.cmake_flag }}
@@ -210,6 +215,8 @@ jobs:
           $QT_ROOT_DIR/bin/qt-cmake .. -G Ninja \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DBUILD_TESTS=ON \
             "$SANITIZER_FLAG"
 
@@ -234,6 +241,38 @@ jobs:
       # UBSan's default is report-and-continue, so without it a run can print
       # undefined behaviour and still exit 0. (-fno-sanitize-recover=all in
       # CMakeLists.txt already forces this; the variable is belt-and-braces.)
+      # Prove the compiler cache was actually WIRED UP, not merely installed.
+      #
+      # This exists because it silently was not. The ccache step was added, went
+      # green, and cached nothing for three runs: the action installs ccache and
+      # restores/saves its directory, but CMake only routes compilation through
+      # it when CMAKE_{C,CXX}_COMPILER_LAUNCHER is set — and that was missing
+      # here while linux-release.yml had it. The only visible symptom was a line
+      # nobody reads: "Cache size (GB): 0.0 / 0.6 (0.00%)". Build times were
+      # unchanged and every step reported success.
+      #
+      # A cache that caches nothing is the same shape as a sanitizer that is not
+      # applied, which is why this job carries canaries. Same remedy: make the
+      # mechanism assert its own effect.
+      #
+      # The assertion is on CMakeCache.txt rather than on `ccache -s` output,
+      # deliberately: it tests the exact thing that was missing, and does not
+      # depend on the stats format of whichever ccache version the runner has.
+      - name: Verify the compiler cache is wired in
+        run: |
+          set -uo pipefail
+          if ! grep -qE "^CMAKE_CXX_COMPILER_LAUNCHER:.*ccache" build/CMakeCache.txt; then
+            echo "::error::CMAKE_CXX_COMPILER_LAUNCHER is not set to ccache — the cache is inert and every build is cold."
+            exit 1
+          fi
+          echo "Compiler launcher wired: $(grep -E '^CMAKE_CXX_COMPILER_LAUNCHER:' build/CMakeCache.txt)"
+          {
+            echo "### Compiler cache"
+            echo '```'
+            ccache -s || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Run tests under sanitizer
         env:
           QT_QPA_PLATFORM: offscreen
