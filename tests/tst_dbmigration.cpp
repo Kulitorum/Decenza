@@ -935,11 +935,12 @@ private slots:
                  "enjoyment_source column must be absent after migration 16");
     }
 
-    // Migration 16 contract: rows with enjoyment_source = 'inferred'
-    // have their enjoyment reset to the user's configured default
-    // rating (QSettings shot/defaultRating). Rows uploaded to
-    // Visualizer (visualizer_id non-empty) are stashed in the pending
-    // sync list for MainController to re-PATCH after boot.
+    // Migration 16 contract: rows with enjoyment_source = 'inferred' have
+    // their enjoyment reset to 0 (unrated) — unconditionally, NOT to any
+    // configured default; the default-shot-rating setting that once supplied
+    // that value no longer exists. Rows uploaded to Visualizer (visualizer_id
+    // non-empty) are stashed in the pending sync list for MainController to
+    // re-PATCH after boot, which clears them to Unrated there too.
     void v16_resetsInferredAndDropsColumn()
     {
         const QString path = freshDbPath();
@@ -997,7 +998,6 @@ private slots:
         // scope-mismatch bug this still regression-tests for the pending-sync
         // list, which MainController reads back from that exact scope.
         QSettings appSettings(Settings::testQSettingsPath(), QSettings::IniFormat);
-        const QVariant prior = appSettings.value("shot/defaultRating");
         const QVariant priorPending = appSettings.value("migration16/pendingVisualizerSync");
         appSettings.setValue("shot/defaultRating", 50);
         appSettings.remove("migration16/pendingVisualizerSync");
@@ -1054,9 +1054,10 @@ private slots:
         QCOMPARE(pending.first().toObject().value("visualizerId").toString(),
                  QStringLiteral("V1"));
 
-        // Restore QSettings so we don't leak test state.
-        if (prior.isValid()) appSettings.setValue("shot/defaultRating", prior);
-        else appSettings.remove("shot/defaultRating");
+        // Restore QSettings so we don't leak test state. shot/defaultRating is
+        // simply removed rather than restored: nothing reads it any more, and
+        // this test exists to prove its value is irrelevant.
+        appSettings.remove("shot/defaultRating");
         if (priorPending.isValid())
             appSettings.setValue("migration16/pendingVisualizerSync", priorPending);
         else appSettings.remove("migration16/pendingVisualizerSync");

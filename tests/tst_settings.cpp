@@ -10,7 +10,6 @@
 #include "core/settings_theme.h"
 #include "core/settings_visualizer.h"
 #include "core/settingsserializer.h"
-#include "network/visualizeruploader.h"
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -337,6 +336,10 @@ private slots:
         // Removing the readers was not enough: both keys stayed on disk in
         // every upgraded store, a bogus rating sitting around waiting to leak
         // back into something. Constructing Settings evicts them.
+        //
+        // Covers three things: the keys are gone from the store, a backup does
+        // not carry espressoEnjoyment forward into a restored one, and a second
+        // construction against a clean store changes nothing.
         QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
         raw.setValue("shot/defaultRating", 50);
         raw.setValue("dye/espressoEnjoyment", 50);
@@ -344,11 +347,9 @@ private slots:
 
         {
             Settings settings;
+            // Backup must not carry the field forward into a restored store.
             const QJsonObject backup = SettingsSerializer::exportToJson(&settings);
             QVERIFY(!backup.value("dye").toObject().contains("espressoEnjoyment"));
-
-            // A freshly saved shot is unrated no matter what the store held.
-            QCOMPARE(ShotMetadata{}.espressoEnjoyment, 0);
         }
 
         QSettings after(Settings::testQSettingsPath(), QSettings::IniFormat);

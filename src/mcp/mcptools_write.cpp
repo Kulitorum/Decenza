@@ -893,11 +893,9 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             // — writing them via settings_set is a footgun, since the value
             // gets snapshotted into whatever shot completes next. To patch
             // a saved shot, use shots_update with drinkTds/drinkEy instead.
-            //
-            // There is no enjoyment setting to write here, for exactly that
-            // reason taken to its conclusion: a rating that lives in settings
-            // lands on whichever shot happens to finish next. Rate a shot with
-            // shots_update enjoyment0to100.
+            // There is no enjoyment key for the same reason, made permanent —
+            // see settings_dye.h. Rate a shot with shots_update
+            // enjoyment0to100.
             if (args.contains("dyeShotNotes")) {
                 QString v = args["dyeShotNotes"].toString();
                 addSetter([settings, v]() { settings->dye()->setDyeShotNotes(v); });

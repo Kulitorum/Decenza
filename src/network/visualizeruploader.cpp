@@ -388,6 +388,12 @@ void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, con
     }
     setDouble("drink_tds", &ShotProjection::drinkTdsPct);
     setDouble("drink_ey", &ShotProjection::drinkEyPct);
+    // null, not omitted, and not 0. Migration 16's back-sync depends on this:
+    // it PATCHes shots whose invented rating it just reset to 0, and null is
+    // what clears them to Unrated — literal 0 would read as "Rated 0/100" and
+    // omitting the field would leave the stale rating on Visualizer forever.
+    // The create-path builder below omits on zero instead, which is correct
+    // there; do not unify the two onto skip-on-zero.
     shotObj["espresso_enjoyment"] = shotData.enjoyment0to100 > 0
         ? QJsonValue(shotData.enjoyment0to100)
         : QJsonValue(QJsonValue::Null);

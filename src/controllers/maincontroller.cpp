@@ -3252,9 +3252,8 @@ void MainController::onShotEnded() {
     metadata.drinkWeight = m_settings->dye()->dyeDrinkWeight();
     metadata.drinkTds = m_settings->dye()->dyeDrinkTds();
     metadata.drinkEy = m_settings->dye()->dyeDrinkEy();
-    // No enjoyment: a shot that was just pulled has not been tasted, so it
-    // saves unrated (ShotMetadata defaults to 0) and stays that way until a
-    // person rates it on the review page or in the AI taste intake.
+    // No enjoyment: a just-pulled shot has not been tasted, so it saves
+    // unrated (ShotMetadata defaults to 0). See settings_dye.h.
     metadata.espressoNotes = m_settings->dye()->dyeShotNotes();
     metadata.barista = m_settings->dye()->dyeBarista();
     metadata.beanBaseJson = m_settings->dye()->dyeBeanBaseData();

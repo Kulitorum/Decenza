@@ -75,7 +75,8 @@ add_decenza_test(tst_settings tst_settings.cpp ${CORE_SOURCES})
 - [ ] `waterVolumePersists` — set to 300, reload, verify 300
 - [ ] `scaleAddressPersists` — set BLE MAC address string, reload, verify exact match
 - [ ] `steamTemperaturePersists` — set to 155, reload, verify 155
-- [ ] `defaultShotRatingDefault` — fresh Settings → default is 75
+- ~~`defaultShotRatingDefault` — fresh Settings → default is 75~~ (obsolete: the
+  default-shot-rating setting was removed in #1561; an untasted shot is unrated)
 - [ ] `booleanSettingDefaults` — fresh Settings → ignoreVolumeWithScale is false, autoTare is true (verify actual defaults)
 
 #### Structured Data

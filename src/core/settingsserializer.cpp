@@ -796,8 +796,7 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         if (dye.contains("beanWeight")) settings->dye()->setDyeBeanWeight(dye["beanWeight"].toDouble());
         if (dye.contains("drinkWeight")) settings->dye()->setDyeDrinkWeight(dye["drinkWeight"].toDouble());
         // drinkTds/drinkEy are session-scratch (not persisted); ignore on restore.
-        // espressoEnjoyment in an older backup is ignored: a rating belongs to a
-        // shot row, never to a sticky setting that would leak into the next shot.
+        // espressoEnjoyment in an older backup is ignored — see settings_dye.h.
         // Shot notes: try new key first, fall back to old key
         if (dye.contains("shotNotes")) settings->dye()->setDyeShotNotes(dye["shotNotes"].toString());
         else if (dye.contains("espressoNotes")) settings->dye()->setDyeShotNotes(dye["espressoNotes"].toString());
