@@ -16,6 +16,14 @@ set(CMAKE_AUTOMOC_PATH_PREFIX OFF)
 # Each test compiles only the source files it needs (no full app build).
 function(add_decenza_test name)
     add_executable(${name} ${ARGN})
+    # Record every test executable so `build_tests` below can depend on the set
+    # without anyone maintaining a second list by hand.
+    #
+    # A target declared with a bare add_executable + add_test does NOT pass
+    # through here and must append to DECENZA_TEST_TARGETS itself — see
+    # tst_shotcorpus. Forgetting that shows up as "(Not Run)" in a clean build,
+    # and ONLY in a clean build.
+    set_property(GLOBAL APPEND PROPERTY DECENZA_TEST_TARGETS ${name})
     set_target_properties(${name} PROPERTIES AUTOMOC_PATH_PREFIX OFF)
     target_compile_definitions(${name} PRIVATE DECENZA_TESTING)
     # Source-tree path, so a test can assert against shipped QML/assets rather than
@@ -490,6 +498,17 @@ if(NOT ANDROID AND NOT IOS)
     )
     add_dependencies(tst_shotcorpus shot_eval)
     add_test(NAME tst_shotcorpus COMMAND tst_shotcorpus)
+    # Registered by hand because this target is declared with add_executable
+    # rather than add_decenza_test, so the function that records test targets
+    # never sees it. Omitting it made `ninja build_tests` skip this binary and
+    # ctest report "40 - tst_shotcorpus (Not Run)" — caught only by building in
+    # a CLEAN tree, since an incremental build still had the binary lying around
+    # from a previous `ninja all`.
+    #
+    # This also pulls in shot_eval via add_dependencies above, which is correct:
+    # the test shells out to `shot_eval --validate`, so that tool IS needed even
+    # though the other three (saw_replay, saw_parity, profile_sync) are not.
+    set_property(GLOBAL APPEND PROPERTY DECENZA_TEST_TARGETS tst_shotcorpus)
 endif()
 
 # --- tst_shotsettings: ShotSettings BLE wire format ---
@@ -1020,3 +1039,34 @@ if(ENABLE_ASAN)
             -DEXPECT_ABORT=ON
             -P ${CMAKE_CURRENT_SOURCE_DIR}/run_sanitizer_canary.cmake)
 endif()
+
+# --- build_tests: everything ctest needs, and nothing it does not.
+#
+# `ninja` with no target builds `all`, which for this project is dominated by
+# things the test suite never executes. Measured on a nightly sanitizer build:
+# 385 C++ objects for the Decenza app and 36 for the tools (shot_eval,
+# saw_replay, saw_parity, profile_sync), against 318 for the tests themselves —
+# so roughly 56% of the compilation, plus the app's link, is work the job
+# throws away.
+#
+# Safe because no test target links or depends on the app: they link
+# decenza_testlib / decenza_shotlib, which compile the src/ sources they need
+# independently. Sanitizer coverage is unaffected — ASan and UBSan report on
+# code that RUNS, and this job runs only the suite.
+#
+# What this gives up, stated plainly: the nightly no longer compiles
+# app-exclusive code (main.cpp, QML glue) under sanitizer flags. That is not a
+# real loss — those files are already compiled several times a day by the
+# platform builds, and nothing here executed them.
+#
+# Use: `ninja build_tests` instead of `ninja`.
+get_property(_decenza_test_targets GLOBAL PROPERTY DECENZA_TEST_TARGETS)
+if(ENABLE_UBSAN)
+    list(APPEND _decenza_test_targets sanitizer_canary)
+endif()
+if(ENABLE_ASAN)
+    list(APPEND _decenza_test_targets asan_canary)
+endif()
+add_custom_target(build_tests DEPENDS ${_decenza_test_targets})
+list(LENGTH _decenza_test_targets _decenza_test_count)
+message(STATUS "build_tests target covers ${_decenza_test_count} test executables")
