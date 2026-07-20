@@ -26,7 +26,7 @@
 ## 5. Verification
 
 - [x] 5.1 Pull a simulator shot and confirm it saves unrated and the taste intake appears (shot 1116, `enjoyment0to100: null`)
-- [ ] 5.2 Relaunch the app and re-read the live settings store to confirm `shot.defaultRating` and `dye.espressoEnjoyment` are actually gone — the suite proves eviction against the test store only
+- [x] 5.2 Relaunch the app and re-read the live settings store to confirm `shot.defaultRating` and `dye.espressoEnjoyment` are actually gone — the suite proves eviction against the test store only. Confirmed 2026-07-20: both keys present before the relaunch (`shot.defaultRating = 50`), both absent after, with bean/profile/favorites settings intact — a surgical eviction, not a reset
 
 ## 6. Specs
 
