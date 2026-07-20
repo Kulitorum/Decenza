@@ -10,20 +10,20 @@
 # The pinned release + per-artifact SHA-256 come from the release manifest.json.
 # Bump TSNET_TAG (and the hashes) to adopt a newer libtailscale build.
 
-set(TSNET_TAG "decenza-v1.94.1-3" CACHE STRING "libtailscale prebuilt release tag")
+set(TSNET_TAG "decenza-v1.94.1-4" CACHE STRING "libtailscale prebuilt release tag")
 set(TSNET_BASE_URL "https://github.com/skialpine/libtailscale/releases/download/${TSNET_TAG}")
 set(TSNET_DOWNLOAD_DIR "${CMAKE_BINARY_DIR}/tsnet-${TSNET_TAG}")
 
 # Per-platform artifact + expected SHA-256 (from manifest.json).
 if(IOS)
     set(_tsnet_zip "libtailscale-ios.zip")
-    set(_tsnet_sha "b5916355d4c0df0bb6cf9a6c3848203c6fe8fb2614aaa6d7da741b10f3a93e21")
+    set(_tsnet_sha "f1c5477695563c9ef75b5e65ab14ed69675515861dc6766454bf6f0b4dde505b")
 elseif(ANDROID)
     set(_tsnet_zip "libtailscale-android.zip")
-    set(_tsnet_sha "295190b8e96520fc2cfec172a04b9aaf4502cc7424d782988c3c6e53759bde55")
+    set(_tsnet_sha "d345a7ef03854b9d5e1d6753c3dc463f27577e516492a3a144f406f217813bb1")
 elseif(APPLE)
     set(_tsnet_zip "libtailscale-macos.zip")
-    set(_tsnet_sha "fa2f525411e30514663ee85203e856e5a34fb2228817cbd540a075519bcaa2b8")
+    set(_tsnet_sha "642ed347483aded62b759419ff1740ec50d9d6c110fbebf51637caa41a146864")
 else()
     message(FATAL_ERROR "ENABLE_TSNET: no prebuilt libtailscale artifact for this platform yet "
                         "(supported: macOS, Android, iOS). Use Mode C (BYO URL) instead.")
