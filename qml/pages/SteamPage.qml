@@ -1016,6 +1016,7 @@ Page {
             // at the shorter end of the supported aspect range. The row sits outside
             // the timer/chart view switch, so Purge is available in both views.
             RowLayout {
+                id: liveActionRow
                 Layout.alignment: Qt.AlignHCenter
                 // Mirrors the two children's own conditions rather than reading their
                 // .visible. A `visible` read returns EFFECTIVE visibility, so once this
@@ -1025,13 +1026,19 @@ Page {
                 visible: isSteaming || DE1Device.isHeadless
                 spacing: Theme.spacingMedium
 
+                // One source of truth for the button box, so the two can never drift
+                // apart again. They are peer actions in a shared row and read as
+                // mismatched the moment their boxes differ.
+                readonly property int buttonWidth: Theme.scaled(200)
+                readonly property int buttonHeight: Theme.scaled(60)
+
             // Purge button on the live steaming view — stops steam and triggers
             // the DE1 steam-wand purge.
             Rectangle {
                 id: livePurgeButton
                 visible: isSteaming
-                Layout.preferredWidth: Theme.scaled(150)
-                Layout.preferredHeight: Theme.scaled(60)  // matches steamStopButton so the row aligns
+                Layout.preferredWidth: liveActionRow.buttonWidth
+                Layout.preferredHeight: liveActionRow.buttonHeight
                 radius: Theme.buttonRadius
                 color: livePurgeMa.pressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
 
@@ -1055,7 +1062,14 @@ Page {
                 Tr {
                     anchors.centerIn: parent
                     key: "steam.label.purge"; fallback: "Purge"
-                    color: Theme.primaryContrastColor; font: Theme.bodyFont
+                    color: Theme.primaryContrastColor
+                    // Matches steamStopButton: same box, same casing, so the pair reads
+                    // as one row. Capitalised at render time for the same reason it is
+                    // on that button — the key stays sentence-case and shared with the
+                    // settings-view Purge, and case-less scripts are left alone.
+                    font.pixelSize: Theme.scaled(24)
+                    font.weight: Font.Bold
+                    font.capitalization: Font.AllUppercase
                     Accessible.ignored: true
                 }
 
@@ -1068,8 +1082,8 @@ Page {
             // When off, a single tap stops and triggers the hose purge.
             Rectangle {
                 id: steamStopButton
-                Layout.preferredWidth: Theme.scaled(200)
-                Layout.preferredHeight: Theme.scaled(60)
+                Layout.preferredWidth: liveActionRow.buttonWidth
+                Layout.preferredHeight: liveActionRow.buttonHeight
                 visible: DE1Device.isHeadless
                 radius: Theme.cardRadius
                 color: stopTapHandler.isPressed
