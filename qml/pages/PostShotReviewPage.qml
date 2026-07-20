@@ -57,8 +57,10 @@ Page {
         maybeAutoUpdateVisualizer()
     }
 
-    // Flush whenever the page loses the foreground (back, a child page pushed
-    // on top, app backgrounded) so a deferred/in-progress edit is persisted.
+    // Flush whenever the page loses the foreground within the stack (back, a
+    // child page pushed on top) so a deferred/in-progress edit is persisted.
+    // Note this fires only on stack transitions — NOT on app backgrounding,
+    // where the suspended event loop is what stops scan activity.
     // Also end the refractometer hunt — continuous scanning is scoped to this
     // page being the active page.
     StackView.onDeactivating: {

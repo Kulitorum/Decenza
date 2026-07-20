@@ -415,8 +415,9 @@ public:
     Q_INVOKABLE void tryDirectConnectToRefractometer();
     // Hunt mode: while active (post-shot review page open), scans restart
     // back-to-back from onScanFinished until the saved refractometer connects,
-    // instead of waiting for the 60 s background reconnect tick. Activation
-    // kicks an immediate scan when a saved refractometer is not connected.
+    // instead of waiting out the background reconnect tick. Activation kicks
+    // an immediate scan when a saved refractometer is not connected and
+    // Bluetooth is up; otherwise the reconnect tick resumes the hunt later.
     Q_INVOKABLE void setRefractometerHunt(bool active);
 
     // DE1 address management
@@ -555,6 +556,10 @@ private:
     QString getScaleType(const QBluetoothDeviceInfo& device) const;
     void requestBluetoothPermission();
     void doStartScan();
+    // Reset the caller-set scan-request flags when a requested scan will not
+    // start (Bluetooth off, permission denied). Only finished/error/stop clear
+    // them otherwise, and none of those fire for a scan that never began.
+    void clearScanRequestFlags();
     void ensureDiscoveryAgent();
     // Lazy-create m_wifiDiscovery once with a single unified scaleFound
     // handler. Both scan-for-devices and try-direct-connect paths call this
