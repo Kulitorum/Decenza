@@ -33,4 +33,4 @@
 - [x] 6.1 Add the save-time invariant and migration-16 reset requirements to the `shot-rating-capture` delta
 - [x] 6.2 Correct the stale `shot-rating-capture` Layer 2 requirement: it documents a three-icon `QuickRatingRow` with a per-shot dismiss flag, but that component was deleted in #1245 and replaced by the inline `RatingInput` in #1243, and `shotRatingDismissed/<shotId>` exists nowhere in the codebase
 - [x] 6.3 Drop the removed `setDefaultShotRating` → `setDyeEspressoEnjoyment` example from `settings-architecture` and add the rule that removing a setting removes its stored key
-- [ ] 6.4 Archive this change so the deltas promote into `openspec/specs/`, as the last commit on the branch before merge
+- [x] 6.4 Archive this change so the deltas promote into `openspec/specs/`, as the last commit on the branch before merge

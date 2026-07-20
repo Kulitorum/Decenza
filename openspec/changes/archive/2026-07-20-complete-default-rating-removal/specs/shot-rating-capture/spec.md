@@ -67,9 +67,7 @@ that feature existed — SHALL be left untouched.
 - **WHEN** migration 16 runs
 - **THEN** that row's `enjoyment` SHALL remain `90`
 
-## MODIFIED Requirements
-
-### Requirement: Post-shot review SHALL surface a low-friction rating row above the metadata fold
+### Requirement: Post-shot review SHALL surface a rating row above the metadata fold
 
 `PostShotReviewPage.qml` SHALL display a rating row above the metadata editor
 consisting of a `"How was this shot?"` label and the shared `RatingInput`
@@ -118,3 +116,30 @@ The component SHALL follow project conventions:
   the rating row
 - **THEN** no rating SHALL be written
 - **AND** the shot SHALL still satisfy the taste-intake gate as unrated
+
+## REMOVED Requirements
+
+### Requirement: Post-shot review SHALL surface a low-friction rating row above the metadata fold
+
+**Reason**: Specified a `QuickRatingRow` component — three icon buttons mapped to
+80/60/40, a per-shot dismiss `×` backed by a `shotRatingDismissed/<shotId>`
+QSettings key, a visibility gate on `enjoyment0to100 == 0`, and a collapsed
+"Rated 80 — tap to revise" pill. None of that exists. #1243 replaced the row
+with the inline `RatingInput` on the slider, #1245 deleted the orphaned
+component, and `shotRatingDismissed` appears nowhere in the codebase. The spec
+had drifted from the implementation for two releases; it is replaced by
+"Post-shot review SHALL surface a rating row above the metadata fold" above,
+which describes what ships.
+
+Its four scenarios go with it, as each asserts behaviour of the deleted
+component: "Unrated shot → row visible", "User taps the high icon → score
+persisted, row collapses", "User dismisses → row hides, persists across
+reloads", and "Already-rated shot → row not shown". The replacement requirement
+covers the two that still have meaning (the row is visible on an unrated shot;
+tapping a preset persists a score) and adds one the old set lacked — that
+merely displaying the row must not rate the shot, which is the property this
+change depends on for the taste-intake gate to stay honest.
+
+**Migration**: None. UI-only, already shipped; no data, setting, or API surface
+is affected. The `shotRatingDismissed/<shotId>` keys the old design would have
+written were never written by any released build.
