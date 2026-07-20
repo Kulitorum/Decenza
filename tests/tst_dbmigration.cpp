@@ -935,11 +935,12 @@ private slots:
                  "enjoyment_source column must be absent after migration 16");
     }
 
-    // Migration 16 contract: rows with enjoyment_source = 'inferred'
-    // have their enjoyment reset to the user's configured default
-    // rating (QSettings shot/defaultRating). Rows uploaded to
-    // Visualizer (visualizer_id non-empty) are stashed in the pending
-    // sync list for MainController to re-PATCH after boot.
+    // Migration 16 contract: rows with enjoyment_source = 'inferred' have
+    // their enjoyment reset to 0 (unrated) — unconditionally, NOT to any
+    // configured default; the default-shot-rating setting that once supplied
+    // that value no longer exists. Rows uploaded to Visualizer (visualizer_id
+    // non-empty) are stashed in the pending sync list for MainController to
+    // re-PATCH after boot, which clears them to Unrated there too.
     void v16_resetsInferredAndDropsColumn()
     {
         const QString path = freshDbPath();
@@ -987,14 +988,16 @@ private slots:
             QVERIFY(q.exec("UPDATE schema_version SET version = 15"));
         });
 
-        // Set the configured default rating that migration 16 reads.
-        // Must use the SAME scope production reads — the app's Settings
-        // owns QSettings("DecentEspresso","DE1Qt"). A bare QSettings()
-        // here is exactly the scope-mismatch bug this regression-tests:
-        // it passed before the production fix only because production
-        // also (wrongly) used a bare QSettings.
+        // Seed a stale shot/defaultRating. Migration 16 used to read it to
+        // decide what to reset inferred rows to; it now resets them to 0
+        // unconditionally, so this value must have no effect on the outcome —
+        // that is what the enjoy1/enjoy2 assertions below pin.
+        //
+        // Must use the SAME scope production reads — the app's Settings owns
+        // QSettings("DecentEspresso","DE1Qt"). A bare QSettings() here is the
+        // scope-mismatch bug this still regression-tests for the pending-sync
+        // list, which MainController reads back from that exact scope.
         QSettings appSettings(Settings::testQSettingsPath(), QSettings::IniFormat);
-        const QVariant prior = appSettings.value("shot/defaultRating");
         const QVariant priorPending = appSettings.value("migration16/pendingVisualizerSync");
         appSettings.setValue("shot/defaultRating", 50);
         appSettings.remove("migration16/pendingVisualizerSync");
@@ -1034,10 +1037,13 @@ private slots:
 
         QCOMPARE(versionFound, 34);  // latest after full chain (yield specs)
         QVERIFY2(columnGone, "enjoyment_source column must be dropped");
-        QCOMPARE(enjoy1, 50);
-        QCOMPARE(enjoy2, 50);
-        QCOMPARE(enjoy3, 90);
-        QCOMPARE(enjoy4, 0);
+        // Inferred rows reset to 0 (unrated), NOT to the stale 50 seeded
+        // above — an app-invented rating becomes unrated, and the back-sync
+        // PATCHes those shots to Unrated on Visualizer.
+        QCOMPARE(enjoy1, 0);
+        QCOMPARE(enjoy2, 0);
+        QCOMPARE(enjoy3, 90);  // user-rated, untouched
+        QCOMPARE(enjoy4, 0);   // already unrated, untouched
 
         // Visualizer back-sync queue: exactly one entry (V1 — V2 belongs to
         // a user-rated row that we never auto-stamped, so it's not queued).
@@ -1048,9 +1054,10 @@ private slots:
         QCOMPARE(pending.first().toObject().value("visualizerId").toString(),
                  QStringLiteral("V1"));
 
-        // Restore QSettings so we don't leak test state.
-        if (prior.isValid()) appSettings.setValue("shot/defaultRating", prior);
-        else appSettings.remove("shot/defaultRating");
+        // Restore QSettings so we don't leak test state. shot/defaultRating is
+        // simply removed rather than restored: nothing reads it any more, and
+        // this test exists to prove its value is irrelevant.
+        appSettings.remove("shot/defaultRating");
         if (priorPending.isValid())
             appSettings.setValue("migration16/pendingVisualizerSync", priorPending);
         else appSettings.remove("migration16/pendingVisualizerSync");

@@ -522,7 +522,6 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 {"dyeDrinkWeight", QJsonObject{{"type", "number"}, {"description", "Drink weight in grams"}}},
                 {"dyeDrinkTds", QJsonObject{{"type", "number"}, {"description", "TDS measurement"}}},
                 {"dyeDrinkEy", QJsonObject{{"type", "number"}, {"description", "Extraction yield percentage"}}},
-                {"dyeEspressoEnjoyment", QJsonObject{{"type", "integer"}, {"description", "Enjoyment rating 0-100"}}},
                 {"dyeShotNotes", QJsonObject{{"type", "string"}, {"description", "Shot notes"}}},
                 {"dyeBarista", QJsonObject{{"type", "string"}, {"description", "Barista name"}}},
                 // Machine
@@ -894,11 +893,9 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             // — writing them via settings_set is a footgun, since the value
             // gets snapshotted into whatever shot completes next. To patch
             // a saved shot, use shots_update with drinkTds/drinkEy instead.
-            if (args.contains("dyeEspressoEnjoyment")) {
-                int v = qBound(0, args["dyeEspressoEnjoyment"].toInt(), 100);
-                addSetter([settings, v]() { settings->dye()->setDyeEspressoEnjoyment(v); });
-                updated << "dyeEspressoEnjoyment";
-            }
+            // There is no enjoyment key for the same reason, made permanent —
+            // see settings_dye.h. Rate a shot with shots_update
+            // enjoyment0to100.
             if (args.contains("dyeShotNotes")) {
                 QString v = args["dyeShotNotes"].toString();
                 addSetter([settings, v]() { settings->dye()->setDyeShotNotes(v); });

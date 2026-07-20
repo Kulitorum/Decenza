@@ -10,9 +10,28 @@ class CoffeeBagStorage;
 class EquipmentStorage;
 
 // DYE (Describe Your Espresso) metadata. Split from Settings to keep
-// settings.h's transitive-include footprint small. An unrated shot carries
-// enjoyment 0 ("unrated") — dyeEspressoEnjoyment defaults to 0 and resets to
-// 0 after each shot save, so untasted shots are never auto-rated.
+// settings.h's transitive-include footprint small.
+//
+// There is deliberately no enjoyment field here, and none may be added. A
+// rating belongs to one shot and only ever comes from a person, so it is
+// written to that shot's row (the `enjoyment` column) at the moment the person
+// supplies it — by the post-shot review page or the AI taste intake, both via
+// the shot-update path. A freshly saved shot is unrated because nothing
+// assigns the field at all (ShotMetadata::espressoEnjoyment defaults to 0).
+//
+// It was once a sticky setting fed by a "default shot rating", so every
+// freshly pulled shot arrived pre-rated and the taste intake never appeared.
+// Removing the default (#1561) left the sticky field behind, still read at
+// save time and reset only afterwards, so the last value it ever held leaked
+// onto one further shot per upgrading user.
+//
+// Note this prohibition is specific to ratings, not a claim that the class is
+// free of the pattern: dyeShotNotes is persisted and snapshotted onto whatever
+// shot completes next by the same mechanism, and dyeDrinkTds/dyeDrinkEy do the
+// same from memory. Those are tolerated because a person types them in the
+// context of the shot they are about to pull, and nothing else writes them —
+// which is exactly what stopped being true for enjoyment once a *setting* fed
+// it. If anything ever feeds those fields automatically, they become this bug.
 //
 // Bean model (bean-bag-inventory): the active coffee bag IS the bean state.
 // The dye/* QSettings keys act as a synchronous write-through cache of the
@@ -58,7 +77,6 @@ class SettingsDye : public QObject {
     Q_PROPERTY(double dyeDrinkWeight READ dyeDrinkWeight WRITE setDyeDrinkWeight NOTIFY dyeDrinkWeightChanged)
     Q_PROPERTY(double dyeDrinkTds READ dyeDrinkTds WRITE setDyeDrinkTds NOTIFY dyeDrinkTdsChanged)
     Q_PROPERTY(double dyeDrinkEy READ dyeDrinkEy WRITE setDyeDrinkEy NOTIFY dyeDrinkEyChanged)
-    Q_PROPERTY(int dyeEspressoEnjoyment READ dyeEspressoEnjoyment WRITE setDyeEspressoEnjoyment NOTIFY dyeEspressoEnjoymentChanged)
     Q_PROPERTY(QString dyeShotNotes READ dyeShotNotes WRITE setDyeShotNotes NOTIFY dyeShotNotesChanged)
     Q_PROPERTY(QString dyeBarista READ dyeBarista WRITE setDyeBarista NOTIFY dyeBaristaChanged)
     Q_PROPERTY(QString dyeShotDateTime READ dyeShotDateTime WRITE setDyeShotDateTime NOTIFY dyeShotDateTimeChanged)
@@ -196,9 +214,6 @@ public:
     double dyeDrinkEy() const;
     void setDyeDrinkEy(double value);
 
-    int dyeEspressoEnjoyment() const;
-    void setDyeEspressoEnjoyment(int value);
-
     QString dyeShotNotes() const;
     void setDyeShotNotes(const QString& value);
 
@@ -277,7 +292,6 @@ signals:
     void dyeDrinkWeightChanged();
     void dyeDrinkTdsChanged();
     void dyeDrinkEyChanged();
-    void dyeEspressoEnjoymentChanged();
     void dyeShotNotesChanged();
     void dyeBaristaChanged();
     void dyeShotDateTimeChanged();

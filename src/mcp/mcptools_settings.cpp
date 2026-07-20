@@ -243,7 +243,6 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             if (include("dyeBeanWeight", "dye")) result["dyeBeanWeight"] = settings->dye()->dyeBeanWeight();
             if (include("dyeDrinkWeight", "dye")) result["dyeDrinkWeight"] = settings->dye()->dyeDrinkWeight();
             // dyeDrinkTds/dyeDrinkEy are session-scratch and intentionally not exposed via MCP.
-            if (include("dyeEspressoEnjoyment", "dye")) result["dyeEspressoEnjoyment"] = settings->dye()->dyeEspressoEnjoyment();
             if (include("dyeShotNotes", "dye")) result["dyeShotNotes"] = settings->dye()->dyeShotNotes();
             if (include("dyeBarista", "dye")) result["dyeBarista"] = settings->dye()->dyeBarista();
 

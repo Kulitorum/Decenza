@@ -859,11 +859,27 @@ bool ShotHistoryStorage::runMigrations()
     //   1) Stash the (shotId, visualizerId) pairs of inferred rows that
     //      were uploaded to Visualizer in a QSettings pending list so
     //      MainController can re-PATCH them with the corrected rating.
-    //   2) Reset every inferred row's enjoyment to the user's configured
-    //      default rating (QSettings shot/defaultRating, fallback 75 —
-    //      matching the former SettingsVisualizer::defaultShotRating default,
-    //      removed in the remove-default-shot-rating change; this frozen
-    //      migration still reads the raw legacy key for old DBs).
+    //   2) Reset every inferred row's enjoyment to 0 (unrated).
+    //
+    // That reset originally wrote the user's configured "Default Shot Rating"
+    // (QSettings shot/defaultRating), to land each row on the value it would
+    // have had if the inferred stamping had never run. There is no such value
+    // any more: the default-rating setting was removed, so reading the key
+    // would write a number sourced from a deleted feature. 0 is what an
+    // untasted shot carries now, so that is what these rows get.
+    //
+    // The back-sync clears them to Unrated rather than "Rated 0/100" because
+    // updateShotOnVisualizer() sends JSON null for enjoyment <= 0. Note this
+    // has been true since #1155 — it is not a behaviour that changed to make
+    // the reset safe, and the create-path builder in the same file omits the
+    // field instead, so check updateShotOnVisualizer() specifically before
+    // concluding otherwise.
+    //
+    // Resetting these rows is not rewriting user data: the whole point of
+    // enjoyment_source='inferred' is that the app computed the value and
+    // nobody chose it. Rows carrying a rating a person set — including one
+    // produced by their configured default while that feature existed — are
+    // left alone.
     if (currentVersion < 16) {
         qDebug() << "ShotHistoryStorage: Running migration to version 16 (drop enjoyment_source)";
 
@@ -874,21 +890,20 @@ bool ShotHistoryStorage::runMigrations()
                 return false;
             }
 
-            // Read user's configured default rating up-front. MUST use
-            // the same QSettings scope the app's Settings object owns
-            // (settings.cpp: QSettings("DecentEspresso","DE1Qt")). A
-            // bare QSettings() resolves to org/app "DecentEspresso"/
-            // "Decenza" (main.cpp setApplicationName) — a DIFFERENT,
-            // empty store — which would silently return the 75 fallback
-            // and no-op the reset for every user whose default ≠ 75.
+            // The back-sync hand-off below MUST use the same QSettings scope
+            // the app's Settings object owns (settings.cpp:
+            // QSettings("DecentEspresso","DE1Qt")), because MainController
+            // reads the pending list from there. A bare QSettings() resolves
+            // to org/app "DecentEspresso"/"Decenza" (main.cpp
+            // setApplicationName) — a DIFFERENT, empty store — so the list
+            // would be written where nothing ever looks for it. This bit the
+            // rating read that used to live here; don't reintroduce it.
 #ifdef DECENZA_TESTING
             QSettings appSettings(Settings::testQSettingsPath(), QSettings::IniFormat);
 #else
             QSettings appSettings(QStringLiteral("DecentEspresso"),
                                   QStringLiteral("DE1Qt"));
 #endif
-            const int defaultRating = appSettings.value(
-                QStringLiteral("shot/defaultRating"), 75).toInt();
 
             // 1) Collect inferred rows that were uploaded to Visualizer so
             //    the cloud copy can be corrected after boot. Append to any
@@ -925,13 +940,11 @@ bool ShotHistoryStorage::runMigrations()
                 }
             }
 
-            // 2) Reset enjoyment on inferred rows to the user's default.
+            // 2) Reset enjoyment on inferred rows to 0 (unrated).
             {
                 QSqlQuery resetQ(m_db);
-                resetQ.prepare("UPDATE shots SET enjoyment = :rating "
-                               "WHERE enjoyment_source = 'inferred'");
-                resetQ.bindValue(":rating", defaultRating);
-                if (!resetQ.exec()) {
+                if (!resetQ.exec("UPDATE shots SET enjoyment = 0 "
+                                 "WHERE enjoyment_source = 'inferred'")) {
                     qWarning() << "ShotHistoryStorage: migration 16 UPDATE failed:"
                                << resetQ.lastError().text();
                     m_db.rollback();
@@ -947,8 +960,19 @@ bool ShotHistoryStorage::runMigrations()
                 return false;
             }
 
-            query.exec("DELETE FROM schema_version");
-            query.exec("INSERT INTO schema_version (version) VALUES (16)");
+            // Checked, unlike the bare exec() pair this replaced: a silent
+            // failure here commits the dropped column while leaving the
+            // version at 15, so the next boot re-enters this block, finds no
+            // column, and falls to the else branch — and migrations 17+ never
+            // run because the version never advances. The app then operates
+            // against a schema it believes is older than it is.
+            if (!query.exec("DELETE FROM schema_version")
+                || !query.exec("INSERT INTO schema_version (version) VALUES (16)")) {
+                qWarning() << "ShotHistoryStorage: migration 16 version bump failed:"
+                           << query.lastError().text();
+                m_db.rollback();
+                return false;
+            }
 
             if (!m_db.commit()) {
                 qWarning() << "ShotHistoryStorage: migration 16 commit failed:"
@@ -958,9 +982,16 @@ bool ShotHistoryStorage::runMigrations()
             }
         } else {
             // Column already absent (fresh DB or a previously-completed
-            // migration 16). Just record the schema version.
-            query.exec("DELETE FROM schema_version");
-            query.exec("INSERT INTO schema_version (version) VALUES (16)");
+            // migration 16). Just record the schema version — checked for the
+            // same reason as the transactional path above: this is the branch
+            // a half-completed migration 16 lands in, so swallowing a failure
+            // here is what would strand the version at 15 permanently.
+            if (!query.exec("DELETE FROM schema_version")
+                || !query.exec("INSERT INTO schema_version (version) VALUES (16)")) {
+                qWarning() << "ShotHistoryStorage: migration 16 version bump failed:"
+                           << query.lastError().text();
+                return false;
+            }
         }
         currentVersion = 16;
     }

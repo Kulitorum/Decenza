@@ -3252,7 +3252,8 @@ void MainController::onShotEnded() {
     metadata.drinkWeight = m_settings->dye()->dyeDrinkWeight();
     metadata.drinkTds = m_settings->dye()->dyeDrinkTds();
     metadata.drinkEy = m_settings->dye()->dyeDrinkEy();
-    metadata.espressoEnjoyment = m_settings->dye()->dyeEspressoEnjoyment();
+    // No enjoyment: a just-pulled shot has not been tasted, so it saves
+    // unrated (ShotMetadata defaults to 0). See settings_dye.h.
     metadata.espressoNotes = m_settings->dye()->dyeShotNotes();
     metadata.barista = m_settings->dye()->dyeBarista();
     metadata.beanBaseJson = m_settings->dye()->dyeBeanBaseData();
@@ -3358,14 +3359,10 @@ void MainController::onShotEnded() {
 
                     // Reset shot-specific metadata for the next shot
                     // Bean/grinder info persists (sticky), but per-shot fields reset.
-                    // Enjoyment resets to 0 (unrated): a shot that hasn't been tasted
-                    // is never auto-rated — the user rates it on the review page or
-                    // via the AI taste intake.
-                    m_settings->dye()->setDyeEspressoEnjoyment(0);
                     m_settings->dye()->setDyeShotNotes("");
                     m_settings->dye()->setDyeDrinkTds(0);
                     m_settings->dye()->setDyeDrinkEy(0);
-                    qDebug() << "[metadata] Reset enjoyment, notes, TDS, EY for next shot";
+                    qDebug() << "[metadata] Reset notes, TDS, EY for next shot";
 
                     // Force QSettings to sync to disk immediately
                     m_settings->sync();
@@ -3520,7 +3517,7 @@ void MainController::uploadPendingShot() {
     metadata.drinkWeight = m_settings->dye()->dyeDrinkWeight();
     metadata.drinkTds = m_settings->dye()->dyeDrinkTds();
     metadata.drinkEy = m_settings->dye()->dyeDrinkEy();
-    metadata.espressoEnjoyment = m_settings->dye()->dyeEspressoEnjoyment();
+    // Unrated on save — see the espresso path above.
     metadata.barista = m_settings->dye()->dyeBarista();
     metadata.beanBaseJson = m_settings->dye()->dyeBeanBaseData();
     metadata.bagId = m_settings->dye()->activeBagId();
@@ -3683,7 +3680,7 @@ void MainController::generateFakeShotData() {
             metadata.drinkWeight = m_settings->dye()->dyeDrinkWeight();
             metadata.drinkTds = m_settings->dye()->dyeDrinkTds();
             metadata.drinkEy = m_settings->dye()->dyeDrinkEy();
-            metadata.espressoEnjoyment = m_settings->dye()->dyeEspressoEnjoyment();
+            // Unrated on save — see the espresso path above.
             metadata.espressoNotes = m_settings->dye()->dyeShotNotes();
             metadata.barista = m_settings->dye()->dyeBarista();
             metadata.beanBaseJson = m_settings->dye()->dyeBeanBaseData();
@@ -3712,8 +3709,7 @@ void MainController::generateFakeShotData() {
                     // Update drink weight
                     m_settings->dye()->setDyeDrinkWeight(pendingFinalWeight);
 
-                    // Reset shot-specific metadata for next shot (enjoyment 0 = unrated)
-                    m_settings->dye()->setDyeEspressoEnjoyment(0);
+                    // Reset shot-specific metadata for next shot
                     m_settings->dye()->setDyeShotNotes("");
                     m_settings->dye()->setDyeDrinkTds(0);
                     m_settings->dye()->setDyeDrinkEy(0);

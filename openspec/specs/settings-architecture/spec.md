@@ -2,7 +2,6 @@
 
 ## Purpose
 Defines the decomposition of the monolithic `Settings` class into domain sub-objects (`SettingsMqtt`, `SettingsCalibration`, `SettingsBrew`, etc.), each owning its own `QSettings` instance and property set, with `Settings` reduced to a thin façade exposing sub-object accessors and cross-domain wiring. Specifies the required QML access pattern (`Settings.<domain>.<prop>`), the narrow-header-inclusion rule that bounds recompilation blast radius for domain-specific consumers, and the extraction of shot-history data structures into their own header.
-
 ## Requirements
 ### Requirement: Settings Domain Decomposition
 
@@ -27,9 +26,15 @@ The complete domain set SHALL be: `SettingsMqtt`, `SettingsAutoWake`, `SettingsH
 - **AND** QML expressions like `Settings.<domain>.<prop>` resolve to the sub-object's property at runtime, not to `undefined`
 
 #### Scenario: Cross-domain side effects use connect-based wiring
-- **WHEN** changing a property on one domain must trigger an update on another domain (e.g., `resetSawLearning` on `SettingsCalibration` must reset hot-water SAW offset state on `SettingsBrew`, or `setDefaultShotRating` on `SettingsVisualizer` triggers `setDyeEspressoEnjoyment` on `SettingsDye`)
+- **WHEN** changing a property on one domain must trigger an update on another domain (e.g., `resetSawLearning` on `SettingsCalibration` must reset hot-water SAW offset state on `SettingsBrew`)
 - **THEN** the wiring is established via `connect()` in the `Settings::Settings()` constructor body, after all `m_<domain>` members are constructed
 - **AND** the sub-object's setter does not directly call methods on another domain
+
+#### Scenario: Cross-domain wiring SHALL NOT mirror a setting onto per-shot state
+- **WHEN** a proposed cross-domain wiring would copy a configured setting into a field that is snapshotted onto a shot at save time
+- **THEN** the wiring SHALL NOT be established
+- **AND** the value SHALL be written to the shot record at the point a person supplies it instead
+- **AND** the reason SHALL be understood as concrete rather than stylistic: the removed `setDefaultShotRating` → `setDyeEspressoEnjoyment` wiring is what made a deleted setting keep rating shots, because the mirrored field outlived the setting that fed it
 
 ### Requirement: QML Sub-Object Access
 
@@ -110,4 +115,26 @@ The SAW learning surface comprises: `sawLearnedLag`, `sawLearnedLagFor`, `getExp
 - **WHEN** `SettingsCalibration::resetSawLearning` is invoked from QML or C++
 - **THEN** the sub-object emits a `sawLearningResetRequested` signal (or equivalent) and does not directly call `SettingsBrew` setters
 - **AND** the hot-water SAW offset and sample count are reset on `SettingsBrew` via a `connect()` established in the `Settings::Settings()` constructor body
+
+### Requirement: Removing a setting SHALL remove its stored key
+
+When a setting is removed, deleting its property and accessors SHALL NOT be
+considered sufficient. Every key the removed feature wrote SHALL also be evicted
+from the settings store, including keys written by fields the setting fed, so an
+upgraded store carries no orphaned value from the removed feature.
+
+Eviction SHALL be idempotent — a removal of an absent key is a no-op — so it can
+run unconditionally on construction without a version counter or migration
+framework.
+
+This requirement exists because a store is shared mutable state with an unbounded
+lifetime: an orphaned value is only inert for as long as nothing reads it, and the
+next reader is written by someone who never knew the feature existed.
+
+#### Scenario: Removed setting leaves no key behind
+
+- **GIVEN** a settings store written by a build that had the removed feature
+- **WHEN** the user upgrades to a build where the feature is gone
+- **THEN** the store SHALL contain no key that the removed feature wrote
+- **AND** a subsequent launch SHALL perform no further eviction work
 

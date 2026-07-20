@@ -77,6 +77,32 @@ Settings::Settings(QObject* parent)
     // differently for new users vs upgrades.
     const bool freshInstall = m_settings.allKeys().isEmpty();
 
+    // Evict the dead shot-rating keys. Both are orphans of the removed
+    // default-shot-rating feature: shot/defaultRating was the setting itself,
+    // and dye/espressoEnjoyment was the sticky field it fed, which kept
+    // stamping a rating onto freshly pulled shots for one shot after the
+    // feature was deleted. Nothing reads either one now — migration 16 was the
+    // last reader and no longer needs it — but a stale rating sitting in the
+    // store is the shape of thing that leaks back into something, so it does
+    // not get to stay.
+    //
+    // Deliberately AFTER the freshInstall snapshot: eviction would otherwise
+    // make a store holding only these two keys look like a new install and
+    // skip the upgrade-only seeding below. Unreachable today (any real store
+    // carries profile/* too), but it is a trap for whoever extends this list.
+    //
+    // contains() first because remove() does not check: on the Apple native
+    // backend it issues an unconditional CFPreferencesSetValue(key, nullptr)
+    // and dirties the store, so an unguarded pair would queue a settings
+    // write on every launch forever. Guarded, a clean store costs two lookups.
+    // A store that cannot be written stays dirty and the keys survive — which
+    // is inert, since no reader for either one exists any more.
+    for (const auto& deadKey : {QStringLiteral("shot/defaultRating"),
+                                QStringLiteral("dye/espressoEnjoyment")}) {
+        if (m_settings.contains(deadKey))
+            m_settings.remove(deadKey);
+    }
+
     // Initialize default favorite profiles if none exist
     if (!m_settings.contains("profile/favorites")) {
         QJsonArray defaultFavorites;

@@ -325,25 +325,44 @@ private slots:
         QCOMPARE(m_settings.brew()->targetWeight(), 0.0);
     }
 
-    void dyeEspressoEnjoymentDefaultsToUnrated() {
-        // The default-shot-rating feature was removed: an untasted shot is never
-        // auto-rated. With no persisted per-shot value, enjoyment is 0 (unrated) —
-        // it must NOT fall back to any non-zero default. A fresh SettingsDye read
-        // against a store with the key removed proves the default in isolation
-        // (the shared suite store may carry a value from a prior test).
+    void deadShotRatingKeysAreEvicted() {
+        // A shot rating is never sourced from settings. It used to be: a sticky
+        // dyeEspressoEnjoyment fed every shot save, so after the default-shot-
+        // rating feature was removed the last value the field ever held (a 50,
+        // in the wild) still leaked onto the next shot saved — which silently
+        // suppressed the AI taste intake, since that gate treats any non-zero
+        // enjoyment as feedback the user already gave.
+        //
+        // Removing the readers was not enough: both keys stayed on disk in
+        // every upgraded store, a bogus rating sitting around waiting to leak
+        // back into something. Constructing Settings evicts them.
+        //
+        // Covers three things: the keys are gone from the store, a backup does
+        // not carry espressoEnjoyment forward into a restored one, and a second
+        // construction against a clean store changes nothing.
         QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
-        const QVariant prior = raw.value("dye/espressoEnjoyment");
-        raw.remove("dye/espressoEnjoyment");
+        raw.setValue("shot/defaultRating", 50);
+        raw.setValue("dye/espressoEnjoyment", 50);
         raw.sync();
 
-        SettingsDye fresh;  // reads the now-clean store
-        QCOMPARE(fresh.dyeEspressoEnjoyment(), 0);
-
-        // Restore so later tests see the store they expect.
-        if (prior.isValid()) {
-            raw.setValue("dye/espressoEnjoyment", prior);
-            raw.sync();
+        {
+            Settings settings;
+            // Backup must not carry the field forward into a restored store.
+            const QJsonObject backup = SettingsSerializer::exportToJson(&settings);
+            QVERIFY(!backup.value("dye").toObject().contains("espressoEnjoyment"));
         }
+
+        QSettings after(Settings::testQSettingsPath(), QSettings::IniFormat);
+        after.sync();
+        QVERIFY2(!after.contains("shot/defaultRating"),
+                 "shot/defaultRating must be evicted, not merely unread");
+        QVERIFY2(!after.contains("dye/espressoEnjoyment"),
+                 "dye/espressoEnjoyment must be evicted, not merely unread");
+
+        // Idempotent: a second construction against a clean store is a no-op.
+        { Settings settings2; Q_UNUSED(settings2); }
+        after.sync();
+        QVERIFY(!after.contains("shot/defaultRating"));
     }
 
     void emptyScaleAddressIsValid() {
