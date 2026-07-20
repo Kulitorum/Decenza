@@ -24,6 +24,20 @@ public:
         connect(m_server, &QWebSocketServer::newConnection, this, [this]() {
             while (m_server->hasPendingConnections()) {
                 m_client = m_server->nextPendingConnection();
+                // QWebSocketServer does NOT take ownership of the socket it
+                // hands back — unlike QTcpServer, which parents it to itself.
+                // Qt's own docs: "It is up to the caller to delete the object
+                // explicitly ... otherwise a memory leak will occur."
+                //
+                // Leaving it unparented leaked one QWebSocket and its internals
+                // per connection: measured at 4,681 bytes / 49 allocations per
+                // connect-handshake-teardown cycle, scaling EXACTLY 20x between
+                // a 1-cycle and a 20-cycle run. It looked like harmless
+                // Qt-internal exit noise right up until it was measured.
+                //
+                // Reparenting to the fake server is enough — it dies with the
+                // server at end of scope.
+                m_client->setParent(this);
                 connect(m_client, &QWebSocket::textMessageReceived,
                         this, [this](const QString& msg) { m_received.append(msg); });
                 emit clientConnected();
@@ -123,6 +137,46 @@ private slots:
     // ==========================================
     // Snapshot frame parsing
     // ==========================================
+
+    // LEAK-SCALING PROBE. Repeats the full connect/handshake/teardown cycle N
+    // times in ONE process, where N comes from DECENZA_LEAK_SCALE (default 1,
+    // so an ordinary run is completely unaffected).
+    //
+    // The question this answers cannot be answered by reading a stack trace.
+    // The first nightly ASan run reported 131,068 bytes / 1,372 allocations
+    // leaked here, with every frame inside libQt6Core and none in our code —
+    // and, notably, ZERO "Direct leak" entries, only "Indirect". That is
+    // consistent with bounded state torn down at exit, and equally consistent
+    // with a real per-connection leak. The two need different responses
+    // (suppress vs fix), and only the growth curve tells them apart:
+    //
+    //   allocations stay ~1,372 as N rises  -> bounded, one-time, suppressible
+    //   allocations scale with N            -> real leak, fix it
+    //
+    // Symbolizing Qt would say WHERE memory was allocated; it would not say
+    // whether the total is bounded. Hence this, which needs no symbols at all.
+    void leakScalingProbe() {
+        bool ok = false;
+        const int n = qEnvironmentVariableIntValue("DECENZA_LEAK_SCALE", &ok);
+        const int iterations = (ok && n > 0) ? n : 1;
+        qInfo() << "[leak-probe] running" << iterations << "connect/teardown cycles";
+        for (int i = 0; i < iterations; ++i) {
+            // Each teardown emits one "[Scale] ... DISCONNECTED" warning, and
+            // failOnWarning turns any unignored warning into a failure.
+            // QTest::ignoreMessage consumes exactly ONE message, and init()
+            // queues exactly one — enough for a single-cycle test, one short
+            // per extra cycle here. Queue the rest.
+            if (i > 0)
+                QTest::ignoreMessage(QtWarningMsg,
+                                     QRegularExpression(".*DISCONNECTED.*"));
+            FakeHdsServer server;
+            DecentScaleWifi driver;
+            connectAndHandshake(driver, server);
+            driver.tare();
+            QTRY_VERIFY_WITH_TIMEOUT(server.received().size() >= 5, 2000);
+        }
+        QVERIFY(true);
+    }
 
     void weightSnapshotEmitsSetWeight() {
         FakeHdsServer server;

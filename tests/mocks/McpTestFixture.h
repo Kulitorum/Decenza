@@ -7,6 +7,8 @@
 #include "controllers/profilemanager.h"
 #include "mcp/mcptoolregistry.h"
 
+#include <memory>
+
 // Shared test fixture for MCP tool tests.
 // Wires ProfileManager with a MockTransport so BLE writes can be verified.
 //
@@ -103,29 +105,65 @@ struct McpTestFixture {
     QJsonObject callAsyncTool(const QString& name, const QJsonObject& args, int accessLevel = 2)
     {
         QString error;
-        QJsonObject result;
-        bool responded = false;
+        // Shared state, NOT captures of this frame's locals.
+        //
+        // The callback outlives this function on the timeout path below: it
+        // returns after 5 s with queued work still in flight, and that work can
+        // fire during a LATER test's processEvents. Capturing &result/&responded
+        // by reference would then write into a destroyed stack frame — a
+        // stack-use-after-return, which is exactly what the ASan job this
+        // fixture feeds exists to catch. Pre-existing, but the window widened
+        // when bag_update gained a main-thread hop (one more event-loop cycle
+        // before it can respond), so it is fixed here rather than noted.
+        struct AsyncState { QJsonObject result; bool responded = false; };
+        auto state = std::make_shared<AsyncState>();
 
         registry.callAsyncTool(name, args, accessLevel, error,
-            [&result, &responded](const QJsonObject& r) {
-                result = r;
-                responded = true;
+            [state](const QJsonObject& r) {
+                state->result = r;
+                state->responded = true;
             });
 
         if (!error.isEmpty()) {
             qWarning() << "callAsyncTool error:" << error;
-            return result;
+            return state->result;
         }
 
         // Process events until the async handler responds
         QElapsedTimer timer;
         timer.start();
-        while (!responded && timer.elapsed() < 5000)
+        while (!state->responded && timer.elapsed() < 5000)
             QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
 
-        if (!responded)
+        if (!state->responded)
             qWarning() << "callAsyncTool timed out waiting for response";
-        return result;
+
+        // A leak that lived here, and the two wrong explanations for it.
+        //
+        // tst_mcptools_write leaked 6,540 bytes / 70 allocations under
+        // LeakSanitizer, at the QThread::create sites in mcptools_write.cpp's
+        // headless static-fallback paths. RESOLVED — see the long note at
+        // src/mcp/mcptools_write.cpp:1774. Kept here because both failed
+        // diagnoses pointed at THIS function, and the record is what stops the
+        // next person re-deriving them:
+        //
+        //   1. "There is no event loop, so deleteLater never runs." Wrong about
+        //      this function — the loop above is one.
+        //   2. "The loop returns the instant the response lands, before
+        //      QThread::finished fires, so the queued deleteLater is never
+        //      delivered." Tested: draining events for 250 ms here plus an
+        //      explicit sendPostedEvents(DeferredDelete) changed the leak by
+        //      exactly ZERO bytes. Reverted rather than kept.
+        //
+        // The real cause was neither: respondWithBag() ran on a QThread::create
+        // WORKER, so the QThread it built inherited that worker's affinity and
+        // its deleteLater was posted to a queue nothing would ever pump. #2
+        // failed precisely because the pending delete was never on the main
+        // thread's queue — the thing this loop drains. Fixed by hopping to the
+        // main thread before creating that thread; nightly ASan now reports
+        // zero (run 29707910438).
+        //
+        return state->result;
     }
 
     // Helper: find BLE writes to a specific characteristic UUID

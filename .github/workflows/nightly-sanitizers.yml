@@ -213,10 +213,21 @@ jobs:
             -DBUILD_TESTS=ON \
             "$SANITIZER_FLAG"
 
+      # `build_tests`, not `all`. This job runs the ctest suite and nothing
+      # else, and `all` is dominated by targets it never executes: the Decenza
+      # app (385 C++ objects) and the tools (36) against the tests' 318.
+      # Measured with `ninja -t commands`: 1238 build steps for `all` vs 524
+      # for `build_tests` — 57.7% fewer, plus the app's link.
+      #
+      # No coverage is lost. Sanitizers report on code that RUNS, and nothing
+      # here runs the app; the src/ sources the tests exercise are compiled into
+      # decenza_testlib/decenza_shotlib and are still instrumented. App-only
+      # code (main.cpp, QML glue) is compiled several times a day by the
+      # platform builds anyway.
       - name: Build
         run: |
           cd build
-          ninja -j$(nproc)
+          ninja -j$(nproc) build_tests
 
       # Both option sets are exported unconditionally; each sanitizer reads only
       # its own variable, so the inactive one is inert. halt_on_error matters:

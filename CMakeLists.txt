@@ -231,6 +231,18 @@ endif()
 #     "ERROR: AddressSanitizer: …" block naming the location. That is a bug to
 #     fix, not a reason to turn the sanitizer off.
 if(ENABLE_ASAN OR (NOT CMAKE_CONFIGURATION_TYPES AND CMAKE_BUILD_TYPE STREQUAL "Debug" AND NOT ANDROID))
+    # Reflect the auto-enable back into the option, as the UBSan block does.
+    # Without this, ASan is ACTIVE in every local Debug build while ENABLE_ASAN
+    # stays OFF — and tests/CMakeLists.txt registers asan_canary under
+    # `if(ENABLE_ASAN)`, so the canary silently did not exist in exactly the
+    # configuration developers run all day. ASan instrumented, nothing proving
+    # it: the precise hole the canary was written to close, reintroduced by
+    # copying the UBSan block's shape without noticing UBSan sets its flag here
+    # and ASan did not.
+    #
+    # Caught by a test count of 84 that contained sanitizer_canary and no
+    # asan_canary.
+    set(ENABLE_ASAN ON)
     if(MSVC)
         message(STATUS ">>> ASan ENABLED for debug build (MSVC) <<<")
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /fsanitize=address")
