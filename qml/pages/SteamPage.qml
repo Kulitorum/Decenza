@@ -1040,15 +1040,11 @@ Page {
                 Layout.preferredWidth: liveActionRow.buttonWidth
                 Layout.preferredHeight: liveActionRow.buttonHeight
                 radius: Theme.buttonRadius
-                color: livePurgeMa.pressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+                color: livePurgeTap.isPressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
 
                 activeFocusOnTab: true
-                Accessible.role: Accessible.Button
-                Accessible.name: TranslationManager.translate("steam.accessible.purge", "Purge the steam wand")
-                Accessible.focusable: true
-                Accessible.onPressAction: livePurgeMa.clicked(null)
-                Keys.onReturnPressed: { livePurgeMa.clicked(null); event.accepted = true }
-                Keys.onSpacePressed:  { livePurgeMa.clicked(null); event.accepted = true }
+                Keys.onReturnPressed: { livePurgeTap.accessibleClicked(); event.accepted = true }
+                Keys.onSpacePressed:  { livePurgeTap.accessibleClicked(); event.accepted = true }
                 KeyNavigation.tab: steamStopButton.visible ? steamStopButton
                                  : (livePresetRepeater.count > 0 ? livePresetRepeater.itemAt(0) : livePurgeButton)
                 // The flow slider lives inside the timer-view subtree, so it is not a
@@ -1070,7 +1066,17 @@ Page {
                     Accessible.ignored: true
                 }
 
-                MouseArea { id: livePurgeMa; anchors.fill: parent; onClicked: DE1Device.requestIdle() }
+                // Using TapHandler for better touch responsiveness. Announce-first also
+                // matters more here than on a navigation control: this stops the steam
+                // and fires the wand purge, so a raw MouseArea would trigger it on the
+                // exploratory first touch instead of announcing itself.
+                AccessibleTapHandler {
+                    id: livePurgeTap
+                    anchors.fill: parent
+                    accessibleName: TranslationManager.translate("steam.accessible.purge", "Purge the steam wand")
+                    accessibleItem: livePurgeButton
+                    onAccessibleClicked: DE1Device.requestIdle()
+                }
             }
 
             // Stop button for headless machines.
@@ -1545,24 +1551,29 @@ Page {
                         visible: !steamPage.currentPitcherDisabled
                         Item { Layout.fillWidth: true }
                         Rectangle {
+                            id: settingsPurgeButton
                             Layout.preferredWidth: Theme.scaled(150)
                             Layout.preferredHeight: Theme.scaled(48)
                             radius: Theme.buttonRadius
-                            color: purgeMa.pressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+                            color: purgeTap.isPressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
                             activeFocusOnTab: true
-                            Accessible.role: Accessible.Button
-                            Accessible.name: TranslationManager.translate("steam.accessible.purge", "Purge the steam wand")
-                            Accessible.focusable: true
-                            Accessible.onPressAction: purgeMa.clicked(null)
-                            Keys.onReturnPressed: { purgeMa.clicked(null); event.accepted = true }
-                            Keys.onSpacePressed:  { purgeMa.clicked(null); event.accepted = true }
+                            Keys.onReturnPressed: { purgeTap.accessibleClicked(); event.accepted = true }
+                            Keys.onSpacePressed:  { purgeTap.accessibleClicked(); event.accepted = true }
                             Tr {
                                 anchors.centerIn: parent
                                 key: "steam.label.purge"; fallback: "Purge"
                                 color: Theme.primaryContrastColor; font: Theme.bodyFont
                                 Accessible.ignored: true
                             }
-                            MouseArea { id: purgeMa; anchors.fill: parent; onClicked: DE1Device.requestIdle() }
+                            // Using TapHandler for better touch responsiveness. Announce-first
+                            // keeps an exploratory touch from firing the wand purge.
+                            AccessibleTapHandler {
+                                id: purgeTap
+                                anchors.fill: parent
+                                accessibleName: TranslationManager.translate("steam.accessible.purge", "Purge the steam wand")
+                                accessibleItem: settingsPurgeButton
+                                onAccessibleClicked: DE1Device.requestIdle()
+                            }
                         }
                     }
 
