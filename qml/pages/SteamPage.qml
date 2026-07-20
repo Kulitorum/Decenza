@@ -1120,12 +1120,14 @@ Page {
 
                 Tr {
                     anchors.centerIn: parent
-                    // Same key and same type treatment as steamStopButton beside it, so
-                    // the pair reads as one row.
-                    key: "steam.button.purge"; fallback: "PURGE"
+                    // Same key and same type treatment as steamStopButton beside it, so the
+                    // pair reads as one row. steam.label.purge, not steam.button.purge —
+                    // see the note on that button for why the latter is poisoned.
+                    key: "steam.label.purge"; fallback: "Purge"
                     color: Theme.primaryContrastColor
                     font.pixelSize: Theme.scaled(24)
                     font.weight: Font.Bold
+                    font.capitalization: Font.AllUppercase
                     Accessible.ignored: true
                 }
 
@@ -1190,16 +1192,23 @@ Page {
                 Text {
                     id: stopButtonText
                     anchors.centerIn: parent
-                    // steam.button.* carries the shouted label, matching espresso/flush/
-                    // hotwater/descaling/transport. The sentence-case steam.label.purge
-                    // stays on the settings-view Purge button — one key holds one English
-                    // string, so a shared key could not serve both casings.
+                    // DO NOT use steam.button.purge here. It labelled this button's
+                    // second-press state back when that state meant "stop", so the shipped
+                    // community translations for it literally say Stop — de "Stopp",
+                    // da "Stop", ar "إيقاف". Only steam.label.purge is translated as a
+                    // purge: de "Reinigen", fr "Purger", da "Rens", ar "تنظيف".
+                    // steam.button.stop is correct and matches espresso/flush/hotwater/
+                    // descaling/transport.
                     text: (steamSoftStopped && Settings.hardware.steamTwoTapStop)
-                          ? TranslationManager.translate("steam.button.purge", "PURGE")
+                          ? TranslationManager.translate("steam.label.purge", "Purge")
                           : TranslationManager.translate("steam.button.stop", "STOP")
                     color: Theme.primaryContrastColor
                     font.pixelSize: Theme.scaled(24)
                     font.weight: Font.Bold
+                    // The shouted look is applied here rather than baked into the source
+                    // strings, so one sentence-case purge key can serve this button and the
+                    // settings-view one. Case-less scripts (ar) are unaffected.
+                    font.capitalization: Font.AllUppercase
                     Accessible.ignored: true
                 }
 
