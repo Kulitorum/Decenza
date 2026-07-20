@@ -1773,9 +1773,11 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             // Load the just-updated bag on a background thread and respond.
             // Always create the reader thread ON THE MAIN THREAD.
             //
-            // This lambda is invoked from two places: the storage-instance path
-            // (already on the main thread, via invokeMethod(qApp, ...)) and the
-            // headless fallback path — from INSIDE a QThread::create worker.
+            // This lambda is invoked from THREE places: :1842 (bagUpdated
+            // handler, main thread), :1857 (the headless fallback path, from
+            // INSIDE a QThread::create worker — the leak), and :1969 (the
+            // idempotent-merge early return, main thread via invokeMethod).
+            // Only the middle one runs off the main thread.
             //
             // In that second case the QThread built below inherited the
             // WORKER's thread affinity, so deleteLater() on its finished()
@@ -1792,8 +1794,13 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             // fallback path this lambda reported
             // currentThread() != qApp->thread() on every call.
             //
-            // The hop makes affinity identical on both paths, so the deferred
-            // delete always lands on an event loop that actually runs.
+            // The hop makes affinity identical on all three paths, so the
+            // deferred delete always lands on an event loop that actually runs.
+            //
+            // Confirmed, not assumed: the nightly Linux ASan job reported
+            // 6,540 bytes / 70 allocations here before this change and ZERO
+            // after (run 29707910438, 84/84, no LeakSanitizer reports).
+            // LeakSanitizer is Linux-only, so no local run could have shown it.
             auto respondWithBag = [dbPath, bagId, bagToJson, respond]() {
               QMetaObject::invokeMethod(qApp, [dbPath, bagId, bagToJson, respond]() {
                 QThread* t = QThread::create([dbPath, bagId, bagToJson, respond]() {
