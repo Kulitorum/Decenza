@@ -881,30 +881,6 @@ Page {
                     }
                 }
 
-                // Purge button on the live steaming view — stops steam and triggers
-                // the DE1 steam-wand purge.
-                Rectangle {
-                    visible: isSteaming
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    width: Theme.scaled(150)
-                    height: Theme.scaled(48)
-                    radius: Theme.buttonRadius
-                    color: livePurgeMa.pressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
-                    activeFocusOnTab: true
-                    Accessible.role: Accessible.Button
-                    Accessible.name: TranslationManager.translate("steam.accessible.purge", "Purge the steam wand")
-                    Accessible.focusable: true
-                    Accessible.onPressAction: livePurgeMa.clicked(null)
-                    Keys.onReturnPressed: { livePurgeMa.clicked(null); event.accepted = true }
-                    Keys.onSpacePressed:  { livePurgeMa.clicked(null); event.accepted = true }
-                    Tr {
-                        anchors.centerIn: parent
-                        key: "steam.label.purge"; fallback: "Purge"
-                        color: Theme.primaryContrastColor; font: Theme.bodyFont
-                        Accessible.ignored: true
-                    }
-                    MouseArea { id: livePurgeMa; anchors.fill: parent; onClicked: DE1Device.requestIdle() }
-                }
             }
 
             Item { Layout.fillHeight: true }
@@ -935,7 +911,9 @@ Page {
                     value: Settings.brew.steamFlow
                     displayText: flowToDisplay(value)
                     accessibleName: TranslationManager.translate("steam.label.steamFlow", "Steam Flow")
-                    KeyNavigation.tab: steamStopButton.visible ? steamStopButton : (livePresetRepeater.count > 0 ? livePresetRepeater.itemAt(0) : steamingFlowSlider)
+                    KeyNavigation.tab: livePurgeButton.visible ? livePurgeButton
+                                     : (steamStopButton.visible ? steamStopButton
+                                     : (livePresetRepeater.count > 0 ? livePresetRepeater.itemAt(0) : steamingFlowSlider))
                     KeyNavigation.backtab: increaseTimeBtn
                     // BLE write deferred to commit (PR #782 pattern). The single
                     // commit-time MMR write is reliable because setSteamFlowImmediate
@@ -1011,13 +989,53 @@ Page {
                 }
             }
 
+            // Purge and Stop share one row. Both are terminal actions on the live
+            // steaming view, and stacking them cost a full button row of height on a
+            // page that already overflows its 600-unit reference budget. Sitting
+            // outside the timer/chart view switch, this row is also why Purge is now
+            // reachable from the chart view — it used to be timer-view only.
+            RowLayout {
+                Layout.alignment: Qt.AlignHCenter
+                visible: livePurgeButton.visible || steamStopButton.visible
+                spacing: Theme.spacingMedium
+
+            // Purge button on the live steaming view — stops steam and triggers
+            // the DE1 steam-wand purge.
+            Rectangle {
+                id: livePurgeButton
+                visible: isSteaming
+                Layout.preferredWidth: Theme.scaled(150)
+                Layout.preferredHeight: Theme.scaled(60)
+                radius: Theme.buttonRadius
+                color: livePurgeMa.pressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+
+                activeFocusOnTab: true
+                Accessible.role: Accessible.Button
+                Accessible.name: TranslationManager.translate("steam.accessible.purge", "Purge the steam wand")
+                Accessible.focusable: true
+                Accessible.onPressAction: livePurgeMa.clicked(null)
+                Keys.onReturnPressed: { livePurgeMa.clicked(null); event.accepted = true }
+                Keys.onSpacePressed:  { livePurgeMa.clicked(null); event.accepted = true }
+                KeyNavigation.tab: steamStopButton.visible ? steamStopButton
+                                 : (livePresetRepeater.count > 0 ? livePresetRepeater.itemAt(0) : livePurgeButton)
+                KeyNavigation.backtab: steamingFlowSlider
+
+                Tr {
+                    anchors.centerIn: parent
+                    key: "steam.label.purge"; fallback: "Purge"
+                    color: Theme.primaryContrastColor; font: Theme.bodyFont
+                    Accessible.ignored: true
+                }
+
+                MouseArea { id: livePurgeMa; anchors.fill: parent; onClicked: DE1Device.requestIdle() }
+            }
+
             // Stop button for headless machines.
             // When Settings.hardware.steamTwoTapStop is on (default off), behaves as a
             // two-stage button: first tap soft-stops, second tap purges.
             // When off, a single tap stops and triggers the hose purge.
             Rectangle {
                 id: steamStopButton
-                Layout.alignment: Qt.AlignHCenter
                 Layout.preferredWidth: Theme.scaled(200)
                 Layout.preferredHeight: Theme.scaled(60)
                 visible: DE1Device.isHeadless
@@ -1036,7 +1054,10 @@ Page {
                     event.accepted = true
                 }
                 Keys.onBacktabPressed: {
-                    if (livePresetRepeater.count > 0) livePresetRepeater.itemAt(livePresetRepeater.count - 1).forceActiveFocus()
+                    // Purge now sits immediately to the left in the shared action row,
+                    // so it is the natural backtab target whenever it is showing.
+                    if (livePurgeButton.visible) livePurgeButton.forceActiveFocus()
+                    else if (livePresetRepeater.count > 0) livePresetRepeater.itemAt(livePresetRepeater.count - 1).forceActiveFocus()
                     event.accepted = true
                 }
 
@@ -1075,6 +1096,8 @@ Page {
                     }
                 }
             }
+
+            } // end Purge + Stop action row
 
             Item { Layout.preferredHeight: Theme.scaled(20) }
         }
