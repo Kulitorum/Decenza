@@ -23,9 +23,11 @@ Page {
         }
     }
     StackView.onActivated: {
-        // Reconnect refractometer when entering/returning to this page
-        if (Settings.savedRefractometerAddress !== "" && !BLEManager.refractometerConnected) {
-            BLEManager.tryDirectConnectToRefractometer()
+        // Hunt for the refractometer while this page is open: activation kicks
+        // an immediate scan, and BLEManager keeps scans back-to-back until the
+        // refractometer connects (C++ guards handle not-configured/connected).
+        if (Settings.savedRefractometerAddress !== "") {
+            BLEManager.setRefractometerHunt(true)
         }
     }
 
@@ -36,6 +38,10 @@ Page {
     // already flushes on every normal navigation exit, and handleBack() flushes
     // on the explicit back path, so the destruction flush was redundant.
     Component.onDestruction: {
+        // Safety net: onDeactivating already ends the hunt on every normal
+        // navigation exit, but a page destroyed without deactivating (app
+        // teardown) must not leave continuous scanning armed.
+        BLEManager.setRefractometerHunt(false)
         if (Refractometer && Refractometer.connected) {
             Refractometer.disconnectFromDevice()
         }
@@ -53,7 +59,12 @@ Page {
 
     // Flush whenever the page loses the foreground (back, a child page pushed
     // on top, app backgrounded) so a deferred/in-progress edit is persisted.
-    StackView.onDeactivating: autosave()
+    // Also end the refractometer hunt — continuous scanning is scoped to this
+    // page being the active page.
+    StackView.onDeactivating: {
+        BLEManager.setRefractometerHunt(false)
+        autosave()
+    }
 
     function handleBack() {
         // Every committed edit is already persisted; just flush a possible

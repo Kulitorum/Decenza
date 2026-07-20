@@ -1207,6 +1207,18 @@ void BLEManager::onScanFinished() {
     emit de1LogMessage("Scan complete");
     appendScaleLog("Scan complete");
     emit scanningChanged();
+
+    // Hunt mode (post-shot review page): restart the scan back-to-back so a
+    // refractometer powered on at an arbitrary moment is seen within one scan
+    // cycle instead of waiting out the 60 s reconnect tick's dead window.
+    // Scan-finished is the continuation event — no polling timer. Deliberately
+    // not restarted from onScanError: the background tick recovers from errors.
+    if (m_refractometerHunt && !m_savedRefractometerAddress.isEmpty()
+        && !isRefractometerConnected() && !m_disabled && isBluetoothAvailable()) {
+        qDebug().noquote() << "[R2-diag] hunt active — restarting scan";
+        m_scanningForScales = true;
+        startScan();
+    }
 }
 
 void BLEManager::onScanError(QBluetoothDeviceDiscoveryAgent::Error error) {
@@ -1771,6 +1783,19 @@ void BLEManager::tryDirectConnectToRefractometer() {
     if (!m_scanningForScales) {
         m_scanningForScales = true;
         startScan();
+    }
+}
+
+void BLEManager::setRefractometerHunt(bool active) {
+    if (m_refractometerHunt == active) {
+        return;
+    }
+    m_refractometerHunt = active;
+    qDebug().noquote() << QString("[R2-diag] refractometer hunt %1")
+        .arg(active ? QStringLiteral("ON — scanning continuously until connected")
+                    : QStringLiteral("OFF — background reconnect cadence resumes"));
+    if (active && !isRefractometerConnected()) {
+        tryDirectConnectToRefractometer();
     }
 }
 
