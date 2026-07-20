@@ -152,6 +152,16 @@ private:
     void sendResponse(QTcpSocket* socket, int statusCode, const QString& contentType,
                       const QByteArray& body, const QByteArray& extraHeaders = QByteArray());
     void sendJson(QTcpSocket* socket, const QByteArray& json);
+    // GET /api/grind-candidates?brand=&model=&current=&rpm= — server-computed
+    // stepped grind/RPM candidate lists for the web <datalist> helper
+    // (replace-grind-inputs-with-picker). The PAGE passes the grinder identity
+    // of the record being edited (the shot's / bag's / recipe-package's), so
+    // candidates resolve against the value's own grinder, never the active one.
+    // Mirrors GrindRowSource.qml: catalog stepping via
+    // SettingsDye::stepGrinderSetting (notation-aware, click-indexed floor),
+    // plain-numeric fallback, observed-history fallback; RPM ±5 steps around
+    // the value (neutral 1000 anchor when unset). No stepping in browser JS.
+    void handleGrindCandidatesApi(QTcpSocket* socket, const QString& path);
     void sendHtml(QTcpSocket* socket, const QString& html);
     void sendFile(QTcpSocket* socket, const QString& path, const QString& contentType);
 

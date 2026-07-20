@@ -976,7 +976,7 @@ Page {
         anchors.fill: parent
         targetFlickable: flickable
         textFields: [
-            settingField.textField, rpmField.textField, baristaField.textField,
+            baristaField.textField,
             notesExpandable.textField
         ]
 
@@ -1591,8 +1591,15 @@ Page {
                         }
                     }
 
-                    // Grind (moved from the field grid — the most-adjusted
-                    // dial-in, now beside Dose/Out).
+                    // Grind + RPM (moved from the field grid — the most-adjusted
+                    // dial-in, now beside Dose/Out). One tap-to-open control for
+                    // both halves ("grind · rpm"): tapping opens the grind picker
+                    // (wheels + keyboard entry). Grinder context is the SHOT's
+                    // grinder (editGrinderBrand/Model, seeded from editShotData)
+                    // — step, candidates and notation follow the grinder this
+                    // shot was pulled on, not the currently active one. Commits
+                    // autosave immediately: Done is the commit event (a
+                    // tap-to-open control has no blur).
                     ColumnLayout {
                         Layout.fillWidth: true
                         Layout.preferredWidth: 1
@@ -1604,49 +1611,24 @@ Page {
                             font.pixelSize: Theme.scaled(10)
                             Accessible.ignored: true
                         }
-                        SuggestionField {
-                            id: settingField
+                        GrindField {
                             Layout.fillWidth: true
-                            // No fixed preferredHeight — its implicitHeight is 36 in
-                            // normal mode (matching the steppers) but grows for the
-                            // accessibility button row when a screen reader is on.
+                            Layout.preferredHeight: Theme.scaled(36)
+                            presentation: "field"
                             fieldColor: Theme.cardBackgroundColor   // match the Dose/Out steppers
-                            label: ""
-                            text: editGrinderSetting
-                            suggestions: {
-                                var list = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctGrinderSettingsForGrinder(editGrinderModel) : []
-                                if (editGrinderSetting.length > 0 && list.indexOf(editGrinderSetting) === -1) list = [editGrinderSetting].concat(list)
-                                return list
+                            grinderBrand: postShotReviewPage.editGrinderBrand
+                            grinderModel: postShotReviewPage.editGrinderModel
+                            grindSetting: postShotReviewPage.editGrinderSetting
+                            rpmValue: postShotReviewPage.editRpm
+                            accessibleName: TranslationManager.translate("shotdetail.grind", "Grind")
+                            onGrindCommitted: function(v) {
+                                postShotReviewPage.editGrinderSetting = v
+                                postShotReviewPage.autosave("grinderSetting", true)
                             }
-                            onTextEdited: function(t) { editGrinderSetting = t }
-                            onInputBlurred: postShotReviewPage.autosave("grinderSetting", true)
-                        }
-                    }
-
-                    // RPM (only when the grinder is rpm-adjustable)
-                    ColumnLayout {
-                        visible: postShotReviewPage.editRpmCapable
-                        Layout.fillWidth: true
-                        Layout.preferredWidth: 1
-                        spacing: Theme.scaled(2)
-                        Tr {
-                            key: "postshotreview.label.rpm"
-                            fallback: "RPM"
-                            color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(10)
-                            Accessible.ignored: true
-                        }
-                        SuggestionField {
-                            id: rpmField
-                            Layout.fillWidth: true
-                            // No fixed preferredHeight — lets the a11y button row
-                            // expand under a screen reader (implicitHeight is 36 otherwise).
-                            fieldColor: Theme.cardBackgroundColor   // match the Dose/Out steppers
-                            label: ""
-                            text: editRpm > 0 ? String(editRpm) : ""
-                            suggestions: []
-                            onTextEdited: function(t) { editRpm = parseInt(t) || 0 }
-                            onInputBlurred: postShotReviewPage.autosave("rpm", true)
+                            onRpmCommitted: function(rpm) {
+                                postShotReviewPage.editRpm = rpm
+                                postShotReviewPage.autosave("rpm", true)
+                            }
                         }
                     }
 

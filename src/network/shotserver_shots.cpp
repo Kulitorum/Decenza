@@ -2,6 +2,7 @@
 #include "webdebuglogger.h"
 #include "webtemplates.h"
 #include "webtemplates/menu_js.h"
+#include "webtemplates/grind_datalist_js.h"
 #include "../history/shothistorystorage.h"
 #include "../ble/de1device.h"
 #include "../machine/machinestate.h"
@@ -1905,6 +1906,12 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
                     '<div class="edit-row"><span class="label">EY (%)</span><div class="edit-field"><input type="number" class="edit-input" id="editEy" step="0.1" value="' + (shotData.drinkEy || '') + '" readonly style="opacity:0.7"></div></div>' +
                 '</div>';
 
+            // Stepped candidates for the SHOT's own grinder — not the active
+            // one (grind-value-entry). Free text stays accepted either way.
+            attachGrindDatalist(document.getElementById('editGrinderSetting'),
+                                document.getElementById('editRpm'),
+                                shotData.grinderBrand, shotData.grinderModel);
+
             actionsBar.style.display = 'none';
             originalDebugDisplay = debugContainer ? debugContainer.style.display : '';
             if (debugContainer) debugContainer.style.display = 'none';
@@ -2303,6 +2310,7 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
         // Power toggle
 )HTML");
     html += WEB_JS_POWER_CONTROL;
+    html += WEB_JS_GRIND_DATALIST;
     html += R"HTML(
     </script>
 </body>

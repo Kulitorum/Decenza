@@ -10,6 +10,7 @@
 #include "../controllers/maincontroller.h"
 #include "../core/settings.h"
 #include "../core/settings_dye.h"
+#include "webtemplates/grind_datalist_js.h"
 #include "../core/yieldspec.h"
 #include "../core/dbutils.h"
 #include "../ai/aimanager.h"
@@ -577,6 +578,12 @@ QString ShotServer::generateBeansPage() const
 
         <details class="dialog-section">
             <summary>Dial-in</summary>
+            <!-- Equipment first: the grinder gates the RPM field and scopes the
+                 grind candidates, so it is chosen before the dial-in that
+                 depends on it — same ordering as the app's bag form and the
+                 recipe wizard's equipment-then-grind windows. -->
+            <label>Equipment</label>
+            <select id="fEquipment" onchange="refreshGrindCandidates()"><option value="0">None</option></select>
             <div class="grid-2">
                 <div><label>Grind setting</label><input id="fGrind"></div>
                 <div><label>RPM</label><input id="fRpm" type="number" step="1"></div>
@@ -592,8 +599,6 @@ QString ShotServer::generateBeansPage() const
                 </select></div>
                 <div><input id="fYieldValue" type="number" step="0.1" placeholder="value"></div>
             </div>
-            <label>Equipment</label>
-            <select id="fEquipment"><option value="0">None</option></select>
         </details>
 
         <label>Notes</label><textarea id="fNotes"></textarea>
@@ -615,6 +620,7 @@ QString ShotServer::generateBeansPage() const
     html += WEB_JS_MENU;
     html += WEB_JS_POWER_CONTROL;
     html += WEB_JS_MANAGEMENT;
+    html += WEB_JS_GRIND_DATALIST;
     html += R"HTML(
         let editingId = null;
         let editingKind = 'coffee';
@@ -661,7 +667,29 @@ QString ShotServer::generateBeansPage() const
             const sel = el('fEquipment');
             sel.innerHTML = '<option value="0">None</option>'
                 + equipmentList.map(p => '<option value="' + p.id + '">' + esc(equipmentLabel(p)) + '</option>').join('');
+            // The equipment fetch can fail or still be in flight. Without this,
+            // a bag whose package is missing from the list falls back to the
+            // "None" option and SAVE SILENTLY UNLINKS it — a data loss with no
+            // message. Keep the id selectable via a placeholder so the link
+            // round-trips untouched.
+            if (selectedId > 0 && !equipmentList.some(p => p.id === selectedId)) {
+                const opt = document.createElement('option');
+                opt.value = String(selectedId);
+                opt.textContent = 'Package ' + selectedId + ' (not loaded)';
+                sel.appendChild(opt);
+            }
             sel.value = String(selectedId || 0);
+        }
+
+        // Stepped grind/RPM candidates for the BAG's linked package — the
+        // record's own grinder, never the active one (grind-value-entry).
+        // Re-attached when the equipment selection changes mid-edit, so the
+        // candidates follow the grinder the bag will actually be ground on.
+        function refreshGrindCandidates() {
+            const pkgId = parseInt(el('fEquipment').value, 10) || 0;
+            const pkg = equipmentList.find(p => p.id === pkgId);
+            attachGrindDatalist(el('fGrind'), el('fRpm'),
+                                pkg ? pkg.grinderBrand : '', pkg ? pkg.grinderModel : '');
         }
 
         function attrLine(b, bb) {
@@ -799,7 +827,15 @@ QString ShotServer::generateBeansPage() const
             el('fStartWeight').value = b.startWeightG > 0 ? b.startWeightG : '';
             el('fYieldMode').value = b.yieldMode || 'none';
             el('fYieldValue').value = b.yieldValue > 0 ? b.yieldValue : '';
-            fillEquipmentSelect(b.equipmentId || 0);
+            // A NEW bag defaults to the ACTIVE equipment package (app parity —
+            // the in-app form arrives with the current equipment resolved, so
+            // the grind picker's RPM half matches the real grinder instead of
+            // the "unknown grinder -> assume rpm-capable" fallback an empty
+            // identity triggers). An existing bag keeps its own link.
+            const defaultPkg = id ? (b.equipmentId || 0)
+                : ((equipmentList.find(p => p.isActive) || { id: 0 }).id);
+            fillEquipmentSelect(defaultPkg);
+            refreshGrindCandidates();
             el('fNotes').value = b.notes || '';
             COFFEE_KEYS.concat(TEA_KEYS).forEach(([fid, key]) => { const e = el(fid); if (e) e.value = editBlob[key] || ''; });
             el('fSearch').value = '';

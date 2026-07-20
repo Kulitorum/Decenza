@@ -10,6 +10,8 @@
 #include "../machine/machinestate.h"
 #include "../screensaver/screensavervideomanager.h"
 #include "../core/settings.h"
+#include "../core/settings_dye.h"
+#include "grindcandidates.h"
 #include "../core/settings_network.h"
 #include "../core/settings_theme.h"
 #include "../core/settings_mcp.h"
@@ -2102,6 +2104,9 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
             handleGetSettings(socket);
         }
     }
+    else if (path.startsWith("/api/grind-candidates")) {
+        handleGrindCandidatesApi(socket, path);
+    }
     else if (path == "/api/saved-searches") {
         if (method == "GET") {
             QJsonArray arr;
@@ -2770,6 +2775,43 @@ void ShotServer::resetKeepAliveTimer(QTcpSocket* socket)
 void ShotServer::sendJson(QTcpSocket* socket, const QByteArray& json)
 {
     sendResponse(socket, 200, "application/json", json);
+}
+
+void ShotServer::handleGrindCandidatesApi(QTcpSocket* socket, const QString& path)
+{
+    const QUrlQuery query(path.mid(path.indexOf(QLatin1Char('?')) + 1));
+
+    SettingsDye* dye = m_settings ? m_settings->dye() : nullptr;
+    if (!dye) {
+        // MUST be a non-2xx: sendJson would return 200, the helper's r.ok check
+        // would pass, and its empty "rpm" array would be read as the
+        // NOT-RPM-CAPABLE verdict — hiding the RPM field on a capable grinder.
+        // A real status lands in the .catch instead, where the documented
+        // fail-open behaviour (plain text inputs, field left as rendered)
+        // applies.
+        sendResponse(socket, 503, "application/json",
+                     QByteArrayLiteral(R"({"error": "Settings unavailable"})"));
+        return;
+    }
+
+    GrindCandidates::Inputs in;
+    in.brand = query.queryItemValue(QStringLiteral("brand"), QUrl::FullyDecoded);
+    in.model = query.queryItemValue(QStringLiteral("model"), QUrl::FullyDecoded);
+    in.current = query.queryItemValue(QStringLiteral("current"), QUrl::FullyDecoded).trimmed();
+    in.rpm = query.queryItemValue(QStringLiteral("rpm")).toLongLong();
+    if (m_storage) {
+        // History-derived steps + observed settings for THIS record's grinder.
+        // An empty model is passed through, not skipped:
+        // getDistinctGrinderSettingsForGrinder("") derives from the full
+        // cross-grinder history — the new-bag /beans form has no equipment
+        // selected yet and should still offer something to pick.
+        in.grindStep = m_storage->grindStepForGrinder(in.model);
+        in.rpmStep = m_storage->grindRpmStepForGrinder(in.model);
+        in.observed = m_storage->getDistinctGrinderSettingsForGrinder(in.model);
+    }
+
+    sendJson(socket, QJsonDocument(GrindCandidates::build(dye, in))
+                         .toJson(QJsonDocument::Compact));
 }
 
 void ShotServer::sendHtml(QTcpSocket* socket, const QString& html)

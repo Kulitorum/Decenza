@@ -231,7 +231,20 @@ Page {
     property string fBagBlob: ""          // selected bag's beanBaseData (tea brewing seeds)
     property real fEquipmentId: 0
     property string fEquipmentName: ""
-    property bool fEquipmentRpmCapable: false
+    // Grinder identity of the recipe's selected package — the grind control's
+    // context (grind-value-entry: the recipe's grinder, never the active one).
+    property string fEquipmentGrinderBrand: ""
+    property string fEquipmentGrinderModel: ""
+    // RPM capability: one function, the RECIPE's package as arguments — not the
+    // stored pkg.rpmCapable flag (which can drift from the catalog) and not the
+    // argument-less active-grinder resolution (which would ignore the package
+    // the equipment window just made the user choose).
+    readonly property bool fEquipmentRpmCapable:
+        Settings.dye.grinderRpmCapable(fEquipmentGrinderBrand, fEquipmentGrinderModel)
+    // The recipe's own dial-in (grind always lives on the recipe —
+    // fix-recipe-grind-integrity). 0 rpm = unset, uniform across surfaces.
+    property string fGrind: ""
+    property int fRpmPinned: 0
     // The linked bag's current dial, read once when the bag is selected and
     // offered as the grind/rpm fields' editable DEFAULT — grind always lives
     // on the recipe (fix-recipe-grind-integrity); there is no live follow.
@@ -310,7 +323,7 @@ Page {
                     ? fTeaTempC - fProfileTempC : 0)
                 : fLoadedTempOffsetC)
             : (Math.abs(fTempDeltaC) > 0.05 ? fTempDeltaC : 0),
-        grindPinned: (!activeTemplate.grind) ? "" : grindField.text.trim(),
+        grindPinned: (!activeTemplate.grind) ? "" : fGrind.trim(),
         steamJson: buildSteamJson(),
         hotWaterJson: buildHotWaterJson()
     })
@@ -497,8 +510,8 @@ Page {
         // the save path then preserves fLoadedTempOffsetC instead.
         fTeaTempC = (r.drinkType && String(r.drinkType).indexOf("tea") === 0
                      && fProfileTempC > 0) ? fProfileTempC + (r.tempOffsetC || 0) : 0
-        grindField.text = r.grindPinned || ""
-        rpmField.text = (r.rpmPinned || 0) > 0 ? String(r.rpmPinned) : ""
+        fGrind = r.grindPinned || ""
+        fRpmPinned = r.rpmPinned || 0
         applySteamJson(r.steamJson || "")
         applyHotWaterJson(r.hotWaterJson || "")
         // Drink type: stored value, else derive from the loaded blocks — a
@@ -790,10 +803,10 @@ Page {
             // Grind always lives on the recipe (fix-recipe-grind-integrity):
             // whatever is on the field saves as the recipe's own value. Tea
             // recipes never store grind (nothing to grind).
-            grindPinned: (!activeTemplate.grind) ? "" : grindField.text.trim(),
+            grindPinned: (!activeTemplate.grind) ? "" : fGrind.trim(),
             rpmPinned: (activeTemplate.grind
-                        && (fEquipmentRpmCapable || (parseInt(rpmField.text) || 0) > 0))
-                ? (parseInt(rpmField.text) || 0) : 0,
+                        && (fEquipmentRpmCapable || fRpmPinned > 0))
+                ? fRpmPinned : 0,
             steamJson: buildSteamJson(),
             hotWaterJson: buildHotWaterJson()
         }
@@ -947,10 +960,10 @@ Page {
             // only over an empty field or the previous bag's untouched
             // default (a swap re-defaults; a typed value stays).
             if (mode !== "edit" && activeTemplate.grind && fBagGrindDefault !== ""
-                && (grindField.text.trim() === "" || grindField.text.trim() === prevDefault)) {
-                grindField.text = fBagGrindDefault
-                rpmField.text = (fEquipmentRpmCapable && fBagRpmDefault > 0)
-                    ? String(fBagRpmDefault) : ""
+                && (fGrind.trim() === "" || fGrind.trim() === prevDefault)) {
+                fGrind = fBagGrindDefault
+                fRpmPinned = (fEquipmentRpmCapable && fBagRpmDefault > 0)
+                    ? fBagRpmDefault : 0
             }
             suggestName()
         }
@@ -1017,7 +1030,7 @@ Page {
         if (!pkg || pkg.isNone) {
             fEquipmentId = 0
             fEquipmentName = ""
-            fEquipmentRpmCapable = false
+            fEquipmentGrinderBrand = ""; fEquipmentGrinderModel = ""
             _selectedPackage = ({})
             return
         }
@@ -1025,7 +1038,8 @@ Page {
         fEquipmentName = pkg.name
             || ((pkg.grinderBrand || "") + " " + (pkg.grinderModel || "")).trim()
             || ((pkg.basketBrand || "") + " " + (pkg.basketModel || "")).trim()
-        fEquipmentRpmCapable = !!pkg.rpmCapable
+        fEquipmentGrinderBrand = pkg.grinderBrand || ""
+        fEquipmentGrinderModel = pkg.grinderModel || ""
         _selectedPackage = pkg
     }
 
@@ -1181,9 +1195,9 @@ Page {
         if (tempStr !== "")
             parts.push(tempStr)
         if (activeTemplate.grind) {
-            var g = grindField.text.trim()
+            var g = fGrind.trim()
             if (g !== "") {
-                var rpm = parseInt(rpmField.text) || 0
+                var rpm = fRpmPinned
                 var grindStr = TranslationManager.translate("recipes.wizard.summary.grind", "grind %1").arg(g)
                 if (fEquipmentRpmCapable && rpm > 0)
                     grindStr += " · " + TranslationManager.translate("equipment.card.lastRpm", "%1 rpm").arg(rpm)
@@ -1654,9 +1668,9 @@ Page {
             // History is the top prefill tier for grind too: the dial that
             // actually worked with this bean+profile beats the bag's default.
             if (wizardPage.activeTemplate.grind && shot.grinderSetting) {
-                grindField.text = shot.grinderSetting
+                wizardPage.fGrind = shot.grinderSetting
                 if (wizardPage.fEquipmentRpmCapable && shot.rpm > 0)
-                    rpmField.text = String(shot.rpm)
+                    wizardPage.fRpmPinned = shot.rpm
             }
             // History just overwrote dose/yield — refresh a still-auto name so a
             // collision qualifier reflects the numbers that actually worked.
@@ -1786,13 +1800,37 @@ Page {
                         wizardPage.fEquipmentName = packages[i].name
                             || ((packages[i].grinderBrand || "") + " " + (packages[i].grinderModel || "")).trim()
                             || ((packages[i].basketBrand || "") + " " + (packages[i].basketModel || "")).trim()
-                        wizardPage.fEquipmentRpmCapable = !!packages[i].rpmCapable
+                        wizardPage.fEquipmentGrinderBrand = packages[i].grinderBrand || ""
+                        wizardPage.fEquipmentGrinderModel = packages[i].grinderModel || ""
                         wizardPage._selectedPackage = packages[i]
                         return
                     }
                 }
-                wizardPage.fEquipmentRpmCapable = false
+                wizardPage.fEquipmentGrinderBrand = ""
+                wizardPage.fEquipmentGrinderModel = ""
                 wizardPage._selectedPackage = ({})
+            }
+            // Never start the equipment window empty (creation walk only —
+            // edit/clone carry the recipe's own package and a summary-card
+            // jump must always show the window): default to the ACTIVE
+            // package, and when the inventory holds exactly ONE in-inventory
+            // package fill it in and SKIP the window entirely — there is
+            // nothing to ask. Back from the numbers window still reaches it.
+            if (wizardPage.fEquipmentId <= 0 && !wizardPage._fromSummary
+                    && wizardPage.currentStep === "details"
+                    && wizardPage._detailsPage === "equipment") {
+                var inInv = packages.filter(function(p) { return p.inInventory !== false })
+                if (inInv.length === 1) {
+                    wizardPage.selectEquipment(inInv[0])
+                    wizardPage._detailsPage = "numbers"
+                } else if (inInv.length > 1) {
+                    var activeId = Settings.dye.activeEquipmentId
+                    for (var j = 0; j < inInv.length; j++)
+                        if (inInv[j].id === activeId) {
+                            wizardPage.selectEquipment(inInv[j])
+                            break
+                        }
+                }
             }
         }
     }
@@ -2131,7 +2169,7 @@ Page {
         anchors.fill: parent
         anchors.topMargin: Theme.pageTopMargin
         anchors.bottomMargin: Theme.bottomBarHeight
-        textFields: [nameField, doseField.input, yieldField.input, grindField, rpmField,
+        textFields: [nameField, doseField.input, yieldField.input,
                      profileSearchField]
 
         ColumnLayout {
@@ -3110,23 +3148,28 @@ Page {
                                     }
                                 }
                             }
-                            RowLayout {
+                            // One tap-to-open control for both dial-in halves
+                            // ("grind · rpm"); typing lives in the picker's
+                            // text mode. Context is the RECIPE's selected
+                            // package, never the active grinder. Clearing the
+                            // grind RE-ARMS blank-adopts-bag rather than
+                            // refilling immediately: the next bag (re)selection
+                            // on create fills the bag's default back in.
+                            GrindField {
                                 Layout.fillWidth: true
-                                spacing: Theme.spacingMedium
-                                StyledTextField {
-                                    id: grindField
-                                    Layout.fillWidth: true
-                                    placeholder: TranslationManager.translate("recipes.composer.grindPlaceholder", "e.g. 2.4")
-                                    Accessible.name: TranslationManager.translate("recipes.composer.grindLabel", "Grind")
-                                    onTextEdited: wizardPage._detailsUserEdited = true
+                                presentation: "field"
+                                grinderBrand: wizardPage.fEquipmentGrinderBrand
+                                grinderModel: wizardPage.fEquipmentGrinderModel
+                                grindSetting: wizardPage.fGrind
+                                rpmValue: wizardPage.fRpmPinned
+                                accessibleName: TranslationManager.translate("recipes.composer.grindLabel", "Grind")
+                                onGrindCommitted: function(v) {
+                                    wizardPage.fGrind = v
+                                    wizardPage._detailsUserEdited = true
                                 }
-                                StyledTextField {
-                                    id: rpmField
-                                    visible: wizardPage.fEquipmentRpmCapable
-                                    Layout.preferredWidth: Theme.scaled(110)
-                                    inputMethodHints: Qt.ImhFormattedNumbersOnly
-                                    placeholder: TranslationManager.translate("recipes.composer.rpmLabel", "RPM")
-                                    Accessible.name: TranslationManager.translate("recipes.composer.rpmLabel", "RPM")
+                                onRpmCommitted: function(rpm) {
+                                    wizardPage.fRpmPinned = rpm
+                                    wizardPage._detailsUserEdited = true
                                 }
                             }
                         }

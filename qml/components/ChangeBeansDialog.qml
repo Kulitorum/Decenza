@@ -64,14 +64,12 @@ Dialog {
     // The bag points at a package via fEquipmentId; brand/model/burrs are the
     // resolved read-only display (refreshed via EquipmentStorage.packageReady).
     property string fGrinderSetting: ""
-    property string fRpm: ""           // grinder rpm dial-in (string form; "" = unset)
+    property int fRpm: 0               // grinder rpm dial-in (0 = unset — uniform across surfaces)
     property int fEquipmentId: -1
     property string fEquipmentName: ""  // package display name (resolved via packageReady)
     property string fEquipmentBrand: ""
     property string fEquipmentModel: ""
     property string fEquipmentBurrs: ""
-    readonly property bool fEquipmentRpmCapable:
-        Settings.dye.grinderRpmCapable(fEquipmentBrand, fEquipmentModel)
     // Display the package name (defaults to "{brand} {model}").
     readonly property string fEquipmentLabel: fEquipmentName.length > 0
         ? fEquipmentName
@@ -368,8 +366,17 @@ Dialog {
         fBeanBaseId = ""; fBeanBaseData = ""
         fLinkDirty = false
         fGrinderSetting = ""
-        fEquipmentId = -1; fEquipmentName = ""; fEquipmentBrand = ""; fEquipmentModel = ""; fEquipmentBurrs = ""
-        fRpm = ""
+        // Never START with an empty equipment package: default to the ACTIVE
+        // one — a new bag is almost always for the grinder in use today, and
+        // an empty identity would trip the unknown-grinder RPM fallback in the
+        // grind picker. Re-buy prefills overwrite this with the SOURCE bag's
+        // package (prefillFromBag): past beans keep the equipment they were
+        // actually ground on. The user can still Switch before saving.
+        fEquipmentId = Settings.dye.activeEquipmentId > 0 ? Settings.dye.activeEquipmentId : -1
+        fEquipmentName = ""; fEquipmentBrand = ""; fEquipmentModel = ""; fEquipmentBurrs = ""
+        if (fEquipmentId > 0 && MainController.equipmentStorage)
+            MainController.equipmentStorage.requestPackage(fEquipmentId)
+        fRpm = 0
         fDose = ""; fYield = ""; fYieldRatio = ""; fYieldAnchor = "none"; fNotes = ""
         fFreeze = false; fFrozenDate = ""; fDefrostDate = ""
         fStorageHint = ""; fOpenedDate = ""
@@ -392,8 +399,11 @@ Dialog {
         syncDetailFieldsFromBlob()
         _openedLink = fLink
         fGrinderSetting = bag.grinderSetting || ""
-        fEquipmentId = bag.equipmentId || -1
-        fRpm = (bag.rpm ?? 0) > 0 ? String(bag.rpm) : ""
+        // Source bag's package when it has one; else fall back to the active
+        // package (never empty — same rule as resetForm).
+        fEquipmentId = bag.equipmentId
+            || (Settings.dye.activeEquipmentId > 0 ? Settings.dye.activeEquipmentId : -1)
+        fRpm = (bag.rpm ?? 0) > 0 ? bag.rpm : 0
         // Resolve the package's name + grinder identity for the read-only label
         // (packageReady fills fEquipmentName/Brand/Model/Burrs below).
         fEquipmentName = ""; fEquipmentBrand = ""; fEquipmentModel = ""; fEquipmentBurrs = ""
@@ -579,7 +589,7 @@ Dialog {
             "beanBaseId": fBeanBaseId,
             "beanBaseData": mergedBlob,
             "grinderSetting": isTea ? "" : fGrinderSetting.trim(),
-            "rpm": isTea ? 0 : (parseInt(fRpm) || 0),
+            "rpm": isTea ? 0 : fRpm,
             "doseWeightG": parseWeight(fDose),
             // Yield spec: only the anchor is stored (one value + a mode).
             "yieldValue": fYieldAnchor === "ratio"
@@ -807,7 +817,7 @@ Dialog {
         implicitHeight: Math.min(mainColumn.implicitHeight,
                                  root.parent ? root.parent.height * 0.9 : mainColumn.implicitHeight)
         textFields: [searchField, roasterInput.textField, coffeeInput.textField, roastDateField.textField,
-                     grindSettingInput, doseInput, yieldInput, yieldRatioInput,
+                     doseInput, yieldInput, yieldRatioInput,
                      notesInput, frozenDateField.textField, defrostDateField.textField,
                      openedDateField.textField,
                      originField.textField, regionField.textField, farmField.textField,
@@ -1787,37 +1797,6 @@ Dialog {
                         onValueEdited: function(dateString) { root.fOpenedDate = dateString }
                     }
 
-                    // --- Grinder setting + dose (the per-bag dial-in fields).
-                    // Tea has nothing to grind: grind + rpm rows hidden. ---
-                    FieldRow {
-                        visible: !root.isTea
-                        labelKey: "changebeans.form.grindSetting"
-                        labelFallback: "Grind"
-
-                        StyledTextField {
-                            id: grindSettingInput
-                            Layout.fillWidth: true
-                            text: root.fGrinderSetting
-                            accessibleName: TranslationManager.translate("changebeans.form.grindSetting.accessible", "Grinder setting")
-                            onTextEdited: root.fGrinderSetting = text
-                        }
-                    }
-
-                    // RPM dial-in — only when the bag's grinder is rpm-adjustable.
-                    FieldRow {
-                        labelKey: "changebeans.form.rpm"
-                        labelFallback: "RPM"
-                        visible: root.fEquipmentRpmCapable && !root.isTea
-
-                        StyledTextField {
-                            Layout.fillWidth: true
-                            text: root.fRpm
-                            inputMethodHints: Qt.ImhDigitsOnly
-                            accessibleName: TranslationManager.translate("changebeans.form.rpm.accessible", "Grinder rpm")
-                            onTextEdited: root.fRpm = text
-                        }
-                    }
-
                     // Equipment package (read-only NAME + info + re-point button).
                     // Grinder identity is owned by the package, not the bag; tap
                     // Switch/Add to point this bag at a different package, or the
@@ -1849,6 +1828,38 @@ Dialog {
                                   : TranslationManager.translate("changebeans.form.addEquipment", "Add")
                             accessibleName: TranslationManager.translate("changebeans.form.switchEquipmentAccessible", "Switch equipment package")
                             onClicked: bagEquipmentDialog.openPicker()
+                        }
+                    }
+
+                    // --- Grinder dial-in (the per-bag grind + RPM, one control).
+                    // Tap-to-open: the shared GrindField shows "grind · rpm" and
+                    // opens the grind picker (wheels + keyboard entry); the old
+                    // inline grind/RPM text fields are gone, so neither needs
+                    // KeyboardAwareContainer registration — the picker owns its
+                    // own keyboard handling. Grinder context is the BAG's linked
+                    // equipment (fEquipmentBrand/Model), not the active grinder.
+                    // Sits BELOW the Equipment row: the grinder is chosen
+                    // before the dial-in that depends on it for RPM
+                    // capability — the same ordering the recipe wizard's
+                    // equipment-then-grind windows encode.
+                    // Tea has nothing to grind: row hidden. ---
+                    FieldRow {
+                        visible: !root.isTea
+                        labelKey: "changebeans.form.grindSetting"
+                        labelFallback: "Grind"
+
+                        GrindField {
+                            Layout.fillWidth: true
+                            presentation: "field"
+                            grinderBrand: root.fEquipmentBrand
+                            grinderModel: root.fEquipmentModel
+                            grindSetting: root.fGrinderSetting
+                            rpmValue: root.fRpm
+                            accessibleName: TranslationManager.translate("changebeans.form.grindSetting.accessible", "Grinder setting")
+                            // Empty commit is an explicit clear — a bag's grind
+                            // is legitimately unsettable (grind-value-entry).
+                            onGrindCommitted: function(v) { root.fGrinderSetting = v }
+                            onRpmCommitted: function(rpm) { root.fRpm = rpm }
                         }
                     }
 

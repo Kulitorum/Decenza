@@ -1156,7 +1156,9 @@ set(QML_FILES
     qml/components/SteamGraph.qml
     qml/components/StatusBar.qml
     qml/components/RatioPresetDialog.qml
+    qml/components/GrindField.qml
     qml/components/GrindPickerDialog.qml
+    qml/components/GrindRowSource.qml
     qml/components/StableWeightCapture.qml
     qml/components/ShotPlanText.qml
     qml/components/SteamPlanText.qml
