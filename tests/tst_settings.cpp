@@ -10,6 +10,7 @@
 #include "core/settings_theme.h"
 #include "core/settings_visualizer.h"
 #include "core/settingsserializer.h"
+#include "network/visualizeruploader.h"
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -325,25 +326,31 @@ private slots:
         QCOMPARE(m_settings.brew()->targetWeight(), 0.0);
     }
 
-    void dyeEspressoEnjoymentDefaultsToUnrated() {
-        // The default-shot-rating feature was removed: an untasted shot is never
-        // auto-rated. With no persisted per-shot value, enjoyment is 0 (unrated) —
-        // it must NOT fall back to any non-zero default. A fresh SettingsDye read
-        // against a store with the key removed proves the default in isolation
-        // (the shared suite store may carry a value from a prior test).
+    void staleEnjoymentKeyIsInert() {
+        // A shot rating is never sourced from settings. It used to be: a sticky
+        // dyeEspressoEnjoyment fed every shot save, so after the default-shot-
+        // rating feature was removed the last value the field ever held (a 50,
+        // in the wild) still leaked onto the next shot saved — which silently
+        // suppressed the AI taste intake, since that gate treats any non-zero
+        // enjoyment as feedback the user already gave.
+        //
+        // The property is gone, so the leak is a compile error now. What this
+        // test pins is the leftover on-disk key: a store upgraded from the old
+        // build still carries dye/espressoEnjoyment, and neither reading the
+        // dye settings nor round-tripping a backup may revive it as a rating.
         QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
-        const QVariant prior = raw.value("dye/espressoEnjoyment");
-        raw.remove("dye/espressoEnjoyment");
+        raw.setValue("dye/espressoEnjoyment", 50);
         raw.sync();
 
-        SettingsDye fresh;  // reads the now-clean store
-        QCOMPARE(fresh.dyeEspressoEnjoyment(), 0);
+        Settings settings;
+        const QJsonObject backup = SettingsSerializer::exportToJson(&settings);
+        QVERIFY(!backup.value("dye").toObject().contains("espressoEnjoyment"));
 
-        // Restore so later tests see the store they expect.
-        if (prior.isValid()) {
-            raw.setValue("dye/espressoEnjoyment", prior);
-            raw.sync();
-        }
+        // A freshly saved shot is unrated regardless of what the store holds.
+        QCOMPARE(ShotMetadata{}.espressoEnjoyment, 0);
+
+        raw.remove("dye/espressoEnjoyment");
+        raw.sync();
     }
 
     void emptyScaleAddressIsValid() {

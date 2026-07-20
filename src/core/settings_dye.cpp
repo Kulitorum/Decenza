@@ -511,19 +511,6 @@ void SettingsDye::setDyeDrinkEy(double value) {
     }
 }
 
-int SettingsDye::dyeEspressoEnjoyment() const {
-    // 0 = unrated. Untasted shots are never auto-rated; the user rates on the
-    // post-shot review page or via the AI taste intake.
-    return m_settings.value("dye/espressoEnjoyment", 0).toInt();
-}
-
-void SettingsDye::setDyeEspressoEnjoyment(int value) {
-    if (dyeEspressoEnjoyment() != value) {
-        m_settings.setValue("dye/espressoEnjoyment", value);
-        emit dyeEspressoEnjoymentChanged();
-    }
-}
-
 QString SettingsDye::dyeShotNotes() const {
     // Try new key first, fall back to old key for backward compatibility
     QString notes = m_settings.value("dye/shotNotes", "").toString();
