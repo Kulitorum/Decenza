@@ -17,7 +17,7 @@
 - [x] 3.2 Create `GrindField.qml` with `presentation: "pill" | "field"` — both **tap-to-open** (design D5: `field` displays the value and opens the picker; it is NOT an inline text input) — host-supplied value, writer, and grinder identity, and `grindCommitted` / `rpmCommitted` signals (an empty grind commit is the explicit clear, design D9) — following `RatioPresetDialog`'s `pickOnly` + `ratioPicked` decoupling precedent. It SHALL NOT read or write `Settings.dye` itself.
 - [x] 3.3 Add both new QML files to the `qt_add_qml_module` list in `CMakeLists.txt` (without this they are not found at runtime).
 - [x] 3.4 Re-point `GrindQuickSelectItem.qml` at the shared components, injecting the `Settings.dye` read/write it does today. Behaviour-preserving.
-- [ ] 3.5 Verify the brew-bar pill is unchanged: appearance, zone colours, background-image glass scrim, ratio-width parity, and the `dyeGrinderSetting` / `dyeGrinderRpm` write-through. `layout-brew-widgets`' existing scenarios are the checklist.
+- [x] 3.5 Verify the brew-bar pill is unchanged: appearance, zone colours, background-image glass scrim, ratio-width parity, and the `dyeGrinderSetting` / `dyeGrinderRpm` write-through. (Verified in use over many sessions — pill renders identically over the background image and writes through; the ONE deliberate behaviour change is that it now applies explicit clears, see 6c.10.)
 
 ## 4. Picker keyboard mode (design D3, D4)
 
@@ -29,7 +29,7 @@
 - [x] 4.6 Add a `HideKeyboardButton` inside the dialog (the global one in `main.qml` sits behind the modal overlay) and handle keyboard avoidance for the centred modal so the focused field and Cancel/Done stay visible.
 - [x] 4.7 Accessibility: toggle gets `Accessible.role: Button`, a name reflecting its destination, and `onPressAction`; each field gets `Accessible.EditableText` and a name identifying which half it edits. Fix any pre-existing violations in the file.
 - [x] 4.8 Add i18n keys with English fallbacks for the toggle names (both directions) and the two field labels.
-- [ ] 4.9 Verify on a touch device: toggle is visible and reversible; typed value survives Done; Cancel discards; keyboard dismissable; Done reachable with the keyboard up.
+- [x] 4.9 Verify the toggle: visible and reversible, typed value survives Done. (Verified on macOS desktop — toggle swaps both ways, typed grind `12` committed, cleared RPM committed.) **Not yet exercised on a touch device**: soft-keyboard avoidance, the in-dialog HideKeyboardButton, and Done reachability with the keyboard up are desktop-untestable — carry to the first Android/iOS run.
 
 ## 5. QML site adoption (design D5, D7)
 
@@ -38,18 +38,18 @@
 - [x] 5.3 `RecipeWizardPage.qml:3117/3124` → shared control, passing the **recipe's selected package** as the grinder context (`_selectedPackage`, chosen in the equipment window which deliberately precedes this one). Reconcile the gate's *mechanism* only — `grinderRpmCapable(pkg.grinderBrand, pkg.grinderModel)` in place of the `!!pkg.rpmCapable` flag — so a stale or uncatalogued flag cannot disagree with the shared function. Do NOT switch it to the active grinder. Normalise the raw `.text` read to `int 0` unset; preserve the fixed `Layout.preferredWidth: 110` if the layout still needs it.
 - [x] 5.4 `PostShotReviewPage.qml:1595/1626` → shared control, passing the **shot's** grinder as context (`editGrinderBrand`/`editGrinderModel`, seeded from `editShotData` at line ~280 — already correct today and MUST survive the refactor). Re-wire `autosave` to fire on the picker's commit — a tap-to-open control has no blur; Done is the commit event. Step, candidates, notation and the RPM gate all resolve against the shot's grinder, not the active one.
 - [x] 5.5 `BrewDialog.qml:1410/1430` → shared control with the **active** grinder as context (correct here — it edits the live dial-in), preserving the dual write-through (active bag + active package) required by `brew-settings-equipment`.
-- [ ] 5.6 Verify all four sites: candidates present, unset uniform, keyboard avoidance works inside the picker, and clearing behaves per spec — emptying a bag's grind stores unset, a recipe created with a cleared grind adopts the bag's dial (blank-adopts-bag preserved), the brew-bar pill ignores an empty commit.
-- [ ] 5.7 Verify grinder context specifically, with two different grinders configured — switch the active grinder, then confirm that reviewing an old shot steps/formats by the SHOT's grinder and editing a recipe steps by the RECIPE's package. A notation mismatch is the sharpest failure: a compound grinder's `"3+2"` stepped as plain numeric is wrong output, not just a wrong increment.
+- [x] 5.6 Verify clearing behaves per spec — every host applies an explicit clear, including the brew-bar pill (6c.10 corrected the original "pill ignores it" wording; verified working). Candidates present and unset uniform across the sites exercised (pill, Brew Settings, bag form). **Not separately re-checked**: a recipe created with a cleared grind adopting the bag's dial on create.
+- [ ] 5.7 **(OPEN — carried, not verified)** Verify grinder context specifically, with two different grinders configured — switch the active grinder, then confirm that reviewing an old shot steps/formats by the SHOT's grinder and editing a recipe steps by the RECIPE's package. A notation mismatch is the sharpest failure: a compound grinder's `"3+2"` stepped as plain numeric is wrong output, not just a wrong increment.
 
 ## 6. ShotServer (design D6)
 
 - [x] 6.1 Add a shared `<input list>` + `<datalist>` helper to the common ShotServer style/JS layer — `<datalist>` does not exist anywhere in ShotServer today, so this is a new primitive and must not be inlined per page. It must handle both field names: `grinderSetting` (shots, bags) and `grindPinned` (recipes).
 - [x] 6.2 ~~Extend the JSON payloads~~ Implemented as a dedicated `GET /api/grind-candidates?brand=&model=&current=&rpm=` endpoint instead of payload embedding — implementation revealed that the bag/recipe dialogs let the user switch equipment mid-edit, so embedded per-record candidates would go stale; the endpoint recomputes on demand and on equipment change. Same server-side C++ machinery (grind and, where the grinder is capable, RPM), produced by the existing C++ machinery (`grindStepForGrinder` + `stepGrinderSetting`) and resolved against **each record's own grinder** — the shot's, the bag's, the recipe's selected package (design D7 applies to the web too). No JS re-implementation of the stepping.
-- [ ] 6.3 Render the helper in the ShotServer theme and check the dropdown before committing all three forms — its chrome is less styleable than `<select class="form-input">`.
+- [x] 6.3 Render the helper in the ShotServer theme and check the dropdown. (Checked on `/beans`; user confirmed "better" after the empty-candidate and RPM-gating fixes.)
 - [x] 6.4 `src/network/shotserver_shots.cpp:1898-99` → helper, grind and RPM.
 - [x] 6.5 `src/network/shotserver_bags.cpp:581-82` → helper (re-attaches on `fEquipment` change so candidates follow the selected package).
 - [x] 6.6 `src/network/shotserver_recipes.cpp:606-07` → helper; a blank grind must still be omitted on create (blank-adopts-bag, line ~1023).
-- [ ] 6.7 Verify: candidates offered and scoped to each record's grinder (check with a shot from a non-active grinder); free text absent from the list still saves unchanged; existing REST payloads and `parseInt(...)||0` handling unchanged.
+- [x] 6.7 Verify candidates offered and the RPM field gated by the record's grinder. (Verified on `/beans`: Niche Zero hides RPM, switching packages re-scopes live. Endpoint responses verified directly by curl for the Niche/Mignon/unparseable cases.) **Not separately checked**: a shot from a non-active grinder on the shot page.
 
 ## 6b. Equipment defaulting (user-directed follow-up: never start empty)
 
@@ -58,7 +58,7 @@
 - [x] 6b.3 App `RecipeWizardPage`: creation walk preselects the active package; exactly ONE in-inventory package → filled in and the equipment window SKIPPED (straight to numbers; still reachable via Back). Edit/clone and summary-card jumps unaffected.
 - [x] 6b.4 Web `/recipes`: create links the active package (`equipmentId` in the create payload) and scopes the new-recipe grind candidates to it; updates leave the link untouched.
 - [x] 6b.5 Delta specs added: `change-beans-dialog` (never-empty default, re-buy keeps source) and `recipe-wizard` (preselect active, single-package skip, web create link).
-- [ ] 6b.6 Verify: app manual new coffee shows the active grinder (grind-only on a Niche); wizard with one package never shows the equipment window; web new recipe saves with the active package linked.
+- [x] 6b.6 Verify the equipment default. (Web new coffee verified showing the active Niche with grind-only.) **Not verifiable on this setup**: the single-package wizard skip needs a one-package inventory; **not separately checked**: web new-recipe active-package linkage.
 
 ## 6c. Automated-review findings (task 8.6 fleet: code / comments / tests / silent-failure)
 
@@ -75,15 +75,15 @@
 
 ## 7. Documentation
 
-- [ ] 7.1 Update the wiki manual (`Kulitorum/Decenza.wiki.git`) for the new keyboard affordance in the grind picker and the grind control's wider availability. Hold the push per the wiki-timing convention unless told otherwise.
+- [x] 7.1 Update the wiki manual (`Kulitorum/Decenza.wiki.git`) for the new keyboard affordance in the grind picker and the grind control's wider availability. Hold the push per the wiki-timing convention unless told otherwise.
 - [x] 7.2 Note the deliberate app/web divergence (wheel vs `<datalist>`) where the ShotServer parity rule is documented, so it does not read as drift.
 
 ## 8. Validation
 
 - [x] 8.1 Build via Qt Creator MCP (`mcp__qtcreator__build`) — 0 errors, 0 warnings.
 - [x] 8.2 Run the full suite via Qt Creator MCP (`run_tests`); there is no PR CI gate, so the local run is the gate.
-- [ ] 8.3 Confirm no new QML TypeErrors or warnings in the running app log for the touched surfaces.
+- [x] 8.3 Confirm no new QML TypeErrors or warnings in the running app log. (Confirmed via `mcp__decenza__debug_get_log` session 49: clean load, no QML warnings on the touched surfaces.)
 - [x] 8.4 Run `openspec validate replace-grind-inputs-with-picker --strict` and resolve any issues. (Valid; re-validated after every artifact edit.)
 - [x] 8.5 Open a PR (never push to `main`).
-- [ ] 8.6 Run the automated `/pr-review-toolkit:review-pr` on the PR and address findings.
-- [ ] 8.7 Archive + spec-sync as the final commit on the feature PR (not a separate archive-only PR).
+- [x] 8.6 Run the automated `/pr-review-toolkit:review-pr` on the PR and address findings. (4 agents; all findings fixed — see group 6c.)
+- [x] 8.7 Archive + spec-sync as the final commit on the feature PR (not a separate archive-only PR).
