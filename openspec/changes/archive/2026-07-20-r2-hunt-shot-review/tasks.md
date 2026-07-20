@@ -13,9 +13,9 @@
 
 ## 3. Verification
 
-- [ ] 3.1 Build via Qt Creator MCP (quick compile check), then run the full local test suite before opening the PR
-- [ ] 3.2 Ask Jeff to verify on-device: open a shot review page with the R2 off, power the R2 on at an arbitrary moment, confirm it connects within one scan cycle without touching the R2 button; confirm scanning stops (log: no hunt restarts) after connect and after leaving the page
+- [x] 3.1 Build via Qt Creator MCP (quick compile check), then run the full local test suite before opening the PR
+- [x] 3.2 Ask Jeff to verify on-device: open a shot review page with the R2 off, power the R2 on at an arbitrary moment, confirm it connects within one scan cycle without touching the R2 button; confirm scanning stops (log: no hunt restarts) after connect and after leaving the page
 
 ## 4. Archive
 
-- [ ] 4.1 Run `/opsx:archive` as the last commit on the feature branch right before merge so the archive + spec promotion lands in the PR
+- [x] 4.1 Run `/opsx:archive` as the last commit on the feature branch right before merge so the archive + spec promotion lands in the PR
