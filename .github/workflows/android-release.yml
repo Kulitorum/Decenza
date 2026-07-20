@@ -86,9 +86,9 @@ jobs:
             fi
           done
 
-          # Fallback to known-good version for Qt 6.11.x
+          # Fallback to known-good version for Qt 6.11.x (matches local dev NDK)
           if [ -z "$QT_NDK_VERSION" ]; then
-            QT_NDK_VERSION="27.1.12297006"
+            QT_NDK_VERSION="27.2.12479018"
           fi
 
           echo "NDK version needed: $QT_NDK_VERSION"
