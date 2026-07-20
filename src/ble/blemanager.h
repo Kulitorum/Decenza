@@ -413,6 +413,12 @@ public:
     Q_INVOKABLE void clearSavedRefractometer();
     void setRefractometerDevice(RefractometerDevice* device);
     Q_INVOKABLE void tryDirectConnectToRefractometer();
+    // Hunt mode: while active (post-shot review page open), scans restart
+    // back-to-back from onScanFinished until the saved refractometer connects,
+    // instead of waiting out the background reconnect tick. Activation kicks
+    // an immediate scan when a saved refractometer is not connected and
+    // Bluetooth is up; otherwise the reconnect tick resumes the hunt later.
+    Q_INVOKABLE void setRefractometerHunt(bool active);
 
     // DE1 address management
     void setSavedDE1Address(const QString& address, const QString& name);
@@ -550,6 +556,10 @@ private:
     QString getScaleType(const QBluetoothDeviceInfo& device) const;
     void requestBluetoothPermission();
     void doStartScan();
+    // Reset the caller-set scan-request flags when a requested scan will not
+    // start (Bluetooth off, permission denied). Only finished/error/stop clear
+    // them otherwise, and none of those fire for a scan that never began.
+    void clearScanRequestFlags();
     void ensureDiscoveryAgent();
     // Lazy-create m_wifiDiscovery once with a single unified scaleFound
     // handler. Both scan-for-devices and try-direct-connect paths call this
@@ -685,6 +695,7 @@ private:
     bool m_permissionRequested = false;
     bool m_scanningForScales = false;  // True when scanning for scales (user or auto-reconnect)
     bool m_userInitiatedScaleScan = false;  // True only for user-initiated scan (show all scales)
+    bool m_refractometerHunt = false;  // Review page open: keep scans back-to-back until R2 connects
     bool m_scaleConnectionFailed = false;
     ScaleDevice* m_scaleDevice = nullptr;
     QTimer* m_scaleConnectionTimer = nullptr;
