@@ -41,10 +41,6 @@ Item {
     readonly property bool _hasShotChart: shotChart && LastShotChartSource.imageSource.length > 0
     readonly property bool _hasPattern: _pattern.id !== undefined && !_hasShotChart
     readonly property bool _hasImage: !_hasPreset && (_hasShotChart || imagePath.length > 0)
-    // Where the image comes from. A grab result carries its own url; a photo is a file path.
-    readonly property string _imageSource: _hasShotChart
-        ? LastShotChartSource.imageSource
-        : (imagePath.length > 0 ? "file:///" + imagePath : "")
 
     // The flat colour actually being painted, and the ink that will read on it.
     //
@@ -73,7 +69,11 @@ Item {
     Rectangle {
         anchors.fill: parent
         color: root.surfaceColour
-        visible: !root._hasImage || bgImage.status !== Image.Ready
+        // Also shows while EITHER image is still decoding, which is what makes the fallback
+        // a fallback: the flat colour holds the page until there is something to draw.
+        visible: !root._hasImage
+                 || (root._hasShotChart ? shotChartImage.status !== Image.Ready
+                                        : bgImage.status !== Image.Ready)
     }
 
     // Pattern above the flat colour. One monochrome asset serves every colour because it
@@ -106,20 +106,32 @@ Item {
         }
     }
 
+    // A PHOTO. sourceSize caps decode cost for a multi-megapixel file, and
+    // PreserveAspectCrop fills the surface without distorting it.
     Image {
         id: bgImage
         anchors.fill: parent
-        visible: root._hasImage && status === Image.Ready
-        source: root._hasImage ? root._imageSource : ""
-        // A photo is cropped to fill; the chart is rendered AT the surface size and must not
-        // be cropped, or its last seconds fall off the edge.
-        fillMode: root._hasShotChart ? Image.Stretch : Image.PreserveAspectCrop
+        visible: root._hasImage && !root._hasShotChart && status === Image.Ready
+        source: root._hasImage && !root._hasShotChart ? "file:///" + root.imagePath : ""
+        fillMode: Image.PreserveAspectCrop
         asynchronous: true
-        // Pinning sourceSize is a decode-cost guard for a multi-megapixel photo. The chart
-        // was already rendered at the size it will be drawn at, so pinning it here would
-        // resample a correctly-sized raster for nothing.
-        sourceSize.width: root._hasShotChart ? 0 : Screen.width
-        sourceSize.height: root._hasShotChart ? 0 : Screen.height
+        sourceSize.width: Screen.width
+        sourceSize.height: Screen.height
+        Accessible.ignored: true
+    }
+
+    // THE SHOT CHART. Its own element rather than a pile of ternaries on the one above,
+    // because every property it wants differs: it was rendered at the surface's own size, so
+    // it is stretched rather than cropped (cropping would drop the shot's last seconds off
+    // the edge), and it must NOT be given a sourceSize — Qt refuses that on a grabToImage url
+    // and warns, and resampling a correctly-sized raster would be pure loss anyway.
+    Image {
+        id: shotChartImage
+        anchors.fill: parent
+        visible: root._hasShotChart && status === Image.Ready
+        source: root._hasShotChart ? LastShotChartSource.imageSource : ""
+        fillMode: Image.Stretch
+        asynchronous: true
         Accessible.ignored: true
     }
 }

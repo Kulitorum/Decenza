@@ -39,7 +39,7 @@
 - [x] 3.4 Key the cache on (shot id, advanced flag, theme identity, visibility set, size) and
       re-render on any key change — the invalidation table in design.md. Keying is what makes
       this correct; remembering to invalidate at each call site is what makes it wrong later
-- [ ] 3.5 Verify a theme change re-renders. A stale render is the failure mode this design
+- [x] 3.5 Verify a theme change re-renders. A stale render is the failure mode this design
       trades render cost for, and it is silent — the wrong blue behind the right theme
 - [x] 3.6 Tests for the cache key. No Qt Quick Test harness exists in this repo and the key
       lives in QML, so the ARITHMETIC is verified live; what is tested in C++ is the key's
@@ -94,7 +94,7 @@
 - [ ] 8.5 Live: toggle curves in the review legend and confirm the background follows
 - [ ] 8.6 Live: switch between colour, image and shot backgrounds in every order; confirm no
       combination leaves two sources drawn or the pattern stuck
-- [ ] 8.7 Live: apply a different theme and confirm the background re-renders in its colours.
+- [x] 8.7 Live: apply a different theme and confirm the background re-renders in its colours.
       This is the stale-cache failure, and it is silent — check it deliberately
 - [ ] 8.8 **On a real TABLET, time the one-off grab at shot end.** Steady state is a texture, so
       per-page cost is no longer the question; what matters is whether the render stalls the app
