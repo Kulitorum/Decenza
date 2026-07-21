@@ -9,7 +9,9 @@ import "../components"
 Page {
     id: steamPage
     objectName: "steamPage"
-    background: ThemedPageBackground {}
+    // suppressShotChart: this page draws its own graph, and the last-shot chart
+    // background would put a second set of curves behind it.
+    background: ThemedPageBackground { suppressShotChart: true }
 
     property string pageTitle: steamPageTitle.text
     Tr { id: steamPageTitle; key: "steam.title"; fallback: "Steam"; visible: false }

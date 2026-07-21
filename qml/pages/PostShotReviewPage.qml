@@ -15,7 +15,9 @@ Page {
     readonly property string pageTitle: TranslationManager.translate("postshotreview.title", "Shot Review")
 
     objectName: "postShotReviewPage"
-    background: ThemedPageBackground {}
+    // suppressShotChart: this page draws its own graph, and the last-shot chart
+    // background would put a second set of curves behind it.
+    background: ThemedPageBackground { suppressShotChart: true }
 
     Component.onCompleted: {
         if (editShotId > 0) {

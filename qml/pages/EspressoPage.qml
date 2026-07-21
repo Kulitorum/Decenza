@@ -13,7 +13,9 @@ Page {
     readonly property string pageTitle: ProfileManager.currentProfileName
 
     objectName: "espressoPage"
-    background: ThemedPageBackground {}
+    // suppressShotChart: this page draws its own graph, and the last-shot chart
+    // background would put a second set of curves behind it.
+    background: ThemedPageBackground { suppressShotChart: true }
 
     // Local weight property - updated directly in signal handler for immediate display
     property real currentWeight: 0.0

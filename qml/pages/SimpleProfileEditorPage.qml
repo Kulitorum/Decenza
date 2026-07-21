@@ -20,7 +20,9 @@ Page {
     readonly property string pageTitle: ProfileManager.currentProfileName || editorTitle
 
     objectName: isFlow ? "flowEditorPage" : "pressureEditorPage"
-    background: ThemedPageBackground {}
+    // suppressShotChart: this page draws its own graph, and the last-shot chart
+    // background would put a second set of curves behind it.
+    background: ThemedPageBackground { suppressShotChart: true }
 
     required property string profileType
     readonly property bool isFlow: profileType === "flow"

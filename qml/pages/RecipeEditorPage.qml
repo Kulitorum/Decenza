@@ -18,7 +18,9 @@ Page {
     readonly property string pageTitle: ProfileManager.currentProfileName || TranslationManager.translate("recipeEditor.title", "Recipe Editor")
 
     objectName: "recipeEditorPage"
-    background: ThemedPageBackground {}
+    // suppressShotChart: this page draws its own graph, and the last-shot chart
+    // background would put a second set of curves behind it.
+    background: ThemedPageBackground { suppressShotChart: true }
 
     property var profile: null
     property var recipe: ProfileManager.getOrConvertRecipeParams()

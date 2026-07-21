@@ -14,7 +14,9 @@ Page {
     readonly property string pageTitle: TranslationManager.translate("shotdetail.title", "Shot Detail")
 
     objectName: "shotDetailPage"
-    background: ThemedPageBackground {}
+    // suppressShotChart: this page draws its own graph, and the last-shot chart
+    // background would put a second set of curves behind it.
+    background: ThemedPageBackground { suppressShotChart: true }
 
     property int shotId: 0
     property var shotData: ({})

@@ -12,7 +12,9 @@ Page {
     readonly property string pageTitle: TranslationManager.translate("profileinfo.title", "Profile Info")
 
     objectName: "profileInfoPage"
-    background: ThemedPageBackground {}
+    // suppressShotChart: this page draws its own graph, and the last-shot chart
+    // background would put a second set of curves behind it.
+    background: ThemedPageBackground { suppressShotChart: true }
 
     // Profile to display
     property string profileFilename: ""
