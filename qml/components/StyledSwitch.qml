@@ -8,10 +8,10 @@ Switch {
     // Optional accessibility label for context when text is empty
     property string accessibleName: ""
 
-    // Sized from the indicator PLUS the control's padding, because the indicator is drawn
-    // at x: leftPadding. A flat 48 ignored that padding, so the indicator overhung whatever
-    // width a layout reserved — visible as the Theme Mode switches sitting on top of their
-    // card's border instead of inside it.
+    // Sized from the indicator PLUS the control's padding. A flat 48 ignored the padding,
+    // so the control overhung whatever width a layout reserved — visible as the Theme Mode
+    // switches sitting on top of their card's border instead of inside it. Keeping the
+    // padding in the width also keeps the touch target larger than the drawn switch.
     implicitWidth: control.leftPadding + Theme.scaled(44) + control.rightPadding
     implicitHeight: Math.max(Theme.scaled(28),
                              control.topPadding + Theme.scaled(24) + control.bottomPadding)
@@ -22,7 +22,12 @@ Switch {
     opacity: enabled ? 1.0 : 0.4
 
     indicator: Rectangle {
-        x: control.leftPadding
+        // Flush with the control's right edge, not inset by rightPadding. These sit at the
+        // end of a settings row after a filler, so the control's right edge IS the card
+        // margin — drawing at leftPadding left the switch visually short of the margin
+        // while the combo boxes and buttons in the same card sat flush against it. The
+        // padding stays in implicitWidth, so the touch target is still the larger area.
+        x: control.width - width
         y: parent.height / 2 - height / 2
         width: Theme.scaled(44)
         height: Theme.scaled(24)
