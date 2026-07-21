@@ -972,11 +972,19 @@ QString ShotServer::generateRecipesPage() const
             el('fProfile').value = r.profileTitle || '';
             const bagSel = el('fBag');
             bagSel.onchange = onBagChanged;
+            // Drop any placeholder left by a previous open. loadBags() runs
+            // once at page load and never again, so an appended option would
+            // otherwise survive into every later edit — the same recipe opened
+            // twice grew a duplicate, and other recipes' finished bags piled up
+            // in the picker.
+            Array.from(bagSel.querySelectorAll('option[data-placeholder]'))
+                .forEach(o => o.remove());
             // A finished linked bag is not in the open-bag list — add it so
             // editing another field doesn't silently drop the link.
             if (r.bagId > 0 && !bags.some(b => b.id === r.bagId)) {
                 const opt = document.createElement('option');
                 opt.value = r.bagId;
+                opt.dataset.placeholder = '1';
                 opt.textContent = ((r.roasterName || '') + ' ' + (r.coffeeName || '')).trim()
                     + (bagsLoaded ? ' (finished)' : ' (current bag)');
                 bagSel.appendChild(opt);
