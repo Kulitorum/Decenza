@@ -620,13 +620,17 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
             qsizetype limit = qBound(qsizetype(1), static_cast<qsizetype>(args["limit"].toInt(500)), qsizetype(2000));
             const QString filter = args["filter"].toString();
             const bool regexMode = args["regex"].toBool(false);
-            const bool hasTail = args.contains("tail");
-            const qsizetype tail = hasTail ? qMax(qsizetype(0), static_cast<qsizetype>(args["tail"].toInt(0))) : 0;
+            // tail:0 (or a negative value, clamped to 0) means "no tail" — must NOT be
+            // treated the same as a real tail request below, or hasMore gets forced to
+            // false on an ordinary paginated page that may have more lines beyond it.
+            const qsizetype tail = args.contains("tail")
+                ? qMax(qsizetype(0), static_cast<qsizetype>(args["tail"].toInt(0))) : 0;
+            const bool tailActive = tail > 0;
             const bool dedupe = args["dedupe"].toBool(false);
 
             const QString dbPath = shotHistory->databasePath();
 
-            QThread* thread = QThread::create([dbPath, shotId, offset, limit, filter, regexMode, hasTail, tail, dedupe, respond]() {
+            QThread* thread = QThread::create([dbPath, shotId, offset, limit, filter, regexMode, tailActive, tail, dedupe, respond]() {
                 QJsonObject result;
 
                 if (!withTempDb(dbPath, "mcp_shot_debug", [&](QSqlDatabase& db) {
@@ -637,7 +641,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                         QString debugLog = query.value(0).toString();
                         if (debugLog.isEmpty()) {
                             result["error"] = "No debug log for shot " + QString::number(shotId);
-                        } else if (filter.isEmpty() && !hasTail && !dedupe) {
+                        } else if (filter.isEmpty() && !tailActive && !dedupe) {
                             // Unnarrowed — original chunk behavior/shape, unchanged.
                             const QStringList allLines = debugLog.split('\n');
                             const qsizetype totalLines = allLines.size();
@@ -675,7 +679,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                             result["totalLines"] = static_cast<int>(totalLines);
                             result["qualifyingLines"] = static_cast<int>(qualifying.size());
                             result["returnedLines"] = static_cast<int>(page.size());
-                            result["hasMore"] = hasTail ? false : ((offset + page.size()) < qualifying.size());
+                            result["hasMore"] = tailActive ? false : ((offset + page.size()) < qualifying.size());
 
                             QStringList texts;
                             QJsonArray lineArray;

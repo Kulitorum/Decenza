@@ -453,15 +453,18 @@ QtObject {
 
     // Diagnostic-only wrapper around _derived reads. hasBackgroundPreset and _derived are
     // sibling bindings that both key off the same C++ NOTIFY (Settings.theme's
-    // backgroundPresetChanged) with no ordering between them — a suspected, unconfirmed
-    // theory is that on a background-preset transition, a binding that reads both can see
-    // hasBackgroundPreset already flipped true while _derived is still its stale prior value
-    // (empty, coming from "none") for one evaluation, producing the engine's own "Unable to
-    // assign [undefined] to QColor" warning with no context to confirm or refute that theory.
+    // backgroundPresetChanged) with no ordering between them — the theory is that on a
+    // background-preset transition, a binding that reads both can see hasBackgroundPreset
+    // already flipped true while _derived is still its stale prior value (empty, coming from
+    // "none") for one evaluation, producing the engine's own "Unable to assign [undefined] to
+    // QColor" warning. Confirmed live twice (derivedKeys=0 both times, always on a none→preset
+    // transition) — see the task tracking the fix for the fuller trace (all 9 _derived reads
+    // affected, not just 3; one site produces a genuine Qt.colorEqual error, not just a
+    // cosmetic warning; it double-fires ~16ms apart per transition). What's still open is the
+    // exact binding-evaluation-order mechanism, not whether it happens.
     // This does NOT fix or mask anything: it returns exactly what _derived[key] already
     // returns (still undefined if it is), so that engine warning still fires unchanged right
-    // after this one. Purely additive, so real occurrences can be monitored before any fix is
-    // attempted. Remove once the theory is confirmed/refuted and, if confirmed, fixed.
+    // after this one. Remove once the fix lands.
     function _derivedGet(key) {
         var v = _derived[key]
         if (v === undefined) {

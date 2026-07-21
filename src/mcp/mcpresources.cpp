@@ -410,12 +410,19 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
             const QString filter = args["filter"].toString();
             const bool regexMode = args["regex"].toBool(false);
             const QString minLevel = args["minLevel"].toString();
-            const bool hasTail = args.contains("tail");
-            const qsizetype tail = hasTail ? qMax(qsizetype(0), static_cast<qsizetype>(args["tail"].toInt(0))) : 0;
+            if (!minLevel.isEmpty() && McpLogFilter::levelRank(minLevel) < 0) {
+                return QJsonObject{{"error", "Invalid minLevel: " + minLevel + " (must be DEBUG, INFO, WARN, ERROR, or FATAL)"}};
+            }
+            // tail:0 (or a negative value, clamped to 0) means "no tail" — must NOT be
+            // treated the same as a real tail request below, or hasMore gets forced to
+            // false on an ordinary paginated page that may have more lines beyond it.
+            const qsizetype tail = args.contains("tail")
+                ? qMax(qsizetype(0), static_cast<qsizetype>(args["tail"].toInt(0))) : 0;
+            const bool tailActive = tail > 0;
             const bool dedupe = args["dedupe"].toBool(false);
             const qsizetype offset = qMax(qsizetype(0), static_cast<qsizetype>(args["offset"].toInt(0)));
             const qsizetype limit = qBound(qsizetype(1), static_cast<qsizetype>(args["limit"].toInt(500)), qsizetype(2000));
-            const bool narrowed = !filter.isEmpty() || !minLevel.isEmpty() || hasTail || dedupe;
+            const bool narrowed = !filter.isEmpty() || !minLevel.isEmpty() || tailActive || dedupe;
 
             // Mode 1/2: sessions=true or session=N — resolve via the cached index.
             if (args.contains("sessions") || args.contains("session")) {
@@ -470,7 +477,7 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
                 result["sessionLines"] = static_cast<int>(sessLines);
                 result["qualifyingLines"] = static_cast<int>(qualifying.size());
                 result["returnedLines"] = static_cast<int>(page.size());
-                result["hasMore"] = hasTail ? false : ((offset + page.size()) < qualifying.size());
+                result["hasMore"] = tailActive ? false : ((offset + page.size()) < qualifying.size());
                 appendLogFields(result, page, dedupe);
 
                 if (!result["hasMore"].toBool() && memoryMonitor)
@@ -521,7 +528,7 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
             result["totalLines"] = static_cast<int>(totalLines);
             result["qualifyingLines"] = static_cast<int>(qualifying.size());
             result["returnedLines"] = static_cast<int>(page.size());
-            result["hasMore"] = hasTail ? false : ((offset + page.size()) < qualifying.size());
+            result["hasMore"] = tailActive ? false : ((offset + page.size()) < qualifying.size());
             appendLogFields(result, page, dedupe);
 
             if (!result["hasMore"].toBool() && memoryMonitor)

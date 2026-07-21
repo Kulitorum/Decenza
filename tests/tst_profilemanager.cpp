@@ -915,6 +915,11 @@ private slots:
     }
 
     void debugGetLog_dedupeCombinesWithTail() {
+        // tail:2 (not 1) deliberately discriminates pipeline order: dedupe-then-tail
+        // keeps "retrying" collapsed to count:3 as one of the last 2 GROUPED entries;
+        // tail-then-dedupe would instead slice the last 2 RAW lines first (one lone
+        // "retrying" occurrence + "final failure"), which can no longer collapse to
+        // count:3 since the other two "retrying" raw lines were already cut off.
         QTemporaryDir dir;
         QString content;
         for (int i = 0; i < 3; ++i) content += "[   0.100] WARN  retrying\n";
@@ -925,11 +930,91 @@ private slots:
         McpTestFixture f;
         registerDebugTools(&f.registry, nullptr);
 
-        QJsonObject result = f.callTool("debug_get_log", QJsonObject{{"dedupe", true}, {"tail", 1}});
+        QJsonObject result = f.callTool("debug_get_log", QJsonObject{{"dedupe", true}, {"tail", 2}});
+        QJsonArray lines = result["lines"].toArray();
+        QCOMPARE(lines.size(), 2);
+        QVERIFY(lines[0].toObject()["text"].toString().contains("retrying"));
+        QCOMPARE(lines[0].toObject()["count"].toInt(), 3);
+        QVERIFY(lines[1].toObject()["text"].toString().contains("final failure"));
+        QCOMPARE(lines[1].toObject()["count"].toInt(), 1);
+    }
+
+    void debugGetLog_sessionScopedDedupe() {
+        QTemporaryDir dir;
+        writeLogFile(dir.filePath("debug.log"),
+            "========== SESSION START: 2026-01-01T09:00:00 ==========\n"
+            "[   0.100] WARN  unrelated first session line\n"
+            "========== SESSION START: 2026-01-01T10:00:00 ==========\n"
+            "[   0.100] WARN  retrying\n"
+            "[   0.200] WARN  retrying\n"
+            "[   0.300] WARN  retrying\n");
+        WebDebugLoggerTestGuard guard(dir.filePath("debug.log"));
+
+        McpTestFixture f;
+        registerDebugTools(&f.registry, nullptr);
+
+        // Most recent session only, filtered to the retrying lines (excluding the
+        // session-start marker itself) and deduped — absolute line numbers must
+        // still reflect position in the WHOLE file (session starts at line 2),
+        // not a session-relative offset.
+        QJsonObject result = f.callTool("debug_get_log",
+            QJsonObject{{"session", -1}, {"filter", "retrying"}, {"dedupe", true}});
         QJsonArray lines = result["lines"].toArray();
         QCOMPARE(lines.size(), 1);
-        QVERIFY(lines[0].toObject()["text"].toString().contains("final failure"));
+        QJsonObject entry = lines[0].toObject();
+        QCOMPARE(entry["line"].toInt(), 3);
+        QCOMPARE(entry["count"].toInt(), 3);
+        QCOMPARE(entry["lastLine"].toInt(), 5);
+    }
+
+    void debugGetLog_dedupeLeavesGenuinelyDifferentLinesAloneEndToEnd() {
+        // Different shot ids in an otherwise-identical grab-log template must NOT
+        // collapse — the exact case design.md Decision 6 calls out by name.
+        QTemporaryDir dir;
+        writeLogFile(dir.filePath("debug.log"),
+            "[   0.100] INFO  [Background] Shot-chart grab -> source shot 1120 samples 293\n"
+            "[   0.200] INFO  [Background] Shot-chart grab -> source shot 1121 samples 292\n");
+        WebDebugLoggerTestGuard guard(dir.filePath("debug.log"));
+
+        McpTestFixture f;
+        registerDebugTools(&f.registry, nullptr);
+
+        QJsonObject result = f.callTool("debug_get_log",
+            QJsonObject{{"filter", "Shot-chart grab"}, {"dedupe", true}});
+        QJsonArray lines = result["lines"].toArray();
+        QCOMPARE(lines.size(), 2);
         QCOMPARE(lines[0].toObject()["count"].toInt(), 1);
+        QCOMPARE(lines[1].toObject()["count"].toInt(), 1);
+    }
+
+    void debugGetLog_explicitTailZeroDoesNotForceHasMoreFalse() {
+        QTemporaryDir dir;
+        QString content;
+        for (int i = 0; i < 5; ++i) content += QString("[  %1.000] WARN  line %2\n").arg(i).arg(i);
+        writeLogFile(dir.filePath("debug.log"), content);
+        WebDebugLoggerTestGuard guard(dir.filePath("debug.log"));
+
+        McpTestFixture f;
+        registerDebugTools(&f.registry, nullptr);
+
+        // tail:0 must mean "no tail", not "force hasMore false" — there are 5
+        // qualifying lines and only 2 fit under this limit, so more remain.
+        QJsonObject result = f.callTool("debug_get_log", QJsonObject{{"minLevel", "WARN"}, {"tail", 0}, {"limit", 2}});
+        QCOMPARE(result["returnedLines"].toInt(), 2);
+        QVERIFY(result["hasMore"].toBool());
+    }
+
+    void debugGetLog_invalidMinLevelIsRejected() {
+        QTemporaryDir dir;
+        writeLogFile(dir.filePath("debug.log"), "[   0.100] WARN  anything\n");
+        WebDebugLoggerTestGuard guard(dir.filePath("debug.log"));
+
+        McpTestFixture f;
+        registerDebugTools(&f.registry, nullptr);
+
+        QJsonObject result = f.callTool("debug_get_log", QJsonObject{{"minLevel", "WARNING"}});
+        QVERIFY(result.contains("error"));
+        QVERIFY(!result.contains("lines"));
     }
 
     void debugGetLog_noDedupeReproducesPriorShape() {

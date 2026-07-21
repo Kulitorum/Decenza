@@ -180,6 +180,13 @@ QStringList WebDebugLogger::getPersistedLogChunk(qsizetype offset, qsizetype lim
 {
     QFile file(m_logFilePath);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        // Distinct from "log is genuinely empty" — surfaced so a caller isn't left
+        // reading an empty result as though nothing has ever been logged. QFileInfo's
+        // stat-based size()/mtime() (used by sessionIndex()'s cache key) can succeed
+        // even when the file can't be opened, so this warning is the only signal that
+        // the persisted log is currently unreadable.
+        qWarning() << "WebDebugLogger: failed to open persisted log for reading:" << m_logFilePath
+                   << file.errorString();
         if (totalLines) *totalLines = 0;
         return {};
     }

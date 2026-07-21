@@ -16,7 +16,7 @@
 - **THEN** the response is identical in shape and content to the tool's behavior before this change
 
 ### Requirement: App debug log supports a minimum-severity filter
-`debug_get_log` SHALL accept an optional `minLevel` parameter (`"DEBUG" | "INFO" | "WARN" | "ERROR" | "FATAL"`, ordered ascending) that restricts returned lines to that level or higher, based on the level tag already present on every persisted log line. `minLevel` SHALL combine with `filter` (a line must satisfy both to be returned). `shots_get_debug_log` SHALL accept `minLevel` without error but ignore it, since the shot debug log carries no level tagging.
+`debug_get_log` SHALL accept an optional `minLevel` parameter (`"DEBUG" | "INFO" | "WARN" | "ERROR" | "FATAL"`, ordered ascending) that restricts returned lines to that level or higher, based on the level tag already present on every persisted log line. `minLevel` SHALL combine with `filter` (a line must satisfy both to be returned). An unrecognized `minLevel` value SHALL be rejected with an `{"error": ...}` response rather than silently matching every line. `shots_get_debug_log` SHALL accept `minLevel` without error but ignore it, since the shot debug log carries no level tagging.
 
 #### Scenario: Only warnings and errors from the current session
 - **WHEN** an MCP client calls `debug_get_log` with `session: -1, minLevel: "WARN"`
@@ -30,8 +30,12 @@
 - **WHEN** an MCP client calls `shots_get_debug_log` with `shotId` and `minLevel: "WARN"`
 - **THEN** the call succeeds and returns lines from the shot's debug log unaffected by `minLevel`
 
+#### Scenario: Unrecognized minLevel value is rejected, not silently ignored
+- **WHEN** an MCP client calls `debug_get_log` with `minLevel: "WARNING"` (not one of the five recognized values)
+- **THEN** the response is `{"error": ...}` naming the invalid value, rather than returning every line unfiltered
+
 ### Requirement: Debug log tools support a tail mode
-`debug_get_log` and `shots_get_debug_log` SHALL accept an optional `tail` integer parameter. When present, the response contains the last `tail` qualifying lines (after any `filter`/`minLevel` is applied) of the addressed range — the whole log, the addressed session, or the shot's debug log — without requiring a prior call to determine the total line count. When both `tail` and `offset` are supplied, `tail` SHALL take precedence and `offset` SHALL be ignored.
+`debug_get_log` and `shots_get_debug_log` SHALL accept an optional `tail` integer parameter. When its value (after clamping negatives to zero) is greater than zero, the response contains the last `tail` qualifying lines (after any `filter`/`minLevel` is applied) of the addressed range — the whole log, the addressed session, or the shot's debug log — without requiring a prior call to determine the total line count, and `hasMore` SHALL be reported as `false`. When both a positive `tail` and `offset` are supplied, `tail` SHALL take precedence and `offset` SHALL be ignored. A `tail` of zero or a negative value SHALL be treated identically to `tail` being omitted — in particular, `hasMore` SHALL continue to reflect whether more qualifying lines exist beyond the returned page, not be forced to `false`.
 
 #### Scenario: Tail of the current session
 - **WHEN** an MCP client calls `debug_get_log` with `session: -1, tail: 100`
@@ -42,8 +46,12 @@
 - **THEN** the response contains the last 20 lines of that shot's debug log matching "flow calibration"
 
 #### Scenario: Tail overrides offset
-- **WHEN** an MCP client calls either tool with both `offset` and `tail` set
+- **WHEN** an MCP client calls either tool with both `offset` and a positive `tail` set
 - **THEN** the response is computed using `tail` and `offset` is ignored
+
+#### Scenario: tail: 0 does not falsely report hasMore as false
+- **WHEN** an MCP client calls either tool with `tail: 0` and there are more qualifying lines beyond the returned page
+- **THEN** the response is paginated normally via `offset`/`limit`, and `hasMore` accurately reflects whether more qualifying lines remain — it is NOT forced to `false` merely because the `tail` key was present
 
 ### Requirement: Debug log responses carry absolute line numbers
 `debug_get_log` and `shots_get_debug_log` SHALL include, alongside the existing newline-joined `log` string field, a `lines` array of `{"line": <absolute 0-based line number in the addressed range>, "text": <line text>}` objects for every returned line, so a caller can issue a follow-up `offset`-based request to see context around a specific hit.
@@ -81,3 +89,7 @@ The app debug log's session-boundary index (used by `debug_get_log`'s `sessions=
 #### Scenario: Cache invalidates after new log activity
 - **WHEN** new lines are appended to the persisted log file between two `debug_get_log` calls
 - **THEN** the next `sessions: true` or `session: N` call rebuilds the index and reflects the new session boundaries
+
+#### Scenario: A read failure is logged, not silent
+- **WHEN** the persisted log file's size/modification time can be read but the file itself cannot be opened for reading
+- **THEN** a warning is logged naming the file and the reason, so the condition is diagnosable from the log rather than indistinguishable from a genuinely empty log

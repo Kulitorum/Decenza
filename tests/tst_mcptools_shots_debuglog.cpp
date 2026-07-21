@@ -119,6 +119,28 @@ private slots:
         QVERIFY(!result["hasMore"].toBool());
     }
 
+    void explicitTailZeroDoesNotForceHasMoreFalse() {
+        McpTestFixture f;
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(f.tempDir.filePath("shots.db")));
+        registerShotTools(&f.registry, &storage);
+
+        QStringList logLines;
+        for (int i = 0; i < 10; ++i)
+            logLines << QString("line %1").arg(i);
+        qint64 shotId = -1;
+        withTempDb(storage.databasePath(), "debuglog_seed8", [&](QSqlDatabase& db) {
+            shotId = insertShotWithDebugLog(db, logLines.join('\n'));
+        });
+
+        // tail:0 must mean "no tail" — 10 lines total, only 3 fit under this
+        // limit, so hasMore must stay true, not be forced false.
+        QJsonObject result = f.callAsyncTool("shots_get_debug_log",
+            QJsonObject{{"shotId", shotId}, {"tail", 0}, {"limit", 3}});
+        QCOMPARE(result["returnedLines"].toInt(), 3);
+        QVERIFY(result["hasMore"].toBool());
+    }
+
     void minLevelAcceptedButIgnored() {
         McpTestFixture f;
         ShotHistoryStorage storage;
