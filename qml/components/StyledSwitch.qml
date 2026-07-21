@@ -12,7 +12,12 @@ Switch {
     // so the control overhung whatever width a layout reserved — visible as the Theme Mode
     // switches sitting on top of their card's border instead of inside it. Keeping the
     // padding in the width also keeps the touch target larger than the drawn switch.
-    implicitWidth: control.leftPadding + Theme.scaled(44) + control.rightPadding
+    // max(), because a Switch used WITH a text label has to fit the label too — sizing
+    // from the indicator alone squeezed those to 44px and elided their own text. The
+    // contentItem already reserves the indicator's width on its right, so
+    // implicitContentWidth covers both parts when there is a label.
+    implicitWidth: Math.max(control.implicitContentWidth,
+                            Theme.scaled(44)) + control.leftPadding + control.rightPadding
     implicitHeight: Math.max(Theme.scaled(28),
                              control.topPadding + Theme.scaled(24) + control.bottomPadding)
 
