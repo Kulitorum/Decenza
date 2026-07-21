@@ -458,9 +458,11 @@ QtObject {
     // hasBackgroundPreset were two sibling bindings on the same NOTIFY signal
     // (backgroundPresetChanged), and QML does not order sibling re-evaluation. A consumer like
     // surfaceColor could re-evaluate first and read _derived's still-stale cached value — the
-    // empty map left over from the previous "none" state. Confirmed live (build 3494, macOS,
-    // session 133): every "none" -> preset transition logged all nine reads as undefined with
-    // derivedKeys=0, twice, for both re-evaluation passes.
+    // empty map left over from the previous "none" state. Confirmed live on the PRE-FIX build
+    // (2.0.0 build 3494, macOS, session 133, before this change): every "none" -> preset
+    // transition logged all nine reads as undefined with derivedKeys=0, twice, for both
+    // re-evaluation passes. The fix below (build 3495) was then verified against the same
+    // live transition producing none of that output.
     //
     // The C++ side was never at fault: SettingsTheme::setBackgroundPreset writes the new id to
     // QSettings BEFORE emitting, and derivedBackgroundColors() is a plain uncached getter, so
@@ -492,8 +494,9 @@ QtObject {
     }
 
     // Keep an accent fill only while the derived text can be read on it; otherwise fall
-    // back to the derived surface, which is guaranteed to work. The bottom bar needs this:
-    // the light palette's bar is #ffffff, and a dark background colour derives text to
+    // back to surfaceColor, which resolves to something reasonable either way (the derived
+    // surface when a preset is active, the palette surface otherwise). The bottom bar needs
+    // this: the light palette's bar is #ffffff, and a dark background colour derives text to
     // white, so the accent would have been white on white.
     function _fillCarrying(preferred: color): color {
         return _contrastRatio(textColor, preferred) >= 3.0 ? preferred : _derivedOr("surface", surfaceColor)
@@ -635,7 +638,12 @@ QtObject {
     // Keyed on what is actually behind the control — the preset colour when there is one,
     // the theme's polarity otherwise. A preset can be pale under a dark theme, so
     // isDarkMode is the wrong question once a preset is active.
-    readonly property color _flatInsetTint: (hasBackgroundPreset ? Qt.colorEqual(_derivedOr("text", "#ffffff"), "#000000") : !isDarkMode)
+    //
+    // Fallback matches textColor/iconColor's own fallback for the same "text" key (a custom
+    // theme's textColor, not a bare default) — the should-never-happen path should agree with
+    // every other reader of this key, not answer differently just because this call site is
+    // the one feeding Qt.colorEqual() instead of a direct property assignment.
+    readonly property color _flatInsetTint: (hasBackgroundPreset ? Qt.colorEqual(_derivedOr("text", Settings.theme.customThemeColors.textColor || "#ffffff"), "#000000") : !isDarkMode)
         ? Qt.rgba(0, 0, 0, 0.06)
         : Qt.rgba(1, 1, 1, 0.10)
     // The semantic palette — primary, accent, success, warning, error — kept readable on
@@ -741,6 +749,10 @@ QtObject {
     // background and cut its contrast. Any light theme with a photo has had that since
     // the background feature shipped; presets ship a full light set, so it stops being
     // rare. Lighten in dark mode, darken in light mode.
+    //
+    // Factored out (rather than left inline in the property below) so the property's
+    // no-preset branch and _derivedOr's should-never-happen fallback share one expression
+    // instead of two copies that could drift apart.
     function _textSecondaryFallback(): color {
         return glassChrome
             ? (isDarkMode ? Qt.lighter(Settings.theme.customThemeColors.textSecondaryColor || "#a0a8b8", 1.4)
