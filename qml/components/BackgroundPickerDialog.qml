@@ -223,7 +223,11 @@ Dialog {
                                     anchors.margins: Theme.scaled(4)
                                     text: TranslationManager.translate(presetTile.modelData.nameKey,
                                                                        presetTile.modelData.nameFallback)
-                                    color: Theme.textColor
+                                    // Derived from THIS tile's colour, not from Theme.textColor.
+                                    // The grid shows twenty different backgrounds at once, so the
+                                    // one global text colour is wrong on most of them — it left
+                                    // every light tile captioned in white on near-white.
+                                    color: Theme.contrastColorFor(presetTile.modelData.color)
                                     font: Theme.captionFont
                                     horizontalAlignment: Text.AlignHCenter
                                     elide: Text.ElideRight
