@@ -77,7 +77,8 @@ Item {
     // (NOT from the now-width-bounded Flow.implicitWidth, which would form a
     // width -> implicitWidth -> width binding loop). Must mirror the delegate's
     // own width formula: entryRow.implicitWidth + Theme.spacingMedium, where
-    // entryRow.implicitWidth = swatch + Theme.scaled(6) + advanceWidth(label).
+    // entryRow.implicitWidth = swatch + Theme.scaled(6) + advanceWidth(label),
+    // plus the Flow's own Theme.spacingSmall between the n delegates.
     readonly property real _unwrappedContentWidth: {
         var n = legendRoot.entries.length
         if (n === 0)
@@ -138,11 +139,13 @@ Item {
                 color: "transparent"
                 opacity: entryActive ? 1.0 : 0.4
 
-                Accessible.role: Accessible.CheckBox
+                // A display-only legend (toggleEnabled: false) announces its
+                // entries as static labels, not focusable/activatable checkboxes.
+                Accessible.role: legendRoot.toggleEnabled ? Accessible.CheckBox : Accessible.StaticText
                 Accessible.name: entryLabel
                 Accessible.checked: entryActive
-                Accessible.focusable: true
-                Accessible.description: entryTip !== "" ? TranslationManager.translate("graph.tip.longPressHint", "Long-press to view description.") : ""
+                Accessible.focusable: legendRoot.toggleEnabled
+                Accessible.description: (legendRoot.toggleEnabled && entryTip !== "") ? TranslationManager.translate("graph.tip.longPressHint", "Long-press to view description.") : ""
                 Accessible.onPressAction: _toggle()
 
                 function _toggle() {

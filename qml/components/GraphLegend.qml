@@ -73,6 +73,8 @@ Item {
         entries: legendRoot._visibleModel
 
         onEntryToggled: (index, nowActive) => {
+            if (!legendRoot.graph)
+                return
             var key = legendRoot._visibleModel[index].key
             legendRoot.graph[key] = nowActive
             Settings.setValue("graph/" + key, nowActive)
