@@ -94,7 +94,7 @@
       inset fill, and tile definition at both ends of the ramp
 - [x] 9.4 Update the wiki manual: colours, patterns, the derived-foreground consequence, and the
       glass option
-- [ ] 9.5 Check the six patterns on a real TABLET for moiré or shimmer at the device's scale
+- [~] 9.5 DEFERRED to the beta (agreed with Jeff): check the six patterns on a real TABLET for moiré or shimmer at the device's scale
       factor. Desktop looks right, but the tiles are 8-32 px and fractional scaling is exactly
       what makes them shimmer, so the desktop pass cannot stand in for this
-- [ ] 9.6 Run `/opsx:archive` as the final commit on the feature branch, before merge
+- [x] 9.6 Run `/opsx:archive` as the final commit on the feature branch, before merge
