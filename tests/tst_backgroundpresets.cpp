@@ -593,6 +593,74 @@ private slots:
         QVERIFY(settings.theme()->backgroundPreset().isEmpty());
     }
 
+    // --- The shot-chart background's cache key -----------------------------
+    //
+    // The key itself lives in QML (LastShotChartSource) and this suite is C++ with no Qt
+    // Quick Test harness, so the key's ARITHMETIC is verified live rather than here. What
+    // is testable, and what actually breaks, is its COMPLETENESS: the key lists the graph
+    // visibility settings by name, and a curve added to the chart later without a matching
+    // entry produces a background that silently stops updating when you toggle it. Nothing
+    // about that looks broken — the old chart is still a real chart.
+    //
+    // So compare the two lists in the two files directly. A source-consistency check rather
+    // than a behaviour one, in the same spirit as declaredCoverageMatchesTheArtwork above.
+
+    static QStringList graphKeysIn(const QString& relativePath, const QRegularExpression& pattern) {
+        QFile file(QStringLiteral(DECENZA_SOURCE_DIR "/") + relativePath);
+        if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+            return {};
+        const QString text = QString::fromUtf8(file.readAll());
+        QStringList keys;
+        auto it = pattern.globalMatch(text);
+        while (it.hasNext()) {
+            const QString key = it.next().captured(1);
+            if (!keys.contains(key))
+                keys << key;
+        }
+        keys.sort();
+        return keys;
+    }
+
+    void theShotBackgroundKeyCoversEveryCurveTheChartDraws() {
+        // Every graph/show* the chart reads...
+        const QStringList drawn = graphKeysIn(
+            "qml/components/HistoryShotGraph.qml",
+            QRegularExpression(R"RX(Settings\.boolValue\("(graph/show[A-Za-z]+)")RX"));
+        QVERIFY2(drawn.size() >= 10,
+                 qPrintable(QString("only found %1 curve settings in HistoryShotGraph — the "
+                                    "pattern that finds them has probably gone stale")
+                                .arg(drawn.size())));
+
+        // ...must appear in the key the cached render is invalidated on.
+        const QStringList keyed = graphKeysIn(
+            "qml/components/LastShotChartSource.qml",
+            QRegularExpression(R"RX("(graph/show[A-Za-z]+)")RX"));
+
+        QStringList missing;
+        for (const QString& k : drawn) {
+            if (!keyed.contains(k))
+                missing << k;
+        }
+        QVERIFY2(missing.isEmpty(),
+                 qPrintable(QString("LastShotChartSource's cache key does not mention %1 — "
+                                    "toggling %2 would leave the background showing the "
+                                    "previous render, with nothing to indicate it is stale")
+                                .arg(missing.join(", "),
+                                     missing.size() == 1 ? missing.first()
+                                                         : QStringLiteral("one of them"))));
+
+        // And nothing keyed that the chart does not actually draw: a stale entry here is a
+        // re-render triggered by a setting with no effect on the picture.
+        QStringList extra;
+        for (const QString& k : keyed) {
+            if (!drawn.contains(k))
+                extra << k;
+        }
+        QVERIFY2(extra.isEmpty(),
+                 qPrintable("cache key mentions settings the chart does not read: "
+                            + extra.join(", ")));
+    }
+
     void changingTheActiveThemeClearsTheColour() {
         // A theme carries its own background colour, so choosing one is an explicit choice
         // of the value a background colour overrides.

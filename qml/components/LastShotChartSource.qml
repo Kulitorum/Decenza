@@ -73,33 +73,47 @@ QtObject {
     property string _visibilityKey: ""
 
     // Named individually rather than hashed over a prefix, so a curve added later fails
-    // visibly in review — a missing entry here is a chart that silently stops updating.
+    // visibly — a missing entry here is a chart that silently stops updating. Paired with
+    // its default, because reading the wrong default flips a bit in the key and forces one
+    // needless re-render on first run.
+    //
+    // tst_backgroundpresets compares this list against the settings HistoryShotGraph
+    // actually reads, and it earned that on its first run: showWeightAxis was missing here,
+    // so toggling the right-hand axis would have left the previous render in place.
     readonly property var _visibilityKeys: [
-        "graph/showPressure", "graph/showFlow", "graph/showTemperature",
-        "graph/showWeight", "graph/showWeightFlow", "graph/showResistance",
-        "graph/showConductance", "graph/showConductanceDerivative",
-        "graph/showDarcyResistance", "graph/showTemperatureMix",
-        "graph/showTemperatureMixGoal"
+        { key: "graph/showPressure",              dflt: true  },
+        { key: "graph/showFlow",                  dflt: true  },
+        { key: "graph/showTemperature",           dflt: true  },
+        { key: "graph/showWeight",                dflt: true  },
+        { key: "graph/showWeightFlow",            dflt: true  },
+        { key: "graph/showWeightAxis",            dflt: true  },
+        { key: "graph/showResistance",            dflt: false },
+        { key: "graph/showConductance",           dflt: false },
+        { key: "graph/showConductanceDerivative", dflt: false },
+        { key: "graph/showDarcyResistance",       dflt: false },
+        { key: "graph/showTemperatureMix",        dflt: false },
+        { key: "graph/showTemperatureMixGoal",    dflt: false }
     ]
 
     function _computeVisibilityKey() {
         var parts = []
-        for (var i = 0; i < _visibilityKeys.length; i++) {
-            // The defaults match HistoryShotGraph's: the advanced curves start off.
-            var dflt = _visibilityKeys[i] === "graph/showPressure"
-                    || _visibilityKeys[i] === "graph/showFlow"
-                    || _visibilityKeys[i] === "graph/showTemperature"
-                    || _visibilityKeys[i] === "graph/showWeight"
-                    || _visibilityKeys[i] === "graph/showWeightFlow"
-            parts.push(Settings.boolValue(_visibilityKeys[i], dflt) ? "1" : "0")
-        }
+        for (var i = 0; i < _visibilityKeys.length; i++)
+            parts.push(Settings.boolValue(_visibilityKeys[i].key, _visibilityKeys[i].dflt) ? "1" : "0")
         _visibilityKey = parts.join("")
+    }
+
+    function _watchesKey(key) {
+        for (var i = 0; i < _visibilityKeys.length; i++) {
+            if (_visibilityKeys[i].key === key)
+                return true
+        }
+        return false
     }
 
     readonly property Connections _settingsWatch: Connections {
         target: Settings
         function onValueChanged(key) {
-            if (root._visibilityKeys.indexOf(key) >= 0)
+            if (root._watchesKey(key))
                 root._computeVisibilityKey()
         }
     }

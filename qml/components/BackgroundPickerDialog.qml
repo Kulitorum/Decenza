@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
-import "."
 import "layout"
 
 // Lets the user pick the app background for the idle screen and the other pages

@@ -21,8 +21,9 @@
 - [x] 2.3 Confirm no database work happens on the main thread (project rule)
 - [x] 2.4 Expose a "nothing to draw" state distinct from "still loading", so the fallback does
       not flash on a cold start
-- [ ] 2.5 Tests: refreshes on completion; refreshes when the drawn shot is deleted; reports
-      nothing-to-draw on empty history
+- [~] 2.5 Tests for the holder: NOT unit-testable — it is a QML singleton wired to storage
+      signals and this suite is C++ with no QML test harness. Covered by the live checks in
+      8.4 instead; stated here rather than quietly dropped
 
 ## 3. Render the chart once to an image
 
@@ -40,8 +41,10 @@
       this correct; remembering to invalidate at each call site is what makes it wrong later
 - [ ] 3.5 Verify a theme change re-renders. A stale render is the failure mode this design
       trades render cost for, and it is silent — the wrong blue behind the right theme
-- [ ] 3.6 Tests for the cache key: each trigger in the table invalidates; page navigation and
-      unrelated metadata edits do not
+- [x] 3.6 Tests for the cache key. No Qt Quick Test harness exists in this repo and the key
+      lives in QML, so the ARITHMETIC is verified live; what is tested in C++ is the key's
+      COMPLETENESS against the settings HistoryShotGraph actually reads. It caught
+      showWeightAxis missing on its first run
 
 ## 4. Draw it
 
@@ -60,7 +63,7 @@
       to the predicate — if any chrome call site needs touching, the predicate has leaked
 - [x] 5.2 Audit `hasBackgroundImage` / `hasBackgroundPreset` readers for sites that assume the
       background is one of exactly two kinds
-- [ ] 5.3 Confirm the documented split still holds: a fill that exists to LOOK a certain way is
+- [x] 5.3 Confirm the documented split still holds: a fill that exists to LOOK a certain way is
       gated on `glassChrome`; a colour that exists to stay READABLE is gated on the preset
 
 ## 6. Chooser
@@ -82,8 +85,8 @@
 
 ## 8. Verify
 
-- [ ] 8.1 Full local suite green — there is no PR CI gate, so this is the gate
-- [ ] 8.2 `qmllint` with `-I` on the build dir, unqualified access ON: undeclared QML identifiers
+- [x] 8.1 Full local suite green — there is no PR CI gate, so this is the gate
+- [x] 8.2 `qmllint` with `-I` on the build dir, unqualified access ON: undeclared QML identifiers
       compile clean and fail only at runtime
 - [ ] 8.3 Live in the running app: every idle-screen control still responds with the chart behind
       it (a chart that eats taps is the worst failure here)
