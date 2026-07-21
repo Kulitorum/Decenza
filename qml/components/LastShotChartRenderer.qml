@@ -24,11 +24,16 @@ Item {
 
     width: Math.round(LastShotChartSource._targetWidth)
     height: Math.round(LastShotChartSource._targetHeight)
+
+    // Parked outside the window. This was briefly moved inside on a theory that an
+    // offscreen item gets culled and grabToImage then photographs stale scene-graph nodes —
+    // which would have explained a frozen background perfectly. It was wrong: dumps taken
+    // either side of a shot, with the item offscreen, differ from each other and match the
+    // shot they should. Moved back, because being inside the window means rendering a
+    // full-size chart behind every page on every frame, which is the cost this whole design
+    // exists to avoid.
     x: -width - 100
     y: 0
-    // Visible while the SOURCE is a shot chart, not while there happens to be a shot loaded.
-    // A refresh briefly clears hasShot, and flipping the item out of the scene and back in
-    // right before a grab is the sort of timing this does not need.
     visible: Settings.theme.backgroundSource === "shot"
     enabled: false
 
@@ -65,16 +70,21 @@ Item {
     // longer frame, and the signal still arrives only once the work is done.
     //
     // TWO frames, not one, because a frame may already have been in flight when the data
-    // changed; its frameSwapped says nothing about our new geometry. The second is the first
-    // one guaranteed to have begun after it.
+    // changed; its completion says nothing about our new geometry. The second is the first
+    // one guaranteed to have begun afterwards.
+    //
+    // FrameAnimation, NOT QQuickWindow::frameSwapped. frameSwapped is emitted on the
+    // RENDERING thread under the threaded render loop, so a QML handler attached to it runs
+    // there — and calling grabToImage from the render thread is asking for a picture of a
+    // frame that is in the middle of being built. FrameAnimation ticks once per frame on the
+    // GUI thread, which is the same event with a safe place to stand.
     property int _framesUntilGrab: 0
 
-    readonly property Connections _frameWatch: Connections {
-        target: renderer.Window.window
-        // Off unless a grab is pending: frameSwapped fires on every rendered frame, and this
-        // has no business being woken for any of the others.
-        enabled: renderer._framesUntilGrab > 0
-        function onFrameSwapped() {
+    FrameAnimation {
+        // Idle unless a grab is pending: this fires every frame and has no business waking
+        // for any of the others.
+        running: renderer._framesUntilGrab > 0
+        onTriggered: {
             if (renderer._framesUntilGrab <= 0) return
             renderer._framesUntilGrab -= 1
             if (renderer._framesUntilGrab === 0)
@@ -104,10 +114,15 @@ Item {
             // Describes the SOURCE, not the pixels. Those are different things — the gap
             // between them IS this bug — so read it as "a grab happened for this shot",
             // never as proof the picture matches.
+            // Reports what the CHART was fed, not what the source holds. Still not proof of
+            // pixels — only a dump is that — but it is one step closer, and the previous
+            // version reported the source and so agreed with itself while the picture was
+            // of a different shot entirely.
             console.info("[Background] Shot-chart grab ->", result.url,
-                         "source shot", LastShotChartSource._shotId,
-                         "samples", (LastShotChartSource.shotData.pressure || []).length,
-                         "duration", LastShotChartSource.shotData.durationSec)
+                         "chart samples", backgroundChart.pressureData.length,
+                         "maxTime", backgroundChart.maxTime,
+                         "| source shot", LastShotChartSource._shotId,
+                         "samples", (LastShotChartSource.shotData.pressure || []).length)
             if (Settings.boolValue("debug/dumpShotChartBackground", false))
                 result.saveToFile(Settings.value("debug/dumpShotChartBackgroundPath", ""))
         })
