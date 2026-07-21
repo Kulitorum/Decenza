@@ -57,6 +57,11 @@ Dialog {
             ? (Settings.theme.backgroundShotAdvanced ? "advanced" : "basic") : ""
         candidatePattern = Settings.theme.backgroundPattern
         _images = buildImageList()
+        // The singleton only loads while the shot background is SELECTED, so for anyone
+        // opening this chooser to consider it, ready stays false and both shot tiles were
+        // blank rectangles with a blank caption. Ask for the load explicitly; it does not
+        // render anything (the renderer's Loader stays inactive until Apply).
+        LastShotChartSource.ensureLoaded()
     }
 
     readonly property bool _isNoneSelected: candidatePreset.length === 0

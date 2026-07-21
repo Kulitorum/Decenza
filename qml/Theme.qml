@@ -414,8 +414,7 @@ QtObject {
     // This is NOT "is a background active" — it is true with the switch on and no
     // background at all, and false with a colour set and the switch off. For that question
     // use hasBackgroundPreset or hasBackgroundImage.
-    readonly property bool glassChrome: Settings.theme.backgroundSource === "image"
-                                        || Settings.theme.backgroundSource === "shot"
+    readonly property bool glassChrome: hasBackgroundImage
                                         || Settings.theme.glassChrome
 
     // --- Background colour derivation ----------------------------------------
@@ -504,8 +503,14 @@ QtObject {
     // which is the only case where translucency has anything to show through. The name
     // predates the shot chart and is kept because ~70 call sites read it; what it means is
     // "something with structure is back there", not "a file on disk is set".
+    //
+    // The shot case additionally requires a RENDER to exist. "shot" is believed as stored
+    // (it has no parameter), so on a fresh install with no shots the source says shot while
+    // BackgroundSurface paints a flat colour — and scrimming chrome over a flat colour is
+    // the exact elevation-cancelling failure chromeFill()'s own comment documents.
     readonly property bool hasBackgroundImage: Settings.theme.backgroundSource === "image"
-                                               || Settings.theme.backgroundSource === "shot"
+                                               || (Settings.theme.backgroundSource === "shot"
+                                                   && LastShotChartSource.imageSource.length > 0)
 
     // The fill a piece of chrome should actually paint.
     //

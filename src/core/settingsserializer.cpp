@@ -751,9 +751,12 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
                 settings->theme()->clearBackground();
             } else if (source == QStringLiteral("image")) {
                 // backgroundImagePath is deliberately not exported (a local filesystem path
-                // means nothing on the target), so this one cannot be restored. Say so
-                // rather than leaving the user to wonder why their background did not come
-                // back.
+                // means nothing on the target), so this one cannot be restored. Clear to a
+                // DEFINED state that matches the message below: log-and-do-nothing left the
+                // device half-applied — the unconditional setBackgroundPreset("") above had
+                // already wiped its colour, while a shot source survived untouched, so the
+                // restore diverged from the backup in a different way per device.
+                settings->theme()->clearBackground();
                 qInfo() << "[Settings] Backup used a background image; image paths are "
                            "device-local and are not restored. Pick a background again.";
             }

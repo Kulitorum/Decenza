@@ -154,24 +154,21 @@ QtObject {
     readonly property Connections _storageWatch: Connections {
         target: root._storage
 
-        // 0 and -1 are NOT the same answer. ShotHistoryStorage emits -1 for "storage is not
-        // ready" and 0 for "there are genuinely no shots". Collapsing them told a user with
-        // eight hundred shots and an unopenable database "No shots yet — this fills in after
-        // your first shot", which is not merely unhelpful, it is false, and it sends whoever
-        // reads the log next in precisely the wrong direction.
+        // shotId <= 0 means "nothing to draw". An earlier version split -1 from 0 on the
+        // theory that -1 was "storage not ready" and 0 "genuinely empty" — but the storage
+        // layer emits -1 for BOTH (the query result is initialised to -1 and only
+        // overwritten by a found row), so 0 never arrives, and the split left a brand-new
+        // user with an empty history pinned in "loading" forever: `ready` never went true
+        // and the picker caption never appeared. A transient not-ready also emits -1; that
+        // recovers through onReadyChanged when storage comes up, not by guessing here.
         function onMostRecentShotIdReady(shotId) {
             if (shotId > 0) {
                 root._shotId = shotId
                 root._storage.requestShot(shotId)
                 return
             }
-            if (shotId < 0) {
-                console.warn("[Background] Shot history is not available (storage not ready) — "
-                             + "keeping the current background; it will retry when a shot is saved")
-                return   // do NOT wipe the render, and do NOT claim the history is empty
-            }
-            console.info("[Background] No shots in history — the last-shot background falls "
-                         + "back to the theme colour")
+            console.info("[Background] No shot to draw — the last-shot background falls back "
+                         + "to the theme colour")
             root._shotId = 0
             root.shotData = ({})
             root._renderedUrl = ""
@@ -228,7 +225,28 @@ QtObject {
     // catches it; the same trap already cost a round trip in the renderer.
     readonly property bool shotBackgroundSelected: Settings.theme.backgroundSource === "shot"
 
-    onShotBackgroundSelectedChanged: if (shotBackgroundSelected && _loadState !== "loaded") _refresh()
+    onShotBackgroundSelectedChanged: {
+        if (shotBackgroundSelected) {
+            // Unconditionally, not "only if not already loaded": shots saved while another
+            // background was active were dropped by the guard on onShotSaved, so the held
+            // shot is stale on the way back. _refresh() is idempotent.
+            _refresh()
+        } else {
+            // The renderer is behind a Loader keyed on this same selection, so it is
+            // destroyed on deselect and its own cleanup branch never runs. The grab url it
+            // left in _renderedUrl now points at a dead image provider; clearing it here
+            // stops BackgroundSurface binding the dead handle on the next selection.
+            _renderedUrl = ""
+        }
+    }
+
+    // Load the shot even when this background is not the active one, so the chooser can show
+    // "you have no shots" vs "apply to see it" rather than two blank tiles. Does not cause a
+    // render — the renderer's Loader stays inactive until the background is actually chosen.
+    function ensureLoaded() {
+        if (_loadState !== "loaded")
+            _refresh()
+    }
 
     Component.onCompleted: {
         _computeVisibilityKey()

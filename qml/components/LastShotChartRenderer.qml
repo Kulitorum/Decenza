@@ -16,9 +16,11 @@ import Decenza
 Item {
     id: renderer
 
-    // Gates the GRAB, and (via `visible`) per-frame rendering. It does not gate
-    // construction: main.qml instantiates this unconditionally and the chart is a direct
-    // child, so both exist for every user. See the Loader note in main.qml.
+    // Gates the GRAB, and (via `visible`) per-frame rendering. Construction is gated one
+    // level up: main.qml holds this file behind a Loader active only while the shot
+    // background is selected, so neither this item nor the chart exists for anyone else.
+    // That Loader also means deselecting DESTROYS this object — cleanup that must survive
+    // deselection lives in LastShotChartSource, not here.
     readonly property bool renderWanted: Settings.theme.backgroundSource === "shot"
                                     && LastShotChartSource.hasShot
 
@@ -69,18 +71,10 @@ Item {
                      + "background in Settings > Machine > Theme Mode, or restart, to retry.")
     }
 
-    onRenderWantedChanged: {
-        if (renderWanted) {
-            _renderIfStale()
-        } else if (Settings.theme.backgroundSource !== "shot") {
-            // Switching away from the shot chart: drop the grab. It is a full-window-sized
-            // image and nothing draws it any more; holding it for the life of the process
-            // was several megabytes resident for a background the user turned off.
-            _grab = null
-            _renderedKey = ""
-            LastShotChartSource._renderedUrl = ""
-        }
-    }
+    // No cleanup branch here: switching away deactivates the Loader, which destroys this
+    // object (and _grab with it) before any handler on it could run. The stale-url cleanup
+    // lives in LastShotChartSource.onShotBackgroundSelectedChanged, which survives us.
+    onRenderWantedChanged: if (renderWanted) _renderIfStale()
 
     readonly property Connections _keyWatch: Connections {
         target: LastShotChartSource
@@ -157,15 +151,21 @@ Item {
             renderer._grabFailed("grabToImage refused — no window or no size")
     }
 
+    // The chart reloads itself from onPressureDataChanged via Qt.callLater, so the data
+    // reaching the SOURCE and the chart actually holding it are two different moments —
+    // grabbing on the cache key alone captured the chart as it was BEFORE the new shot,
+    // then recorded the new key against it so it never self-corrected. Watch the same
+    // signal from a Connections, which ADDS a handler; declaring onPressureDataChanged on
+    // the instantiation below would silently REPLACE the component's own reload handler,
+    // leaving its reload to fire only via the sibling onFlowDataChanged — a coincidence of
+    // the binding set, not a contract.
+    Connections {
+        target: backgroundChart
+        function onPressureDataChanged() { renderer._renderIfStale() }
+    }
+
     HistoryShotGraph {
         id: backgroundChart
-
-        // The chart reloads itself from onPressureDataChanged via Qt.callLater, so the data
-        // reaching the SOURCE and the chart actually holding it are two different moments.
-        // Starting the grab timer from the cache key alone timed it from the first of those,
-        // which is how a refresh could capture the chart as it was BEFORE the new shot —
-        // and then record the new key against it, so it never corrected itself.
-        onPressureDataChanged: renderer._renderIfStale()
 
         // Inset by the app's own chrome, so the axis scale lands in the page's CONTENT area
         // rather than underneath the status and bottom bars. Without this the y labels are
