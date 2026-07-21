@@ -14,8 +14,10 @@
 // The scale transport already carried this mapping; this is that mapping made
 // shared, so both links describe the same failure the same way.
 //
-// No `default:` label on purpose: a new value in Qt's enum should fail the
-// -Wswitch build rather than silently fall through to a bare number.
+// No `default:` label on purpose: a new value in Qt's enum trips -Wswitch rather
+// than silently falling through to a bare number. That is an error on clang and
+// gcc, which build with -Werror; the MSVC arm is /W4 without /WX, so on Windows
+// it is a warning and the number-fallback below is what a new value would print.
 //
 // The return after the switch exists to satisfy control-flow analysis, not as
 // reachable behaviour, and is intentionally untested: producing a value outside

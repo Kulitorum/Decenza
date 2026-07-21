@@ -720,7 +720,12 @@ void QtScaleBleTransport::onServiceError(QLowEnergyService::ServiceError err) {
     // Shared with the DE1 transport so both links name the same failure the same
     // way (bleserviceerror.h, #1586).
     const QString errorName = bleServiceErrorName(err);
-    QT_TRANSPORT_LOG(QString("!!! SERVICE ERROR: %1 on %2 !!!").arg(errorName, serviceUuid));
+    // warn(), not log(): this reaches the user through error() the same way the
+    // DE1 side reaches them through errorOccurred, and warn() is what makes an
+    // event visible in a user-attached debug.log (see the comment on warn()
+    // above). Leaving this at debug level would reproduce the #1586 defect on
+    // the scale link — a user-facing error absent from the log they send in.
+    warn(QString("!!! SERVICE ERROR: %1 on %2 !!!").arg(errorName, serviceUuid));
     emit error(QString("Service error: %1").arg(errorName));
 }
 
