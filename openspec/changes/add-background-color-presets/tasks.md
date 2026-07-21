@@ -128,7 +128,7 @@
 - [ ] 9.4 Verify Glass on device: selectable in both pickers; glass chrome with no background set;
       Glass crossed with a preset and with a photo; follow-system switching with Glass in one slot;
       read-only in both editors with duplicate-to-edit producing an editable copy
-- [ ] 9.5 Update the wiki manual (Theme Mode / Background section) with the preset list, the
+- [x] 9.5 Update the wiki manual (Theme Mode / Background section) with the preset list, the
       mode-aware behaviour, the preset-vs-image rule, and the Glass theme — that it is a theme
       rather than a mode, works with any background, and is read-only for now
 - [ ] 9.6 Run `/opsx:archive` as the final commit on the feature branch, before merge
