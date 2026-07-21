@@ -37,6 +37,18 @@ public:
     int totalShots() const { return m_totalShots; }
     bool loadingFiltered() const { return m_loadingFiltered; }
 
+    // Did this run's migrations advance the schema past version `v` — i.e. was
+    // the DB below `v` on open and at/above it after migrating? This is the
+    // genuine one-time signal a schema-introducing feature (equipment=22,
+    // recipes=25) actually ran, used to drive a matching one-time layout
+    // injection exactly once instead of re-firing whenever the widget is
+    // absent. False on a machine already at/above `v` (the upgrade is history),
+    // so a user who removed the widget is never re-served it. See
+    // MainController::init and SettingsNetwork::injectEquipmentButtonIfMissing.
+    bool crossedSchemaVersion(int v) const {
+        return m_schemaVersionAtStart < v && m_schemaVersion >= v;
+    }
+
     // Save a completed shot (async). Extracts data on main thread, runs DB work on background thread.
     // Returns 0 if async save started, -1 if preconditions not met (shotSaved(-1) also emitted).
     // Actual shot ID delivered via shotSaved() signal.
@@ -429,6 +441,7 @@ private:
     bool m_ready = false;
     int m_totalShots = 0;
     int m_schemaVersion = 1;
+    int m_schemaVersionAtStart = 1;  // schema version on open, before this run's migrations (crossedSchemaVersion)
     qint64 m_lastSavedShotId = 0;
     qint64 m_migratedActiveBagId = -1;
     std::atomic<bool> m_backupInProgress{false};  // Prevent concurrent backup/export operations (thread-safe)

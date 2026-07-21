@@ -690,6 +690,16 @@ ApplicationWindow {
         return (it && it.pageTitle !== undefined) ? it.pageTitle : ""
     }
 
+    // objectName of the page currently on top of the stack (e.g. "idlePage").
+    // Exposed on the window so global-overlay widgets — which are not children
+    // of any page and so cannot walk the visual parent chain to find it — can
+    // tell which page is showing. Used by the status bar's page title to gate
+    // its long-press-to-Settings rescue gesture to the idle screen (issue #1586).
+    readonly property string currentPageObjectName: {
+        var it = pageStack.currentItem
+        return it ? it.objectName : ""
+    }
+
     // Flag to prevent premature UI display
     property bool appInitialized: false
 

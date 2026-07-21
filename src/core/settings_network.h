@@ -153,6 +153,16 @@ public:
     // live in QML (SettingsLayoutTab.ensureSettingsAccessible); that function
     // now just delegates here so there is a single implementation.
     Q_INVOKABLE void ensureSettingsAccessible();
+    // One-time idle-button injections, driven by the DB schema crossing (not by
+    // widget presence). MainController calls these only when this run's
+    // migrations actually introduced the feature — equipment at schema 22,
+    // recipes at 25 (ShotHistoryStorage::crossedSchemaVersion). Each still
+    // no-ops if the widget is already placed, so a fresh install (whose default
+    // layout ships both) never double-adds. The "if missing" guard used to live
+    // inside getLayoutObject and re-fired on every launch after the user removed
+    // the widget — the bug these one-time gates replace (see issue #1586).
+    void injectEquipmentButtonIfMissing();
+    void injectRecipesButtonIfMissing();
     // Both setters return false when the write was refused (unstorable value)
     // or no item with itemId exists (e.g. deleted from another device while an
     // editor was open) — callers should surface that instead of assuming success.

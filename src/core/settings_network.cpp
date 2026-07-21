@@ -417,95 +417,16 @@ QJsonObject SettingsNetwork::getLayoutObject() const {
     if (connMigrated)
         layout["zones"] = zones;
 
-    // Migration: ensure an Equipment idle button exists (add-equipment-packages).
-    // Inject it immediately after the beans item so every upgraded user gets it
-    // in a sensible default place regardless of their custom layout (fall back to
-    // appending to bottomRight if beans was removed). Idempotent + persisted once
-    // so it never duplicates.
-    bool equipmentInjected = false;
-    {
-        bool hasEquipment = false;
-        for (const QString& zoneName : zones.keys()) {
-            const QJsonArray items = zones[zoneName].toArray();
-            for (const QJsonValue& v : items) {
-                if (v.toObject()["type"].toString() == "equipment") {
-                    hasEquipment = true;
-                    break;
-                }
-            }
-            if (hasEquipment)
-                break;
-        }
-        if (!hasEquipment) {
-            const QJsonObject equipmentItem{{"type", "equipment"}, {"id", "equipment1"}};
-            bool placed = false;
-            for (const QString& zoneName : zones.keys()) {
-                QJsonArray items = zones[zoneName].toArray();
-                for (qsizetype i = 0; i < items.size(); ++i) {
-                    if (items[i].toObject()["type"].toString() == "beans") {
-                        items.insert(i + 1, equipmentItem);
-                        zones[zoneName] = items;
-                        placed = true;
-                        break;
-                    }
-                }
-                if (placed)
-                    break;
-            }
-            if (!placed) {
-                QJsonArray br = zones.value("bottomRight").toArray();
-                br.append(equipmentItem);
-                zones["bottomRight"] = br;
-            }
-            equipmentInjected = true;
-        }
-    }
+    // NOTE: the Equipment and Recipes idle buttons are NOT injected here. They
+    // are one-time additions tied to the DB schema crossing that introduced each
+    // feature (equipment=22, recipes=25), driven from MainController::init via
+    // injectEquipmentButtonIfMissing()/injectRecipesButtonIfMissing(). They used
+    // to live in this method gated only on "is the widget absent?", which re-ran
+    // on every launch and resurrected the button every time a user removed it
+    // (issue #1586). Presence is user-editable state and was never a valid
+    // once-only gate.
 
-    // Migration: ensure a Recipes idle button exists (add-recipes). Default
-    // home is immediately LEFT of the espresso button; if espresso was removed
-    // from the layout, fall back to sitting beside equipment in the bottom
-    // row, then to appending to bottomRight. Idempotent + persisted once.
-    bool recipesInjected = false;
-    {
-        bool hasRecipes = false;
-        for (const QString& zoneName : zones.keys()) {
-            const QJsonArray items = zones[zoneName].toArray();
-            for (const QJsonValue& v : items) {
-                if (v.toObject()["type"].toString() == "recipes") {
-                    hasRecipes = true;
-                    break;
-                }
-            }
-            if (hasRecipes)
-                break;
-        }
-        if (!hasRecipes) {
-            const QJsonObject recipesItem{{"type", "recipes"}, {"id", "recipes1"}};
-            auto insertRelativeTo = [&zones, &recipesItem](const QString& anchorType,
-                                                           int offsetFromAnchor) {
-                for (const QString& zoneName : zones.keys()) {
-                    QJsonArray items = zones[zoneName].toArray();
-                    for (qsizetype i = 0; i < items.size(); ++i) {
-                        if (items[i].toObject()["type"].toString() == anchorType) {
-                            items.insert(i + offsetFromAnchor, recipesItem);
-                            zones[zoneName] = items;
-                            return true;
-                        }
-                    }
-                }
-                return false;
-            };
-            if (!insertRelativeTo(QStringLiteral("espresso"), 0)        // left of espresso
-                && !insertRelativeTo(QStringLiteral("equipment"), 1)) { // beside equipment
-                QJsonArray br = zones.value("bottomRight").toArray();
-                br.append(recipesItem);
-                zones["bottomRight"] = br;
-            }
-            recipesInjected = true;
-        }
-    }
-
-    if (textMigrated || equipmentInjected || connMigrated || recipesInjected) {
+    if (textMigrated || connMigrated) {
         layout["zones"] = zones;
         // Persist the migration so it only runs once
         const_cast<SettingsNetwork*>(this)->saveLayoutObject(layout);
@@ -1260,6 +1181,89 @@ void SettingsNetwork::ensureSettingsAccessible() {
     // No settings access found — add a settings widget to bottom right.
     addItem(QStringLiteral("settings"), QStringLiteral("bottomRight"));
     qDebug() << "SettingsNetwork: Added settings widget to bottomRight (no settings access found)";
+}
+
+void SettingsNetwork::injectEquipmentButtonIfMissing() {
+    // Add an Equipment idle button immediately after the beans item so an
+    // upgraded user gets it in a sensible default place regardless of their
+    // custom layout (fall back to appending to bottomRight if beans was
+    // removed). No-op when one already exists — a fresh install's default
+    // layout ships it, and the caller only invokes this on the one launch whose
+    // migrations crossed schema 22, so it never resurrects a removed button.
+    QJsonObject layout = getLayoutObject();
+    QJsonObject zones = layout["zones"].toObject();
+    for (const QString& zoneName : zones.keys()) {
+        const QJsonArray items = zones[zoneName].toArray();
+        for (const QJsonValue& v : items) {
+            if (v.toObject()["type"].toString() == "equipment")
+                return;  // already placed
+        }
+    }
+
+    const QJsonObject equipmentItem{{"type", "equipment"}, {"id", "equipment1"}};
+    bool placed = false;
+    for (const QString& zoneName : zones.keys()) {
+        QJsonArray items = zones[zoneName].toArray();
+        for (qsizetype i = 0; i < items.size(); ++i) {
+            if (items[i].toObject()["type"].toString() == "beans") {
+                items.insert(i + 1, equipmentItem);
+                zones[zoneName] = items;
+                placed = true;
+                break;
+            }
+        }
+        if (placed)
+            break;
+    }
+    if (!placed) {
+        QJsonArray br = zones.value("bottomRight").toArray();
+        br.append(equipmentItem);
+        zones["bottomRight"] = br;
+    }
+    layout["zones"] = zones;
+    saveLayoutObject(layout);
+    qDebug() << "SettingsNetwork: injected Equipment idle button (schema 22 crossed)";
+}
+
+void SettingsNetwork::injectRecipesButtonIfMissing() {
+    // Add a Recipes idle button; default home is immediately LEFT of the
+    // espresso button, else beside equipment in the bottom row, else appended
+    // to bottomRight. Same one-time contract as the equipment button above:
+    // no-op if already placed, called only on the launch that crossed schema 25.
+    QJsonObject layout = getLayoutObject();
+    QJsonObject zones = layout["zones"].toObject();
+    for (const QString& zoneName : zones.keys()) {
+        const QJsonArray items = zones[zoneName].toArray();
+        for (const QJsonValue& v : items) {
+            if (v.toObject()["type"].toString() == "recipes")
+                return;  // already placed
+        }
+    }
+
+    const QJsonObject recipesItem{{"type", "recipes"}, {"id", "recipes1"}};
+    auto insertRelativeTo = [&zones, &recipesItem](const QString& anchorType,
+                                                   int offsetFromAnchor) {
+        for (const QString& zoneName : zones.keys()) {
+            QJsonArray items = zones[zoneName].toArray();
+            for (qsizetype i = 0; i < items.size(); ++i) {
+                if (items[i].toObject()["type"].toString() == anchorType) {
+                    items.insert(i + offsetFromAnchor, recipesItem);
+                    zones[zoneName] = items;
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
+    if (!insertRelativeTo(QStringLiteral("espresso"), 0)        // left of espresso
+        && !insertRelativeTo(QStringLiteral("equipment"), 1)) { // beside equipment
+        QJsonArray br = zones.value("bottomRight").toArray();
+        br.append(recipesItem);
+        zones["bottomRight"] = br;
+    }
+    layout["zones"] = zones;
+    saveLayoutObject(layout);
+    qDebug() << "SettingsNetwork: injected Recipes idle button (schema 25 crossed)";
 }
 
 bool SettingsNetwork::setItemProperty(const QString& itemId, const QString& key, const QVariant& value) {

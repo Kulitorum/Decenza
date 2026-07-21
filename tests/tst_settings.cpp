@@ -1207,9 +1207,12 @@ private slots:
         net->setLayoutConfiguration(orig);
     }
 
-    // The equipment/recipes injection migrations must be no-ops on the new
-    // default: reset, then force a fresh read (reload from storage) and
-    // confirm the composition is unchanged (no injected duplicates).
+    // Reading the layout (getLayoutObject) must never add or duplicate the
+    // equipment/recipes buttons: those injections are now one-time, driven by the
+    // DB schema crossing from MainController (issue #1586), not by this read path.
+    // Reset, then force a fresh read from storage and confirm the composition is
+    // unchanged — the default ships both buttons exactly once and a reload keeps
+    // it that way.
     void resetToDefaultSurvivesReloadUnchanged() {
         SettingsNetwork* net = m_settings.network();
         const QString orig = net->layoutConfiguration();
@@ -1218,15 +1221,158 @@ private slots:
         const QStringList centerTopBefore = typesOf(net->getZoneItems("centerTop"));
         const QStringList bottomRightBefore = typesOf(net->getZoneItems("bottomRight"));
 
-        // A second, independent Settings instance reads the same on-disk
-        // store fresh (mirrors a fresh app start) — the migrations must be
-        // no-ops rather than injecting duplicates on this independent load.
+        // A second, independent Settings instance reads the same on-disk store
+        // fresh (mirrors a fresh app start) — the read must not inject or
+        // duplicate anything.
         Settings reloaded;
         SettingsNetwork* reloadedNet = reloaded.network();
         QCOMPARE(typesOf(reloadedNet->getZoneItems("centerTop")), centerTopBefore);
         QCOMPARE(typesOf(reloadedNet->getZoneItems("bottomRight")), bottomRightBefore);
         QCOMPARE(centerTopBefore.count("recipes"), 1);
         QCOMPARE(bottomRightBefore.count("equipment"), 1);
+
+        net->setLayoutConfiguration(orig);
+    }
+
+    // ==========================================
+    // One-time idle-button injection (issue #1586)
+    // ==========================================
+
+    // Reading the layout no longer resurrects a removed button. A user who
+    // removed Equipment (and Recipes) must NOT get it back on a plain reload —
+    // the old presence-gated inject inside getLayoutObject did exactly that on
+    // every launch. Injection now happens only via the explicit crossing-gated
+    // methods below, which MainController calls once per schema upgrade.
+    void removedButtonsStayRemovedOnReload() {
+        SettingsNetwork* net = m_settings.network();
+        const QString orig = net->layoutConfiguration();
+
+        // A settled layout with neither Equipment nor Recipes anywhere, but with
+        // Settings still reachable so nothing else repairs it.
+        net->setLayoutConfiguration(QStringLiteral(
+            "{\"version\":1,\"zones\":{"
+            "\"bottomRight\":["
+            "{\"type\":\"history\",\"id\":\"history1\"},"
+            "{\"type\":\"beans\",\"id\":\"beans1\"},"
+            "{\"type\":\"espresso\",\"id\":\"espresso1\"},"
+            "{\"type\":\"settings\",\"id\":\"settings1\"}]"
+            "}}"));
+
+        QVERIFY(!net->hasItemType("equipment"));
+        QVERIFY(!net->hasItemType("recipes"));
+
+        // Fresh read from storage (a new app start) must leave them absent.
+        Settings reloaded;
+        SettingsNetwork* reloadedNet = reloaded.network();
+        QVERIFY(!reloadedNet->hasItemType("equipment"));
+        QVERIFY(!reloadedNet->hasItemType("recipes"));
+
+        net->setLayoutConfiguration(orig);
+    }
+
+    // The one-time inject places Equipment after beans when it is missing.
+    void injectEquipmentPlacesAfterBeans() {
+        SettingsNetwork* net = m_settings.network();
+        const QString orig = net->layoutConfiguration();
+
+        net->setLayoutConfiguration(QStringLiteral(
+            "{\"version\":1,\"zones\":{"
+            "\"bottomRight\":["
+            "{\"type\":\"history\",\"id\":\"history1\"},"
+            "{\"type\":\"beans\",\"id\":\"beans1\"},"
+            "{\"type\":\"settings\",\"id\":\"settings1\"}]"
+            "}}"));
+
+        net->injectEquipmentButtonIfMissing();
+        QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
+                 QStringList({"history", "beans", "equipment", "settings"}));
+
+        // Second call is a no-op — no duplicate even though the "gate" (a real
+        // schema crossing) is what makes it one-time in production.
+        net->injectEquipmentButtonIfMissing();
+        QCOMPARE(typesOf(net->getZoneItems("bottomRight")).count("equipment"), 1);
+
+        net->setLayoutConfiguration(orig);
+    }
+
+    // With no beans anywhere, Equipment falls back to appending to bottomRight.
+    void injectEquipmentFallsBackToBottomRight() {
+        SettingsNetwork* net = m_settings.network();
+        const QString orig = net->layoutConfiguration();
+
+        net->setLayoutConfiguration(QStringLiteral(
+            "{\"version\":1,\"zones\":{"
+            "\"bottomRight\":["
+            "{\"type\":\"history\",\"id\":\"history1\"},"
+            "{\"type\":\"settings\",\"id\":\"settings1\"}]"
+            "}}"));
+
+        net->injectEquipmentButtonIfMissing();
+        QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
+                 QStringList({"history", "settings", "equipment"}));
+
+        net->setLayoutConfiguration(orig);
+    }
+
+    // Recipes goes immediately left of espresso when missing.
+    void injectRecipesPlacesLeftOfEspresso() {
+        SettingsNetwork* net = m_settings.network();
+        const QString orig = net->layoutConfiguration();
+
+        net->setLayoutConfiguration(QStringLiteral(
+            "{\"version\":1,\"zones\":{"
+            "\"bottomRight\":["
+            "{\"type\":\"history\",\"id\":\"history1\"},"
+            "{\"type\":\"espresso\",\"id\":\"espresso1\"},"
+            "{\"type\":\"settings\",\"id\":\"settings1\"}]"
+            "}}"));
+
+        net->injectRecipesButtonIfMissing();
+        QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
+                 QStringList({"history", "recipes", "espresso", "settings"}));
+
+        // Idempotent second call.
+        net->injectRecipesButtonIfMissing();
+        QCOMPARE(typesOf(net->getZoneItems("bottomRight")).count("recipes"), 1);
+
+        net->setLayoutConfiguration(orig);
+    }
+
+    // No espresso: Recipes sits beside equipment, else appends to bottomRight.
+    void injectRecipesFallsBackBesideEquipment() {
+        SettingsNetwork* net = m_settings.network();
+        const QString orig = net->layoutConfiguration();
+
+        net->setLayoutConfiguration(QStringLiteral(
+            "{\"version\":1,\"zones\":{"
+            "\"bottomRight\":["
+            "{\"type\":\"history\",\"id\":\"history1\"},"
+            "{\"type\":\"equipment\",\"id\":\"equipment1\"},"
+            "{\"type\":\"settings\",\"id\":\"settings1\"}]"
+            "}}"));
+
+        net->injectRecipesButtonIfMissing();
+        QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
+                 QStringList({"history", "equipment", "recipes", "settings"}));
+
+        net->setLayoutConfiguration(orig);
+    }
+
+    // Inject is a no-op when the widget already exists (fresh install's default
+    // ships both — the crossing gate must not double-add).
+    void injectIsNoOpWhenAlreadyPresent() {
+        SettingsNetwork* net = m_settings.network();
+        const QString orig = net->layoutConfiguration();
+
+        net->resetLayoutToDefault();  // default ships equipment + recipes
+        const QStringList centerTopBefore = typesOf(net->getZoneItems("centerTop"));
+        const QStringList bottomRightBefore = typesOf(net->getZoneItems("bottomRight"));
+
+        net->injectEquipmentButtonIfMissing();
+        net->injectRecipesButtonIfMissing();
+
+        QCOMPARE(typesOf(net->getZoneItems("centerTop")), centerTopBefore);
+        QCOMPARE(typesOf(net->getZoneItems("bottomRight")), bottomRightBefore);
 
         net->setLayoutConfiguration(orig);
     }

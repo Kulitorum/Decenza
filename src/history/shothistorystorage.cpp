@@ -339,6 +339,11 @@ bool ShotHistoryStorage::runMigrations()
     query.exec("SELECT version FROM schema_version ORDER BY version DESC LIMIT 1");
     int currentVersion = query.next() ? query.value(0).toInt() : 1;
 
+    // Remember where we started so crossedSchemaVersion() can tell a genuine
+    // one-time upgrade (DB was below N, now at/above it) from a machine already
+    // past N. Drives the one-time equipment/recipes idle-button injection.
+    m_schemaVersionAtStart = currentVersion;
+
     // Helper: check if a column exists in a table
     auto hasColumn = [&](const QString& table, const QString& column) -> bool {
         QSqlQuery q(m_db);
