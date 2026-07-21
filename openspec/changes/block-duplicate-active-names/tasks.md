@@ -46,6 +46,6 @@ of `mcptools_write.cpp` are untouched by this change.
 
 ## 7. Docs & verification
 
-- [ ] 7.1 Update the wiki manual (Equipment and Recipes pages) to note the active-name-uniqueness rule.
+- [x] 7.1 Wiki manual updated and pushed (`Decenza.wiki` c294d8e): a note in **Equipment Packages** (also distinguishing this from the existing identical-gear rule) and an extension of the naming paragraph in **Creating a Recipe**.
 - [ ] 7.2 Build via Qt Creator and smoke-test both forms: colliding name disables Save + shows the message; a distinct or freed name saves normally.
 - [ ] 7.3 Archive this OpenSpec change (`/opsx:archive`) as the last commit on the branch, right before merge.
