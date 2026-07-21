@@ -94,7 +94,17 @@ Item {
         // scale, which is worse than one with none because it looks like a bug.
         anchors.fill: parent
         anchors.topMargin: Theme.statusBarHeight
-        anchors.bottomMargin: Theme.bottomBarHeight
+        // TWICE the bottom bar, not once. The bottom of a page is two rows deep — the bar
+        // itself plus the readouts strip above it (Profile / Ratio / Beans / Milk / Grind) —
+        // and the x-axis scale is drawn BELOW the plot, so clearing only the bar left the
+        // time ticks sitting among the readout labels where they were unreadable. The y
+        // scales were fine throughout, which is why this looked like "the horizontal one is
+        // missing" rather than "the inset is too small".
+        //
+        // A heuristic about the default idle layout, and deliberately so: the page's content
+        // is user-arrangeable, so there is no exact rect to ask for. Erring large costs some
+        // chart height and keeps the scale legible, which is the trade this feature wants.
+        anchors.bottomMargin: Theme.bottomBarHeight * 2
         anchors.leftMargin: Theme.spacingMedium
         anchors.rightMargin: Theme.spacingMedium
         enabled: false
