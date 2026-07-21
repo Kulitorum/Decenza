@@ -263,7 +263,10 @@ signals:
     // for a reason the caller can act on — currently only "nameInUse"
     // (block-duplicate-active-names). Additive: packageUpdated stays the terminal
     // status every caller waits on; this only lets a surface report WHY, so the
-    // app, MCP and ShotServer describe a rename collision identically.
+    // app, MCP and ShotServer can each name the SAME cause for a rename collision.
+    // The cause code and the emission ordering are what is shared — the wording of
+    // each surface's message is its own (a REST body and an inline form label do
+    // not read alike).
     void packageUpdateFailed(qint64 packageId, const QString& reason);
     void packageDeleted(qint64 packageId, bool success);
     void packagesChanged();

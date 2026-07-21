@@ -609,7 +609,16 @@ qint64 EquipmentStorage::createPackageWithGrinderStatic(QSqlDatabase& db, Equipm
     const bool grinderLess = brand.trimmed().isEmpty() && model.trimmed().isEmpty()
         && burrs.trimmed().isEmpty();
     // Persist a name at creation so it survives identity edits / copy-on-write
-    // (two packages may share a display name; the id is the permanent handle).
+    // (the id, never the name, is the permanent handle).
+    //
+    // Note this DERIVED name is deliberately not unique, and this function
+    // deliberately carries no uniqueness guard: same-grinder packages that differ
+    // only by basket or puck prep are distinct gear and both derive
+    // "{brand} {model}". Active-name uniqueness (block-duplicate-active-names) is
+    // enforced one level up, in requestCreatePackage / requestUpdatePackage, and
+    // applies to a name the USER entered or changed. Direct callers here —
+    // migration and device import — reproduce gear the user already owns rather
+    // than accept new input, so they are correctly exempt.
     if (pkg.name.trimmed().isEmpty())
         pkg.name = grinderLess
             ? (basketBrand.trimmed() + QLatin1Char(' ') + basketModel.trimmed()).trimmed()

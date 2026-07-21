@@ -266,11 +266,14 @@ Page {
     property string errorMessage: ""
     property string _autoName: ""
 
-    // Lowercased names of existing non-archived recipes (excluding the one
-    // being edited), used only to disambiguate an auto-name collision. Filled
+    // Lowercased names of existing non-archived recipes (excluding the one being
+    // edited). TWO consumers: suggestName() uses it to disambiguate an auto-name
+    // collision, and `nameInUse` below uses it to GATE SAVE
+    // (block-duplicate-active-names) — so this is no longer cosmetic-only. Filled
     // asynchronously by requestInventory() → onInventoryReady; empty until it
-    // lands, in which case the collision qualifier degrades to nothing and the
-    // plain descriptive name ships (never worse than before).
+    // lands, in which case the collision qualifier degrades to nothing (the plain
+    // descriptive name ships, never worse than before) and the save gate reads as
+    // "no collision", leaving the storage guard to refuse a genuine duplicate.
     property var _existingRecipeNames: []
 
     // Yield anchor (add-yield-ratio-anchor): which of {yield, ratio} was last
@@ -459,14 +462,6 @@ Page {
 
 
     Component.onCompleted: {
-        // EVERY entry path needs the existing-name set, not just the blank-create
-        // walk: besides feeding suggestName()'s auto-name disambiguation, it now
-        // backs the duplicate-name gate on Save (block-duplicate-active-names).
-        // Requesting it only for the blank walk left `nameInUse` permanently false
-        // in edit/promote/clone — i.e. inert in edit mode, which is exactly where a
-        // rename collision happens. It is queued after each path's own load below,
-        // and the gate simply reads as "no collision" until it lands.
-        MainController.recipeStorage.requestInventory()
         if (mode === "edit" && editRecipeId > 0) {
             currentStep = "summary"
             _enteredAtSummary = true
@@ -486,6 +481,19 @@ Page {
             currentStep = "drink"
             captureBaseline()
         }
+        // EVERY entry path needs the existing-name set, not just the blank-create
+        // walk: besides feeding suggestName()'s auto-name disambiguation, it now
+        // backs the duplicate-name gate on Save (block-duplicate-active-names).
+        // Requesting it only for the blank walk left `nameInUse` permanently false
+        // in edit/promote/clone — i.e. inert in edit mode, which is exactly where a
+        // rename collision happens.
+        //
+        // Issued LAST, after each path's own load above, deliberately: runAsync
+        // dispatches to a single FIFO SerialDbWorker, so putting this heavy
+        // full-table scan first would delay the recipe/shot the user is waiting to
+        // see. The gate reads as "no collision" until the scan lands, and the
+        // storage guard is the real backstop either way.
+        MainController.recipeStorage.requestInventory()
     }
 
     // --- ported state <-> JSON helpers (verbatim composer semantics) -------
@@ -865,6 +873,7 @@ Page {
         }
         var map = buildSaveMap()
         _submitting = true
+        _saveFailReason = ""   // never inherit a previous attempt's cause
         if (mode === "edit" && editRecipeId > 0) {
             MainController.recipeStorage.requestUpdateRecipe(editRecipeId, map)
         } else {
@@ -1747,8 +1756,13 @@ Page {
             }
         }
         function onRecipeUpdateFailed(recipeId, reason) {
-            // Lands just before recipeUpdated(false) and names the cause.
-            if (wizardPage.mode === "edit" && recipeId === wizardPage.editRecipeId)
+            // Lands just before recipeUpdated(false) and names the cause. Gated on
+            // _submitting like the terminal handler below: without it, another
+            // surface (MCP/web) failing a rename of THIS recipe while the wizard
+            // merely sits open would latch a reason, and a later save of ours that
+            // failed for an unrelated cause would report it.
+            if (wizardPage.mode === "edit" && wizardPage._submitting
+                && recipeId === wizardPage.editRecipeId)
                 wizardPage._saveFailReason = reason
         }
         function onRecipeUpdated(recipeId, success) {
