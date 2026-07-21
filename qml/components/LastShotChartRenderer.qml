@@ -25,7 +25,10 @@ Item {
     height: Math.round(LastShotChartSource._targetHeight)
     x: -width - 100
     y: 0
-    visible: renderWanted
+    // Visible while the SOURCE is a shot chart, not while there happens to be a shot loaded.
+    // A refresh briefly clears hasShot, and flipping the item out of the scene and back in
+    // right before a grab is the sort of timing this does not need.
+    visible: Settings.theme.backgroundSource === "shot"
     enabled: false
 
     // The key the CURRENT image was rendered from. A mismatch against the live key is what
@@ -76,7 +79,10 @@ Item {
                 renderer._grab = result
                 renderer._renderedKey = key
                 LastShotChartSource._renderedUrl = result.url
-                console.info("[Background] Shot-chart rendered ->", result.url)
+                console.info("[Background] Shot-chart rendered ->", result.url,
+                             "shot", LastShotChartSource._shotId,
+                             "samples", (LastShotChartSource.shotData.pressure || []).length,
+                             "duration", LastShotChartSource.shotData.durationSec)
                 if (Settings.boolValue("debug/dumpShotChartBackground", false))
                     result.saveToFile(Settings.value("debug/dumpShotChartBackgroundPath", ""))
             })
@@ -88,6 +94,15 @@ Item {
     }
 
     HistoryShotGraph {
+        id: backgroundChart
+
+        // The chart reloads itself from onPressureDataChanged via Qt.callLater, so the data
+        // reaching the SOURCE and the chart actually holding it are two different moments.
+        // Starting the grab timer from the cache key alone timed it from the first of those,
+        // which is how a refresh could capture the chart as it was BEFORE the new shot —
+        // and then record the new key against it, so it never corrected itself.
+        onPressureDataChanged: renderer._renderIfStale()
+
         // Inset by the app's own chrome, so the axis scale lands in the page's CONTENT area
         // rather than underneath the status and bottom bars. Without this the y labels are
         // readable but the time ticks are drawn behind the bottom bar — a chart with half a
