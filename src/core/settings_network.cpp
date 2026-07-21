@@ -1240,12 +1240,12 @@ bool SettingsNetwork::saveLayoutObjectVerified(const QJsonObject& layout, const 
 }
 
 void SettingsNetwork::injectEquipmentButtonIfMissing() {
-    // Add an Equipment idle button immediately after the beans item so an
-    // upgraded user gets it in a sensible default place regardless of their
-    // custom layout (fall back to appending to bottomRight if beans was
-    // removed). No-op when one already exists — a fresh install's default
-    // layout ships it, and the caller only invokes this on the one launch whose
-    // migrations crossed schema 22, so it never resurrects a removed button.
+    // Placement policy: immediately after the beans item, so an upgraded user
+    // gets it in a sensible default place regardless of their custom layout;
+    // append to bottomRight if beans was removed. Note the beans anchor is
+    // searched across ALL zones in key order, so a layout whose beans sits in
+    // centerTop (the current default) puts Equipment in the centre row, not the
+    // bottom bar. (Contract and gating: see the declaration.)
     QJsonObject layout = getLayoutObject();
     QJsonObject zones = layout["zones"].toObject();
     for (const QString& zoneName : zones.keys()) {
@@ -1282,10 +1282,10 @@ void SettingsNetwork::injectEquipmentButtonIfMissing() {
 }
 
 void SettingsNetwork::injectRecipesButtonIfMissing() {
-    // Add a Recipes idle button; default home is immediately LEFT of the
-    // espresso button, else beside equipment in the bottom row, else appended
-    // to bottomRight. Same one-time contract as the equipment button above:
-    // no-op if already placed, called only on the launch that crossed schema 25.
+    // Placement policy: immediately LEFT of the espresso button; else beside
+    // equipment in the bottom row; else appended to bottomRight. Same zone-order
+    // caveat as the equipment button above. (Contract and gating: see the
+    // declaration.)
     QJsonObject layout = getLayoutObject();
     QJsonObject zones = layout["zones"].toObject();
     for (const QString& zoneName : zones.keys()) {

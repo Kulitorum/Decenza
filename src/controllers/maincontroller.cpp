@@ -239,16 +239,15 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     requestRecipeTempOffsetConversion();
     setupRecipeConnections();
 
-    // One-time idle-button injections, gated on the DB schema crossing that
-    // introduced each feature — the genuine once-ever signal, unlike the old
-    // "add it whenever the widget is absent" check that resurrected the button
-    // on every launch after a user removed it (issue #1586). crossedSchemaVersion
-    // is true only on the single launch whose migrations advanced the DB past
-    // that version, so a machine already upgraded (widget kept OR deliberately
-    // removed) is never touched again. Each inject is additionally a no-op if the
-    // widget is already present, so a fresh install's default layout — which
-    // ships both — does not double-add. Runs before the QML engine builds the
-    // idle page, so the layout is settled by first paint.
+    // One-time idle-button injections (issue #1586). What the gate means is
+    // documented on ShotHistoryStorage::crossedSchemaVersion; what the injections
+    // guarantee is documented on their declarations in settings_network.h.
+    //
+    // What is specific to THIS site is the ordering, which is why the calls live
+    // here and not somewhere more obvious: they must run after
+    // m_shotHistory->initialize() above (it is what computes the crossing) and
+    // before the QML engine is created in main.cpp (so the layout is settled by
+    // first paint, with no visible re-arrangement).
     if (m_shotHistory->crossedSchemaVersion(22))
         m_settings->network()->injectEquipmentButtonIfMissing();
     if (m_shotHistory->crossedSchemaVersion(25))
