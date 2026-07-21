@@ -24,7 +24,7 @@ Rectangle {
            ? Theme.zoneBackgroundColor(zoneOpts.style)
            : Theme.surfaceColor
     color: Theme.glassChrome
-           ? Theme.scrimColor(_opaqueColor)
+           ? Theme.chromeFill(_opaqueColor)
            : _opaqueColor
 
     LayoutBarZone {

@@ -1486,7 +1486,7 @@ Page {
         // consistently and the wallpaper shows through; otherwise keep the
         // standard bottom-bar hue.
         color: Theme.glassChrome
-               ? Theme.scrimColor(Theme.surfaceColor)
+               ? Theme.chromeFill(Theme.surfaceColor)
                : Theme.bottomBarColor
         // opacity < 1 forces the scrim through the alpha pass; without it this
         // bar renders opaque and the wallpaper can't show through. See

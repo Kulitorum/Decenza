@@ -494,7 +494,10 @@ QtObject {
     // the thing that looks fine over a photo, where the scrim has a busy image to stand out
     // against, and disappears over a solid colour.
     readonly property real _cardLift: 6.0
-    readonly property real _tileLift: 14.0
+    // 12, not more: at 14 the tile derived from Denim Apron landed at L* 36, inside the
+    // band where neither black nor white text clears 4.5:1, and page-level secondary text
+    // sitting on it measured 4.41:1. The contrast test caught it.
+    readonly property real _tileLift: 12.0
 
     // Dynamic colors - bind to Settings with fallback defaults
     // Wrapped in _c() for flash-to-identify from web theme editor
@@ -528,6 +531,24 @@ QtObject {
     // latter would erase the app's text-hierarchy convention specifically in
     // this one state instead of just fixing the underlying contrast problem.
     readonly property real backgroundScrimAlpha: 0.4
+
+    // True when the background is a photo — the only case where translucency has anything
+    // to show through.
+    readonly property bool hasBackgroundImage: Settings.theme.backgroundImagePath.length > 0
+
+    // The fill a piece of chrome should actually paint.
+    //
+    // Over an IMAGE, translucency is the whole point: the photo shows through and that is
+    // what makes the chrome read as glass.
+    //
+    // Over a FLAT colour there is nothing behind to show through, so a scrim is not
+    // translucency — it is just a smaller step away from the page, and it silently undoes
+    // the elevation the fill was given. That is what left the action tiles nearly
+    // invisible: they were lifted 14 L* and then scrimmed back to 5.6. On a flat page the
+    // fill stays opaque and the elevation does the work.
+    function chromeFill(base: color): color {
+        return hasBackgroundImage ? scrimColor(base) : base
+    }
 
     // Scrim a color for use over a custom background image: same hue, reduced
     // opacity so the wallpaper shows through. Use this instead of hand-rolling
@@ -569,7 +590,7 @@ QtObject {
     // dialogBackgroundColor below (same value, separately documented).
     // Opaque surfaceColor when no background image is set — zero visual change.
     readonly property color cardBackgroundColor: glassChrome
-        ? scrimColor(surfaceColor)
+        ? chromeFill(surfaceColor)
         : surfaceColor
 
     // Frame fill for content dialogs/popups (Brew Settings, Grind Setting, Brew
@@ -580,7 +601,7 @@ QtObject {
     // otherwise, so nothing changes with no background set. The modal Overlay
     // dim behind the dialog keeps the glass legible over busy photos.
     readonly property color dialogBackgroundColor: glassChrome
-        ? scrimColor(surfaceColor)
+        ? chromeFill(surfaceColor)
         : surfaceColor
 
     // Recessed/inset fill for controls that use flat backgroundColor to "blend
@@ -596,8 +617,7 @@ QtObject {
     // it went unnoticed.) On a flat page we scrim toward the contrast direction instead,
     // so the recessed step survives.
     readonly property color insetBackgroundColor: hasBackgroundPreset || glassChrome
-        ? (Settings.theme.backgroundImagePath.length > 0 ? scrimColor(backgroundColor)
-                                                         : _flatInsetTint)
+        ? (hasBackgroundImage ? scrimColor(backgroundColor) : _flatInsetTint)
         : backgroundColor
 
     // A translucent white (dark mode) or black (light mode) wash — a step away from

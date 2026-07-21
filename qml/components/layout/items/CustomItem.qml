@@ -60,7 +60,7 @@ Item {
     // and user-authored Custom widgets share this rendering path; scrim
     // uniformly like every other fill in the app when a background image is set.
     readonly property color _effectiveBackground:
-        Theme.glassChrome ? Theme.scrimColor(_baseBackground) : _baseBackground
+        Theme.glassChrome ? Theme.chromeFill(_baseBackground) : _baseBackground
     // Content color for text and icon tinting on the button background
     readonly property color _contentColor: Theme.contentColorOn(_effectiveBackground, Theme.primaryContrastColor)
 

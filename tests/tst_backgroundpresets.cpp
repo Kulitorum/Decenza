@@ -38,18 +38,7 @@ private:
         return (std::max(la, lb) + 0.05) / (std::min(la, lb) + 0.05);
     }
 
-    // What Theme.cardBackgroundColor actually paints over a flat page: surfaceColor at
-    // backgroundScrimAlpha composited over the background. Keep the alpha in step with
-    // Theme.qml's backgroundScrimAlpha.
-    static constexpr double kScrimAlpha = 0.4;
     static constexpr double kMinContrast = 4.5;
-
-    static QColor scrimOver(const QColor& surface, const QColor& base) {
-        return QColor::fromRgbF(
-            kScrimAlpha * surface.redF()   + (1.0 - kScrimAlpha) * base.redF(),
-            kScrimAlpha * surface.greenF() + (1.0 - kScrimAlpha) * base.greenF(),
-            kScrimAlpha * surface.blueF()  + (1.0 - kScrimAlpha) * base.blueF());
-    }
 
     // Perceptual lightness (CIE L*, 0-100). Used where a WCAG ratio is the wrong tool —
     // see glassSurfaceSeparatesFromBackground.
@@ -75,7 +64,8 @@ private:
     // bisection. The distinction matters — a fixed fraction is a large perceptual move
     // near black and almost nothing at L* 70, which is what previously made the whole
     // mid-light range unusable.
-    static constexpr double kCardLift = 6.0;
+    static constexpr double kCardLift = 6.0;   // cards and bars
+    static constexpr double kTileLift = 12.0;  // action tiles, which must read as pressable
     static QColor liftFrom(const QColor& base, double deltaL = kCardLift) {
         const QColor target = lstar(base) + deltaL <= 100.0 ? QColor("#ffffff") : QColor("#000000");
         double lo = 0.0, hi = 1.0;
@@ -194,14 +184,12 @@ private slots:
             const QColor page(c.value);
             const QColor text = contrastColorFor(page);
             const QColor secondary = mix(text, page, 0.28);
-            const QColor surface = liftFrom(page);
-
             struct Case { QColor bg; const char* label; };
             const Case surfaces[] = {
-                {page,                             "page"},
-                {mix(page, text, worstShift),      "page under the densest pattern"},
-                {surface,                          "card"},
-                {mix(page, surface, kScrimAlpha),  "glass card"},
+                {page,                              "page"},
+                {mix(page, text, worstShift),       "page under the densest pattern"},
+                {liftFrom(page, kCardLift),         "card"},
+                {liftFrom(page, kTileLift),         "action tile"},
             };
             for (const Case& s : surfaces) {
                 for (auto [fg, what] : {std::pair{text, "text"}, std::pair{secondary, "secondary"}}) {
@@ -222,11 +210,10 @@ private slots:
         // invisible light card or fail a perfectly good dark one.
         for (const auto& c : BackgroundPresets::colours()) {
             const QColor page(c.value);
-            const QColor surface = liftFrom(page);
-            for (const QColor& card : {surface, mix(page, surface, kScrimAlpha)}) {
-                const double delta = std::abs(lstar(card) - lstar(page));
+            for (const QColor& fill : {liftFrom(page, kCardLift), liftFrom(page, kTileLift)}) {
+                const double delta = std::abs(lstar(fill) - lstar(page));
                 QVERIFY2(delta >= 2.0,
-                         qPrintable(QString("%1: card is only %2 L* from the page")
+                         qPrintable(QString("%1: chrome is only %2 L* from the page")
                                         .arg(c.id).arg(delta, 0, 'f', 2)));
             }
         }

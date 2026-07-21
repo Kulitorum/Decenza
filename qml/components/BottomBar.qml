@@ -38,7 +38,7 @@ Item {
         // own barColor (e.g. "transparent" on Beans/Equipment/Recipes) only
         // applies when no background image is set.
         color: Theme.glassChrome
-               ? Theme.scrimColor(Theme.surfaceColor)
+               ? Theme.chromeFill(Theme.surfaceColor)
                : root.barColor
         // opacity < 1 forces the scrim through the alpha pass; without it this
         // bar renders opaque and the wallpaper can't show through. See
