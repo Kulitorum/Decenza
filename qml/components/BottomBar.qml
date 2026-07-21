@@ -18,7 +18,10 @@ Item {
 
     signal backClicked()
 
-    readonly property color contentColor: Theme.iconColor
+    // Derived from the bar's own fill, not the global icon colour. Those diverged once
+    // backgrounds became derivable: a light theme with a dark background colour derives
+    // iconColor to WHITE while barColor stays the palette's white bar — white on white.
+    readonly property color contentColor: Theme.contentColorOn(barColor, Theme.iconColor)
     // Effective fill color, re-exposed for callers that mirror it (e.g.
     // CommunityBrowserPage's "Add to Library" label). The fill lives on the
     // nested bgRect, not this Item root, so alias it back to the public surface.

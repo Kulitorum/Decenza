@@ -827,7 +827,7 @@ KeyboardAwareContainer {
                         Text {
                             Layout.fillWidth: true
                             text: TranslationManager.translate("settings.preferences.glassChromeHint",
-                                "Cards, bars and dialogs become translucent so the background shows through. Always on when a background image is set.")
+                                "Softens the bars, tiles and controls. With a background image set, cards and dialogs also become translucent so the photo shows through — and it is always on in that case.")
                             color: Theme.textSecondaryColor
                             font: Theme.captionFont
                             wrapMode: Text.Wrap

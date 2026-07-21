@@ -343,6 +343,9 @@ add_decenza_test(tst_settings
 # way it never was for a photo background.
 add_decenza_test(tst_backgroundpresets
     tst_backgroundpresets.cpp
+    # For the backup/migration round-trip: the colour and pattern must survive a
+    # settings export/import, which backs every persistence surface in the app.
+    ${CMAKE_SOURCE_DIR}/src/core/settingsserializer.cpp
 )
 # Compile the production qrc so :/backgrounds/*.svg resolve — the catalogue test asserts
 # every pattern asset actually ships, which is the check that catches a catalogue entry

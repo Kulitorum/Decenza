@@ -334,7 +334,7 @@ Dialog {
                                     // The grid shows twenty different backgrounds at once, so the
                                     // one global text colour is wrong on most of them — it left
                                     // every light tile captioned in white on near-white.
-                                    color: Theme.contrastColorFor(presetTile.modelData.value)
+                                    color: presetTile.modelData.textOn
                                     font: Theme.captionFont
                                     horizontalAlignment: Text.AlignHCenter
                                     elide: Text.ElideRight

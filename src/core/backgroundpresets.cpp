@@ -1,5 +1,7 @@
 #include "backgroundpresets.h"
 
+#include <cmath>
+
 namespace BackgroundPresets {
 
 namespace {
@@ -83,6 +85,83 @@ const QVector<Pattern>& patterns() {
     return table;
 }
 
+// --- Derivation ---------------------------------------------------------------
+
+double relativeLuminance(const QColor& c) {
+    auto linearise = [](double channel) {
+        return channel <= 0.03928 ? channel / 12.92
+                                  : std::pow((channel + 0.055) / 1.055, 2.4);
+    };
+    return 0.2126 * linearise(c.redF())
+         + 0.7152 * linearise(c.greenF())
+         + 0.0722 * linearise(c.blueF());
+}
+
+double lstar(const QColor& c) {
+    const double y = relativeLuminance(c);
+    return y <= 0.008856 ? 903.3 * y : 116.0 * std::cbrt(y) - 16.0;
+}
+
+double contrastRatio(const QColor& a, const QColor& b) {
+    const double la = relativeLuminance(a);
+    const double lb = relativeLuminance(b);
+    return (std::max(la, lb) + 0.05) / (std::min(la, lb) + 0.05);
+}
+
+QColor mixColours(const QColor& a, const QColor& b, double t) {
+    return QColor::fromRgbF(a.redF()   + (b.redF()   - a.redF())   * t,
+                            a.greenF() + (b.greenF() - a.greenF()) * t,
+                            a.blueF()  + (b.blueF()  - a.blueF())  * t);
+}
+
+QColor contrastColorFor(const QColor& fill) {
+    const double l = relativeLuminance(fill);
+    const double onBlack = (l + 0.05) / 0.05;
+    const double onWhite = 1.05 / (l + 0.05);
+    return onBlack >= onWhite ? QColor(Qt::black) : QColor(Qt::white);
+}
+
+QColor liftFrom(const QColor& base, double deltaL) {
+    const QColor target = lstar(base) + deltaL <= 100.0 ? QColor(Qt::white) : QColor(Qt::black);
+    // Mixing toward a fixed endpoint moves L* monotonically, so a bisection on the mix
+    // fraction converges on the requested step.
+    double lo = 0.0;
+    double hi = 1.0;
+    for (int i = 0; i < 24; ++i) {
+        const double m = (lo + hi) / 2;
+        if (std::abs(lstar(mixColours(base, target, m)) - lstar(base)) < deltaL)
+            lo = m;
+        else
+            hi = m;
+    }
+    return mixColours(base, target, (lo + hi) / 2);
+}
+
+Derived derive(const QColor& background) {
+    Derived d;
+    d.background = background;
+    d.text = contrastColorFor(background);
+    d.textSecondary = mixColours(d.text, background, kSecondaryMix);
+    d.surface = liftFrom(background, kCardLift);
+    d.actionTile = liftFrom(background, kTileLift);
+    d.border = mixColours(background, d.text, kBorderMix);
+    return d;
+}
+
+QVariantMap deriveAsVariantMap(const QColor& background) {
+    if (!background.isValid())
+        return {};
+    const Derived d = derive(background);
+    QVariantMap map;
+    map["background"] = d.background.name();
+    map["text"] = d.text.name();
+    map["textSecondary"] = d.textSecondary.name();
+    map["surface"] = d.surface.name();
+    map["actionTile"] = d.actionTile.name();
+    map["border"] = d.border.name();
+    return map;
+}
+
 Colour colourById(const QString& id) {
     if (id.isEmpty())
         return Colour{};
@@ -118,6 +197,7 @@ QVariantMap colourToVariantMap(const Colour& c) {
     map["nameKey"] = c.nameKey;
     map["nameFallback"] = c.nameFallback;
     map["value"] = c.value;
+    map["textOn"] = contrastColorFor(QColor(c.value)).name();
     return map;
 }
 

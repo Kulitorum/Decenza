@@ -3,6 +3,7 @@
 #include <QFile>
 #include <QImage>
 #include <QPainter>
+#include <QRegularExpression>
 #include <QSvgRenderer>
 #include <QSet>
 #include <QSignalSpy>
@@ -10,6 +11,8 @@
 #include "core/backgroundpresets.h"
 #include "core/settings.h"
 #include "core/settings_theme.h"
+#include "core/settings.h"
+#include "core/settingsserializer.h"
 
 // Background presets + the glass-chrome option.
 //
@@ -349,15 +352,90 @@ private slots:
         QCOMPARE(theme.backgroundPreset(), QString());
     }
 
-    void applyingAThemeClearsThePreset() {
+    void changingTheActiveThemeClearsTheColour() {
+        // A theme carries its own background colour, so choosing one is an explicit choice
+        // of the value a background colour overrides.
+        SettingsTheme theme;
+        theme.setThemeMode("dark");
+        theme.setBackgroundPreset("walnut");
+        theme.applyDarkTheme("Default Light");   // a real change to the active slot
+        QCOMPARE(theme.backgroundPreset(), QString());
+    }
+
+    void reSelectingTheSameThemeKeepsTheColour() {
+        // A combo box emits activated() when you re-pick the entry already selected. Left
+        // unguarded, opening the dropdown to see what was set and tapping it destroyed the
+        // user's background having changed nothing at all.
+        SettingsTheme theme;
+        theme.setThemeMode("dark");
+        theme.applyDarkTheme("Default Dark");
+        theme.setBackgroundPreset("walnut");
+
+        theme.applyDarkTheme("Default Dark");    // same value again
+        QCOMPARE(theme.backgroundPreset(), QString("walnut"));
+    }
+
+    void changingTheOtherPolaritysThemeKeepsTheColour() {
+        // The colour is ONE global value; the theme slots are per-polarity. Changing the
+        // light theme while looking at dark mode must not pull the background out from
+        // under the page on screen.
+        SettingsTheme theme;
+        theme.setThemeMode("dark");
+        theme.setBackgroundPreset("walnut");
+
+        theme.applyLightTheme("Default Dark");   // a real change, but to the other slot
+        QCOMPARE(theme.backgroundPreset(), QString("walnut"));
+    }
+
+    void editingTheOtherPalettesBackgroundKeepsTheColour() {
+        // Same reasoning for the theme editor, which can edit the inactive palette.
+        SettingsTheme theme;
+        theme.setThemeMode("dark");
+        theme.setBackgroundPreset("walnut");
+        theme.setEditingPalette("light");
+
+        theme.setEditingPaletteColor("backgroundColor", "#123456");
+        QCOMPARE(theme.backgroundPreset(), QString("walnut"));
+    }
+
+    void anUnknownIdIsRefusedRatherThanErasingTheStoredOne() {
+        // A restore naming a colour this build does not know must not wipe the colour the
+        // device already has, then report success.
         SettingsTheme theme;
         theme.setBackgroundPreset("walnut");
-        theme.applyDarkTheme("Default Dark");
-        QCOMPARE(theme.backgroundPreset(), QString());
+        // The refusal is logged, and asserting that here also pins that it is not silent:
+        // a background that reverts on restore is undiagnosable without this line.
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression("Ignoring unknown background colour id"));
+        theme.setBackgroundPreset("retired-in-a-later-release");
+        QCOMPARE(theme.backgroundPreset(), QString("walnut"));
 
-        theme.setBackgroundPreset("walnut");
-        theme.applyLightTheme("Default Light");
+        theme.setBackgroundPattern("linen");
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression("Ignoring unknown background pattern id"));
+        theme.setBackgroundPattern("no-such-pattern");
+        QCOMPARE(theme.backgroundPattern(), QString("linen"));
+
+        // Empty is still how a caller asks for none.
+        theme.setBackgroundPreset(QString());
         QCOMPARE(theme.backgroundPreset(), QString());
+    }
+
+    void thePatternSettingBehavesLikeTheColour() {
+        {
+            SettingsTheme theme;
+            QCOMPARE(theme.backgroundPattern(), QString());
+            QVERIFY(theme.activeBackgroundPattern().isEmpty());
+
+            QSignalSpy spy(&theme, &SettingsTheme::backgroundPatternChanged);
+            theme.setBackgroundPattern("twill");
+            QCOMPARE(spy.count(), 1);
+            theme.setBackgroundPattern("twill");   // idempotent
+            QCOMPARE(spy.count(), 1);
+        }
+        SettingsTheme reopened;
+        QCOMPARE(reopened.backgroundPattern(), QString("twill"));
+        QCOMPARE(reopened.activeBackgroundPattern().value("id").toString(), QString("twill"));
     }
 
     void editingBackgroundColourClearsThePreset() {
@@ -387,6 +465,33 @@ private slots:
         QCOMPARE(theme.backgroundPreset(), QString("porcelain"));
         QCOMPARE(theme.activeBackgroundPreset().value("value").toString(), beforeSwitch);
         QCOMPARE(beforeSwitch, BackgroundPresets::colourById("porcelain").value);
+    }
+
+    void colourAndPatternSurviveABackup() {
+        // exportToJson/importFromJson back every persistence surface — local backup,
+        // device-to-device migration and the web restore. The pattern was omitted when the
+        // single preset was split into two axes, so a migration restored the colour and
+        // silently dropped its texture while reporting success.
+        Settings settings;
+        settings.theme()->setBackgroundPreset("espresso");
+        settings.theme()->setBackgroundPattern("linen");
+        settings.theme()->setGlassChrome(true);
+
+        const QJsonObject exported = SettingsSerializer::exportToJson(&settings, false);
+
+        settings.theme()->setBackgroundPreset("porcelain");
+        settings.theme()->setBackgroundPattern(QString());
+        settings.theme()->setGlassChrome(false);
+
+        // Unrelated to this test: the serializer warns whenever an import replaces the
+        // favourites list, which every import does.
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression("importFromJson replacing .* favorites"));
+        SettingsSerializer::importFromJson(&settings, exported);
+
+        QCOMPARE(settings.theme()->backgroundPreset(), QString("espresso"));
+        QCOMPARE(settings.theme()->backgroundPattern(), QString("linen"));
+        QVERIFY(settings.theme()->glassChrome());
     }
 
     // --- Glass chrome option -----------------------------------------------

@@ -55,7 +55,13 @@ Switch {
         font: Theme.bodyFont
         color: Theme.textColor
         verticalAlignment: Text.AlignVCenter
-        leftPadding: control.indicator.width + Theme.scaled(8)
+        // Reserved on the RIGHT, matching where the indicator now sits. It used to reserve
+        // this on the left, which after the indicator moved left both a dead 52px gutter
+        // before the label and — in the two-column dialogs that use `text:` with fillWidth
+        // and no wrapping — a long label drawing straight through the indicator.
+        leftPadding: 0
+        rightPadding: control.indicator.width + Theme.scaled(8)
+        elide: Text.ElideRight
         Accessible.ignored: true
     }
 

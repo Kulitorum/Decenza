@@ -94,6 +94,12 @@ class SettingsTheme : public QObject {
     Q_PROPERTY(QVariantMap activeBackgroundPreset READ activeBackgroundPreset NOTIFY backgroundPresetChanged)
     Q_PROPERTY(QVariantMap activeBackgroundPattern READ activeBackgroundPattern NOTIFY backgroundPatternChanged)
 
+    // Everything the app paints on the active background colour — text, secondary text,
+    // card/bar surface, action tile, border — computed in C++ by BackgroundPresets::derive
+    // so the contrast tests measure the shipped arithmetic rather than a copy of it.
+    // Empty when no colour is selected.
+    Q_PROPERTY(QVariantMap derivedBackgroundColors READ derivedBackgroundColors NOTIFY backgroundPresetChanged)
+
     // Screen shaders
     Q_PROPERTY(QString activeShader READ activeShader WRITE setActiveShader NOTIFY activeShaderChanged)
     Q_PROPERTY(QVariantMap shaderParams READ shaderParams NOTIFY shaderParamsChanged)
@@ -148,6 +154,7 @@ public:
     QVariantList backgroundPatterns() const;
     QVariantMap activeBackgroundPreset() const;
     QVariantMap activeBackgroundPattern() const;
+    QVariantMap derivedBackgroundColors() const;
     Q_INVOKABLE QVariantMap editingPaletteColors() const;
     Q_INVOKABLE void setEditingPaletteColor(const QString& colorName, const QString& colorValue);
 
@@ -245,6 +252,9 @@ signals:
     void screenBrightnessChanged();
 
 private:
+    // Clearing the background colour is a side effect of several unrelated actions, so it
+    // records which one did it — see the definition.
+    void clearBackgroundPreset(const char* reason);
     void updateResolvedMode();
 
     mutable QSettings m_settings;

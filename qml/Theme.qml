@@ -414,20 +414,26 @@ QtObject {
     readonly property bool glassChrome: Settings.theme.backgroundImagePath.length > 0
                                         || Settings.theme.glassChrome
 
-    // --- Background preset surface derivation --------------------------------
+    // --- Background colour derivation ----------------------------------------
     //
-    // A preset is a KNOWN flat colour, so unlike a photo everything that has to sit on it
-    // can be computed from it. That is what lets all twenty presets be offered under any
+    // A background colour is a KNOWN value, so unlike a photo everything that has to sit
+    // on it can be computed from it. That is what lets every colour be offered under any
     // theme: a pale background under a dark theme would otherwise leave white text on a
     // white page, and the previous design avoided that only by hiding the light half of
-    // the catalogue whenever you were in dark mode — which meant the chooser never showed
-    // a light option at all.
+    // the catalogue whenever you were in dark mode — so the chooser never showed a light
+    // option at all.
     //
-    // While a preset is active these derived values REPLACE the palette's background,
-    // text, secondary-text and surface colours. Accents, chart colours and everything else
-    // still come from the user's theme. A custom text colour is deliberately overridden:
-    // the background the user just picked decides light-on-dark or dark-on-light, and no
-    // stored preference can be right for both ends of a 20-colour ramp.
+    // The ARITHMETIC LIVES IN C++ (BackgroundPresets::derive), not here. It used to live
+    // in this file with a hand-kept copy in the test, which meant the contrast floors
+    // measured the copy: changing a constant here left the suite green. Reading the
+    // derived values means the tests measure what ships.
+    //
+    // While a colour is active these REPLACE the palette's background, text,
+    // secondary-text, surface, border and icon colours. Accents, chart series and status
+    // colours still come from the user's theme. A custom text colour is deliberately
+    // overridden: the background the user just picked decides light-on-dark or
+    // dark-on-light, and no stored preference can be right across the whole ramp.
+    //
     // NOTE ON WHICH FLAG TO USE — the two are not interchangeable, and confusing them made
     // the glass switch fail to turn things back off:
     //
@@ -440,10 +446,7 @@ QtObject {
     // A fill that exists to LOOK a certain way belongs to glassChrome. A colour that exists
     // to stay READABLE belongs to hasBackgroundPreset.
     readonly property bool hasBackgroundPreset: Settings.theme.backgroundPreset.length > 0
-    readonly property color _presetColor: Settings.theme.activeBackgroundPreset.value || backgroundColor
-
-    // Black or white, whichever the preset colour can actually carry.
-    readonly property color _presetText: contrastColorFor(_presetColor)
+    readonly property var _derived: Settings.theme.derivedBackgroundColors
 
     function _mix(a: color, b: color, t: real): color {
         return Qt.rgba(a.r + (b.r - a.r) * t,
@@ -452,52 +455,13 @@ QtObject {
                        1.0)
     }
 
-    // Perceptual lightness, CIE L* (0-100). Unlike relative luminance it is roughly
-    // uniform, so "6 apart" means the same thing at both ends of the ramp.
-    function _lstar(c: color): real {
-        var y = _relativeLuminance(c)
-        return y <= 0.008856 ? 903.3 * y : 116.0 * Math.cbrt(y) - 16.0
+    // Keep an accent fill only while the derived text can be read on it; otherwise fall
+    // back to the derived surface, which is guaranteed to work. The bottom bar needs this:
+    // the light palette's bar is #ffffff, and a dark background colour derives text to
+    // white, so the accent would have been white on white.
+    function _fillCarrying(preferred: color): color {
+        return _contrastRatio(textColor, preferred) >= 3.0 ? preferred : _derived.surface
     }
-
-    // Cards read as RAISED, which conventionally means lighter — in dark UIs and light
-    // ones alike; near the very top there is no headroom left above, so there the step
-    // goes down instead.
-    //
-    // The step is a fixed distance in L*, found by bisection on the mix fraction, NOT a
-    // fixed RGB fraction. That distinction is what makes the whole mid-light range usable:
-    // a 9% mix toward white is a big perceptual move from near-black and almost nothing at
-    // L* 70, so the fixed-fraction version silently failed every background between about
-    // L* 60 and 88 and forced the catalogue to cluster at the two extremes.
-    //
-    // Runs on a colour-binding re-evaluation (preset change), not per frame.
-    function _liftFrom(base: color, deltaL: real): color {
-        var target = _lstar(base) + deltaL <= 100.0 ? "#ffffff" : "#000000"
-        var lo = 0.0
-        var hi = 1.0
-        for (var i = 0; i < 20; ++i) {
-            var m = (lo + hi) / 2
-            if (Math.abs(_lstar(_mix(base, target, m)) - _lstar(base)) < deltaL)
-                lo = m
-            else
-                hi = m
-        }
-        return _mix(base, target, (lo + hi) / 2)
-    }
-
-    // How far a surface sits from the page, in L*. The glass option composites at
-    // backgroundScrimAlpha, so it lands at 40% of these — hence values that still leave a
-    // visible step after that reduction.
-    //
-    // A card and an action tile want different amounts, which one shared step got wrong: a
-    // card should whisper, but an idle-screen tile has to read as something you press. At
-    // the card's 6 L* the tiles were a barely-perceptible rectangle on a flat background —
-    // the thing that looks fine over a photo, where the scrim has a busy image to stand out
-    // against, and disappears over a solid colour.
-    readonly property real _cardLift: 6.0
-    // 12, not more: at 14 the tile derived from Denim Apron landed at L* 36, inside the
-    // band where neither black nor white text clears 4.5:1, and page-level secondary text
-    // sitting on it measured 4.41:1. The contrast test caught it.
-    readonly property real _tileLift: 12.0
 
     // Dynamic colors - bind to Settings with fallback defaults
     // Wrapped in _c() for flash-to-identify from web theme editor
@@ -515,7 +479,7 @@ QtObject {
     // sat on — the theme's navy over a grey page. Deriving it here fixes every consumer at
     // once instead of special-casing each bar.
     property color surfaceColor: _c("surfaceColor", hasBackgroundPreset
-        ? _liftFrom(_presetColor, _cardLift)
+        ? _derived.surface
         : (Settings.theme.customThemeColors.surfaceColor || "#303048"))
 
     // Single translucency level for every "scrim" used when a custom background
@@ -626,7 +590,7 @@ QtObject {
     // Keyed on what is actually behind the control — the preset colour when there is one,
     // the theme's polarity otherwise. A preset can be pale under a dark theme, so
     // isDarkMode is the wrong question once a preset is active.
-    readonly property color _flatInsetTint: (hasBackgroundPreset ? _presetText.r < 0.5 : !isDarkMode)
+    readonly property color _flatInsetTint: (hasBackgroundPreset ? Qt.colorEqual(_derived.text, "#000000") : !isDarkMode)
         ? Qt.rgba(0, 0, 0, 0.06)
         : Qt.rgba(1, 1, 1, 0.10)
     property color primaryColor: _c("primaryColor", Settings.theme.customThemeColors.primaryColor || "#4e85f4")
@@ -639,7 +603,7 @@ QtObject {
     // accent back — the switch appeared to work only for the bottom bar.
     readonly property color actionTileColor: !glassChrome
         ? primaryColor
-        : (hasBackgroundPreset ? _liftFrom(_presetColor, _tileLift) : surfaceColor)
+        : (hasBackgroundPreset ? _derived.actionTile : surfaceColor)
 
     // Colour for text and icons sitting ON a chrome fill.
     //
@@ -654,7 +618,10 @@ QtObject {
     // primary blue measures 3.18:1, an existing and intentional choice, and a 4.5 gate
     // would flip every accent button in the app to black content.
     function contentColorOn(fill: color, fallback: color): color {
-        if (!hasBackgroundPreset)
+        // Also when the glass switch is on: it changes actionTileColor and
+        // actionButtonFill() with no colour preset present, and gating only on the preset
+        // left a light theme + glass on painting white content on a white surface.
+        if (!hasBackgroundPreset && !glassChrome)
             return fallback
         return _contrastRatio(fallback, fill) >= 3.0 ? fallback : contrastColorFor(fill)
     }
@@ -681,7 +648,7 @@ QtObject {
     // Derived from the background while a preset is active — see the derivation block
     // above for why a stored preference cannot be right across a 20-colour ramp.
     property color textColor: _c("textColor", hasBackgroundPreset
-        ? _presetText
+        ? _derived.text
         : (Settings.theme.customThemeColors.textColor || "#ffffff"))
     // Pushed AWAY from the page whenever the glass chrome is active. Originally tried
     // scoping this to only bare-background text (Settings tab bar) on the theory that
@@ -702,7 +669,7 @@ QtObject {
         // 28% is the most softening the tightest preset (Oxford, the lightest mid-tone)
         // can carry and still clear 4.5:1 on a lifted card — the mid-tones have far less
         // headroom than either end of the ramp, and they set this number.
-        ? _mix(_presetText, _presetColor, 0.28)
+        ? _derived.textSecondary
         : (glassChrome
             ? (isDarkMode ? Qt.lighter(Settings.theme.customThemeColors.textSecondaryColor || "#a0a8b8", 1.4)
                           : Qt.darker(Settings.theme.customThemeColors.textSecondaryColor || "#a0a8b8", 1.4))
@@ -719,15 +686,17 @@ QtObject {
     // Derived while a preset is active so a border is visible on a pale page as well as a
     // dark one — a stored dark border vanishes on Chalk, a stored light one on Graphite.
     property color borderColor: _c("borderColor", hasBackgroundPreset
-        ? _mix(_presetColor, _presetText, 0.22)
+        ? _derived.border
         : (Settings.theme.customThemeColors.borderColor || "#3a3a4e"))
     property color primaryContrastColor: _c("primaryContrastColor", Settings.theme.customThemeColors.primaryContrastColor || "#ffffff")
     // Icons are monochrome and sit on the page or on a card, both derived from the preset,
     // so they follow the derived text colour rather than a stored one.
     property color iconColor: _c("iconColor", hasBackgroundPreset
-        ? _presetText
+        ? _derived.text
         : (Settings.theme.customThemeColors.iconColor || "#ffffff"))
-    property color bottomBarColor: _c("bottomBarColor", Settings.theme.customThemeColors.bottomBarColor || "#4e85f4")
+    property color bottomBarColor: _c("bottomBarColor", hasBackgroundPreset
+        ? _fillCarrying(Settings.theme.customThemeColors.bottomBarColor || "#4e85f4")
+        : (Settings.theme.customThemeColors.bottomBarColor || "#4e85f4"))
     property color actionButtonContentColor: _c("actionButtonContentColor", Settings.theme.customThemeColors.actionButtonContentColor || "#ffffff")
 
     // --- Layout zone style presets (composable-brew-bar) -----------------
