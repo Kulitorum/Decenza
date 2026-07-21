@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 8 8">
+  <!-- Vertical hairline at an 8px pitch. At x=0 with width 1 it cannot straddle the seam. -->
+  <rect x="0" y="0" width="1" height="8" fill="#ffffff"/>
+</svg>

@@ -77,6 +77,7 @@ set(CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/core/settings_hardware.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_ai.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_theme.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/backgroundpresets.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_visualizer.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_mcp.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_brew.cpp
@@ -335,6 +336,26 @@ add_decenza_test(tst_settings
     tst_settings.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settingsserializer.cpp
 )
+
+# --- tst_backgroundpresets: background preset catalogue + Glass theme ---
+# Includes the WCAG contrast floors for every colour — against the page, the page under
+# the densest pattern, the card and the action tile — computable here in a way it never
+# was for a photo background, and measured against the shipped derivation in C++.
+add_decenza_test(tst_backgroundpresets
+    tst_backgroundpresets.cpp
+    # For the backup/migration round-trip: the colour and pattern must survive a
+    # settings export/import, which backs every persistence surface in the app.
+    ${CMAKE_SOURCE_DIR}/src/core/settingsserializer.cpp
+)
+# Compile the production qrc so :/backgrounds/*.svg resolve — the catalogue test asserts
+# every pattern asset actually ships, which is the check that catches a catalogue entry
+# pointing at a file nobody added to resources.qrc.
+target_sources(tst_backgroundpresets PRIVATE ${CMAKE_SOURCE_DIR}/resources/resources.qrc)
+set_target_properties(tst_backgroundpresets PROPERTIES AUTORCC ON)
+# Qt6::Svg so the test can RENDER each pattern tile and measure its ink coverage, rather
+# than trusting the hand-entered figure the contrast maths depends on. Two of the six were
+# wrong before this check existed, both understating the shift.
+target_link_libraries(tst_backgroundpresets PRIVATE Qt6::Svg)
 
 # --- tst_saw_settings: per-(profile, scale) SAW learning + batch + bootstrap ---
 add_decenza_test(tst_saw_settings

@@ -415,7 +415,7 @@ FocusScope {
                         // QML_GOTCHAS.md "Translucent element renders opaque".
                         opacity: isDimmed
                             ? 0.55
-                            : (Settings.theme.backgroundImagePath.length > 0 ? 0.99 : 1.0)
+                            : (Theme.glassChrome ? 0.99 : 1.0)
 
                         color: isSelected
                             ? (isDisabled ? Theme.textSecondaryColor : Theme.primaryColor)

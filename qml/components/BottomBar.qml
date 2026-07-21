@@ -18,7 +18,10 @@ Item {
 
     signal backClicked()
 
-    readonly property color contentColor: Theme.iconColor
+    // Derived from the bar's own fill, not the global icon colour. Those diverged once
+    // backgrounds became derivable: a light theme with a dark background colour derives
+    // iconColor to WHITE while barColor stays the palette's white bar — white on white.
+    readonly property color contentColor: Theme.contentColorOn(barColor, Theme.iconColor)
     // Effective fill color, re-exposed for callers that mirror it (e.g.
     // CommunityBrowserPage's "Add to Library" label). The fill lives on the
     // nested bgRect, not this Item root, so alias it back to the public surface.
@@ -32,18 +35,18 @@ Item {
     Rectangle {
         id: bgRect
         anchors.fill: parent
-        // When a custom background image is active, every bar uses the same
+        // When the glass chrome is on, every bar uses the same
         // neutral surface scrim as StatusBar and the content cards, so the
         // wallpaper shows through and all bars read consistently — the page's
         // own barColor (e.g. "transparent" on Beans/Equipment/Recipes) only
-        // applies when no background image is set.
-        color: Settings.theme.backgroundImagePath.length > 0
-               ? Theme.scrimColor(Theme.surfaceColor)
+        // applies when the glass chrome is off.
+        color: Theme.glassChrome
+               ? Theme.chromeFill(Theme.surfaceColor)
                : root.barColor
         // opacity < 1 forces the scrim through the alpha pass; without it this
         // bar renders opaque and the wallpaper can't show through. See
         // docs/CLAUDE_MD/QML_GOTCHAS.md "Translucent element renders opaque".
-        opacity: Settings.theme.backgroundImagePath.length > 0 ? 0.99 : 1.0
+        opacity: Theme.glassChrome ? 0.99 : 1.0
     }
 
     // Top border for separation

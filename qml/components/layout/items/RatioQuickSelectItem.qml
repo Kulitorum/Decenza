@@ -14,6 +14,8 @@ Item {
     property color zoneTextColor: Theme.textColor
     property bool zoneValueBold: false
     property string zoneStyle: "standard"
+    // See LayoutItemDelegate.
+    property color zoneFillOverride: "transparent"
 
     readonly property string labelText: TranslationManager.translate("idle.status.ratio", "Ratio")
     // The ACTUAL active ratio: the stored anchor when ratio-anchored, else
@@ -53,13 +55,15 @@ Item {
             Layout.preferredHeight: Theme.scaled(32)
             radius: height / 2
             // Always a visible chip: this pill is tappable (opens the ratio chooser),
-            // so it must read as a button — not a plain readout like Beans/Milk. Over
-            // a background image use the same neutral glass scrim as the Sleep/Quit
-            // buttons (Theme.actionButtonFill); otherwise a zone-appropriate solid
-            // chip (Theme.zoneChipColor): a light capsule on the accentBar, a themed
+            // so it must read as a button — not a plain readout like Beans/Milk. With
+            // the glass chrome on use the same neutral scrim as the Sleep/Quit buttons
+            // (Theme.actionButtonFillOn, which also lets the chooser's preview supply a
+            // candidate fill); otherwise a zone-appropriate solid chip
+            // (Theme.zoneChipColor): a light capsule on the accentBar, a themed
             // surface chip elsewhere so it isn't a white capsule in dark mode.
-            readonly property bool hasBackgroundImage: Settings.theme.backgroundImagePath.length > 0
-            readonly property color pillFill: Theme.actionButtonFill(Theme.zoneChipColor(root.zoneStyle))
+            readonly property bool hasGlassChrome: Theme.glassChrome
+            readonly property color pillFill: Theme.actionButtonFillOn(Theme.zoneChipColor(root.zoneStyle),
+                                                                      root.zoneFillOverride)
             color: ratioMa.pressed ? Qt.darker(pillFill, 1.15) : pillFill
 
             Accessible.role: Accessible.Button
@@ -80,7 +84,7 @@ Item {
                 // rows and the Shot Plan — and wins in both modes.
                 color: root.overridden
                     ? Theme.highlightColor
-                    : (parent.hasBackgroundImage ? root.zoneTextColor : Theme.primaryColor)
+                    : (parent.hasGlassChrome ? root.zoneTextColor : Theme.primaryColor)
                 font.pixelSize: Theme.scaled(20)
                 font.bold: true
             }

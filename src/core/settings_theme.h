@@ -26,6 +26,12 @@ class SettingsTheme : public QObject {
     Q_PROPERTY(QString darkThemeName READ darkThemeName WRITE setDarkThemeName NOTIFY darkThemeNameChanged)
     Q_PROPERTY(QString lightThemeName READ lightThemeName WRITE setLightThemeName NOTIFY lightThemeNameChanged)
     Q_PROPERTY(QStringList themeNames READ themeNames NOTIFY themeNamesChanged)
+    // Translucent "glass" chrome — scrimmed cards, bars and dialogs. An OPTION rather
+    // than a theme: glassiness is orthogonal to light/dark, so any theme can be glass.
+    // It started life as a built-in "Glass" theme and that was the wrong shape — a theme
+    // occupies one polarity slot, so it could only ever be half-applied, and it could not
+    // be combined with the user's own colours.
+    Q_PROPERTY(bool glassChrome READ glassChrome WRITE setGlassChrome NOTIFY glassChromeChanged)
     Q_PROPERTY(double screenBrightness READ screenBrightness WRITE setScreenBrightness NOTIFY screenBrightnessChanged)
     Q_PROPERTY(QVariantMap customFontSizes READ customFontSizes WRITE setCustomFontSizes NOTIFY customFontSizesChanged)
     // Defaults merged with the user's overrides — the single value QML should render at.
@@ -60,6 +66,39 @@ class SettingsTheme : public QObject {
     // both light and dark mode. Sourced from the screensaver media library (personal
     // uploads + locally-cached catalog images) — see ScreensaverVideoManager.
     Q_PROPERTY(QString backgroundImagePath READ backgroundImagePath WRITE setBackgroundImagePath NOTIFY backgroundImagePathChanged)
+
+    // Built-in background colour — a curated flat colour for users who want a calmer
+    // backdrop than a screensaver photo. The pattern is a separate axis; see below. Holds a catalogue id
+    // from BackgroundPresets; empty = no preset. Mutually exclusive with
+    // backgroundImagePath: setting either clears the other, because they are one choice
+    // presented in one chooser.
+    //
+    // A preset is a background COLOUR, not an image — backgroundImagePath stays empty
+    // while one is active. It is not carried as a qrc: path in backgroundImagePath
+    // because ScreensaverVideoManager compares that setting against real file paths and
+    // clears it when the backing file is deleted; a preset has no backing file.
+    Q_PROPERTY(QString backgroundPreset READ backgroundPreset WRITE setBackgroundPreset NOTIFY backgroundPresetChanged)
+
+    // Optional pattern drawn over the background colour. A SECOND axis rather than a
+    // property of each colour: baking the two together produced a catalogue where half the
+    // entries were near-invisible variants of the other half. Empty = no pattern.
+    Q_PROPERTY(QString backgroundPattern READ backgroundPattern WRITE setBackgroundPattern NOTIFY backgroundPatternChanged)
+
+    // The two catalogues, for the chooser.
+    Q_PROPERTY(QVariantList backgroundPresets READ backgroundPresets CONSTANT)
+    Q_PROPERTY(QVariantList backgroundPatterns READ backgroundPatterns CONSTANT)
+
+    // The active colour and pattern as maps (empty when none). Properties rather than
+    // invokables so a QML binding re-runs when the selection changes — an invokable would
+    // register no dependency.
+    Q_PROPERTY(QVariantMap activeBackgroundPreset READ activeBackgroundPreset NOTIFY backgroundPresetChanged)
+    Q_PROPERTY(QVariantMap activeBackgroundPattern READ activeBackgroundPattern NOTIFY backgroundPatternChanged)
+
+    // Everything the app paints on the active background colour — text, secondary text,
+    // card/bar surface, action tile, border — computed in C++ by BackgroundPresets::derive
+    // so the contrast tests measure the shipped arithmetic rather than a copy of it.
+    // Empty when no colour is selected.
+    Q_PROPERTY(QVariantMap derivedBackgroundColors READ derivedBackgroundColors NOTIFY backgroundPresetChanged)
 
     // Screen shaders
     Q_PROPERTY(QString activeShader READ activeShader WRITE setActiveShader NOTIFY activeShaderChanged)
@@ -106,11 +145,34 @@ public:
 
     QString backgroundImagePath() const;
     void setBackgroundImagePath(const QString& path);
+
+    QString backgroundPreset() const;
+    void setBackgroundPreset(const QString& id);
+    QString backgroundPattern() const;
+    void setBackgroundPattern(const QString& id);
+    QVariantList backgroundPresets() const;
+    QVariantList backgroundPatterns() const;
+    QVariantMap activeBackgroundPreset() const;
+    QVariantMap activeBackgroundPattern() const;
+    QVariantMap derivedBackgroundColors() const;
+    // The same derivation for ANY catalogue colour, not just the active one — the
+    // background chooser previews a candidate that has not been applied yet, and drawing
+    // it with the applied theme's colours made the preview lie.
+    Q_INVOKABLE QVariantMap deriveColorsFor(const QString& colourId) const;
+    // BackgroundPresets::adjustForContrast for QML: Theme runs the semantic palette
+    // (warning/error/success/primary) through it while a background colour is active.
+    // Hex strings rather than QColor so this header keeps its QtCore-only includes —
+    // QColor here would pull QtGui into everything that includes it.
+    Q_INVOKABLE QString adjustedForContrast(const QString& foreground,
+                                            const QString& background) const;
     Q_INVOKABLE QVariantMap editingPaletteColors() const;
     Q_INVOKABLE void setEditingPaletteColor(const QString& colorName, const QString& colorValue);
 
     static const QVariantMap& darkDefaults();
     static const QVariantMap& lightDefaults();
+
+    bool glassChrome() const;
+    void setGlassChrome(bool enabled);
 
     QString activeShader() const;
     void setActiveShader(const QString& shader);
@@ -188,6 +250,9 @@ signals:
     void isDarkModeChanged();
     void editingPaletteChanged();
     void backgroundImagePathChanged();
+    void backgroundPresetChanged();
+    void backgroundPatternChanged();
+    void glassChromeChanged();
     void activeShaderChanged();
     void shaderParamsChanged();
     void customFontSizesChanged();
@@ -197,6 +262,9 @@ signals:
     void screenBrightnessChanged();
 
 private:
+    // Clearing the background colour is a side effect of several unrelated actions, so it
+    // records which one did it — see the definition.
+    void clearBackgroundPreset(const char* reason);
     void updateResolvedMode();
 
     mutable QSettings m_settings;

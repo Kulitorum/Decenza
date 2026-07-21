@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import Decenza
+import ".."
 
 // Live, scaled-down preview of the home screen built from the current layout
 // configuration. Mirrors the real StatusBar.qml + IdlePage.qml structure (same
@@ -18,13 +19,31 @@ Item {
     id: previewRoot
     clip: true
 
-    // Background image shown behind the mockup. Defaults to the real saved
-    // setting so every plain `LayoutPreview {}` (e.g. SettingsLayoutTab's
-    // layout-only preview) automatically matches what the actual idle screen
-    // looks like. BackgroundPickerDialog overrides this with the currently
-    // highlighted (not yet saved) thumbnail path while picking — an explicit
-    // binding at the instantiation site always wins over this default.
+    // Background shown behind the mockup — a preset id or an image path. Both
+    // default to the real saved setting so every plain `LayoutPreview {}` (e.g.
+    // SettingsLayoutTab's layout-only preview) automatically matches what the
+    // actual idle screen looks like. BackgroundPickerDialog overrides them with
+    // the currently highlighted (not yet saved) candidate while picking — an
+    // explicit binding at the instantiation site always wins over this default.
     property string backgroundImageSource: Settings.theme.backgroundImagePath
+    property string backgroundPresetSource: Settings.theme.backgroundPreset
+    property string backgroundPatternSource: Settings.theme.backgroundPattern
+
+    // The chooser previews a candidate that has not been applied, so Theme's own derived
+    // values still describe the CURRENT background. Drawing the mockup with those made the
+    // preview lie outright: highlighting a pale colour showed a pale page carrying the
+    // dark theme's bars and white text, which is not what Apply produces. Derive from the
+    // candidate instead, and fall back to Theme when there is none.
+    readonly property var _derived: backgroundPresetSource.length > 0
+        ? Settings.theme.deriveColorsFor(backgroundPresetSource)
+        : ({})
+    readonly property bool _derives: _derived.text !== undefined
+    readonly property color _previewText: _derives ? _derived.text : Theme.textColor
+    readonly property color _previewSurface: _derives ? _derived.surface : Theme.surfaceColor
+    readonly property color _previewBottomBar: _derives ? _derived.surface : Theme.bottomBarColor
+    // Chips and tiles the widgets draw, so they do not stay on the applied theme's fill
+    // while their text follows the candidate — which reads worse than either alone.
+    readonly property color _previewFill: _derives ? _derived.actionTile : "transparent"
 
     readonly property var _cfg: Settings.network.layoutConfiguration
     function _items(z) { var d = _cfg; return Settings.network.getZoneItems(z) }   // d: dependency tap, keep
@@ -41,22 +60,13 @@ Item {
                         parent.height / Math.max(1, height))
         transformOrigin: Item.Center
 
-        Rectangle {
+        // Same renderer the real page background uses, so the preview cannot drift
+        // from the result.
+        BackgroundSurface {
             anchors.fill: parent
-            color: Theme.backgroundColor
-            visible: previewRoot.backgroundImageSource.length === 0 || bgPreviewImage.status !== Image.Ready
-        }
-
-        Image {
-            id: bgPreviewImage
-            anchors.fill: parent
-            visible: previewRoot.backgroundImageSource.length > 0 && status === Image.Ready
-            source: previewRoot.backgroundImageSource.length > 0 ? "file:///" + previewRoot.backgroundImageSource : ""
-            fillMode: Image.PreserveAspectCrop
-            asynchronous: true
-            sourceSize.width: width
-            sourceSize.height: height
-            Accessible.ignored: true
+            presetId: previewRoot.backgroundPresetSource
+            patternId: previewRoot.backgroundPatternSource
+            imagePath: previewRoot.backgroundImageSource
         }
 
         // ---- Status bar (StatusBar.qml) ----
@@ -67,13 +77,17 @@ Item {
             anchors.right: parent.right
             height: Theme.statusBarHeight
             property string _style: previewRoot._opt("statusBar", "style", "standard")
-            property color _opaqueColor: _style !== "standard" ? Theme.zoneBackgroundColor(_style) : Theme.surfaceColor
-            // Mirrors StatusBar.qml's scrim so the preview matches what ships.
-            color: previewRoot.backgroundImageSource.length > 0
-                   ? Theme.scrimColor(_opaqueColor)
-                   : _opaqueColor
+            property color _opaqueColor: _style !== "standard" ? Theme.zoneBackgroundColor(_style)
+                                                              : previewRoot._previewSurface
+            // Mirrors StatusBar.qml's scrim so the preview matches what ships. Keyed on
+            // Theme.glassChrome like the real bar — an image-path test here meant the
+            // preview ignored the glass switch and the colour presets entirely.
+            color: Theme.glassChrome ? Theme.chromeFill(_opaqueColor) : _opaqueColor
 
             LayoutBarZone {
+
+                contentColorOverride: previewRoot._derives ? previewRoot._previewText : "transparent"
+                fillColorOverride: previewRoot._derives ? previewRoot._previewFill : "transparent"
                 anchors.fill: parent
                 anchors.leftMargin: Theme.chartMarginSmall
                 anchors.rightMargin: Theme.spacingLarge
@@ -107,6 +121,9 @@ Item {
                     spacing: Theme.scaled(50)
 
                     LayoutBarZone {
+
+                        contentColorOverride: previewRoot._derives ? previewRoot._previewText : "transparent"
+                        fillColorOverride: previewRoot._derives ? previewRoot._previewFill : "transparent"
                         zoneName: "topLeft"
                         items: previewRoot._items("topLeft")
                         distribution: previewRoot._opt("topLeft", "distribution", "packed")
@@ -116,6 +133,8 @@ Item {
                     }
                     Item { Layout.fillWidth: true }
                     LayoutBarZone {
+                        contentColorOverride: previewRoot._derives ? previewRoot._previewText : "transparent"
+                        fillColorOverride: previewRoot._derives ? previewRoot._previewFill : "transparent"
                         zoneName: "topRight"
                         items: previewRoot._items("topRight")
                         distribution: previewRoot._opt("topRight", "distribution", "packed")
@@ -137,6 +156,9 @@ Item {
                 spacing: Theme.scaled(20)
 
                 LayoutCenterZone {
+
+                    contentColorOverride: previewRoot._derives ? previewRoot._previewText : "transparent"
+                    fillColorOverride: previewRoot._derives ? previewRoot._previewFill : "transparent"
                     Layout.fillWidth: true
                     Layout.topMargin: previewRoot._offset("centerStatus")
                     zoneName: "centerStatus"
@@ -147,6 +169,8 @@ Item {
                     visible: previewRoot._items("centerStatus").length > 0
                 }
                 LayoutCenterZone {
+                    contentColorOverride: previewRoot._derives ? previewRoot._previewText : "transparent"
+                    fillColorOverride: previewRoot._derives ? previewRoot._previewFill : "transparent"
                     Layout.fillWidth: true
                     Layout.topMargin: previewRoot._offset("centerTop")
                     zoneName: "centerTop"
@@ -156,6 +180,8 @@ Item {
                     zoneStyle: previewRoot._opt("centerTop", "style", "standard")
                 }
                 LayoutCenterZone {
+                    contentColorOverride: previewRoot._derives ? previewRoot._previewText : "transparent"
+                    fillColorOverride: previewRoot._derives ? previewRoot._previewFill : "transparent"
                     Layout.fillWidth: true
                     Layout.alignment: Qt.AlignHCenter
                     Layout.topMargin: previewRoot._offset("centerMiddle")
@@ -185,6 +211,9 @@ Item {
                 color: Theme.zoneBackgroundColor(previewRoot._opt("lowerMidBar", "style", "standard"))
 
                 LayoutBarZone {
+
+                    contentColorOverride: previewRoot._derives ? previewRoot._previewText : "transparent"
+                    fillColorOverride: previewRoot._derives ? previewRoot._previewFill : "transparent"
                     id: lmbPreviewZone
                     anchors.fill: parent
                     anchors.leftMargin: Theme.spacingMedium
@@ -208,14 +237,13 @@ Item {
                 // Auto-grow to fit large item-size, matching IdlePage.
                 height: Math.max(Theme.bottomBarHeight, blPreviewZone.implicitHeight, brPreviewZone.implicitHeight)
                 // Mirrors IdlePage's bottom bar so the preview matches what ships:
-                // neutral surface scrim over a background image (like StatusBar and
+                // neutral surface scrim when the glass chrome is on (like StatusBar and
                 // the cards), otherwise the standard bottom-bar hue.
-                color: previewRoot.backgroundImageSource.length > 0
-                       ? Theme.scrimColor(Theme.surfaceColor)
-                       : Theme.bottomBarColor
+                color: Theme.glassChrome ? Theme.chromeFill(previewRoot._previewSurface)
+                                         : previewRoot._previewBottomBar
                 // opacity < 1 forces the scrim through the alpha pass (see
                 // docs/CLAUDE_MD/QML_GOTCHAS.md "Translucent element renders opaque").
-                opacity: previewRoot.backgroundImageSource.length > 0 ? 0.99 : 1.0
+                opacity: Theme.glassChrome ? 0.99 : 1.0
 
                 RowLayout {
                     anchors.fill: parent
@@ -224,6 +252,9 @@ Item {
                     spacing: Theme.spacingMedium
 
                     LayoutBarZone {
+
+                        contentColorOverride: previewRoot._derives ? previewRoot._previewText : "transparent"
+                        fillColorOverride: previewRoot._derives ? previewRoot._previewFill : "transparent"
                         id: blPreviewZone
                         zoneName: "bottomLeft"
                         items: previewRoot._items("bottomLeft")
@@ -235,6 +266,8 @@ Item {
                     }
                     Item { Layout.fillWidth: true }
                     LayoutBarZone {
+                        contentColorOverride: previewRoot._derives ? previewRoot._previewText : "transparent"
+                        fillColorOverride: previewRoot._derives ? previewRoot._previewFill : "transparent"
                         id: brPreviewZone
                         zoneName: "bottomRight"
                         items: previewRoot._items("bottomRight")

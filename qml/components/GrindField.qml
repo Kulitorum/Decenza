@@ -49,6 +49,9 @@ Item {
     // pill-only zone styling (forwarded by the layout widget)
     property color zoneTextColor: Theme.textColor
     property string zoneStyle: "standard"
+    // Chip fill supplied by the host instead of Theme's — see LayoutItemDelegate.
+    // Transparent = unset.
+    property color zoneFillOverride: "transparent"
 
     // field-only
     property color fieldColor: Theme.insetBackgroundColor
@@ -120,10 +123,12 @@ Item {
         height: Theme.scaled(32)
         radius: height / 2
         // Always a visible chip: this pill is tappable, so it must read as a
-        // button. Over a background image use the neutral glass scrim
-        // (Theme.actionButtonFill); otherwise a zone-appropriate solid chip.
-        readonly property bool hasBackgroundImage: Settings.theme.backgroundImagePath.length > 0
-        readonly property color pillFill: Theme.actionButtonFill(Theme.zoneChipColor(root.zoneStyle))
+        // button. With the glass chrome on, use the neutral glass scrim
+        // (Theme.actionButtonFillOn, which also lets the background chooser's preview
+        // supply a candidate fill); otherwise a zone-appropriate solid chip.
+        readonly property bool hasGlassChrome: Theme.glassChrome
+        readonly property color pillFill: Theme.actionButtonFillOn(Theme.zoneChipColor(root.zoneStyle),
+                                                                   root.zoneFillOverride)
         color: pillMa.pressed ? Qt.darker(pillFill, 1.15) : pillFill
 
         Accessible.role: Accessible.Button
@@ -147,7 +152,7 @@ Item {
             // Accent-blue value reads on the solid chip; over a background
             // image the chip is the neutral glass scrim, so the value uses the
             // light zone text color (like the Sleep/Quit labels).
-            color: pill.hasBackgroundImage ? root.zoneTextColor : Theme.primaryColor
+            color: pill.hasGlassChrome ? root.zoneTextColor : Theme.primaryColor
             font.pixelSize: Theme.scaled(20)
             font.bold: true
         }

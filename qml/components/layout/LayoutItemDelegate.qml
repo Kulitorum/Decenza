@@ -11,6 +11,10 @@ Item {
     // passes down the contrast text color and value emphasis; widgets that support
     // it bind these, otherwise they keep their own theme colors.
     property color zoneTextColor: Theme.textColor
+    // Fill for the chips and tiles a widget draws. Set only by LayoutPreview, when it is
+    // previewing a background colour that has not been applied and Theme's own values
+    // still describe the CURRENT background. Transparent = unset, use Theme.
+    property color zoneFillOverride: "transparent"
     property bool zoneValueBold: false
     // The zone's style preset ("standard" | "surface" | "accentBar"). Widgets that
     // render a filled chip (Ratio/Grind pills) key off this: the light-capsule +
@@ -59,6 +63,13 @@ Item {
 
     // Compile action button type to CustomItem-compatible modelData
     // Returns object with emoji, content, action, etc.
+    // The fill compiled action tiles are built with. Normally the theme's, but LayoutPreview
+    // overrides it while previewing a background colour that has not been applied — without
+    // this the compiled tiles kept the CURRENT background's fill while everything around
+    // them followed the candidate.
+    readonly property color _tileFill: zoneFillOverride.a > 0 ? zoneFillOverride
+                                                              : Theme.actionTileColor
+
     function compileToCustom(type) {
         // Reference for translation reactivity
         var _ = typeof TranslationManager !== "undefined" ? TranslationManager.translationVersion : 0
@@ -70,7 +81,7 @@ Item {
                 action: "togglePreset:espresso",
                 longPressAction: "navigate:profiles",
                 doubleclickAction: "navigate:profiles",
-                backgroundColor: Settings.app.selectedFavoriteProfile === -1 ? Theme.highlightColor : Theme.actionTileColor
+                backgroundColor: Settings.app.selectedFavoriteProfile === -1 ? Theme.highlightColor : root._tileFill
             }
             case "steam": return {
                 emoji: "qrc:/icons/steam.svg",
@@ -78,7 +89,7 @@ Item {
                 action: "togglePreset:steam",
                 longPressAction: "navigate:steam",
                 doubleclickAction: "navigate:steam",
-                backgroundColor: Theme.actionTileColor
+                backgroundColor: root._tileFill
             }
             case "hotwater": return {
                 emoji: "qrc:/icons/water.svg",
@@ -86,7 +97,7 @@ Item {
                 action: "togglePreset:hotwater",
                 longPressAction: "navigate:hotwater",
                 doubleclickAction: "navigate:hotwater",
-                backgroundColor: Theme.actionTileColor
+                backgroundColor: root._tileFill
             }
             case "flush": return {
                 emoji: "qrc:/icons/flush.svg",
@@ -94,7 +105,7 @@ Item {
                 action: "togglePreset:flush",
                 longPressAction: "navigate:flush",
                 doubleclickAction: "navigate:flush",
-                backgroundColor: Theme.actionTileColor
+                backgroundColor: root._tileFill
             }
             case "beans": return {
                 emoji: "qrc:/icons/coffeebeans.svg",
@@ -102,7 +113,7 @@ Item {
                 action: "togglePreset:beans",
                 longPressAction: "navigate:beaninfo",
                 doubleclickAction: "navigate:beaninfo",
-                backgroundColor: Settings.dye.activeBagId <= 0 ? Theme.highlightColor : Theme.actionTileColor
+                backgroundColor: Settings.dye.activeBagId <= 0 ? Theme.highlightColor : root._tileFill
             }
             case "recipes": return {
                 emoji: "qrc:/icons/espresso.svg",
@@ -112,7 +123,7 @@ Item {
                 // target is the pre-existing profile Recipe Editor.
                 longPressAction: "navigate:recipeList",
                 doubleclickAction: "navigate:recipeList",
-                backgroundColor: Theme.actionTileColor
+                backgroundColor: root._tileFill
             }
             case "equipment": return {
                 emoji: "qrc:/icons/grind.svg",
@@ -120,7 +131,7 @@ Item {
                 action: "togglePreset:equipment",
                 longPressAction: "navigate:equipment",
                 doubleclickAction: "navigate:equipment",
-                backgroundColor: Theme.actionTileColor
+                backgroundColor: root._tileFill
             }
             case "history": return {
                 emoji: "qrc:/icons/history.svg",
@@ -128,7 +139,7 @@ Item {
                 action: "navigate:history",
                 longPressAction: "",
                 doubleclickAction: "",
-                backgroundColor: Theme.actionTileColor
+                backgroundColor: root._tileFill
             }
             case "settings": return {
                 emoji: "qrc:/icons/settings.svg",
@@ -136,7 +147,7 @@ Item {
                 action: "navigate:settings",
                 longPressAction: "",
                 doubleclickAction: "",
-                backgroundColor: Theme.actionTileColor
+                backgroundColor: root._tileFill
             }
             case "autofavorites": return {
                 emoji: "qrc:/icons/star.svg",
@@ -144,7 +155,7 @@ Item {
                 action: "navigate:autofavorites",
                 longPressAction: "",
                 doubleclickAction: "",
-                backgroundColor: Theme.actionTileColor
+                backgroundColor: root._tileFill
             }
             case "sleep": return {
                 emoji: "qrc:/icons/sleep.svg",
@@ -244,6 +255,8 @@ Item {
             // Propagate zone style to widgets that opt in (composable-brew-bar)
             if (typeof item.zoneTextColor !== "undefined")
                 item.zoneTextColor = Qt.binding(function() { return root.zoneTextColor })
+            if (typeof item.zoneFillOverride !== "undefined")
+                item.zoneFillOverride = Qt.binding(function() { return root.zoneFillOverride })
             if (typeof item.zoneValueBold !== "undefined")
                 item.zoneValueBold = Qt.binding(function() { return root.zoneValueBold })
             if (typeof item.zoneStyle !== "undefined")

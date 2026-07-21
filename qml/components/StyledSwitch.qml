@@ -8,8 +8,18 @@ Switch {
     // Optional accessibility label for context when text is empty
     property string accessibleName: ""
 
-    implicitWidth: Theme.scaled(48)
-    implicitHeight: Theme.scaled(28)
+    // Sized from the indicator PLUS the control's padding. A flat 48 ignored the padding,
+    // so the control overhung whatever width a layout reserved — visible as the Theme Mode
+    // switches sitting on top of their card's border instead of inside it. Keeping the
+    // padding in the width also keeps the touch target larger than the drawn switch.
+    // max(), because a Switch used WITH a text label has to fit the label too — sizing
+    // from the indicator alone squeezed those to 44px and elided their own text. The
+    // contentItem already reserves the indicator's width on its right, so
+    // implicitContentWidth covers both parts when there is a label.
+    implicitWidth: Math.max(control.implicitContentWidth,
+                            Theme.scaled(44)) + control.leftPadding + control.rightPadding
+    implicitHeight: Math.max(Theme.scaled(28),
+                             control.topPadding + Theme.scaled(24) + control.bottomPadding)
 
     // A disabled switch must LOOK disabled (same principle as ActionButton's
     // disabled dimming, though that one dims per-part) — without this an
@@ -17,7 +27,12 @@ Switch {
     opacity: enabled ? 1.0 : 0.4
 
     indicator: Rectangle {
-        x: control.leftPadding
+        // Flush with the control's right edge, not inset by rightPadding. These sit at the
+        // end of a settings row after a filler, so the control's right edge IS the card
+        // margin — drawing at leftPadding left the switch visually short of the margin
+        // while the combo boxes and buttons in the same card sat flush against it. The
+        // padding stays in implicitWidth, so the touch target is still the larger area.
+        x: control.width - width
         y: parent.height / 2 - height / 2
         width: Theme.scaled(44)
         height: Theme.scaled(24)
@@ -45,7 +60,13 @@ Switch {
         font: Theme.bodyFont
         color: Theme.textColor
         verticalAlignment: Text.AlignVCenter
-        leftPadding: control.indicator.width + Theme.scaled(8)
+        // Reserved on the RIGHT, matching where the indicator now sits. It used to reserve
+        // this on the left, which after the indicator moved left both a dead 52px gutter
+        // before the label and — in the two-column dialogs that use `text:` with fillWidth
+        // and no wrapping — a long label drawing straight through the indicator.
+        leftPadding: 0
+        rightPadding: control.indicator.width + Theme.scaled(8)
+        elide: Text.ElideRight
         Accessible.ignored: true
     }
 

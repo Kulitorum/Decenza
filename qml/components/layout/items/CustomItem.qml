@@ -41,7 +41,11 @@ Item {
     // Action tiles use Theme.actionTileColor (neutral over a custom background
     // image so they match the bars/cards, standard accent otherwise); an explicit
     // per-widget bgColor still wins.
-    readonly property color _parsedBgColor: bgColor !== "" ? bgColor : (hasAction ? Theme.actionTileColor : Theme.surfaceColor)
+    // Set by LayoutPreview when previewing an unapplied background colour; otherwise unset.
+    property color zoneFillOverride: "transparent"
+    readonly property color _themeTileColor: hasAction ? Theme.actionTileColor : Theme.surfaceColor
+    readonly property color _parsedBgColor: bgColor !== "" ? bgColor
+        : (zoneFillOverride.a > 0 ? zoneFillOverride : _themeTileColor)
 
     // A brew-settings widget highlights (Theme.highlightColor) whenever a real
     // brew override is in effect — temperature or target yield deviating from the
@@ -58,11 +62,11 @@ Item {
     // Idle-screen action tiles (Recipes/Beans/Steam/Hot Water/Flush/Equipment/
     // etc. — all compiled to CustomItem, see LayoutItemDelegate.compileToCustom)
     // and user-authored Custom widgets share this rendering path; scrim
-    // uniformly like every other fill in the app when a background image is set.
+    // uniformly like every other fill in the app when the glass chrome is on.
     readonly property color _effectiveBackground:
-        Settings.theme.backgroundImagePath.length > 0 ? Theme.scrimColor(_baseBackground) : _baseBackground
+        Theme.glassChrome ? Theme.chromeFill(_baseBackground) : _baseBackground
     // Content color for text and icon tinting on the button background
-    readonly property color _contentColor: Theme.primaryContrastColor
+    readonly property color _contentColor: Theme.contentColorOn(_effectiveBackground, Theme.primaryContrastColor)
 
     // Active-mode highlight: a togglePreset:<mode> button shows a contrasting ring
     // while its preset row is expanded, so you can see which mode is selected. In
@@ -470,8 +474,12 @@ Item {
             color: compactTap.isPressed ? Qt.darker(root._effectiveBackground, 1.2) : root._effectiveBackground
             radius: Theme.cardRadius
             opacity: root.hasAction && typeof DE1Device !== "undefined" && !DE1Device.guiEnabled ? 0.5 : 1.0
-            border.width: root.isActive ? Theme.scaled(3) : 0
-            border.color: root._activeRingColor
+            // A hairline edge whenever the page is a flat preset colour. Fill contrast
+            // alone is not enough there: the tile is a lifted shade of the very colour
+            // behind it, so on the lighter colours it reads as a smudge rather than a
+            // button. Over an image the scrim and the photo already give the edge away.
+            border.width: root.isActive ? Theme.scaled(3) : (Theme.hasBackgroundPreset ? 1 : 0)
+            border.color: root.isActive ? root._activeRingColor : Theme.borderColor
         }
 
         RowLayout {
@@ -531,8 +539,12 @@ Item {
             color: fullTap.isPressed ? Qt.darker(root._effectiveBackground, 1.2) : root._effectiveBackground
             radius: Theme.cardRadius
             opacity: root.hasAction && typeof DE1Device !== "undefined" && !DE1Device.guiEnabled ? 0.5 : 1.0
-            border.width: root.isActive ? Theme.scaled(3) : 0
-            border.color: root._activeRingColor
+            // A hairline edge whenever the page is a flat preset colour. Fill contrast
+            // alone is not enough there: the tile is a lifted shade of the very colour
+            // behind it, so on the lighter colours it reads as a smudge rather than a
+            // button. Over an image the scrim and the photo already give the edge away.
+            border.width: root.isActive ? Theme.scaled(3) : (Theme.hasBackgroundPreset ? 1 : 0)
+            border.color: root.isActive ? root._activeRingColor : Theme.borderColor
         }
 
         // Layout with emoji: icon above text (like ActionButton)

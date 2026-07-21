@@ -23,6 +23,8 @@ Item {
     property color zoneTextColor: Theme.textColor
     property bool zoneValueBold: false
     property string zoneStyle: "standard"
+    // See LayoutItemDelegate.
+    property color zoneFillOverride: "transparent"
 
     readonly property string labelText:
         TranslationManager.translate("grind.quickSelect.label", "Grind")
@@ -52,6 +54,7 @@ Item {
             presentation: "pill"
             zoneTextColor: root.zoneTextColor
             zoneStyle: root.zoneStyle
+            zoneFillOverride: root.zoneFillOverride
             grinderBrand: String(Settings.dye.dyeGrinderBrand || "")
             grinderModel: String(Settings.dye.dyeGrinderModel || "")
             grindSetting: String(Settings.dye.dyeGrinderSetting || "")

@@ -12,6 +12,12 @@ Item {
     property string distribution: "packed"   // packed | equalWidth | spaced
     property string alignment: "center"       // left | center | right
     property string zoneStyle: "standard"     // standard | surface | accentBar
+    // Overrides the colour the zone's items draw their text and icons in. Set by
+    // LayoutPreview when it is previewing a background colour that has not been applied,
+    // where Theme's own values still describe the CURRENT background. Transparent = unset.
+    property color contentColorOverride: "transparent"
+    // Companion to contentColorOverride for the fills widgets draw — see LayoutItemDelegate.
+    property color fillColorOverride: "transparent"
     // "auto" (bar = compact) or "large" to render widgets in the big center style.
     property string itemSize: "auto"          // auto | compact | large
     // Visual scale of the bar's content (matches center zones' scale control).
@@ -66,8 +72,10 @@ Item {
             delegate: LayoutItemDelegate {
                 zoneName: root.zoneName
                 itemSize: root.itemSize
-                zoneTextColor: Theme.zoneTextColor(root.zoneStyle)
+                zoneTextColor: root.contentColorOverride.a > 0 ? root.contentColorOverride
+                                                              : Theme.zoneTextColor(root.zoneStyle)
                 zoneValueBold: Theme.zoneValueBold(root.zoneStyle)
+                zoneFillOverride: root.fillColorOverride
                 zoneStyle: root.zoneStyle
                 // equalWidth/spaced: every item gets an equal share of the width,
                 // independent of content width. packed: only spacers grow.

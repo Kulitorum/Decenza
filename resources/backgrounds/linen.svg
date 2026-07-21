@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <!-- Woven crosshatch. Horizontals at full strength, verticals at half, which is what
+       makes it read as linen rather than as graph paper. -->
+  <g fill="#ffffff">
+  <rect x="0" y="0" width="16" height="1"/>
+  <rect x="0" y="4" width="16" height="1"/>
+  <rect x="0" y="8" width="16" height="1"/>
+  <rect x="0" y="12" width="16" height="1"/>
+  </g>
+  <g fill="#ffffff" fill-opacity="0.5">
+  <rect x="2" y="0" width="1" height="16"/>
+  <rect x="6" y="0" width="1" height="16"/>
+  <rect x="10" y="0" width="1" height="16"/>
+  <rect x="14" y="0" width="1" height="16"/>
+  </g>
+</svg>

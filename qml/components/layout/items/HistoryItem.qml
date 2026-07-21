@@ -9,6 +9,13 @@ Item {
     property bool isCompact: false
     property string itemId: ""
 
+    // Zone style propagation — see LayoutItemDelegate. Added with SleepItem/QuitItem:
+    // these widgets took neither, so on a styled zone (or the background chooser's
+    // preview of a candidate colour) they stayed on the applied theme's text and
+    // chrome while their neighbours followed the zone.
+    property color zoneTextColor: Theme.textColor
+    property color zoneFillOverride: "transparent"
+
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
 
@@ -41,14 +48,14 @@ Item {
                 layer.smooth: true
                 layer.effect: MultiEffect {
                     colorization: 1.0
-                    colorizationColor: Theme.textColor
+                    colorizationColor: root.zoneTextColor
                 }
             }
             Tr {
                 key: "idle.button.history"
                 fallback: "History"
                 font: Theme.bodyFont
-                color: Theme.textColor
+                color: root.zoneTextColor
                 Accessible.ignored: true
             }
         }
@@ -74,7 +81,7 @@ Item {
             translationFallback: "History"
             iconSource: "qrc:/icons/history.svg"
             iconSize: Theme.scaled(43)
-            backgroundColor: Theme.actionButtonFill(Theme.primaryColor)
+            backgroundColor: Theme.actionButtonFillOn(Theme.primaryColor, root.zoneFillOverride)
             onClicked: root.goToHistory()
         }
     }

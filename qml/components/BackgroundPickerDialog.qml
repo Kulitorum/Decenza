@@ -5,18 +5,30 @@ import Decenza
 import "."
 import "layout"
 
-// Lets the user pick a background image (from the screensaver media library —
-// personal uploads plus already-cached stock images, never videos) for the
-// idle screen and the other pages ThemedPageBackground covers. Tapping a
-// thumbnail only updates the live preview; nothing is saved until "Apply".
-// Modal shell modeled on CustomEditorPopup.qml; thumbnail grid modeled on
-// EmojiPicker.qml's delegate.
+// Lets the user pick the app background for the idle screen and the other pages
+// ThemedPageBackground covers. Two sections: the built-in colour and pattern presets,
+// then images from the screensaver media library (personal uploads plus already-cached
+// stock images, never videos).
+//
+// Presets come first because they always exist. With image caching off and no personal
+// uploads this dialog used to open on a single "None" tile plus an apology, which reads
+// as a broken feature; now there is always something to choose, and the caching
+// explanation belongs to the section it actually describes.
+//
+// One selection covers both sections — a preset and an image are mutually exclusive, and
+// the highlighted candidate only updates the live preview. Nothing is saved until
+// "Apply". Modal shell modeled on CustomEditorPopup.qml.
 Dialog {
     id: popup
 
-    // Currently highlighted thumbnail — previewed live but not yet saved.
-    // "" means the "None" tile (clears the background).
+    // Currently highlighted candidate — previewed live but not yet saved. Exactly one of
+    // these is non-empty, mirroring the mutual exclusion the setting enforces; both empty
+    // is the "None" tile.
+    property string candidatePreset: ""
     property string candidatePath: ""
+    // Independent of the colour: any pattern over any colour. Ignored while an image is
+    // the candidate, where a pattern would fight the photo.
+    property string candidatePattern: ""
     property var _images: []
 
     modal: true
@@ -37,15 +49,39 @@ Dialog {
     }
 
     onAboutToShow: {
+        candidatePreset = Settings.theme.backgroundPreset
         candidatePath = Settings.theme.backgroundImagePath
+        candidatePattern = Settings.theme.backgroundPattern
         _images = buildImageList()
+    }
+
+    readonly property bool _isNoneSelected: candidatePreset.length === 0 && candidatePath.length === 0
+
+    // The colour value behind a given preset id, for deriving a readable tile label.
+    function _presetColour(id) {
+        var list = Settings.theme.backgroundPresets
+        for (var i = 0; i < list.length; i++) {
+            if (list[i].id === id)
+                return list[i].value
+        }
+        return Theme.backgroundColor
+    }
+
+    function selectPreset(id) {
+        candidatePreset = id
+        candidatePath = ""
+    }
+
+    function selectImage(path) {
+        candidatePath = path
+        candidatePreset = ""
     }
 
     // Personal uploads + already-cached stock images only — never triggers a
     // download. Catalog coverage grows over time as the existing rate-limited
     // background download progresses (see hint text below).
     function buildImageList() {
-        var result = [{ path: "", key: "none" }]
+        var result = []
 
         var personal = ScreensaverManager.getPersonalMediaList()
         for (var i = 0; i < personal.length; i++) {
@@ -62,7 +98,17 @@ Dialog {
     }
 
     function chooseAndClose() {
-        Settings.theme.backgroundImagePath = candidatePath
+        // Order matters only in that each setter clears the other; setting the empty one
+        // second would undo the first, so write exactly the one that is chosen.
+        if (candidatePreset.length > 0)
+            Settings.theme.backgroundPreset = candidatePreset
+        else if (candidatePath.length > 0)
+            Settings.theme.backgroundImagePath = candidatePath
+        else {
+            Settings.theme.backgroundPreset = ""
+            Settings.theme.backgroundImagePath = ""
+        }
+        Settings.theme.backgroundPattern = candidatePattern
         popup.close()
     }
 
@@ -80,151 +126,337 @@ Dialog {
                 font.bold: true
             }
 
-            Text {
-                Layout.fillWidth: true
-                text: TranslationManager.translate("backgroundPicker.hint",
-                    "More stock images appear here over time as they finish downloading in the background.")
-                color: Theme.textSecondaryColor
-                font: Theme.captionFont
-                wrapMode: Text.Wrap
-            }
-
-            // Only the "None" tile is in the list — tell the user why, and
-            // what to do about it, rather than leaving an unexplained empty
-            // grid. Stock images can never appear here while caching is off,
-            // since the background download that populates the local cache
-            // never runs (see ScreensaverManager.cacheEnabled).
+            // Preview on the left, pattern tiles filling the space beside it. The preview is
+            // only ~220 wide, so a full-width row for it alone left most of the dialog's
+            // widest band empty while the pattern tiles sat below the fold.
             RowLayout {
                 Layout.fillWidth: true
-                visible: popup._images.length <= 1 && !ScreensaverManager.cacheEnabled
-                spacing: Theme.scaled(8)
+                spacing: Theme.scaled(12)
 
-                ColoredIcon {
-                    source: "qrc:/icons/warning.svg"
-                    iconWidth: Theme.scaled(18)
-                    iconHeight: Theme.scaled(18)
-                    iconColor: Theme.warningColor
+                // Live idle-screen preview — same component the Layout settings tab uses,
+                // showing the highlighted (not yet saved) candidate and rendered by the same
+                // BackgroundSurface the real page background uses, so the preview cannot
+                // drift from the result.
+                Rectangle {
                     Layout.alignment: Qt.AlignTop
-                }
-
-                Text {
-                    Layout.fillWidth: true
-                    text: TranslationManager.translate("backgroundPicker.warning.cachingDisabled",
-                        "Screensaver image caching is turned off, so no stock images have downloaded. Turn on caching in Settings → Screensaver to start downloading images automatically, or upload your own via the web interface.")
-                    color: Theme.warningColor
-                    font: Theme.captionFont
-                    wrapMode: Text.Wrap
-                }
-            }
-
-            // Live idle-screen preview — same component the Layout settings
-            // tab uses, now showing the highlighted (not yet saved) candidate.
-            // Deliberately small: this dialog's main job is the thumbnail
-            // grid below, which needs most of the vertical space so it
-            // doesn't force scrolling to see a second row of images on
-            // shorter screens.
-            Rectangle {
-                Layout.alignment: Qt.AlignHCenter
-                Layout.preferredWidth: Theme.scaled(220)
-                Layout.preferredHeight: Theme.scaled(138)
-                color: Theme.backgroundColor
-                radius: Theme.cardRadius
-                border.color: Theme.borderColor
-                border.width: 1
-                clip: true
-
-                LayoutPreview {
-                    anchors.fill: parent
-                    anchors.margins: Theme.scaled(4)
-                    backgroundImageSource: popup.candidatePath
-                }
-            }
-
-            GridView {
-                id: grid
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                cellWidth: Theme.scaled(112)
-                cellHeight: Theme.scaled(92)
-                clip: true
-                boundsBehavior: Flickable.StopAtBounds
-
-                ScrollBar.vertical: ScrollBar {
-                    policy: grid.contentHeight > grid.height ? ScrollBar.AlwaysOn : ScrollBar.AsNeeded
-                }
-
-                model: popup._images
-
-                delegate: Rectangle {
-                    id: tile
-                    required property var modelData
-                    required property int index
-
-                    readonly property bool isNone: modelData.path.length === 0
-                    readonly property bool isSelected: popup.candidatePath === modelData.path
-
-                    width: grid.cellWidth - Theme.scaled(6)
-                    height: grid.cellHeight - Theme.scaled(6)
-                    radius: Theme.scaled(8)
-                    color: isNone ? Theme.backgroundColor : "transparent"
-                    border.color: isSelected ? Theme.primaryColor : Theme.borderColor
-                    border.width: isSelected ? 2 : 1
+                    Layout.preferredWidth: Theme.scaled(220)
+                    Layout.preferredHeight: Theme.scaled(138)
+                    color: Theme.backgroundColor
+                    radius: Theme.cardRadius
+                    border.color: Theme.borderColor
+                    border.width: 1
                     clip: true
 
-                    Image {
+                    LayoutPreview {
                         anchors.fill: parent
-                        anchors.margins: 1
-                        visible: !tile.isNone && status === Image.Ready
-                        source: tile.isNone ? "" : "file:///" + tile.modelData.path
-                        fillMode: Image.PreserveAspectCrop
-                        asynchronous: true
-                        sourceSize.width: grid.cellWidth
-                        sourceSize.height: grid.cellHeight
-                        Accessible.ignored: true
+                        anchors.margins: Theme.scaled(4)
+                        backgroundImageSource: popup.candidatePath
+                        backgroundPresetSource: popup.candidatePreset
+                        backgroundPatternSource: popup.candidatePattern
                     }
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignTop
+                    spacing: Theme.scaled(6)
+
+                    // --- Patterns -------------------------------------------------
+                    // A second axis rather than a property of each colour, so every colour
+                    // can carry every texture without a grid of near-identical tiles.
 
                     Text {
-                        anchors.centerIn: parent
-                        visible: tile.isNone
-                        text: TranslationManager.translate("backgroundPicker.none", "None")
+                        Layout.fillWidth: true
+                        text: TranslationManager.translate("backgroundPicker.section.patterns", "Pattern")
                         color: Theme.textSecondaryColor
                         font: Theme.captionFont
-                        Accessible.ignored: true
                     }
 
-                    Rectangle {
-                        anchors.right: parent.right
-                        anchors.top: parent.top
-                        anchors.margins: Theme.scaled(4)
-                        width: Theme.scaled(18)
-                        height: Theme.scaled(18)
-                        radius: width / 2
-                        color: Theme.primaryColor
-                        visible: tile.isSelected
-                        Accessible.ignored: true
+                    Flow {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(6)
 
-                        ColoredIcon {
-                            anchors.centerIn: parent
-                            source: "qrc:/icons/tick.svg"
-                            iconWidth: Theme.scaled(12)
-                            iconHeight: Theme.scaled(12)
-                            iconColor: Theme.primaryContrastColor
+                        Repeater {
+                            // "None" first, then the catalogue.
+                            model: [{ id: "", nameKey: "backgroundPicker.none", nameFallback: "None" }]
+                                   .concat(Settings.theme.backgroundPatterns)
+
+                            Rectangle {
+                                id: patternTile
+                                required property var modelData
+
+                                readonly property bool isSelected: popup.candidatePattern === modelData.id
+                                // Previewed on the colour that is actually selected, so the
+                                // tile shows the real combination rather than an abstract swatch.
+                                readonly property color _base: popup.candidatePreset.length > 0
+                                    ? popup._presetColour(popup.candidatePreset)
+                                    : Theme.backgroundColor
+
+                                width: Theme.scaled(96)
+                                height: Theme.scaled(64)
+                                radius: Theme.scaled(8)
+                                color: "transparent"
+                                border.color: isSelected ? Theme.primaryColor : Theme.borderColor
+                                border.width: isSelected ? 2 : 1
+                                clip: true
+
+                                BackgroundSurface {
+                                    anchors.fill: parent
+                                    anchors.margins: 1
+                                    presetId: popup.candidatePreset
+                                    patternId: patternTile.modelData.id
+                                    imagePath: ""
+                                }
+
+                                Text {
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.bottom: parent.bottom
+                                    anchors.margins: Theme.scaled(4)
+                                    text: TranslationManager.translate(patternTile.modelData.nameKey,
+                                                                       patternTile.modelData.nameFallback)
+                                    color: Theme.contrastColorFor(patternTile._base)
+                                    font: Theme.captionFont
+                                    horizontalAlignment: Text.AlignHCenter
+                                    elide: Text.ElideRight
+                                    Accessible.ignored: true
+                                }
+
+                                SelectedTick { visible: patternTile.isSelected }
+
+                                AccessibleMouseArea {
+                                    anchors.fill: parent
+                                    accessibleName: TranslationManager.translate(patternTile.modelData.nameKey,
+                                                                                 patternTile.modelData.nameFallback)
+                                        + (patternTile.isSelected
+                                            ? ", " + TranslationManager.translate("accessibility.selected", "selected")
+                                            : "")
+                                    accessibleItem: patternTile
+                                    onAccessibleClicked: popup.candidatePattern = patternTile.modelData.id
+                                }
+                            }
+                }
+            }
+                }
+            }
+
+            ScrollView {
+                id: scroller
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                contentWidth: availableWidth
+                ScrollBar.vertical.policy: ScrollBar.AsNeeded
+
+                ColumnLayout {
+                    width: scroller.availableWidth
+                    spacing: Theme.scaled(6)
+
+                    // --- Colours -------------------------------------------------
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: TranslationManager.translate("backgroundPicker.section.presets", "Colours")
+                        color: Theme.textSecondaryColor
+                        font: Theme.captionFont
+                    }
+
+                    Flow {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(6)
+
+                        // "None" — clears both preset and image.
+                        Rectangle {
+                            width: Theme.scaled(106)
+                            height: Theme.scaled(86)
+                            radius: Theme.scaled(8)
+                            color: Theme.backgroundColor
+                            border.color: popup._isNoneSelected ? Theme.primaryColor : Theme.borderColor
+                            border.width: popup._isNoneSelected ? 2 : 1
+                            clip: true
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: TranslationManager.translate("backgroundPicker.none", "None")
+                                color: Theme.textSecondaryColor
+                                font: Theme.captionFont
+                                Accessible.ignored: true
+                            }
+
+                            SelectedTick { visible: popup._isNoneSelected }
+
+                            AccessibleMouseArea {
+                                anchors.fill: parent
+                                accessibleName: TranslationManager.translate("backgroundPicker.none", "None")
+                                    + (popup._isNoneSelected
+                                        ? ", " + TranslationManager.translate("accessibility.selected", "selected")
+                                        : "")
+                                accessibleItem: parent
+                                onAccessibleClicked: popup.selectPreset("")
+                            }
+                        }
+
+                        Repeater {
+                            model: Settings.theme.backgroundPresets
+
+                            Rectangle {
+                                id: presetTile
+                                required property var modelData
+
+                                readonly property bool isSelected: popup.candidatePreset === modelData.id
+
+                                width: Theme.scaled(106)
+                                height: Theme.scaled(86)
+                                radius: Theme.scaled(8)
+                                color: "transparent"
+                                border.color: isSelected ? Theme.primaryColor : Theme.borderColor
+                                border.width: isSelected ? 2 : 1
+                                clip: true
+
+                                // The real renderer, so a tile is a true miniature of the page.
+                                BackgroundSurface {
+                                    anchors.fill: parent
+                                    anchors.margins: 1
+                                    presetId: presetTile.modelData.id
+                                    patternId: popup.candidatePattern
+                                    imagePath: ""
+                                }
+
+                                // Unlike the photo tiles, a preset has a real name to show.
+                                Text {
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.bottom: parent.bottom
+                                    anchors.margins: Theme.scaled(4)
+                                    text: TranslationManager.translate(presetTile.modelData.nameKey,
+                                                                       presetTile.modelData.nameFallback)
+                                    // Derived from THIS tile's colour, not from Theme.textColor.
+                                    // The grid shows every background at once, so the
+                                    // one global text colour is wrong on most of them — it left
+                                    // every light tile captioned in white on near-white.
+                                    color: presetTile.modelData.textOn
+                                    font: Theme.captionFont
+                                    horizontalAlignment: Text.AlignHCenter
+                                    elide: Text.ElideRight
+                                    Accessible.ignored: true
+                                }
+
+                                SelectedTick { visible: presetTile.isSelected }
+
+                                AccessibleMouseArea {
+                                    anchors.fill: parent
+                                    accessibleName: TranslationManager.translate(presetTile.modelData.nameKey,
+                                                                                 presetTile.modelData.nameFallback)
+                                        + (presetTile.isSelected
+                                            ? ", " + TranslationManager.translate("accessibility.selected", "selected")
+                                            : "")
+                                    accessibleItem: presetTile
+                                    onAccessibleClicked: popup.selectPreset(presetTile.modelData.id)
+                                }
+                            }
                         }
                     }
 
-                    AccessibleMouseArea {
-                        anchors.fill: parent
-                        // Catalog/personal photos carry no usable label (author is blank for
-                        // stock images, filenames are cache-generated) — position-in-grid is
-                        // the only thing that lets a screen reader distinguish otherwise-
-                        // identical "Background image" tiles from one another.
-                        accessibleName: (tile.isNone
-                            ? TranslationManager.translate("backgroundPicker.none", "None")
-                            : TranslationManager.translate("backgroundPicker.accessible.thumbnail", "Background image %1 of %2")
-                                  .arg(tile.index + 1).arg(popup._images.length))
-                            + (tile.isSelected ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
-                        accessibleItem: tile
-                        onAccessibleClicked: popup.candidatePath = tile.modelData.path
+                    // --- Images ---------------------------------------------------
+
+                    Text {
+                        Layout.fillWidth: true
+                        Layout.topMargin: Theme.scaled(6)
+                        text: TranslationManager.translate("backgroundPicker.section.images", "Images")
+                        color: Theme.textSecondaryColor
+                        font: Theme.captionFont
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: TranslationManager.translate("backgroundPicker.hint",
+                            "More stock images appear here over time as they finish downloading in the background.")
+                        color: Theme.textSecondaryColor
+                        font: Theme.captionFont
+                        wrapMode: Text.Wrap
+                    }
+
+                    // No images at all — say why and what to do about it, rather than
+                    // leaving an unexplained empty section. Stock images can never appear
+                    // while caching is off, since the background download that populates
+                    // the local cache never runs (see ScreensaverManager.cacheEnabled).
+                    RowLayout {
+                        Layout.fillWidth: true
+                        visible: popup._images.length === 0 && !ScreensaverManager.cacheEnabled
+                        spacing: Theme.scaled(8)
+
+                        ColoredIcon {
+                            source: "qrc:/icons/warning.svg"
+                            iconWidth: Theme.scaled(18)
+                            iconHeight: Theme.scaled(18)
+                            iconColor: Theme.warningColor
+                            Layout.alignment: Qt.AlignTop
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: TranslationManager.translate("backgroundPicker.warning.cachingDisabled",
+                                "Screensaver image caching is turned off, so no stock images have downloaded. Turn on caching in Settings → Screensaver to start downloading images automatically, or upload your own via the web interface.")
+                            color: Theme.warningColor
+                            font: Theme.captionFont
+                            wrapMode: Text.Wrap
+                        }
+                    }
+
+                    Flow {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(6)
+
+                        Repeater {
+                            model: popup._images
+
+                            Rectangle {
+                                id: imageTile
+                                required property var modelData
+                                required property int index
+
+                                readonly property bool isSelected: popup.candidatePath === modelData.path
+
+                                width: Theme.scaled(106)
+                                height: Theme.scaled(86)
+                                radius: Theme.scaled(8)
+                                color: "transparent"
+                                border.color: isSelected ? Theme.primaryColor : Theme.borderColor
+                                border.width: isSelected ? 2 : 1
+                                clip: true
+
+                                Image {
+                                    anchors.fill: parent
+                                    anchors.margins: 1
+                                    visible: status === Image.Ready
+                                    source: "file:///" + imageTile.modelData.path
+                                    fillMode: Image.PreserveAspectCrop
+                                    asynchronous: true
+                                    sourceSize.width: Theme.scaled(106)
+                                    sourceSize.height: Theme.scaled(86)
+                                    Accessible.ignored: true
+                                }
+
+                                SelectedTick { visible: imageTile.isSelected }
+
+                                AccessibleMouseArea {
+                                    anchors.fill: parent
+                                    // Photos carry no usable label (author is blank for stock
+                                    // images, filenames are cache-generated) — position-in-list
+                                    // is the only thing that lets a screen reader tell otherwise-
+                                    // identical "Background image" tiles apart. Presets above do
+                                    // have names, and use them.
+                                    accessibleName: TranslationManager.translate(
+                                            "backgroundPicker.accessible.thumbnail", "Background image %1 of %2")
+                                            .arg(imageTile.index + 1).arg(popup._images.length)
+                                        + (imageTile.isSelected
+                                            ? ", " + TranslationManager.translate("accessibility.selected", "selected")
+                                            : "")
+                                    accessibleItem: imageTile
+                                    onAccessibleClicked: popup.selectImage(imageTile.modelData.path)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -248,6 +480,26 @@ Dialog {
                     onClicked: popup.chooseAndClose()
                 }
             }
+        }
+    }
+
+    // The selected-tile badge, identical on every tile in both sections.
+    component SelectedTick: Rectangle {
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.margins: Theme.scaled(4)
+        width: Theme.scaled(18)
+        height: Theme.scaled(18)
+        radius: width / 2
+        color: Theme.primaryColor
+        Accessible.ignored: true
+
+        ColoredIcon {
+            anchors.centerIn: parent
+            source: "qrc:/icons/tick.svg"
+            iconWidth: Theme.scaled(12)
+            iconHeight: Theme.scaled(12)
+            iconColor: Theme.primaryContrastColor
         }
     }
 }

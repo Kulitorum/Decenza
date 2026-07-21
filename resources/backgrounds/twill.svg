@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 8 8">
+  <!-- 45 degree hairline at an 8px pitch. The main stroke runs corner to corner; the two
+       short strokes past each corner keep the line unbroken across the tile seam. -->
+  <g stroke="#ffffff" stroke-width="1" fill="none">
+    <path d="M0,8 L8,0"/>
+    <path d="M-1,1 L1,-1"/>
+    <path d="M7,9 L9,7"/>
+  </g>
+</svg>
