@@ -120,7 +120,7 @@ Item {
         height: Theme.scaled(32)
         radius: height / 2
         // Always a visible chip: this pill is tappable, so it must read as a
-        // button. Over a background image use the neutral glass scrim
+        // button. With the glass chrome on, use the neutral glass scrim
         // (Theme.actionButtonFill); otherwise a zone-appropriate solid chip.
         readonly property bool hasGlassChrome: Theme.glassChrome
         readonly property color pillFill: Theme.actionButtonFill(Theme.zoneChipColor(root.zoneStyle))

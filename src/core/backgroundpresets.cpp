@@ -31,9 +31,10 @@ const QVector<Colour>& colours() {
     // nothing anyone would pick on purpose.
     //
     // Ordered dark to light so the chooser reads as a ramp. The gap between L* 22 and 66 is
-    // deliberate and measured: between roughly L* 30 and 58 neither black nor white text
-    // clears 4.5:1 once secondary text is softened, so a mid-grey page cannot carry a
-    // monochrome-text UI at all. The contrast tests reject anything placed there.
+    // deliberate and measured. Plain black or white text clears 4.5:1 at every lightness;
+    // what fails is the SOFTENED secondary text, which cannot clear it between roughly
+    // L* 39 and 58 whichever direction it is softened from. A mid-grey page therefore
+    // cannot carry this UI, and the contrast tests reject anything placed there.
     static const QVector<Colour> table = {
         // --- Roast: near-black through dark browns -----------------------------
         colour("french-roast", "French Roast",  "#1b1512"),

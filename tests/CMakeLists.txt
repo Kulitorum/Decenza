@@ -338,9 +338,9 @@ add_decenza_test(tst_settings
 )
 
 # --- tst_backgroundpresets: background preset catalogue + Glass theme ---
-# Includes the WCAG contrast floors for every preset and both Glass palettes, measured
-# against the scrimmed card colour as well as the raw background — computable here in a
-# way it never was for a photo background.
+# Includes the WCAG contrast floors for every colour — against the page, the page under
+# the densest pattern, the card and the action tile — computable here in a way it never
+# was for a photo background, and measured against the shipped derivation in C++.
 add_decenza_test(tst_backgroundpresets
     tst_backgroundpresets.cpp
     # For the backup/migration round-trip: the colour and pattern must survive a

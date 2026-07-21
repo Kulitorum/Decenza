@@ -41,7 +41,11 @@ Item {
     // Action tiles use Theme.actionTileColor (neutral over a custom background
     // image so they match the bars/cards, standard accent otherwise); an explicit
     // per-widget bgColor still wins.
-    readonly property color _parsedBgColor: bgColor !== "" ? bgColor : (hasAction ? Theme.actionTileColor : Theme.surfaceColor)
+    // Set by LayoutPreview when previewing an unapplied background colour; otherwise unset.
+    property color zoneFillOverride: "transparent"
+    readonly property color _themeTileColor: hasAction ? Theme.actionTileColor : Theme.surfaceColor
+    readonly property color _parsedBgColor: bgColor !== "" ? bgColor
+        : (zoneFillOverride.a > 0 ? zoneFillOverride : _themeTileColor)
 
     // A brew-settings widget highlights (Theme.highlightColor) whenever a real
     // brew override is in effect — temperature or target yield deviating from the
@@ -58,7 +62,7 @@ Item {
     // Idle-screen action tiles (Recipes/Beans/Steam/Hot Water/Flush/Equipment/
     // etc. — all compiled to CustomItem, see LayoutItemDelegate.compileToCustom)
     // and user-authored Custom widgets share this rendering path; scrim
-    // uniformly like every other fill in the app when a background image is set.
+    // uniformly like every other fill in the app when the glass chrome is on.
     readonly property color _effectiveBackground:
         Theme.glassChrome ? Theme.chromeFill(_baseBackground) : _baseBackground
     // Content color for text and icon tinting on the button background

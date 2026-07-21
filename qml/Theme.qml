@@ -405,12 +405,15 @@ QtObject {
     //
     // On when a background image is set (chrome must go translucent or it reads as a slab
     // on the photo), or when the user turns the glass option on for any theme. This is ONE
-    // named predicate rather than the expression repeated at ~70 call sites, which is what
-    // it used to be (`Settings.theme.backgroundImagePath.length > 0`): seventy copies is
-    // seventy chances for the next background source to be missed at one of them. None of
-    // those sites ever cared that it was an *image* — only that the page is not flat.
+    // named predicate rather than the expression repeated at every call site, which is
+    // what it used to be — `Settings.theme.backgroundImagePath.length > 0`, spelled out 28
+    // times across 19 files. Every copy is another chance for the next trigger to be missed
+    // at one of them, and none of those sites ever cared that it was an *image*: only that
+    // the chrome should go translucent.
     //
-    // Read this, never backgroundImagePath, when asking "is a background active".
+    // This is NOT "is a background active" — it is true with the switch on and no
+    // background at all, and false with a colour set and the switch off. For that question
+    // use hasBackgroundPreset or hasBackgroundImage.
     readonly property bool glassChrome: Settings.theme.backgroundImagePath.length > 0
                                         || Settings.theme.glassChrome
 
@@ -514,7 +517,7 @@ QtObject {
         return hasBackgroundImage ? scrimColor(base) : base
     }
 
-    // Scrim a color for use over a custom background image: same hue, reduced
+    // Scrim a color for use over a background IMAGE: same hue, reduced
     // opacity so the wallpaper shows through. Use this instead of hand-rolling
     // Qt.rgba(...) at each call site — keeps every scrim in the app at the same
     // translucency level tuned by backgroundScrimAlpha above.
@@ -558,7 +561,7 @@ QtObject {
         : surfaceColor
 
     // Frame fill for content dialogs/popups (Brew Settings, Grind Setting, Brew
-    // Ratio, etc.). When a custom background image is active these use the same
+    // Ratio, etc.). With the glass chrome on these use the same
     // tinted-glass scrim as the idle action tiles (Steam/Recipes/Beans) so the
     // wallpaper shows through and the dialog matches the rest of the chrome
     // rather than reading as an out-of-place opaque slab; opaque surfaceColor
@@ -615,7 +618,7 @@ QtObject {
     //
     // The threshold is 3:1, WCAG's large-text floor, because this is button and tile
     // labelling. It is deliberately below the 4.5:1 used for body text: white on the
-    // primary blue measures 3.18:1, an existing and intentional choice, and a 4.5 gate
+    // primary blue measures 3.5:1, an existing and intentional choice, and a 4.5 gate
     // would flip every accent button in the app to black content.
     function contentColorOn(fill: color, fallback: color): color {
         // Also when the glass switch is on: it changes actionTileColor and
@@ -634,7 +637,7 @@ QtObject {
 
     // Fill for idle-screen action buttons that render their OWN ActionButton/
     // Rectangle (Sleep/Quit/History/Favorites/Discuss) rather than as a scrimmed
-    // CustomItem tile (Recipes/Beans/Steam). Over a custom background image they
+    // CustomItem tile (Recipes/Beans/Steam). With the glass chrome on they
     // scrim to the same neutral glass as those tiles — so they read as buttons
     // like Steam/Hot Water rather than an opaque colour slab — while keeping
     // their given accent/grey fill when no image is set (zero change). Applies to
@@ -646,7 +649,7 @@ QtObject {
     }
     property color secondaryColor: _c("secondaryColor", Settings.theme.customThemeColors.secondaryColor || "#c0c5e3")
     // Derived from the background while a preset is active — see the derivation block
-    // above for why a stored preference cannot be right across a 20-colour ramp.
+    // above for why a stored preference cannot be right across the whole ramp.
     property color textColor: _c("textColor", hasBackgroundPreset
         ? _derived.text
         : (Settings.theme.customThemeColors.textColor || "#ffffff"))
@@ -666,9 +669,7 @@ QtObject {
     // rare. Lighten in dark mode, darken in light mode.
     property color textSecondaryColor: _c("textSecondaryColor", hasBackgroundPreset
         // Softened toward the page from the derived text colour, not from the palette.
-        // 28% is the most softening the tightest preset (Oxford, the lightest mid-tone)
-        // can carry and still clear 4.5:1 on a lifted card — the mid-tones have far less
-        // headroom than either end of the ramp, and they set this number.
+        // Derived in C++, where the softening fraction and its justification live.
         ? _derived.textSecondary
         : (glassChrome
             ? (isDarkMode ? Qt.lighter(Settings.theme.customThemeColors.textSecondaryColor || "#a0a8b8", 1.4)
@@ -683,8 +684,9 @@ QtObject {
     property color warningColor: _c("warningColor", Settings.theme.customThemeColors.warningColor || "#ffaa00")
     property color highlightColor: _c("highlightColor", Settings.theme.customThemeColors.highlightColor || "#ffaa00")
     property color errorColor: _c("errorColor", Settings.theme.customThemeColors.errorColor || "#ff4444")
-    // Derived while a preset is active so a border is visible on a pale page as well as a
-    // dark one — a stored dark border vanishes on Chalk, a stored light one on Graphite.
+    // Derived while a colour is active so a border is visible on a pale page as well as a
+    // dark one: a stored dark border vanishes on Porcelain, a stored light one on French
+    // Roast.
     property color borderColor: _c("borderColor", hasBackgroundPreset
         ? _derived.border
         : (Settings.theme.customThemeColors.borderColor || "#3a3a4e"))

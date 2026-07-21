@@ -144,6 +144,12 @@ QVariantMap SettingsTheme::activeBackgroundPattern() const {
     return BackgroundPresets::patternToVariantMap(BackgroundPresets::patternById(backgroundPattern()));
 }
 
+QVariantMap SettingsTheme::deriveColorsFor(const QString& colourId) const {
+    const BackgroundPresets::Colour c = BackgroundPresets::colourById(colourId);
+    return c.id.isEmpty() ? QVariantMap()
+                          : BackgroundPresets::deriveAsVariantMap(QColor(c.value));
+}
+
 QVariantMap SettingsTheme::derivedBackgroundColors() const {
     const BackgroundPresets::Colour c = BackgroundPresets::colourById(backgroundPreset());
     return c.id.isEmpty() ? QVariantMap()

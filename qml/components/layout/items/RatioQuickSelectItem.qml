@@ -14,6 +14,8 @@ Item {
     property color zoneTextColor: Theme.textColor
     property bool zoneValueBold: false
     property string zoneStyle: "standard"
+    // See LayoutItemDelegate.
+    property color zoneFillOverride: "transparent"
 
     readonly property string labelText: TranslationManager.translate("idle.status.ratio", "Ratio")
     // The ACTUAL active ratio: the stored anchor when ratio-anchored, else
@@ -59,7 +61,7 @@ Item {
             // chip (Theme.zoneChipColor): a light capsule on the accentBar, a themed
             // surface chip elsewhere so it isn't a white capsule in dark mode.
             readonly property bool hasGlassChrome: Theme.glassChrome
-            readonly property color pillFill: Theme.actionButtonFill(Theme.zoneChipColor(root.zoneStyle))
+            readonly property color pillFill: Theme.actionButtonFill((root.zoneFillOverride.a > 0 ? root.zoneFillOverride : Theme.zoneChipColor(root.zoneStyle)))
             color: ratioMa.pressed ? Qt.darker(pillFill, 1.15) : pillFill
 
             Accessible.role: Accessible.Button

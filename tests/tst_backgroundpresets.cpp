@@ -20,7 +20,7 @@
 // screensaver photo what sits behind a translucent card is unknowable, so the scrim alpha
 // was tuned by eye. A preset is a KNOWN colour, so everything derived from it — text,
 // secondary text, card fill — is exact arithmetic, and therefore testable rather than
-// merely intended. That derivation is what allows all twenty presets, from near-black to
+// merely intended. That derivation is what allows every colour, from near-black to
 // near-white, to be offered under any theme.
 class TestBackgroundPresets : public QObject {
     Q_OBJECT

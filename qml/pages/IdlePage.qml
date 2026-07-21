@@ -1481,7 +1481,7 @@ Page {
         anchors.bottom: parent.bottom
         // Auto-grow to fit large item-size; standard bar height otherwise.
         height: Math.max(Theme.bottomBarHeight, blZone.implicitHeight, brZone.implicitHeight)
-        // When a custom background image is active, use the same neutral surface
+        // When the glass chrome is on, use the same neutral surface
         // scrim as StatusBar and the shared BottomBar so every bar reads
         // consistently and the wallpaper shows through; otherwise keep the
         // standard bottom-bar hue.

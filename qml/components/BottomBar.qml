@@ -35,11 +35,11 @@ Item {
     Rectangle {
         id: bgRect
         anchors.fill: parent
-        // When a custom background image is active, every bar uses the same
+        // When the glass chrome is on, every bar uses the same
         // neutral surface scrim as StatusBar and the content cards, so the
         // wallpaper shows through and all bars read consistently — the page's
         // own barColor (e.g. "transparent" on Beans/Equipment/Recipes) only
-        // applies when no background image is set.
+        // applies when the glass chrome is off.
         color: Theme.glassChrome
                ? Theme.chromeFill(Theme.surfaceColor)
                : root.barColor

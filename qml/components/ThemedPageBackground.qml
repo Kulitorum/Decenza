@@ -14,6 +14,6 @@ import QtQuick
 // (deletePersonalMedia()/clearPersonalMedia()/clearCache() in ScreensaverVideoManager
 // also proactively clear the setting when its backing file is the one being deleted,
 // since this component's own Image.Error fallback isn't visible to the many other call
-// sites that ask Theme.glassChrome whether a background is active.)
+// sites that read Theme.hasBackgroundImage.)
 BackgroundSurface {
 }

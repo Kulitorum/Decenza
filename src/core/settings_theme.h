@@ -67,8 +67,8 @@ class SettingsTheme : public QObject {
     // uploads + locally-cached catalog images) — see ScreensaverVideoManager.
     Q_PROPERTY(QString backgroundImagePath READ backgroundImagePath WRITE setBackgroundImagePath NOTIFY backgroundImagePathChanged)
 
-    // Built-in background preset — a curated flat colour (plus optional subtle pattern)
-    // for users who want a calmer backdrop than a screensaver photo. Holds a catalogue id
+    // Built-in background colour — a curated flat colour for users who want a calmer
+    // backdrop than a screensaver photo. The pattern is a separate axis; see below. Holds a catalogue id
     // from BackgroundPresets; empty = no preset. Mutually exclusive with
     // backgroundImagePath: setting either clears the other, because they are one choice
     // presented in one chooser.
@@ -155,6 +155,10 @@ public:
     QVariantMap activeBackgroundPreset() const;
     QVariantMap activeBackgroundPattern() const;
     QVariantMap derivedBackgroundColors() const;
+    // The same derivation for ANY catalogue colour, not just the active one — the
+    // background chooser previews a candidate that has not been applied yet, and drawing
+    // it with the applied theme's colours made the preview lie.
+    Q_INVOKABLE QVariantMap deriveColorsFor(const QString& colourId) const;
     Q_INVOKABLE QVariantMap editingPaletteColors() const;
     Q_INVOKABLE void setEditingPaletteColor(const QString& colorName, const QString& colorValue);
 

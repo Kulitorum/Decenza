@@ -252,7 +252,7 @@ Dialog {
                     width: scroller.availableWidth
                     spacing: Theme.scaled(6)
 
-                    // --- Colours & patterns ---------------------------------------
+                    // --- Colours -------------------------------------------------
 
                     Text {
                         Layout.fillWidth: true
@@ -331,7 +331,7 @@ Dialog {
                                     text: TranslationManager.translate(presetTile.modelData.nameKey,
                                                                        presetTile.modelData.nameFallback)
                                     // Derived from THIS tile's colour, not from Theme.textColor.
-                                    // The grid shows twenty different backgrounds at once, so the
+                                    // The grid shows every background at once, so the
                                     // one global text colour is wrong on most of them — it left
                                     // every light tile captioned in white on near-white.
                                     color: presetTile.modelData.textOn

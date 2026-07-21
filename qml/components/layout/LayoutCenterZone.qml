@@ -18,6 +18,12 @@ Item {
     // text only. Like the top/bottom bar zones, a center zone paints no background of its
     // own — only statusBar and lowerMidBar do. Default "standard" = unchanged behavior.
     property string zoneStyle: "standard"
+    // Overrides the colour the zone's items draw their text and icons in. Set by
+    // LayoutPreview when it is previewing a background colour that has not been applied,
+    // where Theme's own values still describe the CURRENT background. Transparent = unset.
+    property color contentColorOverride: "transparent"
+    // Companion to contentColorOverride for the fills widgets draw — see LayoutItemDelegate.
+    property color fillColorOverride: "transparent"
 
     // No "distribution" option by design. A center zone sizes every item from a fixed cell
     // (buttonWidth, capped at Theme.scaled(150) * zoneScale) so action buttons never stretch,
@@ -89,8 +95,10 @@ Item {
             model: root.items
             delegate: LayoutItemDelegate {
                 zoneName: root.zoneName
-                zoneTextColor: Theme.zoneTextColor(root.zoneStyle)
+                zoneTextColor: root.contentColorOverride.a > 0 ? root.contentColorOverride
+                                                              : Theme.zoneTextColor(root.zoneStyle)
                 zoneValueBold: Theme.zoneValueBold(root.zoneStyle)
+                zoneFillOverride: root.fillColorOverride
                 zoneStyle: root.zoneStyle
                 Layout.preferredWidth: {
                     // Flip clock: interpolate between buttonWidth and wide based on clockScale
