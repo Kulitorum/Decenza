@@ -168,7 +168,8 @@ Item {
     // --- PRESET POPUP (compact mode) ---
     Popup {
         id: presetPopup
-        modal: false
+        modal: true
+        dim: false
         padding: Theme.spacingMedium
         closePolicy: Popup.CloseOnPressOutside
 

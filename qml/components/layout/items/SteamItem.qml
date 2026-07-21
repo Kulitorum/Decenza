@@ -103,7 +103,8 @@ Item {
     // --- PRESET POPUP ---
     Popup {
         id: presetPopup
-        modal: false
+        modal: true
+        dim: false
         padding: Theme.spacingMedium
         closePolicy: Popup.CloseOnPressOutside
 
