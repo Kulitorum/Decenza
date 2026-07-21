@@ -71,9 +71,13 @@ Item {
         color: root.surfaceColour
         // Also shows while EITHER image is still decoding, which is what makes the fallback
         // a fallback: the flat colour holds the page until there is something to draw.
+        //
+        // And it stays UNDER the shot chart permanently, because that chart is drawn
+        // translucent (see shotChartWallpaperOpacity) and needs a page colour to sit on
+        // rather than the bare window.
         visible: !root._hasImage
-                 || (root._hasShotChart ? shotChartImage.status !== Image.Ready
-                                        : bgImage.status !== Image.Ready)
+                 || root._hasShotChart
+                 || bgImage.status !== Image.Ready
     }
 
     // Pattern above the flat colour. One monochrome asset serves every colour because it
@@ -125,12 +129,26 @@ Item {
     // it is stretched rather than cropped (cropping would drop the shot's last seconds off
     // the edge), and it must NOT be given a sourceSize — Qt refuses that on a grabToImage url
     // and warns, and resampling a correctly-sized raster would be pure loss anyway.
+    // How strongly the chart is drawn as wallpaper.
+    //
+    // At full strength it competes with the page instead of sitting behind it: the shot-plan
+    // line ("Brew 36.0g of Espresso, using…") crosses the weight ramp and the flow line, and
+    // white text over bright hairlines is HARDER to read than white text over a photo — a
+    // photo is blurry and low-frequency, a chart is high-contrast and thin. Dimming trades a
+    // little of the scale's crispness for text that reads, which is the right way round for
+    // something whose job is to be a background.
+    //
+    // Applied at DRAW time rather than baked into the render, so changing it costs nothing:
+    // no re-render, and no opacity term needed in the cache key.
+    readonly property real shotChartWallpaperOpacity: 0.55
+
     Image {
         id: shotChartImage
         anchors.fill: parent
         visible: root._hasShotChart && status === Image.Ready
         source: root._hasShotChart ? LastShotChartSource.imageSource : ""
         fillMode: Image.Stretch
+        opacity: root.shotChartWallpaperOpacity
         asynchronous: true
         Accessible.ignored: true
     }
