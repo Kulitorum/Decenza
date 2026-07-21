@@ -604,6 +604,12 @@ QString ShotServer::generateBeansPage() const
 
         <label>Notes</label><textarea id="fNotes"></textarea>
 
+        <!-- The page-level #status div is covered by this modal, so anything
+             raised while the editor is open (extraction progress, "No AI
+             provider configured", the save validation error) has to land here
+             or it is never seen. Mirrors the app's inline infoStatus text. -->
+        <div id="editorStatus" class="muted"></div>
+
         <div class="dialog-actions">
             <button onclick="el('editor').close()">Cancel</button>
             <button class="primary" onclick="saveEditor()">Save</button>
@@ -642,6 +648,11 @@ QString ShotServer::generateBeansPage() const
         // page too, and the extraction reads it — so it sits outside the
         // kind-specific lists and is applied on top of whichever is active.
         const LINK_KEYS = [['dLink','link']];
+
+        // Status inside the editor dialog. status() writes the page-level line,
+        // which the modal covers — use this for anything the user must read
+        // while the dialog is open.
+        const editorStatus = (msg) => { el('editorStatus').textContent = msg || ''; };
 
         const parseBlob = (s) => { try { return s ? JSON.parse(s) : {}; } catch (e) { return {}; } };
         function thumbErr(img, emoji) {
@@ -844,10 +855,9 @@ QString ShotServer::generateBeansPage() const
             COFFEE_KEYS.concat(TEA_KEYS, LINK_KEYS).forEach(([fid, key]) => { const e = el(fid); if (e) e.value = editBlob[key] || ''; });
             el('fSearch').value = '';
             el('searchResults').style.display = 'none';
-            // Every field above is (re)assigned from the record, so nothing
-            // survives from the bag edited before this one — including a status
-            // line left over from that bag's search or extraction.
-            status('');
+            // Nothing else resets this, so without it an "Extraction failed"
+            // from the previously edited bag hangs over the fresh form.
+            editorStatus('');
             updateYieldLabel();
             applyKindUi();
             el('editor').showModal();
@@ -873,7 +883,7 @@ QString ShotServer::generateBeansPage() const
             const to = setTimeout(() => ctrl.abort(), 45000);
             getJson('/api/beans/search?q=' + encodeURIComponent(q), { signal: ctrl.signal })
                 .then(d => renderResults(d.results || []))
-                .catch(e => { if (e.name !== 'AbortError') status('Search failed: ' + e.message); })
+                .catch(e => { if (e.name !== 'AbortError') editorStatus('Search failed: ' + e.message); })
                 .finally(() => clearTimeout(to));
         }
         function renderResults(results) {
@@ -897,14 +907,14 @@ QString ShotServer::generateBeansPage() const
             if (r.roastName) el('fCoffee').value = r.roastName;
             COFFEE_KEYS.concat(LINK_KEYS).forEach(([fid, key]) => { const e = el(fid); if (e && r[key] != null) e.value = r[key]; });
             el('searchResults').style.display = 'none';
-            status('Linked to Bean Base — review and Save.');
+            editorStatus('Linked to Bean Base — review and Save.');
         }
 
         // --- AI "get info from page" ---
         function extractInfo() {
             const url = el('dLink').value.trim();
-            if (!url) { status('Enter a product URL first'); return; }
-            status('Fetching page and extracting…');
+            if (!url) { editorStatus('Enter a product URL first'); return; }
+            editorStatus('Fetching page and extracting…');
             const ctrl = new AbortController();
             const to = setTimeout(() => ctrl.abort(), 90000);
             fetch('/api/beans/extract', { method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -912,20 +922,31 @@ QString ShotServer::generateBeansPage() const
                 .then(readJson)
                 .then(d => {
                     const f = d.fields || {};
-                    if (f.roasterName) el('fRoaster').value = f.roasterName;
-                    if (f.roastName || f.coffeeName) el('fCoffee').value = f.roastName || f.coffeeName;
-                    if (f.roastLevel) el('fRoastLevel').value = f.roastLevel;   // column, not a blob key
-                    (editingKind === 'tea' ? TEA_KEYS : COFFEE_KEYS).forEach(([fid, key]) => {
-                        const e = el(fid); if (e && f[key] != null && f[key] !== '') e.value = f[key];
-                    });
-                    // f.link is deliberately not written back: extraction runs
-                    // from the URL in that same field, so the user's own URL is
-                    // what gets stored, not whatever canonical link the page
-                    // advertises for itself.
-                    status('Extracted — review and Save.');
+                    // Fill ONLY empty fields, like the app's take() and as
+                    // BEAN_BASE.md specifies ("fills empty detail fields
+                    // only") — a shop page must never overwrite what the user
+                    // typed or what a picked Bean Base entry supplied. Both
+                    // surfaces put search and extraction side by side, so
+                    // pick-then-extract is an ordinary two-click sequence.
+                    let filled = 0;
+                    const take = (fid, key) => {
+                        const e = el(fid);
+                        if (!e || e.value.trim() || f[key] == null || f[key] === '') return;
+                        e.value = f[key];
+                        filled++;
+                    };
+                    take('fRoastLevel', 'roastLevel');   // column, not a blob key
+                    (editingKind === 'tea' ? TEA_KEYS : COFFEE_KEYS).forEach(([fid, key]) => take(fid, key));
+                    // Roaster/coffee name and link are deliberately absent:
+                    // AIManager::parseBagExtraction's key whitelist has none of
+                    // them, so there is nothing to apply. The URL field in
+                    // particular holds what the extraction was just run from.
+                    editorStatus(filled > 0
+                        ? 'Filled ' + filled + ' empty field' + (filled === 1 ? '' : 's') + ' — review and Save.'
+                        : 'Nothing new found — the fields already have values.');
                 })
-                .catch(e => { if (e.name !== 'AbortError') status('Extraction failed: ' + e.message);
-                              else status('Extraction timed out'); })
+                .catch(e => { if (e.name !== 'AbortError') editorStatus('Extraction failed: ' + e.message);
+                              else editorStatus('Extraction timed out'); })
                 .finally(() => clearTimeout(to));
         }
 
@@ -945,7 +966,7 @@ QString ShotServer::generateBeansPage() const
                 equipmentId: parseInt(el('fEquipment').value, 10) || 0,
                 notes: el('fNotes').value.trim()
             };
-            if (!bodyData.roasterName && !bodyData.coffeeName) { status('Roaster or coffee name is required'); return; }
+            if (!bodyData.roasterName && !bodyData.coffeeName) { editorStatus('Roaster or coffee name is required'); return; }
 
             // Yield anchor: send exactly one of yieldG / yieldRatio (0 clears).
             const ym = el('fYieldMode').value;
@@ -960,12 +981,17 @@ QString ShotServer::generateBeansPage() const
                 const v = e.value.trim();
                 if (v) editBlob[key] = v; else delete editBlob[key];
             });
-            if (Object.keys(editBlob).length) bodyData.beanBaseData = JSON.stringify(editBlob);
+            // ALWAYS send the blob, empty or not. bagFieldsFromBody is a sparse
+            // whitelist — an absent key means "leave the column alone" — so
+            // omitting it when the last blob field is cleared silently discards
+            // the deletion and the old value returns on reopen. Send '' rather
+            // than '{}' so the bag reads as unlinked, not as an empty blob.
+            bodyData.beanBaseData = Object.keys(editBlob).length ? JSON.stringify(editBlob) : '';
             if (editBeanBaseId) bodyData.beanBaseId = editBeanBaseId;
             if (!editingId) bodyData.kind = editingKind;
 
             const req = editingId ? post('/api/bag/' + editingId, bodyData) : post('/api/bags', bodyData);
-            req.then(() => { el('editor').close(); load(); }).catch(e => status(e.message));
+            req.then(() => { el('editor').close(); load(); }).catch(e => editorStatus(e.message));
         }
 
         load();
