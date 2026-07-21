@@ -23,9 +23,6 @@ Item {
     // Controls for compact/widget rendering
     property bool showLabels: true
     property bool showPhaseLabels: true
-    // The chart's own frame. Off for the last-shot background, where a bright rectangle
-    // around the edge of the screen is chrome the wallpaper does not want.
-    property bool showSpines: true
 
     // Persisted visibility toggles (tappable legend). Settings.boolValue() coerces
     // QSettings' INI-backed strings to real booleans; see Settings.h.
@@ -42,6 +39,47 @@ Item {
     property bool showTemperatureMixGoal: Settings.boolValue("graph/showTemperatureMixGoal", false)
 
     property bool advancedMode: false
+
+    // Re-read the toggles when they change anywhere in the app.
+    //
+    // The properties above initialise from Settings.boolValue(), which is a Q_INVOKABLE —
+    // so the initialiser records no dependency and never re-evaluates. GraphLegend assigns
+    // `graph[key]` directly on the ONE instance it is attached to, which is why the review
+    // page looked like it worked; every other instance kept its startup values for the life
+    // of the process. That includes the last-shot background chart, whose whole promise is
+    // that the wallpaper follows the review page's legend — it followed it only until the
+    // first toggle, then silently froze. SteamGraph already does exactly this.
+    Connections {
+        target: Settings
+        function onValueChanged(key) {
+            switch (key) {
+            case "graph/showPressure":
+                chart.showPressure = Settings.boolValue(key, true); break
+            case "graph/showFlow":
+                chart.showFlow = Settings.boolValue(key, true); break
+            case "graph/showTemperature":
+                chart.showTemperature = Settings.boolValue(key, true); break
+            case "graph/showWeight":
+                chart.showWeight = Settings.boolValue(key, true); break
+            case "graph/showWeightFlow":
+                chart.showWeightFlow = Settings.boolValue(key, true); break
+            case "graph/showWeightAxis":
+                chart.showWeightAxis = Settings.boolValue(key, true); break
+            case "graph/showResistance":
+                chart.showResistance = Settings.boolValue(key, false); break
+            case "graph/showConductance":
+                chart.showConductance = Settings.boolValue(key, false); break
+            case "graph/showConductanceDerivative":
+                chart.showConductanceDerivative = Settings.boolValue(key, false); break
+            case "graph/showDarcyResistance":
+                chart.showDarcyResistance = Settings.boolValue(key, false); break
+            case "graph/showTemperatureMix":
+                chart.showTemperatureMix = Settings.boolValue(key, false); break
+            case "graph/showTemperatureMixGoal":
+                chart.showTemperatureMixGoal = Settings.boolValue(key, false); break
+            }
+        }
+    }
 
     // Which right-side axis labels to display (tap axis to swap)
     property bool showWeightAxis: Settings.boolValue("graph/showWeightAxis", true)
@@ -369,7 +407,7 @@ Item {
         id: graphsView
         anchors.fill: parent
         anchors.rightMargin: chart.showLabels ? Theme.scaled(35) : 0
-        theme: DecenzaGraphsTheme { showSpines: chart.showSpines }
+        theme: DecenzaGraphsTheme {}
 
         axisX: timeAxis
         axisY: pressureAxis

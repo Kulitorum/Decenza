@@ -737,8 +737,27 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         // AFTER the colour, deliberately: selecting the shot chart clears the colour, so
         // restoring it last is what makes the imported source win rather than be stomped
         // by the colour line above.
-        if (theme["backgroundSource"].toString() == QStringLiteral("shot"))
-            settings->theme()->selectShotChartBackground(theme["backgroundShotAdvanced"].toBool());
+        //
+        // Every source is handled, not just "shot". Acting only on "shot" meant a backup
+        // saying "none" restored onto a device using the shot chart left the chart in place
+        // and reported success — the same silent-divergence bug the pattern once had, in the
+        // opposite direction. Gated on contains(): a legacy backup carries no source at all,
+        // and must not be read as a request to clear a device-local image.
+        if (theme.contains("backgroundSource")) {
+            const QString source = theme["backgroundSource"].toString();
+            if (source == QStringLiteral("shot")) {
+                settings->theme()->selectShotChartBackground(theme["backgroundShotAdvanced"].toBool());
+            } else if (source == QStringLiteral("none")) {
+                settings->theme()->clearBackground();
+            } else if (source == QStringLiteral("image")) {
+                // backgroundImagePath is deliberately not exported (a local filesystem path
+                // means nothing on the target), so this one cannot be restored. Say so
+                // rather than leaving the user to wonder why their background did not come
+                // back.
+                qInfo() << "[Settings] Backup used a background image; image paths are "
+                           "device-local and are not restored. Pick a background again.";
+            }
+        }
         if (theme.contains("glassChrome")) settings->theme()->setGlassChrome(theme["glassChrome"].toBool());
 
         // Restore dual palettes if present (new format)

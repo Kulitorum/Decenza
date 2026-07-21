@@ -481,6 +481,14 @@ private slots:
                 if (second != "image")
                     QVERIFY2(theme.backgroundImagePath().isEmpty(),
                              qPrintable(QString("%1 -> %2 left an image path set").arg(first, second)));
+
+                // The STORED key, not just the derived getter. backgroundSource() falls back
+                // to deriving the kind from whichever parameter is set, which is right for
+                // migration and self-healing but means it reconstructs the correct answer
+                // even when nothing wrote the key at all. Asserting only the getter, this
+                // test passed with every source write deleted.
+                QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+                QCOMPARE(raw.value("theme/backgroundSource").toString(), second);
             }
         }
     }
@@ -507,6 +515,90 @@ private slots:
 
         theme.selectShotChartBackground(true);
         QCOMPARE(theme.backgroundSource(), QString("shot"));
+    }
+
+    // --- The source has to NOTIFY, not just hold the right value -----------
+    //
+    // Theme.hasBackgroundImage and Theme.glassChrome read backgroundSource, and ~70 chrome
+    // call sites read those. A correct value that never announces itself leaves every one
+    // of them latched on the previous answer until the app restarts.
+
+    void clearingTheImageTellsTheAppTheBackgroundIsGone() {
+        // The path ScreensaverVideoManager takes when it deletes the file a background was
+        // using. Without a notify the whole app stays in translucent-over-a-photo mode with
+        // no photo — which is the exact state that clearing code exists to prevent.
+        SettingsTheme theme;
+        theme.setBackgroundImagePath("/tmp/photo.jpg");
+        QSignalSpy spy(&theme, &SettingsTheme::backgroundSourceChanged);
+
+        theme.setBackgroundImagePath(QString());
+
+        QCOMPARE(theme.backgroundSource(), QString("none"));
+        QVERIFY2(spy.count() >= 1,
+                 "no backgroundSourceChanged on clear — every binding stays on \"image\"");
+    }
+
+    void everyClearLeavesBindingsOnTheFinalValue() {
+        // A QML binding re-reads the property INSIDE the change handler, so emitting before
+        // the parameters are cleared hands every binding the value being cleared.
+        for (const QString& kind : {QString("colour"), QString("image"), QString("shot")}) {
+            SettingsTheme theme;
+            selectSource(theme, kind);
+
+            QString atEmit;
+            QObject::connect(&theme, &SettingsTheme::backgroundSourceChanged,
+                             &theme, [&]{ atEmit = theme.backgroundSource(); });
+
+            theme.clearBackground();
+
+            QCOMPARE(theme.backgroundSource(), QString("none"));
+            QVERIFY2(atEmit == QString("none"),
+                     qPrintable(QString("clearing from %1 announced %2").arg(kind, atEmit)));
+        }
+    }
+
+    void flippingAdvancedWhileAlreadyOnTheChartStillNotifies() {
+        // The source does not move here, so the only thing that can tell the renderer to
+        // re-draw is this signal. Without it the Advanced entry is a permanent no-op that
+        // still shows as selected in the picker.
+        SettingsTheme theme;
+        theme.selectShotChartBackground(false);
+        QSignalSpy spy(&theme, &SettingsTheme::backgroundSourceChanged);
+
+        theme.selectShotChartBackground(true);
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(theme.backgroundShotAdvanced(), true);
+
+        // ...and re-selecting the same entry must NOT, or every apply costs a re-render.
+        theme.selectShotChartBackground(true);
+        QCOMPARE(spy.count(), 1);
+    }
+
+    void theShotSelectionSurvivesARestart() {
+        // The most visible way this feature can fail: it works all session and is gone on
+        // the next launch. A second SettingsTheme over the same store is that restart.
+        {
+            SettingsTheme theme;
+            theme.selectShotChartBackground(true);
+        }
+        SettingsTheme reopened;
+        QCOMPARE(reopened.backgroundSource(), QString("shot"));
+        QCOMPARE(reopened.backgroundShotAdvanced(), true);
+    }
+
+    void choosingTheShotChartKeepsThePattern() {
+        // Documented in settings_theme.h — the pattern is retained so returning to a colour
+        // restores it. Nothing pinned it, and losing a user's texture silently is exactly
+        // what happened once already when the preset was split into two axes.
+        SettingsTheme theme;
+        theme.setBackgroundPreset("cortado");
+        theme.setBackgroundPattern("linen");
+
+        theme.selectShotChartBackground(false);
+        QCOMPARE(theme.backgroundPattern(), QString("linen"));
+
+        theme.setBackgroundPreset("cortado");
+        QCOMPARE(theme.backgroundPattern(), QString("linen"));
     }
 
     void theShotEntryCarriesItsOwnAdvancedFlag() {

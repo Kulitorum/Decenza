@@ -29,6 +29,19 @@ Item {
     // an entry that has not been applied.
     property bool shotChart: Settings.theme.backgroundSource === "shot"
 
+    // How strongly the chart is drawn as wallpaper.
+    //
+    // At full strength it competes with the page instead of sitting behind it: the shot-plan
+    // line ("Brew 36.0g of Espresso, using…") crosses the weight ramp and the flow line, and
+    // white text over bright hairlines is HARDER to read than white text over a photo — a
+    // photo is blurry and low-frequency, a chart is high-contrast and thin. Dimming trades a
+    // little of the scale's crispness for text that reads, which is the right way round for
+    // something whose job is to be a background.
+    //
+    // Applied at DRAW time rather than baked into the render, so changing it costs nothing:
+    // no re-render, and no opacity term needed in the cache key.
+    readonly property real shotChartWallpaperOpacity: 0.55
+
     // Resolved catalogue entries ({} when the id is empty or unknown).
     readonly property var _preset: _lookup(Settings.theme.backgroundPresets, presetId)
     readonly property var _pattern: _lookup(Settings.theme.backgroundPatterns, patternId)
@@ -38,7 +51,13 @@ Item {
     // inherits its scrim, its decode-in-progress fallback and its stale-source behaviour
     // rather than getting a parallel implementation of each. The chart is drawn by
     // LastShotChartRenderer; nothing here builds one.
-    readonly property bool _hasShotChart: shotChart && LastShotChartSource.imageSource.length > 0
+    // `!_hasPreset` is a safety net, not a nicety. Each source defaults from the LIVE
+    // setting so the page background needs no configuration — but that means a caller which
+    // sets one input and stays silent about the others INHERITS them, and with a shot
+    // background active every colour tile in the chooser drew the last shot instead of its
+    // colour. A surface told to show a specific colour must never show something else.
+    readonly property bool _hasShotChart: shotChart && !_hasPreset
+                                          && LastShotChartSource.imageSource.length > 0
     readonly property bool _hasPattern: _pattern.id !== undefined && !_hasShotChart
     readonly property bool _hasImage: !_hasPreset && (_hasShotChart || imagePath.length > 0)
 
@@ -129,19 +148,6 @@ Item {
     // it is stretched rather than cropped (cropping would drop the shot's last seconds off
     // the edge), and it must NOT be given a sourceSize — Qt refuses that on a grabToImage url
     // and warns, and resampling a correctly-sized raster would be pure loss anyway.
-    // How strongly the chart is drawn as wallpaper.
-    //
-    // At full strength it competes with the page instead of sitting behind it: the shot-plan
-    // line ("Brew 36.0g of Espresso, using…") crosses the weight ramp and the flow line, and
-    // white text over bright hairlines is HARDER to read than white text over a photo — a
-    // photo is blurry and low-frequency, a chart is high-contrast and thin. Dimming trades a
-    // little of the scale's crispness for text that reads, which is the right way round for
-    // something whose job is to be a background.
-    //
-    // Applied at DRAW time rather than baked into the render, so changing it costs nothing:
-    // no re-render, and no opacity term needed in the cache key.
-    readonly property real shotChartWallpaperOpacity: 0.55
-
     Image {
         id: shotChartImage
         anchors.fill: parent

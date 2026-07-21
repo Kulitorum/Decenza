@@ -232,6 +232,12 @@ Dialog {
                                     presetId: popup.candidatePreset
                                     patternId: patternTile.modelData.id
                                     imagePath: ""
+                                    // Every input stated, including the ones that are off.
+                                    // BackgroundSurface defaults each source from the LIVE
+                                    // setting, so a tile that stays silent about the shot
+                                    // chart inherits it — and every colour and pattern in
+                                    // the chooser drew the last shot.
+                                    shotChart: false
                                 }
 
                                 Text {
@@ -438,6 +444,7 @@ Dialog {
                                     presetId: presetTile.modelData.id
                                     patternId: popup.candidatePattern
                                     imagePath: ""
+                                    shotChart: false
                                 }
 
                                 // Unlike the photo tiles, a preset has a real name to show.

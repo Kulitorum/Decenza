@@ -70,6 +70,7 @@ QString SettingsTheme::backgroundImagePath() const {
 }
 
 void SettingsTheme::setBackgroundImagePath(const QString& path) {
+    const QString before = backgroundSource();
     if (backgroundImagePath() != path) {
         m_settings.setValue("theme/backgroundImagePath", path);
         emit backgroundImagePathChanged();
@@ -78,11 +79,10 @@ void SettingsTheme::setBackgroundImagePath(const QString& path) {
     // clears the others. Done outside the != guard: re-selecting the image already set
     // must still clear a colour, or the two could both be live.
     if (!path.isEmpty()) {
-        setBackgroundSource(kBackgroundSourceImage);
+        storeBackgroundSource(kBackgroundSourceImage);
         clearBackgroundPreset("a background image was chosen instead");
-    } else {
-        releaseBackgroundSource(kBackgroundSourceImage);
     }
+    notifyBackgroundSourceChanged(before);
 }
 
 QString SettingsTheme::backgroundPreset() const {
@@ -93,6 +93,7 @@ QString SettingsTheme::backgroundPreset() const {
 }
 
 void SettingsTheme::setBackgroundPreset(const QString& id) {
+    const QString before = backgroundSource();
     // An unrecognised id is a caller bug, not a request to clear. Erasing on it meant a
     // restore from a backup naming a colour this build does not know silently wiped the
     // colour the device already had — and reported success. Empty is how a caller asks
@@ -112,11 +113,10 @@ void SettingsTheme::setBackgroundPreset(const QString& id) {
         emit backgroundPresetChanged();
     }
     if (!id.isEmpty()) {
-        setBackgroundSource(kBackgroundSourceColour);
+        storeBackgroundSource(kBackgroundSourceColour);
         setBackgroundImagePath(QString());
-    } else {
-        releaseBackgroundSource(kBackgroundSourceColour);
     }
+    notifyBackgroundSourceChanged(before);
 }
 
 // --- Which KIND of background is active -------------------------------------------
@@ -152,7 +152,9 @@ bool SettingsTheme::backgroundShotAdvanced() const {
     return m_settings.value("theme/backgroundShotAdvanced", false).toBool();
 }
 
-void SettingsTheme::setBackgroundSource(const QString& source) {
+// Writes the stored key ONLY. The signal is the other half, and it is deliberately not
+// emitted here — see notifyBackgroundSourceChanged.
+void SettingsTheme::storeBackgroundSource(const QString& source) {
     if (source != kBackgroundSourceNone && source != kBackgroundSourceColour
         && source != kBackgroundSourceImage && source != kBackgroundSourceShot) {
         // Same stance as an unknown colour id: a bad value is a caller bug, not a request
@@ -161,38 +163,54 @@ void SettingsTheme::setBackgroundSource(const QString& source) {
                    << "- keeping" << backgroundSource();
         return;
     }
-    if (backgroundSource() == source)
-        return;
     m_settings.setValue("theme/backgroundSource", source);
-    emit backgroundSourceChanged();
 }
 
-void SettingsTheme::releaseBackgroundSource(const QString& mine) {
-    if (backgroundSource() == mine)
-        setBackgroundSource(QString::fromLatin1(kBackgroundSourceNone));
+// Emit if the DERIVED source moved, comparing against a snapshot taken before the change.
+//
+// It has to be the derived value, not the stored key, because the two move independently:
+// clearing an image path leaves the key saying "image" while the getter correctly derives
+// "none". A previous version guarded on the stored key and so never fired on any clear —
+// and since Theme.hasBackgroundImage and Theme.glassChrome were rewired onto this property,
+// roughly seventy chrome call sites would have stayed in translucent-over-a-photo mode with
+// no photo. Deleting the personal image you were using as a background reached exactly that
+// state, which is the case ScreensaverVideoManager's own clearing code exists to prevent.
+void SettingsTheme::notifyBackgroundSourceChanged(const QString& before) {
+    if (backgroundSource() != before)
+        emit backgroundSourceChanged();
 }
 
 void SettingsTheme::selectShotChartBackground(bool advanced) {
+    const QString before = backgroundSource();
     const bool advancedChanged = backgroundShotAdvanced() != advanced;
     if (advancedChanged)
         m_settings.setValue("theme/backgroundShotAdvanced", advanced);
 
     qInfo() << "[Theme] Background: last shot chart" << (advanced ? "(advanced)" : "(basic)");
-    // Source first, so the clears below see a source that is no longer theirs and leave it
-    // alone. Ordering it the other way round is the bug this whole indirection exists to
-    // make impossible.
-    setBackgroundSource(QString::fromLatin1(kBackgroundSourceShot));
+    storeBackgroundSource(QString::fromLatin1(kBackgroundSourceShot));
     clearBackgroundPreset("the last-shot chart was chosen instead");
     setBackgroundImagePath(QString());
 
-    if (advancedChanged)
+    // The advanced flag NOTIFYs on backgroundSourceChanged, and flipping it while already on
+    // the chart moves no source — so without this the Advanced entry would be a silent no-op
+    // forever: the cache key would never change, the renderer would never re-grab, and the
+    // picker would still show it as selected.
+    if (advancedChanged && backgroundSource() == before)
         emit backgroundSourceChanged();
+    else
+        notifyBackgroundSourceChanged(before);
 }
 
 void SettingsTheme::clearBackground() {
-    setBackgroundSource(QString::fromLatin1(kBackgroundSourceNone));
+    const QString before = backgroundSource();
+    // Parameters first, source last, so that when the signal fires the getter already
+    // reports the final answer. The other order emits while the old image path is still
+    // set, and a binding reading backgroundSource inside its own change handler — which is
+    // what every QML binding does — latches the value being cleared.
     clearBackgroundPreset("the background was cleared");
     setBackgroundImagePath(QString());
+    storeBackgroundSource(QString::fromLatin1(kBackgroundSourceNone));
+    notifyBackgroundSourceChanged(before);
 }
 
 // Clearing the colour is a SIDE EFFECT of several unrelated actions, so it says which one

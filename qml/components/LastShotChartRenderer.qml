@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Window
 import Decenza
 
 // Renders the last shot's chart to an image, once per change, for use as the app background
@@ -17,8 +16,9 @@ import Decenza
 Item {
     id: renderer
 
-    // Only exists while a shot background is selected AND there is a shot to draw. Nothing
-    // is instantiated, and no chart is built, for users who never choose this background.
+    // Gates the GRAB, and (via `visible`) per-frame rendering. It does not gate
+    // construction: main.qml instantiates this unconditionally and the chart is a direct
+    // child, so both exist for every user. See the Loader note in main.qml.
     readonly property bool renderWanted: Settings.theme.backgroundSource === "shot"
                                     && LastShotChartSource.hasShot
 
@@ -49,7 +49,18 @@ Item {
         _framesUntilGrab = 2
     }
 
-    onRenderWantedChanged: _renderIfStale()
+    onRenderWantedChanged: {
+        if (renderWanted) {
+            _renderIfStale()
+        } else if (Settings.theme.backgroundSource !== "shot") {
+            // Switching away from the shot chart: drop the grab. It is a full-window-sized
+            // image and nothing draws it any more; holding it for the life of the process
+            // was several megabytes resident for a background the user turned off.
+            _grab = null
+            _renderedKey = ""
+            LastShotChartSource._renderedUrl = ""
+        }
+    }
 
     readonly property Connections _keyWatch: Connections {
         target: LastShotChartSource
@@ -111,20 +122,16 @@ Item {
             renderer._grab = result
             renderer._renderedKey = key
             LastShotChartSource._renderedUrl = result.url
-            // Describes the SOURCE, not the pixels. Those are different things — the gap
-            // between them IS this bug — so read it as "a grab happened for this shot",
-            // never as proof the picture matches.
-            // Reports what the CHART was fed, not what the source holds. Still not proof of
-            // pixels — only a dump is that — but it is one step closer, and the previous
-            // version reported the source and so agreed with itself while the picture was
-            // of a different shot entirely.
+            // Reports what the CHART was fed, not what the source holds, and still not the
+            // pixels — only an image dump is that. Worth stating because the earlier version
+            // logged the source, which meant it agreed with itself no matter what was drawn:
+            // "a grab happened for shot N" was read as "the picture is of shot N" twice
+            // during development, and only dumping the actual image settled it.
             console.info("[Background] Shot-chart grab ->", result.url,
                          "chart samples", backgroundChart.pressureData.length,
                          "maxTime", backgroundChart.maxTime,
                          "| source shot", LastShotChartSource._shotId,
                          "samples", (LastShotChartSource.shotData.pressure || []).length)
-            if (Settings.boolValue("debug/dumpShotChartBackground", false))
-                result.saveToFile(Settings.value("debug/dumpShotChartBackgroundPath", ""))
         })
         if (!ok) {
             console.warn("[Background] Shot-chart grabToImage() was refused — "
@@ -172,7 +179,6 @@ Item {
         // they are the part that genuinely does clutter a full-screen background.
         showLabels: true
         showPhaseLabels: false
-        showSpines: true
 
         // The chosen ENTRY decides this, not shotReview/advancedMode — that toggle is for
         // inspecting one shot and must not repaint the app.

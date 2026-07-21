@@ -36,13 +36,26 @@ QtObject {
     property real targetWidth: 0
     property real targetHeight: 0
 
-    // --- Everything the render depends on ------------------------------------
+    // --- What the cache key covers -------------------------------------------
     //
     // A cached image is only valid while the things it was drawn from hold still. Keying on
     // them and re-rendering on a mismatch is deliberate: the alternative is remembering to
     // invalidate at each of the places below, and the one that gets forgotten is the theme,
     // whose symptom is the PREVIOUS theme's curve colours behind the current theme. That
     // does not look like a bug — it looks like a colour you half-remember choosing.
+    //
+    // NOT covered, and deliberately named rather than left for someone to discover:
+    //   - Settings.app.temperatureUnit. The right-hand axis renders through
+    //     Theme.cToDisplay/tempUnitSuffix, so a °C↔°F switch leaves stale numbers and a
+    //     stale suffix on the wallpaper until the next re-render.
+    //   - Theme.scale. It carries pageScaleMultiplier, which changes with NAVIGATION, so
+    //     keying on it would re-render the wallpaper every time you opened a page. Stroke
+    //     widths and label sizes therefore reflect whichever page was active at grab time.
+    //   - The UI font family. A language change into a locale served by a platform fallback
+    //     repaints the axis labels at different metrics.
+    // All three are cosmetic and self-correct at the next shot. The header used to read
+    // "Everything the render depends on", which is exactly the kind of claim that stops the
+    // next reader from checking.
     //
     // Rounded sizes so a one-pixel resize does not trigger a re-render.
     readonly property string cacheKey: [
@@ -129,28 +142,56 @@ QtObject {
 
     function _refresh() {
         _loadState = "loading"
-        if (_storage)
-            _storage.requestMostRecentShotId()
+        if (!_storage) {
+            console.warn("[Background] No shot storage — the last-shot background cannot load")
+            _loadState = "empty"
+            return
+        }
+        _storage.requestMostRecentShotId()
     }
 
     // The shot the chart is drawn from, and the events that change it.
     readonly property Connections _storageWatch: Connections {
         target: root._storage
 
+        // 0 and -1 are NOT the same answer. ShotHistoryStorage emits -1 for "storage is not
+        // ready" and 0 for "there are genuinely no shots". Collapsing them told a user with
+        // eight hundred shots and an unopenable database "No shots yet — this fills in after
+        // your first shot", which is not merely unhelpful, it is false, and it sends whoever
+        // reads the log next in precisely the wrong direction.
         function onMostRecentShotIdReady(shotId) {
             if (shotId > 0) {
                 root._shotId = shotId
                 root._storage.requestShot(shotId)
-            } else {
-                root._shotId = 0
-                root.shotData = ({})
-                root._renderedUrl = ""
-                root._loadState = "empty"
+                return
             }
+            if (shotId < 0) {
+                console.warn("[Background] Shot history is not available (storage not ready) — "
+                             + "keeping the current background; it will retry when a shot is saved")
+                return   // do NOT wipe the render, and do NOT claim the history is empty
+            }
+            console.info("[Background] No shots in history — the last-shot background falls "
+                         + "back to the theme colour")
+            root._shotId = 0
+            root.shotData = ({})
+            root._renderedUrl = ""
+            root._loadState = "empty"
         }
 
         function onShotReady(id, shot) {
             if (id !== root._shotId) return
+            // A shot deleted between the id query and this load still emits, carrying a
+            // default projection. Accepting it drew an empty 60-second grid — axes, no
+            // curves — which reads as a design choice rather than a failure.
+            if (!shot || (shot.pressure || []).length === 0) {
+                console.warn("[Background] Shot", id, "loaded with no samples; it was probably "
+                             + "removed between the lookup and the load. Falling back to the "
+                             + "theme colour.")
+                root.shotData = ({})
+                root._renderedUrl = ""
+                root._loadState = "empty"
+                return
+            }
             root.shotData = shot
             root._loadState = "loaded"
         }
@@ -161,6 +202,13 @@ QtObject {
             if (shotId > 0)
                 root._refresh()
         }
+        // Without this, none of the not-ready states above can ever recover: a user who
+        // pulls no shot stays on a fallback background until the app restarts.
+        function onReadyChanged() {
+            if (root._storage.isReady)
+                root._refresh()
+        }
+
         function onShotsDeleted(shotIds) {
             for (var i = 0; i < shotIds.length; i++) {
                 if (Number(shotIds[i]) === Number(root._shotId)) {

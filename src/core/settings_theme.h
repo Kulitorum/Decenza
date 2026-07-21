@@ -299,14 +299,11 @@ private:
     // Clearing the background colour is a side effect of several unrelated actions, so it
     // records which one did it — see the definition.
     void clearBackgroundPreset(const char* reason);
-    // The ONE place the source is written. Every public setter routes through it, so the
-    // invariant "exactly one source is active" has a single owner rather than living in
-    // the pairwise clearing the setters used to do to each other.
-    void setBackgroundSource(const QString& source);
-    // Releasing a source you no longer own must not stomp one someone else just took:
-    // choosing an image clears the colour as a side effect, and that clear arrives AFTER
-    // the source is already "image". Only reset to "none" if the source is still mine.
-    void releaseBackgroundSource(const QString& mine);
+    // The ONE place the stored source key is written; emits nothing.
+    void storeBackgroundSource(const QString& source);
+    // The other half: emit iff the DERIVED source differs from `before`. Split because the
+    // stored key and the derived value move independently — see the definition.
+    void notifyBackgroundSourceChanged(const QString& before);
     void updateResolvedMode();
 
     mutable QSettings m_settings;
