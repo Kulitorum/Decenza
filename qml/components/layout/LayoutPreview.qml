@@ -62,10 +62,10 @@ Item {
             height: Theme.statusBarHeight
             property string _style: previewRoot._opt("statusBar", "style", "standard")
             property color _opaqueColor: _style !== "standard" ? Theme.zoneBackgroundColor(_style) : Theme.surfaceColor
-            // Mirrors StatusBar.qml's scrim so the preview matches what ships.
-            color: previewRoot.backgroundImageSource.length > 0
-                   ? Theme.scrimColor(_opaqueColor)
-                   : _opaqueColor
+            // Mirrors StatusBar.qml's scrim so the preview matches what ships. Keyed on
+            // Theme.glassChrome like the real bar — an image-path test here meant the
+            // preview ignored the glass switch and the colour presets entirely.
+            color: Theme.glassChrome ? Theme.scrimColor(_opaqueColor) : _opaqueColor
 
             LayoutBarZone {
                 anchors.fill: parent
@@ -204,12 +204,11 @@ Item {
                 // Mirrors IdlePage's bottom bar so the preview matches what ships:
                 // neutral surface scrim over a background image (like StatusBar and
                 // the cards), otherwise the standard bottom-bar hue.
-                color: previewRoot.backgroundImageSource.length > 0
-                       ? Theme.scrimColor(Theme.surfaceColor)
-                       : Theme.bottomBarColor
+                color: Theme.glassChrome ? Theme.scrimColor(Theme.surfaceColor)
+                                         : Theme.bottomBarColor
                 // opacity < 1 forces the scrim through the alpha pass (see
                 // docs/CLAUDE_MD/QML_GOTCHAS.md "Translucent element renders opaque").
-                opacity: previewRoot.backgroundImageSource.length > 0 ? 0.99 : 1.0
+                opacity: Theme.glassChrome ? 0.99 : 1.0
 
                 RowLayout {
                     anchors.fill: parent

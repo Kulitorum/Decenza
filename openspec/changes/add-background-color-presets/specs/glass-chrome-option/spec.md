@@ -30,6 +30,28 @@ theme. It SHALL NOT be a theme in `themeNames()`, and SHALL NOT be a value of `t
 - **WHEN** the user turns the option on and restarts the app
 - **THEN** it is still on
 
+### Requirement: Turning the option off restores every surface
+Everything the option turns on it SHALL turn back off. No surface SHALL be pinned to the
+translucent or neutral look by anything other than the option itself and an active background
+image. In particular, selecting a background colour SHALL NOT hold any surface in the glass
+look once the option is off.
+
+#### Scenario: Off restores the accent chrome
+- **WHEN** the option is turned on, a background colour is selected, and the option is then
+  turned off
+- **THEN** every surface returns to the fill it has with the option off — action tiles and
+  action buttons back to their accent colours, not only the bars
+
+#### Scenario: The background colour survives the toggle
+- **WHEN** the option is toggled off and on again with a background colour selected
+- **THEN** the colour stays selected, and the colours derived from it for legibility — text,
+  icons, borders, the recessed inset fill — apply in both states
+
+#### Scenario: The preview agrees with the page
+- **WHEN** the option is toggled
+- **THEN** the layout preview changes with it, because it resolves the same predicate rather
+  than testing for a background image
+
 ### Requirement: Translucent chrome is gated on one shared predicate
 The app SHALL gate every translucent-chrome fill — cards, dialogs, bars, inset controls, action
 tiles, action buttons and the layout item widgets — on a single predicate, true when the glass

@@ -428,6 +428,17 @@ QtObject {
     // still come from the user's theme. A custom text colour is deliberately overridden:
     // the background the user just picked decides light-on-dark or dark-on-light, and no
     // stored preference can be right for both ends of a 20-colour ramp.
+    // NOTE ON WHICH FLAG TO USE — the two are not interchangeable, and confusing them made
+    // the glass switch fail to turn things back off:
+    //
+    //   hasBackgroundPreset — "the page is a known colour, so derive readable values from
+    //       it". Legibility, NOT optional. Text, icons, borders and the recessed inset fill
+    //       must follow the page whatever the user has toggled.
+    //   glassChrome         — "the user asked for the translucent, neutral look". A user
+    //       preference, and it must toggle cleanly: everything it turns on it must turn off.
+    //
+    // A fill that exists to LOOK a certain way belongs to glassChrome. A colour that exists
+    // to stay READABLE belongs to hasBackgroundPreset.
     readonly property bool hasBackgroundPreset: Settings.theme.backgroundPreset.length > 0
     readonly property color _presetColor: Settings.theme.activeBackgroundPreset.value || backgroundColor
 
@@ -603,9 +614,12 @@ QtObject {
     // background image they use the neutral surfaceColor so they match the bars and
     // cards (CustomItem scrims it); otherwise the standard primaryColor accent. The
     // blue accent reads as out of place once the rest of the chrome is a neutral scrim.
-    readonly property color actionTileColor: hasBackgroundPreset
-        ? _liftFrom(_presetColor, _tileLift)
-        : (glassChrome ? surfaceColor : primaryColor)
+    // Gated on the SWITCH, not on the preset. It was gated on the preset, which meant a
+    // preset pinned the tiles to a neutral fill and turning glass off could not bring the
+    // accent back — the switch appeared to work only for the bottom bar.
+    readonly property color actionTileColor: !glassChrome
+        ? primaryColor
+        : (hasBackgroundPreset ? _liftFrom(_presetColor, _tileLift) : surfaceColor)
 
     // Colour for text and icons sitting ON a chrome fill.
     //
@@ -640,7 +654,8 @@ QtObject {
     // both the full-mode ActionButton and the compact-mode Rectangle (Sleep/Quit).
     // The image-case fill equals cardBackgroundColor (scrimColor(surfaceColor)).
     function actionButtonFill(baseColor: color): color {
-        return (glassChrome || hasBackgroundPreset) ? cardBackgroundColor : baseColor
+        // Also the switch, not the preset — same reason as actionTileColor.
+        return glassChrome ? cardBackgroundColor : baseColor
     }
     property color secondaryColor: _c("secondaryColor", Settings.theme.customThemeColors.secondaryColor || "#c0c5e3")
     // Derived from the background while a preset is active — see the derivation block
