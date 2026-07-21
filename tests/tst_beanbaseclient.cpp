@@ -386,6 +386,48 @@ private slots:
                      "direct productUrl must skip the canonical re-search");
     }
 
+    void refreshBagImageEvictsAndReresolvesFromNewUrl() {
+        // The user edited the bag's product URL. ensureBagImage() alone would
+        // short-circuit twice over — the cached file exists AND the id is in
+        // the once-per-session attempt guard — and confirm the "refresh" with
+        // the OLD page's pixels, silently and forever. refreshBagImage() has
+        // to clear both. Nothing about that failure is observable at runtime:
+        // bagImageReady still fires and the UI still updates, just with the
+        // wrong roaster's photo, which is why it is pinned here.
+        //
+        // Keyed "bag-<rowid>" — the manual-bag cache key, which the web
+        // /beans editor now uses when it refreshes a URL it just changed.
+        FakeBeanBaseServer server;
+        const QByteArray base = server.baseUrl().toUtf8();
+        server.respondForPath("/product-old",
+            "<html><meta property=\"og:image\" content=\"" + base + "/old.jpg\"></html>");
+        server.respondForPath("/old.jpg", "OLDBYTES");
+        server.respondForPath("/product-new",
+            "<html><meta property=\"og:image\" content=\"" + base + "/new.jpg\"></html>");
+        server.respondForPath("/new.jpg", "NEWBYTES");
+
+        QTemporaryDir cacheDir;
+        BeanBaseClient client(&m_nam, &m_settings);
+        client.setVisualizerBaseUrl(server.baseUrl());
+        client.setImageCacheDir(cacheDir.path());
+
+        auto cachedBytes = [&client]() {
+            QFile f(client.bagImagePath(QStringLiteral("bag-42")));
+            return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray();
+        };
+
+        QSignalSpy first(&client, &BeanBaseClient::bagImageReady);
+        client.ensureBagImage("bag-42", "Milk Blend", server.baseUrl() + "/product-old");
+        QVERIFY(first.wait(5000));
+        QCOMPARE(cachedBytes(), QByteArray("OLDBYTES"));
+
+        QSignalSpy refreshed(&client, &BeanBaseClient::bagImageReady);
+        client.refreshBagImage("bag-42", "Milk Blend", server.baseUrl() + "/product-new");
+        QVERIFY(refreshed.wait(5000));
+        QCOMPARE(refreshed.first().at(0).toString(), QString("bag-42"));
+        QCOMPARE(cachedBytes(), QByteArray("NEWBYTES"));
+    }
+
     void recoverBagLinkIndependentOfImageCache() {
         // A legacy blob whose photo was cached before link backfill existed:
         // ensureBagImage short-circuits on the file, but the reorder URL must

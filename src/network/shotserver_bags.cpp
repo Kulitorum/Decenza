@@ -307,10 +307,11 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
                     respondJson(QJsonObject{{"error", "Create failed"}}, 500);
                     return;
                 }
-                // Resolve the photo now that the row id — half the manual cache
-                // key — exists, mirroring the app's onBagCreated. A canonical
-                // bag would also resolve lazily on the first image request; a
-                // manual one has nothing else to trigger it.
+                // Warm the photo now that the row id — half the manual cache key
+                // — exists. Both kinds also resolve lazily on the first /image
+                // miss, so this is latency, not reachability: the web has no
+                // equivalent of the app's pick-time warm, so without it the
+                // first list render after a create always shows a placeholder.
                 const QString link =
                     QJsonDocument::fromJson(bag.value(QStringLiteral("beanBaseData")).toString().toUtf8())
                         .object().value(QStringLiteral("link")).toString();
@@ -348,7 +349,9 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
         if (action == "image" && method == "GET") {
             BeanBaseClient* beanbase = m_mainController ? m_mainController->beanbase() : nullptr;
             if (!beanbase) {
-                respondJson(QJsonObject{{"error", "Bean images not available"}}, 404);
+                // 503, matching the sibling search route: the service is missing,
+                // which is not the same answer as "this bag has no photo".
+                respondJson(QJsonObject{{"error", "Bean images not available"}}, 503);
                 return;
             }
             const QString dbPath = bagStorage->databasePath();
@@ -356,8 +359,13 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
             QThread* loadThread = QThread::create(
                 [safeThis, safeSocket, safeBeanbase, dbPath, bagId, respondJson]() {
                     QString imageKey, roastName, productUrl;
-                    withTempDb(dbPath, "web_bag_image", [&](QSqlDatabase& db) {
+                    bool bagFound = false;
+                    // withTempDb's result is not [[nodiscard]], so a failure to
+                    // open would otherwise leave every string empty and be
+                    // reported to the caller as "this bag has no photo".
+                    const bool dbOk = withTempDb(dbPath, "web_bag_image", [&](QSqlDatabase& db) {
                         const CoffeeBag bag = CoffeeBagStorage::loadBagStatic(db, bagId);
+                        bagFound = bag.isValid();
                         if (bag.isValid()) {
                             roastName = bag.coffeeName;
                             productUrl = QJsonDocument::fromJson(bag.beanBaseData.toUtf8())
@@ -368,11 +376,27 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
                         }
                     });
                     QMetaObject::invokeMethod(qApp,
-                        [safeThis, safeSocket, safeBeanbase, imageKey, roastName, productUrl, respondJson]() {
+                        [safeThis, safeSocket, safeBeanbase, imageKey, roastName, productUrl,
+                         dbOk, bagFound, respondJson]() {
                             if (!safeThis || !safeSocket)
                                 return;
-                            if (imageKey.isEmpty() || !safeBeanbase) {
-                                respondJson(QJsonObject{{"error", "No image"}}, 404);
+                            // Four different conditions used to answer "No image".
+                            // An <img> cannot tell them apart, but MCP/AI callers
+                            // of this route can and should.
+                            if (!dbOk) {
+                                respondJson(QJsonObject{{"error", "Could not read the bag database"}}, 503);
+                                return;
+                            }
+                            if (!safeBeanbase) {
+                                respondJson(QJsonObject{{"error", "Bean images not available"}}, 503);
+                                return;
+                            }
+                            if (!bagFound) {
+                                respondJson(QJsonObject{{"error", "Bag not found"}}, 404);
+                                return;
+                            }
+                            if (imageKey.isEmpty()) {
+                                respondJson(QJsonObject{{"error", "No product URL for this bag"}}, 404);
                                 return;
                             }
                             const QString filePath = safeBeanbase->bagImagePath(imageKey);
@@ -431,33 +455,49 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
                 return;
             }
             auto conn = std::make_shared<QMetaObject::Connection>();
+            // The client saw the product URL change to a new non-empty value:
+            // evict the cached photo and re-resolve from the new page, as the
+            // in-app dialog does on the same edit (the web and MCP `bag_update`
+            // are otherwise the places a URL edit keeps the old page's picture).
+            // The client gates it because only the form knows the URL it opened
+            // with. Done from the SUCCESS handler, not before the write: the
+            // cache key is shared by every bag on the same canonical bean, so
+            // destroying it for an update that turns out to fail — or for a bag
+            // id that does not exist — would blank a photo nothing asked to change.
+            QPointer<BeanBaseClient> safeBeanbase =
+                m_mainController ? m_mainController->beanbase() : nullptr;
+            const bool wantsImageRefresh = bodyJson.value(QStringLiteral("refreshImage")).toBool();
             *conn = connect(bagStorage, &CoffeeBagStorage::bagUpdated, this,
-                [conn, bagId, respondJson](qint64 updatedId, bool success) {
+                [conn, bagId, respondJson, fields, wantsImageRefresh, safeBeanbase](
+                    qint64 updatedId, bool success) {
                     if (updatedId != bagId)
                         return;
                     disconnect(*conn);
-                    if (success)
-                        respondJson(QJsonObject{{"updated", true}, {"bagId", bagId}});
-                    else
+                    if (!success) {
                         respondJson(QJsonObject{{"error", "Bag not found or update failed"}}, 404);
+                        return;
+                    }
+                    bool imageRefreshed = false;
+                    if (wantsImageRefresh && safeBeanbase) {
+                        const QString link =
+                            QJsonDocument::fromJson(
+                                fields.value(QStringLiteral("beanBaseData")).toString().toUtf8())
+                                .object().value(QStringLiteral("link")).toString();
+                        const QString canonicalId = fields.value(QStringLiteral("beanBaseId")).toString();
+                        if (!link.isEmpty()) {
+                            safeBeanbase->refreshBagImage(
+                                canonicalId.isEmpty() ? QStringLiteral("bag-%1").arg(bagId) : canonicalId,
+                                fields.value(QStringLiteral("coffeeName")).toString(), link);
+                            imageRefreshed = true;
+                        }
+                    }
+                    // Echo the decision: a caller that asked for a refresh it did
+                    // not get would otherwise read `updated: true` as "done".
+                    QJsonObject reply{{"updated", true}, {"bagId", bagId}};
+                    if (wantsImageRefresh)
+                        reply.insert(QStringLiteral("imageRefreshed"), imageRefreshed);
+                    respondJson(reply);
                 });
-            // The client saw the product URL change to a new non-empty value:
-            // evict the cached photo and re-resolve from the new page, exactly
-            // as the in-app dialog does on the same edit. Without it the web is
-            // the one place you can change a bag's URL and keep the old page's
-            // picture. The client gates this because only it knows the URL the
-            // form opened with — reading it here would race the write below.
-            if (bodyJson.value(QStringLiteral("refreshImage")).toBool()) {
-                BeanBaseClient* beanbase = m_mainController ? m_mainController->beanbase() : nullptr;
-                const QString link =
-                    QJsonDocument::fromJson(fields.value(QStringLiteral("beanBaseData")).toString().toUtf8())
-                        .object().value(QStringLiteral("link")).toString();
-                const QString canonicalId = fields.value(QStringLiteral("beanBaseId")).toString();
-                if (beanbase && !link.isEmpty())
-                    beanbase->refreshBagImage(
-                        canonicalId.isEmpty() ? QStringLiteral("bag-%1").arg(bagId) : canonicalId,
-                        fields.value(QStringLiteral("coffeeName")).toString(), link);
-            }
             // Setting a Bean Base link propagates it onto the bag's shots, exactly
             // as the in-app edit dialog's link path does.
             const bool propagate = fields.contains(QStringLiteral("beanBaseId"))
@@ -573,7 +613,13 @@ QString ShotServer::generateBeansPage() const
              between editor opens, so a new bag arrived carrying the previous
              bag's URL (#1588). -->
         <label>Product URL</label><input id="dLink" placeholder="https://…">
-        <div class="actions"><button onclick="extractInfo()">Get info from page</button></div>
+        <div class="actions"><button id="btnGetInfo" onclick="extractInfo()">Get info from page</button></div>
+        <!-- Directly under the button that writes to it: the dialog scrolls
+             (max-height 88vh) and on a phone anything further down is below the
+             fold exactly when it matters. role/aria-live so a screen reader
+             hears it — these messages are the only signal that a 90s extraction
+             is running, failed, or needs an AI provider configured. -->
+        <div id="editorStatus" class="muted" role="status" aria-live="polite"></div>
 
         <details class="dialog-section" id="coffeeDetails">
             <summary>Bean details</summary>
@@ -642,12 +688,6 @@ QString ShotServer::generateBeansPage() const
 
         <label>Notes</label><textarea id="fNotes"></textarea>
 
-        <!-- The page-level #status div is covered by this modal, so anything
-             raised while the editor is open (extraction progress, "No AI
-             provider configured", the save validation error) has to land here
-             or it is never seen. Mirrors the app's inline infoStatus text. -->
-        <div id="editorStatus" class="muted"></div>
-
         <div class="dialog-actions">
             <button onclick="el('editor').close()">Cancel</button>
             <button class="primary" onclick="saveEditor()">Save</button>
@@ -674,6 +714,12 @@ QString ShotServer::generateBeansPage() const
         let editBlob = {};          // working copy of the bag's beanBaseData blob
         let editBeanBaseId = '';    // canonical id when linked
         let editOpenedLink = '';    // product URL as the form opened (image-refresh gate)
+        let editBlobReadable = true; // false when the stored blob would not parse
+        // Bumped on every editor open. An extraction or search takes up to 90s,
+        // and its reply must not be applied to whatever bag the editor moved on
+        // to in the meantime — that is #1588's bug (one record's state landing
+        // on the next) wearing a different hat.
+        let editorGeneration = 0;
 
         // Descriptive blob working keys ↔ form ids (mirrors BeanBaseBlob keys).
         const COFFEE_KEYS = [['dOrigin','origin'],['dRegion','region'],['dFarm','farm'],
@@ -688,12 +734,24 @@ QString ShotServer::generateBeansPage() const
         // kind-specific lists and is applied on top of whichever is active.
         const LINK_KEYS = [['dLink','link']];
 
-        // Status inside the editor dialog. status() writes the page-level line,
-        // which the modal covers — use this for anything the user must read
-        // while the dialog is open.
+        // Status inside the editor dialog. The page-level line status() writes
+        // sits behind this modal's backdrop (dialog::backdrop, rgba(0,0,0,0.6))
+        // and usually scrolled out of view, so anything the user must read
+        // while the dialog is open belongs here. The app splits the same
+        // messages across infoStatus (progress) and errorMessage (failures);
+        // one line carries both here.
         const editorStatus = (msg) => { el('editorStatus').textContent = msg || ''; };
 
-        const parseBlob = (s) => { try { return s ? JSON.parse(s) : {}; } catch (e) { return {}; } };
+        // Returns {} for an unreadable blob AND says so via editBlobReadable —
+        // saveEditor must not write an empty blob over details it could not read.
+        const parseBlob = (s, track) => {
+            try { const o = s ? JSON.parse(s) : {}; if (track) editBlobReadable = true; return o; }
+            catch (e) {
+                if (track) editBlobReadable = false;
+                console.warn('Unreadable beanBaseData:', e);
+                return {};
+            }
+        };
         function thumbErr(img, emoji) {
             img.outerHTML = '<div class="thumb placeholder">' + emoji + '</div>';
         }
@@ -708,7 +766,12 @@ QString ShotServer::generateBeansPage() const
             // Equipment list backs the per-bag link picker; best-effort.
             getJson('/api/equipment')
                 .then(d => { equipmentList = d.equipment || []; })
-                .catch(() => { equipmentList = []; });
+                .catch(e => {
+                    // The picker falls back to a "(not loaded)" placeholder, but
+                    // say why — an empty equipment list reads as "none exist".
+                    console.warn('Could not load equipment:', e);
+                    equipmentList = [];
+                });
             getJson('/api/bags')
                 .then(d => { render(d.bags || []); status(''); })
                 .catch(e => status('Could not load bags: ' + e.message));
@@ -770,14 +833,19 @@ QString ShotServer::generateBeansPage() const
 
         function cardHtml(b) {
             const bb = parseBlob(b.beanBaseData);
-            const linked = !!(b.beanBaseId && b.beanBaseData);
+            // Linkedness keys off the canonical id ALONE — BEAN_BASE.md
+            // ("isLinked keys solely off a non-empty id"), BagCard.qml's
+            // hasCanonical, and /api/bag/<id>/image all agree. Requiring the
+            // blob too made a linked bag with an emptied blob lose its
+            // checkmark, Info button and photo while still being linked —
+            // a state saveEditor can now produce by clearing every field.
+            const linked = !!b.beanBaseId;
             const title = esc(b.coffeeName || b.roasterName || 'Bag ' + b.id);
             const ph = b.kind === 'tea' ? '&#127861;' : '&#127793;';
             // A photo is possible for a canonical-linked bag OR a manual one
-            // with a product URL — the app's rule (BagCard.qml imageKey), and
-            // what /api/bag/<id>/image now keys on. `linked` still gates the
-            // Bean Base checkmark and Info button, which are canonical-only.
-            // onerror falls back to the placeholder, so asking costs nothing.
+            // with a product URL — the same key rule as BagCard.qml and
+            // /api/bag/<id>/image. onerror falls back to the placeholder, so
+            // asking for one that does not exist costs nothing.
             const thumb = (linked || bb.link)
                 ? '<img class="thumb" src="/api/bag/' + b.id + '/image" alt="" '
                   + 'onerror="thumbErr(this,' + "'" + ph + "'" + ')">'
@@ -870,7 +938,8 @@ QString ShotServer::generateBeansPage() const
             editingId = id;
             const b = bags.find(x => x.id === id) || {};
             editingKind = kind || b.kind || 'coffee';
-            editBlob = parseBlob(b.beanBaseData);
+            editorGeneration++;
+            editBlob = parseBlob(b.beanBaseData, true);
             editBeanBaseId = b.beanBaseId || '';
             editOpenedLink = (editBlob.link || '').trim();
             el('editorTitle').textContent = id ? 'Edit Bag' : (editingKind === 'tea' ? 'New Tea' : 'New Coffee');
@@ -902,7 +971,9 @@ QString ShotServer::generateBeansPage() const
             el('searchResults').style.display = 'none';
             // Nothing else resets this, so without it an "Extraction failed"
             // from the previously edited bag hangs over the fresh form.
-            editorStatus('');
+            editorStatus(editBlobReadable ? ''
+                : 'This bag\u2019s stored bean details could not be read, so they are '
+                  + 'shown blank and will be left untouched when you save.');
             updateYieldLabel();
             applyKindUi();
             el('editor').showModal();
@@ -926,12 +997,23 @@ QString ShotServer::generateBeansPage() const
         function runSearch(q) {
             const ctrl = new AbortController();
             const to = setTimeout(() => ctrl.abort(), 45000);
+            const forGeneration = editorGeneration;
             getJson('/api/beans/search?q=' + encodeURIComponent(q), { signal: ctrl.signal })
-                .then(d => renderResults(d.results || []))
-                .catch(e => { if (e.name !== 'AbortError') editorStatus('Search failed: ' + e.message); })
+                // A result arriving after the editor moved to another bag must
+                // not be offered for it: pickResult replaces the OPEN bag's blob
+                // and stamps a canonical id on it.
+                .then(d => { if (editorGeneration === forGeneration) renderResults(d.results || []); })
+                .catch(e => {
+                    if (editorGeneration !== forGeneration) return;
+                    // The abort branch was previously silent, so a timed-out
+                    // search looked identical to one never typed.
+                    editorStatus(e.name === 'AbortError'
+                        ? 'Bean Base search timed out' : 'Search failed: ' + e.message);
+                })
                 .finally(() => clearTimeout(to));
         }
         function renderResults(results) {
+            editorStatus('');   // a previous "Search failed" must not sit over fresh results
             const box = el('searchResults');
             if (!results.length) { box.innerHTML = '<div class="result muted">No matches</div>'; box.style.display = ''; return; }
             box.innerHTML = results.slice(0, 8).map((r, i) =>
@@ -948,6 +1030,10 @@ QString ShotServer::generateBeansPage() const
             // + descriptive keys) and stamp the identity fields, mirroring the app.
             editBlob = Object.assign({}, r);
             editBeanBaseId = r.id || '';
+            // The canonical entry's link is now what the form "opened" with:
+            // without this, Save always reports a URL change and evicts a photo
+            // to re-fetch it from the very page it was just resolved from.
+            editOpenedLink = (editBlob.link || '').trim();
             if (r.roasterName) el('fRoaster').value = r.roasterName;
             if (r.roastName) el('fCoffee').value = r.roastName;
             COFFEE_KEYS.concat(LINK_KEYS).forEach(([fid, key]) => { const e = el(fid); if (e && r[key] != null) e.value = r[key]; });
@@ -956,16 +1042,30 @@ QString ShotServer::generateBeansPage() const
         }
 
         // --- AI "get info from page" ---
+        let extracting = false;
         function extractInfo() {
             const url = el('dLink').value.trim();
             if (!url) { editorStatus('Enter a product URL first'); return; }
+            // One extraction at a time. Every click is a PAID provider call, and
+            // with a reply up to 90s away a user who sees nothing happen will
+            // click again — buying a second one they never asked for.
+            if (extracting) return;
+            extracting = true;
+            el('btnGetInfo').disabled = true;
             editorStatus('Fetching page and extracting…');
+            const forGeneration = editorGeneration;
             const ctrl = new AbortController();
-            const to = setTimeout(() => ctrl.abort(), 90000);
+            // Strictly longer than the server's own 90s budget so its specific
+            // message (which stage failed, and why) wins the race; this abort is
+            // only the backstop for a server that never answers at all.
+            const to = setTimeout(() => ctrl.abort(), 95000);
             fetch('/api/beans/extract', { method: 'POST', headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ url: url, kind: editingKind }), signal: ctrl.signal })
                 .then(readJson)
                 .then(d => {
+                    // The editor moved to another bag while this was in flight:
+                    // these fields describe the page of a bag no longer shown.
+                    if (editorGeneration !== forGeneration) return;
                     const f = d.fields || {};
                     // Fill ONLY empty fields, like the app's take() and as
                     // BEAN_BASE.md specifies ("fills empty detail fields
@@ -973,10 +1073,11 @@ QString ShotServer::generateBeansPage() const
                     // typed or what a picked Bean Base entry supplied. Both
                     // surfaces put search and extraction side by side, so
                     // pick-then-extract is an ordinary two-click sequence.
-                    let filled = 0;
+                    let filled = 0, occupied = 0;
                     const take = (fid, key) => {
                         const e = el(fid);
-                        if (!e || e.value.trim() || f[key] == null || f[key] === '') return;
+                        if (!e || f[key] == null || f[key] === '') return;
+                        if (e.value.trim()) { occupied++; return; }
                         e.value = f[key];
                         filled++;
                     };
@@ -986,13 +1087,27 @@ QString ShotServer::generateBeansPage() const
                     // AIManager::parseBagExtraction's key whitelist has none of
                     // them, so there is nothing to apply. The URL field in
                     // particular holds what the extraction was just run from.
+                    // "filled === 0" has two unrelated causes and only one of
+                    // them is "your fields are already filled in" — claiming
+                    // that when the page simply yielded nothing sends the user
+                    // looking for data that was never there.
                     editorStatus(filled > 0
                         ? 'Filled ' + filled + ' empty field' + (filled === 1 ? '' : 's') + ' — review and Save.'
-                        : 'Nothing new found — the fields already have values.');
+                        : (occupied > 0
+                            ? 'Nothing new — every detail the page gave is already filled in.'
+                            : 'Nothing found on that page. Check the URL points at the product '
+                              + 'page itself, not a category or search page.'));
                 })
-                .catch(e => { if (e.name !== 'AbortError') editorStatus('Extraction failed: ' + e.message);
-                              else editorStatus('Extraction timed out'); })
-                .finally(() => clearTimeout(to));
+                .catch(e => {
+                    if (editorGeneration !== forGeneration) return;
+                    editorStatus(e.name === 'AbortError'
+                        ? 'Extraction timed out' : 'Extraction failed: ' + e.message);
+                })
+                .finally(() => {
+                    clearTimeout(to);
+                    extracting = false;
+                    el('btnGetInfo').disabled = false;
+                });
         }
 
         function saveEditor() {
@@ -1026,12 +1141,20 @@ QString ShotServer::generateBeansPage() const
                 const v = e.value.trim();
                 if (v) editBlob[key] = v; else delete editBlob[key];
             });
-            // ALWAYS send the blob, empty or not. bagFieldsFromBody is a sparse
-            // whitelist — an absent key means "leave the column alone" — so
-            // omitting it when the last blob field is cleared silently discards
-            // the deletion and the old value returns on reopen. Send '' rather
-            // than '{}' so the bag reads as unlinked, not as an empty blob.
-            bodyData.beanBaseData = Object.keys(editBlob).length ? JSON.stringify(editBlob) : '';
+            // Send the blob whether or not it has keys: bagFieldsFromBody is a
+            // sparse whitelist — an absent key means "leave the column alone" —
+            // so omitting it when the last field is cleared discards the
+            // deletion and the old value returns on reopen. '' rather than '{}'
+            // because the column's bind hook collapses empty to SQL NULL, a
+            // real clear, where '{}' would persist a junk non-null blob.
+            //
+            // EXCEPT when the stored blob would not parse. Then editBlob is {}
+            // because we could not READ it, not because the user cleared it, and
+            // sending '' would wipe details the form never showed them. Omitting
+            // the key leaves the column untouched — the pre-fix behaviour, which
+            // was accidentally right for this one case.
+            if (editBlobReadable)
+                bodyData.beanBaseData = Object.keys(editBlob).length ? JSON.stringify(editBlob) : '';
             if (editBeanBaseId) bodyData.beanBaseId = editBeanBaseId;
             // A URL edited to a new non-empty value re-resolves the bag photo:
             // the cached pixels describe the OLD page. Gated here, not on the

@@ -676,6 +676,11 @@ QString ShotServer::generateRecipesPage() const
                 <option value="before">Before espresso (long black)</option>
             </select>
         </details>
+        <!-- The page-level #status sits behind this modal's backdrop, so a
+             validation error written there leaves the dialog looking simply
+             unresponsive. Same fix as the /beans editor. -->
+        <div id="editorStatus" class="muted" role="status" aria-live="polite"></div>
+
         <div class="dialog-actions">
             <button onclick="el('editor').close()">Cancel</button>
             <button class="primary" onclick="saveEditor()">Save</button>
@@ -755,6 +760,11 @@ QString ShotServer::generateRecipesPage() const
                     const sel = el('fBag');
                     const opt = document.createElement('option');
                     opt.value = ''; opt.disabled = true; opt.textContent = '(bags unavailable)';
+                    // Marked like the finished-bag placeholder so the next
+                    // editor open clears it — otherwise one failed load leaves
+                    // "(bags unavailable)" in the picker for the whole session,
+                    // including after a later load succeeds.
+                    opt.dataset.placeholder = '1';
                     sel.appendChild(opt);
                 });
         }
@@ -769,6 +779,10 @@ QString ShotServer::generateRecipesPage() const
             el('fRoaster').value = b.roasterName || '';
             el('fCoffee').value = b.coffeeName || '';
         }
+
+        // Status inside the editor dialog — status() writes the page-level line,
+        // which this modal's backdrop covers.
+        const editorStatus = (msg) => { el('editorStatus').textContent = msg || ''; };
 
         function load() {
             status('Loading…');
@@ -970,6 +984,7 @@ QString ShotServer::generateRecipesPage() const
             el('fName').value = r.name || '';
             el('fDrinkType').value = r.drinkType || '';
             el('fProfile').value = r.profileTitle || '';
+            editorStatus('');   // nothing else clears a message left by the last recipe
             const bagSel = el('fBag');
             bagSel.onchange = onBagChanged;
             // Drop any placeholder left by a previous open. loadBags() runs
@@ -1027,10 +1042,10 @@ QString ShotServer::generateRecipesPage() const
             const name = el('fName').value.trim();
             const profileTitle = el('fProfile').value.trim();
             const hasWater = el('fHasWater').checked;
-            if (!name) { status('Name is required'); return; }
+            if (!name) { editorStatus('Name is required'); return; }
             // Profile-less recipes are valid only as hot-water drinks (tea).
             if (!profileTitle && !hasWater) {
-                status('Profile title is required (unless the recipe adds hot water)'); return;
+                editorStatus('Profile title is required (unless the recipe adds hot water)'); return;
             }
             const steam = {};
             if (el('fHasMilk').checked) steam.hasMilk = true;
@@ -1093,7 +1108,7 @@ QString ShotServer::generateRecipesPage() const
                                  : post('/api/recipes', bodyData);
             })
             .then(() => { el('editor').close(); load(); })
-            .catch(e => status(e.message));
+            .catch(e => editorStatus('Could not save the recipe: ' + e.message));
         }
 
         load();
