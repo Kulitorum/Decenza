@@ -36,6 +36,10 @@ Item {
     Accessible.role: Accessible.StaticText
     Accessible.name: root.pageTitle
     Accessible.focusable: root.pageTitle.length > 0
+    // Yield the tree while the long-press hatch below is live: that handler is a
+    // focusable Button carrying this same title plus its long-press description,
+    // so leaving this StaticText in place would announce the title twice.
+    Accessible.ignored: root.isCompact && root.onIdlePage
 
     // --- COMPACT MODE (status bar rendering) ---
     Item {
@@ -72,8 +76,10 @@ Item {
         // whose bottom bar overflowed can lose the Settings widget off the screen
         // edge (issue #1586) with no other route into Settings — this gives one
         // that does not depend on where the Settings widget ended up. Idle-only
-        // (onIdlePage); a short tap does NOT open Settings, so it cannot be
-        // triggered by accident.
+        // (onIdlePage); an ordinary short tap does NOT open Settings, so it cannot
+        // be triggered by accident. (With a screen reader active, activation DOES
+        // open it — see onAccessibleClicked below, which is that user's only way
+        // in, since they cannot long-press.)
         //
         // It lives in the compact (status-bar) rendering only. The pageTitle widget
         // is itself layout-editable, so a user who moved it to a center zone or

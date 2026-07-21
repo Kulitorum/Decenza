@@ -1208,11 +1208,30 @@ bool SettingsNetwork::saveLayoutObjectVerified(const QJsonObject& layout, const 
     // re-ran next time — but the crossing-gated callers get exactly one attempt
     // ever, so force the flush and surface a failure instead of reporting a
     // success that did not happen.
+    //
+    // status() is STICKY: QSettingsPrivate::setStatus only overwrites a stored
+    // error when the current value is NoError, so anything earlier in the
+    // process (e.g. a FormatError parsing a partly-corrupt store at load) latches
+    // forever and would make every later write look failed. Sample it before the
+    // sync so an already-broken store is reported as "cannot verify" rather than
+    // as a fresh failure this write did not cause.
+    const QSettings::Status before = m_settings.status();
     m_settings.sync();
-    if (m_settings.status() != QSettings::NoError) {
+    const QSettings::Status after = m_settings.status();
+
+    if (before != QSettings::NoError) {
+        qWarning().noquote()
+            << "SettingsNetwork: cannot verify the write of" << what
+            << "— the settings store was already in error state"
+            << static_cast<int>(before)
+            << "before this write, and QSettings::status() never clears. The value"
+            << "may or may not have persisted; treat a missing widget as unpersisted.";
+        return false;
+    }
+    if (after != QSettings::NoError) {
         qWarning().noquote()
             << "SettingsNetwork: FAILED to persist" << what
-            << "(QSettings status" << static_cast<int>(m_settings.status())
+            << "(QSettings status" << static_cast<int>(after)
             << ") — its one-time schema gate is already consumed, so this will NOT be retried;"
             << "add the widget from Settings -> Layout if it is missing";
         return false;
