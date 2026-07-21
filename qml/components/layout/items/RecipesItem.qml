@@ -211,7 +211,12 @@ Item {
         // full-mode path, which announces via IdlePage).
         onAboutToShow: root.recipePageIndex = 0  // Always open on the most-recent five.
 
+        onClosed: { if (root.idlePage) root.idlePage.releasePanelClearance() }
         onOpened: {
+            if (root.idlePage) {
+                var rootTopInPage = root.mapToItem(root.idlePage, 0, 0).y
+                root.idlePage.requestPanelClearance(rootTopInPage + presetPopup.y, presetPopup.height)
+            }
             if (typeof AccessibilityManager === "undefined" || !AccessibilityManager.enabled) return
             var recipes = root.visibleRecipes
             if (recipes.length === 0) return

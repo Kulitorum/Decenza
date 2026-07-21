@@ -168,12 +168,23 @@ Item {
     // --- PRESET POPUP (compact mode) ---
     Popup {
         id: presetPopup
-        modal: false
+        modal: true
+        dim: false
         padding: Theme.spacingMedium
         closePolicy: Popup.CloseOnPressOutside
 
         // Reopen on the first (most-recent) page, matching RecipesItem/BeansItem.
         onAboutToShow: root.profilePageIndex = 0
+
+        // Slide the OTHER idle content clear of this popup (up for a lower-half
+        // placement, down for an upper-half one); the button/popup stay put.
+        onOpened: {
+            if (root.idlePage) {
+                var rootTopInPage = root.mapToItem(root.idlePage, 0, 0).y
+                root.idlePage.requestPanelClearance(rootTopInPage + presetPopup.y, presetPopup.height)
+            }
+        }
+        onClosed: { if (root.idlePage) root.idlePage.releasePanelClearance() }
 
         width: {
             var win = root.Window.window

@@ -184,7 +184,12 @@ Item {
         // announce here directly to keep feature parity for screen-reader users.
         onAboutToShow: root.beanPageIndex = 0  // Always open on the most-recent five.
 
+        onClosed: { if (root.idlePage) root.idlePage.releasePanelClearance() }
         onOpened: {
+            if (root.idlePage) {
+                var rootTopInPage = root.mapToItem(root.idlePage, 0, 0).y
+                root.idlePage.requestPanelClearance(rootTopInPage + presetPopup.y, presetPopup.height)
+            }
             if (typeof AccessibilityManager === "undefined" || !AccessibilityManager.enabled) return
             var bags = root.visibleBags
             if (bags.length === 0) return
