@@ -47,5 +47,5 @@ of `mcptools_write.cpp` are untouched by this change.
 ## 7. Docs & verification
 
 - [x] 7.1 Wiki manual updated and pushed (`Decenza.wiki` c294d8e): a note in **Equipment Packages** (also distinguishing this from the existing identical-gear rule) and an extension of the naming paragraph in **Creating a Recipe**.
-- [ ] 7.2 Build via Qt Creator and smoke-test both forms: colliding name disables Save + shows the message; a distinct or freed name saves normally.
-- [ ] 7.3 Archive this OpenSpec change (`/opsx:archive`) as the last commit on the branch, right before merge.
+- [x] 7.2 Smoke-tested in the running app: both the equipment and recipe forms block a colliding name and save normally otherwise.
+- [x] 7.3 Archived as the last commit on the branch, with the `active-name-uniqueness` capability promoted into `openspec/specs/`.
