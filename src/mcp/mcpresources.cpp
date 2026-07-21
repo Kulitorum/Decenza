@@ -10,6 +10,7 @@
 #include "../core/settings.h"
 #include "../core/settings_dye.h"
 #include "../network/webdebuglogger.h"
+#include "mcplogfilter.h"
 
 #include <QDateTime>
 #include <QJsonObject>
@@ -314,22 +315,56 @@ void registerMcpResources(McpResourceRegistry* registry, DE1Device* device,
         });
 }
 
+// Builds the {"log", "lines"} response fields shared by every debug_get_log
+// mode: `log` stays the newline-joined text (unchanged shape for existing
+// callers), `lines` is the additive per-line {"line", "text"} array that lets
+// a caller follow up a filtered/tailed hit with a precise offset request.
+// When `deduped` is true, each `lines[]` entry also carries `count`/`lastLine`
+// (see McpLogFilter::dedupeConsecutive) and `log` annotates a collapsed run
+// with "(xN)"; when false, entries and `log` are exactly as before dedupe existed.
+static void appendLogFields(QJsonObject& result, const QList<McpLogFilter::LineMatch>& matches,
+                            bool deduped = false)
+{
+    QStringList texts;
+    QJsonArray lineArray;
+    texts.reserve(matches.size());
+    for (const auto& m : matches) {
+        QJsonObject entry{{"line", static_cast<qint64>(m.line)}, {"text", m.text}};
+        if (deduped) {
+            texts.append(m.count > 1 ? m.text + QStringLiteral(" (x%1)").arg(m.count) : m.text);
+            entry["count"] = static_cast<qint64>(m.count);
+            entry["lastLine"] = static_cast<qint64>(m.lastLine);
+        } else {
+            texts.append(m.text);
+        }
+        lineArray.append(entry);
+    }
+    result["log"] = texts.join('\n');
+    result["lines"] = lineArray;
+}
+
 void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
 {
     // debug_get_log — chunked access to the persisted debug log with session awareness
     registry->registerTool(
         "debug_get_log",
-        "Read the persisted debug log. Supports three modes: "
+        "Read the persisted debug log. Supports three addressing modes: "
         "(1) sessions=true: list all sessions with index, start line, timestamp, and line count. "
-        "(2) session=N: return lines from session N (-1=most recent, -2=previous, 0=first). "
-        "Combine with offset/limit for pagination within a session. "
-        "(3) Default: raw line-based pagination with offset/limit.",
+        "(2) session=N: address session N (-1=most recent, -2=previous, 0=first). "
+        "(3) Default: address the whole log. "
+        "Within modes 2/3, `filter` (substring, or regex when `regex` is true; case-insensitive) "
+        "and `minLevel` (DEBUG/INFO/WARN/ERROR/FATAL, mode-2/3 app log only) narrow which lines "
+        "qualify before pagination. `dedupe` collapses consecutive qualifying lines that are "
+        "identical apart from each line's own leading timestamp into one entry carrying `count` "
+        "and `lastLine` (non-consecutive repeats are not collapsed). `tail` (last N qualifying/"
+        "deduped entries) takes precedence over `offset` when both are given. Every returned line "
+        "carries its absolute line number in the `lines` array.",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
                 {"offset", QJsonObject{
                     {"type", "integer"},
-                    {"description", "Line number to start from (0-based, or relative within session). Default: 0"}
+                    {"description", "Line number to start from (0-based, or relative within session). Default: 0. Ignored when tail is set."}
                 }},
                 {"limit", QJsonObject{
                     {"type", "integer"},
@@ -342,6 +377,27 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
                 {"session", QJsonObject{
                     {"type", "integer"},
                     {"description", "Return lines from this session only. Negative indexes count from end (-1=most recent)"}
+                }},
+                {"filter", QJsonObject{
+                    {"type", "string"},
+                    {"description", "Only return lines containing this text (case-insensitive substring, or regex when `regex` is true)"}
+                }},
+                {"regex", QJsonObject{
+                    {"type", "boolean"},
+                    {"description", "Treat `filter` as a case-insensitive regular expression instead of a literal substring"}
+                }},
+                {"minLevel", QJsonObject{
+                    {"type", "string"},
+                    {"enum", QJsonArray{"DEBUG", "INFO", "WARN", "ERROR", "FATAL"}},
+                    {"description", "Only return lines at or above this severity"}
+                }},
+                {"tail", QJsonObject{
+                    {"type", "integer"},
+                    {"description", "Return only the last N qualifying lines instead of paginating from offset. Takes precedence over offset when both are set."}
+                }},
+                {"dedupe", QJsonObject{
+                    {"type", "boolean"},
+                    {"description", "Collapse consecutive qualifying lines that are identical apart from each line's own leading timestamp into one entry carrying count/lastLine. Non-consecutive repeats are not collapsed."}
                 }}
             }}
         },
@@ -351,41 +407,28 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
                 return QJsonObject{{"error", "Debug logger not available"}};
             }
 
-            static const QString sessionMarker = QStringLiteral("========== SESSION START:");
+            const QString filter = args["filter"].toString();
+            const bool regexMode = args["regex"].toBool(false);
+            const QString minLevel = args["minLevel"].toString();
+            if (!minLevel.isEmpty() && McpLogFilter::levelRank(minLevel) < 0) {
+                return QJsonObject{{"error", "Invalid minLevel: " + minLevel + " (must be DEBUG, INFO, WARN, ERROR, or FATAL)"}};
+            }
+            // tail:0 (or a negative value, clamped to 0) means "no tail" — must NOT be
+            // treated the same as a real tail request below, or hasMore gets forced to
+            // false on an ordinary paginated page that may have more lines beyond it.
+            const qsizetype tail = args.contains("tail")
+                ? qMax(qsizetype(0), static_cast<qsizetype>(args["tail"].toInt(0))) : 0;
+            const bool tailActive = tail > 0;
+            const bool dedupe = args["dedupe"].toBool(false);
+            const qsizetype offset = qMax(qsizetype(0), static_cast<qsizetype>(args["offset"].toInt(0)));
+            const qsizetype limit = qBound(qsizetype(1), static_cast<qsizetype>(args["limit"].toInt(500)), qsizetype(2000));
+            const bool narrowed = !filter.isEmpty() || !minLevel.isEmpty() || tailActive || dedupe;
 
-            // For sessions or session mode, we need to scan the full log for session boundaries
+            // Mode 1/2: sessions=true or session=N — resolve via the cached index.
             if (args.contains("sessions") || args.contains("session")) {
-                // Read all lines to find session boundaries
                 qsizetype totalLines = 0;
-                QStringList allLines = logger->getPersistedLogChunk(0, 100000, &totalLines);
+                const QList<WebDebugLogger::SessionBoundary> sessions = logger->sessionIndex(&totalLines);
 
-                // Find session start lines
-                struct SessionInfo {
-                    qsizetype startLine;
-                    QString timestamp;
-                    qsizetype lineCount; // filled in after scan
-                };
-                QList<SessionInfo> sessions;
-
-                for (qsizetype i = 0; i < allLines.size(); ++i) {
-                    if (allLines[i].contains(sessionMarker)) {
-                        // Extract timestamp from "========== SESSION START: 2026-03-20T... =========="
-                        QString ts;
-                        qsizetype tsStart = allLines[i].indexOf(sessionMarker) + sessionMarker.size();
-                        qsizetype tsEnd = allLines[i].indexOf(QStringLiteral("=========="), tsStart);
-                        if (tsEnd > tsStart)
-                            ts = allLines[i].mid(tsStart, tsEnd - tsStart).trimmed();
-                        sessions.append({i, ts, 0});
-                    }
-                }
-
-                // Calculate line counts
-                for (qsizetype i = 0; i < sessions.size(); ++i) {
-                    qsizetype nextStart = (i + 1 < sessions.size()) ? sessions[i + 1].startLine : totalLines;
-                    sessions[i].lineCount = nextStart - sessions[i].startLine;
-                }
-
-                // Mode 1: list sessions
                 if (args["sessions"].toBool()) {
                     QJsonArray sessionList;
                     for (qsizetype i = 0; i < sessions.size(); ++i) {
@@ -404,7 +447,6 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
                     };
                 }
 
-                // Mode 2: return lines from a specific session
                 qsizetype sessionIdx = static_cast<qsizetype>(args["session"].toInt(0));
                 if (sessionIdx < 0)
                     sessionIdx = sessions.size() + sessionIdx;
@@ -413,17 +455,19 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
                                        {"sessionCount", static_cast<int>(sessions.size())}};
                 }
 
-                qsizetype sessStart = sessions[sessionIdx].startLine;
-                qsizetype sessLines = sessions[sessionIdx].lineCount;
-                qsizetype offset = qMax(qsizetype(0), static_cast<qsizetype>(args["offset"].toInt(0)));
-                qsizetype limit = qBound(qsizetype(1), static_cast<qsizetype>(args["limit"].toInt(500)), qsizetype(2000));
+                const qsizetype sessStart = sessions[sessionIdx].startLine;
+                const qsizetype sessLines = sessions[sessionIdx].lineCount;
+                const QStringList rawLines = logger->getPersistedLogChunk(sessStart, sessLines);
 
-                // Clamp to session bounds
-                qsizetype absStart = sessStart + offset;
-                qsizetype absEnd = qMin(absStart + limit, sessStart + sessLines);
-                QStringList sessionLines;
-                for (qsizetype i = absStart; i < absEnd && i < allLines.size(); ++i)
-                    sessionLines.append(allLines[i]);
+                QString filterError;
+                QList<McpLogFilter::LineMatch> qualifying =
+                    McpLogFilter::filterLines(rawLines, sessStart, filter, regexMode, minLevel, &filterError);
+                if (!filterError.isEmpty())
+                    return QJsonObject{{"error", filterError}};
+                if (dedupe)
+                    qualifying = McpLogFilter::dedupeConsecutive(qualifying);
+
+                const QList<McpLogFilter::LineMatch> page = McpLogFilter::paginate(qualifying, offset, limit, tail);
 
                 QJsonObject result;
                 result["session"] = static_cast<int>(sessionIdx);
@@ -431,9 +475,10 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
                 result["offsetLines"] = static_cast<int>(offset);
                 result["limitLines"] = static_cast<int>(limit);
                 result["sessionLines"] = static_cast<int>(sessLines);
-                result["returnedLines"] = static_cast<int>(sessionLines.size());
-                result["hasMore"] = (offset + sessionLines.size()) < sessLines;
-                result["log"] = sessionLines.join('\n');
+                result["qualifyingLines"] = static_cast<int>(qualifying.size());
+                result["returnedLines"] = static_cast<int>(page.size());
+                result["hasMore"] = tailActive ? false : ((offset + page.size()) < qualifying.size());
+                appendLogFields(result, page, dedupe);
 
                 if (!result["hasMore"].toBool() && memoryMonitor)
                     result["memorySummary"] = memoryMonitor->toSummaryString();
@@ -441,25 +486,53 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
                 return result;
             }
 
-            // Mode 3: raw offset/limit (original behavior)
-            qsizetype offset = qMax(qsizetype(0), static_cast<qsizetype>(args["offset"].toInt(0)));
-            qsizetype limit = qBound(qsizetype(1), static_cast<qsizetype>(args["limit"].toInt(500)), qsizetype(2000));
-            qsizetype totalLines = 0;
+            // Mode 3: whole-log addressing.
+            if (!narrowed) {
+                // Unfiltered, untailed raw pagination — original narrow read,
+                // unchanged cost and response shape for existing callers.
+                qsizetype totalLines = 0;
+                QStringList lines = logger->getPersistedLogChunk(offset, limit, &totalLines);
 
-            QStringList lines = logger->getPersistedLogChunk(offset, limit, &totalLines);
+                QJsonObject result;
+                result["offsetLines"] = static_cast<int>(offset);
+                result["limitLines"] = static_cast<int>(limit);
+                result["totalLines"] = static_cast<int>(totalLines);
+                result["returnedLines"] = static_cast<int>(lines.size());
+                result["hasMore"] = (offset + lines.size()) < totalLines;
+                result["log"] = lines.join('\n');
+
+                if (!result["hasMore"].toBool() && memoryMonitor)
+                    result["memorySummary"] = memoryMonitor->toSummaryString();
+
+                return result;
+            }
+
+            // Filtered/tailed whole-log search: same bounded scan the session
+            // index already uses, since there's no persistent search index.
+            qsizetype totalLines = 0;
+            const QStringList rawLines = logger->getPersistedLogChunk(0, 100000, &totalLines);
+
+            QString filterError;
+            QList<McpLogFilter::LineMatch> qualifying =
+                McpLogFilter::filterLines(rawLines, 0, filter, regexMode, minLevel, &filterError);
+            if (!filterError.isEmpty())
+                return QJsonObject{{"error", filterError}};
+            if (dedupe)
+                qualifying = McpLogFilter::dedupeConsecutive(qualifying);
+
+            const QList<McpLogFilter::LineMatch> page = McpLogFilter::paginate(qualifying, offset, limit, tail);
 
             QJsonObject result;
             result["offsetLines"] = static_cast<int>(offset);
             result["limitLines"] = static_cast<int>(limit);
             result["totalLines"] = static_cast<int>(totalLines);
-            result["returnedLines"] = static_cast<int>(lines.size());
-            result["hasMore"] = (offset + lines.size()) < totalLines;
-            result["log"] = lines.join('\n');
+            result["qualifyingLines"] = static_cast<int>(qualifying.size());
+            result["returnedLines"] = static_cast<int>(page.size());
+            result["hasMore"] = tailActive ? false : ((offset + page.size()) < qualifying.size());
+            appendLogFields(result, page, dedupe);
 
-            // Append memory summary if this is the last chunk
-            if (!result["hasMore"].toBool() && memoryMonitor) {
+            if (!result["hasMore"].toBool() && memoryMonitor)
                 result["memorySummary"] = memoryMonitor->toSummaryString();
-            }
 
             return result;
         },

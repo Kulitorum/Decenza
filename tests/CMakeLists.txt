@@ -890,6 +890,35 @@ add_decenza_test(tst_mcptools_presets
 target_link_libraries(tst_mcptools_presets PRIVATE decenza_shotlib Qt6::TextToSpeech Qt6::Multimedia paho-mqtt3a-static)
 target_include_directories(tst_mcptools_presets PRIVATE ${CMAKE_BINARY_DIR})
 
+# --- tst_webdebuglogger: WebDebugLogger session-index cache (improve-mcp-debug-log-search) ---
+add_decenza_test(tst_webdebuglogger
+    tst_webdebuglogger.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/webdebuglogger.cpp
+)
+
+# --- tst_mcplogfilter: shared filter/tail helpers for debug_get_log / shots_get_debug_log ---
+# (mcplogfilter.h is header-only — nothing to link beyond decenza_testlib's Qt Core.)
+add_decenza_test(tst_mcplogfilter
+    tst_mcplogfilter.cpp
+)
+
+# --- tst_mcptools_shots_debuglog: shots_get_debug_log filter/regex/tail (improve-mcp-debug-log-search) ---
+add_decenza_test(tst_mcptools_shots_debuglog
+    tst_mcptools_shots_debuglog.cpp
+    ${MCP_MOC_HEADERS}
+    ${CMAKE_SOURCE_DIR}/src/mcp/mcptools_shots.cpp
+    ${PROFILEMANAGER_SOURCES}
+    ${CMAKE_SOURCE_DIR}/src/core/accessibilitymanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/screensaver/screensavervideomanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/batterymanager.cpp
+    ${CMAKE_BINARY_DIR}/version_code.cpp
+)
+target_link_libraries(tst_mcptools_shots_debuglog PRIVATE decenza_shotlib Qt6::TextToSpeech Qt6::Multimedia paho-mqtt3a-static)
+target_include_directories(tst_mcptools_shots_debuglog PRIVATE ${CMAKE_BINARY_DIR})
+# Same missing built-in profiles QRC as tst_mcptools_profiles above — McpTestFixture's
+# ProfileManager falls back to "default" at construction and warns without it.
+target_sources(tst_mcptools_shots_debuglog PRIVATE ${PROFILES_QRC})
+
 # --- tst_mcpserver_session: Session management, ping, subscribe/unsubscribe ---
 # Uses real mcpserver.cpp but stubs out tool/resource registration functions
 # to avoid linking mcptools_*.cpp and their heavy transitive deps.

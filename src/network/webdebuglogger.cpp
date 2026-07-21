@@ -3,7 +3,12 @@
 #include <QDebug>
 #include <QStandardPaths>
 #include <QDir>
+#include <QFileInfo>
 #include <QTextStream>
+
+namespace {
+const QString kSessionMarker = QStringLiteral("========== SESSION START:");
+}
 
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
@@ -56,6 +61,21 @@ WebDebugLogger::WebDebugLogger(QObject* parent)
         stream << "\n========== SESSION START: " << m_startTime.toString(Qt::ISODate) << " ==========\n";
     }
 }
+
+#ifdef DECENZA_TESTING
+WebDebugLogger::WebDebugLogger(const QString& testLogFilePath, QObject* parent)
+    : QObject(parent)
+    , m_startTime(QDateTime::currentDateTime())
+{
+    m_timer.start();
+    m_logFilePath = testLogFilePath;
+}
+
+void WebDebugLogger::installForTesting(WebDebugLogger* instance)
+{
+    s_instance = instance;
+}
+#endif
 
 void WebDebugLogger::messageHandler(QtMsgType type, const QMessageLogContext& context, const QString& msg)
 {
@@ -160,6 +180,13 @@ QStringList WebDebugLogger::getPersistedLogChunk(qsizetype offset, qsizetype lim
 {
     QFile file(m_logFilePath);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        // Distinct from "log is genuinely empty" — surfaced so a caller isn't left
+        // reading an empty result as though nothing has ever been logged. QFileInfo's
+        // stat-based size()/mtime() (used by sessionIndex()'s cache key) can succeed
+        // even when the file can't be opened, so this warning is the only signal that
+        // the persisted log is currently unreadable.
+        qWarning() << "WebDebugLogger: failed to open persisted log for reading:" << m_logFilePath
+                   << file.errorString();
         if (totalLines) *totalLines = 0;
         return {};
     }
@@ -178,6 +205,49 @@ QStringList WebDebugLogger::getPersistedLogChunk(qsizetype offset, qsizetype lim
 
     if (totalLines) *totalLines = lineNum;
     return result;
+}
+
+QList<WebDebugLogger::SessionBoundary> WebDebugLogger::sessionIndex(qsizetype* totalLines) const
+{
+    QMutexLocker locker(&m_sessionIndexMutex);
+
+    const QFileInfo info(m_logFilePath);
+    const qint64 size = info.size();
+    const QDateTime mtime = info.lastModified();
+
+    if (m_cachedFileSize != size || m_cachedFileMTime != mtime) {
+#ifdef DECENZA_TESTING
+        ++s_testSessionIndexRebuildCount;
+#endif
+        qsizetype scannedTotal = 0;
+        // Same 100,000-line cap the tool's filtered/tailed reads use — a
+        // generous superset of what MAX_LOG_FILE_SIZE (2MB) can ever hold.
+        const QStringList allLines = getPersistedLogChunk(0, 100000, &scannedTotal);
+
+        QList<SessionBoundary> sessions;
+        for (qsizetype i = 0; i < allLines.size(); ++i) {
+            if (allLines[i].contains(kSessionMarker)) {
+                QString ts;
+                const qsizetype tsStart = allLines[i].indexOf(kSessionMarker) + kSessionMarker.size();
+                const qsizetype tsEnd = allLines[i].indexOf(QStringLiteral("=========="), tsStart);
+                if (tsEnd > tsStart)
+                    ts = allLines[i].mid(tsStart, tsEnd - tsStart).trimmed();
+                sessions.append({i, ts, 0});
+            }
+        }
+        for (qsizetype i = 0; i < sessions.size(); ++i) {
+            const qsizetype nextStart = (i + 1 < sessions.size()) ? sessions[i + 1].startLine : scannedTotal;
+            sessions[i].lineCount = nextStart - sessions[i].startLine;
+        }
+
+        m_cachedSessionIndex = sessions;
+        m_cachedTotalLines = scannedTotal;
+        m_cachedFileSize = size;
+        m_cachedFileMTime = mtime;
+    }
+
+    if (totalLines) *totalLines = m_cachedTotalLines;
+    return m_cachedSessionIndex;
 }
 
 QString WebDebugLogger::logFilePath() const
