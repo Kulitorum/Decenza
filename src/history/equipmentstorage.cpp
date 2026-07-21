@@ -326,8 +326,9 @@ void EquipmentStorage::requestCreatePackage(const QVariantMap& packageMap)
                 *newId = existing;
             } else if (findPackageByNameStatic(db, pkg.name, 0) > 0) {
                 // New gear, but its name duplicates another active package — reject
-                // (block-duplicate-active-names). Non-form callers (ShotServer REST,
-                // import) read the "error" key to surface a specific message.
+                // (block-duplicate-active-names). Both callers read the "error" key
+                // to name the cause: the dialog keeps itself open and shows it, and
+                // ShotServer's POST /api/equipment turns it into a 409.
                 *newId = -1;
                 (*created)[QStringLiteral("error")] = QStringLiteral("nameInUse");
             } else {
@@ -369,16 +370,30 @@ void EquipmentStorage::requestUpdatePackage(qint64 packageId, const QVariantMap&
     runAsync("equip_update",
         [packageId, fields, success, resultId, failReason](QSqlDatabase& db) {
             bool any = false;
-            // Active-name uniqueness (block-duplicate-active-names): refuse a rename
+            // Active-name uniqueness (block-duplicate-active-names): refuse a RENAME
             // whose new name duplicates another in-inventory package. Checked before
-            // anything is applied so a rejected rename is a clean no-op. The form
-            // blocks this in the UI; this backstops the MCP/REST update path.
-            if (fields.contains(QStringLiteral("name"))
-                && findPackageByNameStatic(db, fields.value(QStringLiteral("name")).toString(), packageId) > 0) {
-                *success = false;
-                *resultId = packageId;
-                *failReason = QStringLiteral("nameInUse");
-                return;
+            // anything is applied so a rejected rename is a clean no-op.
+            //
+            // Gated on the name actually CHANGING, not merely being present in the
+            // patch. Both save paths send `name` on every save, and a blank name is
+            // derived-and-persisted at creation ("{brand} {model}", see
+            // createPackageWithGrinderStatic) — so a plain "contains(name)" test
+            // fired on every edit of any package whose derived name happened to
+            // match another's, permanently disabling Save on BOTH and locking the
+            // user out of editing gear they never named. Pre-existing duplicates are
+            // data the app itself created; this rule is now-and-future only.
+            if (fields.contains(QStringLiteral("name"))) {
+                const QString newName = fields.value(QStringLiteral("name")).toString().trimmed();
+                const QString oldName = loadPackageStatic(db, packageId).name.trimmed();
+                const bool renamed = QString::compare(newName, oldName, Qt::CaseInsensitive) != 0;
+                if (renamed && findPackageByNameStatic(db, newName, packageId) > 0) {
+                    qWarning() << "EquipmentStorage: rejecting rename of package" << packageId
+                               << "to" << newName << "- already used by another in-inventory package";
+                    *success = false;
+                    *resultId = packageId;
+                    *failReason = QStringLiteral("nameInUse");
+                    return;
+                }
             }
             // Identity = grinder (brand/model/burrs) + basket (brand/model) + puck
             // prep (flag-set). An edit to ANY side runs through the copy-on-write
@@ -992,19 +1007,26 @@ qint64 EquipmentStorage::findPackageByGrinderIdentityStatic(QSqlDatabase& db, co
 
 qint64 EquipmentStorage::findPackageByNameStatic(QSqlDatabase& db, const QString& name, qint64 excludeId)
 {
-    const QString trimmed = name.trimmed();
-    if (trimmed.isEmpty())
+    const QString target = name.trimmed();
+    if (target.isEmpty())
         return 0;  // A blank name is derived from brand+model and never collides.
+    // The comparison is done in C++, NOT in SQL: SQLite's LOWER() folds ASCII
+    // only, so "Café"/"CAFÉ" would compare unequal here while the QML gate's
+    // JS toLowerCase() (full Unicode) called them equal — the two layers would
+    // disagree for every non-ASCII name. Qt::CaseInsensitive folds the whole
+    // range, so client and storage now agree. An inventory is tens of rows, so
+    // scanning it is cheaper than the bug.
     QSqlQuery query(db);
-    query.prepare("SELECT id FROM equipment_packages "
-                  "WHERE in_inventory = 1 AND id != :exclude "
-                  "AND LOWER(TRIM(IFNULL(name,''))) = LOWER(:name) "
-                  "ORDER BY id LIMIT 1");
+    query.prepare("SELECT id, IFNULL(name,'') FROM equipment_packages "
+                  "WHERE in_inventory = 1 AND id != :exclude ORDER BY id");
     query.bindValue(":exclude", excludeId);
-    query.bindValue(":name", trimmed);
-    if (!query.exec() || !query.next())
+    if (!query.exec())
         return 0;
-    return query.value(0).toLongLong();
+    while (query.next()) {
+        if (QString::compare(query.value(1).toString().trimmed(), target, Qt::CaseInsensitive) == 0)
+            return query.value(0).toLongLong();
+    }
+    return 0;
 }
 
 qint64 EquipmentStorage::supersedeOrEditGrinderStatic(QSqlDatabase& db, qint64 packageId,

@@ -25,6 +25,10 @@ Dialog {
     property int editPackageId: -1
 
     property var packages: []
+    // Shown in the form when a save is REFUSED by storage. The dialog stays open
+    // so the user's input survives and they can see why.
+    property string saveError: ""
+    property string _editFailReason: ""
     property string fName: ""          // user label; blank -> storage derives "{brand} {model}"
     property string fBrand: ""
     property string fModel: ""
@@ -73,6 +77,21 @@ Dialog {
 
     signal packageSaved(int packageId)
 
+    // Save-failure wording, as hidden Tr instances so the Connections handlers can
+    // read .text (a handler can't use a Tr element inline).
+    Tr {
+        id: trNameInUse
+        visible: false
+        key: "equipment.dialog.nameInUse"
+        fallback: "That name is already in use — choose a different name."
+    }
+    Tr {
+        id: trSaveFailed
+        visible: false
+        key: "equipment.dialog.saveFailed"
+        fallback: "Couldn't save this equipment — please try again."
+    }
+
     // Always load the inventory: the list mode renders it, and the form mode
     // checks the entered identity against it to block creating a duplicate.
     onAboutToShow: MainController.equipmentStorage.requestInventory()
@@ -81,7 +100,11 @@ Dialog {
         target: MainController.equipmentStorage
         function onInventoryReady(list) { root.packages = list }
         function onPackagesChanged() {
-            if (root.visible && root.mode === "list")
+            // Refresh in BOTH modes: while the form is open the cached `packages`
+            // list is what the duplicate-name hint reads, so a package created
+            // elsewhere (web, MCP, another device) would otherwise leave the hint
+            // stale and let a doomed save through.
+            if (root.visible)
                 MainController.equipmentStorage.requestInventory()
         }
         function onPackageCreated(packageId, pkg) {
@@ -93,19 +116,35 @@ Dialog {
                 if (root.applyToActiveBag)
                     Settings.dye.switchToEquipment(pkg)
                 root.packageSaved(packageId)
+                root.close()
+                return
             }
-            root.close()
+            // Keep the dialog OPEN on failure: closing discarded everything the
+            // user typed and was indistinguishable from a successful save.
+            root.saveError = (pkg && pkg.error === "nameInUse")
+                ? trNameInUse.text : trSaveFailed.text
+        }
+        function onPackageUpdateFailed(packageId, reason) {
+            // Lands just before packageUpdated(false) and names the cause.
+            if (root._awaitingEdit && reason === "nameInUse")
+                root._editFailReason = reason
         }
         function onPackageUpdated(resultId, success) {
             if (!root._awaitingEdit) return
             root._awaitingEdit = false
-            // If the edited package was active, repoint to the (possibly forked
-            // or merged) result so the resolved identity refreshes.
-            if (success && root._editWasActive && resultId > 0)
-                Settings.dye.activeEquipmentId = resultId
-            if (success)
+            if (success) {
+                // If the edited package was active, repoint to the (possibly forked
+                // or merged) result so the resolved identity refreshes.
+                if (root._editWasActive && resultId > 0)
+                    Settings.dye.activeEquipmentId = resultId
                 root.packageSaved(resultId)
-            root.close()
+                root.close()
+                root._editFailReason = ""
+                return
+            }
+            root.saveError = root._editFailReason === "nameInUse"
+                ? trNameInUse.text : trSaveFailed.text
+            root._editFailReason = ""
         }
     }
 
@@ -123,6 +162,8 @@ Dialog {
         // actually differs (often just the basket) instead of re-entering it all.
         // Name stays blank so storage derives a fresh "{brand} {model}".
         fName = ""
+        _originalName = ""
+        saveError = ""
         fBrand = Settings.dye.dyeGrinderBrand || ""
         fModel = Settings.dye.dyeGrinderModel || ""
         fBurrs = Settings.dye.dyeGrinderBurrs || ""
@@ -137,6 +178,11 @@ Dialog {
         formMode = "edit"
         editPackageId = pkg && pkg.id !== undefined ? pkg.id : -1
         fName = (pkg && pkg.name) || ""
+        // The name this package ARRIVED with — the duplicate gate below only fires
+        // on an actual rename, so a package whose derived name already collides
+        // stays editable (block-duplicate-active-names).
+        _originalName = fName
+        saveError = ""
         fBrand = (pkg && pkg.grinderBrand) || ""
         fModel = (pkg && pkg.grinderModel) || ""
         fBurrs = (pkg && pkg.grinderBurrs) || ""
@@ -221,14 +267,25 @@ Dialog {
         return -1
     }
 
+    // The name the package being edited arrived with (empty when creating).
+    property string _originalName: ""
+
     // The id of another IN-INVENTORY package that already uses the entered name
     // (block-duplicate-active-names), or -1. Trimmed + case-insensitive, excluding
-    // the package being edited. `packages` is the inventory list (in_inventory = 1),
-    // so this is inherently scoped to active packages. A blank name is legal (the
-    // title is then derived from brand+model) and never counts as a collision.
+    // the package being edited. Relies on `packages` being the inventory list —
+    // EquipmentStorage::loadInventoryStatic filters in_inventory = 1 — so this is
+    // scoped to active packages; findPackageByNameStatic is the authoritative
+    // guard, so drift there degrades this hint, not the invariant.
+    //
+    // Only an actual RENAME can collide. A blank name is legal (the title is then
+    // derived from brand+model) and never counts; and re-saving the name a package
+    // already has never counts either — derived names are not unique by design
+    // (two packages differing only in basket both derive "Niche Zero"), so testing
+    // the entered name alone disabled Save on both and made them uneditable.
     readonly property int nameDuplicateOfId: {
         var n = fName.trim().toLowerCase()
         if (n.length === 0) return -1
+        if (n === _originalName.trim().toLowerCase()) return -1
         for (var i = 0; i < packages.length; ++i) {
             var p = packages[i]
             if (!p || p.id === undefined) continue
@@ -410,6 +467,20 @@ Dialog {
                               "You already have this exact equipment — change something to make it distinct.")
                     font: Theme.captionFont
                     color: Theme.warningColor
+                    wrapMode: Text.Wrap
+                    Accessible.role: Accessible.StaticText
+                    Accessible.name: text
+                }
+
+                // A save REFUSED by storage. Pinned with the header so it can't be
+                // scrolled out of sight, and the dialog stays open behind it so the
+                // user's input is preserved.
+                Text {
+                    Layout.fillWidth: true
+                    visible: root.saveError !== ""
+                    text: root.saveError
+                    font: Theme.bodyFont
+                    color: Theme.errorColor
                     wrapMode: Text.Wrap
                     Accessible.role: Accessible.StaticText
                     Accessible.name: text

@@ -294,12 +294,24 @@ Page {
     }
 
     readonly property bool hasBean: fBeanBaseId !== "" || fRoaster !== "" || fCoffee !== ""
+    // The name this recipe arrived with (edit mode only; empty when creating).
+    property string _originalName: ""
+    // Cause of the last refused save, from recipeUpdateFailed.
+    property string _saveFailReason: ""
+
     // Active-name uniqueness (block-duplicate-active-names): the entered name may
-    // not match another non-archived recipe. `_existingRecipeNames` is already the
-    // lowercased non-archived list excluding the recipe being edited.
+    // not match another non-archived recipe. Relies on `_existingRecipeNames`,
+    // which onInventoryReady fills with the lowercased non-archived names minus
+    // the recipe being edited; it is empty until that request lands, so this reads
+    // as "no collision" until then and the storage guard is the real backstop.
+    //
+    // Re-saving the name a recipe already has is never a collision — otherwise a
+    // recipe that already shared a name with another could not be edited at all.
     readonly property bool nameInUse: {
         var n = nameField.text.trim().toLowerCase()
-        return n.length > 0 && _existingRecipeNames.indexOf(n) >= 0
+        if (n.length === 0) return false
+        if (n === _originalName.trim().toLowerCase()) return false
+        return _existingRecipeNames.indexOf(n) >= 0
     }
     readonly property bool canSave: MainController.recipeStorage.isSaveValid(
         nameField.text, fProfileTitle, buildHotWaterJson()) && !nameInUse
@@ -447,6 +459,14 @@ Page {
 
 
     Component.onCompleted: {
+        // EVERY entry path needs the existing-name set, not just the blank-create
+        // walk: besides feeding suggestName()'s auto-name disambiguation, it now
+        // backs the duplicate-name gate on Save (block-duplicate-active-names).
+        // Requesting it only for the blank walk left `nameInUse` permanently false
+        // in edit/promote/clone — i.e. inert in edit mode, which is exactly where a
+        // rename collision happens. It is queued after each path's own load below,
+        // and the gate simply reads as "no collision" until it lands.
+        MainController.recipeStorage.requestInventory()
         if (mode === "edit" && editRecipeId > 0) {
             currentStep = "summary"
             _enteredAtSummary = true
@@ -463,12 +483,6 @@ Page {
             nameField.selectAll()
             captureBaseline()
         } else {
-            // Only the blank-create walk auto-suggests a name, so only it needs
-            // the existing-name set for collision disambiguation. Edit/promote/
-            // clone set the name directly (the _autoName guard then blocks
-            // suggestName), so requesting the heavy full-inventory scan for them
-            // would only queue ahead of their own load on the FIFO DB worker.
-            MainController.recipeStorage.requestInventory()
             currentStep = "drink"
             captureBaseline()
         }
@@ -478,6 +492,13 @@ Page {
 
     function applyRecipeMap(r) {
         nameField.text = r.name || ""
+        // Only in EDIT mode does the recipe have a name it already owns. Recording
+        // it lets the duplicate gate fire on an actual rename only, so a recipe
+        // that already shares a name with another stays editable
+        // (block-duplicate-active-names). A clone/promote is a new recipe, so any
+        // collision there IS new and must block.
+        if (mode === "edit" && editRecipeId > 0)
+            _originalName = nameField.text
         fProfileTitle = r.profileTitle || ""
         fProfileJson = r.profileJson || ""
         fBagId = r.bagId || 0
@@ -1714,21 +1735,35 @@ Page {
                 if (recipeId > 0) {
                     pageStack.pop()
                 } else {
-                    wizardPage.errorMessage =
-                        TranslationManager.translate("recipes.wizard.errorSave", "Could not save the recipe")
+                    // Name the cause when storage gave one — the generic wording
+                    // leaves the user with nothing to act on, and this is the
+                    // surface where an actionable message matters most.
+                    wizardPage.errorMessage = (recipe && recipe.error === "nameInUse")
+                        ? TranslationManager.translate("recipes.dialog.nameInUse",
+                              "That name is already in use — choose a different name.")
+                        : TranslationManager.translate("recipes.wizard.errorSave", "Could not save the recipe")
                     wizardPage.showSaveError()
                 }
             }
+        }
+        function onRecipeUpdateFailed(recipeId, reason) {
+            // Lands just before recipeUpdated(false) and names the cause.
+            if (wizardPage.mode === "edit" && recipeId === wizardPage.editRecipeId)
+                wizardPage._saveFailReason = reason
         }
         function onRecipeUpdated(recipeId, success) {
             if (wizardPage.mode === "edit" && recipeId === wizardPage.editRecipeId
                 && wizardPage._submitting) {
                 wizardPage._submitting = false
                 if (success) {
+                    wizardPage._saveFailReason = ""
                     pageStack.pop()
                 } else {
-                    wizardPage.errorMessage =
-                        TranslationManager.translate("recipes.wizard.errorSave", "Could not save the recipe")
+                    wizardPage.errorMessage = wizardPage._saveFailReason === "nameInUse"
+                        ? TranslationManager.translate("recipes.dialog.nameInUse",
+                              "That name is already in use — choose a different name.")
+                        : TranslationManager.translate("recipes.wizard.errorSave", "Could not save the recipe")
+                    wizardPage._saveFailReason = ""
                     wizardPage.showSaveError()
                 }
             }
@@ -3295,7 +3330,7 @@ Page {
                             Label {
                                 visible: wizardPage.nameInUse
                                 Layout.fillWidth: true
-                                text: TranslationManager.translate("recipe.dialog.nameInUse",
+                                text: TranslationManager.translate("recipes.dialog.nameInUse",
                                           "That name is already in use — choose a different name.")
                                 font: Theme.captionFont
                                 color: Theme.warningColor

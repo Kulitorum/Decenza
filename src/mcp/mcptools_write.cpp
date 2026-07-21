@@ -2328,7 +2328,25 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 bool ok = false;
                 qint64 resultId = packageId;
                 EquipmentPackageView view;
+                // Active-name uniqueness (block-duplicate-active-names). This tool
+                // writes the name through updatePackageFieldsStatic on its own
+                // connection and never reaches EquipmentStorage::requestUpdatePackage,
+                // so the guard has to be repeated here or MCP is the one surface
+                // that can still mint a duplicate. Same rule as the storage path:
+                // only an actual RENAME can collide (a derived name that already
+                // matches another package must stay editable), and it is checked
+                // before anything is written so a refusal is a clean no-op.
+                bool nameInUse = false;
                 withTempDb(dbPath, "mcp_equip_upd", [&](QSqlDatabase& db) {
+                    if (pkgFields.contains(QStringLiteral("name"))) {
+                        const QString newName = pkgFields.value(QStringLiteral("name")).toString().trimmed();
+                        const QString oldName = EquipmentStorage::loadPackageStatic(db, packageId).name.trimmed();
+                        if (QString::compare(newName, oldName, Qt::CaseInsensitive) != 0
+                            && EquipmentStorage::findPackageByNameStatic(db, newName, packageId) > 0) {
+                            nameInUse = true;
+                            return;
+                        }
+                    }
                     if (touchesGrinder || touchesBasket || touchesPuckPrep) {
                         // Copy-on-write/merge over the full (grinder + basket + puck
                         // prep) identity; an untouched side defaults from the current
@@ -2352,7 +2370,12 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                     view.basket = EquipmentStorage::loadBasketItemStatic(db, resultId);
                     view.puckPrep = EquipmentStorage::loadPuckPrepItemStatic(db, resultId);
                 });
-                QMetaObject::invokeMethod(qApp, [ok, view, activeId, packageId, packageToJson, respond]() {
+                QMetaObject::invokeMethod(qApp, [ok, nameInUse, view, activeId, packageId, packageToJson, respond]() {
+                    if (nameInUse) {
+                        respond(QJsonObject{{"error", "That name is already in use by another equipment "
+                                                      "package — choose a different name"}});
+                        return;
+                    }
                     if (!ok || !view.package.isValid()) {
                         respond(QJsonObject{{"error", "Package not found or update failed: "
                                                       + QString::number(packageId)}});

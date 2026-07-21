@@ -1,4 +1,6 @@
 #include <QtTest>
+#include <QSignalSpy>
+#include <QRegularExpression>
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QSqlError>
@@ -207,6 +209,84 @@ private slots:
             // Removing it from inventory frees the name for reuse.
             QVERIFY(EquipmentStorage::updatePackageFieldsStatic(db, idA, {{"inInventory", false}}));
             QCOMPARE(EquipmentStorage::findPackageByNameStatic(db, "Espresso setup"), (qint64)0);
+        });
+    }
+
+    // --- active-name uniqueness through the async request* paths ---
+
+    // Re-saving a package under the name it ALREADY has must succeed, even when
+    // another in-inventory package shares that name. Blank names are derived and
+    // persisted at creation ("{brand} {model}"), so same-grinder/different-basket
+    // packages legitimately collide; a guard testing the submitted name alone
+    // locked the user out of editing gear they never named.
+    void unchangedDerivedNameStillSaves() {
+        const QString path = freshDbPath();
+        qint64 idA = 0, idB = 0;
+        withRawDb(path, "eq_pre", [&](QSqlDatabase& db) {
+            QVERIFY(EquipmentStorage::ensureTablesStatic(db));
+            EquipmentPackage a, b;   // both blank -> both derive "Niche Zero"
+            idA = EquipmentStorage::createPackageWithGrinderStatic(
+                db, a, "Niche", "Zero", "63mm conical", "Decent", "18g Ridged", "shaker");
+            idB = EquipmentStorage::createPackageWithGrinderStatic(
+                db, b, "Niche", "Zero", "63mm conical", "Decent", "18g Ridged", "shaker,rdt");
+            QCOMPARE(EquipmentStorage::loadPackageStatic(db, idA).name, QString("Niche Zero"));
+            QCOMPARE(EquipmentStorage::loadPackageStatic(db, idB).name, QString("Niche Zero"));
+        });
+        QVERIFY(idA > 0 && idB > 0 && idA != idB);
+
+        EquipmentStorage storage;
+        storage.initialize(path);
+        {   // Editing one, resubmitting its own derived name -> allowed.
+            QSignalSpy spy(&storage, &EquipmentStorage::packageUpdated);
+            storage.requestUpdatePackage(idB, {{"name", "Niche Zero"}, {"lastGrindSetting", "8.25"}});
+            QTRY_COMPARE(spy.count(), 1);
+            QCOMPARE(spy.at(0).at(1).toBool(), true);
+        }
+        withRawDb(path, "eq_pre2", [&](QSqlDatabase& db) {
+            QCOMPARE(EquipmentStorage::loadPackageStatic(db, idB).lastGrindSetting, QString("8.25"));
+        });
+    }
+
+    // A rename into a collision is refused BEFORE anything is written: no fork,
+    // no supersede, no field applied, and the reason precedes the terminal status.
+    void rejectedRenameIsCleanNoOp() {
+        const QString path = freshDbPath();
+        qint64 idA = 0, idB = 0;
+        withRawDb(path, "eq_rename", [&](QSqlDatabase& db) {
+            QVERIFY(EquipmentStorage::ensureTablesStatic(db));
+            EquipmentPackage a; a.name = "Espresso setup";
+            EquipmentPackage b; b.name = "Filter setup";
+            idA = EquipmentStorage::createPackageWithGrinderStatic(db, a, "Niche", "Zero", "63mm conical");
+            idB = EquipmentStorage::createPackageWithGrinderStatic(db, b, "Turin", "DF83V", "83mm flat");
+        });
+        QVERIFY(idA > 0 && idB > 0);
+
+        EquipmentStorage storage;
+        storage.initialize(path);
+        QStringList order;
+        connect(&storage, &EquipmentStorage::packageUpdateFailed, this,
+                [&order](qint64, const QString& r) { order << ("failed:" + r); });
+        connect(&storage, &EquipmentStorage::packageUpdated, this,
+                [&order](qint64, bool ok) { order << (ok ? "updated:true" : "updated:false"); });
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("rejecting rename of package"));
+        QSignalSpy spy(&storage, &EquipmentStorage::packageUpdated);
+        // Rename onto A's name AND edit the identity in the same patch.
+        storage.requestUpdatePackage(idB, {{"name", "Espresso setup"}, {"grinderModel", "DF64"}});
+        QTRY_COMPARE(spy.count(), 1);
+        QCOMPARE(spy.at(0).at(0).toLongLong(), idB);   // no fork id
+        QCOMPARE(spy.at(0).at(1).toBool(), false);
+        QCOMPARE(order, QStringList({"failed:nameInUse", "updated:false"}));
+
+        withRawDb(path, "eq_rename2", [&](QSqlDatabase& db) {
+            const EquipmentPackage b = EquipmentStorage::loadPackageStatic(db, idB);
+            QCOMPARE(b.name, QString("Filter setup"));      // name untouched
+            QVERIFY(b.inInventory);                          // not retired by a supersede
+            QCOMPARE(EquipmentStorage::loadGrinderItemStatic(db, idB).model, QString("DF83V"));
+            QSqlQuery q(db);
+            QVERIFY(q.exec("SELECT COUNT(*) FROM equipment_packages"));
+            QVERIFY(q.next());
+            QCOMPARE(q.value(0).toInt(), 2);                 // no new row minted
         });
     }
 

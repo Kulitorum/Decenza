@@ -842,14 +842,29 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                 return;
             }
             auto conn = std::make_shared<QMetaObject::Connection>();
+            // A restore can now be REFUSED because an active recipe took the name
+            // while this one was archived. Reporting that as "not found" is a lie
+            // an assistant acts on — it concludes the recipe was deleted and stops,
+            // when the fix is to rename the other one.
+            auto reasonConn = std::make_shared<QMetaObject::Connection>();
+            auto failReason = std::make_shared<QString>();
+            *reasonConn = QObject::connect(recipeStorage, &RecipeStorage::recipeUpdateFailed, qApp,
+                [reasonConn, recipeId, failReason](qint64 failedId, const QString& reason) {
+                    if (failedId == recipeId)
+                        *failReason = reason;
+                });
             *conn = QObject::connect(recipeStorage, &RecipeStorage::recipeUpdated, qApp,
-                [conn, recipeId, restore, respond](qint64 updatedId, bool success) {
+                [conn, reasonConn, recipeId, restore, respond, failReason](qint64 updatedId, bool success) {
                     if (updatedId != recipeId)
                         return;
                     QObject::disconnect(*conn);
+                    QObject::disconnect(*reasonConn);
                     if (success)
                         respond(QJsonObject{{restore ? "restored" : "archived", true},
                                             {"recipeId", recipeId}});
+                    else if (*failReason == QLatin1String("nameInUse"))
+                        respond(QJsonObject{{"error", QString("Recipe %1 cannot be restored: an active "
+                            "recipe already uses its name — rename that one first").arg(recipeId)}});
                     else
                         respond(QJsonObject{{"error", QString("Recipe %1 not found").arg(recipeId)}});
                 });

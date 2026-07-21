@@ -73,11 +73,36 @@ than a generic failure. This SHALL hold for renames as well as creations.
 - **THEN** all three reject the write, none creates or renames anything, and each
   reports a conflict that identifies the name as the cause
 
+### Requirement: Only a name change can collide
+
+The system SHALL evaluate the uniqueness rule against what an operation actually
+CHANGES, not against which fields it submits. Saving an item under the name it
+already holds SHALL always be permitted, whatever other items exist. Restoring an
+archived item to active SHALL be treated as introducing its name.
+
+This is load-bearing because every save path submits the name on every save, and
+because an item whose name was auto-derived rather than typed (an equipment package
+created with a blank name derives "{brand} {model}") can legitimately already share
+a name with another. Testing the submitted name alone would refuse those saves and
+leave the affected items permanently uneditable.
+
+#### Scenario: Re-saving an item under its own name
+- **WHEN** the user edits any other field of an item and saves, leaving the name as it
+  was — including when another active item already shares that name
+- **THEN** the save succeeds and the other field's change is applied
+
+#### Scenario: Editing one of two items that already share a name
+- **WHEN** two active items of the same kind already share a name and the user opens
+  either one and changes something other than the name
+- **THEN** the save control stays enabled and the save succeeds
+
 ### Requirement: Existing data is not rewritten
 
 The rule SHALL apply only to create and edit operations going forward. The system
 SHALL NOT migrate, rename, or otherwise rewrite any pre-existing items, including any
-duplicate active names that already exist before this change.
+duplicate active names that already exist before this change. Import and restore
+paths, which reproduce data the user already had rather than accept a newly entered
+name, SHALL NOT be subject to the rule.
 
 #### Scenario: Pre-existing duplicates remain untouched
 - **WHEN** two active items of the same kind already share a name at the time this

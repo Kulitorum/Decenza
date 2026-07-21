@@ -531,6 +531,10 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
                            << recipeId << "-" << db.lastError().text();
                 return;
             }
+            // Pre-update state, captured inside the transaction: the name-uniqueness
+            // guard below must know whether this patch actually CHANGES the name (or
+            // brings an archived recipe back), not merely that it mentions them.
+            const Recipe before = loadRecipeStatic(db, recipeId);
             QVariantMap mergedFields = patchFields;
             // A patch that re-points the bag link adopts the bag's bean
             // identity unless the caller set it explicitly — the identity
@@ -593,14 +597,22 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
             }
             // Active-name uniqueness (block-duplicate-active-names): a rename, or
             // an unarchive, must not leave two non-archived recipes sharing a name.
-            // Only checked when the name or archived flag is in this patch, so an
-            // unrelated edit on a pre-existing duplicate is unaffected.
-            if ((mergedFields.contains(QStringLiteral("name"))
-                 || mergedFields.contains(QStringLiteral("archived")))
-                && !updated.archived
+            //
+            // Gated on what actually CHANGED, not on which keys the patch mentions:
+            // both save paths send `name` on every save, so testing `contains(name)`
+            // fired on every edit of a recipe that already shared a name with
+            // another, disabling Save on both and locking the user out of editing
+            // them at all. Pre-existing duplicates stay editable; only a change that
+            // newly introduces a collision is refused.
+            const bool renamed = QString::compare(updated.name.trimmed(),
+                                                  before.name.trimmed(),
+                                                  Qt::CaseInsensitive) != 0;
+            const bool restored = before.archived && !updated.archived;
+            if ((renamed || restored) && !updated.archived
                 && findRecipeByNameStatic(db, updated.name, recipeId) > 0) {
-                qWarning() << "RecipeStorage: rejecting update that duplicates an active recipe name for"
-                           << recipeId;
+                qWarning() << "RecipeStorage: rejecting update of recipe" << recipeId
+                           << "- name" << updated.name.trimmed()
+                           << "is already used by another active recipe";
                 db.rollback();
                 *success = false;
                 *failReason = QStringLiteral("nameInUse");
@@ -861,19 +873,23 @@ Recipe RecipeStorage::loadRecipeStatic(QSqlDatabase& db, qint64 recipeId)
 
 qint64 RecipeStorage::findRecipeByNameStatic(QSqlDatabase& db, const QString& name, qint64 excludeId)
 {
-    const QString trimmed = name.trimmed();
-    if (trimmed.isEmpty())
+    const QString target = name.trimmed();
+    if (target.isEmpty())
         return 0;
+    // Compared in C++, not SQL: SQLite's LOWER() folds ASCII only, so it would
+    // disagree with the QML gate's full-Unicode toLowerCase() on any non-ASCII
+    // name. See EquipmentStorage::findPackageByNameStatic for the full rationale.
     QSqlQuery query(db);
-    query.prepare("SELECT id FROM recipes "
-                  "WHERE archived = 0 AND id != :exclude "
-                  "AND LOWER(TRIM(IFNULL(name,''))) = LOWER(:name) "
-                  "ORDER BY id LIMIT 1");
+    query.prepare("SELECT id, IFNULL(name,'') FROM recipes "
+                  "WHERE archived = 0 AND id != :exclude ORDER BY id");
     query.bindValue(":exclude", excludeId);
-    query.bindValue(":name", trimmed);
-    if (!query.exec() || !query.next())
+    if (!query.exec())
         return 0;
-    return query.value(0).toLongLong();
+    while (query.next()) {
+        if (QString::compare(query.value(1).toString().trimmed(), target, Qt::CaseInsensitive) == 0)
+            return query.value(0).toLongLong();
+    }
+    return 0;
 }
 
 QVector<InventoryRecipe> RecipeStorage::loadInventoryStatic(QSqlDatabase& db, bool archived)

@@ -519,13 +519,27 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
                 return;
             }
             auto conn = std::make_shared<QMetaObject::Connection>();
+            // A restore can now be REFUSED because an active recipe took the name
+            // while this one was archived; reporting that as 404 "not found" sends
+            // the caller looking for a deleted recipe instead of the real fix.
+            auto reasonConn = std::make_shared<QMetaObject::Connection>();
+            auto failReason = std::make_shared<QString>();
+            *reasonConn = connect(recipeStorage, &RecipeStorage::recipeUpdateFailed, this,
+                [reasonConn, recipeId, failReason](qint64 failedId, const QString& reason) {
+                    if (failedId == recipeId)
+                        *failReason = reason;
+                });
             *conn = connect(recipeStorage, &RecipeStorage::recipeUpdated, this,
-                [conn, recipeId, restore, respondJson](qint64 updatedId, bool success) {
+                [conn, reasonConn, recipeId, restore, respondJson, failReason](qint64 updatedId, bool success) {
                     if (updatedId != recipeId)
                         return;
                     disconnect(*conn);
+                    disconnect(*reasonConn);
                     if (success)
                         respondJson(QJsonObject{{restore ? "restored" : "archived", true}});
+                    else if (*failReason == QLatin1String("nameInUse"))
+                        respondJson(QJsonObject{{"error", "An active recipe already uses this name — "
+                                                          "rename that one first"}}, 409);
                     else
                         respondJson(QJsonObject{{"error", "Recipe not found"}}, 404);
                 });

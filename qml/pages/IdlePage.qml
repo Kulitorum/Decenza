@@ -170,8 +170,8 @@ Page {
 
     // Center-zone inline carousel: when the expanded center column would reach
     // the bottom-anchored lower-mid band, the band is HIDDEN (faded out) rather
-    // than shoved down — the band already sits on bottomBar.top, so "down" would
-    // drive it straight over the bottom action bar. One-way: reads the column's
+    // than shoved down — the band sits on bottomBar.top (modulo the user's zone
+    // Y-offset), so "down" runs it into the bottom action bar. One-way: reads the column's
     // un-offset bottom against the band's static top.
     readonly property bool carouselOverlapsBand: {
         if (idlePage.activePresetFunction === "" || !idlePage.lowerMidBarVisible)
@@ -1444,6 +1444,11 @@ Page {
         // band from swallowing taps meant for the bottom bar underneath.
         opacity: idlePage.carouselOverlapsBand ? 0 : 1
         enabled: !idlePage.carouselOverlapsBand
+        // A fully transparent item is still traversable by TalkBack/VoiceOver, so
+        // without this a screen reader lands on band widgets that are not on
+        // screen. `visible: false` would be the obvious fix but collapses the
+        // band's height (see the binding above) and so moves the layout.
+        Accessible.ignored: idlePage.carouselOverlapsBand
         Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutQuad } }
         // Slides UP with the center content to clear a bottom-zone picker popup.
         transform: Translate {
