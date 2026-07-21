@@ -43,9 +43,12 @@ public:
     // (equipment=22, recipes=25) actually ran, used to drive a matching one-time
     // layout injection exactly once instead of re-firing whenever the widget is
     // absent. False on a machine already at/above `v` (the upgrade is history),
-    // so a user who removed the widget is not re-served it. Callers live in the
+    // so a user who removed the widget is not re-served it. The sole caller is the
     // MainController constructor (see maincontroller.cpp, after
-    // setupRecipeConnections) and SettingsNetwork::injectEquipmentButtonIfMissing.
+    // setupRecipeConnections), which on a true result invokes
+    // SettingsNetwork::injectEquipmentButtonIfMissing() /
+    // injectRecipesButtonIfMissing(). Those take no gate of their own —
+    // SettingsNetwork has no access to this class — so the check must stay here.
     //
     // Two cases a caller must handle rather than assume away:
     //  - A first-ever launch returns TRUE for every `v`: createTables() seeds

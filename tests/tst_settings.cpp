@@ -1298,8 +1298,11 @@ private slots:
         QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
                  QStringList({"history", "beans", "equipment", "settings"}));
 
-        // Read back through an independent instance: proves the inject actually
-        // reached storage rather than only the in-process layout cache.
+        // Read back through an independent instance: proves the inject escaped
+        // SettingsNetwork's own m_layoutCache and reached QSettings. (Both
+        // instances share Qt's QConfFile cache for this path in-process, so this
+        // is not evidence of a disk write — the layout-cache distinction is the
+        // one that matters here, since that cache is what a restart discards.)
         Settings reloaded;
         QCOMPARE(typesOf(reloaded.network()->getZoneItems("bottomRight")),
                  QStringList({"history", "beans", "equipment", "settings"}));

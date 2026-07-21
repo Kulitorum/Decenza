@@ -1013,6 +1013,61 @@ private slots:
         QVERIFY(!storage.crossedSchemaVersion(25));
     }
 
+    // A DEFERRED migration must not consume the crossing. Migrations gate their
+    // version bump on a post-condition and log "will retry next launch" when it
+    // is unmet, and 22 is chained (>= 21 && < 22) so a stalled 21 holds the whole
+    // chain below the equipment gate. The launch that stalls must report no
+    // crossing, and the launch that finally completes must report it — otherwise
+    // a user whose first upgrade attempt hit a failed migration would lose the
+    // button permanently, with the gate spent on a launch that did nothing.
+    void crossedSchemaVersion_deferredMigrationDoesNotConsumeTheGate()
+    {
+        const QString path = freshDbPath();
+        // Full init first so every table exists, then wind back to 20 — the
+        // v21_renameFailureRetriesCleanly pattern. Seeding a bare v1 schema and
+        // stamping version 20 would SKIP migrations 3-20, leaving no coffee_bags
+        // table for migration 22 to work with.
+        { ShotHistoryStorage s; initAndClose(path, s); }
+
+        withRawDb(path, "crossed_defer_seed", [](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            // Undo the rename so migration 21 has work to do AND its
+            // post-condition is unmet while faulted — otherwise
+            // yield_override_g already exists, the gate passes anyway, and the
+            // chain would sail past 22 without ever stalling.
+            QVERIFY(q.exec("ALTER TABLE coffee_bags RENAME COLUMN yield_override_g TO yield_target_g"));
+            restoreLegacyGrinderColumns(db);  // migration 22 re-runs in the chain
+            QVERIFY(q.exec("DELETE FROM schema_version"));
+            QVERIFY(q.exec("INSERT INTO schema_version (version) VALUES (20)"));
+        });
+
+        // Launch one: migration 21 "fails", so the chain never reaches 22.
+        ShotHistoryStorage::s_faultInjectMigration = 21;
+        {
+            ShotHistoryStorage s1;
+            QTest::ignoreMessage(QtWarningMsg,
+                                 QRegularExpression("migration 21 column rename failed"));
+            QVERIFY(s1.initialize(path));
+            QVERIFY2(!s1.crossedSchemaVersion(22),
+                     "a stalled chain must not report crossing 22 — the gate is not spent");
+            QVERIFY2(!s1.crossedSchemaVersion(25),
+                     "a stalled chain must not report crossing 25 either");
+            s1.close();
+            for (int i = 0; i < 20; i++) { QCoreApplication::processEvents(); QThread::msleep(25); }
+        }
+
+        // Launch two: the fault is one-shot and cleared itself, so the chain
+        // completes and the crossing is reported on the launch that earned it.
+        {
+            ShotHistoryStorage s2;
+            initAndClose(path, s2);
+            QVERIFY2(s2.crossedSchemaVersion(22),
+                     "the launch that completes the chain must report crossing 22");
+            QVERIFY2(s2.crossedSchemaVersion(25),
+                     "the launch that completes the chain must report crossing 25");
+        }
+    }
+
     // Migration 16 contract: rows with enjoyment_source = 'inferred' have
     // their enjoyment reset to 0 (unrated) — unconditionally, NOT to any
     // configured default; the default-shot-rating setting that once supplied
