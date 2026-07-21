@@ -1,30 +1,51 @@
 ## ADDED Requirements
 
-### Requirement: Built-in background preset catalogue
-The app SHALL ship a fixed, curated catalogue of twenty built-in background presets as its
-single source of truth for preset identity, appearance and naming. Each entry SHALL carry a
-stable id, a translation key with an English fallback name, one colour, an overlay kind
-(`none` or `tile`), an overlay asset where the kind requires one, an overlay opacity and an
-authored tile size. Entries SHALL be ordered from darkest to lightest.
+### Requirement: Built-in background catalogue
+The app SHALL ship two curated tables as its single source of truth: background COLOURS and
+PATTERNS. Each colour SHALL carry a stable id, a translation key with an English fallback name
+and one colour value, and colours SHALL be ordered darkest to lightest. Each pattern SHALL carry
+a stable id, a name, a tileable asset, an opacity, an authored tile size, and the measured ink
+coverage of its artwork.
 
-#### Scenario: Catalogue is well-formed
-- **WHEN** the catalogue is read
-- **THEN** every entry has a unique id, its colour parses, and every entry with overlay kind
-  `tile` names an asset that exists in the compiled resources with an opacity in range
+#### Scenario: Tables are well-formed
+- **WHEN** the tables are read
+- **THEN** every id is unique and non-empty, every colour value parses, and every pattern names
+  an asset that exists in the compiled resources with an opacity and coverage in range
 
 #### Scenario: Ordered dark to light
-- **WHEN** the catalogue order is inspected
-- **THEN** the first entry is darker than the last, so the chooser reads as a ramp
+- **WHEN** the colour order is inspected
+- **THEN** the first colour is darker than the last, so the chooser reads as a ramp
 
 #### Scenario: The catalogue spans the usable range
-- **WHEN** the lightness of every entry is measured
-- **THEN** there is at least one deep option, at least one light option, and at least two
-  between them — so that whatever theme is active, the chooser offers real choice rather than
-  a single cluster
+- **WHEN** the lightness of every colour is measured
+- **THEN** there is at least one deep option, at least one light option, and several between
+  them — the catalogue SHALL NOT collapse into a cluster at each extreme
 
-#### Scenario: Catalogue is reachable from QML
-- **WHEN** QML reads `Settings.theme.backgroundPresets`
-- **THEN** it receives every catalogue entry, in catalogue order
+#### Scenario: Catalogues are reachable from QML
+- **WHEN** QML reads `Settings.theme.backgroundPresets` and `Settings.theme.backgroundPatterns`
+- **THEN** it receives every entry of each, in table order
+
+### Requirement: A pattern is an independent second axis
+The app SHALL store the pattern separately from the colour, so that any pattern can be applied
+over any colour. A pattern SHALL be drawn over whatever flat colour is showing, and SHALL NOT be
+drawn over a background image.
+
+#### Scenario: Any pattern over any colour
+- **WHEN** the user selects a colour and, separately, a pattern
+- **THEN** the pattern is drawn over that colour, for any combination of the two
+
+#### Scenario: A pattern without a colour
+- **WHEN** a pattern is selected and no colour preset is
+- **THEN** the pattern is drawn over the theme's own background colour
+
+#### Scenario: No pattern over an image
+- **WHEN** a background image is active
+- **THEN** no pattern is drawn
+
+#### Scenario: Patterns are visible but do not cost legibility
+- **WHEN** the luminance shift each pattern imposes is measured as its opacity weighted by its
+  ink coverage
+- **THEN** derived text still clears 4.5:1 against every colour shifted by the densest pattern
 
 ### Requirement: Preset selection and persistence
 The app SHALL expose the selected preset as `Settings.theme.backgroundPreset`, a string holding

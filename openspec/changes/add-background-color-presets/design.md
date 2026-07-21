@@ -18,10 +18,8 @@ seventy copies of an image-path test.
 `ThemedPageBackground.qml` already falls back to a flat `Theme.backgroundColor` whenever no image
 is set, so the rendering hook a preset needs is the one place that already draws the flat case.
 
-The change also adds **Glass**, a built-in theme that turns that same chrome on without requiring
-a background at all — making theme and background independent choices (Decisions 11–13). Themes
-here are named palette blobs in `themeNames()` that `applyDarkTheme()`/`applyLightTheme()` copy
-into the active bucket, so Glass needs no new storage concept and no third theme *mode*.
+The change also adds a **glass chrome option** that turns that same chrome on without requiring a
+background at all, so theme, glass and background are three independent choices (Decision 11).
 
 ## Goals / Non-Goals
 
@@ -37,7 +35,6 @@ into the active bucket, so Glass needs no new storage concept and no third theme
 **Non-Goals:**
 - User-defined custom colours or a colour picker. That is the theme editor's job, and adding a
   second way to set a background colour is how the two get out of sync.
-- Separate "colour" and "pattern" settings. One flat list of named presets; no second axis.
 - A preset selector in the web theme editor or the MCP `apply_theme` tool. Neither exposes any
   background surface today; the catalogue is placed in C++ so they can gain one later without a
   second definition.
@@ -54,7 +51,7 @@ into the active bucket, so Glass needs no new storage concept and no third theme
 `Theme.backgroundColor` resolves through it; `backgroundImagePath` stays empty.
 
 - **Why:** a preset carried as an image would mean shipping full-screen bitmaps, at several
-  densities, for ten presets, to express what one hex value expresses — and a solid colour
+  densities, for nineteen colours, to express what one hex value expresses — and a solid colour
   scales, crops and re-themes for free where a bitmap does none of those.
 - **Rejected — reuse `backgroundImagePath` with `qrc:` values:** it forces a URL-scheme branch
   into `ThemedPageBackground` and, worse, into the deletion bookkeeping in
@@ -81,7 +78,8 @@ or a background image is set. The ~70 hand-rolled
   would move every existing photo user's UI to fix a problem they do not have.
 - **Presets do not force it on.** Over a flat colour a translucent card and an opaque one are
   the same pixels, so the option's real effect there is the *size of the step* between card and
-  page — which Decision 3 derives, at a smaller strength when the option is on.
+  page: with glass on the card composites at `backgroundScrimAlpha`, landing at 40% of the lift
+  Decision 3a applies.
 
 ### Decision 3: One colour per preset, with the foreground derived from it
 
@@ -97,7 +95,7 @@ A preset is a single colour. While one is active, `textColor`, `textSecondaryCol
   precisely this. Over a photo none of it is computable, which is why the image path keeps its
   eye-tuned scrim.
 - **The cost, stated plainly:** a custom text colour is overridden while a preset is active. No
-  stored preference can be right across a ramp from `#14161a` to `#f2f3f5`. Accents, chart
+  stored preference can be right across a ramp from French Roast to Porcelain. Accents, chart
   series and status colours still come from the user's theme.
 - **Rejected — let a light preset switch the app to light mode:** it silently changes a setting
   the user did not touch, and it re-couples the two things this decision separates.
@@ -105,17 +103,39 @@ A preset is a single colour. While one is active, `textColor`, `textSecondaryCol
   the grid would change contents on a mode switch and the light options would still be
   unreachable from dark mode.
 
-### Decision 3a: The catalogue avoids the mid-tone dead band
+### Decision 3a: The card lift is a fixed step in L*, not a fixed RGB fraction
 
-Presets sit at L\* 7-29 or L\* 91-96. Nothing between.
+`_liftFrom(base, deltaL)` bisects the mix fraction until the card sits a fixed perceptual
+distance from the page.
 
-- **Not an aesthetic choice — a measured constraint.** Between roughly L\* 30 and 58 neither
-  black nor white text clears 4.5:1 once secondary text is softened at all; from there to about
-  L\* 85 a card cannot separate perceptibly from the page at the glass-chrome lift. A mid-grey
-  page simply cannot carry a monochrome-text UI, and the contrast tests fail any entry that
-  tries.
-- The mid rung the catalogue *does* offer (Ash, Denim, Oxford at L\* 25-29) is the lightest
-  point that still passes, and it is what answers "everything is near-black".
+- **The first version moved a fixed RGB fraction toward white**, which is a large perceptual
+  step from near-black and almost nothing at L* 70. Every candidate between about L* 60 and 88
+  therefore failed the card-separation test, and the catalogue had to cluster at the two
+  extremes — which is exactly what "all the lights are too close in colour" was describing. The
+  constraint was in the formula, not in the colours.
+- **With a perceptual step the whole mid-light range is usable**, which is what makes a real
+  ramp possible.
+- **One genuinely dead band remains: L\* 30-58.** There neither black nor white text clears
+  4.5:1 once secondary text is softened at all. That is a property of mid-greys under a
+  monochrome-text UI, not a tuning failure, and the contrast test rejects anything placed there.
+- Cost: a 20-iteration bisection per evaluation. It runs on a colour-binding change, not per
+  frame.
+
+### Decision 3b: Patterns are a second axis
+
+`Settings.theme.backgroundPattern` is independent of the colour. Six patterns, any of which
+can sit on any colour.
+
+- **Baked-in patterns made a bad catalogue.** Half the entries were "colour X with texture Y",
+  visually near-identical to plain colour X, so the chooser looked twice as long and offered
+  half as much.
+- **Two short rows beat one long one**: 19 colours x 7 pattern choices from ~26 tiles.
+- **Opacity had to go up 3-4x** (from 4-6% to 14-18%) before a pattern read as a pattern at all.
+  That is safe because a pattern is sparse: legibility depends on opacity WEIGHTED BY COVERAGE,
+  and the densest tile shifts the page by about 4%. Each entry carries its measured ink coverage
+  and the contrast test uses the weighted figure rather than the raw opacity.
+- **A pattern is never drawn over an image** — it would fight the photograph rather than texture
+  a surface.
 
 ### Decision 4: The catalogue lives in C++, not in QML
 
@@ -164,21 +184,23 @@ background colour both clear `backgroundPreset`.
 - **Not cleared by a light/dark mode switch**, which selects no colour of its own; the preset just
   resolves to its other value. This is the common case and must not lose the user's choice.
 
-### Decision 8: The set — 20 presets across the two usable bands
+### Decision 8: The set — coffee, not invented greys
 
-Neutral-leaning and desaturated on purpose: these exist for people who found the photos too
-much, so a saturated background would miss the request. Ordered dark to light, so the chooser
-reads as a ramp. Values are a starting point; the contrast tests are the gate.
-
-| Band | Presets |
+| Band | Colours |
 |------|---------|
-| Deep (L\* 7-12) | Graphite `#14161a`, Slate `#181f2b`, Espresso `#1e1815`, Forest `#131e19`, Plum `#1c1620` |
-| Deep, patterned | Grain (Espresso), Linen (Graphite), Twill (Slate), Pinstripe (Forest), Dot Grid (Plum) |
-| Mid (L\* 25-29) | Ash `#383d45`, Denim `#333f4f`, Oxford `#3a4452` (twill) |
-| Light (L\* 92-96) | Chalk `#f2f3f5`, Mist `#e6ebf2`, Cream `#f5efe8`, Sage `#e6efe8`, Lilac `#f0eaf4` |
-| Light, patterned | Parchment `#efe7da` (grain), Dove `#e8eaee` (dots) |
+| Roast (L\* 7-14) | French Roast, Cold Brew, Espresso, Green Bean, Ristretto, Cast Iron, Walnut, Barista |
+| Machine (L\* 20-22) | Machine Steel, Denim Apron |
+| Milk and cup (L\* 66-95) | Brushed Steel, Cortado, Latte, Oat Milk, Crema, Cappuccino, Steam, Flat White, Porcelain |
 
-The gap between L\* 29 and L\* 92 is Decision 3a's dead band, not an oversight.
+Patterns: Grain, Dot Grid, Pinstripe, Twill, Weave, Linen.
+
+- **The first set was neutral by default and read as "eight variations on charcoal, seven on
+  off-white".** Nothing in it was a colour anyone would choose on purpose. Naming and sourcing
+  them from roast levels, milk drinks, the machine and the cup gives each one a reason to exist
+  and makes the range legible at a glance.
+- Worst measured contrast across the set is 4.87:1, including the densest pattern over the
+  tightest colour; card separation is at least 2.4 L* everywhere.
+- The gap between L\* 22 and 66 is Decision 3a's text dead band.
 
 ### Decision 9: Two contrast weaknesses the photos masked, fixed in the same bindings
 

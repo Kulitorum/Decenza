@@ -14,12 +14,18 @@ download anything.
 
 ## What Changes
 
-- Add a curated catalogue of **20 built-in background presets**, spanning near-black to
-  near-white and **all offered under every theme, all the time**.
-  - Deep: **Graphite**, **Slate**, **Espresso**, **Forest**, **Plum**, plus patterned
-    **Grain**, **Linen**, **Twill**, **Pinstripe**, **Dot Grid**
-  - Mid: **Ash**, **Denim**, patterned **Oxford**
-  - Light: **Chalk**, **Mist**, **Cream**, **Sage**, **Lilac**, patterned **Parchment**, **Dove**
+- Add a curated catalogue of **19 built-in background colours**, drawn from coffee and the
+  things around it rather than invented greys, spanning near-black to near-white and **all
+  offered under every theme, all the time**.
+  - Roast: **French Roast**, **Cold Brew**, **Espresso**, **Green Bean**, **Ristretto**,
+    **Cast Iron**, **Walnut**, **Barista**
+  - Machine: **Machine Steel**, **Denim Apron**
+  - Milk and cup: **Brushed Steel**, **Cortado**, **Latte**, **Oat Milk**, **Crema**,
+    **Cappuccino**, **Steam**, **Flat White**, **Porcelain**
+- Add **6 patterns** as an independent second axis — **Grain**, **Dot Grid**, **Pinstripe**,
+  **Twill**, **Weave**, **Linen** — so any pattern can sit on any colour. Baking a pattern
+  into each colour instead produced a catalogue where half the entries were near-invisible
+  variants of the other half.
 - Presets are **not tied to light/dark mode**. Instead, the readable foreground — text,
   secondary text, icons, borders, card and inset fills — is **derived from the chosen colour**,
   so a pale background is legible under a dark theme and vice versa. This is only possible
@@ -27,9 +33,6 @@ download anything.
   - **Consequence:** while a preset is active, a custom text colour from the theme is
     overridden. No stored preference can be right across a ramp this wide. Accents, chart
     colours and everything else still come from the user's theme.
-- A preset sets the app's flat background colour rather than posing as an image, but it drives
-  **the same translucent chrome** a screensaver image does — scrimmed cards, bars, dialogs and
-  action tiles. The glass look is the point: presets change the colour behind it, not the look.
 - Add a **Glass chrome option** — a switch in Machine → Theme Mode that makes cards, bars and
   dialogs translucent, working with *any* theme including the user's own. It is an option, not
   a theme: translucency is orthogonal to light/dark, so a theme (which occupies one polarity
@@ -47,9 +50,10 @@ download anything.
     as a dimmed patch but against a solid preset is invisible — text fields and switch tracks
     sitting directly on the page disappear. Under a preset it scrims toward the contrast
     direction instead, keeping the recessed step.
-- The chooser becomes **sectioned**: "Colours & patterns" (None + the 10 presets) above
-  "Images" (personal uploads + cached stock). The existing live preview panel previews presets
-  as well, rendered by the same component that draws the real page background.
+- The chooser becomes **sectioned**: "Colours & patterns" (None + the 19 colours), then
+  "Pattern" (None + the 6 patterns, each previewed on the colour actually selected), then
+  "Images" (personal uploads + cached stock). The existing live preview panel previews the
+  whole combination, rendered by the same component that draws the real page background.
 - Preset and image are one selection: choosing either clears the other.
 - New setting `Settings.theme.backgroundPreset` (empty string = no preset). Selecting a named
   theme, or editing the theme's own background colour in the web theme editor, clears the
@@ -76,22 +80,20 @@ today.
 ## Impact
 
 **New**
-- `src/core/backgroundpresets.{h,cpp}` — the catalogue (id, name key, dark/light colour, overlay
-  kind + asset + opacity), single source of truth, unit-testable.
-- `resources/backgrounds/*.svg` — 5 tiny tileable pattern assets (grain, linen, twill, pinstripe,
-  dots); the solids need no asset.
+- `src/core/backgroundpresets.{h,cpp}` — two tables (colours; patterns with asset, opacity, tile
+  and measured ink coverage), single source of truth, unit-testable.
+- `resources/backgrounds/*.svg` — 6 tiny tileable pattern assets (grain, linen, twill, pinstripe,
+  dots, weave); the colours need no asset.
 - `qml/components/BackgroundSurface.qml` — shared renderer used by the real background, the
   chooser tiles, and the preview.
-- `tests/tst_backgroundpresets.cpp` — id uniqueness, colour parsing, asset existence, and a WCAG
-  contrast floor for every preset in both modes, measured against the raw preset colour *and*
-  against the scrimmed card colour text actually sits on.
+- `tests/tst_backgroundpresets.cpp` — id uniqueness, colour parsing, asset existence, a WCAG
+  contrast floor for every colour against the page, the densest pattern, the card and the glass
+  card, a perceptual card-separation floor, and a guard that the catalogue keeps spanning the
+  range rather than collapsing back to two clusters.
 
 **Modified**
-- `src/core/settings_theme.{h,cpp}` — `backgroundPreset` property, `backgroundPresets` catalogue
-  property, resolved-colour accessor, and the two clear-on-explicit-choice rules. Glass added to
-  `themeNames()`, `getPresetThemes()` (with `isBuiltIn`), `applyDarkTheme()`, `applyLightTheme()`
-  and `applyPresetTheme()`, plus `glassDarkDefaults()`/`glassLightDefaults()`; "Glass" added to
-  the existing built-in-name guards in `saveCurrentTheme()` and the delete path.
+- `src/core/settings_theme.{h,cpp}` — `backgroundPreset`, `backgroundPattern` and `glassChrome`
+  properties, the two catalogue accessors, and the clear-on-explicit-choice rules.
 - `qml/Theme.qml` — new `glassChrome` predicate; `backgroundColor` resolves through the
   active preset; every scrim/tint binding gated on the predicate; the `textSecondaryColor` and
   `insetBackgroundColor` fixes.
@@ -99,10 +101,8 @@ today.
   `Settings.theme.backgroundImagePath.length > 0` onto `Theme.glassChrome`.
 - `qml/components/ThemedPageBackground.qml`, `qml/components/BackgroundPickerDialog.qml`,
   `qml/components/layout/LayoutPreview.qml` — render/choose/preview presets.
-- `qml/pages/settings/SettingsMachineTab.qml` — Background row label reflects a preset choice;
-  the Dark/Light theme pickers pick up Glass for free from `themeNames()`.
-- The in-app theme editor and the web theme editor (`src/network/shotserver_settings.cpp`) —
-  read-only presentation and a "duplicate to edit" affordance while Glass is active.
+- `qml/pages/settings/SettingsMachineTab.qml` — the Glass chrome switch, and a Background row
+  label that reflects a preset choice as well as an image.
 - `CMakeLists.txt` — new QML file, new C++ sources, new `.qrc` entries, new test target.
 - Translations: preset names and the two section headers.
 
