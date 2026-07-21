@@ -26,12 +26,12 @@ class SettingsTheme : public QObject {
     Q_PROPERTY(QString darkThemeName READ darkThemeName WRITE setDarkThemeName NOTIFY darkThemeNameChanged)
     Q_PROPERTY(QString lightThemeName READ lightThemeName WRITE setLightThemeName NOTIFY lightThemeNameChanged)
     Q_PROPERTY(QStringList themeNames READ themeNames NOTIFY themeNamesChanged)
-    // True when the ACTIVE PALETTE is a glass palette — the built-in Glass theme, or
-    // anything forked or saved from it. Theme.glassChrome reads this. Notified by
-    // customThemeColorsChanged, not by a name change, because the marker lives in the
-    // palette: any colour edit renames the slot to "Custom" while the palette (and the
-    // glass look) carries on.
-    Q_PROPERTY(bool isGlassPalette READ isGlassPalette NOTIFY customThemeColorsChanged)
+    // Translucent "glass" chrome — scrimmed cards, bars and dialogs. An OPTION rather
+    // than a theme: glassiness is orthogonal to light/dark, so any theme can be glass.
+    // It started life as a built-in "Glass" theme and that was the wrong shape — a theme
+    // occupies one polarity slot, so it could only ever be half-applied, and it could not
+    // be combined with the user's own colours.
+    Q_PROPERTY(bool glassChrome READ glassChrome WRITE setGlassChrome NOTIFY glassChromeChanged)
     Q_PROPERTY(double screenBrightness READ screenBrightness WRITE setScreenBrightness NOTIFY screenBrightnessChanged)
     Q_PROPERTY(QVariantMap customFontSizes READ customFontSizes WRITE setCustomFontSizes NOTIFY customFontSizesChanged)
     // Defaults merged with the user's overrides — the single value QML should render at.
@@ -142,19 +142,9 @@ public:
 
     static const QVariantMap& darkDefaults();
     static const QVariantMap& lightDefaults();
-    // Glass palettes — each default plus the few overrides glass actually needs. See the
-    // definitions for why backgroundColor and surfaceColor must stay apart.
-    static const QVariantMap& glassDarkDefaults();
-    static const QVariantMap& glassLightDefaults();
 
-    // The built-in Glass theme's name in themeNames(). Read-only in this release:
-    // saveCurrentTheme() and deleteUserTheme() refuse it as they do the two defaults.
-    static const QString kGlassThemeName;
-    // Palette entry that marks a palette as glass. Carried in the palette rather than
-    // inferred from the theme name so it survives an edit (which forks the slot to
-    // "Custom") and survives being saved as a user theme.
-    static const QString kGlassPaletteFlag;
-    bool isGlassPalette() const;
+    bool glassChrome() const;
+    void setGlassChrome(bool enabled);
 
     QString activeShader() const;
     void setActiveShader(const QString& shader);
@@ -233,6 +223,7 @@ signals:
     void editingPaletteChanged();
     void backgroundImagePathChanged();
     void backgroundPresetChanged();
+    void glassChromeChanged();
     // Fires when the preset changes AND when light/dark mode flips, since the resolved
     // colour depends on both.
     void activeBackgroundPresetChanged();

@@ -27,15 +27,17 @@ struct Preset {
     QString id;
     QString nameKey;        // translation key
     QString nameFallback;   // English
-    QString darkColor;      // used when Settings.theme.isDarkMode
-    QString lightColor;     // used otherwise
+    QString color;          // the background colour; foreground is derived from it
     OverlayKind overlayKind = OverlayKind::None;
     QString overlayAsset;   // qrc path, empty for OverlayKind::None
     double overlayOpacity = 0.0;
     int overlayTile = 0;    // authored tile edge in px; sets Image.sourceSize when tiling
 };
 
-// The ten presets, five solids followed by five patterns.
+// The twenty presets, ordered dark to light. NOT paired to light/dark mode: every
+// preset is available under every theme, and the readable foreground is derived from
+// the preset colour (see Theme.qml) rather than taken from the palette — which is what
+// lets a pale background work under a dark theme without leaving white text on it.
 const QVector<Preset>& catalogue();
 
 // Lookup by id. Returns a Preset with an empty id when `id` is unknown or empty —
@@ -45,13 +47,10 @@ Preset byId(const QString& id);
 
 bool contains(const QString& id);
 
-// The catalogue as QML sees it: a list of maps, catalogue order preserved. `darkMode`
-// resolves each entry's `color` field, so the chooser's tiles show what the user would
-// actually get right now rather than always the dark value.
-QVariantList toVariantList(bool darkMode);
+// The catalogue as QML sees it: a list of maps, catalogue order preserved.
+QVariantList toVariantList();
 
-// One entry as a map, with `color` already resolved for the requested mode, plus the
-// overlay fields. Empty map when `id` is unknown.
-QVariantMap toVariantMap(const Preset& preset, bool darkMode);
+// One entry as a map. Empty map when `id` is unknown.
+QVariantMap toVariantMap(const Preset& preset);
 
 }  // namespace BackgroundPresets

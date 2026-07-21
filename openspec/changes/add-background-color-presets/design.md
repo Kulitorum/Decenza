@@ -42,9 +42,9 @@ into the active bucket, so Glass needs no new storage concept and no third theme
   background surface today; the catalogue is placed in C++ so they can gain one later without a
   second definition.
 - Any change to the screensaver, its media library, or its caching.
-- An editable Glass theme. Read-only in this release; duplicate-to-edit covers the user who wants
-  a variant (Decision 13).
-- A third `themeMode` value. Glass is a theme, not a mode (Decision 11).
+- A third `themeMode` value, or a Glass theme. Glass is an option (Decision 11).
+- Per-preset text-colour customisation. While a preset is active the foreground is derived
+  (Decision 3); a user who wants their own text colours should not set a preset.
 
 ## Decisions
 
@@ -65,44 +65,57 @@ into the active bucket, so Glass needs no new storage concept and no third theme
   is a requirement, not an emergent property — see the spec.
 - **Note:** this decision is about *storage*, not about *appearance*. The chrome is Decision 2.
 
-### Decision 2: A preset drives the same translucent chrome an image does
+### Decision 2: One predicate gates the translucent chrome
 
 Everything gated on "a background is set" — `cardBackgroundColor`, `dialogBackgroundColor`,
-`insetBackgroundColor`, `actionTileColor`, `actionButtonFill()`, the adjusted
-`textSecondaryColor`, and the per-widget scrims in the layout items — is gated on a preset too.
-The gate becomes one predicate, `Theme.glassChrome`, true when either an image or a
-preset is active, and the ~70 hand-rolled `Settings.theme.backgroundImagePath.length > 0` reads
-are swept onto it.
+`insetBackgroundColor`, `actionTileColor`, `actionButtonFill()` and the per-widget scrims in the
+layout items — is gated on one predicate, `Theme.glassChrome`, true when the glass option is on
+or a background image is set. The ~70 hand-rolled
+`Settings.theme.backgroundImagePath.length > 0` reads are swept onto it.
 
-- **Why:** the glass chrome is what a Decenza with a background *looks like*. A preset that kept
-  opaque cards would not read as "the same app with a calmer background", it would read as a
-  third, unrelated visual mode. The user's choice here is the colour behind the glass.
 - **Why one predicate rather than extending the test in place:** `imagePath.length > 0 ||
-  preset.length > 0` copied to seventy sites is seventy chances for the next background source to
-  be missed at one of them. One named predicate is also the honest name for what those sites were
-  always asking — none of them cares that it is an *image*, only that the page is not flat.
-- **Composition is now computable.** Over a photo, what sits behind a 40%-alpha card is unknowable,
-  which is why `backgroundScrimAlpha` was tuned by eye against worst-case bright regions. Over a
-  preset the base is a known hex value, so the resulting card colour is exact arithmetic — which
-  is what lets the contrast floor in Decision 9 be a real test rather than an intention.
-- **`backgroundScrimAlpha` is not retuned.** 0.4 was chosen against busy photos; against a flat
-  colour it is, if anything, generous. Changing it would move every existing photo user's UI to
-  fix a problem presets do not have.
+  option` copied to seventy sites is seventy chances for the next trigger to be missed at one of
+  them. One named predicate is also the honest name for what those sites were always asking —
+  none of them cares that it is an *image*, only that the chrome should go translucent.
+- **`backgroundScrimAlpha` is not retuned.** 0.4 was chosen against busy photos; changing it
+  would move every existing photo user's UI to fix a problem they do not have.
+- **Presets do not force it on.** Over a flat colour a translucent card and an opaque one are
+  the same pixels, so the option's real effect there is the *size of the step* between card and
+  page — which Decision 3 derives, at a smaller strength when the option is on.
 
-### Decision 3: Every preset is a dark/light pair, resolved by `isDarkMode`
+### Decision 3: One colour per preset, with the foreground derived from it
 
-Each catalogue entry carries `darkColor` and `lightColor`. `Theme.backgroundColor` picks by
-`Settings.theme.isDarkMode`.
+A preset is a single colour. While one is active, `textColor`, `textSecondaryColor`,
+`iconColor`, `borderColor`, the card/dialog fill and the inset fill are all computed from it.
 
-- **Why:** the alternative is a flat list of twenty colours where ten of them make the app
-  unreadable depending on the current mode, because text colour comes from the theme and would not
-  follow. Pairing removes the footgun entirely instead of guarding it with a warning, a filter, or
-  a second setting — and it means switching light/dark mode keeps the user's choice of *character*
-  ("Espresso") while changing its *value*.
-- **Rejected — derive the light value from the dark one:** a computed inverse of a near-black is a
-  muddy grey, not the pale warm cream that actually pairs with it. Both values are hand-picked.
-- **Rejected — show only the presets valid for the current mode:** the grid would change contents
-  when the user switches mode, and the same preset would appear to be two different things.
+- **This replaces a mode-paired design that shipped in an earlier draft** — every preset carried
+  a dark and a light value and resolved against `isDarkMode`. That guaranteed legibility, and it
+  was wrong for the user: in dark mode the chooser offered ten near-blacks and nothing else. A
+  catalogue whose light half is invisible whenever you might want it is not a catalogue.
+- **Why derivation works here and not for photos:** a preset is a *known* hex value, so the
+  colour text lands on is exact arithmetic. `Theme.contrastColorFor()` already existed for
+  precisely this. Over a photo none of it is computable, which is why the image path keeps its
+  eye-tuned scrim.
+- **The cost, stated plainly:** a custom text colour is overridden while a preset is active. No
+  stored preference can be right across a ramp from `#14161a` to `#f2f3f5`. Accents, chart
+  series and status colours still come from the user's theme.
+- **Rejected — let a light preset switch the app to light mode:** it silently changes a setting
+  the user did not touch, and it re-couples the two things this decision separates.
+- **Rejected — filter the catalogue by mode:** that is the mode-paired design in another costume;
+  the grid would change contents on a mode switch and the light options would still be
+  unreachable from dark mode.
+
+### Decision 3a: The catalogue avoids the mid-tone dead band
+
+Presets sit at L\* 7-29 or L\* 91-96. Nothing between.
+
+- **Not an aesthetic choice — a measured constraint.** Between roughly L\* 30 and 58 neither
+  black nor white text clears 4.5:1 once secondary text is softened at all; from there to about
+  L\* 85 a card cannot separate perceptibly from the page at the glass-chrome lift. A mid-grey
+  page simply cannot carry a monochrome-text UI, and the contrast tests fail any entry that
+  tries.
+- The mid rung the catalogue *does* offer (Ash, Denim, Oxford at L\* 25-29) is the lightest
+  point that still passes, and it is what answers "everything is near-black".
 
 ### Decision 4: The catalogue lives in C++, not in QML
 
@@ -151,36 +164,26 @@ background colour both clear `backgroundPreset`.
 - **Not cleared by a light/dark mode switch**, which selects no colour of its own; the preset just
   resolves to its other value. This is the common case and must not lose the user's choice.
 
-### Decision 8: The recommended set — 5 solids, 5 patterns
+### Decision 8: The set — 20 presets across the two usable bands
 
-Neutral-leaning and desaturated on purpose: these are the option for people who found the photos
-too much, so a saturated background would miss the request. Every one of the ten is meant to be a
-background someone actually works in front of all day — none is a demo of what the mechanism can
-do. Values are the starting point; the contrast test is the gate.
+Neutral-leaning and desaturated on purpose: these exist for people who found the photos too
+much, so a saturated background would miss the request. Ordered dark to light, so the chooser
+reads as a ramp. Values are a starting point; the contrast tests are the gate.
 
-| # | Preset | Kind | Dark | Light | Notes |
-|---|--------|------|------|-------|-------|
-| 1 | Graphite | solid | `#14161a` | `#f2f3f5` | True neutral, the quietest option in the set |
-| 2 | Slate | solid | `#181f2b` | `#eceff4` | Cool blue-grey, nearest neighbour to today's default |
-| 3 | Espresso | solid | `#1e1815` | `#f5efe8` | Warm brown / cream; the on-theme one |
-| 4 | Forest | solid | `#131e19` | `#eaf1ec` | Muted green |
-| 5 | Plum | solid | `#1c1620` | `#f2edf4` | Muted purple |
-| 6 | Grain | tile 5% | Espresso pair | Espresso pair | Fine noise; reads as paper, not as texture |
-| 7 | Linen | tile 5% | Graphite pair | Graphite pair | Fine woven crosshatch |
-| 8 | Twill | tile 5% | Slate pair | Slate pair | 45° hairlines |
-| 9 | Pinstripe | tile 4% | Forest pair | Forest pair | Fine vertical hairlines |
-| 10 | Dot Grid | tile 4% | Plum pair | Plum pair | 6 px dot lattice |
+| Band | Presets |
+|------|---------|
+| Deep (L\* 7-12) | Graphite `#14161a`, Slate `#181f2b`, Espresso `#1e1815`, Forest `#131e19`, Plum `#1c1620` |
+| Deep, patterned | Grain (Espresso), Linen (Graphite), Twill (Slate), Pinstripe (Forest), Dot Grid (Plum) |
+| Mid (L\* 25-29) | Ash `#383d45`, Denim `#333f4f`, Oxford `#3a4452` (twill) |
+| Light (L\* 92-96) | Chalk `#f2f3f5`, Mist `#e6ebf2`, Cream `#f5efe8`, Sage `#e6efe8`, Lilac `#f0eaf4` |
+| Light, patterned | Parchment `#efe7da` (grain), Dove `#e8eaee` (dots) |
 
-Each pattern sits on a different solid's colour pair, so the ten entries are ten distinct
-backgrounds rather than five colours shown twice. A pattern inherits its base pair wholesale — it
-is one catalogue row, not a colour crossed with a texture, because a colour × pattern grid is the
-second axis Non-Goals rules out.
-
-Graphite dark measures 18:1 against `textColor` and 8.3:1 against `textSecondaryColor`; the test
-enforces 4.5:1 for all ten in both modes, against both the raw colour and the scrimmed card
-colour, which is the floor, not the target.
+The gap between L\* 29 and L\* 92 is Decision 3a's dead band, not an oversight.
 
 ### Decision 9: Two contrast weaknesses the photos masked, fixed in the same bindings
+
+*(Both still apply to the image path and to the glass option over a theme palette. While a
+preset is active they are moot — Decision 3 derives those values from the background instead.)*
 
 Decision 2 points the glass chrome at a flat colour for the first time. Two of those bindings only
 ever made sense against a photo, and presets promote both from "rare annoyance" to "visibly
@@ -223,75 +226,24 @@ labelled preset `Flow`/`Grid` above the existing image grid.
 - Preset tiles carry real names, so their `Accessible.name` is the translated preset name rather
   than the positional "Background image 3 of 12" the photo tiles are stuck with.
 
-### Decision 11: Glass is a built-in theme, not a third theme mode
+### Decision 11: Glass chrome is an option, not a theme
 
-Glass joins `themeNames()` next to "Default Dark" and "Default Light", carries a `colorsDark` and
-a `colorsLight` palette like any user-saved theme, and is selectable in the existing Dark theme
-and Light theme pickers. `themeMode` stays `system` | `light` | `dark`; `isDarkMode` stays a bool.
+A boolean setting, `Settings.theme.glassChrome`, shown as a switch in Theme Mode. There is no
+Glass theme.
 
-- **Why:** the first reading of "a peer to light and dark" was a third *mode* — and that is the
-  expensive, wrong one. `m_isDarkMode` is a boolean that fans out to the palette storage keys
-  (`customColorsDark`/`customColorsLight`), `activeThemeName()`, the editing-palette check, the
-  iOS status-bar style and this change's preset resolution; a tri-state would touch every one of
-  them, and the OS light/dark signal could never select the third value anyway.
-- **The app already has the right slot.** Themes are named palette blobs; `applyDarkTheme(name)`
-  copies a blob into the active bucket. Glass is one more blob. It needs no new storage, no new
-  mode, and no change to follow-system — a user can run Glass as their dark theme and Default
-  Light as their light theme, and the OS switch keeps working.
-- **This is what makes theme and background orthogonal**, which is the actual request: any of the
-  three (or any saved theme) crossed with any background.
-- **Rejected — a third `themeMode` value:** described above. Also user-visible nonsense: "Follow
-  system" and "Glass" would be mutually exclusive states of one control for no reason.
-- **Rejected — Glass as a background preset:** it is not a backdrop, it is a chrome treatment plus
-  a palette, and it must compose *with* a background rather than occupy the same slot.
-
-### Decision 12: Glass is the second trigger for the translucent chrome
-
-`Theme.glassChrome` (Decision 2) becomes true when a background image or preset is set **or** the
-active theme is Glass, detected by `activeThemeName()`.
-
-- **Why the union:** an existing user with a photo background and Default Dark must keep exactly
-  what they have today, and a Glass user with no background must still get glass. Neither implies
-  the other, so the predicate is an OR and not a migration.
-- **Glass with no background is a real state, not a degenerate one:** cards resolve to
-  `surfaceColor` at `backgroundScrimAlpha` over the palette's own `backgroundColor`, and since
-  Glass's palette sets those two apart deliberately, that reads as a frosted plane. This is
-  precisely why Decision 9's `insetBackgroundColor` fix matters — that binding scrims
-  `backgroundColor` over itself and degenerates on any flat page, preset or Glass alike.
-- **An explicit palette entry is the marker, not the theme name.** The Glass palettes carry
-  `glassChrome: true`, and `Theme.glassChrome` reads that. This was written as a name check, and
-  implementation proved it wrong: `setEditingPaletteColor()` renames the edited slot to "Custom"
-  on any colour change, so a name check turned the chrome opaque the instant a user nudged one
-  colour — with no way to have a glass look on a customised palette. The flag survives that fork
-  and survives Save-as-user-theme, so a duplicated Glass stays glassy. The original wording's own
-  reason ("comparing colours to guess would break the moment a user duplicated it") argues for
-  this; the *name* is the thing that breaks on duplication.
-- **The flag is inert in both editors**, which iterate curated colour lists (`colorDefinitions` in
-  `SettingsThemesTab.qml`, `COLOR_DEFS` in `theme_js.h`) rather than the palette's keys, so a
-  non-colour entry never renders as a broken swatch.
-- **The name is still the marker for read-only**, which is what names are for: `saveCurrentTheme()`
-  and `deleteUserTheme()` refuse "Glass" the way they already refuse the two defaults.
-
-### Decision 13: Glass is read-only in this release
-
-"Glass" is added to the built-in-name guards that already protect "Default Dark" and "Default
-Light" in `saveCurrentTheme()` and the delete path, and both theme editors present it as
-non-editable with a "duplicate to edit" affordance.
-
-- **Why read-only to start:** Glass's value is that it is a known-good tuned pairing of palette
-  and translucency. Shipping it editable on day one means the first support question is someone
-  who edited it into illegibility and cannot get back.
-- **The app already implements duplicate-to-edit, and no new UI is needed.** An earlier draft of
-  this decision claimed the opposite — that editing after applying a theme left the name lying
-  about the palette — and that was simply wrong about the code. `setEditingPaletteColor()` renames
-  the edited slot to "Custom", so the first colour change on Glass forks to a Custom palette with
-  Glass's colours as its starting point and leaves the built-in untouched. That IS the
-  duplicate-to-edit flow, arrived at by editing rather than by a modal.
-- **What "read-only" therefore means in code:** the two guards. Glass cannot be overwritten by
-  `saveCurrentTheme()` or removed by `deleteUserTheme()`, so the entry a user returns to is always
-  the tuned original.
-- **The fork keeps the glass look** because glassiness rides in the palette (Decision 12), not in
-  the name. A user who wants a warmer glass gets one, and it is still glass.
+- **It shipped as a theme first, and that was the wrong shape.** A theme occupies one polarity
+  slot, so Glass could only ever be half-applied: setting it as the dark theme did nothing in
+  light mode, and the two halves looked like different features. That is exactly what the user
+  reported.
+- **Translucency is orthogonal to light/dark.** Any theme can be glass; expressing an orthogonal
+  property as a value of a non-orthogonal enum is the category error underneath the bug.
+- **As a theme it also could not compose.** You could have Glass, or your own colours, never
+  both. As an option it applies to any theme, including a user's own.
+- **It also cost a whole 47-colour palette** to carry what is really one boolean plus two tweaked
+  colours — and needed read-only guards, editor special-casing and a palette flag to survive
+  editing. All of that disappears.
+- **A background image still forces it on**, independent of the switch: opaque chrome over a
+  photo reads as a slab, which is the original reason the translucent path exists.
 
 ## Risks / Trade-offs
 
@@ -318,13 +270,12 @@ non-editable with a "duplicate to edit" affordance.
   extra ternary on a property that is already a `_c()`-wrapped binding over two settings reads.
 - **The web theme editor's background swatch appears to do nothing while a preset is active** →
   Decision 7 clears the preset on that edit, so it does something: it wins.
-- **Glass is detected by name, so a user who duplicates it loses the glass chrome** → intended:
-  the copy is an ordinary theme with Glass's colours, and a background switches the chrome on for
-  it like any other theme. Worth confirming it reads acceptably (task 8.3) rather than surprising.
-- **Two editors must both learn Glass is read-only** → the in-app editor and the web editor are
-  separate code; missing one leaves a path that silently edits the applied copy. Both are listed
-  in Impact and tasked, and the `saveCurrentTheme()`/delete guards are the backstop that holds
-  even if an editor's UI misses it.
+- **A preset overrides the user's own text colour** → stated in Decision 3 and in the manual. The
+  alternative is either an unreadable page or a catalogue that hides half its options; a user who
+  wants full colour control should use the theme editor and leave the preset on None.
+- **The mid band is empty, which may read as a gap** → it is measured, not arbitrary (Decision
+  3a), and the tests reject anything placed there. If a mid-tone background is ever genuinely
+  wanted, it needs a second text colour role for page-level text, which is a change of its own.
 
 ## Migration Plan
 

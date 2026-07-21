@@ -34,25 +34,15 @@ SettingsTheme::SettingsTheme(QObject* parent)
 {
 }
 
-// The built-in Glass theme's name, as it appears in themeNames(). One spelling, since
-// it is also the marker Theme.glassChrome keys on — comparing palettes to guess "is this
-// Glass" would break the moment a user duplicated it.
-const QString SettingsTheme::kGlassThemeName = QStringLiteral("Glass");
+bool SettingsTheme::glassChrome() const {
+    return m_settings.value("theme/glassChrome", false).toBool();
+}
 
-// Palette entry marking a palette as "glass" — translucent chrome even with no background
-// set. Not a colour: both theme editors render from curated colour lists
-// (colorDefinitions in SettingsThemesTab.qml, COLOR_DEFS in theme_js.h) rather than from
-// the palette's keys, so this never appears as a swatch.
-const QString SettingsTheme::kGlassPaletteFlag = QStringLiteral("glassChrome");
-
-bool SettingsTheme::isGlassPalette() const {
-    // Read from the PALETTE, not the theme name. Any colour edit renames the slot to
-    // "Custom" (see setEditingPaletteColor), so a name check would turn the chrome opaque
-    // the instant a user nudged one colour — and would leave no way to have a glass look
-    // on a customised palette. The flag rides along through that fork and through
-    // saveCurrentTheme(), so a duplicated Glass stays glass. The NAME still governs
-    // read-only (saveCurrentTheme/deleteUserTheme), which is what names are for.
-    return customThemeColors().value(kGlassPaletteFlag).toBool();
+void SettingsTheme::setGlassChrome(bool enabled) {
+    if (glassChrome() != enabled) {
+        m_settings.setValue("theme/glassChrome", enabled);
+        emit glassChromeChanged();
+    }
 }
 
 QString SettingsTheme::skin() const {
@@ -102,11 +92,11 @@ void SettingsTheme::setBackgroundPreset(const QString& id) {
 }
 
 QVariantList SettingsTheme::backgroundPresets() const {
-    return BackgroundPresets::toVariantList(m_isDarkMode);
+    return BackgroundPresets::toVariantList();
 }
 
 QVariantMap SettingsTheme::activeBackgroundPreset() const {
-    return BackgroundPresets::toVariantMap(BackgroundPresets::byId(backgroundPreset()), m_isDarkMode);
+    return BackgroundPresets::toVariantMap(BackgroundPresets::byId(backgroundPreset()));
 }
 
 QString SettingsTheme::skinPath() const {
@@ -177,48 +167,6 @@ const QVariantMap& SettingsTheme::darkDefaults() {
         {"bottomBarColor", "#4e85f4"},
         {"actionButtonContentColor", "#ffffff"}
     };
-    return defaults;
-}
-
-// -- Glass theme --
-//
-// A built-in theme (not a theme MODE, and not a background preset) whose defining
-// feature is that it turns the translucent chrome on by itself — see Theme.glassChrome.
-// It is listed in themeNames() beside "Default Dark"/"Default Light" and can be assigned
-// to either the dark or the light slot, so it carries a palette for each.
-//
-// Both palettes are the corresponding default with a handful of overrides, so Glass
-// inherits every chart/indicator colour and only restates what glass actually needs: a
-// backgroundColor darker/lighter than the default, and a surfaceColor that still reads
-// as a distinct plane once it is composited at backgroundScrimAlpha over that
-// background. Those two separating is the entire job of a glass palette — if they were
-// equal, every card would vanish into the page.
-const QVariantMap& SettingsTheme::glassDarkDefaults() {
-    static const QVariantMap defaults = [] {
-        QVariantMap map = darkDefaults();
-        map[kGlassPaletteFlag] = true;
-        map["backgroundColor"] = "#101319";
-        map["surfaceColor"] = "#2a3140";
-        map["borderColor"] = "#3d4759";
-        return map;
-    }();
-    return defaults;
-}
-
-const QVariantMap& SettingsTheme::glassLightDefaults() {
-    static const QVariantMap defaults = [] {
-        QVariantMap map = lightDefaults();
-        map[kGlassPaletteFlag] = true;
-        // Deliberately greyer than the stock light page (#eef0f6). A white surface at 40%
-        // over a near-white page composites to near-white, and every card vanishes — the
-        // first draft of this palette scored 1.7 L* of separation and the test caught it.
-        // A tinted page is what lets white cards read as floating above it.
-        map["backgroundColor"] = "#dde3ee";
-        map["surfaceColor"] = "#ffffff";
-        map["textColor"] = "#16181d";
-        map["borderColor"] = "#ccd3e0";
-        return map;
-    }();
     return defaults;
 }
 
@@ -507,7 +455,7 @@ void SettingsTheme::setLightThemeName(const QString& name) {
 
 QStringList SettingsTheme::themeNames() const {
     QStringList names;
-    names << "Default Dark" << "Default Light" << kGlassThemeName;
+    names << "Default Dark" << "Default Light";
 
     QJsonArray userThemes = QJsonDocument::fromJson(
         m_settings.value("theme/userThemes", "[]").toByteArray()
@@ -527,9 +475,6 @@ void SettingsTheme::applyDarkTheme(const QString& name) {
     } else if (name == "Default Light") {
         m_settings.setValue("theme/customColorsDark",
             QJsonDocument(QJsonObject::fromVariantMap(lightDefaults())).toJson());
-    } else if (name == kGlassThemeName) {
-        m_settings.setValue("theme/customColorsDark",
-            QJsonDocument(QJsonObject::fromVariantMap(glassDarkDefaults())).toJson());
     } else {
         // Look for user theme
         QJsonArray userThemes = QJsonDocument::fromJson(
@@ -562,9 +507,6 @@ void SettingsTheme::applyLightTheme(const QString& name) {
     } else if (name == "Default Dark") {
         m_settings.setValue("theme/customColorsLight",
             QJsonDocument(QJsonObject::fromVariantMap(darkDefaults())).toJson());
-    } else if (name == kGlassThemeName) {
-        m_settings.setValue("theme/customColorsLight",
-            QJsonDocument(QJsonObject::fromVariantMap(glassLightDefaults())).toJson());
     } else {
         // Look for user theme
         QJsonArray userThemes = QJsonDocument::fromJson(
@@ -908,14 +850,6 @@ QVariantList SettingsTheme::getPresetThemes() const {
     defaultLight["isBuiltIn"] = true;
     themes.append(defaultLight);
 
-    // Glass theme (built-in). Read-only in this release — see saveCurrentTheme and
-    // deleteUserTheme, which refuse it by name the way they already refuse the defaults.
-    QVariantMap glass;
-    glass["name"] = kGlassThemeName;
-    glass["primaryColor"] = glassDarkDefaults().value("primaryColor");
-    glass["isBuiltIn"] = true;
-    themes.append(glass);
-
     // Load user-saved themes
     QJsonArray userThemes = QJsonDocument::fromJson(
         m_settings.value("theme/userThemes", "[]").toByteArray()
@@ -969,20 +903,6 @@ void SettingsTheme::applyPresetTheme(const QString& name) {
         return;
     }
 
-    if (name == kGlassThemeName) {
-        // Built-in, so both palettes come from code rather than from userThemes.
-        m_settings.setValue("theme/customColorsDark",
-            QJsonDocument(QJsonObject::fromVariantMap(glassDarkDefaults())).toJson());
-        m_settings.setValue("theme/customColorsLight",
-            QJsonDocument(QJsonObject::fromVariantMap(glassLightDefaults())).toJson());
-        setActiveShader("");
-        setDarkThemeName(name);
-        setLightThemeName(name);
-        setBackgroundPreset(QString());  // explicit theme choice wins; see applyDarkTheme
-        emit customThemeColorsChanged();
-        return;
-    }
-
     // Look for user theme
     QJsonArray userThemes = QJsonDocument::fromJson(
         m_settings.value("theme/userThemes", "[]").toByteArray()
@@ -1020,8 +940,7 @@ void SettingsTheme::applyPresetTheme(const QString& name) {
 }
 
 void SettingsTheme::saveCurrentTheme(const QString& name) {
-    if (name.isEmpty() || name == "Default" || name == "Default Dark" || name == "Default Light"
-        || name == kGlassThemeName) {
+    if (name.isEmpty() || name == "Default" || name == "Default Dark" || name == "Default Light") {
         return; // Can't save with empty name or overwrite built-in themes
     }
 
@@ -1066,7 +985,7 @@ void SettingsTheme::saveCurrentTheme(const QString& name) {
 }
 
 void SettingsTheme::deleteUserTheme(const QString& name) {
-    if (name == "Default Dark" || name == "Default Light" || name == kGlassThemeName) {
+    if (name == "Default Dark" || name == "Default Light") {
         return; // Can't delete built-in themes
     }
 

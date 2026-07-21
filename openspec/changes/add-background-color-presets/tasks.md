@@ -57,7 +57,7 @@
 - [x] 4.4 Add `backgroundPresetId` to `LayoutPreview.qml` alongside `backgroundImageSource` and route
       both through `BackgroundSurface`
 
-## 5. Glass theme
+## 5. Glass chrome option
 
 - [x] 5.1 Add `glassDarkDefaults()` / `glassLightDefaults()` to `settings_theme.cpp`, tuned so
       `surfaceColor` still separates from `backgroundColor` at `backgroundScrimAlpha` (design Open
@@ -129,6 +129,6 @@
       Glass crossed with a preset and with a photo; follow-system switching with Glass in one slot;
       read-only in both editors with duplicate-to-edit producing an editable copy
 - [x] 9.5 Update the wiki manual (Theme Mode / Background section) with the preset list, the
-      mode-aware behaviour, the preset-vs-image rule, and the Glass theme — that it is a theme
-      rather than a mode, works with any background, and is read-only for now
+      derived-foreground behaviour, the preset-vs-image rule, and the Glass chrome option —
+      that it is an option rather than a theme and works with any theme and any background
 - [ ] 9.6 Run `/opsx:archive` as the final commit on the feature branch, before merge

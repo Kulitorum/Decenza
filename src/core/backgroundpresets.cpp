@@ -8,59 +8,81 @@ QString overlayKindName(OverlayKind kind) {
     return kind == OverlayKind::Tile ? QStringLiteral("tile") : QStringLiteral("none");
 }
 
+// Shorthand for a solid entry.
+Preset solid(const char* id, const char* name, const char* color) {
+    return Preset{QString::fromLatin1(id),
+                  QStringLiteral("backgroundPreset.") + QString::fromLatin1(id),
+                  QString::fromLatin1(name),
+                  QString::fromLatin1(color),
+                  OverlayKind::None, QString(), 0.0, 0};
+}
+
+// Shorthand for a patterned entry. `asset` is the tile basename.
+Preset patterned(const char* id, const char* name, const char* color,
+                 const char* asset, double opacity, int tile) {
+    return Preset{QString::fromLatin1(id),
+                  QStringLiteral("backgroundPreset.") + QString::fromLatin1(id),
+                  QString::fromLatin1(name),
+                  QString::fromLatin1(color),
+                  OverlayKind::Tile,
+                  QStringLiteral("qrc:/backgrounds/") + QString::fromLatin1(asset) + QStringLiteral(".svg"),
+                  opacity, tile};
+}
+
 }  // namespace
 
 const QVector<Preset>& catalogue() {
-    // Neutral-leaning and desaturated on purpose: these exist for people who found the
-    // screensaver photos too much to work in front of, so a saturated background would
-    // miss the request. Every entry is meant to be a background someone uses all day.
+    // Twenty backgrounds spanning near-black to near-white, all available all the time.
     //
-    // Each is a dark/light PAIR rather than a single colour. Text colour comes from the
-    // theme and does not follow the background, so a single-value preset would make the
-    // app unreadable in whichever mode it was not picked for. Pairing removes that
-    // footgun instead of guarding it with a warning or a filter.
+    // They are NOT tied to light/dark mode. An earlier design paired each preset to a
+    // dark and a light value so the theme's text colour would always land on a suitable
+    // background — safe, but it meant that in dark mode every option on offer was a
+    // near-black, which is not a choice. Instead the foreground is DERIVED from the
+    // chosen colour (Theme.qml's preset surface derivation), so a pale background is
+    // readable under a dark theme and vice versa.
     //
-    // The five patterns each sit on a different solid's pair, so the ten entries are ten
-    // distinct backgrounds rather than five colours shown twice. A pattern inherits its
-    // base pair wholesale — deliberately NOT a colour × texture grid, which would be a
-    // second axis for the user to get wrong.
+    // Ordered dark to light so the chooser reads as a ramp rather than a jumble. Colours
+    // are desaturated on purpose: these exist for people who found the screensaver photos
+    // too much to work in front of.
     static const QVector<Preset> presets = {
-        // --- Solids -------------------------------------------------------------
-        {QStringLiteral("graphite"), QStringLiteral("backgroundPreset.graphite"), QStringLiteral("Graphite"),
-         QStringLiteral("#14161a"), QStringLiteral("#f2f3f5"),
-         OverlayKind::None, QString(), 0.0, 0},
-        {QStringLiteral("slate"), QStringLiteral("backgroundPreset.slate"), QStringLiteral("Slate"),
-         QStringLiteral("#181f2b"), QStringLiteral("#eceff4"),
-         OverlayKind::None, QString(), 0.0, 0},
-        {QStringLiteral("espresso"), QStringLiteral("backgroundPreset.espresso"), QStringLiteral("Espresso"),
-         QStringLiteral("#1e1815"), QStringLiteral("#f5efe8"),
-         OverlayKind::None, QString(), 0.0, 0},
-        {QStringLiteral("forest"), QStringLiteral("backgroundPreset.forest"), QStringLiteral("Forest"),
-         QStringLiteral("#131e19"), QStringLiteral("#eaf1ec"),
-         OverlayKind::None, QString(), 0.0, 0},
-        {QStringLiteral("plum"), QStringLiteral("backgroundPreset.plum"), QStringLiteral("Plum"),
-         QStringLiteral("#1c1620"), QStringLiteral("#f2edf4"),
-         OverlayKind::None, QString(), 0.0, 0},
+        // --- Deep -------------------------------------------------------------
+        solid("graphite", "Graphite", "#14161a"),
+        solid("slate",    "Slate",    "#181f2b"),
+        solid("espresso", "Espresso", "#1e1815"),
+        solid("forest",   "Forest",   "#131e19"),
+        solid("plum",     "Plum",     "#1c1620"),
 
-        // --- Patterns -----------------------------------------------------------
-        // Opacity lives here so tuning a pattern is a data edit, not a QML edit. The
-        // tile edge is authored-size in px and becomes Image.sourceSize when tiling —
+        // Patterns on the deep tones. Opacity lives here so tuning a pattern is a data
+        // edit; the tile edge is the authored size in px and becomes Image.sourceSize —
         // a tile whose scaled size lands off an integer shimmers.
-        {QStringLiteral("grain"), QStringLiteral("backgroundPreset.grain"), QStringLiteral("Grain"),
-         QStringLiteral("#1e1815"), QStringLiteral("#f5efe8"),
-         OverlayKind::Tile, QStringLiteral("qrc:/backgrounds/grain.svg"), 0.05, 32},
-        {QStringLiteral("linen"), QStringLiteral("backgroundPreset.linen"), QStringLiteral("Linen"),
-         QStringLiteral("#14161a"), QStringLiteral("#f2f3f5"),
-         OverlayKind::Tile, QStringLiteral("qrc:/backgrounds/linen.svg"), 0.05, 16},
-        {QStringLiteral("twill"), QStringLiteral("backgroundPreset.twill"), QStringLiteral("Twill"),
-         QStringLiteral("#181f2b"), QStringLiteral("#eceff4"),
-         OverlayKind::Tile, QStringLiteral("qrc:/backgrounds/twill.svg"), 0.05, 8},
-        {QStringLiteral("pinstripe"), QStringLiteral("backgroundPreset.pinstripe"), QStringLiteral("Pinstripe"),
-         QStringLiteral("#131e19"), QStringLiteral("#eaf1ec"),
-         OverlayKind::Tile, QStringLiteral("qrc:/backgrounds/pinstripe.svg"), 0.04, 8},
-        {QStringLiteral("dots"), QStringLiteral("backgroundPreset.dots"), QStringLiteral("Dot Grid"),
-         QStringLiteral("#1c1620"), QStringLiteral("#f2edf4"),
-         OverlayKind::Tile, QStringLiteral("qrc:/backgrounds/dots.svg"), 0.04, 12},
+        patterned("grain",     "Grain",     "#1e1815", "grain",     0.05, 32),
+        patterned("linen",     "Linen",     "#14161a", "linen",     0.05, 16),
+        patterned("twill",     "Twill",     "#181f2b", "twill",     0.05, 8),
+        patterned("pinstripe", "Pinstripe", "#131e19", "pinstripe", 0.04, 8),
+        patterned("dots",      "Dot Grid",  "#1c1620", "dots",      0.04, 12),
+
+        // --- Mid --------------------------------------------------------------
+        // The rung that was missing entirely: clearly lighter than a near-black, still a
+        // dark UI, derived text still white.
+        //
+        // They sit at L* 25-29 and cannot go higher, because a mid-tone page cannot carry
+        // monochrome text. Between roughly L* 30 and 58 neither black nor white clears
+        // 4.5:1 once secondary text is softened at all, and from there to about L* 85 a
+        // card cannot separate perceptibly from the page at the glass-chrome lift. That
+        // dead band is a property of mid-greys, not a tuning failure — so the catalogue
+        // stays on the two shoulders either side of it, and the contrast tests enforce it.
+        solid("ash",    "Ash",    "#383d45"),
+        solid("denim",  "Denim",  "#333f4f"),
+        patterned("oxford", "Oxford", "#3a4452", "twill", 0.06, 8),
+
+        // --- Light ------------------------------------------------------------
+        solid("chalk",  "Chalk",  "#f2f3f5"),
+        solid("mist",   "Mist",   "#e6ebf2"),
+        solid("cream",  "Cream",  "#f5efe8"),
+        solid("sage",   "Sage",   "#e6efe8"),
+        solid("lilac",  "Lilac",  "#f0eaf4"),
+        patterned("parchment", "Parchment", "#efe7da", "grain", 0.06, 32),
+        patterned("dove",      "Dove",      "#e8eaee", "dots",  0.05, 12),
     };
     return presets;
 }
@@ -79,7 +101,7 @@ bool contains(const QString& id) {
     return !byId(id).id.isEmpty();
 }
 
-QVariantMap toVariantMap(const Preset& preset, bool darkMode) {
+QVariantMap toVariantMap(const Preset& preset) {
     if (preset.id.isEmpty())
         return {};
 
@@ -87,9 +109,7 @@ QVariantMap toVariantMap(const Preset& preset, bool darkMode) {
     map["id"] = preset.id;
     map["nameKey"] = preset.nameKey;
     map["nameFallback"] = preset.nameFallback;
-    map["darkColor"] = preset.darkColor;
-    map["lightColor"] = preset.lightColor;
-    map["color"] = darkMode ? preset.darkColor : preset.lightColor;
+    map["color"] = preset.color;
     map["overlayKind"] = overlayKindName(preset.overlayKind);
     map["overlayAsset"] = preset.overlayAsset;
     map["overlayOpacity"] = preset.overlayOpacity;
@@ -97,13 +117,10 @@ QVariantMap toVariantMap(const Preset& preset, bool darkMode) {
     return map;
 }
 
-QVariantList toVariantList(bool darkMode) {
+QVariantList toVariantList() {
     QVariantList list;
-    for (const Preset& preset : catalogue()) {
-        // Every entry carries both colours as well as the resolved `color`, so a caller
-        // that wants to show the other mode's value does not need a second call.
-        list.append(toVariantMap(preset, darkMode));
-    }
+    for (const Preset& preset : catalogue())
+        list.append(toVariantMap(preset));
     return list;
 }
 

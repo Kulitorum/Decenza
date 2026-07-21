@@ -14,29 +14,28 @@ download anything.
 
 ## What Changes
 
-- Add a curated catalogue of **10 built-in background presets** — 5 solid colours and 5 very
-  subtle patterns — selectable from the existing Background chooser. All ten are meant to be
-  backgrounds someone works in front of all day, not demonstrations of the mechanism.
-  - Solids: **Graphite**, **Slate**, **Espresso**, **Forest**, **Plum**
-  - Patterns, each on a different solid's colour pair: **Grain** (warm paper noise),
-    **Linen** (woven crosshatch), **Twill** (45° hairlines), **Pinstripe** (vertical hairlines),
-    **Dot Grid** (6 px lattice)
-- Each preset is **mode-aware**: it carries a dark value and a light value and resolves against
-  `Settings.theme.isDarkMode`, so a preset can never leave light text on a light page.
+- Add a curated catalogue of **20 built-in background presets**, spanning near-black to
+  near-white and **all offered under every theme, all the time**.
+  - Deep: **Graphite**, **Slate**, **Espresso**, **Forest**, **Plum**, plus patterned
+    **Grain**, **Linen**, **Twill**, **Pinstripe**, **Dot Grid**
+  - Mid: **Ash**, **Denim**, patterned **Oxford**
+  - Light: **Chalk**, **Mist**, **Cream**, **Sage**, **Lilac**, patterned **Parchment**, **Dove**
+- Presets are **not tied to light/dark mode**. Instead, the readable foreground — text,
+  secondary text, icons, borders, card and inset fills — is **derived from the chosen colour**,
+  so a pale background is legible under a dark theme and vice versa. This is only possible
+  because a preset is a known colour; over a photo none of it is computable.
+  - **Consequence:** while a preset is active, a custom text colour from the theme is
+    overridden. No stored preference can be right across a ramp this wide. Accents, chart
+    colours and everything else still come from the user's theme.
 - A preset sets the app's flat background colour rather than posing as an image, but it drives
   **the same translucent chrome** a screensaver image does — scrimmed cards, bars, dialogs and
   action tiles. The glass look is the point: presets change the colour behind it, not the look.
-- Add a built-in **Glass** theme — a peer of "Default Dark" and "Default Light" in the same
-  theme list, offered in the Machine → Theme Mode Dark and Light pickers exactly like a
-  user-saved theme. Glass turns the translucent chrome on by itself, so theme and background
-  become independent choices: pick Glass, Default Dark or any saved theme, *and* the background
-  of your choice. Glass ships both a `colorsDark` and a `colorsLight` palette, so it works in
-  either slot, and **is read-only in this first release** — it cannot be overwritten or deleted,
-  and editing while it is active offers to duplicate it under a new name.
-  `themeMode` stays `system` | `light` | `dark` and `isDarkMode` stays a boolean: Glass is a
-  theme, not a third mode.
-- The gate for that chrome becomes a single predicate, `Theme.glassChrome` — true when a
-  background image or preset is set, **or** when the active theme is Glass — replacing the ~70
+- Add a **Glass chrome option** — a switch in Machine → Theme Mode that makes cards, bars and
+  dialogs translucent, working with *any* theme including the user's own. It is an option, not
+  a theme: translucency is orthogonal to light/dark, so a theme (which occupies one polarity
+  slot) can only ever apply it by halves.
+- The gate for that chrome becomes a single predicate, `Theme.glassChrome` — the option, or a
+  background image (where opaque chrome would read as a slab on the photo) — replacing the ~70
   hand-rolled `backgroundImagePath.length > 0` reads scattered across `Theme.qml` and the
   components.
 - Two contrast weaknesses the photo backgrounds masked are fixed in the same bindings, because
@@ -63,11 +62,11 @@ today.
 ## Capabilities
 
 ### New Capabilities
-- `background-color-presets`: the built-in preset catalogue, its mode-aware colour resolution,
-  how a preset interacts with the image background and with theme selection, and the sectioned
-  chooser that presents both.
-- `glass-theme`: the built-in read-only Glass theme, its place in the existing theme list rather
-  than in `themeMode`, and its role as the second trigger for the translucent chrome.
+- `background-color-presets`: the built-in preset catalogue, the derivation of readable
+  foreground colours from the chosen background, how a preset interacts with the image
+  background and with theme selection, and the sectioned chooser that presents both.
+- `glass-chrome-option`: the translucent-chrome switch, why it is an option rather than a theme
+  or a mode, and how it composes with any theme and any background.
 
 ### Modified Capabilities
 <!-- None. `custom-background` (the image chooser) is still an unarchived change and has no

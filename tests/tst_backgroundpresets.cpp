@@ -8,13 +8,14 @@
 #include "core/settings.h"
 #include "core/settings_theme.h"
 
-// Background presets + the built-in Glass theme.
+// Background presets + the glass-chrome option.
 //
 // The contrast checks here are the point of putting the catalogue in C++ at all: over a
 // screensaver photo what sits behind a translucent card is unknowable, so the scrim alpha
-// was tuned by eye. Over a preset (or Glass with no background) the base is a known hex
-// value, so the colour text actually lands on is exact arithmetic — and therefore
-// testable rather than merely intended.
+// was tuned by eye. A preset is a KNOWN colour, so everything derived from it — text,
+// secondary text, card fill — is exact arithmetic, and therefore testable rather than
+// merely intended. That derivation is what allows all twenty presets, from near-black to
+// near-white, to be offered under any theme.
 class TestBackgroundPresets : public QObject {
     Q_OBJECT
 
@@ -50,46 +51,30 @@ private:
             kScrimAlpha * surface.blueF()  + (1.0 - kScrimAlpha) * base.blueF());
     }
 
-    // Theme.textSecondaryColor pushes AWAY from the page when the glass chrome is on:
-    // lighter in dark mode, darker in light mode. Qt::lighter/darker take a percentage.
-    static QColor adjustedSecondary(const QColor& secondary, bool darkMode) {
-        return darkMode ? secondary.lighter(140) : secondary.darker(140);
-    }
-
     // Perceptual lightness (CIE L*, 0-100). Used where a WCAG ratio is the wrong tool —
-    // see separationIsPerceptible.
+    // see glassSurfaceSeparatesFromBackground.
     static double lstar(const QColor& c) {
         const double y = luminance(c);
         return y <= 0.008856 ? 903.3 * y : 116.0 * std::cbrt(y) - 16.0;
     }
 
-    // Every text colour that has to stay readable on `base`, for one mode.
-    static void checkTextOn(const QColor& base, bool darkMode, const QString& what,
-                            const QVariantMap& palette) {
-        const QColor text(palette.value("textColor").toString());
-        const QColor surface(palette.value("surfaceColor").toString());
-        const QColor secondary = adjustedSecondary(
-            QColor(palette.value("textSecondaryColor").toString()), darkMode);
+    static QColor mix(const QColor& a, const QColor& b, double t) {
+        return QColor::fromRgbF(a.redF()   + (b.redF()   - a.redF())   * t,
+                                a.greenF() + (b.greenF() - a.greenF()) * t,
+                                a.blueF()  + (b.blueF()  - a.blueF())  * t);
+    }
 
-        const QColor card = scrimOver(surface, base);
+    // Mirrors Theme.contrastColorFor: black or white, by comparing the two real contrast
+    // ratios rather than thresholding a brightness value.
+    static QColor contrastColorFor(const QColor& fill) {
+        const double l = luminance(fill);
+        return (l + 0.05) / 0.05 >= 1.05 / (l + 0.05) ? QColor("#000000") : QColor("#ffffff");
+    }
 
-        struct Case { QColor fg; QColor bg; const char* label; };
-        const Case cases[] = {
-            {text,      base, "textColor on background"},
-            {secondary, base, "textSecondaryColor on background"},
-            {text,      card, "textColor on scrimmed card"},
-            {secondary, card, "textSecondaryColor on scrimmed card"},
-        };
-
-        for (const Case& c : cases) {
-            const double ratio = contrast(c.fg, c.bg);
-            QVERIFY2(ratio >= kMinContrast,
-                     qPrintable(QString("%1 (%2 mode): %3 = %4:1, below %5:1")
-                                    .arg(what, darkMode ? "dark" : "light",
-                                         QString::fromLatin1(c.label))
-                                    .arg(ratio, 0, 'f', 2)
-                                    .arg(kMinContrast)));
-        }
+    // Mirrors Theme._liftFrom: cards read as raised, which means lighter until there is no
+    // headroom left above, at which point the step goes down instead.
+    static QColor liftFrom(const QColor& base, double strength) {
+        return mix(base, luminance(base) < 0.72 ? QColor("#ffffff") : QColor("#000000"), strength);
     }
 
 private slots:
@@ -105,7 +90,7 @@ private slots:
 
     void catalogueIsWellFormed() {
         const auto& presets = BackgroundPresets::catalogue();
-        QCOMPARE(presets.size(), 10);
+        QCOMPARE(presets.size(), 20);
 
         QSet<QString> ids;
         for (const auto& p : presets) {
@@ -116,8 +101,7 @@ private slots:
             QVERIFY2(!p.nameKey.isEmpty(), qPrintable("missing nameKey: " + p.id));
             QVERIFY2(!p.nameFallback.isEmpty(), qPrintable("missing nameFallback: " + p.id));
 
-            QVERIFY2(QColor::isValidColorName(p.darkColor), qPrintable("bad darkColor: " + p.id));
-            QVERIFY2(QColor::isValidColorName(p.lightColor), qPrintable("bad lightColor: " + p.id));
+            QVERIFY2(QColor::isValidColorName(p.color), qPrintable("bad colour: " + p.id));
 
             if (p.overlayKind == BackgroundPresets::OverlayKind::Tile) {
                 QVERIFY2(!p.overlayAsset.isEmpty(), qPrintable("tile preset without asset: " + p.id));
@@ -137,12 +121,11 @@ private slots:
         }
     }
 
-    void catalogueOrdersSolidsFirst() {
+    void catalogueIsOrderedDarkToLight() {
+        // The chooser reads as a ramp rather than a jumble, and — more importantly — a
+        // user scanning it sees the range on offer instead of ten near-identical squares.
         const auto& presets = BackgroundPresets::catalogue();
-        for (qsizetype i = 0; i < 5; ++i)
-            QCOMPARE(presets[i].overlayKind, BackgroundPresets::OverlayKind::None);
-        for (qsizetype i = 5; i < presets.size(); ++i)
-            QCOMPARE(presets[i].overlayKind, BackgroundPresets::OverlayKind::Tile);
+        QVERIFY(lstar(QColor(presets.first().color)) < lstar(QColor(presets.last().color)));
     }
 
     void lookupOfUnknownIdIsEmpty() {
@@ -150,65 +133,89 @@ private slots:
         QVERIFY(BackgroundPresets::byId("").id.isEmpty());
         QVERIFY(!BackgroundPresets::contains("no-such-preset"));
         QVERIFY(BackgroundPresets::contains("graphite"));
-        QVERIFY(BackgroundPresets::toVariantMap(BackgroundPresets::byId("nope"), true).isEmpty());
+        QVERIFY(BackgroundPresets::toVariantMap(BackgroundPresets::byId("nope")).isEmpty());
     }
 
-    void variantListResolvesColourForMode() {
-        const QVariantList dark = BackgroundPresets::toVariantList(true);
-        const QVariantList light = BackgroundPresets::toVariantList(false);
-        QCOMPARE(dark.size(), BackgroundPresets::catalogue().size());
-
-        const QVariantMap first = dark.first().toMap();
-        QCOMPARE(first.value("color").toString(), BackgroundPresets::catalogue().first().darkColor);
-        QCOMPARE(light.first().toMap().value("color").toString(),
-                 BackgroundPresets::catalogue().first().lightColor);
+    void variantListCarriesEveryEntry() {
+        const QVariantList list = BackgroundPresets::toVariantList();
+        QCOMPARE(list.size(), BackgroundPresets::catalogue().size());
+        QCOMPARE(list.first().toMap().value("color").toString(),
+                 BackgroundPresets::catalogue().first().color);
     }
 
-    // --- Contrast ----------------------------------------------------------
+    // --- Derived foreground ------------------------------------------------
+    //
+    // The catalogue spans near-black to near-white and every entry is offered under every
+    // theme, so legibility cannot come from the palette — it is derived from the preset
+    // colour. These are the checks that make that safe, and they are only possible because
+    // a preset is a known colour: over a photo none of this is computable.
 
-    void everyPresetKeepsTextLegible() {
+    void everyPresetKeepsDerivedTextLegible() {
         for (const auto& p : BackgroundPresets::catalogue()) {
-            checkTextOn(QColor(p.darkColor), true, "preset " + p.id, SettingsTheme::darkDefaults());
-            checkTextOn(QColor(p.lightColor), false, "preset " + p.id, SettingsTheme::lightDefaults());
+            const QColor page(p.color);
+            const QColor text = contrastColorFor(page);
+            const QColor secondary = mix(text, page, 0.28);
+
+            // Both card strengths Theme.qml uses: 0.05 with glass chrome on, 0.09 off.
+            for (double strength : {0.05, 0.09}) {
+                const QColor card = liftFrom(page, strength);
+                struct Case { QColor fg; QColor bg; const char* label; };
+                const Case cases[] = {
+                    {text,      page, "text on page"},
+                    {secondary, page, "secondary text on page"},
+                    {text,      card, "text on card"},
+                    {secondary, card, "secondary text on card"},
+                };
+                for (const Case& c : cases) {
+                    const double ratio = contrast(c.fg, c.bg);
+                    QVERIFY2(ratio >= kMinContrast,
+                             qPrintable(QString("preset %1 (card %2): %3 = %4:1, below %5:1")
+                                            .arg(p.id).arg(strength)
+                                            .arg(QString::fromLatin1(c.label))
+                                            .arg(ratio, 0, 'f', 2).arg(kMinContrast)));
+                }
+            }
         }
     }
 
-    void glassPalettesKeepTextLegible() {
-        const QVariantMap glassDark = SettingsTheme::glassDarkDefaults();
-        const QVariantMap glassLight = SettingsTheme::glassLightDefaults();
-
-        // Glass over its own background colour, measured against Glass's own text colours.
-        checkTextOn(QColor(glassDark.value("backgroundColor").toString()), true, "glass", glassDark);
-        checkTextOn(QColor(glassLight.value("backgroundColor").toString()), false, "glass", glassLight);
-
-        // Glass crossed with every preset — the combination a user actually sits in front
-        // of once theme and background are independent choices.
+    void everyPresetKeepsCardsVisible() {
+        // A card has to differ from the page or the layout dissolves. Measured as a CIE L*
+        // delta, NOT a WCAG ratio: ratios are built for text and compress badly in the
+        // bright range, so one ratio threshold would pass an invisible light card or fail a
+        // perfectly good dark one. L* is perceptually uniform, so one threshold means the
+        // same thing at both ends of the ramp — which this catalogue spans.
         for (const auto& p : BackgroundPresets::catalogue()) {
-            checkTextOn(QColor(p.darkColor), true, "glass + " + p.id, glassDark);
-            checkTextOn(QColor(p.lightColor), false, "glass + " + p.id, glassLight);
+            const QColor page(p.color);
+            for (double strength : {0.05, 0.09}) {
+                const double delta = std::abs(lstar(liftFrom(page, strength)) - lstar(page));
+                QVERIFY2(delta >= 2.0,
+                         qPrintable(QString("preset %1: card is only %2 L* from the page at "
+                                            "strength %3 — cards will read as invisible")
+                                        .arg(p.id).arg(delta, 0, 'f', 2).arg(strength)));
+            }
         }
     }
 
-    void glassSurfaceSeparatesFromBackground() {
-        // The one thing a glass palette must do: a card has to stay visibly distinct from
-        // the page once composited at the scrim alpha, or every card vanishes.
-        //
-        // Measured as a CIE L* difference, NOT a WCAG contrast ratio. WCAG ratios are built
-        // for text legibility and compress badly in the bright range — the same visible step
-        // that scores 1.11 on a near-black page scores 1.05 on a near-white one, so a single
-        // ratio threshold would either pass an invisible light card or fail a fine dark one.
-        // L* is perceptually uniform, so one threshold means the same thing in both.
-        for (bool dark : {true, false}) {
-            const QVariantMap palette = dark ? SettingsTheme::glassDarkDefaults()
-                                             : SettingsTheme::glassLightDefaults();
-            const QColor base(palette.value("backgroundColor").toString());
-            const QColor card = scrimOver(QColor(palette.value("surfaceColor").toString()), base);
-            const double delta = std::abs(lstar(card) - lstar(base));
-            QVERIFY2(delta >= 3.0,
-                     qPrintable(QString("glass %1: card is only %2 L* from the page — cards "
-                                        "will read as invisible")
-                                    .arg(dark ? "dark" : "light").arg(delta, 0, 'f', 2)));
+    void catalogueSpansDarkToLight() {
+        // The point of the redesign: in any one mode the user must see more than one end of
+        // the range. The previous mode-paired design offered only near-blacks in dark mode.
+        double lo = 100.0, hi = 0.0;
+        for (const auto& p : BackgroundPresets::catalogue()) {
+            const double l = lstar(QColor(p.color));
+            lo = std::min(lo, l);
+            hi = std::max(hi, l);
         }
+        QVERIFY2(lo < 15.0, qPrintable(QString("no deep option: darkest is L* %1").arg(lo)));
+        QVERIFY2(hi > 85.0, qPrintable(QString("no light option: lightest is L* %1").arg(hi)));
+
+        // And something in between, or the ramp is just two clusters.
+        int mid = 0;
+        for (const auto& p : BackgroundPresets::catalogue()) {
+            const double l = lstar(QColor(p.color));
+            if (l > 20.0 && l < 80.0)
+                ++mid;
+        }
+        QVERIFY2(mid >= 2, "catalogue has no mid-tone options");
     }
 
     // --- Settings ----------------------------------------------------------
@@ -217,7 +224,6 @@ private slots:
         SettingsTheme theme;
         QCOMPARE(theme.backgroundPreset(), QString());
         QVERIFY(theme.activeBackgroundPreset().isEmpty());
-        QVERIFY(!theme.isGlassPalette());
     }
 
     void selectionPersistsAndNotifies() {
@@ -281,113 +287,59 @@ private slots:
         QCOMPARE(theme.backgroundPreset(), QString("plum"));
     }
 
-    void modeSwitchKeepsThePresetAndFlipsItsColour() {
+    void aPresetIsIndependentOfTheMode() {
+        // Presets used to be dark/light pairs that resolved against isDarkMode. They are
+        // not any more: one colour, offered under every theme, with the foreground derived
+        // from it. A mode switch must change neither the selection nor the colour.
         SettingsTheme theme;
         theme.setThemeMode("dark");
-        theme.setBackgroundPreset("graphite");
-        const QString darkColor = theme.activeBackgroundPreset().value("color").toString();
+        theme.setBackgroundPreset("chalk");
+        const QString beforeSwitch = theme.activeBackgroundPreset().value("color").toString();
 
         theme.setThemeMode("light");
-        QCOMPARE(theme.backgroundPreset(), QString("graphite"));  // selection survives
-        const QString lightColor = theme.activeBackgroundPreset().value("color").toString();
-        QVERIFY(darkColor != lightColor);
-        QCOMPARE(lightColor, BackgroundPresets::byId("graphite").lightColor);
+        QCOMPARE(theme.backgroundPreset(), QString("chalk"));
+        QCOMPARE(theme.activeBackgroundPreset().value("color").toString(), beforeSwitch);
+        QCOMPARE(beforeSwitch, BackgroundPresets::byId("chalk").color);
     }
 
-    // --- Glass theme -------------------------------------------------------
+    // --- Glass chrome option -----------------------------------------------
 
-    void glassIsListedAsABuiltInTheme() {
-        SettingsTheme theme;
-        QVERIFY(theme.themeNames().contains(SettingsTheme::kGlassThemeName));
+    void glassChromeDefaultsOffAndRoundTrips() {
+        {
+            SettingsTheme theme;
+            QVERIFY(!theme.glassChrome());
 
-        bool found = false;
-        for (const QVariant& v : theme.getPresetThemes()) {
-            const QVariantMap map = v.toMap();
-            if (map.value("name").toString() == SettingsTheme::kGlassThemeName) {
-                found = true;
-                QVERIFY2(map.value("isBuiltIn").toBool(), "Glass must be marked built-in");
-            }
+            QSignalSpy spy(&theme, &SettingsTheme::glassChromeChanged);
+            theme.setGlassChrome(true);
+            QCOMPARE(spy.count(), 1);
+            theme.setGlassChrome(true);  // idempotent
+            QCOMPARE(spy.count(), 1);
         }
-        QVERIFY2(found, "Glass missing from getPresetThemes()");
+        SettingsTheme reopened;
+        QVERIFY(reopened.glassChrome());
     }
 
-    void applyingGlassInstallsItsPalette() {
+    void glassChromeIsIndependentOfThemeAndBackground() {
+        // The whole reason it stopped being a theme: it is orthogonal to light/dark and to
+        // the background, so it must survive both changing underneath it.
         SettingsTheme theme;
+        theme.setGlassChrome(true);
 
-        theme.setThemeMode("dark");
-        theme.applyDarkTheme(SettingsTheme::kGlassThemeName);
-        QCOMPARE(theme.customThemeColors().value("backgroundColor").toString(),
-                 SettingsTheme::glassDarkDefaults().value("backgroundColor").toString());
-        QVERIFY(theme.isGlassPalette());
+        theme.applyDarkTheme("Default Dark");
+        QVERIFY2(theme.glassChrome(), "applying a theme must not clear the glass option");
 
         theme.setThemeMode("light");
-        theme.applyLightTheme(SettingsTheme::kGlassThemeName);
-        QCOMPARE(theme.customThemeColors().value("backgroundColor").toString(),
-                 SettingsTheme::glassLightDefaults().value("backgroundColor").toString());
-        QVERIFY(theme.isGlassPalette());
+        QVERIFY2(theme.glassChrome(), "a mode switch must not clear the glass option");
+
+        theme.setBackgroundPreset("cream");
+        QVERIFY2(theme.glassChrome(), "choosing a background must not clear the glass option");
     }
 
-    void glassIsOnlyGlassInTheSlotItWasAppliedTo() {
+    void glassIsNoLongerATheme() {
+        // It was one, briefly, and that was the wrong shape — a theme occupies a single
+        // polarity slot, so it could only ever be half-applied.
         SettingsTheme theme;
-        theme.applyDarkTheme(SettingsTheme::kGlassThemeName);
-        theme.applyLightTheme("Default Light");
-
-        theme.setThemeMode("dark");
-        QVERIFY(theme.isGlassPalette());
-        theme.setThemeMode("light");
-        QVERIFY(!theme.isGlassPalette());
-    }
-
-    void glassCannotBeOverwrittenOrDeleted() {
-        SettingsTheme theme;
-        theme.applyDarkTheme(SettingsTheme::kGlassThemeName);
-
-        theme.saveCurrentTheme(SettingsTheme::kGlassThemeName);
-        // A refused save leaves no user theme behind, so Glass appears exactly once.
-        QCOMPARE(theme.themeNames().count(SettingsTheme::kGlassThemeName), 1);
-
-        theme.deleteUserTheme(SettingsTheme::kGlassThemeName);
-        QVERIFY(theme.themeNames().contains(SettingsTheme::kGlassThemeName));
-        QCOMPARE(SettingsTheme::glassDarkDefaults().value("backgroundColor").toString(),
-                 QString("#101319"));
-    }
-
-    void editingGlassForksButKeepsTheGlassLook() {
-        SettingsTheme theme;
-        theme.setThemeMode("dark");
-        theme.applyDarkTheme(SettingsTheme::kGlassThemeName);
-        theme.setEditingPalette("dark");
-
-        theme.setEditingPaletteColor("primaryColor", "#ff8800");
-
-        // The slot forks to "Custom" — the built-in is never written...
-        QCOMPARE(theme.darkThemeName(), QString("Custom"));
-        QVERIFY(theme.themeNames().contains(SettingsTheme::kGlassThemeName));
-        // ...and the glass look rides in the palette, so it survives the fork. This is the
-        // whole reason glassiness is a palette entry rather than a theme-name check.
-        QVERIFY2(theme.isGlassPalette(), "editing one colour must not turn the chrome opaque");
-    }
-
-    void aSavedCopyOfGlassStaysGlass() {
-        SettingsTheme theme;
-        theme.setThemeMode("dark");
-        theme.applyDarkTheme(SettingsTheme::kGlassThemeName);
-        theme.setEditingPalette("dark");
-        theme.setEditingPaletteColor("primaryColor", "#ff8800");
-
-        theme.saveCurrentTheme("My Glass");
-        theme.applyDarkTheme("Default Dark");
-        QVERIFY(!theme.isGlassPalette());
-
-        theme.applyDarkTheme("My Glass");
-        QVERIFY2(theme.isGlassPalette(), "a user theme saved from Glass must stay glass");
-    }
-
-    void nonGlassThemesAreNotGlass() {
-        SettingsTheme theme;
-        theme.setThemeMode("dark");
-        theme.applyDarkTheme("Default Dark");
-        QVERIFY(!theme.isGlassPalette());
+        QVERIFY(!theme.themeNames().contains("Glass"));
     }
 };
 

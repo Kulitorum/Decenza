@@ -1,33 +1,30 @@
 ## ADDED Requirements
 
 ### Requirement: Built-in background preset catalogue
-The app SHALL ship a fixed, curated catalogue of built-in background presets as its single
-source of truth for preset identity, appearance and naming. The catalogue SHALL contain ten
-presets — the five solids `graphite`, `slate`, `espresso`, `forest` and `plum`, and the five
-patterns `grain`, `linen`, `twill`, `pinstripe` and `dots` — and each entry SHALL carry a stable
-id, a translation key with an English fallback name, a dark-mode colour, a light-mode colour, an
-overlay kind (`none` or `tile`), an overlay asset where the kind requires one, and an overlay
-opacity.
+The app SHALL ship a fixed, curated catalogue of twenty built-in background presets as its
+single source of truth for preset identity, appearance and naming. Each entry SHALL carry a
+stable id, a translation key with an English fallback name, one colour, an overlay kind
+(`none` or `tile`), an overlay asset where the kind requires one, an overlay opacity and an
+authored tile size. Entries SHALL be ordered from darkest to lightest.
 
 #### Scenario: Catalogue is well-formed
 - **WHEN** the catalogue is read
-- **THEN** every entry has a unique id, both colours parse as valid colours, and every entry with
-  overlay kind `tile` names an asset that exists in the compiled resources
+- **THEN** every entry has a unique id, its colour parses, and every entry with overlay kind
+  `tile` names an asset that exists in the compiled resources with an opacity in range
 
-#### Scenario: Every preset keeps text legible
-- **WHEN** each catalogue entry's dark colour is measured against the default dark theme's
-  `textColor` and `textSecondaryColor`, and its light colour against the default light theme's
-- **THEN** every resulting WCAG contrast ratio is at least 4.5:1
+#### Scenario: Ordered dark to light
+- **WHEN** the catalogue order is inspected
+- **THEN** the first entry is darker than the last, so the chooser reads as a ramp
 
-#### Scenario: Text stays legible on the scrimmed chrome too
-- **WHEN** the card colour is composited — `surfaceColor` at `backgroundScrimAlpha` over each
-  preset's resolved colour — and text colours are measured against that result
-- **THEN** every resulting WCAG contrast ratio is at least 4.5:1
+#### Scenario: The catalogue spans the usable range
+- **WHEN** the lightness of every entry is measured
+- **THEN** there is at least one deep option, at least one light option, and at least two
+  between them — so that whatever theme is active, the chooser offers real choice rather than
+  a single cluster
 
 #### Scenario: Catalogue is reachable from QML
 - **WHEN** QML reads `Settings.theme.backgroundPresets`
-- **THEN** it receives the catalogue entries in catalogue order, the five solids before the five
-  patterns
+- **THEN** it receives every catalogue entry, in catalogue order
 
 ### Requirement: Preset selection and persistence
 The app SHALL expose the selected preset as `Settings.theme.backgroundPreset`, a string holding
@@ -48,76 +45,60 @@ across restarts, and an id that is not in the catalogue SHALL be treated as no p
 - **THEN** the app renders as though no preset were selected, rather than rendering a blank or
   undefined background
 
-### Requirement: Mode-aware colour resolution
-An active preset SHALL supply the app's flat background colour, resolving to its dark colour
-when `Settings.theme.isDarkMode` is true and its light colour otherwise. The resolved colour
-SHALL take precedence over the active theme's own background colour, and SHALL follow a
-light/dark mode switch without the user reselecting anything.
+### Requirement: A preset supplies the background colour, independent of mode
+An active preset SHALL supply the app's flat background colour, taking precedence over the
+active theme's own background colour. The colour SHALL NOT depend on `isDarkMode`: every preset
+is available under every theme, and a light/dark switch SHALL change neither the selection nor
+the colour.
 
 #### Scenario: Preset overrides the theme background colour
 - **WHEN** a preset is active
-- **THEN** `Theme.backgroundColor` resolves to the preset's colour for the current mode, and
-  every page drawn on it uses that colour
+- **THEN** `Theme.backgroundColor` resolves to the preset's colour, and every page drawn on it
+  uses that colour
 
-#### Scenario: Mode switch flips the preset value
+#### Scenario: A mode switch changes nothing about the preset
 - **WHEN** the app switches between light and dark mode while a preset is active
-- **THEN** the background changes to that preset's other colour and text stays legible
+- **THEN** the same preset is still selected and still renders the same colour
 
 #### Scenario: Clearing restores the theme colour
 - **WHEN** the user selects "None"
 - **THEN** `Theme.backgroundColor` resolves to the active theme's background colour again
 
-### Requirement: A preset drives the same translucent chrome as a background image
-A preset SHALL produce the same translucent chrome a background image produces — scrimmed cards,
-dialogs, bars, inset controls and action tiles, and the adjusted secondary text colour. The app
-SHALL gate that chrome on a single shared predicate rather than on a background image alone. That
-predicate is true when a background image or a preset is active, and — see the `glass-theme`
-capability — also when the Glass theme is active. A preset SHALL NOT be stored as a background
-image: while a preset is active and no image is set, `Settings.theme.backgroundImagePath` SHALL
-remain empty.
+### Requirement: Foreground colours are derived from the preset
+Because a preset is a known colour and may be anywhere from near-black to near-white, the app
+SHALL derive the readable foreground from it rather than taking it from the palette. While a
+preset is active, `textColor`, `textSecondaryColor`, `iconColor`, `borderColor`, the card and
+dialog fills and the inset fill SHALL all be computed from the preset colour. All other palette
+roles — accents, chart series, status colours — SHALL continue to come from the user's theme.
 
-#### Scenario: Cards are scrimmed under a preset
+#### Scenario: Text follows the background, not the theme
+- **WHEN** a light preset is active under a dark theme
+- **THEN** page and card text render dark, not light, and remain legible
+
+#### Scenario: Every preset is legible
+- **WHEN** the derived text and secondary text are measured against the preset colour and
+  against the derived card fill, for every preset in the catalogue
+- **THEN** every WCAG contrast ratio is at least 4.5:1
+
+#### Scenario: Every card is visible
+- **WHEN** the derived card fill is compared with the preset colour for every preset, at both
+  card strengths the app uses
+- **THEN** the perceptual lightness difference is at least 2 L*, so a card never dissolves into
+  the page
+
+#### Scenario: A custom text colour is overridden
+- **WHEN** the user has set a custom text colour and then selects a preset
+- **THEN** the derived colour is used instead, because no single stored colour can be readable
+  across the whole catalogue
+
+### Requirement: A preset is a colour, not an image
+A preset SHALL NOT be stored as a background image. While a preset is active and no image is
+set, `Settings.theme.backgroundImagePath` SHALL remain empty, so the bookkeeping that clears
+that setting when its backing file is deleted stays correct.
+
+#### Scenario: The image path stays empty
 - **WHEN** a preset is active and no background image is set
-- **THEN** `backgroundImagePath` is empty, the custom-background predicate is true, and
-  `Theme.cardBackgroundColor` resolves to the scrimmed `surfaceColor` — the same value it takes
-  under a background image
-
-#### Scenario: Chrome is uniform across every surface
-- **WHEN** a preset is active
-- **THEN** dialogs, bars, action tiles, action buttons and the layout item widgets all take their
-  background-active fills, with no surface left on its opaque no-background fill
-
-#### Scenario: No background and no Glass leaves everything unchanged
-- **WHEN** neither a preset nor a background image is active, and the active theme is not Glass
-- **THEN** the predicate is false and every chrome colour resolves to the opaque fill it used
-  before presets existed
-
-### Requirement: Secondary text moves away from the background, not always lighter
-When the custom-background chrome is active, the app SHALL adjust `textSecondaryColor` away from
-the page background — lighter in dark mode, darker in light mode — rather than always lighter.
-
-#### Scenario: Light mode darkens instead of lightening
-- **WHEN** the custom-background chrome is active in light mode
-- **THEN** `textSecondaryColor` is darker than its unadjusted value, increasing its contrast
-  against the light page rather than reducing it
-
-#### Scenario: Dark mode is unchanged
-- **WHEN** the custom-background chrome is active in dark mode
-- **THEN** `textSecondaryColor` is lightened as it was before
-
-### Requirement: Inset controls stay visible on a solid background
-`insetBackgroundColor` scrims the background colour, which over a flat preset colour composites to
-that same colour and leaves inset controls invisible on the page. While a preset is active, the
-inset fill SHALL instead be scrimmed toward the contrast direction — toward black in light mode,
-toward white in dark mode — so it keeps a visible step from the page.
-
-#### Scenario: A text field on the page is distinguishable
-- **WHEN** a preset is active and an inset control is drawn directly on the page background
-- **THEN** its fill differs visibly from the page background
-
-#### Scenario: The image path is unaffected
-- **WHEN** a background image is active
-- **THEN** `insetBackgroundColor` keeps the scrim-toward-background behaviour it has today
+- **THEN** `backgroundImagePath` is empty
 
 ### Requirement: Preset and image are mutually exclusive
 Selecting a preset SHALL clear any selected background image, and selecting a background image

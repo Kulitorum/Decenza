@@ -792,7 +792,39 @@ KeyboardAwareContainer {
                             }
                         }
 
-                        // Background image (applied app-wide, both light and dark mode)
+                        // Glass chrome — an option rather than a theme, because
+                        // translucency is orthogonal to light/dark: any theme can be
+                        // glass. Works with the user's own colours, not just a built-in.
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(15)
+
+                            Text {
+                                text: TranslationManager.translate("settings.preferences.glassChrome", "Glass chrome")
+                                color: Theme.textColor
+                                font.family: Theme.bodyFont.family
+                                font.pixelSize: Theme.scaled(14)
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            StyledSwitch {
+                                checked: Settings.theme.glassChrome
+                                accessibleName: TranslationManager.translate("settings.preferences.glassChrome", "Glass chrome")
+                                onCheckedChanged: Settings.theme.glassChrome = checked
+                            }
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: TranslationManager.translate("settings.preferences.glassChromeHint",
+                                "Cards, bars and dialogs become translucent so the background shows through. Always on when a background image is set.")
+                            color: Theme.textSecondaryColor
+                            font: Theme.captionFont
+                            wrapMode: Text.Wrap
+                        }
+
+                        // Background (applied app-wide, both light and dark mode)
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: Theme.scaled(15)
