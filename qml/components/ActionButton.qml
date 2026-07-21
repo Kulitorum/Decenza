@@ -96,7 +96,7 @@ Button {
     }
 
     readonly property color _effectiveBackground: control.backgroundColor
-    readonly property color _contentColor: Theme.actionButtonContentColor
+    readonly property color _contentColor: Theme.contentColorOn(_effectiveBackground, Theme.actionButtonContentColor)
 
     background: Rectangle {
         radius: Theme.buttonRadius

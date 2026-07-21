@@ -62,7 +62,7 @@ Item {
     readonly property color _effectiveBackground:
         Theme.glassChrome ? Theme.scrimColor(_baseBackground) : _baseBackground
     // Content color for text and icon tinting on the button background
-    readonly property color _contentColor: Theme.primaryContrastColor
+    readonly property color _contentColor: Theme.contentColorOn(_effectiveBackground, Theme.primaryContrastColor)
 
     // Active-mode highlight: a togglePreset:<mode> button shows a contrasting ring
     // while its preset row is expanded, so you can see which mode is selected. In

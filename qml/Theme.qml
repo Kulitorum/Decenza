@@ -473,10 +473,17 @@ QtObject {
         return _mix(base, target, (lo + hi) / 2)
     }
 
-    // How far a card sits from the page, in L*. The glass option composites at
-    // backgroundScrimAlpha, so it lands at 40% of this — hence a value that still leaves a
+    // How far a surface sits from the page, in L*. The glass option composites at
+    // backgroundScrimAlpha, so it lands at 40% of these — hence values that still leave a
     // visible step after that reduction.
+    //
+    // A card and an action tile want different amounts, which one shared step got wrong: a
+    // card should whisper, but an idle-screen tile has to read as something you press. At
+    // the card's 6 L* the tiles were a barely-perceptible rectangle on a flat background —
+    // the thing that looks fine over a photo, where the scrim has a busy image to stand out
+    // against, and disappears over a solid colour.
     readonly property real _cardLift: 6.0
+    readonly property real _tileLift: 14.0
 
     // Dynamic colors - bind to Settings with fallback defaults
     // Wrapped in _c() for flash-to-identify from web theme editor
@@ -596,9 +603,33 @@ QtObject {
     // background image they use the neutral surfaceColor so they match the bars and
     // cards (CustomItem scrims it); otherwise the standard primaryColor accent. The
     // blue accent reads as out of place once the rest of the chrome is a neutral scrim.
-    readonly property color actionTileColor: (glassChrome || hasBackgroundPreset)
-        ? surfaceColor
-        : primaryColor
+    readonly property color actionTileColor: hasBackgroundPreset
+        ? _liftFrom(_presetColor, _tileLift)
+        : (glassChrome ? surfaceColor : primaryColor)
+
+    // Colour for text and icons sitting ON a chrome fill.
+    //
+    // With a background preset the fill is derived from the page, so a stored palette
+    // colour need not suit it: white is right on the usual blue action tile and invisible
+    // on one derived from Cortado or Porcelain. But blanket-deriving would also repaint
+    // content on fills that are still the theme's own accent, so the palette colour is kept
+    // whenever it is actually readable on the fill and replaced only when it is not.
+    //
+    // The threshold is 3:1, WCAG's large-text floor, because this is button and tile
+    // labelling. It is deliberately below the 4.5:1 used for body text: white on the
+    // primary blue measures 3.18:1, an existing and intentional choice, and a 4.5 gate
+    // would flip every accent button in the app to black content.
+    function contentColorOn(fill: color, fallback: color): color {
+        if (!hasBackgroundPreset)
+            return fallback
+        return _contrastRatio(fallback, fill) >= 3.0 ? fallback : contrastColorFor(fill)
+    }
+
+    function _contrastRatio(a: color, b: color): real {
+        var la = _relativeLuminance(a)
+        var lb = _relativeLuminance(b)
+        return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05)
+    }
 
     // Fill for idle-screen action buttons that render their OWN ActionButton/
     // Rectangle (Sleep/Quit/History/Favorites/Discuss) rather than as a scrimmed
