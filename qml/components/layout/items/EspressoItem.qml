@@ -176,7 +176,8 @@ Item {
         // Reopen on the first (most-recent) page, matching RecipesItem/BeansItem.
         onAboutToShow: root.profilePageIndex = 0
 
-        // Slide idle content above the bottom bar up to clear this popup.
+        // Slide the OTHER idle content clear of this popup (up for a lower-half
+        // placement, down for an upper-half one); the button/popup stay put.
         onOpened: {
             if (root.idlePage) {
                 var rootTopInPage = root.mapToItem(root.idlePage, 0, 0).y

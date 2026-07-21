@@ -27,6 +27,9 @@ Page {
     readonly property bool canStartOperations: DE1Device.isHeadless || DE1Device.simulationMode
 
     StackView.onActivated: {
+        // Safety net: if a picker popup was destroyed while open (e.g. a layout
+        // rebuild) its onClosed never fired, so clear any leftover slide offset.
+        idlePage.releasePanelClearance()
         if (root.pendingBrewDialog) {
             root.pendingBrewDialog = false
             root.openBrewSettings()
@@ -120,15 +123,13 @@ Page {
 
     // ============================================================
     // Transient panel clearance (idle-page-panel-clearance)
-    // A bottom-zone quick-picker popup floats above its button; when it would
-    // overlap idle content, the content above the bottom bar slides UP just
-    // enough to clear it, and restores on close. The picker itself never moves.
-    // This is a transient view offset only — it never touches saved zone config.
+    // A floating quick-picker popup makes room by sliding the OTHER idle content
+    // out of its way — the popup itself never moves. Direction follows the popup's
+    // position, so a picker works in ANY bar zone: a popup in the lower half lifts
+    // the content above it UP; one in the upper half pushes the content below it
+    // DOWN. Restores on close. A transient view offset only — it never touches
+    // saved zone config.
     // ============================================================
-    // A floating picker popup makes room by sliding the idle content out of its
-    // way — the popup itself never moves. Direction follows the popup's position,
-    // so a picker works in ANY bar zone: a popup in the lower half lifts the
-    // content above it UP; one in the upper half pushes the content below it DOWN.
     property real bottomPanelClearance: 0   // content above slides up (lower-half popup)
     property real topPanelClearance: 0      // content below slides down (upper-half popup)
 
@@ -167,10 +168,10 @@ Page {
         idlePage.topPanelClearance = 0
     }
 
-    // (b) Center-zone inline carousel: when the expanded center column would reach
-    //     the bottom-anchored lower-mid band, the band slides DOWN out of the way
-    //     (content below yields down), bounded to at most fully tucking away.
-    //     One-way: reads the column's un-offset bottom, drives the band offset.
+    // Center-zone inline carousel: when the expanded center column would reach
+    // the bottom-anchored lower-mid band, the band slides DOWN out of the way
+    // (content below yields down), bounded to at most fully tucking away.
+    // One-way: reads the column's un-offset bottom, drives the band offset.
     readonly property real carouselBandPush: {
         if (idlePage.activePresetFunction === "" || !idlePage.lowerMidBarVisible)
             return 0

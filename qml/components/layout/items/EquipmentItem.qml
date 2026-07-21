@@ -172,9 +172,10 @@ Item {
         // Reopen on the first (most-recent) page, matching BeansItem/RecipesItem.
         onAboutToShow: root.equipmentPageIndex = 0
 
-        // Slide the idle content above the bottom bar up to clear this popup, so
-        // its top edge never lands on the Shot Plan sentence / lower-mid bar. The
-        // button (and this popup) stay put; only the content above yields.
+        // Slide the OTHER idle content clear of this popup — up when the picker
+        // sits in the page's lower half (e.g. the bottom bar, clearing the Shot
+        // Plan sentence / lower-mid bar), down when in the upper half. The button
+        // and popup stay put; only the other content yields.
         onOpened: {
             if (root.idlePage) {
                 var rootTopInPage = root.mapToItem(root.idlePage, 0, 0).y
