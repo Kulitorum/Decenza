@@ -40,10 +40,9 @@ Item {
     function _renderIfStale() {
         if (!renderWanted) return
         if (LastShotChartSource.cacheKey === _renderedKey) return
-        // Let the chart lay out and paint before grabbing it. Grabbing in the same frame the
-        // series were assigned yields a blank or half-drawn image, because the scene graph
-        // has not run yet.
+        _confirmPending = true
         grabTimer.restart()
+        confirmTimer.stop()
     }
 
     onRenderWantedChanged: _renderIfStale()
@@ -54,42 +53,73 @@ Item {
         function onHasShotChanged() { renderer._renderIfStale() }
     }
 
-    // Not a guard or a workaround — the chart genuinely needs frames to draw itself, and
-    // there is no "I have finished painting" signal on GraphsView to wait for instead.
+    // WHEN to take the picture.
+    //
+    // GraphsView gives no "I have finished drawing" signal, and the work it does after the
+    // data lands is proportional to the sample count — HistoryShotGraph reloads on
+    // Qt.callLater, then the scene graph builds a geometry node per series. So there is no
+    // correct fixed delay: a 250ms one was enough for a 129-sample shot and not enough for a
+    // 292-sample one, which is exactly how this presented — the short shot updated, the long
+    // one silently kept the previous picture.
+    //
+    // So take it TWICE and keep the later one. The first grab makes the new shot appear
+    // promptly; the confirming grab, long after any plausible build, is the one that is
+    // actually guaranteed to be right. Two grabs per shot is nothing — this runs once when a
+    // shot ends, not per frame — and it converges rather than relying on a number that has
+    // already been wrong once.
+    property bool _confirmPending: false
+
     Timer {
         id: grabTimer
-        interval: 250
+        interval: 300
         repeat: false
-        onTriggered: {
-            if (!renderer.renderWanted) return
-            const key = LastShotChartSource.cacheKey
-            const ok = renderer.grabToImage(function(result) {
-                // `result.image` is a QImage, which is NOT a QML-accessible value type —
-                // reading .width off it yields undefined, so a check written against it
-                // passes for every result including a failed one. The url is the property
-                // QML actually gets, and it is empty exactly when the grab produced nothing.
-                if (!result || String(result.url).length === 0) {
-                    // Loud on purpose. A silent failure here is a background that simply
-                    // never appears, with nothing in the log to say why — and users' AI
-                    // assistants read these logs.
-                    console.warn("[Background] Shot-chart grab produced no image; "
-                                 + "the background falls back to the theme colour")
-                    return
-                }
-                renderer._grab = result
-                renderer._renderedKey = key
-                LastShotChartSource._renderedUrl = result.url
-                console.info("[Background] Shot-chart rendered ->", result.url,
-                             "shot", LastShotChartSource._shotId,
-                             "samples", (LastShotChartSource.shotData.pressure || []).length,
-                             "duration", LastShotChartSource.shotData.durationSec)
-                if (Settings.boolValue("debug/dumpShotChartBackground", false))
-                    result.saveToFile(Settings.value("debug/dumpShotChartBackgroundPath", ""))
-            })
-            if (!ok) {
-                console.warn("[Background] Shot-chart grabToImage() was refused — "
-                             + "the item has no window or no size")
+        onTriggered: renderer._grabNow()
+    }
+
+    Timer {
+        id: confirmTimer
+        interval: 2000
+        repeat: false
+        onTriggered: renderer._grabNow()
+    }
+
+    function _grabNow() {
+        if (!renderWanted) return
+        const key = LastShotChartSource.cacheKey
+        const ok = renderer.grabToImage(function(result) {
+            // `result.image` is a QImage, which is NOT a QML-accessible value type — reading
+            // .width off it yields undefined, so a check written against it passes for every
+            // result including a failed one. The url is the property QML actually gets, and
+            // it is empty exactly when the grab produced nothing.
+            if (!result || String(result.url).length === 0) {
+                // Loud on purpose. A silent failure here is a background that simply never
+                // appears, with nothing in the log to say why — and users' AI assistants
+                // read these logs.
+                console.warn("[Background] Shot-chart grab produced no image; "
+                             + "the background falls back to the theme colour")
+                return
             }
+            renderer._grab = result
+            renderer._renderedKey = key
+            LastShotChartSource._renderedUrl = result.url
+            // Says what the SOURCE held, which is not the same as what the chart had drawn —
+            // the gap between those two is the bug this scheme exists to survive. Treat it as
+            // "a grab happened for this shot", not as proof the pixels match.
+            console.info("[Background] Shot-chart grab ->", result.url,
+                         "source shot", LastShotChartSource._shotId,
+                         "samples", (LastShotChartSource.shotData.pressure || []).length,
+                         "duration", LastShotChartSource.shotData.durationSec,
+                         renderer._confirmPending ? "(first)" : "(confirming)")
+            if (Settings.boolValue("debug/dumpShotChartBackground", false))
+                result.saveToFile(Settings.value("debug/dumpShotChartBackgroundPath", ""))
+        })
+        if (!ok) {
+            console.warn("[Background] Shot-chart grabToImage() was refused — "
+                         + "the item has no window or no size")
+        }
+        if (_confirmPending) {
+            _confirmPending = false
+            confirmTimer.restart()
         }
     }
 
