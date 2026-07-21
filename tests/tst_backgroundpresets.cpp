@@ -156,9 +156,10 @@ private slots:
             const QColor text = contrastColorFor(page);
             const QColor secondary = mix(text, page, 0.28);
 
-            // Both card strengths Theme.qml uses: 0.05 with glass chrome on, 0.09 off.
-            for (double strength : {0.05, 0.09}) {
-                const QColor card = liftFrom(page, strength);
+            // Both fills Theme.qml can paint a card with: the derived surfaceColor when the
+            // glass option is off, and a 40% scrim of that surface over the page when it is on.
+            const QColor surface = liftFrom(page, 0.09);
+            for (const QColor& card : {surface, mix(page, surface, kScrimAlpha)}) {
                 struct Case { QColor fg; QColor bg; const char* label; };
                 const Case cases[] = {
                     {text,      page, "text on page"},
@@ -169,9 +170,8 @@ private slots:
                 for (const Case& c : cases) {
                     const double ratio = contrast(c.fg, c.bg);
                     QVERIFY2(ratio >= kMinContrast,
-                             qPrintable(QString("preset %1 (card %2): %3 = %4:1, below %5:1")
-                                            .arg(p.id).arg(strength)
-                                            .arg(QString::fromLatin1(c.label))
+                             qPrintable(QString("preset %1: %2 = %3:1, below %4:1")
+                                            .arg(p.id).arg(QString::fromLatin1(c.label))
                                             .arg(ratio, 0, 'f', 2).arg(kMinContrast)));
                 }
             }
@@ -186,12 +186,13 @@ private slots:
         // same thing at both ends of the ramp — which this catalogue spans.
         for (const auto& p : BackgroundPresets::catalogue()) {
             const QColor page(p.color);
-            for (double strength : {0.05, 0.09}) {
-                const double delta = std::abs(lstar(liftFrom(page, strength)) - lstar(page));
+            const QColor surface = liftFrom(page, 0.09);
+            for (const QColor& card : {surface, mix(page, surface, kScrimAlpha)}) {
+                const double delta = std::abs(lstar(card) - lstar(page));
                 QVERIFY2(delta >= 2.0,
-                         qPrintable(QString("preset %1: card is only %2 L* from the page at "
-                                            "strength %3 — cards will read as invisible")
-                                        .arg(p.id).arg(delta, 0, 'f', 2).arg(strength)));
+                         qPrintable(QString("preset %1: card is only %2 L* from the page — "
+                                            "cards will read as invisible")
+                                        .arg(p.id).arg(delta, 0, 'f', 2)));
             }
         }
     }

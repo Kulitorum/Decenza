@@ -459,7 +459,14 @@ QtObject {
         Settings.theme.activeBackgroundPreset.color
             || Settings.theme.customThemeColors.backgroundColor
             || "#1a1a2e")
-    property color surfaceColor: _c("surfaceColor", Settings.theme.customThemeColors.surfaceColor || "#303048")
+    // Derived while a preset is active, like backgroundColor. This is the one that makes
+    // the BARS follow: StatusBar and the bottom bars fill with surfaceColor (or a scrim of
+    // it), so leaving it at the palette value left them a different hue from the page they
+    // sat on — the theme's navy over a grey page. Deriving it here fixes every consumer at
+    // once instead of special-casing each bar.
+    property color surfaceColor: _c("surfaceColor", hasBackgroundPreset
+        ? _liftFrom(_presetColor, 0.09)
+        : (Settings.theme.customThemeColors.surfaceColor || "#303048"))
 
     // Single translucency level for every "scrim" used when a custom background
     // image is active (cards, bars, inset controls, action-button tiles) — a
@@ -514,9 +521,9 @@ QtObject {
     // Card fill for page-level content cards. Dialogs/popups use
     // dialogBackgroundColor below (same value, separately documented).
     // Opaque surfaceColor when no background image is set — zero visual change.
-    readonly property color cardBackgroundColor: hasBackgroundPreset
-        ? _liftFrom(_presetColor, glassChrome ? 0.05 : 0.09)
-        : (glassChrome ? scrimColor(surfaceColor) : surfaceColor)
+    readonly property color cardBackgroundColor: glassChrome
+        ? scrimColor(surfaceColor)
+        : surfaceColor
 
     // Frame fill for content dialogs/popups (Brew Settings, Grind Setting, Brew
     // Ratio, etc.). When a custom background image is active these use the same
@@ -525,9 +532,9 @@ QtObject {
     // rather than reading as an out-of-place opaque slab; opaque surfaceColor
     // otherwise, so nothing changes with no background set. The modal Overlay
     // dim behind the dialog keeps the glass legible over busy photos.
-    readonly property color dialogBackgroundColor: hasBackgroundPreset
-        ? _liftFrom(_presetColor, glassChrome ? 0.05 : 0.09)
-        : (glassChrome ? scrimColor(surfaceColor) : surfaceColor)
+    readonly property color dialogBackgroundColor: glassChrome
+        ? scrimColor(surfaceColor)
+        : surfaceColor
 
     // Recessed/inset fill for controls that use flat backgroundColor to "blend
     // into" the page rather than stand out as a surface — text field boxes,
@@ -561,7 +568,7 @@ QtObject {
     // cards (CustomItem scrims it); otherwise the standard primaryColor accent. The
     // blue accent reads as out of place once the rest of the chrome is a neutral scrim.
     readonly property color actionTileColor: (glassChrome || hasBackgroundPreset)
-        ? (hasBackgroundPreset ? cardBackgroundColor : surfaceColor)
+        ? surfaceColor
         : primaryColor
 
     // Fill for idle-screen action buttons that render their OWN ActionButton/
