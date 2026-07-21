@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Window
 import Decenza
 
 // Renders the last shot's chart to an image, once per change, for use as the app background
@@ -40,9 +41,7 @@ Item {
     function _renderIfStale() {
         if (!renderWanted) return
         if (LastShotChartSource.cacheKey === _renderedKey) return
-        _confirmPending = true
-        grabTimer.restart()
-        confirmTimer.stop()
+        _framesUntilGrab = 2
     }
 
     onRenderWantedChanged: _renderIfStale()
@@ -55,32 +54,32 @@ Item {
 
     // WHEN to take the picture.
     //
-    // GraphsView gives no "I have finished drawing" signal, and the work it does after the
-    // data lands is proportional to the sample count — HistoryShotGraph reloads on
-    // Qt.callLater, then the scene graph builds a geometry node per series. So there is no
-    // correct fixed delay: a 250ms one was enough for a 129-sample shot and not enough for a
-    // 292-sample one, which is exactly how this presented — the short shot updated, the long
-    // one silently kept the previous picture.
+    // Not on a timer. GraphsView reloads on Qt.callLater and then builds a geometry node per
+    // series, so the work after the data lands scales with the sample count — a 250ms delay
+    // cleared a 129-sample shot and did not clear a 292-sample one, which is precisely the
+    // "fragile heuristic that breaks on slow devices" the project rules warn about. There is
+    // no delay that is correct, because the thing being waited for is not a duration.
     //
-    // So take it TWICE and keep the later one. The first grab makes the new shot appear
-    // promptly; the confirming grab, long after any plausible build, is the one that is
-    // actually guaranteed to be right. Two grabs per shot is nothing — this runs once when a
-    // shot ends, not per frame — and it converges rather than relying on a number that has
-    // already been wrong once.
-    property bool _confirmPending: false
+    // The event that IS available: the window tells us when it has finished drawing a frame.
+    // Waiting on that adapts to whatever the chart costs — a heavier shot simply takes a
+    // longer frame, and the signal still arrives only once the work is done.
+    //
+    // TWO frames, not one, because a frame may already have been in flight when the data
+    // changed; its frameSwapped says nothing about our new geometry. The second is the first
+    // one guaranteed to have begun after it.
+    property int _framesUntilGrab: 0
 
-    Timer {
-        id: grabTimer
-        interval: 300
-        repeat: false
-        onTriggered: renderer._grabNow()
-    }
-
-    Timer {
-        id: confirmTimer
-        interval: 2000
-        repeat: false
-        onTriggered: renderer._grabNow()
+    readonly property Connections _frameWatch: Connections {
+        target: renderer.Window.window
+        // Off unless a grab is pending: frameSwapped fires on every rendered frame, and this
+        // has no business being woken for any of the others.
+        enabled: renderer._framesUntilGrab > 0
+        function onFrameSwapped() {
+            if (renderer._framesUntilGrab <= 0) return
+            renderer._framesUntilGrab -= 1
+            if (renderer._framesUntilGrab === 0)
+                renderer._grabNow()
+        }
     }
 
     function _grabNow() {
@@ -102,24 +101,19 @@ Item {
             renderer._grab = result
             renderer._renderedKey = key
             LastShotChartSource._renderedUrl = result.url
-            // Says what the SOURCE held, which is not the same as what the chart had drawn —
-            // the gap between those two is the bug this scheme exists to survive. Treat it as
-            // "a grab happened for this shot", not as proof the pixels match.
+            // Describes the SOURCE, not the pixels. Those are different things — the gap
+            // between them IS this bug — so read it as "a grab happened for this shot",
+            // never as proof the picture matches.
             console.info("[Background] Shot-chart grab ->", result.url,
                          "source shot", LastShotChartSource._shotId,
                          "samples", (LastShotChartSource.shotData.pressure || []).length,
-                         "duration", LastShotChartSource.shotData.durationSec,
-                         renderer._confirmPending ? "(first)" : "(confirming)")
+                         "duration", LastShotChartSource.shotData.durationSec)
             if (Settings.boolValue("debug/dumpShotChartBackground", false))
                 result.saveToFile(Settings.value("debug/dumpShotChartBackgroundPath", ""))
         })
         if (!ok) {
             console.warn("[Background] Shot-chart grabToImage() was refused — "
                          + "the item has no window or no size")
-        }
-        if (_confirmPending) {
-            _confirmPending = false
-            confirmTimer.restart()
         }
     }
 
