@@ -23,6 +23,9 @@ Item {
     // Controls for compact/widget rendering
     property bool showLabels: true
     property bool showPhaseLabels: true
+    // The chart's own frame. Off for the last-shot background, where a bright rectangle
+    // around the edge of the screen is chrome the wallpaper does not want.
+    property bool showSpines: true
 
     // Persisted visibility toggles (tappable legend). Settings.boolValue() coerces
     // QSettings' INI-backed strings to real booleans; see Settings.h.
@@ -366,7 +369,7 @@ Item {
         id: graphsView
         anchors.fill: parent
         anchors.rightMargin: chart.showLabels ? Theme.scaled(35) : 0
-        theme: DecenzaGraphsTheme {}
+        theme: DecenzaGraphsTheme { showSpines: chart.showSpines }
 
         axisX: timeAxis
         axisY: pressureAxis

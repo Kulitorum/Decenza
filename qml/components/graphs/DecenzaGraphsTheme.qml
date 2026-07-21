@@ -36,10 +36,15 @@ GraphsTheme {
     grid.mainWidth: 1
     grid.subWidth: 1
 
+    // Whether the chart draws its own frame. On a page the spines are what make the chart
+    // read as a contained card; as a full-screen BACKGROUND they are a bright rectangle
+    // around the edge of the screen, so the wallpaper renderer turns them off.
+    property bool showSpines: true
+
     // Axis spines — clearly visible solid lines along the left and bottom,
     // and noticeably more prominent than the grid (grid alpha ≈ 0.35).
-    axisX.mainColor: Qt.rgba(1, 1, 1, 0.85)
-    axisY.mainColor: Qt.rgba(1, 1, 1, 0.85)
+    axisX.mainColor: Qt.rgba(1, 1, 1, showSpines ? 0.85 : 0)
+    axisY.mainColor: Qt.rgba(1, 1, 1, showSpines ? 0.85 : 0)
 
     // Thin axis spines + suppress the sub-feature. Qt 6.11 GraphsTheme has no
     // tickLength property; reducing mainWidth and zeroing subWidth is the

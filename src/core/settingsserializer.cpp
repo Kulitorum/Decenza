@@ -235,6 +235,12 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     // As device-independent as the colour, and half the user's choice — omitting it meant a
     // migration restored the colour and silently dropped its pattern.
     theme["backgroundPattern"] = settings->theme()->backgroundPattern();
+    // WHICH KIND of background is chosen. Needed because a shot-chart background has no
+    // parameter of its own to infer it from — omit this and a restore of a device using
+    // one comes back with no background at all, reporting success. Same omission the
+    // pattern suffered above; it is exported for the same reason.
+    theme["backgroundSource"] = settings->theme()->backgroundSource();
+    theme["backgroundShotAdvanced"] = settings->theme()->backgroundShotAdvanced();
     theme["glassChrome"] = settings->theme()->glassChrome();
 
     // Export active palette as customColors (backward compat) plus both palettes
@@ -728,6 +734,11 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         if (theme.contains("themeMode")) settings->theme()->setThemeMode(theme["themeMode"].toString());
         if (theme.contains("backgroundPreset")) settings->theme()->setBackgroundPreset(theme["backgroundPreset"].toString());
         if (theme.contains("backgroundPattern")) settings->theme()->setBackgroundPattern(theme["backgroundPattern"].toString());
+        // AFTER the colour, deliberately: selecting the shot chart clears the colour, so
+        // restoring it last is what makes the imported source win rather than be stomped
+        // by the colour line above.
+        if (theme["backgroundSource"].toString() == QStringLiteral("shot"))
+            settings->theme()->selectShotChartBackground(theme["backgroundShotAdvanced"].toBool());
         if (theme.contains("glassChrome")) settings->theme()->setGlassChrome(theme["glassChrome"].toBool());
 
         // Restore dual palettes if present (new format)

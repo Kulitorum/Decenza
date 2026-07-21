@@ -29,6 +29,9 @@ Dialog {
     // Independent of the colour: any pattern over any colour. Ignored while an image is
     // the candidate, where a pattern would fight the photo.
     property string candidatePattern: ""
+    // "" | "basic" | "advanced" — the last shot's chart. A THIRD candidate rather than a
+    // flavour of preset or image, mirroring the three-way source the setting now records.
+    property string candidateShot: ""
     property var _images: []
 
     modal: true
@@ -51,11 +54,20 @@ Dialog {
     onAboutToShow: {
         candidatePreset = Settings.theme.backgroundPreset
         candidatePath = Settings.theme.backgroundImagePath
+        candidateShot = Settings.theme.backgroundSource === "shot"
+            ? (Settings.theme.backgroundShotAdvanced ? "advanced" : "basic") : ""
         candidatePattern = Settings.theme.backgroundPattern
         _images = buildImageList()
     }
 
-    readonly property bool _isNoneSelected: candidatePreset.length === 0 && candidatePath.length === 0
+    readonly property bool _isNoneSelected: candidatePreset.length === 0
+        && candidatePath.length === 0 && candidateShot.length === 0
+
+    // A pattern cannot be drawn over a chart — texture on top of data is noise on top of
+    // information. The row is DISABLED rather than silently ignored: a control that does
+    // nothing when you press it is a bug report waiting to happen. The stored value is left
+    // alone, so returning to a colour restores the pattern the user had.
+    readonly property bool _patternsApply: candidateShot.length === 0 && candidatePath.length === 0
 
     // The colour value behind a given preset id, for deriving a readable tile label.
     function _presetColour(id) {
@@ -70,11 +82,19 @@ Dialog {
     function selectPreset(id) {
         candidatePreset = id
         candidatePath = ""
+        candidateShot = ""
     }
 
     function selectImage(path) {
         candidatePath = path
         candidatePreset = ""
+        candidateShot = ""
+    }
+
+    function selectShot(which) {
+        candidateShot = which
+        candidatePreset = ""
+        candidatePath = ""
     }
 
     // Personal uploads + already-cached stock images only — never triggers a
@@ -100,14 +120,14 @@ Dialog {
     function chooseAndClose() {
         // Order matters only in that each setter clears the other; setting the empty one
         // second would undo the first, so write exactly the one that is chosen.
-        if (candidatePreset.length > 0)
+        if (candidateShot.length > 0)
+            Settings.theme.selectShotChartBackground(candidateShot === "advanced")
+        else if (candidatePreset.length > 0)
             Settings.theme.backgroundPreset = candidatePreset
         else if (candidatePath.length > 0)
             Settings.theme.backgroundImagePath = candidatePath
-        else {
-            Settings.theme.backgroundPreset = ""
-            Settings.theme.backgroundImagePath = ""
-        }
+        else
+            Settings.theme.clearBackground()
         Settings.theme.backgroundPattern = candidatePattern
         popup.close()
     }
@@ -153,6 +173,7 @@ Dialog {
                         backgroundImageSource: popup.candidatePath
                         backgroundPresetSource: popup.candidatePreset
                         backgroundPatternSource: popup.candidatePattern
+                        backgroundShotSource: popup.candidateShot.length > 0
                     }
                 }
 
@@ -168,11 +189,17 @@ Dialog {
                     Text {
                         Layout.fillWidth: true
                         text: TranslationManager.translate("backgroundPicker.section.patterns", "Pattern")
+                              + (popup._patternsApply ? "" : " — "
+                                 + TranslationManager.translate("backgroundPicker.patternsNotAvailable",
+                                       "not used with a picture background"))
                         color: Theme.textSecondaryColor
                         font: Theme.captionFont
+                        wrapMode: Text.WordWrap
                     }
 
                     Flow {
+                        enabled: popup._patternsApply
+                        opacity: popup._patternsApply ? 1.0 : 0.35
                         Layout.fillWidth: true
                         spacing: Theme.scaled(6)
 
@@ -251,6 +278,98 @@ Dialog {
                 ColumnLayout {
                     width: scroller.availableWidth
                     spacing: Theme.scaled(6)
+
+                    // --- Shot ----------------------------------------------------
+                    // The last shot's chart. Two entries rather than one that follows the
+                    // review page's Advanced toggle: that toggle is used to inspect a single
+                    // shot, and it must not repaint the whole app as a side effect.
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: TranslationManager.translate("backgroundPicker.section.shot", "Last shot")
+                        color: Theme.textSecondaryColor
+                        font: Theme.captionFont
+                    }
+
+                    Flow {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(6)
+
+                        Repeater {
+                            model: [
+                                { which: "basic",
+                                  label: TranslationManager.translate("backgroundPicker.shot.basic", "Last Shot") },
+                                { which: "advanced",
+                                  label: TranslationManager.translate("backgroundPicker.shot.advanced", "Last Shot (Advanced)") }
+                            ]
+
+                            Rectangle {
+                                id: shotTile
+                                required property var modelData
+
+                                readonly property bool isSelected: popup.candidateShot === modelData.which
+
+                                width: Theme.scaled(106)
+                                height: Theme.scaled(86)
+                                radius: Theme.scaled(8)
+                                color: "transparent"
+                                border.color: isSelected ? Theme.primaryColor : Theme.borderColor
+                                border.width: isSelected ? 2 : 1
+                                clip: true
+
+                                // The real renderer, so a tile is a true miniature of the
+                                // page — the same already-rendered image, scaled.
+                                BackgroundSurface {
+                                    anchors.fill: parent
+                                    anchors.margins: 1
+                                    presetId: ""
+                                    patternId: ""
+                                    imagePath: ""
+                                    shotChart: true
+                                }
+
+                                // Says WHY the tile is blank rather than leaving the user to
+                                // wonder whether the feature is broken.
+                                Text {
+                                    anchors.centerIn: parent
+                                    width: parent.width - Theme.scaled(12)
+                                    horizontalAlignment: Text.AlignHCenter
+                                    wrapMode: Text.WordWrap
+                                    visible: !LastShotChartSource.hasShot && LastShotChartSource.ready
+                                    text: TranslationManager.translate("backgroundPicker.shot.noShot",
+                                              "No shots yet — this fills in after your first shot")
+                                    color: Theme.textSecondaryColor
+                                    font: Theme.captionFont
+                                    Accessible.ignored: true
+                                }
+
+                                Text {
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.bottom: parent.bottom
+                                    anchors.margins: Theme.scaled(4)
+                                    horizontalAlignment: Text.AlignHCenter
+                                    elide: Text.ElideRight
+                                    text: shotTile.modelData.label
+                                    color: Theme.contrastColorFor(Theme.backgroundColor)
+                                    font: Theme.captionFont
+                                    Accessible.ignored: true
+                                }
+
+                                SelectedTick { visible: shotTile.isSelected }
+
+                                AccessibleMouseArea {
+                                    anchors.fill: parent
+                                    accessibleName: shotTile.modelData.label
+                                        + (shotTile.isSelected
+                                            ? ", " + TranslationManager.translate("accessibility.selected", "selected")
+                                            : "")
+                                    accessibleItem: shotTile
+                                    onAccessibleClicked: popup.selectShot(shotTile.modelData.which)
+                                }
+                            }
+                        }
+                    }
 
                     // --- Colours -------------------------------------------------
 

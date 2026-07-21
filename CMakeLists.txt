@@ -1084,6 +1084,7 @@ set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/components/SettingsTabs.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/components/layout/WidgetColor.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/components/DrinkType.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+set_source_files_properties(qml/components/LastShotChartSource.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
 # Define QML files list for dependency tracking
 set(QML_FILES
@@ -1206,6 +1207,8 @@ set(QML_FILES
     qml/components/ProfileKnowledgeDialog.qml
     qml/components/BeanThumbnail.qml
     qml/components/BackgroundSurface.qml
+    qml/components/LastShotChartRenderer.qml
+    qml/components/LastShotChartSource.qml
     qml/components/ThemedPageBackground.qml
     qml/components/BackgroundPickerDialog.qml
     qml/components/PresetButton.qml

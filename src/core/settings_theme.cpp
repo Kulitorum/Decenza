@@ -16,6 +16,15 @@
 #include <QJsonObject>
 #include <QJsonArray>
 
+// The four background kinds. Spelled once here rather than as literals at each comparison
+// so a typo is a link error rather than a source that silently never matches.
+namespace {
+constexpr const char* kBackgroundSourceNone = "none";
+constexpr const char* kBackgroundSourceColour = "colour";
+constexpr const char* kBackgroundSourceImage = "image";
+constexpr const char* kBackgroundSourceShot = "shot";
+}  // namespace
+
 #ifdef Q_OS_IOS
 #include "screensaver/iosbrightness.h"
 #endif
@@ -65,11 +74,15 @@ void SettingsTheme::setBackgroundImagePath(const QString& path) {
         m_settings.setValue("theme/backgroundImagePath", path);
         emit backgroundImagePathChanged();
     }
-    // Image and colour are one choice in one chooser, so picking an image clears any
-    // colour. Done outside the != guard: re-selecting the image already set must still
-    // clear a colour, or the two could both be live.
-    if (!path.isEmpty())
+    // Image, colour and shot chart are one choice in one chooser, so picking an image
+    // clears the others. Done outside the != guard: re-selecting the image already set
+    // must still clear a colour, or the two could both be live.
+    if (!path.isEmpty()) {
+        setBackgroundSource(kBackgroundSourceImage);
         clearBackgroundPreset("a background image was chosen instead");
+    } else {
+        releaseBackgroundSource(kBackgroundSourceImage);
+    }
 }
 
 QString SettingsTheme::backgroundPreset() const {
@@ -98,8 +111,88 @@ void SettingsTheme::setBackgroundPreset(const QString& id) {
         m_settings.setValue("theme/backgroundPreset", id);
         emit backgroundPresetChanged();
     }
-    if (!id.isEmpty())
+    if (!id.isEmpty()) {
+        setBackgroundSource(kBackgroundSourceColour);
         setBackgroundImagePath(QString());
+    } else {
+        releaseBackgroundSource(kBackgroundSourceColour);
+    }
+}
+
+// --- Which KIND of background is active -------------------------------------------
+//
+// The source is stored, but a stored value is only believed when its PARAMETER backs it
+// up: "colour" with no colour, or "image" with no path, describes something no renderer
+// can draw. Rather than trust it, fall through to deriving the source from the values
+// that are actually set — which is also exactly what an install predating this key needs,
+// so the migration and the self-healing are one code path instead of two.
+//
+// Nothing is rewritten on read. The derivation is unambiguous, and rewriting stored
+// user-set values is a thing this project deliberately does not do.
+QString SettingsTheme::backgroundSource() const {
+    const QString stored = m_settings.value("theme/backgroundSource", "").toString();
+    if (stored == kBackgroundSourceShot)
+        return stored;
+    if (stored == kBackgroundSourceColour && !backgroundPreset().isEmpty())
+        return stored;
+    if (stored == kBackgroundSourceImage && !backgroundImagePath().isEmpty())
+        return stored;
+    if (stored == kBackgroundSourceNone && backgroundPreset().isEmpty()
+        && backgroundImagePath().isEmpty())
+        return stored;
+
+    if (!backgroundPreset().isEmpty())
+        return QString::fromLatin1(kBackgroundSourceColour);
+    if (!backgroundImagePath().isEmpty())
+        return QString::fromLatin1(kBackgroundSourceImage);
+    return QString::fromLatin1(kBackgroundSourceNone);
+}
+
+bool SettingsTheme::backgroundShotAdvanced() const {
+    return m_settings.value("theme/backgroundShotAdvanced", false).toBool();
+}
+
+void SettingsTheme::setBackgroundSource(const QString& source) {
+    if (source != kBackgroundSourceNone && source != kBackgroundSourceColour
+        && source != kBackgroundSourceImage && source != kBackgroundSourceShot) {
+        // Same stance as an unknown colour id: a bad value is a caller bug, not a request
+        // to wipe the user's background.
+        qWarning() << "[Theme] Ignoring unknown background source:" << source
+                   << "- keeping" << backgroundSource();
+        return;
+    }
+    if (backgroundSource() == source)
+        return;
+    m_settings.setValue("theme/backgroundSource", source);
+    emit backgroundSourceChanged();
+}
+
+void SettingsTheme::releaseBackgroundSource(const QString& mine) {
+    if (backgroundSource() == mine)
+        setBackgroundSource(QString::fromLatin1(kBackgroundSourceNone));
+}
+
+void SettingsTheme::selectShotChartBackground(bool advanced) {
+    const bool advancedChanged = backgroundShotAdvanced() != advanced;
+    if (advancedChanged)
+        m_settings.setValue("theme/backgroundShotAdvanced", advanced);
+
+    qInfo() << "[Theme] Background: last shot chart" << (advanced ? "(advanced)" : "(basic)");
+    // Source first, so the clears below see a source that is no longer theirs and leave it
+    // alone. Ordering it the other way round is the bug this whole indirection exists to
+    // make impossible.
+    setBackgroundSource(QString::fromLatin1(kBackgroundSourceShot));
+    clearBackgroundPreset("the last-shot chart was chosen instead");
+    setBackgroundImagePath(QString());
+
+    if (advancedChanged)
+        emit backgroundSourceChanged();
+}
+
+void SettingsTheme::clearBackground() {
+    setBackgroundSource(QString::fromLatin1(kBackgroundSourceNone));
+    clearBackgroundPreset("the background was cleared");
+    setBackgroundImagePath(QString());
 }
 
 // Clearing the colour is a SIDE EFFECT of several unrelated actions, so it says which one

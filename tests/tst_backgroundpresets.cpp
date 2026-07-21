@@ -443,6 +443,156 @@ private slots:
         QCOMPARE(theme.backgroundPreset(), QString());
     }
 
+    // --- The background source ---------------------------------------------
+    //
+    // Three kinds mean six ordered pairs, and the failure this guards is two of them live
+    // at once — whereupon whichever renderer tests first decides what you see. Driving all
+    // six is the point: the pairwise clearing these replaced was correct for the two pairs
+    // it was written for and had no opinion about the other four.
+
+    // Select a source by kind, so the exclusivity table below reads as a table.
+    static void selectSource(SettingsTheme& theme, const QString& kind) {
+        if (kind == "colour")      theme.setBackgroundPreset("cast-iron");
+        else if (kind == "image")  theme.setBackgroundImagePath("/tmp/a-photo.jpg");
+        else if (kind == "shot")   theme.selectShotChartBackground(false);
+        else                       theme.clearBackground();
+    }
+
+    void everySourceReplacesEveryOther() {
+        const QStringList kinds = {"colour", "image", "shot"};
+        for (const QString& first : kinds) {
+            for (const QString& second : kinds) {
+                if (first == second)
+                    continue;
+                SettingsTheme theme;
+                selectSource(theme, first);
+                QCOMPARE(theme.backgroundSource(), first);
+
+                selectSource(theme, second);
+                QVERIFY2(theme.backgroundSource() == second,
+                         qPrintable(QString("%1 -> %2 left the source at %3")
+                                        .arg(first, second, theme.backgroundSource())));
+
+                // The parameters of the sources NOT selected must be empty, or a renderer
+                // testing them in a different order draws something else entirely.
+                if (second != "colour")
+                    QVERIFY2(theme.backgroundPreset().isEmpty(),
+                             qPrintable(QString("%1 -> %2 left a colour set").arg(first, second)));
+                if (second != "image")
+                    QVERIFY2(theme.backgroundImagePath().isEmpty(),
+                             qPrintable(QString("%1 -> %2 left an image path set").arg(first, second)));
+            }
+        }
+    }
+
+    void clearingReturnsToNone() {
+        for (const QString& kind : {QString("colour"), QString("image"), QString("shot")}) {
+            SettingsTheme theme;
+            selectSource(theme, kind);
+            theme.clearBackground();
+            QCOMPARE(theme.backgroundSource(), QString("none"));
+            QVERIFY(theme.backgroundPreset().isEmpty());
+            QVERIFY(theme.backgroundImagePath().isEmpty());
+        }
+    }
+
+    void clearingOneSourceDoesNotDisturbAnother() {
+        // Choosing an image clears the colour as a SIDE EFFECT, and that clear arrives
+        // after the source is already "image". If releasing a source were unconditional
+        // rather than "only if it is still mine", this is where it would stomp.
+        SettingsTheme theme;
+        theme.setBackgroundPreset("cortado");
+        theme.setBackgroundImagePath("/tmp/a-photo.jpg");
+        QCOMPARE(theme.backgroundSource(), QString("image"));
+
+        theme.selectShotChartBackground(true);
+        QCOMPARE(theme.backgroundSource(), QString("shot"));
+    }
+
+    void theShotEntryCarriesItsOwnAdvancedFlag() {
+        SettingsTheme theme;
+        theme.selectShotChartBackground(false);
+        QCOMPARE(theme.backgroundShotAdvanced(), false);
+        theme.selectShotChartBackground(true);
+        QCOMPARE(theme.backgroundSource(), QString("shot"));
+        QCOMPARE(theme.backgroundShotAdvanced(), true);
+    }
+
+    void anInstallPredatingTheSourceKeepsItsBackground() {
+        // The migration: no stored source at all, which is every existing install. The
+        // kind is derived from the values that ARE set, and nothing is rewritten.
+        {
+            SettingsTheme theme;
+            theme.setBackgroundPreset("walnut");
+            QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+            raw.remove("theme/backgroundSource");
+            raw.sync();
+            QCOMPARE(theme.backgroundSource(), QString("colour"));
+        }
+        {
+            SettingsTheme theme;
+            theme.setBackgroundImagePath("/tmp/legacy.jpg");
+            QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+            raw.remove("theme/backgroundSource");
+            raw.sync();
+            QCOMPARE(theme.backgroundSource(), QString("image"));
+        }
+        {
+            // The blocks share one store and init() only runs per test FUNCTION, so the
+            // image above is still set unless it is cleared — an install with no background
+            // at all has to start from an empty store to mean anything.
+            QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+            raw.remove("theme");
+            raw.sync();
+            SettingsTheme theme;
+            QCOMPARE(theme.backgroundSource(), QString("none"));
+        }
+    }
+
+    void aStoredSourceItsParameterCannotBackIsNotBelieved() {
+        // "colour" with no colour describes something no renderer can draw. A hand-edited
+        // ini, a downgrade, or a colour removed in a later release all reach this. Falling
+        // through to the derivation is the same code path as the migration, deliberately.
+        SettingsTheme theme;
+        theme.setBackgroundImagePath("/tmp/real.jpg");
+        QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+        raw.setValue("theme/backgroundSource", "colour");
+        raw.sync();
+        QCOMPARE(theme.backgroundSource(), QString("image"));
+    }
+
+    void anUnknownSourceIsRefusedRatherThanErasingTheBackground() {
+        SettingsTheme theme;
+        theme.setBackgroundPreset("espresso");
+        QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+        raw.setValue("theme/backgroundSource", "hologram");
+        raw.sync();
+        // Unknown reads back as the derived kind, and the colour itself is untouched.
+        QCOMPARE(theme.backgroundSource(), QString("colour"));
+        QCOMPARE(theme.backgroundPreset(), QString("espresso"));
+    }
+
+    void theShotSourceSurvivesABackup() {
+        // A shot-chart background has no parameter of its own, so it is the one source a
+        // backup can lose completely while reporting success — exactly how the pattern was
+        // lost when the single preset became two axes.
+        Settings settings;
+        settings.theme()->selectShotChartBackground(true);
+
+        const QJsonObject exported = SettingsSerializer::exportToJson(&settings, false);
+
+        settings.theme()->setBackgroundPreset("porcelain");
+        QCOMPARE(settings.theme()->backgroundSource(), QString("colour"));
+
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression("importFromJson replacing .* favorites"));
+        SettingsSerializer::importFromJson(&settings, exported);
+
+        QCOMPARE(settings.theme()->backgroundSource(), QString("shot"));
+        QCOMPARE(settings.theme()->backgroundShotAdvanced(), true);
+        QVERIFY(settings.theme()->backgroundPreset().isEmpty());
+    }
+
     void changingTheActiveThemeClearsTheColour() {
         // A theme carries its own background colour, so choosing one is an explicit choice
         // of the value a background colour overrides.

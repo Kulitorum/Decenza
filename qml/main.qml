@@ -1095,6 +1095,13 @@ ApplicationWindow {
         return true
     }
 
+    // Renders the last shot's chart to an image for the background, once per change.
+    // Lives here because grabToImage() needs a live scene graph and a window; it draws
+    // nothing on screen (it sits outside the window) and takes no input.
+    LastShotChartRenderer {
+        id: lastShotChartRenderer
+    }
+
     // Page stack for navigation
     StackView {
         id: pageStack

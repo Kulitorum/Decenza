@@ -28,6 +28,9 @@ Item {
     property string backgroundImageSource: Settings.theme.backgroundImagePath
     property string backgroundPresetSource: Settings.theme.backgroundPreset
     property string backgroundPatternSource: Settings.theme.backgroundPattern
+    // The last shot's chart. A bool rather than an id: which of the two entries is chosen
+    // only affects the RENDER, and the preview draws the already-rendered image.
+    property bool backgroundShotSource: Settings.theme.backgroundSource === "shot"
 
     // The chooser previews a candidate that has not been applied, so Theme's own derived
     // values still describe the CURRENT background. Drawing the mockup with those made the
@@ -66,6 +69,7 @@ Item {
             anchors.fill: parent
             presetId: previewRoot.backgroundPresetSource
             patternId: previewRoot.backgroundPatternSource
+            shotChart: previewRoot.backgroundShotSource
             imagePath: previewRoot.backgroundImageSource
         }
 

@@ -414,7 +414,8 @@ QtObject {
     // This is NOT "is a background active" — it is true with the switch on and no
     // background at all, and false with a colour set and the switch off. For that question
     // use hasBackgroundPreset or hasBackgroundImage.
-    readonly property bool glassChrome: Settings.theme.backgroundImagePath.length > 0
+    readonly property bool glassChrome: Settings.theme.backgroundSource === "image"
+                                        || Settings.theme.backgroundSource === "shot"
                                         || Settings.theme.glassChrome
 
     // --- Background colour derivation ----------------------------------------
@@ -499,9 +500,12 @@ QtObject {
     // this one state instead of just fixing the underlying contrast problem.
     readonly property real backgroundScrimAlpha: 0.4
 
-    // True when the background is a photo — the only case where translucency has anything
-    // to show through.
-    readonly property bool hasBackgroundImage: Settings.theme.backgroundImagePath.length > 0
+    // True when there is a PICTURE behind the chrome — a photo, or the last shot's chart —
+    // which is the only case where translucency has anything to show through. The name
+    // predates the shot chart and is kept because ~70 call sites read it; what it means is
+    // "something with structure is back there", not "a file on disk is set".
+    readonly property bool hasBackgroundImage: Settings.theme.backgroundSource === "image"
+                                               || Settings.theme.backgroundSource === "shot"
 
     // The fill a piece of chrome should actually paint.
     //

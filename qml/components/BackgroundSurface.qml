@@ -25,14 +25,26 @@ Item {
     property string patternId: Settings.theme.backgroundPattern
     // Absolute filesystem path, "" = none. Mutually exclusive with presetId.
     property string imagePath: Settings.theme.backgroundImagePath
+    // Whether this surface draws the last shot's chart. Overridden by the chooser to preview
+    // an entry that has not been applied.
+    property bool shotChart: Settings.theme.backgroundSource === "shot"
 
     // Resolved catalogue entries ({} when the id is empty or unknown).
     readonly property var _preset: _lookup(Settings.theme.backgroundPresets, presetId)
     readonly property var _pattern: _lookup(Settings.theme.backgroundPatterns, patternId)
 
     readonly property bool _hasPreset: _preset.id !== undefined
-    readonly property bool _hasPattern: _pattern.id !== undefined
-    readonly property bool _hasImage: !_hasPreset && imagePath.length > 0
+    // A shot chart, once rendered, IS an image — so it flows down the image path below and
+    // inherits its scrim, its decode-in-progress fallback and its stale-source behaviour
+    // rather than getting a parallel implementation of each. The chart is drawn by
+    // LastShotChartRenderer; nothing here builds one.
+    readonly property bool _hasShotChart: shotChart && LastShotChartSource.imageSource.length > 0
+    readonly property bool _hasPattern: _pattern.id !== undefined && !_hasShotChart
+    readonly property bool _hasImage: !_hasPreset && (_hasShotChart || imagePath.length > 0)
+    // Where the image comes from. A grab result carries its own url; a photo is a file path.
+    readonly property string _imageSource: _hasShotChart
+        ? LastShotChartSource.imageSource
+        : (imagePath.length > 0 ? "file:///" + imagePath : "")
 
     // The flat colour actually being painted, and the ink that will read on it.
     //
@@ -98,11 +110,16 @@ Item {
         id: bgImage
         anchors.fill: parent
         visible: root._hasImage && status === Image.Ready
-        source: root._hasImage ? "file:///" + root.imagePath : ""
-        fillMode: Image.PreserveAspectCrop
+        source: root._hasImage ? root._imageSource : ""
+        // A photo is cropped to fill; the chart is rendered AT the surface size and must not
+        // be cropped, or its last seconds fall off the edge.
+        fillMode: root._hasShotChart ? Image.Stretch : Image.PreserveAspectCrop
         asynchronous: true
-        sourceSize.width: Screen.width
-        sourceSize.height: Screen.height
+        // Pinning sourceSize is a decode-cost guard for a multi-megapixel photo. The chart
+        // was already rendered at the size it will be drawn at, so pinning it here would
+        // resample a correctly-sized raster for nothing.
+        sourceSize.width: root._hasShotChart ? 0 : Screen.width
+        sourceSize.height: root._hasShotChart ? 0 : Screen.height
         Accessible.ignored: true
     }
 }
