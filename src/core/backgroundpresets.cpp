@@ -1,5 +1,6 @@
 #include "backgroundpresets.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace BackgroundPresets {
@@ -136,6 +137,43 @@ QColor liftFrom(const QColor& base, double deltaL) {
             hi = m;
     }
     return mixColours(base, target, (lo + hi) / 2);
+}
+
+QColor adjustForContrast(const QColor& foreground, const QColor& background, double minRatio) {
+    if (!foreground.isValid() || !background.isValid())
+        return foreground;
+    if (contrastRatio(foreground, background) >= minRatio)
+        return foreground;
+    // Toward whichever of black/white the page can actually carry — the endpoint
+    // contrastColorFor already picks — so the mix always moves AWAY from the background
+    // and the search cannot run out of room in the direction it chose.
+    const QColor target = contrastColorFor(background);
+    // Contrast is monotonic along that mix, so bisect for the SMALLEST step that clears
+    // the floor rather than jumping to the endpoint: an amber warning on a cream page
+    // should come out a dark amber, not black.
+    double lo = 0.0;
+    double hi = 1.0;
+    for (int i = 0; i < 24; ++i) {
+        const double m = (lo + hi) / 2;
+        if (contrastRatio(mixColours(foreground, target, m), background) < minRatio)
+            lo = m;
+        else
+            hi = m;
+    }
+    // hi, not the midpoint: it is the side of the bracket known to clear the floor. On a
+    // mid-grey page where even the endpoint falls short it stays 1.0 and this returns the
+    // best available colour instead of a mix that clears nothing.
+    return mixColours(foreground, target, hi);
+}
+
+QColor pageUnderDensestPattern(const QColor& background) {
+    if (!background.isValid())
+        return background;
+    double worst = 0.0;
+    for (const Pattern& p : patterns())
+        worst = std::max(worst, contrastShift(p));
+    // Toward the ink, which BackgroundSurface derives from the page the same way.
+    return mixColours(background, contrastColorFor(background), worst);
 }
 
 Derived derive(const QColor& background) {

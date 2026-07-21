@@ -596,7 +596,27 @@ QtObject {
     readonly property color _flatInsetTint: (hasBackgroundPreset ? Qt.colorEqual(_derived.text, "#000000") : !isDarkMode)
         ? Qt.rgba(0, 0, 0, 0.06)
         : Qt.rgba(1, 1, 1, 0.10)
-    property color primaryColor: _c("primaryColor", Settings.theme.customThemeColors.primaryColor || "#4e85f4")
+    // The semantic palette — primary, accent, success, warning, error — kept readable on
+    // the page a background colour produces.
+    //
+    // Unlike text, borders and card fills, these are NOT derived: their hue is the meaning,
+    // so amber has to stay amber. But they are authored against a dark page and nine of the
+    // catalogue's colours are pale, where they collapse — on Cortado, warning measures
+    // 1.3:1, error 1.4:1 and success 1.2:1 against 4.5:1 needed. That is not a dim caption,
+    // it is a warning banner you cannot see, and it predates the presets: a light theme with
+    // a background photo has always had it. Each colour is nudged along the axis it is
+    // already on, by the smallest step that clears the floor, so a dark page (where they
+    // measure 5:1 to 9:1) is untouched and a pale one gets a deeper version of the same hue.
+    //
+    // Gated on hasBackgroundPreset, not glassChrome: this is the READABILITY branch, and the
+    // page whose luminance we are correcting against is the preset's. See the note at
+    // hasBackgroundPreset for why those two gates are not interchangeable.
+    function _readableOnPage(base: color): color {
+        return hasBackgroundPreset
+            ? Settings.theme.adjustedForContrast(base, _derived.background)
+            : base
+    }
+    property color primaryColor: _c("primaryColor", _readableOnPage(Settings.theme.customThemeColors.primaryColor || "#4e85f4"))
     // Fill for idle-screen action tiles (Recipes/Beans/Steam/etc.). Over a custom
     // background image they use the neutral surfaceColor so they match the bars and
     // cards (CustomItem scrims it); otherwise the standard primaryColor accent. The
@@ -691,11 +711,12 @@ QtObject {
     // Kept as an alias so call sites that already migrated to the more specific
     // name don't need to churn back — both now resolve to the same brightened value.
     readonly property color textSecondaryOnBackgroundColor: textSecondaryColor
-    property color accentColor: _c("accentColor", Settings.theme.customThemeColors.accentColor || "#e94560")
-    property color successColor: _c("successColor", Settings.theme.customThemeColors.successColor || "#00cc6d")
-    property color warningColor: _c("warningColor", Settings.theme.customThemeColors.warningColor || "#ffaa00")
-    property color highlightColor: _c("highlightColor", Settings.theme.customThemeColors.highlightColor || "#ffaa00")
-    property color errorColor: _c("errorColor", Settings.theme.customThemeColors.errorColor || "#ff4444")
+    // All five run through _readableOnPage — see the note above primaryColor.
+    property color accentColor: _c("accentColor", _readableOnPage(Settings.theme.customThemeColors.accentColor || "#e94560"))
+    property color successColor: _c("successColor", _readableOnPage(Settings.theme.customThemeColors.successColor || "#00cc6d"))
+    property color warningColor: _c("warningColor", _readableOnPage(Settings.theme.customThemeColors.warningColor || "#ffaa00"))
+    property color highlightColor: _c("highlightColor", _readableOnPage(Settings.theme.customThemeColors.highlightColor || "#ffaa00"))
+    property color errorColor: _c("errorColor", _readableOnPage(Settings.theme.customThemeColors.errorColor || "#ff4444"))
     // Derived while a colour is active so a border is visible on a pale page as well as a
     // dark one: a stored dark border vanishes on Porcelain, a stored light one on French
     // Roast.
@@ -894,8 +915,12 @@ QtObject {
     // UI indicator colors
     property color stopMarkerColor: _c("stopMarkerColor", Settings.theme.customThemeColors.stopMarkerColor || "#FF6B6B")
     property color frameMarkerColor: _c("frameMarkerColor", Settings.theme.customThemeColors.frameMarkerColor || "#66ffffff")
-    property color modifiedIndicatorColor: _c("modifiedIndicatorColor", Settings.theme.customThemeColors.modifiedIndicatorColor || "#FFCC00")
-    property color simulationIndicatorColor: _c("simulationIndicatorColor", Settings.theme.customThemeColors.simulationIndicatorColor || "#E65100")
+    // These two are drawn as text ON THE PAGE, so they take the same treatment as the
+    // semantic palette — see _readableOnPage. The markers above do not: they sit on a
+    // chart's own surface rather than the page, and frameMarkerColor carries an alpha the
+    // adjustment would flatten.
+    property color modifiedIndicatorColor: _c("modifiedIndicatorColor", _readableOnPage(Settings.theme.customThemeColors.modifiedIndicatorColor || "#FFCC00"))
+    property color simulationIndicatorColor: _c("simulationIndicatorColor", _readableOnPage(Settings.theme.customThemeColors.simulationIndicatorColor || "#E65100"))
     property color warningButtonColor: _c("warningButtonColor", Settings.theme.customThemeColors.warningButtonColor || "#FFA500")
     property color successButtonColor: _c("successButtonColor", Settings.theme.customThemeColors.successButtonColor || "#2E7D32")
 

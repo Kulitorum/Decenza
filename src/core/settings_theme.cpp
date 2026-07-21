@@ -150,6 +150,19 @@ QVariantMap SettingsTheme::deriveColorsFor(const QString& colourId) const {
                           : BackgroundPresets::deriveAsVariantMap(QColor(c.value));
 }
 
+QString SettingsTheme::adjustedForContrast(const QString& foreground, const QString& background) const {
+    const QColor fg(foreground);
+    const QColor bg(background);
+    // An unreadable input is not something to guess at — hand the caller back exactly what
+    // it passed so a bad colour shows up as itself rather than as a silent black.
+    if (!fg.isValid() || !bg.isValid())
+        return foreground;
+    // Against the page as the densest pattern renders it, so the palette does not move when
+    // the pattern does — see pageUnderDensestPattern().
+    return BackgroundPresets::adjustForContrast(
+               fg, BackgroundPresets::pageUnderDensestPattern(bg)).name();
+}
+
 QVariantMap SettingsTheme::derivedBackgroundColors() const {
     const BackgroundPresets::Colour c = BackgroundPresets::colourById(backgroundPreset());
     return c.id.isEmpty() ? QVariantMap()

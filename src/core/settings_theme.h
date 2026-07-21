@@ -159,6 +159,12 @@ public:
     // background chooser previews a candidate that has not been applied yet, and drawing
     // it with the applied theme's colours made the preview lie.
     Q_INVOKABLE QVariantMap deriveColorsFor(const QString& colourId) const;
+    // BackgroundPresets::adjustForContrast for QML: Theme runs the semantic palette
+    // (warning/error/success/primary) through it while a background colour is active.
+    // Hex strings rather than QColor so this header keeps its QtCore-only includes —
+    // QColor here would pull QtGui into everything that includes it.
+    Q_INVOKABLE QString adjustedForContrast(const QString& foreground,
+                                            const QString& background) const;
     Q_INVOKABLE QVariantMap editingPaletteColors() const;
     Q_INVOKABLE void setEditingPaletteColor(const QString& colorName, const QString& colorValue);
 

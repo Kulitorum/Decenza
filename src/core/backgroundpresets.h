@@ -96,6 +96,32 @@ QColor contrastColorFor(const QColor& fill);
 // headroom above and toward black where there is not, so it never returns `base`.
 QColor liftFrom(const QColor& base, double deltaL);
 
+// The floor ordinary body text has to clear against what is behind it (WCAG AA).
+inline constexpr double kMinTextContrast = 4.5;
+
+// `foreground` pushed just far enough away from `background` to clear `minRatio`, keeping
+// as much of its own colour as that allows; returned unchanged when it already clears.
+//
+// This exists for the SEMANTIC palette — warning, error, success, the primary accent —
+// which the derivation above deliberately does not touch. Those four carry meaning in
+// their hue, so they cannot simply be recomputed from the page like text and borders are.
+// But they are authored against a dark page, and the catalogue offers nine pale ones:
+// #ffaa00 warning measures 9.3:1 on Cold Brew and 1.3:1 on Cortado, which is not a dim
+// warning, it is an invisible one. Nudging each one along the axis it is already on keeps
+// amber amber and red red while making it readable on either end of the ramp.
+QColor adjustForContrast(const QColor& foreground, const QColor& background,
+                         double minRatio = kMinTextContrast);
+
+// `background` as the DENSEST pattern renders it — shifted toward the ink by the
+// coverage-weighted opacity. This, not the bare colour, is what the semantic palette should
+// be sized against, and deliberately the worst case rather than the pattern actually
+// selected: pattern is an independent axis the user changes at will, and a palette that
+// tracked it would repaint the warning colour every time someone switched from Dot Grid to
+// Linen. The margin this costs on a bare page is a fraction of a ratio point; accent on
+// French Roast measures 4.65:1 bare and 4.19:1 under Linen, which is the whole reason this
+// exists.
+QColor pageUnderDensestPattern(const QColor& background);
+
 // Everything the app paints on a background colour.
 struct Derived {
     QColor background;

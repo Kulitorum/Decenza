@@ -293,6 +293,97 @@ private slots:
         }
     }
 
+    // The semantic palette Theme runs through BackgroundPresets::adjustForContrast. These
+    // are the shipped defaults from Theme.qml; a user palette can override them, which is
+    // exactly why the adjustment is a function of the colour rather than a second table.
+    static QVector<QPair<QString, QColor>> semanticPalette() {
+        return {{"primary", QColor("#4e85f4")},
+                {"accent",  QColor("#e94560")},
+                {"success", QColor("#00cc6d")},
+                {"warning", QColor("#ffaa00")},
+                {"error",   QColor("#ff4444")}};
+    }
+
+    void everySemanticColourStaysReadableOnEveryPage() {
+        // The composition SettingsTheme::adjustedForContrast performs: size the colour
+        // against the page as the densest pattern renders it, then require it to hold on
+        // the bare page too. Sizing against the BARE page is what this originally did, and
+        // it failed exactly once — accent on French Roast, 4.65:1 bare and 4.19:1 under
+        // Linen — which is the case pageUnderDensestPattern() exists for.
+        for (const auto& c : BackgroundPresets::colours()) {
+            const QColor page(c.value);
+            const QColor patterned = BackgroundPresets::pageUnderDensestPattern(page);
+            for (const auto& [name, base] : semanticPalette()) {
+                const QColor fixed = BackgroundPresets::adjustForContrast(base, patterned);
+                for (auto [bg, what] : {std::pair{page, "page"},
+                                        std::pair{patterned, "patterned page"}}) {
+                    const double ratio = contrast(fixed, bg);
+                    QVERIFY2(ratio >= kMinContrast - 0.05,
+                             qPrintable(QString("%1: %2 %3 on %4 = %5:1, below %6:1")
+                                            .arg(c.id, name, fixed.name(),
+                                                 QString::fromLatin1(what))
+                                            .arg(ratio, 0, 'f', 2).arg(kMinContrast)));
+                }
+            }
+        }
+    }
+
+    void aSemanticColourThatAlreadyClearsTheFloorIsUntouched() {
+        // The dark end of the catalogue is where these colours were authored to work. If the
+        // adjustment fired there it would be repainting a palette that is already correct —
+        // and every existing dark theme in the app would shift under it.
+        int untouched = 0;
+        for (const auto& c : BackgroundPresets::colours()) {
+            const QColor page(c.value);
+            for (const auto& [name, base] : semanticPalette()) {
+                const QColor patterned = BackgroundPresets::pageUnderDensestPattern(page);
+                if (contrast(base, patterned) < kMinContrast)
+                    continue;
+                QCOMPARE(BackgroundPresets::adjustForContrast(base, patterned), base);
+                ++untouched;
+            }
+        }
+        QVERIFY2(untouched > 0, "no colour left the palette alone — the no-op path is untested");
+    }
+
+    void theAdjustmentKeepsTheHue() {
+        // The whole reason these five are not simply derived from the page: the hue IS the
+        // meaning. A warning that clears 4.5:1 by turning black has been made readable and
+        // useless in the same step.
+        for (const auto& c : BackgroundPresets::colours()) {
+            const QColor page(c.value);
+            for (const auto& [name, base] : semanticPalette()) {
+                const QColor fixed = BackgroundPresets::adjustForContrast(
+                    base, BackgroundPresets::pageUnderDensestPattern(page));
+                if (fixed == base)
+                    continue;
+                const int drift = std::abs(fixed.hslHue() - base.hslHue());
+                QVERIFY2(std::min(drift, 360 - drift) <= 3,
+                         qPrintable(QString("%1: %2 shifted hue %3 -> %4 (%5 -> %6)")
+                                        .arg(c.id, name)
+                                        .arg(base.hslHue()).arg(fixed.hslHue())
+                                        .arg(base.name(), fixed.name())));
+                QVERIFY2(fixed.hslSaturation() > 60,
+                         qPrintable(QString("%1: %2 washed out to %3")
+                                        .arg(c.id, name, fixed.name())));
+            }
+        }
+    }
+
+    void theAdjustmentTakesTheSmallestStepThatWorks() {
+        // Bisecting for the smallest step is what keeps "a deeper amber" from becoming
+        // "black": one notch less adjustment must fail the floor it just cleared.
+        const QColor page("#b9a184");  // Cortado — the tightest light colour in the table
+        for (const auto& [name, base] : semanticPalette()) {
+            const QColor fixed = BackgroundPresets::adjustForContrast(base, page);
+            QVERIFY(contrast(fixed, page) >= kMinContrast - 0.05);
+            const QColor lessAdjusted = mix(base, fixed, 0.9);
+            QVERIFY2(contrast(lessAdjusted, page) < kMinContrast,
+                     qPrintable(QString("%1 overshot: 90%% of the step already clears the floor")
+                                    .arg(name)));
+        }
+    }
+
     void aLiftWithNoHeadroomIsCaught() {
         // Guards the guard: pure white and pure black are the cases where one lift direction
         // is impossible, and they must still produce a visible step by going the other way.
