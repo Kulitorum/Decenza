@@ -647,6 +647,18 @@ QtObject {
         // Also the switch, not the preset — same reason as actionTileColor.
         return glassChrome ? cardBackgroundColor : baseColor
     }
+
+    // actionButtonFill for a host that knows the chrome fill to use: the background
+    // chooser's preview, drawing a candidate colour whose derived fill is not Theme's
+    // (Theme still describes the APPLIED background until Apply is pressed). Needed
+    // because the glass branch above discards baseColor entirely — passing the
+    // candidate in as baseColor does nothing, which is why the preview's Ratio, Grind
+    // and Sleep chips stayed on the applied theme's navy while the page around them
+    // followed the candidate. Transparent override = no host opinion, behave exactly
+    // as actionButtonFill.
+    function actionButtonFillOn(baseColor: color, overrideFill: color): color {
+        return (glassChrome && overrideFill.a > 0) ? overrideFill : actionButtonFill(baseColor)
+    }
     property color secondaryColor: _c("secondaryColor", Settings.theme.customThemeColors.secondaryColor || "#c0c5e3")
     // Derived from the background while a preset is active — see the derivation block
     // above for why a stored preference cannot be right across the whole ramp.

@@ -49,6 +49,9 @@ Item {
     // pill-only zone styling (forwarded by the layout widget)
     property color zoneTextColor: Theme.textColor
     property string zoneStyle: "standard"
+    // Chip fill supplied by the host instead of Theme's — see LayoutItemDelegate.
+    // Transparent = unset.
+    property color zoneFillOverride: "transparent"
 
     // field-only
     property color fieldColor: Theme.insetBackgroundColor
@@ -121,9 +124,11 @@ Item {
         radius: height / 2
         // Always a visible chip: this pill is tappable, so it must read as a
         // button. With the glass chrome on, use the neutral glass scrim
-        // (Theme.actionButtonFill); otherwise a zone-appropriate solid chip.
+        // (Theme.actionButtonFillOn, which also lets the background chooser's preview
+        // supply a candidate fill); otherwise a zone-appropriate solid chip.
         readonly property bool hasGlassChrome: Theme.glassChrome
-        readonly property color pillFill: Theme.actionButtonFill(Theme.zoneChipColor(root.zoneStyle))
+        readonly property color pillFill: Theme.actionButtonFillOn(Theme.zoneChipColor(root.zoneStyle),
+                                                                   root.zoneFillOverride)
         color: pillMa.pressed ? Qt.darker(pillFill, 1.15) : pillFill
 
         Accessible.role: Accessible.Button

@@ -11,6 +11,14 @@ Item {
     property string itemId: ""
     property var modelData: ({})
 
+    // Zone style propagation — see LayoutItemDelegate. This widget did not take either
+    // before: its icon and label were pinned to Theme.textColor and its fill to Theme's
+    // chrome, so on a styled zone (or the background chooser's preview of a candidate
+    // colour) it stayed on the applied theme while everything beside it followed the
+    // zone — a white-on-navy capsule sitting in a light tan bar.
+    property color zoneTextColor: Theme.textColor
+    property color zoneFillOverride: "transparent"
+
     // Per-instance option (composable-status-bar): whether long-press quits the
     // app. Default true (current behaviour). When false, the widget sleeps on tap
     // only — a centred Sleep with no hidden exit. The explicit Quit widget remains.
@@ -50,7 +58,7 @@ Item {
             anchors.topMargin: Theme.spacingSmall
             anchors.bottomMargin: Theme.spacingSmall
             color: {
-                var base = Theme.actionButtonFill(Theme.buttonDisabled)
+                var base = Theme.actionButtonFillOn(Theme.buttonDisabled, root.zoneFillOverride)
                 return sleepCompactTap.isPressed ? Qt.darker(base, 1.2) : base
             }
             radius: Theme.cardRadius
@@ -72,14 +80,14 @@ Item {
                 layer.smooth: true
                 layer.effect: MultiEffect {
                     colorization: 1.0
-                    colorizationColor: Theme.textColor
+                    colorizationColor: root.zoneTextColor
                 }
             }
             Tr {
                 key: "idle.button.sleep"
                 fallback: "Sleep"
                 font: Theme.bodyFont
-                color: Theme.textColor
+                color: root.zoneTextColor
                 verticalAlignment: Text.AlignVCenter
                 Accessible.ignored: true
             }
@@ -110,7 +118,7 @@ Item {
             translationKey: "idle.button.sleep"
             translationFallback: "Sleep"
             iconSource: root.showIcon ? "qrc:/icons/sleep.svg" : ""
-            backgroundColor: Theme.actionButtonFill(Theme.buttonDisabled)
+            backgroundColor: Theme.actionButtonFillOn(Theme.buttonDisabled, root.zoneFillOverride)
             onClicked: root.doSleep()
             onPressAndHold: if (root.allowQuit) Qt.quit()
 

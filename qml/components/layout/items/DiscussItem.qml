@@ -8,6 +8,13 @@ Item {
     id: root
     property bool isCompact: false
     property string itemId: ""
+
+    // Zone style propagation — see LayoutItemDelegate. Added with SleepItem/QuitItem:
+    // these widgets took neither, so on a styled zone (or the background chooser's
+    // preview of a candidate colour) they stayed on the applied theme's text and
+    // chrome while their neighbours followed the zone.
+    property color zoneTextColor: Theme.textColor
+    property color zoneFillOverride: "transparent"
     visible: Settings.network.discussShotApp !== Settings.network.discussAppNone
 
     // Claude Desktop mode needs a session URL pasted from `claude remote-control`.
@@ -50,14 +57,14 @@ Item {
                 layer.smooth: true
                 layer.effect: MultiEffect {
                     colorization: 1.0
-                    colorizationColor: Theme.textColor
+                    colorizationColor: root.zoneTextColor
                 }
             }
             Tr {
                 key: "idle.button.discuss"
                 fallback: "Discuss"
                 font: Theme.bodyFont
-                color: Theme.textColor
+                color: root.zoneTextColor
                 Accessible.ignored: true
             }
         }
@@ -85,7 +92,7 @@ Item {
             translationFallback: "Discuss"
             iconSource: "qrc:/icons/discuss.svg"
             iconSize: Theme.scaled(43)
-            backgroundColor: Theme.actionButtonFill(Theme.primaryColor)
+            backgroundColor: Theme.actionButtonFillOn(Theme.primaryColor, root.zoneFillOverride)
             enabled: root.isClaudeDesktopReady
             onClicked: root.openDiscuss()
         }

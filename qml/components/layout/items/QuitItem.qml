@@ -9,6 +9,13 @@ Item {
     property bool isCompact: false
     property string itemId: ""
 
+    // Zone style propagation — see LayoutItemDelegate. As with SleepItem this widget
+    // took neither, so on a styled zone (or the background chooser's preview of a
+    // candidate colour) it stayed on the applied theme while its neighbours followed
+    // the zone.
+    property color zoneTextColor: Theme.textColor
+    property color zoneFillOverride: "transparent"
+
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
 
@@ -25,7 +32,7 @@ Item {
             anchors.topMargin: Theme.spacingSmall
             anchors.bottomMargin: Theme.spacingSmall
             color: {
-                var base = Theme.actionButtonFill("#555555")
+                var base = Theme.actionButtonFillOn("#555555", root.zoneFillOverride)
                 return quitCompactTap.isPressed ? Qt.darker(base, 1.2) : base
             }
             radius: Theme.cardRadius
@@ -45,14 +52,17 @@ Item {
                 layer.smooth: true
                 layer.effect: MultiEffect {
                     colorization: 1.0
-                    colorizationColor: Theme.textColor
+                    colorizationColor: root.zoneTextColor
                 }
             }
             Tr {
                 key: "idle.button.quit"
                 fallback: "Quit"
                 font: Theme.bodyFont
-                color: Theme.primaryContrastColor
+                // Was Theme.primaryContrastColor while the icon beside it used
+                // Theme.textColor — the two halves of one label on two different
+                // colours. Both follow the zone now.
+                color: root.zoneTextColor
                 verticalAlignment: Text.AlignVCenter
                 Accessible.ignored: true
             }
@@ -79,7 +89,7 @@ Item {
             translationKey: "idle.button.quit"
             translationFallback: "Quit"
             iconSource: "qrc:/icons/quit.svg"
-            backgroundColor: Theme.actionButtonFill("#555555")
+            backgroundColor: Theme.actionButtonFillOn("#555555", root.zoneFillOverride)
             onClicked: Qt.quit()
         }
     }
