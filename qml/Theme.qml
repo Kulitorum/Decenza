@@ -449,31 +449,41 @@ QtObject {
     // A fill that exists to LOOK a certain way belongs to glassChrome. A colour that exists
     // to stay READABLE belongs to hasBackgroundPreset.
     readonly property bool hasBackgroundPreset: Settings.theme.backgroundPreset.length > 0
-    readonly property var _derived: Settings.theme.derivedBackgroundColors
 
-    // Diagnostic-only wrapper around _derived reads. hasBackgroundPreset and _derived are
-    // sibling bindings that both key off the same C++ NOTIFY (Settings.theme's
-    // backgroundPresetChanged) with no ordering between them — the theory is that on a
-    // background-preset transition, a binding that reads both can see hasBackgroundPreset
-    // already flipped true while _derived is still its stale prior value (empty, coming from
-    // "none") for one evaluation, producing the engine's own "Unable to assign [undefined] to
-    // QColor" warning. Confirmed live twice (derivedKeys=0 both times, always on a none→preset
-    // transition) — see the task tracking the fix for the fuller trace (all 9 _derived reads
-    // affected, not just 3; one site produces a genuine Qt.colorEqual error, not just a
-    // cosmetic warning; it double-fires ~16ms apart per transition). What's still open is the
-    // exact binding-evaluation-order mechanism, not whether it happens.
-    // This does NOT fix or mask anything: it returns exactly what _derived[key] already
-    // returns (still undefined if it is), so that engine warning still fires unchanged right
-    // after this one. Remove once the fix lands.
-    function _derivedGet(key) {
-        var v = _derived[key]
-        if (v === undefined) {
-            console.warn("[Theme] _derived." + key + " undefined at read — hasBackgroundPreset="
-                + hasBackgroundPreset + " backgroundPreset="
-                + JSON.stringify(Settings.theme.backgroundPreset)
-                + " derivedKeys=" + Object.keys(_derived).length)
+    // Every derived-colour read goes through here, and it reads the C++ property DIRECTLY
+    // rather than through a cached QML intermediate. That is the whole point of the function.
+    //
+    // This used to be `readonly property var _derived: Settings.theme.derivedBackgroundColors`
+    // with call sites reading `_derived.X`. That intermediate was the bug: _derived and
+    // hasBackgroundPreset were two sibling bindings on the same NOTIFY signal
+    // (backgroundPresetChanged), and QML does not order sibling re-evaluation. A consumer like
+    // surfaceColor could re-evaluate first and read _derived's still-stale cached value — the
+    // empty map left over from the previous "none" state. Confirmed live on the PRE-FIX build
+    // (2.0.0 build 3494, macOS, session 133, before this change): every "none" -> preset
+    // transition logged all nine reads as undefined with derivedKeys=0, twice, for both
+    // re-evaluation passes. The fix below (build 3495) was then verified against the same
+    // live transition producing none of that output.
+    //
+    // The C++ side was never at fault: SettingsTheme::setBackgroundPreset writes the new id to
+    // QSettings BEFORE emitting, and derivedBackgroundColors() is a plain uncached getter, so
+    // any fresh call after the emit necessarily returns populated colours. Reading it here
+    // per-evaluation removes the stale cache and the ordering dependency with it. The
+    // dependency is still registered: QML captures notifying-property reads made inside a
+    // called function, which is the same mechanism _c() relies on above.
+    //
+    // The fallback branch is therefore now a should-never-happen guard, kept because without
+    // it an undefined reaches the engine as an opaque "Unable to assign [undefined] to QColor"
+    // warning — or, at _flatInsetTint, as a hard "Qt.colorEqual(): Invalid arguments" Error.
+    function _derivedOr(key, fallback) {
+        var derived = Settings.theme.derivedBackgroundColors
+        if (derived[key] === undefined) {
+            console.warn("Theme: derivedBackgroundColors." + key + " unexpectedly undefined"
+                + " (hasBackgroundPreset=" + hasBackgroundPreset
+                + " backgroundPreset=\"" + Settings.theme.backgroundPreset + "\""
+                + " derivedKeys=" + Object.keys(derived).length + ") — using fallback")
+            return fallback
         }
-        return v
+        return derived[key]
     }
 
     function _mix(a: color, b: color, t: real): color {
@@ -484,11 +494,12 @@ QtObject {
     }
 
     // Keep an accent fill only while the derived text can be read on it; otherwise fall
-    // back to the derived surface, which is guaranteed to work. The bottom bar needs this:
-    // the light palette's bar is #ffffff, and a dark background colour derives text to
+    // back to surfaceColor, which resolves to something reasonable either way (the derived
+    // surface when a preset is active, the palette surface otherwise). The bottom bar needs
+    // this: the light palette's bar is #ffffff, and a dark background colour derives text to
     // white, so the accent would have been white on white.
     function _fillCarrying(preferred: color): color {
-        return _contrastRatio(textColor, preferred) >= 3.0 ? preferred : _derivedGet("surface")
+        return _contrastRatio(textColor, preferred) >= 3.0 ? preferred : _derivedOr("surface", surfaceColor)
     }
 
     // Dynamic colors - bind to Settings with fallback defaults
@@ -507,7 +518,7 @@ QtObject {
     // sat on — the theme's navy over a grey page. Deriving it here fixes every consumer at
     // once instead of special-casing each bar.
     property color surfaceColor: _c("surfaceColor", hasBackgroundPreset
-        ? _derivedGet("surface")
+        ? _derivedOr("surface", Settings.theme.customThemeColors.surfaceColor || "#303048")
         : (Settings.theme.customThemeColors.surfaceColor || "#303048"))
 
     // Single translucency level for every "scrim" used when a custom background
@@ -627,7 +638,12 @@ QtObject {
     // Keyed on what is actually behind the control — the preset colour when there is one,
     // the theme's polarity otherwise. A preset can be pale under a dark theme, so
     // isDarkMode is the wrong question once a preset is active.
-    readonly property color _flatInsetTint: (hasBackgroundPreset ? Qt.colorEqual(_derivedGet("text"), "#000000") : !isDarkMode)
+    //
+    // Fallback matches textColor/iconColor's own fallback for the same "text" key (a custom
+    // theme's textColor, not a bare default) — the should-never-happen path should agree with
+    // every other reader of this key, not answer differently just because this call site is
+    // the one feeding Qt.colorEqual() instead of a direct property assignment.
+    readonly property color _flatInsetTint: (hasBackgroundPreset ? Qt.colorEqual(_derivedOr("text", Settings.theme.customThemeColors.textColor || "#ffffff"), "#000000") : !isDarkMode)
         ? Qt.rgba(0, 0, 0, 0.06)
         : Qt.rgba(1, 1, 1, 0.10)
     // The semantic palette — primary, accent, success, warning, error — kept readable on
@@ -647,7 +663,7 @@ QtObject {
     // hasBackgroundPreset for why those two gates are not interchangeable.
     function _readableOnPage(base: color): color {
         return hasBackgroundPreset
-            ? Settings.theme.adjustedForContrast(base, _derivedGet("background"))
+            ? Settings.theme.adjustedForContrast(base, _derivedOr("background", backgroundColor))
             : base
     }
     property color primaryColor: _c("primaryColor", _readableOnPage(Settings.theme.customThemeColors.primaryColor || "#4e85f4"))
@@ -660,7 +676,7 @@ QtObject {
     // accent back — the switch appeared to work only for the bottom bar.
     readonly property color actionTileColor: !glassChrome
         ? primaryColor
-        : (hasBackgroundPreset ? _derivedGet("actionTile") : surfaceColor)
+        : (hasBackgroundPreset ? _derivedOr("actionTile", surfaceColor) : surfaceColor)
 
     // Colour for text and icons sitting ON a chrome fill.
     //
@@ -717,7 +733,7 @@ QtObject {
     // Derived from the background while a preset is active — see the derivation block
     // above for why a stored preference cannot be right across the whole ramp.
     property color textColor: _c("textColor", hasBackgroundPreset
-        ? _derivedGet("text")
+        ? _derivedOr("text", Settings.theme.customThemeColors.textColor || "#ffffff")
         : (Settings.theme.customThemeColors.textColor || "#ffffff"))
     // Pushed AWAY from the page whenever the glass chrome is active. Originally tried
     // scoping this to only bare-background text (Settings tab bar) on the theory that
@@ -733,14 +749,21 @@ QtObject {
     // background and cut its contrast. Any light theme with a photo has had that since
     // the background feature shipped; presets ship a full light set, so it stops being
     // rare. Lighten in dark mode, darken in light mode.
+    //
+    // Factored out (rather than left inline in the property below) so the property's
+    // no-preset branch and _derivedOr's should-never-happen fallback share one expression
+    // instead of two copies that could drift apart.
+    function _textSecondaryFallback(): color {
+        return glassChrome
+            ? (isDarkMode ? Qt.lighter(Settings.theme.customThemeColors.textSecondaryColor || "#a0a8b8", 1.4)
+                          : Qt.darker(Settings.theme.customThemeColors.textSecondaryColor || "#a0a8b8", 1.4))
+            : (Settings.theme.customThemeColors.textSecondaryColor || "#a0a8b8")
+    }
     property color textSecondaryColor: _c("textSecondaryColor", hasBackgroundPreset
         // Softened toward the page from the derived text colour, not from the palette.
         // Derived in C++, where the softening fraction and its justification live.
-        ? _derivedGet("textSecondary")
-        : (glassChrome
-            ? (isDarkMode ? Qt.lighter(Settings.theme.customThemeColors.textSecondaryColor || "#a0a8b8", 1.4)
-                          : Qt.darker(Settings.theme.customThemeColors.textSecondaryColor || "#a0a8b8", 1.4))
-            : (Settings.theme.customThemeColors.textSecondaryColor || "#a0a8b8")))
+        ? _derivedOr("textSecondary", _textSecondaryFallback())
+        : _textSecondaryFallback())
 
     // Kept as an alias so call sites that already migrated to the more specific
     // name don't need to churn back — both now resolve to the same brightened value.
@@ -755,13 +778,13 @@ QtObject {
     // dark one: a stored dark border vanishes on Porcelain, a stored light one on French
     // Roast.
     property color borderColor: _c("borderColor", hasBackgroundPreset
-        ? _derivedGet("border")
+        ? _derivedOr("border", Settings.theme.customThemeColors.borderColor || "#3a3a4e")
         : (Settings.theme.customThemeColors.borderColor || "#3a3a4e"))
     property color primaryContrastColor: _c("primaryContrastColor", Settings.theme.customThemeColors.primaryContrastColor || "#ffffff")
     // Icons are monochrome and sit on the page or on a card, both derived from the preset,
     // so they follow the derived text colour rather than a stored one.
     property color iconColor: _c("iconColor", hasBackgroundPreset
-        ? _derivedGet("text")
+        ? _derivedOr("text", Settings.theme.customThemeColors.iconColor || "#ffffff")
         : (Settings.theme.customThemeColors.iconColor || "#ffffff"))
     property color bottomBarColor: _c("bottomBarColor", hasBackgroundPreset
         ? _fillCarrying(Settings.theme.customThemeColors.bottomBarColor || "#4e85f4")
