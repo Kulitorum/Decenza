@@ -321,10 +321,19 @@ void EquipmentStorage::requestCreatePackage(const QVariantMap& packageMap)
             // the authoritative guard against duplicate gear (we don't want dups).
             const qint64 existing = findPackageByGrinderIdentityStatic(db, brand, model, burrs, 0,
                                                                        basketBrand, basketModel, puckPrep);
-            *newId = existing > 0
-                ? existing
-                : createPackageWithGrinderStatic(db, pkg, brand, model, burrs,
-                                                 basketBrand, basketModel, puckPrep);
+            if (existing > 0) {
+                // Same gear already in inventory — idempotent, return it.
+                *newId = existing;
+            } else if (findPackageByNameStatic(db, pkg.name, 0) > 0) {
+                // New gear, but its name duplicates another active package — reject
+                // (block-duplicate-active-names). Non-form callers (ShotServer REST,
+                // import) read the "error" key to surface a specific message.
+                *newId = -1;
+                (*created)[QStringLiteral("error")] = QStringLiteral("nameInUse");
+            } else {
+                *newId = createPackageWithGrinderStatic(db, pkg, brand, model, burrs,
+                                                        basketBrand, basketModel, puckPrep);
+            }
             if (*newId > 0) {
                 EquipmentPackageView view;
                 view.package = loadPackageStatic(db, *newId);
@@ -350,14 +359,27 @@ void EquipmentStorage::requestUpdatePackage(qint64 packageId, const QVariantMap&
         return;
     }
     auto success = std::make_shared<bool>(false);
+    // Set when the failure has a caller-actionable cause (see packageUpdateFailed).
+    auto failReason = std::make_shared<QString>();
     // Grinder identity edits honor copy-on-write/merge and may return a DIFFERENT
     // package id (a fork or a merge target); the result is emitted so the caller
     // can repoint the active selection. Non-identity fields (e.g. name) apply to
     // the resulting package.
     auto resultId = std::make_shared<qint64>(packageId);
     runAsync("equip_update",
-        [packageId, fields, success, resultId](QSqlDatabase& db) {
+        [packageId, fields, success, resultId, failReason](QSqlDatabase& db) {
             bool any = false;
+            // Active-name uniqueness (block-duplicate-active-names): refuse a rename
+            // whose new name duplicates another in-inventory package. Checked before
+            // anything is applied so a rejected rename is a clean no-op. The form
+            // blocks this in the UI; this backstops the MCP/REST update path.
+            if (fields.contains(QStringLiteral("name"))
+                && findPackageByNameStatic(db, fields.value(QStringLiteral("name")).toString(), packageId) > 0) {
+                *success = false;
+                *resultId = packageId;
+                *failReason = QStringLiteral("nameInUse");
+                return;
+            }
             // Identity = grinder (brand/model/burrs) + basket (brand/model) + puck
             // prep (flag-set). An edit to ANY side runs through the copy-on-write
             // engine; untouched sides default from the current items so they're
@@ -397,7 +419,10 @@ void EquipmentStorage::requestUpdatePackage(qint64 packageId, const QVariantMap&
         },
         // Write: emit regardless — *success is false on open failure, the
         // terminal status callers wait on.
-        [this, resultId, success](bool) {
+        [this, resultId, success, failReason](bool) {
+            // Reason first, so a listener can record it before the terminal status.
+            if (!*success && !failReason->isEmpty())
+                emit packageUpdateFailed(*resultId, *failReason);
             emit packageUpdated(*resultId, *success);
             if (*success)
                 emit packagesChanged();
@@ -960,6 +985,23 @@ qint64 EquipmentStorage::findPackageByGrinderIdentityStatic(QSqlDatabase& db, co
     // Re-canonicalize the query arg so an unsorted/non-canonical caller still matches
     // the canonical stored value (the compare is a plain '=', not order-aware).
     query.bindValue(":puck", PuckPrep::recanonical(puckPrep));
+    if (!query.exec() || !query.next())
+        return 0;
+    return query.value(0).toLongLong();
+}
+
+qint64 EquipmentStorage::findPackageByNameStatic(QSqlDatabase& db, const QString& name, qint64 excludeId)
+{
+    const QString trimmed = name.trimmed();
+    if (trimmed.isEmpty())
+        return 0;  // A blank name is derived from brand+model and never collides.
+    QSqlQuery query(db);
+    query.prepare("SELECT id FROM equipment_packages "
+                  "WHERE in_inventory = 1 AND id != :exclude "
+                  "AND LOWER(TRIM(IFNULL(name,''))) = LOWER(:name) "
+                  "ORDER BY id LIMIT 1");
+    query.bindValue(":exclude", excludeId);
+    query.bindValue(":name", trimmed);
     if (!query.exec() || !query.next())
         return 0;
     return query.value(0).toLongLong();

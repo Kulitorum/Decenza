@@ -166,10 +166,15 @@ Item {
     }
 
     // --- PRESET POPUP (compact mode) ---
-    Popup {
+    // Dialog (not Popup) so TalkBack/VoiceOver trap focus inside the pill list,
+    // matching BeansItem/EquipmentItem/RecipesItem. modal traps focus; dim:false
+    // keeps the dropdown look; header/footer null strip the Dialog chrome.
+    Dialog {
         id: presetPopup
         modal: true
         dim: false
+        header: null
+        footer: null
         padding: Theme.spacingMedium
         closePolicy: Popup.CloseOnPressOutside
 

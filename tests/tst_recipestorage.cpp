@@ -229,6 +229,38 @@ private slots:
         });
     }
 
+    // --- active-name uniqueness lookup (block-duplicate-active-names) ---
+    // Two non-archived recipes may not share a name; archiving one frees its name
+    // for reuse. Comparison is trimmed and case-insensitive, and excludes the
+    // recipe being edited.
+    void activeNameUniqueness() {
+        withRawDb(freshDbPath(), "namedup", [](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            Recipe r = sampleRecipe();          // name: "Morning capp"
+            const qint64 id = RecipeStorage::insertRecipeStatic(db, r);
+            QVERIFY(id > 0);
+
+            // Exact, case-insensitive and whitespace-insensitive matches all hit.
+            QCOMPARE(RecipeStorage::findRecipeByNameStatic(db, "Morning capp"), id);
+            QCOMPARE(RecipeStorage::findRecipeByNameStatic(db, "  MORNING CAPP  "), id);
+            // A different name does not.
+            QCOMPARE(RecipeStorage::findRecipeByNameStatic(db, "Evening capp"), (qint64)0);
+            // A blank name never collides.
+            QCOMPARE(RecipeStorage::findRecipeByNameStatic(db, ""), (qint64)0);
+            QCOMPARE(RecipeStorage::findRecipeByNameStatic(db, "   "), (qint64)0);
+            // The recipe being edited is excluded, so renaming it to a casing
+            // variant of its own name is allowed.
+            QCOMPARE(RecipeStorage::findRecipeByNameStatic(db, "morning capp", id), (qint64)0);
+
+            // Archiving frees the name for reuse.
+            QVERIFY(RecipeStorage::updateRecipeFieldsStatic(db, id, {{"archived", true}}));
+            QCOMPARE(RecipeStorage::findRecipeByNameStatic(db, "Morning capp"), (qint64)0);
+            // ...and unarchiving makes it collide again.
+            QVERIFY(RecipeStorage::updateRecipeFieldsStatic(db, id, {{"archived", false}}));
+            QCOMPARE(RecipeStorage::findRecipeByNameStatic(db, "Morning capp"), id);
+        });
+    }
+
     // --- insert / load / update statics ---
 
     void insertLoadRoundTrip() {

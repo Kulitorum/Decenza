@@ -169,14 +169,14 @@ Page {
     }
 
     // Center-zone inline carousel: when the expanded center column would reach
-    // the bottom-anchored lower-mid band, the band slides DOWN out of the way
-    // (content below yields down), bounded to at most fully tucking away.
-    // One-way: reads the column's un-offset bottom, drives the band offset.
-    readonly property real carouselBandPush: {
+    // the bottom-anchored lower-mid band, the band is HIDDEN (faded out) rather
+    // than shoved down — the band already sits on bottomBar.top, so "down" would
+    // drive it straight over the bottom action bar. One-way: reads the column's
+    // un-offset bottom against the band's static top.
+    readonly property bool carouselOverlapsBand: {
         if (idlePage.activePresetFunction === "" || !idlePage.lowerMidBarVisible)
-            return 0
-        var overlap = (centerContent.y + centerContent.height + Theme.spacingMedium) - lowerMidBar.y
-        return Math.max(0, Math.min(overlap, idlePage.lowerMidBarFullHeight + Theme.scaled(20)))
+            return false
+        return (centerContent.y + centerContent.height + Theme.spacingMedium) > lowerMidBar.y
     }
 
     Component.onCompleted: {
@@ -1439,10 +1439,15 @@ Page {
         visible: idlePage.lowerMidBarVisible
         height: visible ? idlePage.lowerMidBarFullHeight : 0
         color: Theme.zoneBackgroundColor(idlePage.lowerMidBarOptions.style)
-        // Slides UP with the center content to clear a bottom-zone picker popup,
-        // and DOWN out of the way when the center-zone carousel expands into it.
+        // Fade out (rather than overlap the bottom action bar) when the center-zone
+        // carousel expands down into the band; `enabled:false` also stops the hidden
+        // band from swallowing taps meant for the bottom bar underneath.
+        opacity: idlePage.carouselOverlapsBand ? 0 : 1
+        enabled: !idlePage.carouselOverlapsBand
+        Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutQuad } }
+        // Slides UP with the center content to clear a bottom-zone picker popup.
         transform: Translate {
-            y: -idlePage.bottomPanelClearance + idlePage.carouselBandPush
+            y: -idlePage.bottomPanelClearance
             Behavior on y { NumberAnimation { duration: 200; easing.type: Easing.OutQuad } }
         }
 

@@ -522,7 +522,10 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                         return;  // another surface's create
                     QObject::disconnect(*conn);
                     if (recipeId <= 0) {
-                        respond(QJsonObject{{"error", "Could not create the recipe"}});
+                        if (recipe.value(QStringLiteral("error")).toString() == QLatin1String("nameInUse"))
+                            respond(QJsonObject{{"error", "That name is already in use by another active recipe — choose a different name"}});
+                        else
+                            respond(QJsonObject{{"error", "Could not create the recipe"}});
                         return;
                     }
                     respond(recipeToJson(Recipe::fromVariantMap(recipe), settings, nullptr));
@@ -630,13 +633,25 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                 return;
             }
             auto conn = std::make_shared<QMetaObject::Connection>();
+            // recipeUpdateFailed lands just before recipeUpdated and names the
+            // cause, so a rename collision reads the same here as in the app.
+            auto reasonConn = std::make_shared<QMetaObject::Connection>();
+            auto failReason = std::make_shared<QString>();
+            *reasonConn = QObject::connect(recipeStorage, &RecipeStorage::recipeUpdateFailed, qApp,
+                [reasonConn, recipeId, failReason](qint64 failedId, const QString& reason) {
+                    if (failedId == recipeId)
+                        *failReason = reason;
+                });
             *conn = QObject::connect(recipeStorage, &RecipeStorage::recipeUpdated, qApp,
-                [conn, recipeId, respond](qint64 updatedId, bool success) {
+                [conn, reasonConn, recipeId, respond, failReason](qint64 updatedId, bool success) {
                     if (updatedId != recipeId)
                         return;  // someone else's update
                     QObject::disconnect(*conn);
+                    QObject::disconnect(*reasonConn);
                     if (success)
                         respond(QJsonObject{{"updated", true}, {"recipeId", recipeId}});
+                    else if (*failReason == QLatin1String("nameInUse"))
+                        respond(QJsonObject{{"error", "That name is already in use by another active recipe — choose a different name"}});
                     else
                         respond(QJsonObject{{"error", QString("Recipe %1 not found or update failed").arg(recipeId)}});
                 });
@@ -711,7 +726,10 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                                 return;  // another surface's create
                             QObject::disconnect(*conn);
                             if (recipeId <= 0) {
-                                respond(QJsonObject{{"error", "Could not create the recipe"}});
+                                if (recipe.value(QStringLiteral("error")).toString() == QLatin1String("nameInUse"))
+                                    respond(QJsonObject{{"error", "That name is already in use by another active recipe — choose a different name"}});
+                                else
+                                    respond(QJsonObject{{"error", "Could not create the recipe"}});
                                 return;
                             }
                             respond(recipeToJson(Recipe::fromVariantMap(recipe), settings, nullptr));
@@ -758,7 +776,10 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                         return;  // another surface's create
                     QObject::disconnect(*conn);
                     if (recipeId <= 0) {
-                        respond(QJsonObject{{"error", "Clone failed (source recipe not found?)"}});
+                        if (recipe.value(QStringLiteral("error")).toString() == QLatin1String("nameInUse"))
+                            respond(QJsonObject{{"error", "That name is already in use by another active recipe — choose a different name"}});
+                        else
+                            respond(QJsonObject{{"error", "Clone failed (source recipe not found?)"}});
                         return;
                     }
                     respond(recipeToJson(Recipe::fromVariantMap(recipe), settings, nullptr));

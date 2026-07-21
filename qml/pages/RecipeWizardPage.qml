@@ -294,8 +294,15 @@ Page {
     }
 
     readonly property bool hasBean: fBeanBaseId !== "" || fRoaster !== "" || fCoffee !== ""
+    // Active-name uniqueness (block-duplicate-active-names): the entered name may
+    // not match another non-archived recipe. `_existingRecipeNames` is already the
+    // lowercased non-archived list excluding the recipe being edited.
+    readonly property bool nameInUse: {
+        var n = nameField.text.trim().toLowerCase()
+        return n.length > 0 && _existingRecipeNames.indexOf(n) >= 0
+    }
     readonly property bool canSave: MainController.recipeStorage.isSaveValid(
-        nameField.text, fProfileTitle, buildHotWaterJson())
+        nameField.text, fProfileTitle, buildHotWaterJson()) && !nameInUse
 
     // What the summary hero renders: the wizard state shaped exactly like a
     // stored recipe map, so the shared RecipeDrinkCard shows the card the
@@ -3282,6 +3289,19 @@ Page {
                                 Layout.fillWidth: true
                                 placeholder: TranslationManager.translate("recipes.composer.namePlaceholder", "e.g. Morning cappuccino")
                                 accessibleName: TranslationManager.translate("recipes.composer.nameLabel", "Recipe name")
+                            }
+                            // Blocks Save when the name matches another active recipe
+                            // (block-duplicate-active-names).
+                            Label {
+                                visible: wizardPage.nameInUse
+                                Layout.fillWidth: true
+                                text: TranslationManager.translate("recipe.dialog.nameInUse",
+                                          "That name is already in use — choose a different name.")
+                                font: Theme.captionFont
+                                color: Theme.warningColor
+                                wrapMode: Text.WordWrap
+                                Accessible.role: Accessible.StaticText
+                                Accessible.name: text
                             }
                         }
                         AccessibleButton {

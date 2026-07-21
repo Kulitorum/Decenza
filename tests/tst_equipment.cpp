@@ -178,6 +178,38 @@ private slots:
         });
     }
 
+    // --- active-name uniqueness lookup (block-duplicate-active-names) ---
+    // Two in-inventory packages may not share a name; a name freed by removing a
+    // package from inventory becomes reusable. Comparison is trimmed and
+    // case-insensitive, and excludes the package being edited.
+    void activeNameUniqueness() {
+        const QString path = freshDbPath();
+        withRawDb(path, "eq_namedup", [](QSqlDatabase& db) {
+            QVERIFY(EquipmentStorage::ensureTablesStatic(db));
+            EquipmentPackage a;
+            a.name = "Espresso setup";
+            const qint64 idA = EquipmentStorage::createPackageWithGrinderStatic(
+                db, a, "Niche", "Zero", "63mm conical");
+            QVERIFY(idA > 0);
+
+            // Exact, case-insensitive and whitespace-insensitive matches all hit.
+            QCOMPARE(EquipmentStorage::findPackageByNameStatic(db, "Espresso setup"), idA);
+            QCOMPARE(EquipmentStorage::findPackageByNameStatic(db, "  espresso SETUP  "), idA);
+            // A different name does not.
+            QCOMPARE(EquipmentStorage::findPackageByNameStatic(db, "Filter setup"), (qint64)0);
+            // A blank name is derived from brand+model and never collides.
+            QCOMPARE(EquipmentStorage::findPackageByNameStatic(db, ""), (qint64)0);
+            QCOMPARE(EquipmentStorage::findPackageByNameStatic(db, "   "), (qint64)0);
+            // The package being edited is excluded, so renaming it to a casing
+            // variant of its own name is allowed.
+            QCOMPARE(EquipmentStorage::findPackageByNameStatic(db, "espresso setup", idA), (qint64)0);
+
+            // Removing it from inventory frees the name for reuse.
+            QVERIFY(EquipmentStorage::updatePackageFieldsStatic(db, idA, {{"inInventory", false}}));
+            QCOMPARE(EquipmentStorage::findPackageByNameStatic(db, "Espresso setup"), (qint64)0);
+        });
+    }
+
     // --- copy-on-write immutability + merge on identity edit ---
     void copyOnWriteAndMerge() {
         const QString path = freshDbPath();

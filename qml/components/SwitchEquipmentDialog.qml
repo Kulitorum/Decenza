@@ -221,11 +221,29 @@ Dialog {
         return -1
     }
 
+    // The id of another IN-INVENTORY package that already uses the entered name
+    // (block-duplicate-active-names), or -1. Trimmed + case-insensitive, excluding
+    // the package being edited. `packages` is the inventory list (in_inventory = 1),
+    // so this is inherently scoped to active packages. A blank name is legal (the
+    // title is then derived from brand+model) and never counts as a collision.
+    readonly property int nameDuplicateOfId: {
+        var n = fName.trim().toLowerCase()
+        if (n.length === 0) return -1
+        for (var i = 0; i < packages.length; ++i) {
+            var p = packages[i]
+            if (!p || p.id === undefined) continue
+            if (editPackageId > 0 && p.id === editPackageId) continue
+            if (String(p.name || "").trim().toLowerCase() === n)
+                return p.id
+        }
+        return -1
+    }
+
     // A package needs SOME identity — grinder OR basket. Basket-only
     // (grinder-less) packages are valid tea setups (add-recipe-wizard-tea).
     readonly property bool canSave: (fBrand.trim().length > 0 || fModel.trim().length > 0
                                      || fBasketBrand.trim().length > 0 || fBasketModel.trim().length > 0)
-                                    && duplicateOfId < 0
+                                    && duplicateOfId < 0 && nameDuplicateOfId < 0
     property bool _awaitingCreate: false
 
     EquipmentInfoDialog {
@@ -421,6 +439,20 @@ Dialog {
                             text: root.fName
                             suggestions: []
                             onTextEdited: function(t) { root.fName = t }
+                        }
+
+                        // Blocks Save when the entered name already belongs to another
+                        // in-inventory package (block-duplicate-active-names).
+                        Text {
+                            Layout.fillWidth: true
+                            visible: root.nameDuplicateOfId > 0
+                            text: TranslationManager.translate("equipment.dialog.nameInUse",
+                                      "That name is already in use — choose a different name.")
+                            font: Theme.captionFont
+                            color: Theme.warningColor
+                            wrapMode: Text.Wrap
+                            Accessible.role: Accessible.StaticText
+                            Accessible.name: text
                         }
 
                         // Grinder brand + model share a row — both short and related, so

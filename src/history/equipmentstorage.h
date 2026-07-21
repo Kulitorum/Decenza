@@ -209,6 +209,12 @@ public:
                                                      const QString& basketModel = QString(),
                                                      const QString& puckPrep = QString());
 
+    // The id of an IN-INVENTORY package whose name matches `name` (trimmed,
+    // case-insensitive), excluding `excludeId`, or 0. Backs the active-name
+    // uniqueness guard (block-duplicate-active-names). A blank name never matches.
+    static qint64 findPackageByNameStatic(QSqlDatabase& db, const QString& name,
+                                          qint64 excludeId = 0);
+
     // rpmCapable for a grinder identity: the registry's variableRpm when the
     // brand/model matches an alias, else true (a custom grinder shows the rpm
     // field). Shared by create/update/migration so the rule lives in one place.
@@ -253,6 +259,12 @@ signals:
     void packageReady(qint64 packageId, const QVariantMap& package); // empty if not found
     void packageCreated(qint64 packageId, const QVariantMap& package); // id -1 on failure
     void packageUpdated(qint64 packageId, bool success);
+    // Emitted immediately BEFORE packageUpdated(id, false) when the update failed
+    // for a reason the caller can act on — currently only "nameInUse"
+    // (block-duplicate-active-names). Additive: packageUpdated stays the terminal
+    // status every caller waits on; this only lets a surface report WHY, so the
+    // app, MCP and ShotServer describe a rename collision identically.
+    void packageUpdateFailed(qint64 packageId, const QString& reason);
     void packageDeleted(qint64 packageId, bool success);
     void packagesChanged();
 
