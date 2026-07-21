@@ -48,4 +48,4 @@
 
 - [x] 7.1 Re-read `specs/mcp-server/spec.md` in this change against what actually shipped (parameter names, defaults, interaction rules, including the new `dedupe` requirement) before archiving, and correct any drift. (No drift found.)
 - [x] 7.2 Run the full local test suite (`docs/CLAUDE_MD/TESTING.md`) before opening/updating the PR — no CI gate exists on this repo for pull requests. (89/89 passed.)
-- [ ] 7.3 Archive via `openspec archive improve-mcp-debug-log-search` as the last commit on the feature branch before merge.
+- [x] 7.3 Archive via `openspec archive improve-mcp-debug-log-search` as the last commit on the feature branch before merge.
