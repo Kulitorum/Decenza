@@ -336,8 +336,27 @@ bool ShotHistoryStorage::runMigrations()
     // If multiple rows exist, keep only the highest version.
     query.exec("DELETE FROM schema_version WHERE version != (SELECT MAX(version) FROM schema_version)");
 
-    query.exec("SELECT version FROM schema_version ORDER BY version DESC LIMIT 1");
-    int currentVersion = query.next() ? query.value(0).toInt() : 1;
+    // The exec() result matters here, where it did not before. A FAILED query
+    // and an empty table both leave next() false, and collapsing the two to
+    // version 1 would tell crossedSchemaVersion() that a fully-migrated DB had
+    // just crossed every version — re-injecting idle buttons the user
+    // deliberately removed, i.e. issue #1586 through the very door that fix
+    // closed. The migrations themselves still tolerate a false-low read (every
+    // step is guarded by hasColumn / IF NOT EXISTS and simply re-runs as a
+    // no-op), so only the crossing signal is suppressed on a read failure.
+    const bool versionReadOk =
+        query.exec("SELECT version FROM schema_version ORDER BY version DESC LIMIT 1");
+    if (!versionReadOk)
+        qWarning() << "ShotHistoryStorage: schema_version read failed -"
+                   << query.lastError().text()
+                   << "- migrations re-run idempotently, but no schema crossing will be reported";
+    int currentVersion = (versionReadOk && query.next()) ? query.value(0).toInt() : 1;
+
+    // Remember where we started so crossedSchemaVersion() can tell a genuine
+    // one-time upgrade (DB was below N, now at/above it) from a machine already
+    // past N. Drives the one-time equipment/recipes idle-button injection.
+    m_schemaVersionAtStart = currentVersion;
+    m_schemaVersionAtStartKnown = versionReadOk;
 
     // Helper: check if a column exists in a table
     auto hasColumn = [&](const QString& table, const QString& column) -> bool {

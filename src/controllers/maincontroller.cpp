@@ -239,6 +239,21 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     requestRecipeTempOffsetConversion();
     setupRecipeConnections();
 
+    // One-time idle-button injections, gated on the DB schema crossing that
+    // introduced each feature — the genuine once-ever signal, unlike the old
+    // "add it whenever the widget is absent" check that resurrected the button
+    // on every launch after a user removed it (issue #1586). crossedSchemaVersion
+    // is true only on the single launch whose migrations advanced the DB past
+    // that version, so a machine already upgraded (widget kept OR deliberately
+    // removed) is never touched again. Each inject is additionally a no-op if the
+    // widget is already present, so a fresh install's default layout — which
+    // ships both — does not double-add. Runs before the QML engine builds the
+    // idle page, so the layout is settled by first paint.
+    if (m_shotHistory->crossedSchemaVersion(22))
+        m_settings->network()->injectEquipmentButtonIfMissing();
+    if (m_shotHistory->crossedSchemaVersion(25))
+        m_settings->network()->injectRecipesButtonIfMissing();
+
     // Switching beans resets the brew overrides to the active profile's
     // defaults — a new coffee starts from the profile + bean baseline, not
     // the previous coffee's manual tweaks (the bag's own dose is applied by
