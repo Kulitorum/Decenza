@@ -58,7 +58,7 @@ Item {
             // buttons (Theme.actionButtonFill); otherwise a zone-appropriate solid
             // chip (Theme.zoneChipColor): a light capsule on the accentBar, a themed
             // surface chip elsewhere so it isn't a white capsule in dark mode.
-            readonly property bool hasBackgroundImage: Settings.theme.backgroundImagePath.length > 0
+            readonly property bool hasGlassChrome: Theme.glassChrome
             readonly property color pillFill: Theme.actionButtonFill(Theme.zoneChipColor(root.zoneStyle))
             color: ratioMa.pressed ? Qt.darker(pillFill, 1.15) : pillFill
 
@@ -80,7 +80,7 @@ Item {
                 // rows and the Shot Plan — and wins in both modes.
                 color: root.overridden
                     ? Theme.highlightColor
-                    : (parent.hasBackgroundImage ? root.zoneTextColor : Theme.primaryColor)
+                    : (parent.hasGlassChrome ? root.zoneTextColor : Theme.primaryColor)
                 font.pixelSize: Theme.scaled(20)
                 font.bold: true
             }

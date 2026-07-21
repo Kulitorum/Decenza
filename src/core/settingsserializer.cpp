@@ -229,6 +229,9 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     QJsonObject theme;
     theme["activeThemeName"] = settings->theme()->activeThemeName();
     theme["themeMode"] = settings->theme()->themeMode();
+    // Device-independent, unlike backgroundImagePath (a local filesystem path, which is
+    // deliberately not exported) — a preset id means the same thing on the target device.
+    theme["backgroundPreset"] = settings->theme()->backgroundPreset();
 
     // Export active palette as customColors (backward compat) plus both palettes
     QJsonObject customColors;
@@ -719,6 +722,7 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         QJsonObject theme = json["theme"].toObject();
         if (theme.contains("activeThemeName")) settings->theme()->setActiveThemeName(theme["activeThemeName"].toString());
         if (theme.contains("themeMode")) settings->theme()->setThemeMode(theme["themeMode"].toString());
+        if (theme.contains("backgroundPreset")) settings->theme()->setBackgroundPreset(theme["backgroundPreset"].toString());
 
         // Restore dual palettes if present (new format)
         if (theme.contains("customColorsDark")) {

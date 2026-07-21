@@ -26,6 +26,12 @@ class SettingsTheme : public QObject {
     Q_PROPERTY(QString darkThemeName READ darkThemeName WRITE setDarkThemeName NOTIFY darkThemeNameChanged)
     Q_PROPERTY(QString lightThemeName READ lightThemeName WRITE setLightThemeName NOTIFY lightThemeNameChanged)
     Q_PROPERTY(QStringList themeNames READ themeNames NOTIFY themeNamesChanged)
+    // True when the ACTIVE PALETTE is a glass palette — the built-in Glass theme, or
+    // anything forked or saved from it. Theme.glassChrome reads this. Notified by
+    // customThemeColorsChanged, not by a name change, because the marker lives in the
+    // palette: any colour edit renames the slot to "Custom" while the palette (and the
+    // glass look) carries on.
+    Q_PROPERTY(bool isGlassPalette READ isGlassPalette NOTIFY customThemeColorsChanged)
     Q_PROPERTY(double screenBrightness READ screenBrightness WRITE setScreenBrightness NOTIFY screenBrightnessChanged)
     Q_PROPERTY(QVariantMap customFontSizes READ customFontSizes WRITE setCustomFontSizes NOTIFY customFontSizesChanged)
     // Defaults merged with the user's overrides — the single value QML should render at.
@@ -60,6 +66,26 @@ class SettingsTheme : public QObject {
     // both light and dark mode. Sourced from the screensaver media library (personal
     // uploads + locally-cached catalog images) — see ScreensaverVideoManager.
     Q_PROPERTY(QString backgroundImagePath READ backgroundImagePath WRITE setBackgroundImagePath NOTIFY backgroundImagePathChanged)
+
+    // Built-in background preset — a curated flat colour (plus optional subtle pattern)
+    // for users who want a calmer backdrop than a screensaver photo. Holds a catalogue id
+    // from BackgroundPresets; empty = no preset. Mutually exclusive with
+    // backgroundImagePath: setting either clears the other, because they are one choice
+    // presented in one chooser.
+    //
+    // A preset is a background COLOUR, not an image — backgroundImagePath stays empty
+    // while one is active. It is not carried as a qrc: path in backgroundImagePath
+    // because ScreensaverVideoManager compares that setting against real file paths and
+    // clears it when the backing file is deleted; a preset has no backing file.
+    Q_PROPERTY(QString backgroundPreset READ backgroundPreset WRITE setBackgroundPreset NOTIFY backgroundPresetChanged)
+
+    // The whole catalogue for the chooser, `color` resolved for the current mode.
+    Q_PROPERTY(QVariantList backgroundPresets READ backgroundPresets NOTIFY activeBackgroundPresetChanged)
+
+    // The active preset as a map (empty when none), with `color` already resolved by
+    // isDarkMode. A property rather than an invokable so a QML binding re-runs when the
+    // preset OR the light/dark mode changes — an invokable would register no dependency.
+    Q_PROPERTY(QVariantMap activeBackgroundPreset READ activeBackgroundPreset NOTIFY activeBackgroundPresetChanged)
 
     // Screen shaders
     Q_PROPERTY(QString activeShader READ activeShader WRITE setActiveShader NOTIFY activeShaderChanged)
@@ -106,11 +132,29 @@ public:
 
     QString backgroundImagePath() const;
     void setBackgroundImagePath(const QString& path);
+
+    QString backgroundPreset() const;
+    void setBackgroundPreset(const QString& id);
+    QVariantList backgroundPresets() const;
+    QVariantMap activeBackgroundPreset() const;
     Q_INVOKABLE QVariantMap editingPaletteColors() const;
     Q_INVOKABLE void setEditingPaletteColor(const QString& colorName, const QString& colorValue);
 
     static const QVariantMap& darkDefaults();
     static const QVariantMap& lightDefaults();
+    // Glass palettes — each default plus the few overrides glass actually needs. See the
+    // definitions for why backgroundColor and surfaceColor must stay apart.
+    static const QVariantMap& glassDarkDefaults();
+    static const QVariantMap& glassLightDefaults();
+
+    // The built-in Glass theme's name in themeNames(). Read-only in this release:
+    // saveCurrentTheme() and deleteUserTheme() refuse it as they do the two defaults.
+    static const QString kGlassThemeName;
+    // Palette entry that marks a palette as glass. Carried in the palette rather than
+    // inferred from the theme name so it survives an edit (which forks the slot to
+    // "Custom") and survives being saved as a user theme.
+    static const QString kGlassPaletteFlag;
+    bool isGlassPalette() const;
 
     QString activeShader() const;
     void setActiveShader(const QString& shader);
@@ -188,6 +232,10 @@ signals:
     void isDarkModeChanged();
     void editingPaletteChanged();
     void backgroundImagePathChanged();
+    void backgroundPresetChanged();
+    // Fires when the preset changes AND when light/dark mode flips, since the resolved
+    // colour depends on both.
+    void activeBackgroundPresetChanged();
     void activeShaderChanged();
     void shaderParamsChanged();
     void customFontSizesChanged();

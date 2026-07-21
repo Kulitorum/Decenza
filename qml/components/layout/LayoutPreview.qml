@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import Decenza
+import ".."
 
 // Live, scaled-down preview of the home screen built from the current layout
 // configuration. Mirrors the real StatusBar.qml + IdlePage.qml structure (same
@@ -18,13 +19,14 @@ Item {
     id: previewRoot
     clip: true
 
-    // Background image shown behind the mockup. Defaults to the real saved
-    // setting so every plain `LayoutPreview {}` (e.g. SettingsLayoutTab's
-    // layout-only preview) automatically matches what the actual idle screen
-    // looks like. BackgroundPickerDialog overrides this with the currently
-    // highlighted (not yet saved) thumbnail path while picking — an explicit
-    // binding at the instantiation site always wins over this default.
+    // Background shown behind the mockup — a preset id or an image path. Both
+    // default to the real saved setting so every plain `LayoutPreview {}` (e.g.
+    // SettingsLayoutTab's layout-only preview) automatically matches what the
+    // actual idle screen looks like. BackgroundPickerDialog overrides them with
+    // the currently highlighted (not yet saved) candidate while picking — an
+    // explicit binding at the instantiation site always wins over this default.
     property string backgroundImageSource: Settings.theme.backgroundImagePath
+    property string backgroundPresetSource: Settings.theme.backgroundPreset
 
     readonly property var _cfg: Settings.network.layoutConfiguration
     function _items(z) { var d = _cfg; return Settings.network.getZoneItems(z) }   // d: dependency tap, keep
@@ -41,22 +43,12 @@ Item {
                         parent.height / Math.max(1, height))
         transformOrigin: Item.Center
 
-        Rectangle {
+        // Same renderer the real page background uses, so the preview cannot drift
+        // from the result.
+        BackgroundSurface {
             anchors.fill: parent
-            color: Theme.backgroundColor
-            visible: previewRoot.backgroundImageSource.length === 0 || bgPreviewImage.status !== Image.Ready
-        }
-
-        Image {
-            id: bgPreviewImage
-            anchors.fill: parent
-            visible: previewRoot.backgroundImageSource.length > 0 && status === Image.Ready
-            source: previewRoot.backgroundImageSource.length > 0 ? "file:///" + previewRoot.backgroundImageSource : ""
-            fillMode: Image.PreserveAspectCrop
-            asynchronous: true
-            sourceSize.width: width
-            sourceSize.height: height
-            Accessible.ignored: true
+            presetId: previewRoot.backgroundPresetSource
+            imagePath: previewRoot.backgroundImageSource
         }
 
         // ---- Status bar (StatusBar.qml) ----

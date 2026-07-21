@@ -1485,13 +1485,13 @@ Page {
         // scrim as StatusBar and the shared BottomBar so every bar reads
         // consistently and the wallpaper shows through; otherwise keep the
         // standard bottom-bar hue.
-        color: Settings.theme.backgroundImagePath.length > 0
+        color: Theme.glassChrome
                ? Theme.scrimColor(Theme.surfaceColor)
                : Theme.bottomBarColor
         // opacity < 1 forces the scrim through the alpha pass; without it this
         // bar renders opaque and the wallpaper can't show through. See
         // docs/CLAUDE_MD/QML_GOTCHAS.md "Translucent element renders opaque".
-        opacity: Settings.theme.backgroundImagePath.length > 0 ? 0.99 : 1.0
+        opacity: Theme.glassChrome ? 0.99 : 1.0
 
         RowLayout {
             anchors.fill: parent

@@ -807,7 +807,10 @@ KeyboardAwareContainer {
                             Item { Layout.fillWidth: true }
 
                             AccessibleButton {
-                                text: Settings.theme.backgroundImagePath.length > 0
+                                // "Change" once anything is set — a preset counts as much
+                                // as an image; they are one choice made in one chooser.
+                                text: (Settings.theme.backgroundImagePath.length > 0
+                                       || Settings.theme.backgroundPreset.length > 0)
                                     ? TranslationManager.translate("settings.preferences.backgroundChange", "Change…")
                                     : TranslationManager.translate("settings.preferences.backgroundChoose", "Choose…")
                                 accessibleName: TranslationManager.translate("settings.preferences.background", "Background")

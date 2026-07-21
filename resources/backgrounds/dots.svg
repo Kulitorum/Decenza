@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 12 12">
+  <!-- Dot lattice, ~6px spacing on the diagonal. Both dots sit clear of the tile edge,
+       so the pattern wraps without a clipped half-dot at the seam. -->
+  <g fill="#ffffff">
+    <circle cx="3" cy="3" r="1"/>
+    <circle cx="9" cy="9" r="1"/>
+  </g>
+</svg>

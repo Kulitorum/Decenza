@@ -23,7 +23,7 @@ Rectangle {
     readonly property color _opaqueColor: (zoneOpts.style && zoneOpts.style !== "standard")
            ? Theme.zoneBackgroundColor(zoneOpts.style)
            : Theme.surfaceColor
-    color: Settings.theme.backgroundImagePath.length > 0
+    color: Theme.glassChrome
            ? Theme.scrimColor(_opaqueColor)
            : _opaqueColor
 

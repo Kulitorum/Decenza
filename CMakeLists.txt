@@ -599,6 +599,7 @@ set(SOURCES
     src/core/emojiassets.cpp
     src/core/markdownrenderer.cpp
     src/core/settings_theme.cpp
+    src/core/backgroundpresets.cpp
     src/core/settings_visualizer.cpp
     src/core/settings_mcp.cpp
     src/core/settings_brew.cpp
@@ -799,6 +800,7 @@ set(HEADERS
     src/core/settings_hardware.h
     src/core/settings_ai.h
     src/core/settings_theme.h
+    src/core/backgroundpresets.h
     src/core/settings_visualizer.h
     src/core/settings_mcp.h
     src/core/settings_brew.h
@@ -1203,6 +1205,7 @@ set(QML_FILES
     qml/components/DrinkType.qml
     qml/components/ProfileKnowledgeDialog.qml
     qml/components/BeanThumbnail.qml
+    qml/components/BackgroundSurface.qml
     qml/components/ThemedPageBackground.qml
     qml/components/BackgroundPickerDialog.qml
     qml/components/PresetButton.qml
@@ -1635,6 +1638,7 @@ if(NOT ANDROID AND NOT IOS)
         src/core/emojiassets.cpp
         src/core/markdownrenderer.cpp
         src/core/settings_theme.cpp
+        src/core/backgroundpresets.cpp
         src/core/settings_visualizer.cpp
         src/core/settings_mcp.cpp
         src/core/settings_brew.cpp

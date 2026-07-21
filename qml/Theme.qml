@@ -399,9 +399,32 @@ QtObject {
     // either spelling correct.
     readonly property bool isDarkMode: Settings.theme.isDarkMode
 
+    // Should the chrome render as translucent "glass" — scrimmed cards, bars, dialogs,
+    // inset controls and action tiles — rather than the opaque fills the app uses on a
+    // flat page?
+    //
+    // Three things turn it on: a background image, a background colour preset, or the
+    // built-in Glass theme. This is ONE named predicate rather than the expression
+    // repeated at ~70 call sites, which is what it used to be
+    // (`Settings.theme.backgroundImagePath.length > 0`): seventy copies is seventy
+    // chances for the next background source to be missed at one of them. None of those
+    // sites ever cared that it was an *image* — only that the page is not flat.
+    //
+    // Read this, never backgroundImagePath, when asking "is a background active".
+    readonly property bool glassChrome: Settings.theme.backgroundImagePath.length > 0
+                                        || Settings.theme.backgroundPreset.length > 0
+                                        || Settings.theme.isGlassPalette
+
     // Dynamic colors - bind to Settings with fallback defaults
     // Wrapped in _c() for flash-to-identify from web theme editor
-    property color backgroundColor: _c("backgroundColor", Settings.theme.customThemeColors.backgroundColor || "#1a1a2e")
+    //
+    // A background preset overrides the palette's own background colour — that is what a
+    // preset IS. Resolution order: preset > custom theme colour > built-in default. The
+    // preset's `color` field arrives already resolved for the current light/dark mode.
+    property color backgroundColor: _c("backgroundColor",
+        Settings.theme.activeBackgroundPreset.color
+            || Settings.theme.customThemeColors.backgroundColor
+            || "#1a1a2e")
     property color surfaceColor: _c("surfaceColor", Settings.theme.customThemeColors.surfaceColor || "#303048")
 
     // Single translucency level for every "scrim" used when a custom background
@@ -457,7 +480,7 @@ QtObject {
     // Card fill for page-level content cards. Dialogs/popups use
     // dialogBackgroundColor below (same value, separately documented).
     // Opaque surfaceColor when no background image is set — zero visual change.
-    readonly property color cardBackgroundColor: Settings.theme.backgroundImagePath.length > 0
+    readonly property color cardBackgroundColor: glassChrome
         ? scrimColor(surfaceColor)
         : surfaceColor
 
@@ -468,7 +491,7 @@ QtObject {
     // rather than reading as an out-of-place opaque slab; opaque surfaceColor
     // otherwise, so nothing changes with no background set. The modal Overlay
     // dim behind the dialog keeps the glass legible over busy photos.
-    readonly property color dialogBackgroundColor: Settings.theme.backgroundImagePath.length > 0
+    readonly property color dialogBackgroundColor: glassChrome
         ? scrimColor(surfaceColor)
         : surfaceColor
 
@@ -476,15 +499,31 @@ QtObject {
     // into" the page rather than stand out as a surface — text field boxes,
     // switch tracks, tab-button active states, unselected pills. Opaque
     // backgroundColor otherwise, so nothing changes with no background set.
-    readonly property color insetBackgroundColor: Settings.theme.backgroundImagePath.length > 0
-        ? scrimColor(backgroundColor)
-        : backgroundColor
+    // Over a photo this is a dimmed patch: the image shows through at a different
+    // brightness, so a 40% wash of backgroundColor reads as a recess. Over a FLAT page —
+    // a preset, or Glass with no background — the same expression is 40% of a colour
+    // composited over itself, which is that colour exactly, and the control disappears.
+    // (Most inset controls sit on a card, where the scrim lands on surfaceColor and reads
+    // fine either way; this fixes the minority drawn straight onto the page, which is why
+    // it went unnoticed.) On a flat page we scrim toward the contrast direction instead,
+    // so the recessed step survives.
+    readonly property color insetBackgroundColor: !glassChrome
+        ? backgroundColor
+        : (Settings.theme.backgroundImagePath.length > 0
+            ? scrimColor(backgroundColor)
+            : _flatInsetTint)
+
+    // A translucent white (dark mode) or black (light mode) wash — a step away from
+    // whatever is behind, rather than a wash of that same colour. Alpha is deliberately
+    // well under backgroundScrimAlpha: this marks a recess, it does not fill a surface.
+    readonly property color _flatInsetTint: isDarkMode ? Qt.rgba(1, 1, 1, 0.10)
+                                                       : Qt.rgba(0, 0, 0, 0.06)
     property color primaryColor: _c("primaryColor", Settings.theme.customThemeColors.primaryColor || "#4e85f4")
     // Fill for idle-screen action tiles (Recipes/Beans/Steam/etc.). Over a custom
     // background image they use the neutral surfaceColor so they match the bars and
     // cards (CustomItem scrims it); otherwise the standard primaryColor accent. The
     // blue accent reads as out of place once the rest of the chrome is a neutral scrim.
-    readonly property color actionTileColor: Settings.theme.backgroundImagePath.length > 0
+    readonly property color actionTileColor: glassChrome
         ? surfaceColor
         : primaryColor
 
@@ -497,19 +536,27 @@ QtObject {
     // both the full-mode ActionButton and the compact-mode Rectangle (Sleep/Quit).
     // The image-case fill equals cardBackgroundColor (scrimColor(surfaceColor)).
     function actionButtonFill(baseColor: color): color {
-        return Settings.theme.backgroundImagePath.length > 0 ? cardBackgroundColor : baseColor
+        return glassChrome ? cardBackgroundColor : baseColor
     }
     property color secondaryColor: _c("secondaryColor", Settings.theme.customThemeColors.secondaryColor || "#c0c5e3")
     property color textColor: _c("textColor", Settings.theme.customThemeColors.textColor || "#ffffff")
-    // Brightened whenever a background image is active. Originally tried scoping
-    // this to only bare-background text (Settings tab bar) on the theory that text
-    // already sitting on a cardBackgroundColor/insetBackgroundColor scrim had
+    // Pushed AWAY from the page whenever the glass chrome is active. Originally tried
+    // scoping this to only bare-background text (Settings tab bar) on the theory that
+    // text already sitting on a cardBackgroundColor/insetBackgroundColor scrim had
     // enough contrast from that scrim alone — wrong in practice: bean inventory
     // cards (roaster/origin/tasting-note text on a scrimmed card, still over a
     // busy photo) were just as hard to read. Applies everywhere textSecondaryColor
-    // is read, uniformly. Unchanged with no background image set.
-    property color textSecondaryColor: _c("textSecondaryColor", Settings.theme.backgroundImagePath.length > 0
-        ? Qt.lighter(Settings.theme.customThemeColors.textSecondaryColor || "#a0a8b8", 1.4)
+    // is read, uniformly. Unchanged when the glass chrome is off.
+    //
+    // The direction is per-mode, and that is a fix, not a refinement: this was
+    // unconditionally `Qt.lighter(..., 1.4)`, which is right against a dark page and
+    // exactly backwards against a light one — it pushed secondary text TOWARD the
+    // background and cut its contrast. Any light theme with a photo has had that since
+    // the background feature shipped; presets ship a full light set, so it stops being
+    // rare. Lighten in dark mode, darken in light mode.
+    property color textSecondaryColor: _c("textSecondaryColor", glassChrome
+        ? (isDarkMode ? Qt.lighter(Settings.theme.customThemeColors.textSecondaryColor || "#a0a8b8", 1.4)
+                      : Qt.darker(Settings.theme.customThemeColors.textSecondaryColor || "#a0a8b8", 1.4))
         : (Settings.theme.customThemeColors.textSecondaryColor || "#a0a8b8"))
 
     // Kept as an alias so call sites that already migrated to the more specific

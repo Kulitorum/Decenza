@@ -208,5 +208,10 @@
         <file>profiles/turboturbo.json</file>
         <file>profiles/two_spring_lever_machine_to_9_bar.json</file>
         <file>profiles/weiss_advanced_spring_lever.json</file>
+        <file>backgrounds/dots.svg</file>
+        <file>backgrounds/grain.svg</file>
+        <file>backgrounds/linen.svg</file>
+        <file>backgrounds/pinstripe.svg</file>
+        <file>backgrounds/twill.svg</file>
     </qresource>
 </RCC>

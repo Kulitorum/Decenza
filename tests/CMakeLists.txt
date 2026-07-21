@@ -77,6 +77,7 @@ set(CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/core/settings_hardware.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_ai.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_theme.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/backgroundpresets.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_visualizer.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_mcp.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_brew.cpp
@@ -335,6 +336,19 @@ add_decenza_test(tst_settings
     tst_settings.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settingsserializer.cpp
 )
+
+# --- tst_backgroundpresets: background preset catalogue + Glass theme ---
+# Includes the WCAG contrast floors for every preset and both Glass palettes, measured
+# against the scrimmed card colour as well as the raw background — computable here in a
+# way it never was for a photo background.
+add_decenza_test(tst_backgroundpresets
+    tst_backgroundpresets.cpp
+)
+# Compile the production qrc so :/backgrounds/*.svg resolve — the catalogue test asserts
+# every pattern asset actually ships, which is the check that catches a catalogue entry
+# pointing at a file nobody added to resources.qrc.
+target_sources(tst_backgroundpresets PRIVATE ${CMAKE_SOURCE_DIR}/resources/resources.qrc)
+set_target_properties(tst_backgroundpresets PROPERTIES AUTORCC ON)
 
 # --- tst_saw_settings: per-(profile, scale) SAW learning + batch + bootstrap ---
 add_decenza_test(tst_saw_settings

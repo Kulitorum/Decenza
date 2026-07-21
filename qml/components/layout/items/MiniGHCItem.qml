@@ -17,7 +17,7 @@ Item {
     opacity: ((DE1Device.simulationMode || DE1Device.isHeadless) && MachineState.isReady) ? 1.0 : 0.4
 
     function _effectiveColor(baseColor) {
-        return Settings.theme.backgroundImagePath.length > 0 ? Theme.scrimColor(baseColor) : baseColor
+        return Theme.glassChrome ? Theme.scrimColor(baseColor) : baseColor
     }
 
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
@@ -154,7 +154,7 @@ Item {
                 }
 
                 readonly property color _effectiveButtonColor:
-                    Settings.theme.backgroundImagePath.length > 0 ? Theme.scrimColor(buttonColor) : buttonColor
+                    Theme.glassChrome ? Theme.scrimColor(buttonColor) : buttonColor
 
                 color: btnArea.isPressed ? Qt.darker(_effectiveButtonColor, 1.2) : _effectiveButtonColor
                 Accessible.ignored: true

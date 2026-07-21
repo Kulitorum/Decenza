@@ -122,7 +122,7 @@ Item {
         // Always a visible chip: this pill is tappable, so it must read as a
         // button. Over a background image use the neutral glass scrim
         // (Theme.actionButtonFill); otherwise a zone-appropriate solid chip.
-        readonly property bool hasBackgroundImage: Settings.theme.backgroundImagePath.length > 0
+        readonly property bool hasGlassChrome: Theme.glassChrome
         readonly property color pillFill: Theme.actionButtonFill(Theme.zoneChipColor(root.zoneStyle))
         color: pillMa.pressed ? Qt.darker(pillFill, 1.15) : pillFill
 
@@ -147,7 +147,7 @@ Item {
             // Accent-blue value reads on the solid chip; over a background
             // image the chip is the neutral glass scrim, so the value uses the
             // light zone text color (like the Sleep/Quit labels).
-            color: pill.hasBackgroundImage ? root.zoneTextColor : Theme.primaryColor
+            color: pill.hasGlassChrome ? root.zoneTextColor : Theme.primaryColor
             font.pixelSize: Theme.scaled(20)
             font.bold: true
         }

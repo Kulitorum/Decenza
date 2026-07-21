@@ -131,7 +131,7 @@ Page {
             // Scrim the whole bar (not just the active tab) when a custom background
             // image is set — unselected tab labels otherwise sit directly on the photo
             // with no surface behind them, hurting legibility.
-            color: Settings.theme.backgroundImagePath.length > 0 ? Theme.cardBackgroundColor : "transparent"
+            color: Theme.glassChrome ? Theme.cardBackgroundColor : "transparent"
 
             // Bottom border line (active tab extends below to cover its portion)
             Rectangle {

@@ -37,13 +37,13 @@ Item {
         // wallpaper shows through and all bars read consistently — the page's
         // own barColor (e.g. "transparent" on Beans/Equipment/Recipes) only
         // applies when no background image is set.
-        color: Settings.theme.backgroundImagePath.length > 0
+        color: Theme.glassChrome
                ? Theme.scrimColor(Theme.surfaceColor)
                : root.barColor
         // opacity < 1 forces the scrim through the alpha pass; without it this
         // bar renders opaque and the wallpaper can't show through. See
         // docs/CLAUDE_MD/QML_GOTCHAS.md "Translucent element renders opaque".
-        opacity: Settings.theme.backgroundImagePath.length > 0 ? 0.99 : 1.0
+        opacity: Theme.glassChrome ? 0.99 : 1.0
     }
 
     // Top border for separation
