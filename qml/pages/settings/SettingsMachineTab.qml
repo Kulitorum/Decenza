@@ -702,9 +702,16 @@ KeyboardAwareContainer {
                     color: Theme.cardBackgroundColor
                     radius: Theme.cardRadius
 
+                    // left/right/top, NOT fill — the card's implicitHeight is derived from
+                    // this column, so anchors.fill would also derive the column's height from
+                    // the card. That settles for fixed-height rows but not once a wrapping
+                    // Text is in the column, whose height depends on the width it is given.
+                    // Every other card in this tab already anchors this way.
                     ColumnLayout {
                         id: themeModeColumn
-                        anchors.fill: parent
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
                         anchors.margins: Theme.scaled(15)
                         spacing: Theme.scaled(10)
 
