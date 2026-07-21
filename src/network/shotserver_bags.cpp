@@ -298,14 +298,28 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
         }
         if (!kind.isEmpty())
             fields.insert("kind", kind);
+        QPointer<BeanBaseClient> safeBeanbase = m_mainController ? m_mainController->beanbase() : nullptr;
         auto conn = std::make_shared<QMetaObject::Connection>();
         *conn = connect(bagStorage, &CoffeeBagStorage::bagCreated, this,
-            [conn, respondJson](qint64 bagId, const QVariantMap& bag) {
+            [conn, respondJson, safeBeanbase](qint64 bagId, const QVariantMap& bag) {
                 disconnect(*conn);
-                if (bagId <= 0)
+                if (bagId <= 0) {
                     respondJson(QJsonObject{{"error", "Create failed"}}, 500);
-                else
-                    respondJson(QJsonObject::fromVariantMap(bag));
+                    return;
+                }
+                // Resolve the photo now that the row id — half the manual cache
+                // key — exists, mirroring the app's onBagCreated. A canonical
+                // bag would also resolve lazily on the first image request; a
+                // manual one has nothing else to trigger it.
+                const QString link =
+                    QJsonDocument::fromJson(bag.value(QStringLiteral("beanBaseData")).toString().toUtf8())
+                        .object().value(QStringLiteral("link")).toString();
+                const QString canonicalId = bag.value(QStringLiteral("beanBaseId")).toString();
+                if (safeBeanbase && !link.isEmpty())
+                    safeBeanbase->ensureBagImage(
+                        canonicalId.isEmpty() ? QStringLiteral("bag-%1").arg(bagId) : canonicalId,
+                        bag.value(QStringLiteral("coffeeName")).toString(), link);
+                respondJson(QJsonObject::fromVariantMap(bag));
             });
         bagStorage->requestCreateBag(fields);
         return;
@@ -322,10 +336,15 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
         }
 
         // GET /api/bag/<id>/image — serve the cached bean photo for the web
-        // card (BeanBaseClient's file cache, keyed by canonical id). Loads the
-        // bag off-thread to resolve its canonical id + product URL, serves the
-        // cached file when present, else triggers a best-effort resolve and
-        // returns 404 so the client shows its placeholder (next load has it).
+        // card (BeanBaseClient's file cache). Loads the bag off-thread to
+        // resolve its cache key + product URL, serves the cached file when
+        // present, else triggers a best-effort resolve and returns 404 so the
+        // client shows its placeholder (next load has it).
+        //
+        // The key follows the app's rule (BagCard.qml): canonical id when
+        // linked, else "bag-<rowid>" for a manual bag that has a product URL.
+        // Canonical-only would mean every manually entered bag shows a
+        // placeholder here forever while the app card shows its photo.
         if (action == "image" && method == "GET") {
             BeanBaseClient* beanbase = m_mainController ? m_mainController->beanbase() : nullptr;
             if (!beanbase) {
@@ -336,32 +355,34 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
             QPointer<BeanBaseClient> safeBeanbase = beanbase;
             QThread* loadThread = QThread::create(
                 [safeThis, safeSocket, safeBeanbase, dbPath, bagId, respondJson]() {
-                    QString canonicalId, roastName, productUrl;
+                    QString imageKey, roastName, productUrl;
                     withTempDb(dbPath, "web_bag_image", [&](QSqlDatabase& db) {
                         const CoffeeBag bag = CoffeeBagStorage::loadBagStatic(db, bagId);
                         if (bag.isValid()) {
-                            canonicalId = bag.beanBaseId;
                             roastName = bag.coffeeName;
                             productUrl = QJsonDocument::fromJson(bag.beanBaseData.toUtf8())
                                              .object().value(QStringLiteral("link")).toString();
+                            imageKey = !bag.beanBaseId.isEmpty() ? bag.beanBaseId
+                                : (productUrl.isEmpty() ? QString()
+                                                        : QStringLiteral("bag-%1").arg(bagId));
                         }
                     });
                     QMetaObject::invokeMethod(qApp,
-                        [safeThis, safeSocket, safeBeanbase, canonicalId, roastName, productUrl, respondJson]() {
+                        [safeThis, safeSocket, safeBeanbase, imageKey, roastName, productUrl, respondJson]() {
                             if (!safeThis || !safeSocket)
                                 return;
-                            if (canonicalId.isEmpty() || !safeBeanbase) {
+                            if (imageKey.isEmpty() || !safeBeanbase) {
                                 respondJson(QJsonObject{{"error", "No image"}}, 404);
                                 return;
                             }
-                            const QString filePath = safeBeanbase->bagImagePath(canonicalId);
+                            const QString filePath = safeBeanbase->bagImagePath(imageKey);
                             if (!filePath.isEmpty() && QFileInfo::exists(filePath)) {
                                 const QString ct = filePath.endsWith(QLatin1String(".png"), Qt::CaseInsensitive)
                                     ? QStringLiteral("image/png") : QStringLiteral("image/jpeg");
                                 safeThis->sendFile(safeSocket, filePath, ct);
                             } else {
                                 // Kick off a best-effort resolve for next time.
-                                safeBeanbase->ensureBagImage(canonicalId, roastName, productUrl);
+                                safeBeanbase->ensureBagImage(imageKey, roastName, productUrl);
                                 respondJson(QJsonObject{{"error", "No image yet"}}, 404);
                             }
                         }, Qt::QueuedConnection);
@@ -420,6 +441,23 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
                     else
                         respondJson(QJsonObject{{"error", "Bag not found or update failed"}}, 404);
                 });
+            // The client saw the product URL change to a new non-empty value:
+            // evict the cached photo and re-resolve from the new page, exactly
+            // as the in-app dialog does on the same edit. Without it the web is
+            // the one place you can change a bag's URL and keep the old page's
+            // picture. The client gates this because only it knows the URL the
+            // form opened with — reading it here would race the write below.
+            if (bodyJson.value(QStringLiteral("refreshImage")).toBool()) {
+                BeanBaseClient* beanbase = m_mainController ? m_mainController->beanbase() : nullptr;
+                const QString link =
+                    QJsonDocument::fromJson(fields.value(QStringLiteral("beanBaseData")).toString().toUtf8())
+                        .object().value(QStringLiteral("link")).toString();
+                const QString canonicalId = fields.value(QStringLiteral("beanBaseId")).toString();
+                if (beanbase && !link.isEmpty())
+                    beanbase->refreshBagImage(
+                        canonicalId.isEmpty() ? QStringLiteral("bag-%1").arg(bagId) : canonicalId,
+                        fields.value(QStringLiteral("coffeeName")).toString(), link);
+            }
             // Setting a Bean Base link propagates it onto the bag's shots, exactly
             // as the in-app edit dialog's link path does.
             const bool propagate = fields.contains(QStringLiteral("beanBaseId"))
@@ -635,6 +673,7 @@ QString ShotServer::generateBeansPage() const
         let equipmentList = [];     // for the per-bag equipment link picker
         let editBlob = {};          // working copy of the bag's beanBaseData blob
         let editBeanBaseId = '';    // canonical id when linked
+        let editOpenedLink = '';    // product URL as the form opened (image-refresh gate)
 
         // Descriptive blob working keys ↔ form ids (mirrors BeanBaseBlob keys).
         const COFFEE_KEYS = [['dOrigin','origin'],['dRegion','region'],['dFarm','farm'],
@@ -734,7 +773,12 @@ QString ShotServer::generateBeansPage() const
             const linked = !!(b.beanBaseId && b.beanBaseData);
             const title = esc(b.coffeeName || b.roasterName || 'Bag ' + b.id);
             const ph = b.kind === 'tea' ? '&#127861;' : '&#127793;';
-            const thumb = linked
+            // A photo is possible for a canonical-linked bag OR a manual one
+            // with a product URL — the app's rule (BagCard.qml imageKey), and
+            // what /api/bag/<id>/image now keys on. `linked` still gates the
+            // Bean Base checkmark and Info button, which are canonical-only.
+            // onerror falls back to the placeholder, so asking costs nothing.
+            const thumb = (linked || bb.link)
                 ? '<img class="thumb" src="/api/bag/' + b.id + '/image" alt="" '
                   + 'onerror="thumbErr(this,' + "'" + ph + "'" + ')">'
                 : '<div class="thumb placeholder">' + ph + '</div>';
@@ -828,6 +872,7 @@ QString ShotServer::generateBeansPage() const
             editingKind = kind || b.kind || 'coffee';
             editBlob = parseBlob(b.beanBaseData);
             editBeanBaseId = b.beanBaseId || '';
+            editOpenedLink = (editBlob.link || '').trim();
             el('editorTitle').textContent = id ? 'Edit Bag' : (editingKind === 'tea' ? 'New Tea' : 'New Coffee');
             el('fRoaster').value = b.roasterName || '';
             el('fCoffee').value = b.coffeeName || '';
@@ -988,6 +1033,14 @@ QString ShotServer::generateBeansPage() const
             // than '{}' so the bag reads as unlinked, not as an empty blob.
             bodyData.beanBaseData = Object.keys(editBlob).length ? JSON.stringify(editBlob) : '';
             if (editBeanBaseId) bodyData.beanBaseId = editBeanBaseId;
+            // A URL edited to a new non-empty value re-resolves the bag photo:
+            // the cached pixels describe the OLD page. Gated here, not on the
+            // server, because only the form knows the URL it opened with (the
+            // app gates the same way, on _openedLink). Existing rows only —
+            // nothing is cached yet under an id that does not exist, and the
+            // create route resolves that case itself.
+            if (editingId && (editBlob.link || '') && (editBlob.link || '') !== editOpenedLink)
+                bodyData.refreshImage = true;
             if (!editingId) bodyData.kind = editingKind;
 
             const req = editingId ? post('/api/bag/' + editingId, bodyData) : post('/api/bags', bodyData);
