@@ -229,6 +229,198 @@ private slots:
         });
     }
 
+    // --- active-name uniqueness lookup (block-duplicate-active-names) ---
+    // Two non-archived recipes may not share a name; archiving one frees its name
+    // for reuse. Comparison is trimmed and case-insensitive, and excludes the
+    // recipe being edited.
+    void activeNameUniqueness() {
+        withRawDb(freshDbPath(), "namedup", [](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            Recipe r = sampleRecipe();          // name: "Morning capp"
+            const qint64 id = RecipeStorage::insertRecipeStatic(db, r);
+            QVERIFY(id > 0);
+
+            // Exact, case-insensitive and whitespace-insensitive matches all hit.
+            QCOMPARE(RecipeStorage::findRecipeByNameStatic(db, "Morning capp"), id);
+            QCOMPARE(RecipeStorage::findRecipeByNameStatic(db, "  MORNING CAPP  "), id);
+            // A different name does not.
+            QCOMPARE(RecipeStorage::findRecipeByNameStatic(db, "Evening capp"), (qint64)0);
+            // A blank name never collides.
+            QCOMPARE(RecipeStorage::findRecipeByNameStatic(db, ""), (qint64)0);
+            QCOMPARE(RecipeStorage::findRecipeByNameStatic(db, "   "), (qint64)0);
+            // The recipe being edited is excluded, so renaming it to a casing
+            // variant of its own name is allowed.
+            QCOMPARE(RecipeStorage::findRecipeByNameStatic(db, "morning capp", id), (qint64)0);
+
+            // Archiving frees the name for reuse.
+            QVERIFY(RecipeStorage::updateRecipeFieldsStatic(db, id, {{"archived", true}}));
+            QCOMPARE(RecipeStorage::findRecipeByNameStatic(db, "Morning capp"), (qint64)0);
+            // ...and unarchiving makes it collide again.
+            QVERIFY(RecipeStorage::updateRecipeFieldsStatic(db, id, {{"archived", false}}));
+            QCOMPARE(RecipeStorage::findRecipeByNameStatic(db, "Morning capp"), id);
+        });
+    }
+
+    // --- active-name uniqueness through the async request* paths ---
+    // The helper test above covers the lookup predicate; these cover the guards
+    // that use it, the emitted payloads, and the two new signals.
+
+    // A create/clone colliding with an active recipe is refused, and the refusal
+    // carries error:"nameInUse" WITHOUT dropping the correlation token every
+    // MCP/web listener filters on (losing it would hang them forever).
+    void createAndCloneRejectDuplicateName() {
+        const QString path = freshDbPath();
+        qint64 sourceId = 0;
+        withRawDb(path, "namedup_seed", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            sourceId = RecipeStorage::insertRecipeStatic(db, sampleRecipe());  // "Morning capp"
+        });
+        QVERIFY(sourceId > 0);
+
+        RecipeStorage storage;
+        storage.initialize(path);
+
+        {   // Create colliding with an active recipe -> refused, token echoed.
+            QSignalSpy spy(&storage, &RecipeStorage::recipeCreated);
+            storage.requestCreateRecipe({{"name", "  morning CAPP  "}, {"profileTitle", "P"},
+                                         {"requestToken", "tok-create"}});
+            QTRY_COMPARE(spy.count(), 1);
+            QCOMPARE(spy.at(0).at(0).toLongLong(), (qint64)-1);
+            const QVariantMap created = spy.at(0).at(1).toMap();
+            QCOMPARE(created.value("error").toString(), QString("nameInUse"));
+            QCOMPARE(created.value("requestToken").toString(), QString("tok-create"));
+        }
+        {   // Clone under the same name -> refused the same way.
+            QSignalSpy spy(&storage, &RecipeStorage::recipeCreated);
+            storage.requestCloneRecipe(sourceId, "Morning capp", "tok-clone");
+            QTRY_COMPARE(spy.count(), 1);
+            QCOMPARE(spy.at(0).at(0).toLongLong(), (qint64)-1);
+            QCOMPARE(spy.at(0).at(1).toMap().value("error").toString(), QString("nameInUse"));
+            QCOMPARE(spy.at(0).at(1).toMap().value("requestToken").toString(), QString("tok-clone"));
+        }
+        {   // A free name still creates.
+            QSignalSpy spy(&storage, &RecipeStorage::recipeCreated);
+            storage.requestCreateRecipe({{"name", "Evening capp"}, {"profileTitle", "P"}});
+            QTRY_COMPARE(spy.count(), 1);
+            QVERIFY(spy.at(0).at(0).toLongLong() > 0);
+        }
+        // Exactly one row was added across all three attempts.
+        withRawDb(path, "namedup_count", [](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            QVERIFY(q.exec("SELECT COUNT(*) FROM recipes"));
+            QVERIFY(q.next());
+            QCOMPARE(q.value(0).toInt(), 2);
+        });
+    }
+
+    // Re-saving a recipe under the name it ALREADY has must succeed, even when
+    // another active recipe shares that name. Without this a pre-existing
+    // duplicate could not be edited at all — every save sends `name`, so a guard
+    // testing "is name in the patch" disabled both records permanently.
+    void unchangedNameOnPreExistingDuplicateStillSaves() {
+        const QString path = freshDbPath();
+        qint64 idA = 0, idB = 0;
+        withRawDb(path, "namedup_pre", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            Recipe a = sampleRecipe(); a.name = "Twin";
+            Recipe b = sampleRecipe(); b.name = "Twin";   // duplicate predates the rule
+            idA = RecipeStorage::insertRecipeStatic(db, a);
+            idB = RecipeStorage::insertRecipeStatic(db, b);
+        });
+        QVERIFY(idA > 0 && idB > 0);
+
+        RecipeStorage storage;
+        storage.initialize(path);
+        {   // Same name + an unrelated field change -> allowed.
+            QSignalSpy spy(&storage, &RecipeStorage::recipeUpdated);
+            storage.requestUpdateRecipe(idB, {{"name", "Twin"}, {"doseG", 21.0}});
+            QTRY_COMPARE(spy.count(), 1);
+            QCOMPARE(spy.at(0).at(1).toBool(), true);
+        }
+        withRawDb(path, "namedup_pre2", [&](QSqlDatabase& db) {
+            const Recipe b = RecipeStorage::loadRecipeStatic(db, idB);
+            QCOMPARE(b.name, QString("Twin"));
+            QCOMPARE(b.doseG, 21.0);
+        });
+    }
+
+    // A rename into a collision is refused, rolled back whole (so sibling fields
+    // in the same patch are NOT applied), and reports the cause before the
+    // terminal status.
+    void rejectedRenameRollsBackCleanly() {
+        const QString path = freshDbPath();
+        qint64 idA = 0, idB = 0;
+        withRawDb(path, "namedup_rb", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            Recipe a = sampleRecipe(); a.name = "Morning capp";
+            Recipe b = sampleRecipe(); b.name = "Evening capp"; b.doseG = 18.0; b.grindPinned = "keep";
+            idA = RecipeStorage::insertRecipeStatic(db, a);
+            idB = RecipeStorage::insertRecipeStatic(db, b);
+        });
+        QVERIFY(idA > 0 && idB > 0);
+
+        RecipeStorage storage;
+        storage.initialize(path);
+        // Order matters to every surface: the reason must precede the status.
+        QStringList order;
+        connect(&storage, &RecipeStorage::recipeUpdateFailed, this,
+                [&order](qint64, const QString& r) { order << ("failed:" + r); });
+        connect(&storage, &RecipeStorage::recipeUpdated, this,
+                [&order](qint64, bool ok) { order << (ok ? "updated:true" : "updated:false"); });
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("already used by another active recipe"));
+        QSignalSpy spy(&storage, &RecipeStorage::recipeUpdated);
+        storage.requestUpdateRecipe(idB, {{"name", "Morning capp"}, {"doseG", 21.0}, {"grindPinned", "changed"}});
+        QTRY_COMPARE(spy.count(), 1);
+        QCOMPARE(spy.at(0).at(1).toBool(), false);
+        QCOMPARE(order, QStringList({"failed:nameInUse", "updated:false"}));
+
+        // Nothing from that patch survived — proves the rollback ran.
+        withRawDb(path, "namedup_rb2", [&](QSqlDatabase& db) {
+            const Recipe b = RecipeStorage::loadRecipeStatic(db, idB);
+            QCOMPARE(b.name, QString("Evening capp"));
+            QCOMPARE(b.doseG, 18.0);
+            QCOMPARE(b.grindPinned, QString("keep"));
+        });
+    }
+
+    // Archiving must always work (it is how a name is freed); restoring into a
+    // name an active recipe has taken must not.
+    void archiveAlwaysAllowedRestoreIntoCollisionRefused() {
+        const QString path = freshDbPath();
+        qint64 idActive = 0, idArchived = 0;
+        withRawDb(path, "namedup_arch", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            Recipe a = sampleRecipe(); a.name = "Twin";
+            Recipe b = sampleRecipe(); b.name = "Twin"; b.archived = true;
+            idActive = RecipeStorage::insertRecipeStatic(db, a);
+            idArchived = RecipeStorage::insertRecipeStatic(db, b);
+        });
+        QVERIFY(idActive > 0 && idArchived > 0);
+
+        RecipeStorage storage;
+        storage.initialize(path);
+        {   // Restore into the taken name -> refused.
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("already used by another active recipe"));
+            QSignalSpy spy(&storage, &RecipeStorage::recipeUpdated);
+            storage.requestUnarchiveRecipe(idArchived);
+            QTRY_COMPARE(spy.count(), 1);
+            QCOMPARE(spy.at(0).at(1).toBool(), false);
+        }
+        {   // Archiving the active twin is always allowed...
+            QSignalSpy spy(&storage, &RecipeStorage::recipeUpdated);
+            storage.requestArchiveRecipe(idActive);
+            QTRY_COMPARE(spy.count(), 1);
+            QCOMPARE(spy.at(0).at(1).toBool(), true);
+        }
+        {   // ...and now the name is free, so the restore succeeds.
+            QSignalSpy spy(&storage, &RecipeStorage::recipeUpdated);
+            storage.requestUnarchiveRecipe(idArchived);
+            QTRY_COMPARE(spy.count(), 1);
+            QCOMPARE(spy.at(0).at(1).toBool(), true);
+        }
+    }
+
     // --- insert / load / update statics ---
 
     void insertLoadRoundTrip() {

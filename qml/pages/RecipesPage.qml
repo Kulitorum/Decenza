@@ -204,18 +204,58 @@ Page {
         // failure (bag deleted between snapshot and tap, DB error) must not
         // look like the tap was ignored.
         function onRecipeUpdated(recipeId, success) {
+            if (recipeId === recipesPage._restorePendingId) {
+                recipesPage._restorePendingId = -1
+                if (!success) {
+                    // Restoring can now be refused: an active recipe may have
+                    // taken this name while it was archived. Say which fix works.
+                    recipesPage.showFailureToast(
+                        recipesPage._restoreFailReason === "nameInUse"
+                            ? trRestoreNameInUse.text : trRestoreFailed.text)
+                }
+                recipesPage._restoreFailReason = ""
+                return
+            }
             if (recipeId !== recipesPage._repointPendingId)
                 return
             recipesPage._repointPendingId = -1
-            if (!success) {
-                repointFailedToast.opacity = 1
-                repointFailedToastTimer.restart()
-                if (AccessibilityManager.enabled)
-                    AccessibilityManager.announce(trRepointFailed.text, true)
-            }
+            if (!success)
+                recipesPage.showFailureToast(trRepointFailed.text)
+        }
+        function onRecipeUpdateFailed(recipeId, reason) {
+            // Lands just before recipeUpdated(false) and names the cause.
+            if (recipeId === recipesPage._restorePendingId)
+                recipesPage._restoreFailReason = reason
         }
     }
     property int _repointPendingId: -1
+    // Text currently shown in the failure toast (see showFailureToast).
+    property string _toastMessage: ""
+    // Restore is fire-and-forget from the archived card; these track the one in
+    // flight so a refusal can be explained instead of looking like a dead button.
+    property int _restorePendingId: -1
+    property string _restoreFailReason: ""
+
+    function showFailureToast(message) {
+        recipesPage._toastMessage = message
+        repointFailedToast.opacity = 1
+        repointFailedToastTimer.restart()
+        if (AccessibilityManager.enabled)
+            AccessibilityManager.announce(message, true)
+    }
+
+    Tr {
+        id: trRestoreFailed
+        key: "recipes.restore.failed"
+        fallback: "Couldn't restore that recipe"
+        visible: false
+    }
+    Tr {
+        id: trRestoreNameInUse
+        key: "recipes.restore.nameInUse"
+        fallback: "An active recipe already uses this name — rename that one first"
+        visible: false
+    }
     Tr {
         id: trRepointFailed
         key: "recipes.repoint.failed"
@@ -241,7 +281,7 @@ Page {
         Text {
             id: repointFailedLabel
             anchors.centerIn: parent
-            text: trRepointFailed.text
+            text: recipesPage._toastMessage
             color: Theme.textColor
             font.pixelSize: Theme.scaled(13)
             Accessible.ignored: true
@@ -489,7 +529,11 @@ Page {
                     rightPadding: Theme.scaled(10)
                     text: TranslationManager.translate("recipes.action.restore", "Restore")
                     accessibleName: TranslationManager.translate("recipes.accessible.restore", "Restore this archived recipe")
-                    onClicked: MainController.recipeStorage.requestUnarchiveRecipe(card.recipe.id)
+                    onClicked: {
+                        recipesPage._restorePendingId = card.recipe.id
+                        recipesPage._restoreFailReason = ""
+                        MainController.recipeStorage.requestUnarchiveRecipe(card.recipe.id)
+                    }
                 }
             }
     }

@@ -43,6 +43,16 @@ The yield direction SHALL be:
 - **THEN** the content below the carousel SHALL slide down by the amount required to free that space
 - **AND** the carousel and that content SHALL NOT overlap once the slide completes
 
+#### Scenario: Content that has nowhere to yield is hidden instead
+
+- **WHEN** the content that must yield is itself pinned to the edge the yield direction
+  points at — the lower-mid band is anchored to the top of the bottom action bar, so
+  "down" would drive it onto that bar rather than into free space
+- **THEN** that content SHALL be hidden for the duration instead of moved, and SHALL NOT
+  be drawn over the bar it is pinned to
+- **AND** it SHALL NOT accept input or be reachable by a screen reader while hidden
+- **AND** it SHALL return, unmoved, when the panel closes
+
 #### Scenario: No motion when there is room
 
 - **WHEN** a panel opens and the space it needs is unoccupied
@@ -79,7 +89,7 @@ The slide SHALL be a transient view offset only. It SHALL NOT modify, re-center,
 
 ### Requirement: Panel appearance is unchanged
 
-Making room SHALL be achieved by the transient content offset alone. No scrim, dim, backdrop, or dialog chrome (header, footer, or frame) SHALL be added to any transient idle panel; the existing lightweight floating-card and inline-carousel appearances SHALL be preserved.
+Making room SHALL be achieved by moving or hiding the yielding content alone — a transient offset where the content has somewhere to go, otherwise hiding it (see "Content that has nowhere to yield is hidden instead"). No scrim, dim, backdrop, or dialog chrome (header, footer, or frame) SHALL be added to any transient idle panel; the existing lightweight floating-card and inline-carousel appearances SHALL be preserved. Hiding a piece of yielding content is not a scrim: nothing is drawn over the panel or the page, and every other zone renders untouched.
 
 #### Scenario: No scrim or backdrop is introduced
 

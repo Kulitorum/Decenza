@@ -101,10 +101,17 @@ Item {
     }
 
     // --- PRESET POPUP ---
-    Popup {
+    // Dialog (not Popup) so TalkBack/VoiceOver scope traversal to the pill list,
+    // matching BeansItem/EquipmentItem/RecipesItem: Dialog carries the accessible
+    // dialog role that screen readers use to trap focus, which `Popup { modal }`
+    // alone (already set below) does not provide. header/footer null strip the
+    // Dialog chrome so it still renders as the same bare dropdown.
+    Dialog {
         id: presetPopup
         modal: true
         dim: false
+        header: null
+        footer: null
         padding: Theme.spacingMedium
         closePolicy: Popup.CloseOnPressOutside
 

@@ -352,6 +352,7 @@ KeyboardAwareContainer {
                     }
 
                     AccessibleButton {
+                        Layout.fillWidth: true
                         text: TranslationManager.translate("mqtt.publishDiscoveryNow", "Publish Discovery Now")
                         accessibleName: TranslationManager.translate("settings.homeAutomation.publishDiscovery", "Publish Home Assistant discovery message")
                         primary: true

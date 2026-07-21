@@ -105,10 +105,12 @@ void ShotServer::handleEquipmentApi(QTcpSocket* socket, const QString& method,
         *conn = connect(equipmentStorage, &EquipmentStorage::packageCreated, this,
             [conn, respondJson](qint64 packageId, const QVariantMap& package) {
                 disconnect(*conn);
-                if (packageId <= 0)
-                    respondJson(QJsonObject{{"error", "Create failed"}}, 500);
-                else
+                if (packageId > 0)
                     respondJson(QJsonObject::fromVariantMap(package));
+                else if (package.value("error").toString() == "nameInUse")
+                    respondJson(QJsonObject{{"error", "That name is already in use by another equipment package"}}, 409);
+                else
+                    respondJson(QJsonObject{{"error", "Create failed"}}, 500);
             });
         equipmentStorage->requestCreatePackage(fields);
         return;
@@ -155,13 +157,25 @@ void ShotServer::handleEquipmentApi(QTcpSocket* socket, const QString& method,
                 return;
             }
             auto conn = std::make_shared<QMetaObject::Connection>();
+            // packageUpdateFailed lands just before packageUpdated and names the
+            // cause, so a rename collision reads the same here as in the app.
+            auto reasonConn = std::make_shared<QMetaObject::Connection>();
+            auto failReason = std::make_shared<QString>();
+            *reasonConn = connect(equipmentStorage, &EquipmentStorage::packageUpdateFailed, this,
+                [reasonConn, packageId, failReason](qint64 failedId, const QString& reason) {
+                    if (failedId == packageId)
+                        *failReason = reason;
+                });
             *conn = connect(equipmentStorage, &EquipmentStorage::packageUpdated, this,
-                [conn, packageId, respondJson](qint64 updatedId, bool success) {
+                [conn, reasonConn, packageId, respondJson, failReason](qint64 updatedId, bool success) {
                     if (updatedId != packageId)
                         return;
                     disconnect(*conn);
+                    disconnect(*reasonConn);
                     if (success)
                         respondJson(QJsonObject{{"updated", true}, {"packageId", packageId}});
+                    else if (*failReason == QLatin1String("nameInUse"))
+                        respondJson(QJsonObject{{"error", "That name is already in use by another equipment package"}}, 409);
                     else
                         respondJson(QJsonObject{{"error", "Package not found or update failed"}}, 404);
                 });

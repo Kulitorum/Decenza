@@ -473,6 +473,13 @@ void RecipeStorage::requestCreateRecipe(const QVariantMap& recipeMap)
                         recipe.rpmPinned = bag.rpm;
                 }
             }
+            // Active-name uniqueness (block-duplicate-active-names): a new recipe
+            // (archived = false) may not duplicate another non-archived recipe's
+            // name. Reject with an "error" the surfaces read (mirrors equipment).
+            if (findRecipeByNameStatic(db, recipe.name, 0) > 0) {
+                created->insert(QStringLiteral("error"), QStringLiteral("nameInUse"));
+                return;  // *newId stays -1
+            }
             *newId = insertRecipeStatic(db, recipe);
             if (*newId > 0) {
                 *created = loadRecipeStatic(db, *newId).toVariantMap();
@@ -499,6 +506,8 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
         return;
     }
     auto success = std::make_shared<bool>(false);
+    // Set when the failure has a caller-actionable cause (see recipeUpdateFailed).
+    auto failReason = std::make_shared<QString>();
     // Transient hint, not a column: the surface's resolved beverage_type for
     // an installed profileTitle in this patch (installed profiles embed no
     // JSON, and the profile catalog isn't reachable on the DB thread).
@@ -514,7 +523,7 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
         return;
     }
     runAsync("recipes_update",
-        [recipeId, patchFields = std::move(patch), hintedBev, success](QSqlDatabase& db) {
+        [recipeId, patchFields = std::move(patch), hintedBev, success, failReason](QSqlDatabase& db) {
             // The whole update is transactional so the validity check below
             // can reject the patch without leaving a half-applied row.
             if (!db.transaction()) {
@@ -522,6 +531,10 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
                            << recipeId << "-" << db.lastError().text();
                 return;
             }
+            // Pre-update state, captured inside the transaction: the name-uniqueness
+            // guard below must know whether this patch actually CHANGES the name (or
+            // brings an archived recipe back), not merely that it mentions them.
+            const Recipe before = loadRecipeStatic(db, recipeId);
             QVariantMap mergedFields = patchFields;
             // A patch that re-points the bag link adopts the bag's bean
             // identity unless the caller set it explicitly — the identity
@@ -582,6 +595,29 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
                 *success = false;
                 return;
             }
+            // Active-name uniqueness (block-duplicate-active-names): a rename, or
+            // an unarchive, must not leave two non-archived recipes sharing a name.
+            //
+            // Gated on what actually CHANGED, not on which keys the patch mentions:
+            // both save paths send `name` on every save, so testing `contains(name)`
+            // fired on every edit of a recipe that already shared a name with
+            // another, disabling Save on both and locking the user out of editing
+            // them at all. Pre-existing duplicates stay editable; only a change that
+            // newly introduces a collision is refused.
+            const bool renamed = QString::compare(updated.name.trimmed(),
+                                                  before.name.trimmed(),
+                                                  Qt::CaseInsensitive) != 0;
+            const bool restored = before.archived && !updated.archived;
+            if ((renamed || restored) && !updated.archived
+                && findRecipeByNameStatic(db, updated.name, recipeId) > 0) {
+                qWarning() << "RecipeStorage: rejecting update of recipe" << recipeId
+                           << "- name" << updated.name.trimmed()
+                           << "is already used by another active recipe";
+                db.rollback();
+                *success = false;
+                *failReason = QStringLiteral("nameInUse");
+                return;
+            }
             // drink_type follows the blocks when the caller changed them
             // without setting it explicitly (MCP/web edits must not strand a
             // stale type — e.g. adding a hot-water block to an espresso).
@@ -622,7 +658,10 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
         },
         // Write: emit regardless — *success is false on open failure, the
         // terminal status callers wait on.
-        [this, recipeId, success](bool) {
+        [this, recipeId, success, failReason](bool) {
+            // Reason first, so a listener can record it before the terminal status.
+            if (!*success && !failReason->isEmpty())
+                emit recipeUpdateFailed(recipeId, *failReason);
             emit recipeUpdated(recipeId, *success);
             if (*success)
                 emit recipesChanged();
@@ -660,6 +699,12 @@ void RecipeStorage::requestCloneRecipe(qint64 sourceId, const QString& newName,
             copy.clonedFromRecipeId = sourceId;
             copy.createdFromShotId = 0;
             copy.lastUsedEpoch = QDateTime::currentSecsSinceEpoch();
+            // Active-name uniqueness (block-duplicate-active-names): the clone name
+            // may not duplicate another non-archived recipe.
+            if (findRecipeByNameStatic(db, copy.name, 0) > 0) {
+                created->insert(QStringLiteral("error"), QStringLiteral("nameInUse"));
+                return;  // *newId stays -1
+            }
             *newId = insertRecipeStatic(db, copy);
             if (*newId > 0) {
                 *created = loadRecipeStatic(db, *newId).toVariantMap();
@@ -824,6 +869,27 @@ Recipe RecipeStorage::loadRecipeStatic(QSqlDatabase& db, qint64 recipeId)
     if (!query.exec() || !query.next())
         return Recipe();
     return recipeFromQueryRow(query);
+}
+
+qint64 RecipeStorage::findRecipeByNameStatic(QSqlDatabase& db, const QString& name, qint64 excludeId)
+{
+    const QString target = name.trimmed();
+    if (target.isEmpty())
+        return 0;
+    // Compared in C++, not SQL: SQLite's LOWER() folds ASCII only, so it would
+    // disagree with the QML gate's full-Unicode toLowerCase() on any non-ASCII
+    // name. See EquipmentStorage::findPackageByNameStatic for the full rationale.
+    QSqlQuery query(db);
+    query.prepare("SELECT id, IFNULL(name,'') FROM recipes "
+                  "WHERE archived = 0 AND id != :exclude ORDER BY id");
+    query.bindValue(":exclude", excludeId);
+    if (!query.exec())
+        return 0;
+    while (query.next()) {
+        if (QString::compare(query.value(1).toString().trimmed(), target, Qt::CaseInsensitive) == 0)
+            return query.value(0).toLongLong();
+    }
+    return 0;
 }
 
 QVector<InventoryRecipe> RecipeStorage::loadInventoryStatic(QSqlDatabase& db, bool archived)

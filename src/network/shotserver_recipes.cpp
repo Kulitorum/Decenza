@@ -277,7 +277,10 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
                     return;  // another surface's create
                 disconnect(*conn);
                 if (recipeId <= 0) {
-                    respondJson(QJsonObject{{"error", "Create failed"}}, 500);
+                    if (recipe.value(QStringLiteral("error")).toString() == QLatin1String("nameInUse"))
+                        respondJson(QJsonObject{{"error", "That name is already in use by another active recipe"}}, 409);
+                    else
+                        respondJson(QJsonObject{{"error", "Create failed"}}, 500);
                 } else {
                     QVariantMap clean = recipe;
                     clean.remove(QStringLiteral("requestToken"));
@@ -332,7 +335,10 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
                             return;  // another surface's create
                         QObject::disconnect(*conn);
                         if (recipeId <= 0) {
-                            respondJson(QJsonObject{{"error", "Create failed"}}, 500);
+                            if (recipe.value(QStringLiteral("error")).toString() == QLatin1String("nameInUse"))
+                                respondJson(QJsonObject{{"error", "That name is already in use by another active recipe"}}, 409);
+                            else
+                                respondJson(QJsonObject{{"error", "Create failed"}}, 500);
                         } else {
                             QVariantMap clean = recipe;
                             clean.remove(QStringLiteral("requestToken"));
@@ -423,13 +429,25 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
                 return;
             }
             auto conn = std::make_shared<QMetaObject::Connection>();
+            // recipeUpdateFailed lands just before recipeUpdated and names the
+            // cause, so a rename collision reads the same here as in the app.
+            auto reasonConn = std::make_shared<QMetaObject::Connection>();
+            auto failReason = std::make_shared<QString>();
+            *reasonConn = connect(recipeStorage, &RecipeStorage::recipeUpdateFailed, this,
+                [reasonConn, recipeId, failReason](qint64 failedId, const QString& reason) {
+                    if (failedId == recipeId)
+                        *failReason = reason;
+                });
             *conn = connect(recipeStorage, &RecipeStorage::recipeUpdated, this,
-                [conn, recipeId, respondJson](qint64 updatedId, bool success) {
+                [conn, reasonConn, recipeId, respondJson, failReason](qint64 updatedId, bool success) {
                     if (updatedId != recipeId)
                         return;
                     disconnect(*conn);
+                    disconnect(*reasonConn);
                     if (success)
                         respondJson(QJsonObject{{"updated", true}, {"recipeId", recipeId}});
+                    else if (*failReason == QLatin1String("nameInUse"))
+                        respondJson(QJsonObject{{"error", "That name is already in use by another active recipe"}}, 409);
                     else
                         respondJson(QJsonObject{{"error", "Recipe not found or update failed"}}, 404);
                 });
@@ -463,7 +481,10 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
                         return;  // another surface's create
                     disconnect(*conn);
                     if (newId <= 0) {
-                        respondJson(QJsonObject{{"error", "Clone failed"}}, 500);
+                        if (recipe.value(QStringLiteral("error")).toString() == QLatin1String("nameInUse"))
+                            respondJson(QJsonObject{{"error", "That name is already in use by another active recipe"}}, 409);
+                        else
+                            respondJson(QJsonObject{{"error", "Clone failed"}}, 500);
                     } else {
                         QVariantMap clean = recipe;
                         clean.remove(QStringLiteral("requestToken"));
@@ -498,13 +519,27 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
                 return;
             }
             auto conn = std::make_shared<QMetaObject::Connection>();
+            // A restore can now be REFUSED because an active recipe took the name
+            // while this one was archived; reporting that as 404 "not found" sends
+            // the caller looking for a deleted recipe instead of the real fix.
+            auto reasonConn = std::make_shared<QMetaObject::Connection>();
+            auto failReason = std::make_shared<QString>();
+            *reasonConn = connect(recipeStorage, &RecipeStorage::recipeUpdateFailed, this,
+                [reasonConn, recipeId, failReason](qint64 failedId, const QString& reason) {
+                    if (failedId == recipeId)
+                        *failReason = reason;
+                });
             *conn = connect(recipeStorage, &RecipeStorage::recipeUpdated, this,
-                [conn, recipeId, restore, respondJson](qint64 updatedId, bool success) {
+                [conn, reasonConn, recipeId, restore, respondJson, failReason](qint64 updatedId, bool success) {
                     if (updatedId != recipeId)
                         return;
                     disconnect(*conn);
+                    disconnect(*reasonConn);
                     if (success)
                         respondJson(QJsonObject{{restore ? "restored" : "archived", true}});
+                    else if (*failReason == QLatin1String("nameInUse"))
+                        respondJson(QJsonObject{{"error", "An active recipe already uses this name — "
+                                                          "rename that one first"}}, 409);
                     else
                         respondJson(QJsonObject{{"error", "Recipe not found"}}, 404);
                 });
