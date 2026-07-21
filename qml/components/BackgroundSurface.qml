@@ -22,17 +22,16 @@ Item {
     // Resolved catalogue entry ({} when presetId is empty or unknown). Read from
     // Settings for the live case so the colour follows light/dark mode; looked up for a
     // previewed candidate.
-    readonly property var _preset: presetId.length === 0
-        ? ({})
-        : (presetId === Settings.theme.backgroundPreset
-            ? Settings.theme.activeBackgroundPreset
-            : _lookup(presetId))
+    readonly property var _preset: _lookup(Settings.theme.backgroundPresets, presetId)
+    readonly property var _pattern: _lookup(Settings.theme.backgroundPatterns, patternId)
 
-    readonly property bool _hasPreset: _preset && _preset.id !== undefined
+    readonly property bool _hasPreset: _preset.id !== undefined
+    readonly property bool _hasPattern: _pattern.id !== undefined
     readonly property bool _hasImage: !_hasPreset && imagePath.length > 0
 
-    function _lookup(id) {
-        var list = Settings.theme.backgroundPresets
+    function _lookup(list, id) {
+        if (!id || id.length === 0)
+            return ({})
         for (var i = 0; i < list.length; i++) {
             if (list[i].id === id)
                 return list[i]
@@ -45,7 +44,7 @@ Item {
     // a stored image path no longer resolves to a readable file.
     Rectangle {
         anchors.fill: parent
-        color: root._hasPreset ? root._preset.color : Theme.backgroundColor
+        color: root._hasPreset ? root._preset.value : Theme.backgroundColor
         visible: !root._hasImage || bgImage.status !== Image.Ready
     }
 
@@ -56,12 +55,15 @@ Item {
     Image {
         id: patternTile
         anchors.fill: parent
-        visible: root._hasPreset && root._preset.overlayKind === "tile"
-        source: visible ? root._preset.overlayAsset : ""
+        // Drawn over whatever flat colour is showing — a preset, or the theme's own
+        // background when no preset is set. Never over an image, where it would fight the
+        // photo rather than texture a surface.
+        visible: root._hasPattern && !root._hasImage
+        source: visible ? root._pattern.asset : ""
         fillMode: Image.Tile
-        sourceSize.width: root._hasPreset ? root._preset.overlayTile : 0
-        sourceSize.height: root._hasPreset ? root._preset.overlayTile : 0
-        opacity: root._hasPreset ? root._preset.overlayOpacity : 0
+        sourceSize.width: root._hasPattern ? root._pattern.tile : 0
+        sourceSize.height: root._hasPattern ? root._pattern.tile : 0
+        opacity: root._hasPattern ? root._pattern.opacity : 0
         asynchronous: true
         cache: true
         Accessible.ignored: true

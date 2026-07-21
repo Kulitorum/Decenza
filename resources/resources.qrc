@@ -213,5 +213,6 @@
         <file>backgrounds/linen.svg</file>
         <file>backgrounds/pinstripe.svg</file>
         <file>backgrounds/twill.svg</file>
+        <file>backgrounds/weave.svg</file>
     </qresource>
 </RCC>

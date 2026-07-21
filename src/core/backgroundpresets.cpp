@@ -4,123 +4,144 @@ namespace BackgroundPresets {
 
 namespace {
 
-QString overlayKindName(OverlayKind kind) {
-    return kind == OverlayKind::Tile ? QStringLiteral("tile") : QStringLiteral("none");
+Colour colour(const char* id, const char* name, const char* value) {
+    return Colour{QString::fromLatin1(id),
+                  QStringLiteral("backgroundColour.") + QString::fromLatin1(id),
+                  QString::fromLatin1(name),
+                  QString::fromLatin1(value)};
 }
 
-// Shorthand for a solid entry.
-Preset solid(const char* id, const char* name, const char* color) {
-    return Preset{QString::fromLatin1(id),
-                  QStringLiteral("backgroundPreset.") + QString::fromLatin1(id),
-                  QString::fromLatin1(name),
-                  QString::fromLatin1(color),
-                  OverlayKind::None, QString(), 0.0, 0};
-}
-
-// Shorthand for a patterned entry. `asset` is the tile basename.
-Preset patterned(const char* id, const char* name, const char* color,
-                 const char* asset, double opacity, int tile) {
-    return Preset{QString::fromLatin1(id),
-                  QStringLiteral("backgroundPreset.") + QString::fromLatin1(id),
-                  QString::fromLatin1(name),
-                  QString::fromLatin1(color),
-                  OverlayKind::Tile,
-                  QStringLiteral("qrc:/backgrounds/") + QString::fromLatin1(asset) + QStringLiteral(".svg"),
-                  opacity, tile};
+Pattern pattern(const char* id, const char* name, const char* asset,
+                double opacity, int tile, double coverage) {
+    return Pattern{QString::fromLatin1(id),
+                   QStringLiteral("backgroundPattern.") + QString::fromLatin1(id),
+                   QString::fromLatin1(name),
+                   QStringLiteral("qrc:/backgrounds/") + QString::fromLatin1(asset) + QStringLiteral(".svg"),
+                   opacity, tile, coverage};
 }
 
 }  // namespace
 
-const QVector<Preset>& catalogue() {
-    // Twenty backgrounds spanning near-black to near-white, all available all the time.
+const QVector<Colour>& colours() {
+    // Drawn from coffee and from the things around it — roast levels, milk drinks, the
+    // machine and the cup — rather than invented greys. An earlier set was neutral by
+    // default and read as "eight variations on charcoal, seven on off-white": no range and
+    // nothing anyone would pick on purpose.
     //
-    // They are NOT tied to light/dark mode. An earlier design paired each preset to a
-    // dark and a light value so the theme's text colour would always land on a suitable
-    // background — safe, but it meant that in dark mode every option on offer was a
-    // near-black, which is not a choice. Instead the foreground is DERIVED from the
-    // chosen colour (Theme.qml's preset surface derivation), so a pale background is
-    // readable under a dark theme and vice versa.
-    //
-    // Ordered dark to light so the chooser reads as a ramp rather than a jumble. Colours
-    // are desaturated on purpose: these exist for people who found the screensaver photos
-    // too much to work in front of.
-    static const QVector<Preset> presets = {
-        // --- Deep -------------------------------------------------------------
-        solid("graphite", "Graphite", "#14161a"),
-        solid("slate",    "Slate",    "#181f2b"),
-        solid("espresso", "Espresso", "#1e1815"),
-        solid("forest",   "Forest",   "#131e19"),
-        solid("plum",     "Plum",     "#1c1620"),
+    // Ordered dark to light so the chooser reads as a ramp. The gap between L* 22 and 66 is
+    // deliberate and measured: between roughly L* 30 and 58 neither black nor white text
+    // clears 4.5:1 once secondary text is softened, so a mid-grey page cannot carry a
+    // monochrome-text UI at all. The contrast tests reject anything placed there.
+    static const QVector<Colour> table = {
+        // --- Roast: near-black through dark browns -----------------------------
+        colour("french-roast", "French Roast",  "#1b1512"),
+        colour("cold-brew",    "Cold Brew",     "#14181f"),
+        colour("espresso",     "Espresso",      "#241a14"),
+        colour("green-bean",   "Green Bean",    "#172018"),
+        colour("ristretto",    "Ristretto",     "#2a1a1a"),
+        colour("cast-iron",    "Cast Iron",     "#1e1e21"),
+        colour("walnut",       "Walnut",        "#2b2019"),
+        colour("barista",      "Barista",       "#1c2432"),
 
-        // Patterns on the deep tones. Opacity lives here so tuning a pattern is a data
-        // edit; the tile edge is the authored size in px and becomes Image.sourceSize —
-        // a tile whose scaled size lands off an integer shimmers.
-        patterned("grain",     "Grain",     "#1e1815", "grain",     0.05, 32),
-        patterned("linen",     "Linen",     "#14161a", "linen",     0.05, 16),
-        patterned("twill",     "Twill",     "#181f2b", "twill",     0.05, 8),
-        patterned("pinstripe", "Pinstripe", "#131e19", "pinstripe", 0.04, 8),
-        patterned("dots",      "Dot Grid",  "#1c1620", "dots",      0.04, 12),
+        // --- Machine: the lighter dark rung ------------------------------------
+        colour("machine-steel", "Machine Steel", "#2b3038"),
+        colour("denim-apron",   "Denim Apron",   "#28354a"),
 
-        // --- Mid --------------------------------------------------------------
-        // The rung that was missing entirely: clearly lighter than a near-black, still a
-        // dark UI, derived text still white.
-        //
-        // They sit at L* 25-29 and cannot go higher, because a mid-tone page cannot carry
-        // monochrome text. Between roughly L* 30 and 58 neither black nor white clears
-        // 4.5:1 once secondary text is softened at all, and from there to about L* 85 a
-        // card cannot separate perceptibly from the page at the glass-chrome lift. That
-        // dead band is a property of mid-greys, not a tuning failure — so the catalogue
-        // stays on the two shoulders either side of it, and the contrast tests enforce it.
-        solid("ash",    "Ash",    "#383d45"),
-        solid("denim",  "Denim",  "#333f4f"),
-        patterned("oxford", "Oxford", "#3a4452", "twill", 0.06, 8),
-
-        // --- Light ------------------------------------------------------------
-        solid("chalk",  "Chalk",  "#f2f3f5"),
-        solid("mist",   "Mist",   "#e6ebf2"),
-        solid("cream",  "Cream",  "#f5efe8"),
-        solid("sage",   "Sage",   "#e6efe8"),
-        solid("lilac",  "Lilac",  "#f0eaf4"),
-        patterned("parchment", "Parchment", "#efe7da", "grain", 0.06, 32),
-        patterned("dove",      "Dove",      "#e8eaee", "dots",  0.05, 12),
+        // --- Milk: mid-light through to the cup --------------------------------
+        colour("brushed-steel", "Brushed Steel", "#9aa1a8"),
+        colour("cortado",       "Cortado",       "#b9a184"),
+        colour("latte",         "Latte",         "#c8b09a"),
+        colour("oat-milk",      "Oat Milk",      "#ded3c2"),
+        colour("crema",         "Crema",         "#e8d5b5"),
+        colour("cappuccino",    "Cappuccino",    "#e5d9cc"),
+        colour("steam",         "Steam",         "#e9eef2"),
+        colour("flat-white",    "Flat White",    "#f2ece4"),
+        colour("porcelain",     "Porcelain",     "#f0f2f5"),
     };
-    return presets;
+    return table;
 }
 
-Preset byId(const QString& id) {
+const QVector<Pattern>& patterns() {
+    // Opacities are much higher than the first attempt's 4-6%, which was invisible on a
+    // real screen — "subtle" overshot into "absent". They are still safe because a pattern
+    // is sparse: what matters for legibility is opacity WEIGHTED BY COVERAGE, and the
+    // densest tile here shifts the page by about 4%.
+    //
+    // `coverage` is the ink fraction of each tile, measured from the artwork; keep it in
+    // step if a tile is redrawn, because the contrast test relies on it.
+    static const QVector<Pattern> table = {
+        pattern("grain",     "Grain",     "grain",     0.18, 32, 0.09),
+        pattern("dots",      "Dot Grid",  "dots",      0.18, 12, 0.09),
+        pattern("pinstripe", "Pinstripe", "pinstripe", 0.18, 8,  0.13),
+        pattern("twill",     "Twill",     "twill",     0.16, 8,  0.18),
+        pattern("weave",     "Weave",     "weave",     0.14, 12, 0.22),
+        pattern("linen",     "Linen",     "linen",     0.14, 16, 0.30),
+    };
+    return table;
+}
+
+Colour colourById(const QString& id) {
     if (id.isEmpty())
-        return Preset{};
-    for (const Preset& preset : catalogue()) {
-        if (preset.id == id)
-            return preset;
+        return Colour{};
+    for (const Colour& c : colours()) {
+        if (c.id == id)
+            return c;
     }
-    return Preset{};
+    return Colour{};
 }
 
-bool contains(const QString& id) {
-    return !byId(id).id.isEmpty();
+Pattern patternById(const QString& id) {
+    if (id.isEmpty())
+        return Pattern{};
+    for (const Pattern& p : patterns()) {
+        if (p.id == id)
+            return p;
+    }
+    return Pattern{};
 }
 
-QVariantMap toVariantMap(const Preset& preset) {
-    if (preset.id.isEmpty())
+bool hasColour(const QString& id) { return !colourById(id).id.isEmpty(); }
+bool hasPattern(const QString& id) { return !patternById(id).id.isEmpty(); }
+
+double contrastShift(const Pattern& pattern) {
+    return pattern.id.isEmpty() ? 0.0 : pattern.opacity * pattern.coverage;
+}
+
+QVariantMap colourToVariantMap(const Colour& c) {
+    if (c.id.isEmpty())
         return {};
-
     QVariantMap map;
-    map["id"] = preset.id;
-    map["nameKey"] = preset.nameKey;
-    map["nameFallback"] = preset.nameFallback;
-    map["color"] = preset.color;
-    map["overlayKind"] = overlayKindName(preset.overlayKind);
-    map["overlayAsset"] = preset.overlayAsset;
-    map["overlayOpacity"] = preset.overlayOpacity;
-    map["overlayTile"] = preset.overlayTile;
+    map["id"] = c.id;
+    map["nameKey"] = c.nameKey;
+    map["nameFallback"] = c.nameFallback;
+    map["value"] = c.value;
     return map;
 }
 
-QVariantList toVariantList() {
+QVariantMap patternToVariantMap(const Pattern& p) {
+    if (p.id.isEmpty())
+        return {};
+    QVariantMap map;
+    map["id"] = p.id;
+    map["nameKey"] = p.nameKey;
+    map["nameFallback"] = p.nameFallback;
+    map["asset"] = p.asset;
+    map["opacity"] = p.opacity;
+    map["tile"] = p.tile;
+    return map;
+}
+
+QVariantList coloursAsVariantList() {
     QVariantList list;
-    for (const Preset& preset : catalogue())
-        list.append(toVariantMap(preset));
+    for (const Colour& c : colours())
+        list.append(colourToVariantMap(c));
+    return list;
+}
+
+QVariantList patternsAsVariantList() {
+    QVariantList list;
+    for (const Pattern& p : patterns())
+        list.append(patternToVariantMap(p));
     return list;
 }
 

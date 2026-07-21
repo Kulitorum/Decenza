@@ -26,6 +26,9 @@ Dialog {
     // is the "None" tile.
     property string candidatePreset: ""
     property string candidatePath: ""
+    // Independent of the colour: any pattern over any colour. Ignored while an image is
+    // the candidate, where a pattern would fight the photo.
+    property string candidatePattern: ""
     property var _images: []
 
     modal: true
@@ -48,10 +51,21 @@ Dialog {
     onAboutToShow: {
         candidatePreset = Settings.theme.backgroundPreset
         candidatePath = Settings.theme.backgroundImagePath
+        candidatePattern = Settings.theme.backgroundPattern
         _images = buildImageList()
     }
 
     readonly property bool _isNoneSelected: candidatePreset.length === 0 && candidatePath.length === 0
+
+    // The colour value behind a given preset id, for deriving a readable tile label.
+    function _presetColour(id) {
+        var list = Settings.theme.backgroundPresets
+        for (var i = 0; i < list.length; i++) {
+            if (list[i].id === id)
+                return list[i].value
+        }
+        return Theme.backgroundColor
+    }
 
     function selectPreset(id) {
         candidatePreset = id
@@ -94,6 +108,7 @@ Dialog {
             Settings.theme.backgroundPreset = ""
             Settings.theme.backgroundImagePath = ""
         }
+        Settings.theme.backgroundPattern = candidatePattern
         popup.close()
     }
 
@@ -131,6 +146,7 @@ Dialog {
                     anchors.margins: Theme.scaled(4)
                     backgroundImageSource: popup.candidatePath
                     backgroundPresetSource: popup.candidatePreset
+                    backgroundPatternSource: popup.candidatePattern
                 }
             }
 
@@ -212,6 +228,7 @@ Dialog {
                                     anchors.fill: parent
                                     anchors.margins: 1
                                     presetId: presetTile.modelData.id
+                                    patternId: popup.candidatePattern
                                     imagePath: ""
                                 }
 
@@ -227,7 +244,7 @@ Dialog {
                                     // The grid shows twenty different backgrounds at once, so the
                                     // one global text colour is wrong on most of them — it left
                                     // every light tile captioned in white on near-white.
-                                    color: Theme.contrastColorFor(presetTile.modelData.color)
+                                    color: Theme.contrastColorFor(presetTile.modelData.value)
                                     font: Theme.captionFont
                                     horizontalAlignment: Text.AlignHCenter
                                     elide: Text.ElideRight
@@ -245,6 +262,85 @@ Dialog {
                                             : "")
                                     accessibleItem: presetTile
                                     onAccessibleClicked: popup.selectPreset(presetTile.modelData.id)
+                                }
+                            }
+                        }
+                    }
+
+                    // --- Patterns -------------------------------------------------
+                    // A second axis rather than a property of each colour, so every
+                    // colour can carry every texture from two short rows instead of a
+                    // grid of near-identical tiles.
+
+                    Text {
+                        Layout.fillWidth: true
+                        Layout.topMargin: Theme.scaled(6)
+                        text: TranslationManager.translate("backgroundPicker.section.patterns", "Pattern")
+                        color: Theme.textSecondaryColor
+                        font: Theme.captionFont
+                    }
+
+                    Flow {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(6)
+
+                        Repeater {
+                            // "None" first, then the catalogue.
+                            model: [{ id: "", nameKey: "backgroundPicker.none", nameFallback: "None" }]
+                                   .concat(Settings.theme.backgroundPatterns)
+
+                            Rectangle {
+                                id: patternTile
+                                required property var modelData
+
+                                readonly property bool isSelected: popup.candidatePattern === modelData.id
+                                // Previewed on the colour that is actually selected, so the
+                                // tile shows the real combination rather than an abstract swatch.
+                                readonly property color _base: popup.candidatePreset.length > 0
+                                    ? popup._presetColour(popup.candidatePreset)
+                                    : Theme.backgroundColor
+
+                                width: Theme.scaled(96)
+                                height: Theme.scaled(64)
+                                radius: Theme.scaled(8)
+                                color: "transparent"
+                                border.color: isSelected ? Theme.primaryColor : Theme.borderColor
+                                border.width: isSelected ? 2 : 1
+                                clip: true
+
+                                BackgroundSurface {
+                                    anchors.fill: parent
+                                    anchors.margins: 1
+                                    presetId: popup.candidatePreset
+                                    patternId: patternTile.modelData.id
+                                    imagePath: ""
+                                }
+
+                                Text {
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.bottom: parent.bottom
+                                    anchors.margins: Theme.scaled(4)
+                                    text: TranslationManager.translate(patternTile.modelData.nameKey,
+                                                                       patternTile.modelData.nameFallback)
+                                    color: Theme.contrastColorFor(patternTile._base)
+                                    font: Theme.captionFont
+                                    horizontalAlignment: Text.AlignHCenter
+                                    elide: Text.ElideRight
+                                    Accessible.ignored: true
+                                }
+
+                                SelectedTick { visible: patternTile.isSelected }
+
+                                AccessibleMouseArea {
+                                    anchors.fill: parent
+                                    accessibleName: TranslationManager.translate(patternTile.modelData.nameKey,
+                                                                                 patternTile.modelData.nameFallback)
+                                        + (patternTile.isSelected
+                                            ? ", " + TranslationManager.translate("accessibility.selected", "selected")
+                                            : "")
+                                    accessibleItem: patternTile
+                                    onAccessibleClicked: popup.candidatePattern = patternTile.modelData.id
                                 }
                             }
                         }

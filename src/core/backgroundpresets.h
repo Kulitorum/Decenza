@@ -5,52 +5,65 @@
 #include <QVariantMap>
 #include <QVector>
 
-// Built-in app background presets — the calm alternative to a screensaver photo.
+// Built-in app backgrounds — the calm alternative to a screensaver photo.
 //
-// This table is the single source of truth for preset identity, colour and texture.
-// It lives in C++ rather than QML so it can be unit-tested headlessly (contrast floors,
-// asset existence) and so a future web/MCP surface has one definition to read rather
-// than a second copy. Same reasoning as widgetCatalogTable() in settings_network.cpp.
+// Two independent tables: a COLOUR and, optionally, a PATTERN drawn over it. They are
+// separate axes because baking them together produced a catalogue where half the entries
+// were near-invisible variants of the other half; as a pair of choices, every colour can
+// carry every pattern from two short rows of tiles.
 //
-// A preset supplies the app's flat background COLOUR; it is never stored as a background
-// image (Settings.theme.backgroundImagePath stays empty). It does, however, drive the same
-// translucent chrome an image does — see Theme.glassChrome.
+// Both live in C++ rather than QML so they can be unit-tested headlessly (contrast floors,
+// asset existence) and so a future web/MCP surface reads one definition rather than a
+// second copy. Same reasoning as widgetCatalogTable() in settings_network.cpp.
+//
+// A colour supplies the app's flat background; it is never stored as a background image
+// (Settings.theme.backgroundImagePath stays empty). Everything readable on it — text,
+// secondary text, icons, borders, card fills — is DERIVED from it in Theme.qml, which is
+// what lets a pale background work under a dark theme and vice versa.
 namespace BackgroundPresets {
 
-// How the pattern above the flat colour is drawn.
-enum class OverlayKind {
-    None,  // solid colour, no overlay
-    Tile   // asset tiled at overlayOpacity, tinted with the theme's text colour
-};
-
-struct Preset {
+struct Colour {
     QString id;
-    QString nameKey;        // translation key
-    QString nameFallback;   // English
-    QString color;          // the background colour; foreground is derived from it
-    OverlayKind overlayKind = OverlayKind::None;
-    QString overlayAsset;   // qrc path, empty for OverlayKind::None
-    double overlayOpacity = 0.0;
-    int overlayTile = 0;    // authored tile edge in px; sets Image.sourceSize when tiling
+    QString nameKey;       // translation key
+    QString nameFallback;  // English
+    QString value;         // "#rrggbb"
 };
 
-// The twenty presets, ordered dark to light. NOT paired to light/dark mode: every
-// preset is available under every theme, and the readable foreground is derived from
-// the preset colour (see Theme.qml) rather than taken from the palette — which is what
-// lets a pale background work under a dark theme without leaving white text on it.
-const QVector<Preset>& catalogue();
+struct Pattern {
+    QString id;
+    QString nameKey;
+    QString nameFallback;
+    QString asset;      // qrc path
+    double opacity;     // tint strength over the colour
+    int tile;           // authored tile edge in px; sets Image.sourceSize when tiling
+    double coverage;    // fraction of the tile that is ink — see contrastShift()
+};
 
-// Lookup by id. Returns a Preset with an empty id when `id` is unknown or empty —
-// callers treat that as "no preset", which is how a stale or hand-edited settings
-// value degrades gracefully instead of rendering an undefined background.
-Preset byId(const QString& id);
+// Ordered dark to light.
+const QVector<Colour>& colours();
 
-bool contains(const QString& id);
+// Ordered loosely by how much texture they add. "None" is not an entry; an empty id means
+// no pattern.
+const QVector<Pattern>& patterns();
 
-// The catalogue as QML sees it: a list of maps, catalogue order preserved.
-QVariantList toVariantList();
+// Lookups. Return an entry with an empty id when `id` is unknown or empty, which callers
+// treat as "none" — that is how a stale or hand-edited settings value degrades gracefully
+// rather than rendering an undefined background.
+Colour colourById(const QString& id);
+Pattern patternById(const QString& id);
+bool hasColour(const QString& id);
+bool hasPattern(const QString& id);
 
-// One entry as a map. Empty map when `id` is unknown.
-QVariantMap toVariantMap(const Preset& preset);
+// The average luminance shift a pattern imposes on the page: opacity weighted by how much
+// of the tile is actually ink. A hairline at 18% shifts the pixels it covers a lot and the
+// page as a whole very little, so the honest figure for "can text still be read over this"
+// is the coverage-weighted one, not the raw opacity.
+double contrastShift(const Pattern& pattern);
+
+// As QML sees them: lists of maps, table order preserved.
+QVariantList coloursAsVariantList();
+QVariantList patternsAsVariantList();
+QVariantMap colourToVariantMap(const Colour& colour);
+QVariantMap patternToVariantMap(const Pattern& pattern);
 
 }  // namespace BackgroundPresets

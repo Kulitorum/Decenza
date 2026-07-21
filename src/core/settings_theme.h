@@ -79,13 +79,20 @@ class SettingsTheme : public QObject {
     // clears it when the backing file is deleted; a preset has no backing file.
     Q_PROPERTY(QString backgroundPreset READ backgroundPreset WRITE setBackgroundPreset NOTIFY backgroundPresetChanged)
 
-    // The whole catalogue for the chooser, `color` resolved for the current mode.
-    Q_PROPERTY(QVariantList backgroundPresets READ backgroundPresets NOTIFY activeBackgroundPresetChanged)
+    // Optional pattern drawn over the background colour. A SECOND axis rather than a
+    // property of each colour: baking the two together produced a catalogue where half the
+    // entries were near-invisible variants of the other half. Empty = no pattern.
+    Q_PROPERTY(QString backgroundPattern READ backgroundPattern WRITE setBackgroundPattern NOTIFY backgroundPatternChanged)
 
-    // The active preset as a map (empty when none), with `color` already resolved by
-    // isDarkMode. A property rather than an invokable so a QML binding re-runs when the
-    // preset OR the light/dark mode changes — an invokable would register no dependency.
-    Q_PROPERTY(QVariantMap activeBackgroundPreset READ activeBackgroundPreset NOTIFY activeBackgroundPresetChanged)
+    // The two catalogues, for the chooser.
+    Q_PROPERTY(QVariantList backgroundPresets READ backgroundPresets CONSTANT)
+    Q_PROPERTY(QVariantList backgroundPatterns READ backgroundPatterns CONSTANT)
+
+    // The active colour and pattern as maps (empty when none). Properties rather than
+    // invokables so a QML binding re-runs when the selection changes — an invokable would
+    // register no dependency.
+    Q_PROPERTY(QVariantMap activeBackgroundPreset READ activeBackgroundPreset NOTIFY backgroundPresetChanged)
+    Q_PROPERTY(QVariantMap activeBackgroundPattern READ activeBackgroundPattern NOTIFY backgroundPatternChanged)
 
     // Screen shaders
     Q_PROPERTY(QString activeShader READ activeShader WRITE setActiveShader NOTIFY activeShaderChanged)
@@ -135,8 +142,12 @@ public:
 
     QString backgroundPreset() const;
     void setBackgroundPreset(const QString& id);
+    QString backgroundPattern() const;
+    void setBackgroundPattern(const QString& id);
     QVariantList backgroundPresets() const;
+    QVariantList backgroundPatterns() const;
     QVariantMap activeBackgroundPreset() const;
+    QVariantMap activeBackgroundPattern() const;
     Q_INVOKABLE QVariantMap editingPaletteColors() const;
     Q_INVOKABLE void setEditingPaletteColor(const QString& colorName, const QString& colorValue);
 
@@ -223,10 +234,8 @@ signals:
     void editingPaletteChanged();
     void backgroundImagePathChanged();
     void backgroundPresetChanged();
+    void backgroundPatternChanged();
     void glassChromeChanged();
-    // Fires when the preset changes AND when light/dark mode flips, since the resolved
-    // colour depends on both.
-    void activeBackgroundPresetChanged();
     void activeShaderChanged();
     void shaderParamsChanged();
     void customFontSizesChanged();

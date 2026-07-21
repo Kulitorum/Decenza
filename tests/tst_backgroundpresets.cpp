@@ -71,10 +71,20 @@ private:
         return (l + 0.05) / 0.05 >= 1.05 / (l + 0.05) ? QColor("#000000") : QColor("#ffffff");
     }
 
-    // Mirrors Theme._liftFrom: cards read as raised, which means lighter until there is no
-    // headroom left above, at which point the step goes down instead.
-    static QColor liftFrom(const QColor& base, double strength) {
-        return mix(base, luminance(base) < 0.72 ? QColor("#ffffff") : QColor("#000000"), strength);
+    // Mirrors Theme._liftFrom: a fixed step in L* (not a fixed RGB fraction), found by
+    // bisection. The distinction matters — a fixed fraction is a large perceptual move
+    // near black and almost nothing at L* 70, which is what previously made the whole
+    // mid-light range unusable.
+    static constexpr double kCardLift = 6.0;
+    static QColor liftFrom(const QColor& base, double deltaL = kCardLift) {
+        const QColor target = lstar(base) + deltaL <= 100.0 ? QColor("#ffffff") : QColor("#000000");
+        double lo = 0.0, hi = 1.0;
+        for (int i = 0; i < 24; ++i) {
+            const double m = (lo + hi) / 2;
+            if (std::abs(lstar(mix(base, target, m)) - lstar(base)) < deltaL) lo = m;
+            else hi = m;
+        }
+        return mix(base, target, (lo + hi) / 2);
     }
 
 private slots:
@@ -88,135 +98,138 @@ private slots:
 
     // --- Catalogue shape ---------------------------------------------------
 
-    void catalogueIsWellFormed() {
-        const auto& presets = BackgroundPresets::catalogue();
-        QCOMPARE(presets.size(), 20);
+    void coloursAreWellFormed() {
+        const auto& table = BackgroundPresets::colours();
+        QVERIFY2(table.size() >= 12, "catalogue is too small to offer real choice");
 
         QSet<QString> ids;
-        for (const auto& p : presets) {
-            QVERIFY2(!p.id.isEmpty(), "preset id must not be empty");
-            QVERIFY2(!ids.contains(p.id), qPrintable("duplicate preset id: " + p.id));
-            ids.insert(p.id);
-
-            QVERIFY2(!p.nameKey.isEmpty(), qPrintable("missing nameKey: " + p.id));
-            QVERIFY2(!p.nameFallback.isEmpty(), qPrintable("missing nameFallback: " + p.id));
-
-            QVERIFY2(QColor::isValidColorName(p.color), qPrintable("bad colour: " + p.id));
-
-            if (p.overlayKind == BackgroundPresets::OverlayKind::Tile) {
-                QVERIFY2(!p.overlayAsset.isEmpty(), qPrintable("tile preset without asset: " + p.id));
-                // "qrc:/x" -> ":/x", the form QFile understands.
-                QString resourcePath = p.overlayAsset;
-                QVERIFY2(resourcePath.startsWith("qrc:/"), qPrintable("asset is not a qrc URL: " + p.id));
-                resourcePath.replace(0, 4, ":");
-                QVERIFY2(QFile::exists(resourcePath),
-                         qPrintable("overlay asset missing from resources: " + p.overlayAsset));
-                QVERIFY2(p.overlayOpacity > 0.0 && p.overlayOpacity <= 0.2,
-                         qPrintable("overlay opacity out of range: " + p.id));
-                QVERIFY2(p.overlayTile > 0, qPrintable("tile preset without a tile size: " + p.id));
-            } else {
-                QVERIFY2(p.overlayAsset.isEmpty(), qPrintable("solid preset with an asset: " + p.id));
-                QCOMPARE(p.overlayOpacity, 0.0);
-            }
+        for (const auto& c : table) {
+            QVERIFY2(!c.id.isEmpty(), "colour id must not be empty");
+            QVERIFY2(!ids.contains(c.id), qPrintable("duplicate colour id: " + c.id));
+            ids.insert(c.id);
+            QVERIFY2(!c.nameKey.isEmpty(), qPrintable("missing nameKey: " + c.id));
+            QVERIFY2(!c.nameFallback.isEmpty(), qPrintable("missing nameFallback: " + c.id));
+            QVERIFY2(QColor::isValidColorName(c.value), qPrintable("bad colour: " + c.id));
         }
     }
 
-    void catalogueIsOrderedDarkToLight() {
-        // The chooser reads as a ramp rather than a jumble, and — more importantly — a
-        // user scanning it sees the range on offer instead of ten near-identical squares.
-        const auto& presets = BackgroundPresets::catalogue();
-        QVERIFY(lstar(QColor(presets.first().color)) < lstar(QColor(presets.last().color)));
+    void patternsAreWellFormed() {
+        const auto& table = BackgroundPresets::patterns();
+        QVERIFY(!table.isEmpty());
+
+        QSet<QString> ids;
+        for (const auto& p : table) {
+            QVERIFY2(!ids.contains(p.id), qPrintable("duplicate pattern id: " + p.id));
+            ids.insert(p.id);
+            QVERIFY2(!p.nameFallback.isEmpty(), qPrintable("missing nameFallback: " + p.id));
+
+            QString resourcePath = p.asset;
+            QVERIFY2(resourcePath.startsWith("qrc:/"), qPrintable("asset is not a qrc URL: " + p.id));
+            resourcePath.replace(0, 4, ":");
+            QVERIFY2(QFile::exists(resourcePath),
+                     qPrintable("pattern asset missing from resources: " + p.asset));
+
+            QVERIFY2(p.opacity > 0.0 && p.opacity <= 0.25, qPrintable("opacity out of range: " + p.id));
+            QVERIFY2(p.tile > 0, qPrintable("pattern without a tile size: " + p.id));
+            QVERIFY2(p.coverage > 0.0 && p.coverage < 1.0, qPrintable("bad coverage: " + p.id));
+        }
+    }
+
+    void coloursAreOrderedDarkToLight() {
+        const auto& table = BackgroundPresets::colours();
+        QVERIFY(lstar(QColor(table.first().value)) < lstar(QColor(table.last().value)));
+    }
+
+    void catalogueSpansTheUsableRange() {
+        // The complaint that produced this catalogue was that every option looked the same.
+        // Guard both ends AND the middle, so the set cannot silently collapse back into one
+        // cluster of near-blacks or one of off-whites.
+        double lo = 100.0, hi = 0.0;
+        int mid = 0;
+        for (const auto& c : BackgroundPresets::colours()) {
+            const double l = lstar(QColor(c.value));
+            lo = std::min(lo, l);
+            hi = std::max(hi, l);
+            if (l > 15.0 && l < 90.0) ++mid;
+        }
+        QVERIFY2(lo < 12.0, qPrintable(QString("no deep option: darkest is L* %1").arg(lo)));
+        QVERIFY2(hi > 90.0, qPrintable(QString("no light option: lightest is L* %1").arg(hi)));
+        QVERIFY2(mid >= 4, "catalogue collapses to the two extremes with nothing between");
     }
 
     void lookupOfUnknownIdIsEmpty() {
-        QVERIFY(BackgroundPresets::byId("no-such-preset").id.isEmpty());
-        QVERIFY(BackgroundPresets::byId("").id.isEmpty());
-        QVERIFY(!BackgroundPresets::contains("no-such-preset"));
-        QVERIFY(BackgroundPresets::contains("graphite"));
-        QVERIFY(BackgroundPresets::toVariantMap(BackgroundPresets::byId("nope")).isEmpty());
+        QVERIFY(BackgroundPresets::colourById("no-such-colour").id.isEmpty());
+        QVERIFY(BackgroundPresets::colourById("").id.isEmpty());
+        QVERIFY(!BackgroundPresets::hasColour("no-such-colour"));
+        QVERIFY(BackgroundPresets::hasColour("espresso"));
+        QVERIFY(!BackgroundPresets::hasPattern("no-such-pattern"));
+        QVERIFY(BackgroundPresets::colourToVariantMap(BackgroundPresets::colourById("nope")).isEmpty());
+        QVERIFY(BackgroundPresets::patternToVariantMap(BackgroundPresets::patternById("nope")).isEmpty());
     }
 
-    void variantListCarriesEveryEntry() {
-        const QVariantList list = BackgroundPresets::toVariantList();
-        QCOMPARE(list.size(), BackgroundPresets::catalogue().size());
-        QCOMPARE(list.first().toMap().value("color").toString(),
-                 BackgroundPresets::catalogue().first().color);
+    void variantListsCarryEveryEntry() {
+        QCOMPARE(BackgroundPresets::coloursAsVariantList().size(), BackgroundPresets::colours().size());
+        QCOMPARE(BackgroundPresets::patternsAsVariantList().size(), BackgroundPresets::patterns().size());
+        QCOMPARE(BackgroundPresets::coloursAsVariantList().first().toMap().value("value").toString(),
+                 BackgroundPresets::colours().first().value);
     }
 
     // --- Derived foreground ------------------------------------------------
     //
-    // The catalogue spans near-black to near-white and every entry is offered under every
-    // theme, so legibility cannot come from the palette — it is derived from the preset
-    // colour. These are the checks that make that safe, and they are only possible because
-    // a preset is a known colour: over a photo none of this is computable.
+    // The catalogue spans near-black to near-white and every colour is offered under every
+    // theme, so legibility cannot come from the palette — it is derived from the chosen
+    // colour. These checks are only possible because a colour is known: over a photo none
+    // of this is computable.
 
-    void everyPresetKeepsDerivedTextLegible() {
-        for (const auto& p : BackgroundPresets::catalogue()) {
-            const QColor page(p.color);
+    void everyColourKeepsDerivedTextLegible() {
+        // The densest pattern, since a pattern shifts the page toward the text colour and
+        // so eats a little contrast. Weighted by coverage: a hairline moves the pixels it
+        // covers a lot and the page as a whole very little, and the page is what text is
+        // read against.
+        double worstShift = 0.0;
+        for (const auto& p : BackgroundPresets::patterns())
+            worstShift = std::max(worstShift, BackgroundPresets::contrastShift(p));
+
+        for (const auto& c : BackgroundPresets::colours()) {
+            const QColor page(c.value);
             const QColor text = contrastColorFor(page);
             const QColor secondary = mix(text, page, 0.28);
+            const QColor surface = liftFrom(page);
 
-            // Both fills Theme.qml can paint a card with: the derived surfaceColor when the
-            // glass option is off, and a 40% scrim of that surface over the page when it is on.
-            const QColor surface = liftFrom(page, 0.09);
-            for (const QColor& card : {surface, mix(page, surface, kScrimAlpha)}) {
-                struct Case { QColor fg; QColor bg; const char* label; };
-                const Case cases[] = {
-                    {text,      page, "text on page"},
-                    {secondary, page, "secondary text on page"},
-                    {text,      card, "text on card"},
-                    {secondary, card, "secondary text on card"},
-                };
-                for (const Case& c : cases) {
-                    const double ratio = contrast(c.fg, c.bg);
+            struct Case { QColor bg; const char* label; };
+            const Case surfaces[] = {
+                {page,                             "page"},
+                {mix(page, text, worstShift),      "page under the densest pattern"},
+                {surface,                          "card"},
+                {mix(page, surface, kScrimAlpha),  "glass card"},
+            };
+            for (const Case& s : surfaces) {
+                for (auto [fg, what] : {std::pair{text, "text"}, std::pair{secondary, "secondary"}}) {
+                    const double ratio = contrast(fg, s.bg);
                     QVERIFY2(ratio >= kMinContrast,
-                             qPrintable(QString("preset %1: %2 = %3:1, below %4:1")
-                                            .arg(p.id).arg(QString::fromLatin1(c.label))
+                             qPrintable(QString("%1: %2 on %3 = %4:1, below %5:1")
+                                            .arg(c.id, QString::fromLatin1(what),
+                                                 QString::fromLatin1(s.label))
                                             .arg(ratio, 0, 'f', 2).arg(kMinContrast)));
                 }
             }
         }
     }
 
-    void everyPresetKeepsCardsVisible() {
-        // A card has to differ from the page or the layout dissolves. Measured as a CIE L*
-        // delta, NOT a WCAG ratio: ratios are built for text and compress badly in the
-        // bright range, so one ratio threshold would pass an invisible light card or fail a
-        // perfectly good dark one. L* is perceptually uniform, so one threshold means the
-        // same thing at both ends of the ramp — which this catalogue spans.
-        for (const auto& p : BackgroundPresets::catalogue()) {
-            const QColor page(p.color);
-            const QColor surface = liftFrom(page, 0.09);
+    void everyColourKeepsCardsVisible() {
+        // Measured as a CIE L* delta, NOT a WCAG ratio: ratios are built for text and
+        // compress badly in the bright range, so one ratio threshold would pass an
+        // invisible light card or fail a perfectly good dark one.
+        for (const auto& c : BackgroundPresets::colours()) {
+            const QColor page(c.value);
+            const QColor surface = liftFrom(page);
             for (const QColor& card : {surface, mix(page, surface, kScrimAlpha)}) {
                 const double delta = std::abs(lstar(card) - lstar(page));
                 QVERIFY2(delta >= 2.0,
-                         qPrintable(QString("preset %1: card is only %2 L* from the page — "
-                                            "cards will read as invisible")
-                                        .arg(p.id).arg(delta, 0, 'f', 2)));
+                         qPrintable(QString("%1: card is only %2 L* from the page")
+                                        .arg(c.id).arg(delta, 0, 'f', 2)));
             }
         }
-    }
-
-    void catalogueSpansDarkToLight() {
-        // The point of the redesign: in any one mode the user must see more than one end of
-        // the range. The previous mode-paired design offered only near-blacks in dark mode.
-        double lo = 100.0, hi = 0.0;
-        for (const auto& p : BackgroundPresets::catalogue()) {
-            const double l = lstar(QColor(p.color));
-            lo = std::min(lo, l);
-            hi = std::max(hi, l);
-        }
-        QVERIFY2(lo < 15.0, qPrintable(QString("no deep option: darkest is L* %1").arg(lo)));
-        QVERIFY2(hi > 85.0, qPrintable(QString("no light option: lightest is L* %1").arg(hi)));
-
-        // And something in between, or the ramp is just two clusters.
-        int mid = 0;
-        for (const auto& p : BackgroundPresets::catalogue()) {
-            const double l = lstar(QColor(p.color));
-            if (l > 20.0 && l < 80.0)
-                ++mid;
-        }
-        QVERIFY2(mid >= 2, "catalogue has no mid-tone options");
     }
 
     // --- Settings ----------------------------------------------------------
@@ -254,8 +267,8 @@ private slots:
         SettingsTheme theme;
 
         theme.setBackgroundImagePath("/tmp/some-photo.jpg");
-        theme.setBackgroundPreset("slate");
-        QCOMPARE(theme.backgroundPreset(), QString("slate"));
+        theme.setBackgroundPreset("cast-iron");
+        QCOMPARE(theme.backgroundPreset(), QString("cast-iron"));
         QCOMPARE(theme.backgroundImagePath(), QString());
 
         theme.setBackgroundImagePath("/tmp/another-photo.jpg");
@@ -265,27 +278,27 @@ private slots:
 
     void applyingAThemeClearsThePreset() {
         SettingsTheme theme;
-        theme.setBackgroundPreset("forest");
+        theme.setBackgroundPreset("walnut");
         theme.applyDarkTheme("Default Dark");
         QCOMPARE(theme.backgroundPreset(), QString());
 
-        theme.setBackgroundPreset("forest");
+        theme.setBackgroundPreset("walnut");
         theme.applyLightTheme("Default Light");
         QCOMPARE(theme.backgroundPreset(), QString());
     }
 
     void editingBackgroundColourClearsThePreset() {
         SettingsTheme theme;
-        theme.setBackgroundPreset("plum");
+        theme.setBackgroundPreset("ristretto");
         theme.setEditingPaletteColor("backgroundColor", "#123456");
         QCOMPARE(theme.backgroundPreset(), QString());
     }
 
     void editingAnotherColourKeepsThePreset() {
         SettingsTheme theme;
-        theme.setBackgroundPreset("plum");
+        theme.setBackgroundPreset("ristretto");
         theme.setEditingPaletteColor("primaryColor", "#123456");
-        QCOMPARE(theme.backgroundPreset(), QString("plum"));
+        QCOMPARE(theme.backgroundPreset(), QString("ristretto"));
     }
 
     void aPresetIsIndependentOfTheMode() {
@@ -294,13 +307,13 @@ private slots:
         // from it. A mode switch must change neither the selection nor the colour.
         SettingsTheme theme;
         theme.setThemeMode("dark");
-        theme.setBackgroundPreset("chalk");
-        const QString beforeSwitch = theme.activeBackgroundPreset().value("color").toString();
+        theme.setBackgroundPreset("porcelain");
+        const QString beforeSwitch = theme.activeBackgroundPreset().value("value").toString();
 
         theme.setThemeMode("light");
-        QCOMPARE(theme.backgroundPreset(), QString("chalk"));
-        QCOMPARE(theme.activeBackgroundPreset().value("color").toString(), beforeSwitch);
-        QCOMPARE(beforeSwitch, BackgroundPresets::byId("chalk").color);
+        QCOMPARE(theme.backgroundPreset(), QString("porcelain"));
+        QCOMPARE(theme.activeBackgroundPreset().value("value").toString(), beforeSwitch);
+        QCOMPARE(beforeSwitch, BackgroundPresets::colourById("porcelain").value);
     }
 
     // --- Glass chrome option -----------------------------------------------
@@ -332,7 +345,7 @@ private slots:
         theme.setThemeMode("light");
         QVERIFY2(theme.glassChrome(), "a mode switch must not clear the glass option");
 
-        theme.setBackgroundPreset("cream");
+        theme.setBackgroundPreset("latte");
         QVERIFY2(theme.glassChrome(), "choosing a background must not clear the glass option");
     }
 

@@ -74,29 +74,48 @@ void SettingsTheme::setBackgroundImagePath(const QString& path) {
 
 QString SettingsTheme::backgroundPreset() const {
     const QString id = m_settings.value("theme/backgroundPreset", "").toString();
-    // An id we do not recognise — a downgrade, a hand-edited ini, a preset removed in a
-    // later release — reads back as "no preset" rather than rendering an undefined
-    // background.
-    return BackgroundPresets::contains(id) ? id : QString();
+    // An id we do not recognise — a downgrade, a hand-edited ini, a colour removed in a
+    // later release — reads back as "none" rather than rendering an undefined background.
+    return BackgroundPresets::hasColour(id) ? id : QString();
 }
 
 void SettingsTheme::setBackgroundPreset(const QString& id) {
-    const QString resolved = BackgroundPresets::contains(id) ? id : QString();
+    const QString resolved = BackgroundPresets::hasColour(id) ? id : QString();
     if (backgroundPreset() != resolved) {
         m_settings.setValue("theme/backgroundPreset", resolved);
         emit backgroundPresetChanged();
-        emit activeBackgroundPresetChanged();
     }
     if (!resolved.isEmpty())
         setBackgroundImagePath(QString());
 }
 
+QString SettingsTheme::backgroundPattern() const {
+    const QString id = m_settings.value("theme/backgroundPattern", "").toString();
+    return BackgroundPresets::hasPattern(id) ? id : QString();
+}
+
+void SettingsTheme::setBackgroundPattern(const QString& id) {
+    const QString resolved = BackgroundPresets::hasPattern(id) ? id : QString();
+    if (backgroundPattern() != resolved) {
+        m_settings.setValue("theme/backgroundPattern", resolved);
+        emit backgroundPatternChanged();
+    }
+}
+
 QVariantList SettingsTheme::backgroundPresets() const {
-    return BackgroundPresets::toVariantList();
+    return BackgroundPresets::coloursAsVariantList();
+}
+
+QVariantList SettingsTheme::backgroundPatterns() const {
+    return BackgroundPresets::patternsAsVariantList();
 }
 
 QVariantMap SettingsTheme::activeBackgroundPreset() const {
-    return BackgroundPresets::toVariantMap(BackgroundPresets::byId(backgroundPreset()));
+    return BackgroundPresets::colourToVariantMap(BackgroundPresets::colourById(backgroundPreset()));
+}
+
+QVariantMap SettingsTheme::activeBackgroundPattern() const {
+    return BackgroundPresets::patternToVariantMap(BackgroundPresets::patternById(backgroundPattern()));
 }
 
 QString SettingsTheme::skinPath() const {
@@ -278,10 +297,6 @@ void SettingsTheme::updateResolvedMode() {
         emit isDarkModeChanged();
         emit customThemeColorsChanged();       // Active palette changed
         emit activeThemeNameChanged();         // Derived from dark/lightThemeName
-        // A preset resolves to its other colour on a mode switch. The selection itself is
-        // deliberately NOT cleared: the mode picks no colour of its own, so the user's
-        // choice of preset survives, it just renders at its light or dark value.
-        emit activeBackgroundPresetChanged();
     }
 #ifdef Q_OS_IOS
     ios_setStatusBarStyle(m_isDarkMode);

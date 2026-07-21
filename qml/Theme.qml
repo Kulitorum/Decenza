@@ -429,7 +429,7 @@ QtObject {
     // the background the user just picked decides light-on-dark or dark-on-light, and no
     // stored preference can be right for both ends of a 20-colour ramp.
     readonly property bool hasBackgroundPreset: Settings.theme.backgroundPreset.length > 0
-    readonly property color _presetColor: Settings.theme.activeBackgroundPreset.color || backgroundColor
+    readonly property color _presetColor: Settings.theme.activeBackgroundPreset.value || backgroundColor
 
     // Black or white, whichever the preset colour can actually carry.
     readonly property color _presetText: contrastColorFor(_presetColor)
@@ -441,13 +441,42 @@ QtObject {
                        1.0)
     }
 
-    // Cards read as RAISED, which conventionally means lighter — in dark UIs and light
-    // ones alike. Near the top of the range there is no headroom left above, so past that
-    // point the step goes down instead; either way the card differs visibly from the page.
-    // `strength` is the fraction of the way to the extreme.
-    function _liftFrom(base: color, strength: real): color {
-        return _mix(base, _relativeLuminance(base) < 0.72 ? "#ffffff" : "#000000", strength)
+    // Perceptual lightness, CIE L* (0-100). Unlike relative luminance it is roughly
+    // uniform, so "6 apart" means the same thing at both ends of the ramp.
+    function _lstar(c: color): real {
+        var y = _relativeLuminance(c)
+        return y <= 0.008856 ? 903.3 * y : 116.0 * Math.cbrt(y) - 16.0
     }
+
+    // Cards read as RAISED, which conventionally means lighter — in dark UIs and light
+    // ones alike; near the very top there is no headroom left above, so there the step
+    // goes down instead.
+    //
+    // The step is a fixed distance in L*, found by bisection on the mix fraction, NOT a
+    // fixed RGB fraction. That distinction is what makes the whole mid-light range usable:
+    // a 9% mix toward white is a big perceptual move from near-black and almost nothing at
+    // L* 70, so the fixed-fraction version silently failed every background between about
+    // L* 60 and 88 and forced the catalogue to cluster at the two extremes.
+    //
+    // Runs on a colour-binding re-evaluation (preset change), not per frame.
+    function _liftFrom(base: color, deltaL: real): color {
+        var target = _lstar(base) + deltaL <= 100.0 ? "#ffffff" : "#000000"
+        var lo = 0.0
+        var hi = 1.0
+        for (var i = 0; i < 20; ++i) {
+            var m = (lo + hi) / 2
+            if (Math.abs(_lstar(_mix(base, target, m)) - _lstar(base)) < deltaL)
+                lo = m
+            else
+                hi = m
+        }
+        return _mix(base, target, (lo + hi) / 2)
+    }
+
+    // How far a card sits from the page, in L*. The glass option composites at
+    // backgroundScrimAlpha, so it lands at 40% of this — hence a value that still leaves a
+    // visible step after that reduction.
+    readonly property real _cardLift: 6.0
 
     // Dynamic colors - bind to Settings with fallback defaults
     // Wrapped in _c() for flash-to-identify from web theme editor
@@ -456,7 +485,7 @@ QtObject {
     // preset IS. Resolution order: preset > custom theme colour > built-in default. The
     // preset's `color` field arrives already resolved for the current light/dark mode.
     property color backgroundColor: _c("backgroundColor",
-        Settings.theme.activeBackgroundPreset.color
+        Settings.theme.activeBackgroundPreset.value
             || Settings.theme.customThemeColors.backgroundColor
             || "#1a1a2e")
     // Derived while a preset is active, like backgroundColor. This is the one that makes
@@ -465,7 +494,7 @@ QtObject {
     // sat on — the theme's navy over a grey page. Deriving it here fixes every consumer at
     // once instead of special-casing each bar.
     property color surfaceColor: _c("surfaceColor", hasBackgroundPreset
-        ? _liftFrom(_presetColor, 0.09)
+        ? _liftFrom(_presetColor, _cardLift)
         : (Settings.theme.customThemeColors.surfaceColor || "#303048"))
 
     // Single translucency level for every "scrim" used when a custom background

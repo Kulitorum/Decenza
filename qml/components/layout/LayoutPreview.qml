@@ -27,6 +27,7 @@ Item {
     // explicit binding at the instantiation site always wins over this default.
     property string backgroundImageSource: Settings.theme.backgroundImagePath
     property string backgroundPresetSource: Settings.theme.backgroundPreset
+    property string backgroundPatternSource: Settings.theme.backgroundPattern
 
     readonly property var _cfg: Settings.network.layoutConfiguration
     function _items(z) { var d = _cfg; return Settings.network.getZoneItems(z) }   // d: dependency tap, keep
@@ -48,6 +49,7 @@ Item {
         BackgroundSurface {
             anchors.fill: parent
             presetId: previewRoot.backgroundPresetSource
+            patternId: previewRoot.backgroundPatternSource
             imagePath: previewRoot.backgroundImageSource
         }
 
