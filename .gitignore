@@ -10,6 +10,10 @@ build/
 build-*/
 cmake-build-*/
 
+# CTest artifacts (regenerated on every test run; a stray top-level Testing/
+# appears when ctest is invoked from the repo root instead of the build dir)
+Testing/
+
 # Qt Creator user files
 *.user
 *.user.*
