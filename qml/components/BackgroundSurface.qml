@@ -16,12 +16,12 @@ Item {
 
     // "" = no preset. Overridden by the chooser to preview a highlighted tile.
     property string presetId: Settings.theme.backgroundPreset
+    // "" = no pattern. An independent axis: any pattern over any colour.
+    property string patternId: Settings.theme.backgroundPattern
     // Absolute filesystem path, "" = none. Mutually exclusive with presetId.
     property string imagePath: Settings.theme.backgroundImagePath
 
-    // Resolved catalogue entry ({} when presetId is empty or unknown). Read from
-    // Settings for the live case so the colour follows light/dark mode; looked up for a
-    // previewed candidate.
+    // Resolved catalogue entries ({} when the id is empty or unknown).
     readonly property var _preset: _lookup(Settings.theme.backgroundPresets, presetId)
     readonly property var _pattern: _lookup(Settings.theme.backgroundPatterns, patternId)
 
