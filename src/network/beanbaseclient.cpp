@@ -4,6 +4,7 @@
 #include <QDebug>
 #include <QDir>
 #include <QFile>
+#include <QSaveFile>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -227,10 +228,22 @@ QString BeanBaseClient::bagImagePath(const QString& canonicalId) const {
 void BeanBaseClient::ensureBagImage(const QString& canonicalId,
                                     const QString& roastName,
                                     const QString& productUrl) {
-    if (!isSafeCacheFilename(canonicalId))
-        return;
+    startBagImageResolve(canonicalId, roastName, productUrl, /*force=*/false);
+}
 
-    const QString existing = bagImagePath(canonicalId);
+void BeanBaseClient::startBagImageResolve(const QString& canonicalId,
+                                          const QString& roastName,
+                                          const QString& productUrl,
+                                          bool force) {
+    if (!isSafeCacheFilename(canonicalId)) {
+        // A corrupt canonical id, not an expected miss — the caller believes
+        // this bag has a photo and will wait forever for a signal that is
+        // never coming, so say so rather than bailing mutely.
+        qWarning() << "BeanBaseClient: refusing unsafe bag image cache key" << canonicalId;
+        return;
+    }
+
+    const QString existing = force ? QString() : bagImagePath(canonicalId);
     if (!existing.isEmpty()) {
         // Deferred re-emit so a consumer that connects right after invoking
         // still hears it (same rationale as fetchCanonicalDetails).
@@ -242,7 +255,7 @@ void BeanBaseClient::ensureBagImage(const QString& canonicalId,
         return;
     }
 
-    if (m_imageAttempted.contains(canonicalId))
+    if (!force && m_imageAttempted.contains(canonicalId))
         return;
     m_imageAttempted.insert(canonicalId);
 
@@ -263,6 +276,15 @@ void BeanBaseClient::ensureBagImage(const QString& canonicalId,
     recoverBagLink(canonicalId, roastName);
 }
 
+void BeanBaseClient::replaceBagImageFromUrl(const QString& imageKey, const QString& imageUrl) {
+    if (!isSafeCacheFilename(imageKey) || imageUrl.trimmed().isEmpty())
+        return;
+    // No cache-hit short-circuit: replacing the entry is the point. The attempt
+    // guard is re-armed so a failed download doesn't retry all session.
+    m_imageAttempted.insert(imageKey);
+    downloadBagImage(imageKey, imageUrl.trimmed());
+}
+
 void BeanBaseClient::cacheBagImageFromUrl(const QString& imageKey, const QString& imageUrl) {
     // Stage-2 extraction returned the product photo's URL directly (SPA pages
     // have no og:image for fetchProductPage to find) — download it into the
@@ -281,19 +303,12 @@ void BeanBaseClient::refreshBagImage(const QString& canonicalId,
                                      const QString& productUrl) {
     // The product URL was user-edited (add-bag-detail-editing): the cached
     // pixels and the once-per-session attempt guard both describe the OLD
-    // page, so drop them and re-resolve from the new URL.
-    if (!isSafeCacheFilename(canonicalId))
-        return;
-    const QString existing = bagImagePath(canonicalId);
-    if (!existing.isEmpty() && !QFile::remove(existing)) {
-        // Bail rather than proceed: ensureBagImage would find the surviving
-        // file, take its cache-hit branch, and confirm the refresh with the
-        // OLD page's pixels — a silent no-op forever.
-        qWarning() << "BeanBaseClient: could not evict cached bag image" << existing;
-        return;
-    }
+    // page. Clear the guard and force a re-resolve; downloadBagImage's atomic
+    // rename replaces the file only once the new bytes are on disk, so the bag
+    // is never photo-less in between and a failed refresh leaves what was
+    // already there instead of a permanent placeholder.
     m_imageAttempted.remove(canonicalId);
-    ensureBagImage(canonicalId, roastName, productUrl);
+    startBagImageResolve(canonicalId, roastName, productUrl, /*force=*/true);
 }
 
 void BeanBaseClient::recoverBagLink(const QString& canonicalId, const QString& roastName) {
@@ -425,16 +440,20 @@ void BeanBaseClient::downloadBagImage(const QString& canonicalId, const QString&
                 qWarning() << "BeanBase: cannot create bag image cache dir" << dir;
                 return;
             }
-            QFile f(path + QStringLiteral(".part"));
-            bool ok = f.open(QIODevice::WriteOnly) && f.write(bytes) == bytes.size();
-            f.close();
-            ok = ok && f.error() == QFileDevice::NoError
-                && QFile::rename(f.fileName(), path);
+            // QSaveFile, not QFile+rename: it commits atomically OVER an
+            // existing target. QFile::rename refuses a destination that already
+            // exists, which a refresh always has now that the old photo is kept
+            // until the new bytes land — so every refresh would "fail" its
+            // write and silently keep serving the stale image.
+            QSaveFile f(path);
+            const bool ok = f.open(QIODevice::WriteOnly)
+                && f.write(bytes) == bytes.size()
+                && f.commit();
             if (!ok) {
                 // A local disk fault (full disk, permissions) — unlike the
                 // expected network/og:image misses, this is worth a log line.
+                // QSaveFile discards its own temp file on a failed commit.
                 qWarning() << "BeanBase: bag image write failed" << path << f.errorString();
-                QFile::remove(f.fileName());
                 return;
             }
             // Keep the cache a cache: evict oldest-written files beyond the

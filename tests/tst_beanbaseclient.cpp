@@ -428,6 +428,44 @@ private slots:
         QCOMPARE(cachedBytes(), QByteArray("NEWBYTES"));
     }
 
+    void refreshBagImageKeepsTheOldPhotoWhenTheNewPageHasNone() {
+        // Resolve-then-swap: the cached file must survive a refresh that
+        // resolves nothing. Evicting up front made a failed refresh blank the
+        // bag permanently, and even a SUCCESSFUL one blanked it for the length
+        // of a round trip — which the web grid, reloading the moment the save
+        // returns, renders as "editing the URL deleted my photo".
+        FakeBeanBaseServer server;
+        const QByteArray base = server.baseUrl().toUtf8();
+        server.respondForPath("/product-old",
+            "<html><meta property=\"og:image\" content=\"" + base + "/old.jpg\"></html>");
+        server.respondForPath("/old.jpg", "OLDBYTES");
+        server.respondForPath("/product-bare", "<html><body>no og:image here</body></html>");
+
+        QTemporaryDir cacheDir;
+        BeanBaseClient client(&m_nam, &m_settings);
+        client.setVisualizerBaseUrl(server.baseUrl());
+        client.setImageCacheDir(cacheDir.path());
+
+        QSignalSpy first(&client, &BeanBaseClient::bagImageReady);
+        client.ensureBagImage("bag-43", "Milk Blend", server.baseUrl() + "/product-old");
+        QVERIFY(first.wait(5000));
+        const QString path = client.bagImagePath(QStringLiteral("bag-43"));
+        QVERIFY(!path.isEmpty());
+
+        // Refresh against a page with nothing to offer: silent by design, so
+        // wait for the request to land rather than for a signal.
+        const qsizetype before = server.requestCount();
+        client.refreshBagImage("bag-43", "Milk Blend", server.baseUrl() + "/product-bare");
+        QTRY_VERIFY_WITH_TIMEOUT(server.requestCount() > before, 5000);
+        QTest::qWait(200);
+
+        QVERIFY2(QFile::exists(path), "a refresh that resolves nothing must not blank the bag");
+        QFile f(path);
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        QCOMPARE(f.readAll(), QByteArray("OLDBYTES"));
+        QCOMPARE(client.bagImagePath(QStringLiteral("bag-43")), path);
+    }
+
     void recoverBagLinkIndependentOfImageCache() {
         // A legacy blob whose photo was cached before link backfill existed:
         // ensureBagImage short-circuits on the file, but the reorder URL must
@@ -483,8 +521,16 @@ private slots:
         QCOMPARE(client.bagImagePath("a/b"), QString());
         QCOMPARE(client.bagImagePath("a\\b"), QString());
 
+        // The rejection warns rather than bailing mutely: the caller is waiting
+        // for a bagImageReady that will never arrive, and a traversal-shaped id
+        // means something upstream is corrupt. ignoreMessage doubles as the
+        // assertion that it is logged — the test fails if it stops being.
         QSignalSpy spy(&client, &BeanBaseClient::bagImageReady);
+        QTest::ignoreMessage(QtWarningMsg,
+            "BeanBaseClient: refusing unsafe bag image cache key \"../escape\"");
         client.ensureBagImage("../escape", "Nope", server.baseUrl() + "/product");
+        QTest::ignoreMessage(QtWarningMsg,
+            "BeanBaseClient: refusing unsafe bag image cache key \"a/b\"");
         client.ensureBagImage("a/b", "Nope", "");
         QVERIFY(!spy.wait(300));
         QCOMPARE(server.requestCount(), 0);

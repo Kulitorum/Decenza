@@ -10,6 +10,7 @@
 #include "../core/yieldspec.h"
 #include "../history/bagid.h"
 #include "../network/beanbase_blob.h"
+#include "../network/beanbaseclient.h"
 #include "../network/visualizeruploader.h"
 #include "../controllers/profilemanager.h"
 #include "../ai/aimanager.h"
@@ -33,6 +34,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QPointer>
 #include <QSet>
 #include <QDebug>
 #include <QSqlDatabase>
@@ -51,7 +53,8 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                         ScreensaverVideoManager* screensaver,
                         TranslationManager* translation,
                         BatteryManager* battery,
-                        AIManager* aiManager)
+                        AIManager* aiManager,
+                        BeanBaseClient* beanbase)
 {
     // shots_update — replaces shots_set_feedback with full metadata editing (same as QML)
     registry->registerAsyncTool(
@@ -1685,7 +1688,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             }},
             {"required", QJsonArray{"bagId"}}
         },
-        [shotHistory, bagToJson, bagStorage](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+        [shotHistory, bagToJson, bagStorage, beanbase](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
             if (!shotHistory || !shotHistory->isReady()) {
                 respond(QJsonObject{{"error", "Storage not available"}});
                 return;
@@ -1889,10 +1892,12 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             }
 
             // Read the current blob, merge, then run the normal update.
-            QThread* mergeThread = QThread::create([dbPath, bagId, fields, blobEdits, proceed, respondWithBag, respond]() {
+            QPointer<BeanBaseClient> safeBeanbase(beanbase);
+            QThread* mergeThread = QThread::create([dbPath, bagId, fields, blobEdits, safeBeanbase,
+                                                   proceed, respondWithBag, respond]() {
                 bool found = false;
                 bool isTea = false;
-                QString currentBlob, curRoaster, curCoffee, curLevel;
+                QString currentBlob, curRoaster, curCoffee, curLevel, curBeanBaseId;
                 withTempDb(dbPath, "mcp_bagupd_blob", [&](QSqlDatabase& db) {
                     const CoffeeBag bag = CoffeeBagStorage::loadBagStatic(db, bagId);
                     found = bag.isValid();
@@ -1901,8 +1906,10 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                     curRoaster = bag.roasterName;
                     curCoffee = bag.coffeeName;
                     curLevel = bag.roastLevel;
+                    curBeanBaseId = bag.beanBaseId;
                 });
                 QMetaObject::invokeMethod(qApp, [found, isTea, currentBlob, curRoaster, curCoffee, curLevel,
+                                                 curBeanBaseId, safeBeanbase,
                                                  bagId, fields, blobEdits, proceed, respondWithBag, respond]() {
                     if (!found) {
                         respond(QJsonObject{{"error", "Bag not found: " + QString::number(bagId)}});
@@ -1965,6 +1972,25 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                     const QString merged = BeanBaseBlob::mergeBeanDetails(currentBlob, edits);
                     if (merged != currentBlob)
                         finalFields.insert("beanBaseData", merged);
+
+                    // `link` is an editable blob key, so this tool can change a
+                    // bag's product URL — and the cached photo describes the OLD
+                    // page. The bag editor and the web /beans editor both
+                    // re-resolve on this edit; without it MCP was the remaining
+                    // way to change the URL and keep the wrong picture.
+                    // No race to gate against here: the pre-read above put the
+                    // old blob in hand before the write.
+                    const auto linkOf = [](const QString& blob) {
+                        return QJsonDocument::fromJson(blob.toUtf8())
+                            .object().value(QStringLiteral("link")).toString().trimmed();
+                    };
+                    const QString newLink = linkOf(merged);
+                    if (safeBeanbase && !newLink.isEmpty() && newLink != linkOf(currentBlob)) {
+                        safeBeanbase->refreshBagImage(
+                            curBeanBaseId.isEmpty() ? QStringLiteral("bag-%1").arg(bagId)
+                                                    : curBeanBaseId,
+                            fields.value("coffeeName", curCoffee).toString(), newLink);
+                    }
                     if (finalFields.isEmpty()) {
                         // Everything merged to its current value (idempotent
                         // re-apply, or clearing an already-absent key): a

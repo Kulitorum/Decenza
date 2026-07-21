@@ -299,9 +299,11 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
         if (!kind.isEmpty())
             fields.insert("kind", kind);
         QPointer<BeanBaseClient> safeBeanbase = m_mainController ? m_mainController->beanbase() : nullptr;
+        const QString createdImageUrl =
+            bodyJson.value(QStringLiteral("extractedImageUrl")).toString().trimmed();
         auto conn = std::make_shared<QMetaObject::Connection>();
         *conn = connect(bagStorage, &CoffeeBagStorage::bagCreated, this,
-            [conn, respondJson, safeBeanbase](qint64 bagId, const QVariantMap& bag) {
+            [conn, respondJson, safeBeanbase, createdImageUrl](qint64 bagId, const QVariantMap& bag) {
                 disconnect(*conn);
                 if (bagId <= 0) {
                     respondJson(QJsonObject{{"error", "Create failed"}}, 500);
@@ -316,10 +318,17 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
                     QJsonDocument::fromJson(bag.value(QStringLiteral("beanBaseData")).toString().toUtf8())
                         .object().value(QStringLiteral("link")).toString();
                 const QString canonicalId = bag.value(QStringLiteral("beanBaseId")).toString();
-                if (safeBeanbase && !link.isEmpty())
+                const QString imageKey = canonicalId.isEmpty()
+                    ? QStringLiteral("bag-%1").arg(bagId) : canonicalId;
+                if (safeBeanbase && !createdImageUrl.isEmpty()) {
+                    // The extraction found the photo itself (SPA page); nothing
+                    // else will. Mirrors the app stashing it until the row id
+                    // exists, which is precisely now.
+                    safeBeanbase->replaceBagImageFromUrl(imageKey, createdImageUrl);
+                } else if (safeBeanbase && !link.isEmpty()) {
                     safeBeanbase->ensureBagImage(
-                        canonicalId.isEmpty() ? QStringLiteral("bag-%1").arg(bagId) : canonicalId,
-                        bag.value(QStringLiteral("coffeeName")).toString(), link);
+                        imageKey, bag.value(QStringLiteral("coffeeName")).toString(), link);
+                }
                 respondJson(QJsonObject::fromVariantMap(bag));
             });
         bagStorage->requestCreateBag(fields);
@@ -467,8 +476,10 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
             QPointer<BeanBaseClient> safeBeanbase =
                 m_mainController ? m_mainController->beanbase() : nullptr;
             const bool wantsImageRefresh = bodyJson.value(QStringLiteral("refreshImage")).toBool();
+            const QString extractedImageUrl =
+                bodyJson.value(QStringLiteral("extractedImageUrl")).toString().trimmed();
             *conn = connect(bagStorage, &CoffeeBagStorage::bagUpdated, this,
-                [conn, bagId, respondJson, fields, wantsImageRefresh, safeBeanbase](
+                [conn, bagId, respondJson, fields, wantsImageRefresh, extractedImageUrl, safeBeanbase](
                     qint64 updatedId, bool success) {
                     if (updatedId != bagId)
                         return;
@@ -478,23 +489,31 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
                         return;
                     }
                     bool imageRefreshed = false;
-                    if (wantsImageRefresh && safeBeanbase) {
+                    if (safeBeanbase && (wantsImageRefresh || !extractedImageUrl.isEmpty())) {
                         const QString link =
                             QJsonDocument::fromJson(
                                 fields.value(QStringLiteral("beanBaseData")).toString().toUtf8())
                                 .object().value(QStringLiteral("link")).toString();
                         const QString canonicalId = fields.value(QStringLiteral("beanBaseId")).toString();
-                        if (!link.isEmpty()) {
+                        const QString imageKey = canonicalId.isEmpty()
+                            ? QStringLiteral("bag-%1").arg(bagId) : canonicalId;
+                        if (!extractedImageUrl.isEmpty()) {
+                            // The extraction's own photo wins over re-scraping
+                            // the page: stage 2 only returns one when the page
+                            // is JS-rendered, i.e. exactly when a re-scrape
+                            // would find no og:image and give up.
+                            safeBeanbase->replaceBagImageFromUrl(imageKey, extractedImageUrl);
+                            imageRefreshed = true;
+                        } else if (!link.isEmpty()) {
                             safeBeanbase->refreshBagImage(
-                                canonicalId.isEmpty() ? QStringLiteral("bag-%1").arg(bagId) : canonicalId,
-                                fields.value(QStringLiteral("coffeeName")).toString(), link);
+                                imageKey, fields.value(QStringLiteral("coffeeName")).toString(), link);
                             imageRefreshed = true;
                         }
                     }
                     // Echo the decision: a caller that asked for a refresh it did
                     // not get would otherwise read `updated: true` as "done".
                     QJsonObject reply{{"updated", true}, {"bagId", bagId}};
-                    if (wantsImageRefresh)
+                    if (wantsImageRefresh || !extractedImageUrl.isEmpty())
                         reply.insert(QStringLiteral("imageRefreshed"), imageRefreshed);
                     respondJson(reply);
                 });
@@ -715,6 +734,7 @@ QString ShotServer::generateBeansPage() const
         let editBeanBaseId = '';    // canonical id when linked
         let editOpenedLink = '';    // product URL as the form opened (image-refresh gate)
         let editBlobReadable = true; // false when the stored blob would not parse
+        let editImageUrl = '';      // stage-2 product photo the extraction found
         // Bumped on every editor open. An extraction or search takes up to 90s,
         // and its reply must not be applied to whatever bag the editor moved on
         // to in the meantime — that is #1588's bug (one record's state landing
@@ -942,6 +962,7 @@ QString ShotServer::generateBeansPage() const
             editBlob = parseBlob(b.beanBaseData, true);
             editBeanBaseId = b.beanBaseId || '';
             editOpenedLink = (editBlob.link || '').trim();
+            editImageUrl = '';
             el('editorTitle').textContent = id ? 'Edit Bag' : (editingKind === 'tea' ? 'New Tea' : 'New Coffee');
             el('fRoaster').value = b.roasterName || '';
             el('fCoffee').value = b.coffeeName || '';
@@ -1083,6 +1104,12 @@ QString ShotServer::generateBeansPage() const
                     };
                     take('fRoastLevel', 'roastLevel');   // column, not a blob key
                     (editingKind === 'tea' ? TEA_KEYS : COFFEE_KEYS).forEach(([fid, key]) => take(fid, key));
+                    // Stage 2 (JS-rendered shops) returns the product photo's
+                    // URL directly, because those pages have no og:image for
+                    // the scraper to find — so this is the ONLY photo such a
+                    // bag will ever get. It is not a form field; hold it for
+                    // the save, which is when a bag id exists to key it by.
+                    if (f.imageUrl) editImageUrl = String(f.imageUrl);
                     // Roaster/coffee name and link are deliberately absent:
                     // AIManager::parseBagExtraction's key whitelist has none of
                     // them, so there is nothing to apply. The URL field in
@@ -1164,6 +1191,9 @@ QString ShotServer::generateBeansPage() const
             // create route resolves that case itself.
             if (editingId && (editBlob.link || '') && (editBlob.link || '') !== editOpenedLink)
                 bodyData.refreshImage = true;
+            // Rides along on the save rather than a second round trip; the
+            // server derives the cache key, so the client never names a file.
+            if (editImageUrl) bodyData.extractedImageUrl = editImageUrl;
             if (!editingId) bodyData.kind = editingKind;
 
             const req = editingId ? post('/api/bag/' + editingId, bodyData) : post('/api/bags', bodyData);

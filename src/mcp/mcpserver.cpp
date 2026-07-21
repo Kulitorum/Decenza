@@ -60,7 +60,8 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                         ScreensaverVideoManager* screensaver,
                         TranslationManager* translation,
                         BatteryManager* battery,
-                        AIManager* aiManager);
+                        AIManager* aiManager,
+                        BeanBaseClient* beanbase);
 void registerScaleTools(McpToolRegistry* registry, MachineState* machineState);
 void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1Device* device);
 class MemoryMonitor;
@@ -176,7 +177,8 @@ void McpServer::registerAllTools()
                        m_mainController ? m_mainController->bagStorage() : nullptr,
                        m_accessibilityManager, m_screensaverManager,
                        m_translationManager, m_batteryManager,
-                       m_mainController ? m_mainController->aiManager() : nullptr);
+                       m_mainController ? m_mainController->aiManager() : nullptr,
+                       m_mainController ? m_mainController->beanbase() : nullptr);
     registerScaleTools(m_toolRegistry, m_machineState);
     registerDeviceTools(m_toolRegistry, m_bleManager, m_device);
     registerDebugTools(m_toolRegistry, m_memoryMonitor);
