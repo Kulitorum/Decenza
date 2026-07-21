@@ -470,8 +470,12 @@ Item {
             color: compactTap.isPressed ? Qt.darker(root._effectiveBackground, 1.2) : root._effectiveBackground
             radius: Theme.cardRadius
             opacity: root.hasAction && typeof DE1Device !== "undefined" && !DE1Device.guiEnabled ? 0.5 : 1.0
-            border.width: root.isActive ? Theme.scaled(3) : 0
-            border.color: root._activeRingColor
+            // A hairline edge whenever the page is a flat preset colour. Fill contrast
+            // alone is not enough there: the tile is a lifted shade of the very colour
+            // behind it, so on the lighter colours it reads as a smudge rather than a
+            // button. Over an image the scrim and the photo already give the edge away.
+            border.width: root.isActive ? Theme.scaled(3) : (Theme.hasBackgroundPreset ? 1 : 0)
+            border.color: root.isActive ? root._activeRingColor : Theme.borderColor
         }
 
         RowLayout {
@@ -531,8 +535,12 @@ Item {
             color: fullTap.isPressed ? Qt.darker(root._effectiveBackground, 1.2) : root._effectiveBackground
             radius: Theme.cardRadius
             opacity: root.hasAction && typeof DE1Device !== "undefined" && !DE1Device.guiEnabled ? 0.5 : 1.0
-            border.width: root.isActive ? Theme.scaled(3) : 0
-            border.color: root._activeRingColor
+            // A hairline edge whenever the page is a flat preset colour. Fill contrast
+            // alone is not enough there: the tile is a lifted shade of the very colour
+            // behind it, so on the lighter colours it reads as a smudge rather than a
+            // button. Over an image the scrim and the photo already give the edge away.
+            border.width: root.isActive ? Theme.scaled(3) : (Theme.hasBackgroundPreset ? 1 : 0)
+            border.color: root.isActive ? root._activeRingColor : Theme.borderColor
         }
 
         // Layout with emoji: icon above text (like ActionButton)

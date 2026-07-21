@@ -8,8 +8,13 @@ Switch {
     // Optional accessibility label for context when text is empty
     property string accessibleName: ""
 
-    implicitWidth: Theme.scaled(48)
-    implicitHeight: Theme.scaled(28)
+    // Sized from the indicator PLUS the control's padding, because the indicator is drawn
+    // at x: leftPadding. A flat 48 ignored that padding, so the indicator overhung whatever
+    // width a layout reserved — visible as the Theme Mode switches sitting on top of their
+    // card's border instead of inside it.
+    implicitWidth: control.leftPadding + Theme.scaled(44) + control.rightPadding
+    implicitHeight: Math.max(Theme.scaled(28),
+                             control.topPadding + Theme.scaled(24) + control.bottomPadding)
 
     // A disabled switch must LOOK disabled (same principle as ActionButton's
     // disabled dimming, though that one dims per-part) — without this an
