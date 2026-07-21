@@ -118,6 +118,66 @@ Page {
         return zoneOpts(zone).itemSize || "compact"
     }
 
+    // ============================================================
+    // Transient panel clearance (idle-page-panel-clearance)
+    // A bottom-zone quick-picker popup floats above its button; when it would
+    // overlap idle content, the content above the bottom bar slides UP just
+    // enough to clear it, and restores on close. The picker itself never moves.
+    // This is a transient view offset only — it never touches saved zone config.
+    // ============================================================
+    // A floating picker popup makes room by sliding the idle content out of its
+    // way — the popup itself never moves. Direction follows the popup's position,
+    // so a picker works in ANY bar zone: a popup in the lower half lifts the
+    // content above it UP; one in the upper half pushes the content below it DOWN.
+    property real bottomPanelClearance: 0   // content above slides up (lower-half popup)
+    property real topPanelClearance: 0      // content below slides down (upper-half popup)
+
+    // Upper bound so a slide never pushes content off-screen under a bar.
+    readonly property real _maxPanelClearance:
+        Math.max(0, idlePage.height - Theme.statusBarHeight - Theme.bottomBarHeight - Theme.scaled(120))
+
+    // Un-offset extents of the movable idle content (read raw so the test can't
+    // feed back into the offset it produces). lowerMidBar (when visible) reaches
+    // bottomBar.top; the center column's top is its own y.
+    readonly property real _idleContentBottom: {
+        var colBottom = centerContent.y + centerContent.height
+        var bandBottom = lowerMidBarVisible ? bottomBar.y : 0
+        return Math.max(colBottom, bandBottom)
+    }
+    readonly property real _idleContentTop: centerContent.y
+
+    // Called by a picker as its popup opens, with the popup's top edge (in
+    // idlePage coords) and height. Slides content only by the overlap (0 when the
+    // content doesn't reach the popup), bounded, in the direction set by which
+    // half of the page the popup sits in.
+    function requestPanelClearance(panelTop, panelHeight) {
+        var panelBottom = panelTop + panelHeight
+        if ((panelTop + panelBottom) / 2 >= idlePage.height / 2) {
+            var up = idlePage._idleContentBottom - panelTop + Theme.spacingSmall
+            idlePage.bottomPanelClearance = Math.max(0, Math.min(up, idlePage._maxPanelClearance))
+            idlePage.topPanelClearance = 0
+        } else {
+            var down = panelBottom - idlePage._idleContentTop + Theme.spacingSmall
+            idlePage.topPanelClearance = Math.max(0, Math.min(down, idlePage._maxPanelClearance))
+            idlePage.bottomPanelClearance = 0
+        }
+    }
+    function releasePanelClearance() {
+        idlePage.bottomPanelClearance = 0
+        idlePage.topPanelClearance = 0
+    }
+
+    // (b) Center-zone inline carousel: when the expanded center column would reach
+    //     the bottom-anchored lower-mid band, the band slides DOWN out of the way
+    //     (content below yields down), bounded to at most fully tucking away.
+    //     One-way: reads the column's un-offset bottom, drives the band offset.
+    readonly property real carouselBandPush: {
+        if (idlePage.activePresetFunction === "" || !idlePage.lowerMidBarVisible)
+            return 0
+        var overlap = (centerContent.y + centerContent.height + Theme.spacingMedium) - lowerMidBar.y
+        return Math.max(0, Math.min(overlap, idlePage.lowerMidBarFullHeight + Theme.scaled(20)))
+    }
+
     Component.onCompleted: {
         MainController.bagStorage.requestInventory()
         MainController.equipmentStorage.requestInventory()
@@ -744,6 +804,7 @@ Page {
     // Center content (from layout centerTop/centerMiddle zones)
     // ============================================================
     ColumnLayout {
+        id: centerContent
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.verticalCenter: parent.verticalCenter
@@ -751,6 +812,12 @@ Page {
         anchors.leftMargin: Theme.standardMargin
         anchors.rightMargin: Theme.standardMargin
         spacing: Theme.scaled(20)
+        // Transient slide to clear a picker popup: up for a lower-half popup,
+        // down for an upper-half one (restores to 0 on close).
+        transform: Translate {
+            y: -idlePage.bottomPanelClearance + idlePage.topPanelClearance
+            Behavior on y { NumberAnimation { duration: 200; easing.type: Easing.OutQuad } }
+        }
 
         // Status readouts (temp, water level, connection)
         LayoutCenterZone {
@@ -1371,6 +1438,12 @@ Page {
         visible: idlePage.lowerMidBarVisible
         height: visible ? idlePage.lowerMidBarFullHeight : 0
         color: Theme.zoneBackgroundColor(idlePage.lowerMidBarOptions.style)
+        // Slides UP with the center content to clear a bottom-zone picker popup,
+        // and DOWN out of the way when the center-zone carousel expands into it.
+        transform: Translate {
+            y: -idlePage.bottomPanelClearance + idlePage.carouselBandPush
+            Behavior on y { NumberAnimation { duration: 200; easing.type: Easing.OutQuad } }
+        }
 
         LayoutBarZone {
             id: lmbZone

@@ -175,6 +175,15 @@ Item {
         // Reopen on the first (most-recent) page, matching RecipesItem/BeansItem.
         onAboutToShow: root.profilePageIndex = 0
 
+        // Slide idle content above the bottom bar up to clear this popup.
+        onOpened: {
+            if (root.idlePage) {
+                var rootTopInPage = root.mapToItem(root.idlePage, 0, 0).y
+                root.idlePage.requestPanelClearance(rootTopInPage + presetPopup.y, presetPopup.height)
+            }
+        }
+        onClosed: { if (root.idlePage) root.idlePage.releasePanelClearance() }
+
         width: {
             var win = root.Window.window
             var w = Theme.scaled(600) + 2 * padding

@@ -172,7 +172,21 @@ Item {
         // Reopen on the first (most-recent) page, matching BeansItem/RecipesItem.
         onAboutToShow: root.equipmentPageIndex = 0
 
+        // Slide the idle content above the bottom bar up to clear this popup, so
+        // its top edge never lands on the Shot Plan sentence / lower-mid bar. The
+        // button (and this popup) stay put; only the content above yields.
         onOpened: {
+            if (root.idlePage) {
+                var rootTopInPage = root.mapToItem(root.idlePage, 0, 0).y
+                root.idlePage.requestPanelClearance(rootTopInPage + presetPopup.y, presetPopup.height)
+            }
+            _announceOnOpen()
+        }
+        onClosed: {
+            if (root.idlePage) root.idlePage.releasePanelClearance()
+        }
+
+        function _announceOnOpen() {
             if (typeof AccessibilityManager === "undefined" || !AccessibilityManager.enabled) return
             // Announce the visible page (just reset to page 1), not the full
             // inventory — matches every sibling pill row.

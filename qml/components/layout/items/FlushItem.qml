@@ -149,7 +149,12 @@ Item {
         // Full-mode flush path runs IdlePage.onActivePresetFunctionChanged which
         // announces the preset list to TalkBack. The compact-mode popup bypasses that
         // path, so announce here directly to keep feature parity for screen-reader users.
+        onClosed: { if (root.idlePage) root.idlePage.releasePanelClearance() }
         onOpened: {
+            if (root.idlePage) {
+                var rootTopInPage = root.mapToItem(root.idlePage, 0, 0).y
+                root.idlePage.requestPanelClearance(rootTopInPage + presetPopup.y, presetPopup.height)
+            }
             if (typeof AccessibilityManager === "undefined" || !AccessibilityManager.enabled) return
             // Announce the visible page (just reset to page 1), not the full list.
             var presets = root.visibleFlush
