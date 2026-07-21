@@ -118,7 +118,9 @@ Item {
     GraphsView {
         id: graphsView
         anchors.fill: parent
-        anchors.bottomMargin: Theme.scaled(32)  // room for the custom legend below
+        // Reserve room for the bottom legend; tracks its (possibly wrapped) height
+        // so a second line pushes the plot up instead of overlapping it.
+        anchors.bottomMargin: legendRow.height + Theme.scaled(6)
         // Reserve room on the right for the manual temperature labels; Qt Graphs
         // has no axisYRight in this setup so we render them ourselves below.
         anchors.rightMargin: Theme.scaled(28)
@@ -509,28 +511,21 @@ Item {
     onFramesChanged: { recomputeFrameDurations(); updateCurves() }
     Component.onCompleted: { recomputeFrameDurations(); updateCurves() }
 
-    // Custom legend
-    Row {
+    // Custom legend — display-only (goal curves), rendered through the shared
+    // wrapping legend with line swatches. Bottom-anchored; the GraphsView's
+    // bottomMargin above tracks `legendRow.height`, so a wrapped line pushes the
+    // plot up instead of overlapping it.
+    CustomLegend {
         id: legendRow
         anchors.bottom: parent.bottom
-        anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottomMargin: Theme.scaled(2)
-        spacing: Theme.spacingLarge
-
-        Row {
-            spacing: Theme.scaled(4)
-            Rectangle { width: Theme.scaled(16); height: Theme.scaled(3); radius: Theme.scaled(1); color: Theme.pressureGoalColor; anchors.verticalCenter: parent.verticalCenter }
-            Text { text: TranslationManager.translate("profileGraph.pressure", "Pressure"); color: Theme.textSecondaryColor; font: Theme.captionFont }
-        }
-        Row {
-            spacing: Theme.scaled(4)
-            Rectangle { width: Theme.scaled(16); height: Theme.scaled(3); radius: Theme.scaled(1); color: Theme.flowGoalColor; anchors.verticalCenter: parent.verticalCenter }
-            Text { text: TranslationManager.translate("profileGraph.flow", "Flow"); color: Theme.textSecondaryColor; font: Theme.captionFont }
-        }
-        Row {
-            spacing: Theme.scaled(4)
-            Rectangle { width: Theme.scaled(16); height: Theme.scaled(3); radius: Theme.scaled(1); color: Theme.temperatureGoalColor; anchors.verticalCenter: parent.verticalCenter }
-            Text { text: TranslationManager.translate("profileGraph.temp", "Temp"); color: Theme.textSecondaryColor; font: Theme.captionFont }
-        }
+        width: parent.width
+        toggleEnabled: false
+        swatchStyle: "line"
+        entries: [
+            { label: TranslationManager.translate("profileGraph.pressure", "Pressure"), color: Theme.pressureGoalColor },
+            { label: TranslationManager.translate("profileGraph.flow", "Flow"), color: Theme.flowGoalColor },
+            { label: TranslationManager.translate("profileGraph.temp", "Temp"), color: Theme.temperatureGoalColor }
+        ]
     }
 }
