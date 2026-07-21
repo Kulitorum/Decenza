@@ -52,6 +52,25 @@
 - **WHEN** an MCP client calls `debug_get_log` with `filter: "disconnected"`
 - **THEN** each entry in the response's `lines` array carries the absolute line number of that match within the addressed range, in addition to the existing `log` string
 
+### Requirement: Debug log tools support consecutive-line deduplication
+`debug_get_log` and `shots_get_debug_log` SHALL accept an optional `dedupe` boolean parameter. When `true`, consecutive lines within the already-filtered/leveled candidate list that are identical once each line's own leading `[<elapsed>]` timestamp field is stripped SHALL be collapsed into a single entry, applied before `tail`/`offset`/`limit`. Each collapsed entry in the `lines` array SHALL carry `count` (the number of consecutive occurrences collapsed) and `lastLine` (the absolute line number of the last occurrence), in addition to the existing `line`/`text` (describing the first occurrence). Non-consecutive occurrences of the same message elsewhere in the addressed range SHALL NOT be collapsed together. When `dedupe` is omitted or `false`, `count`/`lastLine` SHALL NOT appear and the response is unaffected.
+
+#### Scenario: A repeated burst collapses to one entry
+- **WHEN** an MCP client calls `debug_get_log` with `dedupe: true` over a range where the same warning fires 3 times consecutively (identical text apart from each line's own timestamp)
+- **THEN** the response's `lines` array contains one entry for that warning with `count: 3` and `lastLine` set to the absolute line number of the third occurrence
+
+#### Scenario: Non-consecutive repeats stay separate
+- **WHEN** the same message occurs twice in the addressed range with a different, non-matching line in between
+- **THEN** `dedupe: true` SHALL produce two separate entries, not one collapsed entry
+
+#### Scenario: dedupe combines with filter and tail
+- **WHEN** an MCP client calls either tool with `filter`, `dedupe: true`, and `tail` together
+- **THEN** filtering is applied first, then consecutive collapsing, then `tail` selects the last N resulting (collapsed) entries
+
+#### Scenario: No dedupe reproduces existing behavior
+- **WHEN** an MCP client calls either tool without a `dedupe` parameter
+- **THEN** the response is identical in shape to the tool's behavior without this parameter — no `count` or `lastLine` fields appear
+
 ### Requirement: App debug log session index is cached
 The app debug log's session-boundary index (used by `debug_get_log`'s `sessions=true` and `session=N` modes) SHALL be cached keyed on the persisted log file's size and modification time, and rebuilt only when either differs from the cached key, instead of rescanning the full file on every call.
 

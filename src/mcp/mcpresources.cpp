@@ -319,14 +319,25 @@ void registerMcpResources(McpResourceRegistry* registry, DE1Device* device,
 // mode: `log` stays the newline-joined text (unchanged shape for existing
 // callers), `lines` is the additive per-line {"line", "text"} array that lets
 // a caller follow up a filtered/tailed hit with a precise offset request.
-static void appendLogFields(QJsonObject& result, const QList<McpLogFilter::LineMatch>& matches)
+// When `deduped` is true, each `lines[]` entry also carries `count`/`lastLine`
+// (see McpLogFilter::dedupeConsecutive) and `log` annotates a collapsed run
+// with "(xN)"; when false, entries and `log` are exactly as before dedupe existed.
+static void appendLogFields(QJsonObject& result, const QList<McpLogFilter::LineMatch>& matches,
+                            bool deduped = false)
 {
     QStringList texts;
     QJsonArray lineArray;
     texts.reserve(matches.size());
     for (const auto& m : matches) {
-        texts.append(m.text);
-        lineArray.append(QJsonObject{{"line", static_cast<qint64>(m.line)}, {"text", m.text}});
+        QJsonObject entry{{"line", static_cast<qint64>(m.line)}, {"text", m.text}};
+        if (deduped) {
+            texts.append(m.count > 1 ? m.text + QStringLiteral(" (x%1)").arg(m.count) : m.text);
+            entry["count"] = static_cast<qint64>(m.count);
+            entry["lastLine"] = static_cast<qint64>(m.lastLine);
+        } else {
+            texts.append(m.text);
+        }
+        lineArray.append(entry);
     }
     result["log"] = texts.join('\n');
     result["lines"] = lineArray;
@@ -343,8 +354,11 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
         "(3) Default: address the whole log. "
         "Within modes 2/3, `filter` (substring, or regex when `regex` is true; case-insensitive) "
         "and `minLevel` (DEBUG/INFO/WARN/ERROR/FATAL, mode-2/3 app log only) narrow which lines "
-        "qualify before pagination. `tail` (last N qualifying lines) takes precedence over `offset` "
-        "when both are given. Every returned line carries its absolute line number in the `lines` array.",
+        "qualify before pagination. `dedupe` collapses consecutive qualifying lines that are "
+        "identical apart from each line's own leading timestamp into one entry carrying `count` "
+        "and `lastLine` (non-consecutive repeats are not collapsed). `tail` (last N qualifying/"
+        "deduped entries) takes precedence over `offset` when both are given. Every returned line "
+        "carries its absolute line number in the `lines` array.",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
@@ -380,6 +394,10 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
                 {"tail", QJsonObject{
                     {"type", "integer"},
                     {"description", "Return only the last N qualifying lines instead of paginating from offset. Takes precedence over offset when both are set."}
+                }},
+                {"dedupe", QJsonObject{
+                    {"type", "boolean"},
+                    {"description", "Collapse consecutive qualifying lines that are identical apart from each line's own leading timestamp into one entry carrying count/lastLine. Non-consecutive repeats are not collapsed."}
                 }}
             }}
         },
@@ -394,9 +412,10 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
             const QString minLevel = args["minLevel"].toString();
             const bool hasTail = args.contains("tail");
             const qsizetype tail = hasTail ? qMax(qsizetype(0), static_cast<qsizetype>(args["tail"].toInt(0))) : 0;
+            const bool dedupe = args["dedupe"].toBool(false);
             const qsizetype offset = qMax(qsizetype(0), static_cast<qsizetype>(args["offset"].toInt(0)));
             const qsizetype limit = qBound(qsizetype(1), static_cast<qsizetype>(args["limit"].toInt(500)), qsizetype(2000));
-            const bool narrowed = !filter.isEmpty() || !minLevel.isEmpty() || hasTail;
+            const bool narrowed = !filter.isEmpty() || !minLevel.isEmpty() || hasTail || dedupe;
 
             // Mode 1/2: sessions=true or session=N — resolve via the cached index.
             if (args.contains("sessions") || args.contains("session")) {
@@ -434,10 +453,12 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
                 const QStringList rawLines = logger->getPersistedLogChunk(sessStart, sessLines);
 
                 QString filterError;
-                const QList<McpLogFilter::LineMatch> qualifying =
+                QList<McpLogFilter::LineMatch> qualifying =
                     McpLogFilter::filterLines(rawLines, sessStart, filter, regexMode, minLevel, &filterError);
                 if (!filterError.isEmpty())
                     return QJsonObject{{"error", filterError}};
+                if (dedupe)
+                    qualifying = McpLogFilter::dedupeConsecutive(qualifying);
 
                 const QList<McpLogFilter::LineMatch> page = McpLogFilter::paginate(qualifying, offset, limit, tail);
 
@@ -450,7 +471,7 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
                 result["qualifyingLines"] = static_cast<int>(qualifying.size());
                 result["returnedLines"] = static_cast<int>(page.size());
                 result["hasMore"] = hasTail ? false : ((offset + page.size()) < qualifying.size());
-                appendLogFields(result, page);
+                appendLogFields(result, page, dedupe);
 
                 if (!result["hasMore"].toBool() && memoryMonitor)
                     result["memorySummary"] = memoryMonitor->toSummaryString();
@@ -485,10 +506,12 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
             const QStringList rawLines = logger->getPersistedLogChunk(0, 100000, &totalLines);
 
             QString filterError;
-            const QList<McpLogFilter::LineMatch> qualifying =
+            QList<McpLogFilter::LineMatch> qualifying =
                 McpLogFilter::filterLines(rawLines, 0, filter, regexMode, minLevel, &filterError);
             if (!filterError.isEmpty())
                 return QJsonObject{{"error", filterError}};
+            if (dedupe)
+                qualifying = McpLogFilter::dedupeConsecutive(qualifying);
 
             const QList<McpLogFilter::LineMatch> page = McpLogFilter::paginate(qualifying, offset, limit, tail);
 
@@ -499,7 +522,7 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
             result["qualifyingLines"] = static_cast<int>(qualifying.size());
             result["returnedLines"] = static_cast<int>(page.size());
             result["hasMore"] = hasTail ? false : ((offset + page.size()) < qualifying.size());
-            appendLogFields(result, page);
+            appendLogFields(result, page, dedupe);
 
             if (!result["hasMore"].toBool() && memoryMonitor)
                 result["memorySummary"] = memoryMonitor->toSummaryString();

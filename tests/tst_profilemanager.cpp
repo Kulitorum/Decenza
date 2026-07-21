@@ -892,6 +892,65 @@ private slots:
         QVERIFY(lines[0].toObject()["text"].toString().contains("second session warning"));
     }
 
+    void debugGetLog_dedupeCollapsesRepeatedBurst() {
+        QTemporaryDir dir;
+        writeLogFile(dir.filePath("debug.log"),
+            "[ 101.178] WARN  _derived.text undefined at read\n"
+            "[ 101.179] WARN  _derived.text undefined at read\n"
+            "[ 101.180] WARN  _derived.text undefined at read\n"
+            "[ 101.181] INFO  unrelated line\n");
+        WebDebugLoggerTestGuard guard(dir.filePath("debug.log"));
+
+        McpTestFixture f;
+        registerDebugTools(&f.registry, nullptr);
+
+        QJsonObject result = f.callTool("debug_get_log", QJsonObject{{"minLevel", "WARN"}, {"dedupe", true}});
+        QJsonArray lines = result["lines"].toArray();
+        QCOMPARE(lines.size(), 1);
+        QJsonObject entry = lines[0].toObject();
+        QCOMPARE(entry["line"].toInt(), 0);
+        QCOMPARE(entry["count"].toInt(), 3);
+        QCOMPARE(entry["lastLine"].toInt(), 2);
+        QVERIFY(result["log"].toString().contains("(x3)"));
+    }
+
+    void debugGetLog_dedupeCombinesWithTail() {
+        QTemporaryDir dir;
+        QString content;
+        for (int i = 0; i < 3; ++i) content += "[   0.100] WARN  retrying\n";
+        content += "[   0.200] WARN  final failure\n";
+        writeLogFile(dir.filePath("debug.log"), content);
+        WebDebugLoggerTestGuard guard(dir.filePath("debug.log"));
+
+        McpTestFixture f;
+        registerDebugTools(&f.registry, nullptr);
+
+        QJsonObject result = f.callTool("debug_get_log", QJsonObject{{"dedupe", true}, {"tail", 1}});
+        QJsonArray lines = result["lines"].toArray();
+        QCOMPARE(lines.size(), 1);
+        QVERIFY(lines[0].toObject()["text"].toString().contains("final failure"));
+        QCOMPARE(lines[0].toObject()["count"].toInt(), 1);
+    }
+
+    void debugGetLog_noDedupeReproducesPriorShape() {
+        QTemporaryDir dir;
+        writeLogFile(dir.filePath("debug.log"),
+            "[   0.100] WARN  repeat\n"
+            "[   0.200] WARN  repeat\n");
+        WebDebugLoggerTestGuard guard(dir.filePath("debug.log"));
+
+        McpTestFixture f;
+        registerDebugTools(&f.registry, nullptr);
+
+        QJsonObject result = f.callTool("debug_get_log", QJsonObject{{"minLevel", "WARN"}});
+        QJsonArray lines = result["lines"].toArray();
+        QCOMPARE(lines.size(), 2);
+        for (const auto& l : lines) {
+            QVERIFY(!l.toObject().contains("count"));
+            QVERIFY(!l.toObject().contains("lastLine"));
+        }
+    }
+
     // === QML binding smoke test ===
     // Verifies that ProfileManager properties resolve to real values when
     // registered as a QML context property. Would have caught the 3 QML bugs

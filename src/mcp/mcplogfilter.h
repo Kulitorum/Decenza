@@ -13,11 +13,16 @@
 
 namespace McpLogFilter {
 
-// One line addressed by its absolute position within whatever range the
-// caller is searching (whole log, one session, or one shot's debug log).
+// One line (or, after dedupeConsecutive(), one run of consecutive identical
+// lines) addressed by its absolute position within whatever range the caller
+// is searching (whole log, one session, or one shot's debug log). `count`/
+// `lastLine` are only meaningful after dedupeConsecutive() — a plain
+// filterLines() result always has count == 1 and lastLine == line.
 struct LineMatch {
-    qsizetype line;
-    QString text;
+    qsizetype line;      // absolute line number of the first occurrence
+    QString text;        // text of the first occurrence
+    qsizetype count = 1; // consecutive occurrences collapsed into this entry
+    qsizetype lastLine = -1; // absolute line number of the last occurrence
 };
 
 // DEBUG < INFO < WARN < ERROR < FATAL; -1 for anything else (session markers,
@@ -78,7 +83,46 @@ inline QList<LineMatch> filterLines(const QStringList& lines, qsizetype startLin
             if (!matches) continue;
         }
         if (hasMinLevel && levelRank(lineLevel(line)) < minRank) continue;
-        result.append({startLine + i, line});
+        result.append({startLine + i, line, 1, startLine + i});
+    }
+    return result;
+}
+
+// Strips a leading "[<elapsed>] " field (WebDebugLogger's persisted line
+// format — see lineLevel() above) so two lines that differ only in when they
+// were logged compare equal. Lines with no such prefix (shot debug log lines,
+// session markers) are returned unchanged.
+inline QString stripTimestampPrefix(const QString& line)
+{
+    static const QRegularExpression re(QStringLiteral(R"(^\[[^\]]*\]\s*)"));
+    const auto m = re.match(line);
+    return m.hasMatch() ? line.mid(m.capturedLength(0)) : line;
+}
+
+// Collapses consecutive entries in `matches` whose text is equal once each
+// line's own leading timestamp is stripped (see stripTimestampPrefix()) into
+// one entry: `line`/`text` describe the first occurrence, `count` is the
+// number of occurrences collapsed, `lastLine` is the absolute line number of
+// the last occurrence. Non-consecutive occurrences of the same text (with a
+// different entry in between) are NOT collapsed together — this is `uniq -c`,
+// not `sort | uniq -c`. Deliberately compares only after stripping the
+// timestamp, not after normalizing numbers elsewhere in the message, so two
+// genuinely different events that happen to share a message template (e.g.
+// two different shot ids in an otherwise-identical log line) are never
+// merged — see design.md Decision 6.
+inline QList<LineMatch> dedupeConsecutive(const QList<LineMatch>& matches)
+{
+    QList<LineMatch> result;
+    QString lastKey;
+    for (const auto& m : matches) {
+        const QString key = stripTimestampPrefix(m.text);
+        if (!result.isEmpty() && key == lastKey) {
+            result.last().count++;
+            result.last().lastLine = m.line;
+        } else {
+            result.append(m);
+            lastKey = key;
+        }
     }
     return result;
 }

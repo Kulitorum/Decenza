@@ -568,10 +568,12 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
         "Read the debug log captured during a shot extraction. Contains BLE frames, "
         "phase transitions, stop-at-weight events, flow calibration, and all qDebug output "
         "from the shot. `filter` (substring, or regex when `regex` is true; case-insensitive) "
-        "narrows which lines qualify before pagination. `tail` (last N qualifying lines) takes "
-        "precedence over `offset` when both are given. `minLevel` is accepted but has no effect — "
-        "shot debug log lines are not level-tagged. Every returned line carries its absolute line "
-        "number in the `lines` array.",
+        "narrows which lines qualify before pagination. `dedupe` collapses consecutive qualifying "
+        "lines that are identical apart from any leading timestamp into one entry carrying `count` "
+        "and `lastLine` (non-consecutive repeats are not collapsed). `tail` (last N qualifying/"
+        "deduped entries) takes precedence over `offset` when both are given. `minLevel` is "
+        "accepted but has no effect — shot debug log lines are not level-tagged. Every returned "
+        "line carries its absolute line number in the `lines` array.",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
@@ -594,6 +596,10 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                 {"tail", QJsonObject{
                     {"type", "integer"},
                     {"description", "Return only the last N qualifying lines instead of paginating from offset. Takes precedence over offset when both are set."}
+                }},
+                {"dedupe", QJsonObject{
+                    {"type", "boolean"},
+                    {"description", "Collapse consecutive qualifying lines that are identical apart from any leading timestamp into one entry carrying count/lastLine. Non-consecutive repeats are not collapsed."}
                 }}
             }},
             {"required", QJsonArray{"shotId"}}
@@ -616,10 +622,11 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
             const bool regexMode = args["regex"].toBool(false);
             const bool hasTail = args.contains("tail");
             const qsizetype tail = hasTail ? qMax(qsizetype(0), static_cast<qsizetype>(args["tail"].toInt(0))) : 0;
+            const bool dedupe = args["dedupe"].toBool(false);
 
             const QString dbPath = shotHistory->databasePath();
 
-            QThread* thread = QThread::create([dbPath, shotId, offset, limit, filter, regexMode, hasTail, tail, respond]() {
+            QThread* thread = QThread::create([dbPath, shotId, offset, limit, filter, regexMode, hasTail, tail, dedupe, respond]() {
                 QJsonObject result;
 
                 if (!withTempDb(dbPath, "mcp_shot_debug", [&](QSqlDatabase& db) {
@@ -630,7 +637,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                         QString debugLog = query.value(0).toString();
                         if (debugLog.isEmpty()) {
                             result["error"] = "No debug log for shot " + QString::number(shotId);
-                        } else if (filter.isEmpty() && !hasTail) {
+                        } else if (filter.isEmpty() && !hasTail && !dedupe) {
                             // Unnarrowed — original chunk behavior/shape, unchanged.
                             const QStringList allLines = debugLog.split('\n');
                             const qsizetype totalLines = allLines.size();
@@ -651,12 +658,14 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                             const qsizetype totalLines = allLines.size();
 
                             QString filterError;
-                            const QList<McpLogFilter::LineMatch> qualifying =
+                            QList<McpLogFilter::LineMatch> qualifying =
                                 McpLogFilter::filterLines(allLines, 0, filter, regexMode, QString(), &filterError);
                             if (!filterError.isEmpty()) {
                                 result["error"] = filterError;
                                 return;
                             }
+                            if (dedupe)
+                                qualifying = McpLogFilter::dedupeConsecutive(qualifying);
                             const QList<McpLogFilter::LineMatch> page =
                                 McpLogFilter::paginate(qualifying, offset, limit, tail);
 
@@ -672,8 +681,15 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                             QJsonArray lineArray;
                             texts.reserve(page.size());
                             for (const auto& m : page) {
-                                texts.append(m.text);
-                                lineArray.append(QJsonObject{{"line", static_cast<qint64>(m.line)}, {"text", m.text}});
+                                QJsonObject entry{{"line", static_cast<qint64>(m.line)}, {"text", m.text}};
+                                if (dedupe) {
+                                    texts.append(m.count > 1 ? m.text + QStringLiteral(" (x%1)").arg(m.count) : m.text);
+                                    entry["count"] = static_cast<qint64>(m.count);
+                                    entry["lastLine"] = static_cast<qint64>(m.lastLine);
+                                } else {
+                                    texts.append(m.text);
+                                }
+                                lineArray.append(entry);
                             }
                             result["log"] = texts.join('\n');
                             result["lines"] = lineArray;

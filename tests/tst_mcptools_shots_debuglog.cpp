@@ -136,6 +136,49 @@ private slots:
         QCOMPARE(result["totalLines"].toInt(), 2);
         QCOMPARE(result["returnedLines"].toInt(), 2);
     }
+
+    void dedupeCollapsesRepeatedBurst() {
+        McpTestFixture f;
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(f.tempDir.filePath("shots.db")));
+        registerShotTools(&f.registry, &storage);
+
+        qint64 shotId = -1;
+        withTempDb(storage.databasePath(), "debuglog_seed6", [&](QSqlDatabase& db) {
+            shotId = insertShotWithDebugLog(db,
+                QStringList{"BLE frame ack", "BLE frame ack", "BLE frame ack", "BLE frame nack"}.join('\n'));
+        });
+
+        QJsonObject result = f.callAsyncTool("shots_get_debug_log",
+            QJsonObject{{"shotId", shotId}, {"filter", "BLE frame ack"}, {"dedupe", true}});
+        QJsonArray lines = result["lines"].toArray();
+        QCOMPARE(lines.size(), 1);
+        QJsonObject entry = lines[0].toObject();
+        QCOMPARE(entry["line"].toInt(), 0);
+        QCOMPARE(entry["count"].toInt(), 3);
+        QCOMPARE(entry["lastLine"].toInt(), 2);
+    }
+
+    void noDedupeReproducesPriorShape() {
+        McpTestFixture f;
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(f.tempDir.filePath("shots.db")));
+        registerShotTools(&f.registry, &storage);
+
+        qint64 shotId = -1;
+        withTempDb(storage.databasePath(), "debuglog_seed7", [&](QSqlDatabase& db) {
+            shotId = insertShotWithDebugLog(db, QStringList{"repeat", "repeat"}.join('\n'));
+        });
+
+        QJsonObject result = f.callAsyncTool("shots_get_debug_log",
+            QJsonObject{{"shotId", shotId}, {"filter", "repeat"}});
+        QJsonArray lines = result["lines"].toArray();
+        QCOMPARE(lines.size(), 2);
+        for (const auto& l : lines) {
+            QVERIFY(!l.toObject().contains("count"));
+            QVERIFY(!l.toObject().contains("lastLine"));
+        }
+    }
 };
 
 QTEST_GUILESS_MAIN(tst_McpToolsShotsDebugLog)

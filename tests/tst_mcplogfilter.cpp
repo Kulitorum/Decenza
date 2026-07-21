@@ -142,6 +142,80 @@ private slots:
         auto page = paginate(matches, 0, 500, /*tail*/ 100);
         QCOMPARE(page.size(), 2);
     }
+
+    void stripTimestampPrefix_removesLeadingBracketField()
+    {
+        QCOMPARE(stripTimestampPrefix("[   0.123] WARN  low water"), QStringLiteral("WARN  low water"));
+        QCOMPARE(stripTimestampPrefix("[3819.468] WARN  x"), QStringLiteral("WARN  x"));
+    }
+
+    void stripTimestampPrefix_leavesUnprefixedLinesUnchanged()
+    {
+        // Shot debug log lines and session markers have no "[<elapsed>]" prefix.
+        QCOMPARE(stripTimestampPrefix("BLE frame 1"), QStringLiteral("BLE frame 1"));
+        QCOMPARE(stripTimestampPrefix("========== SESSION START: 2026-01-01T09:00:00 =========="),
+                 QStringLiteral("========== SESSION START: 2026-01-01T09:00:00 =========="));
+    }
+
+    void dedupeConsecutive_collapsesARun()
+    {
+        QList<LineMatch> matches = {
+            {10, "[ 101.178] WARN  _derived.text undefined at read"},
+            {11, "[ 101.179] WARN  _derived.text undefined at read"},
+            {12, "[ 101.180] WARN  _derived.text undefined at read"},
+        };
+        auto grouped = dedupeConsecutive(matches);
+        QCOMPARE(grouped.size(), 1);
+        QCOMPARE(grouped[0].line, qsizetype(10));
+        QCOMPARE(grouped[0].count, qsizetype(3));
+        QCOMPARE(grouped[0].lastLine, qsizetype(12));
+        QCOMPARE(grouped[0].text, matches[0].text);
+    }
+
+    void dedupeConsecutive_nonConsecutiveRepeatsStaySeparate()
+    {
+        QList<LineMatch> matches = {
+            {10, "[  1.000] WARN  retrying"},
+            {11, "[  2.000] INFO  something unrelated"},
+            {12, "[  3.000] WARN  retrying"},
+        };
+        auto grouped = dedupeConsecutive(matches);
+        QCOMPARE(grouped.size(), 3);
+        for (const auto& g : grouped)
+            QCOMPARE(g.count, qsizetype(1));
+    }
+
+    void dedupeConsecutive_leavesGenuinelyDifferentLinesAlone()
+    {
+        // Different shot ids/sample counts — must NOT collapse even though the
+        // message template is otherwise identical (see design.md Decision 6).
+        QList<LineMatch> matches = {
+            {1, "[  1.000] INFO  [Background] Shot-chart grab -> source shot 1120 samples 293"},
+            {2, "[  2.000] INFO  [Background] Shot-chart grab -> source shot 1121 samples 292"},
+        };
+        auto grouped = dedupeConsecutive(matches);
+        QCOMPARE(grouped.size(), 2);
+    }
+
+    void dedupeConsecutive_handlesLinesWithNoTimestampPrefix()
+    {
+        // Shot debug log style: no "[<elapsed>]" prefix at all.
+        QList<LineMatch> matches = {
+            {0, "BLE frame ack"},
+            {1, "BLE frame ack"},
+            {2, "BLE frame nack"},
+        };
+        auto grouped = dedupeConsecutive(matches);
+        QCOMPARE(grouped.size(), 2);
+        QCOMPARE(grouped[0].count, qsizetype(2));
+        QCOMPARE(grouped[0].lastLine, qsizetype(1));
+        QCOMPARE(grouped[1].count, qsizetype(1));
+    }
+
+    void dedupeConsecutive_emptyInputIsEmptyOutput()
+    {
+        QVERIFY(dedupeConsecutive({}).isEmpty());
+    }
 };
 
 QTEST_GUILESS_MAIN(tst_McpLogFilter)
