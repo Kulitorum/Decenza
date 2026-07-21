@@ -228,7 +228,9 @@ Item {
         id: legend
         x: graphsView.plotArea.x
         y: graphsView.plotArea.y + Theme.scaled(4)
-        width: implicitWidth
+        // Content-width (and left-aligned at the plot edge) when it fits; bounded
+        // to the plot width so it wraps instead of overflowing when it doesn't.
+        width: Math.min(implicitWidth, graphsView.plotArea.width)
 
         readonly property var _keys: ["steamGraph/showPressure", "steamGraph/showFlow", "steamGraph/showTemperature"]
 
