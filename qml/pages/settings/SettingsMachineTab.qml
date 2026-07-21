@@ -729,13 +729,13 @@ KeyboardAwareContainer {
                             spacing: Theme.scaled(15)
 
                             Text {
+                                Layout.fillWidth: true
+                                elide: Text.ElideRight
                                 text: TranslationManager.translate("settings.preferences.followSystem", "Follow system theme")
                                 color: Theme.textColor
                                 font.family: Theme.bodyFont.family
                                 font.pixelSize: Theme.scaled(14)
                             }
-
-                            Item { Layout.fillWidth: true }
 
                             StyledSwitch {
                                 id: followSystemSwitch
@@ -757,17 +757,18 @@ KeyboardAwareContainer {
                             spacing: Theme.scaled(15)
 
                             Text {
+                                Layout.fillWidth: true
+                                elide: Text.ElideRight
                                 text: TranslationManager.translate("settings.preferences.darkTheme", "Dark theme")
                                 color: Theme.textColor
                                 font.family: Theme.bodyFont.family
                                 font.pixelSize: Theme.scaled(14)
                             }
 
-                            Item { Layout.fillWidth: true }
-
                             StyledComboBox {
                                 id: darkThemeCombo
-                                Layout.preferredWidth: Theme.scaled(180)
+                                Layout.preferredWidth: Theme.scaled(170)
+                                Layout.maximumWidth: Theme.scaled(170)
                                 accessibleLabel: TranslationManager.translate("settings.preferences.darkTheme", "Dark theme")
                                 model: Settings.theme.themeNames
                                 currentIndex: Math.max(0, Settings.theme.themeNames.indexOf(Settings.theme.darkThemeName))
@@ -781,17 +782,18 @@ KeyboardAwareContainer {
                             spacing: Theme.scaled(15)
 
                             Text {
+                                Layout.fillWidth: true
+                                elide: Text.ElideRight
                                 text: TranslationManager.translate("settings.preferences.lightTheme", "Light theme")
                                 color: Theme.textColor
                                 font.family: Theme.bodyFont.family
                                 font.pixelSize: Theme.scaled(14)
                             }
 
-                            Item { Layout.fillWidth: true }
-
                             StyledComboBox {
                                 id: lightThemeCombo
-                                Layout.preferredWidth: Theme.scaled(180)
+                                Layout.preferredWidth: Theme.scaled(170)
+                                Layout.maximumWidth: Theme.scaled(170)
                                 accessibleLabel: TranslationManager.translate("settings.preferences.lightTheme", "Light theme")
                                 model: Settings.theme.themeNames
                                 currentIndex: Math.max(0, Settings.theme.themeNames.indexOf(Settings.theme.lightThemeName))
@@ -807,13 +809,13 @@ KeyboardAwareContainer {
                             spacing: Theme.scaled(15)
 
                             Text {
+                                Layout.fillWidth: true
+                                elide: Text.ElideRight
                                 text: TranslationManager.translate("settings.preferences.glassChrome", "Glass chrome")
                                 color: Theme.textColor
                                 font.family: Theme.bodyFont.family
                                 font.pixelSize: Theme.scaled(14)
                             }
-
-                            Item { Layout.fillWidth: true }
 
                             StyledSwitch {
                                 checked: Settings.theme.glassChrome
@@ -837,13 +839,14 @@ KeyboardAwareContainer {
                             spacing: Theme.scaled(15)
 
                             Text {
+                                Layout.fillWidth: true
+                                elide: Text.ElideRight
                                 text: TranslationManager.translate("settings.preferences.background", "Background")
                                 color: Theme.textColor
                                 font.family: Theme.bodyFont.family
                                 font.pixelSize: Theme.scaled(14)
                             }
 
-                            Item { Layout.fillWidth: true }
 
                             AccessibleButton {
                                 // "Change" once anything is set — a preset counts as much
