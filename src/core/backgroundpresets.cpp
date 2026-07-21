@@ -67,15 +67,18 @@ const QVector<Pattern>& patterns() {
     // is sparse: what matters for legibility is opacity WEIGHTED BY COVERAGE, and the
     // densest tile here shifts the page by about 4%.
     //
-    // `coverage` is the ink fraction of each tile, measured from the artwork; keep it in
-    // step if a tile is redrawn, because the contrast test relies on it.
+    // `coverage` is the ink fraction of each tile. These are MEASURED — the test renders
+    // every tile and fails if a declared value drifts more than 15% from the artwork.
+    // They were hand-estimated first and three were wrong, two of them understating the
+    // shift, which is the unsafe direction: it tells the contrast floors the patterns are
+    // gentler than they are.
     static const QVector<Pattern> table = {
-        pattern("grain",     "Grain",     "grain",     0.18, 32, 0.09),
-        pattern("dots",      "Dot Grid",  "dots",      0.18, 12, 0.09),
-        pattern("pinstripe", "Pinstripe", "pinstripe", 0.18, 8,  0.13),
-        pattern("twill",     "Twill",     "twill",     0.16, 8,  0.18),
-        pattern("weave",     "Weave",     "weave",     0.14, 12, 0.22),
-        pattern("linen",     "Linen",     "linen",     0.14, 16, 0.30),
+        pattern("grain",     "Grain",     "grain",     0.18, 32, 0.088),
+        pattern("dots",      "Dot Grid",  "dots",      0.18, 12, 0.044),
+        pattern("pinstripe", "Pinstripe", "pinstripe", 0.18, 8,  0.125),
+        pattern("twill",     "Twill",     "twill",     0.16, 8,  0.177),
+        pattern("weave",     "Weave",     "weave",     0.14, 12, 0.278),
+        pattern("linen",     "Linen",     "linen",     0.14, 16, 0.343),
     };
     return table;
 }

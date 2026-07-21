@@ -1,6 +1,9 @@
 #include <QtTest>
 #include <QColor>
 #include <QFile>
+#include <QImage>
+#include <QPainter>
+#include <QSvgRenderer>
 #include <QSet>
 #include <QSignalSpy>
 
@@ -103,14 +106,70 @@ private slots:
         }
     }
 
+    // Render a tile and average its alpha — the fraction of the tile that is actually ink.
+    // This is the number `contrastShift()` multiplies opacity by, so it decides how much
+    // luminance shift the contrast floors are told to expect.
+    static double measuredCoverage(const BackgroundPresets::Pattern& pattern) {
+        QString path = pattern.asset;
+        path.replace(0, 4, ":");
+
+        QSvgRenderer renderer(path);
+        if (!renderer.isValid())
+            return -1.0;
+
+        // Render well above the authored size so thin strokes and circles are measured by
+        // area rather than by pixel-grid luck, then scale back to a fraction.
+        const int side = pattern.tile * 16;
+        QImage image(side, side, QImage::Format_ARGB32_Premultiplied);
+        image.fill(Qt::transparent);
+        QPainter painter(&image);
+        renderer.render(&painter, QRectF(0, 0, side, side));
+        painter.end();
+
+        double ink = 0.0;
+        for (int y = 0; y < side; ++y) {
+            for (int x = 0; x < side; ++x)
+                ink += qAlpha(image.pixel(x, y)) / 255.0;
+        }
+        return ink / (side * side);
+    }
+
+    void declaredCoverageMatchesTheArtwork() {
+        // backgroundpresets.cpp asks whoever redraws a tile to keep `coverage` in step,
+        // because the contrast test relies on it. That was a comment guarding a number
+        // about a file in another directory, and it did not hold: weave was declared 0.22
+        // against 0.28 of ink and linen 0.30 against 0.34 — both UNDER-stating the shift,
+        // so the floors were being told the patterns were gentler than they are.
+        // Reported together rather than one QVERIFY2 per pattern: if several have drifted
+        // you want the whole list from one run, not to re-run six times.
+        QStringList wrong;
+        for (const auto& p : BackgroundPresets::patterns()) {
+            const double measured = measuredCoverage(p);
+            QVERIFY2(measured >= 0.0, qPrintable("could not render tile: " + p.asset));
+            const double error = std::abs(measured - p.coverage) / measured;
+            if (error > 0.15) {
+                wrong << QString("%1: declares %2, artwork is %3 (%4% off)")
+                             .arg(p.id).arg(p.coverage, 0, 'f', 3)
+                             .arg(measured, 0, 'f', 3).arg(error * 100, 0, 'f', 0);
+            }
+        }
+        QVERIFY2(wrong.isEmpty(),
+                 qPrintable("coverage no longer matches the artwork — re-measure or redraw:\n  "
+                            + wrong.join("\n  ")));
+    }
+
     void patternsAreWellFormed() {
         const auto& table = BackgroundPresets::patterns();
         QVERIFY(!table.isEmpty());
 
         QSet<QString> ids;
         for (const auto& p : table) {
+            // An empty id would be unfindable by patternById, unselectable via hasPattern,
+            // and would still render as a blank untitled tile in the picker.
+            QVERIFY2(!p.id.isEmpty(), "pattern id must not be empty");
             QVERIFY2(!ids.contains(p.id), qPrintable("duplicate pattern id: " + p.id));
             ids.insert(p.id);
+            QVERIFY2(!p.nameKey.isEmpty(), qPrintable("missing nameKey: " + p.id));
             QVERIFY2(!p.nameFallback.isEmpty(), qPrintable("missing nameFallback: " + p.id));
 
             QString resourcePath = p.asset;
@@ -204,17 +263,44 @@ private slots:
         }
     }
 
-    void everyColourKeepsCardsVisible() {
-        // Measured as a CIE L* delta, NOT a WCAG ratio: ratios are built for text and
-        // compress badly in the bright range, so one ratio threshold would pass an
-        // invisible light card or fail a perfectly good dark one.
+    void everyColourHasRoomForItsChrome() {
+        // What this can and cannot prove. `liftFrom` BISECTS until the delta equals what it
+        // was asked for, so asserting "the delta is at least 2 L*" would be a tautology over
+        // this file's own helper — it could not fail for any catalogue, including one whose
+        // colours sat in the dead band. That is what this test used to do.
+        //
+        // The property that can actually fail is CONVERGENCE: near either end of the range
+        // the requested step may not be reachable in the direction chosen, and the bisection
+        // then returns a colour short of it — or, at the very extremes, the page colour
+        // itself, which paints chrome that is invisible with nothing to report it.
         for (const auto& c : BackgroundPresets::colours()) {
             const QColor page(c.value);
-            for (const QColor& fill : {liftFrom(page, kCardLift), liftFrom(page, kTileLift)}) {
-                const double delta = std::abs(lstar(fill) - lstar(page));
-                QVERIFY2(delta >= 2.0,
-                         qPrintable(QString("%1: chrome is only %2 L* from the page")
-                                        .arg(c.id).arg(delta, 0, 'f', 2)));
+            for (double requested : {kCardLift, kTileLift}) {
+                const QColor fill = liftFrom(page, requested);
+                const double achieved = std::abs(lstar(fill) - lstar(page));
+                QVERIFY2(std::abs(achieved - requested) < 0.5,
+                         qPrintable(QString("%1: asked for %2 L* of lift, got %3 — no headroom "
+                                            "in the direction chosen")
+                                        .arg(c.id).arg(requested, 0, 'f', 1)
+                                        .arg(achieved, 0, 'f', 2)));
+                QVERIFY2(fill != page,
+                         qPrintable(QString("%1: chrome resolved to the page colour itself")
+                                        .arg(c.id)));
+            }
+        }
+    }
+
+    void aLiftWithNoHeadroomIsCaught() {
+        // Guards the guard: pure white and pure black are the cases where one lift direction
+        // is impossible, and they must still produce a visible step by going the other way.
+        for (const QColor& extreme : {QColor("#ffffff"), QColor("#000000")}) {
+            for (double requested : {kCardLift, kTileLift}) {
+                const QColor fill = liftFrom(extreme, requested);
+                const double achieved = std::abs(lstar(fill) - lstar(extreme));
+                QVERIFY2(std::abs(achieved - requested) < 0.5,
+                         qPrintable(QString("%1: asked for %2 L*, got %3")
+                                        .arg(extreme.name()).arg(requested, 0, 'f', 1)
+                                        .arg(achieved, 0, 'f', 2)));
             }
         }
     }

@@ -349,6 +349,10 @@ add_decenza_test(tst_backgroundpresets
 # pointing at a file nobody added to resources.qrc.
 target_sources(tst_backgroundpresets PRIVATE ${CMAKE_SOURCE_DIR}/resources/resources.qrc)
 set_target_properties(tst_backgroundpresets PROPERTIES AUTORCC ON)
+# Qt6::Svg so the test can RENDER each pattern tile and measure its ink coverage, rather
+# than trusting the hand-entered figure the contrast maths depends on. Two of the six were
+# wrong before this check existed, both understating the shift.
+target_link_libraries(tst_backgroundpresets PRIVATE Qt6::Svg)
 
 # --- tst_saw_settings: per-(profile, scale) SAW learning + batch + bootstrap ---
 add_decenza_test(tst_saw_settings
