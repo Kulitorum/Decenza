@@ -66,22 +66,9 @@ private:
         return (l + 0.05) / 0.05 >= 1.05 / (l + 0.05) ? QColor("#000000") : QColor("#ffffff");
     }
 
-    // Mirrors Theme._liftFrom: a fixed step in L* (not a fixed RGB fraction), found by
-    // bisection. The distinction matters — a fixed fraction is a large perceptual move
-    // near black and almost nothing at L* 70, which is what previously made the whole
-    // mid-light range unusable.
-    static constexpr double kCardLift = 6.0;   // cards and bars
-    static constexpr double kTileLift = 12.0;  // action tiles, which must read as pressable
-    static QColor liftFrom(const QColor& base, double deltaL = kCardLift) {
-        const QColor target = lstar(base) + deltaL <= 100.0 ? QColor("#ffffff") : QColor("#000000");
-        double lo = 0.0, hi = 1.0;
-        for (int i = 0; i < 24; ++i) {
-            const double m = (lo + hi) / 2;
-            if (std::abs(lstar(mix(base, target, m)) - lstar(base)) < deltaL) lo = m;
-            else hi = m;
-        }
-        return mix(base, target, (lo + hi) / 2);
-    }
+    // NOTE: there is deliberately no local liftFrom/derive here any more. The floors call
+    // BackgroundPresets directly, so they measure the shipped arithmetic. A private copy
+    // made the suite agree with itself while the app shipped something else.
 
 private slots:
     void init() {
@@ -244,14 +231,19 @@ private slots:
 
         for (const auto& c : BackgroundPresets::colours()) {
             const QColor page(c.value);
-            const QColor text = contrastColorFor(page);
-            const QColor secondary = mix(text, page, 0.28);
+            // The SHIPPED derivation, not a local copy of the arithmetic. Re-deriving here
+            // meant the floors measured this file rather than the app: change kCardLift or
+            // kSecondaryMix in backgroundpresets.cpp and every colour could ship failing
+            // 4.5:1 while the suite stayed green on its own constants.
+            const BackgroundPresets::Derived d = BackgroundPresets::derive(page);
+            const QColor text = d.text;
+            const QColor secondary = d.textSecondary;
             struct Case { QColor bg; const char* label; };
             const Case surfaces[] = {
                 {page,                              "page"},
                 {mix(page, text, worstShift),       "page under the densest pattern"},
-                {liftFrom(page, kCardLift),         "card"},
-                {liftFrom(page, kTileLift),         "action tile"},
+                {d.surface,                         "card"},
+                {d.actionTile,                      "action tile"},
             };
             for (const Case& s : surfaces) {
                 for (auto [fg, what] : {std::pair{text, "text"}, std::pair{secondary, "secondary"}}) {
@@ -278,8 +270,8 @@ private slots:
         // itself, which paints chrome that is invisible with nothing to report it.
         for (const auto& c : BackgroundPresets::colours()) {
             const QColor page(c.value);
-            for (double requested : {kCardLift, kTileLift}) {
-                const QColor fill = liftFrom(page, requested);
+            for (double requested : {BackgroundPresets::kCardLift, BackgroundPresets::kTileLift}) {
+                const QColor fill = BackgroundPresets::liftFrom(page, requested);
                 const double achieved = std::abs(lstar(fill) - lstar(page));
                 QVERIFY2(std::abs(achieved - requested) < 0.5,
                          qPrintable(QString("%1: asked for %2 L* of lift, got %3 — no headroom "
@@ -388,8 +380,8 @@ private slots:
         // Guards the guard: pure white and pure black are the cases where one lift direction
         // is impossible, and they must still produce a visible step by going the other way.
         for (const QColor& extreme : {QColor("#ffffff"), QColor("#000000")}) {
-            for (double requested : {kCardLift, kTileLift}) {
-                const QColor fill = liftFrom(extreme, requested);
+            for (double requested : {BackgroundPresets::kCardLift, BackgroundPresets::kTileLift}) {
+                const QColor fill = BackgroundPresets::liftFrom(extreme, requested);
                 const double achieved = std::abs(lstar(fill) - lstar(extreme));
                 QVERIFY2(std::abs(achieved - requested) < 0.5,
                          qPrintable(QString("%1: asked for %2 L*, got %3")
@@ -424,6 +416,13 @@ private slots:
         QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
         raw.setValue("theme/backgroundPreset", "retired-in-a-later-release");
         raw.sync();
+
+        // The read path now says so out loud — upgrading past a removed colour used to make
+        // the background vanish with nothing in the log to connect the two. Expected here,
+        // and asserted rather than merely tolerated: if the warning stops firing, the
+        // diagnosis it exists to provide has gone with it.
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression("not in this build's catalogue"));
 
         SettingsTheme theme;
         QCOMPARE(theme.backgroundPreset(), QString());
@@ -653,7 +652,11 @@ private slots:
         QCOMPARE(theme.backgroundSource(), QString("image"));
     }
 
-    void anUnknownSourceIsRefusedRatherThanErasingTheBackground() {
+    // Named for what it actually checks. The private setter's refusal branch is only
+    // reachable from internal callers passing compile-time constants, so the reachable
+    // hazard is a BAD STORED value — a hand-edited ini, or a downgrade — and what matters
+    // is that reading one does not erase the background the user still has.
+    void anUnknownStoredSourceIsDerivedAroundRatherThanErasingTheBackground() {
         SettingsTheme theme;
         theme.setBackgroundPreset("espresso");
         QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
@@ -662,6 +665,32 @@ private slots:
         // Unknown reads back as the derived kind, and the colour itself is untouched.
         QCOMPARE(theme.backgroundSource(), QString("colour"));
         QCOMPARE(theme.backgroundPreset(), QString("espresso"));
+    }
+
+    void everyStoredSourceItsParameterCannotBackFallsThrough() {
+        // One case was covered ("colour" with no colour). These are the rest, including the
+        // one that does NOT fall through: "shot" carries no parameter, so it is believed as
+        // stored, and that asymmetry should be deliberate rather than discovered.
+        struct Case { const char* stored; const char* preset; const char* image; const char* expect; };
+        const Case cases[] = {
+            {"image",  "",        "",              "none"},    // no path to back it
+            {"none",   "walnut",  "",              "colour"},  // a colour IS set
+            {"none",   "",        "/tmp/a.jpg",    "image"},   // a path IS set
+            {"shot",   "",        "",              "shot"},    // no parameter needed
+        };
+        for (const Case& c : cases) {
+            QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+            raw.remove("theme");
+            raw.setValue("theme/backgroundSource", c.stored);
+            if (*c.preset) raw.setValue("theme/backgroundPreset", c.preset);
+            if (*c.image)  raw.setValue("theme/backgroundImagePath", c.image);
+            raw.sync();
+
+            SettingsTheme theme;
+            QVERIFY2(theme.backgroundSource() == QString(c.expect),
+                     qPrintable(QString("stored %1 (preset '%2', image '%3') derived %4, expected %5")
+                                    .arg(c.stored, c.preset, c.image, theme.backgroundSource(), c.expect)));
+        }
     }
 
     void theShotSourceSurvivesABackup() {
@@ -701,7 +730,11 @@ private slots:
         QFile file(QStringLiteral(DECENZA_SOURCE_DIR "/") + relativePath);
         if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
             return {};
-        const QString text = QString::fromUtf8(file.readAll());
+        QString text = QString::fromUtf8(file.readAll());
+        // Drop // comments first. Without this, a key commented out while debugging still
+        // counts as covered — the cache key silently loses a curve and the test stays green,
+        // which is the exact failure this test exists to prevent.
+        text.remove(QRegularExpression(QStringLiteral("//[^\n]*")));
         QStringList keys;
         auto it = pattern.globalMatch(text);
         while (it.hasNext()) {
@@ -717,7 +750,7 @@ private slots:
         // Every graph/show* the chart reads...
         const QStringList drawn = graphKeysIn(
             "qml/components/HistoryShotGraph.qml",
-            QRegularExpression(R"RX(Settings\.boolValue\("(graph/show[A-Za-z]+)")RX"));
+            QRegularExpression(R"RX(Settings\.boolValue\("(graph/[^"]+)")RX"));
         QVERIFY2(drawn.size() >= 10,
                  qPrintable(QString("only found %1 curve settings in HistoryShotGraph — the "
                                     "pattern that finds them has probably gone stale")
@@ -726,7 +759,7 @@ private slots:
         // ...must appear in the key the cached render is invalidated on.
         const QStringList keyed = graphKeysIn(
             "qml/components/LastShotChartSource.qml",
-            QRegularExpression(R"RX("(graph/show[A-Za-z]+)")RX"));
+            QRegularExpression(R"RX("(graph/[^"]+)")RX"));
 
         QStringList missing;
         for (const QString& k : drawn) {

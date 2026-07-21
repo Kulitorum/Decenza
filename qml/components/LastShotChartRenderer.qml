@@ -43,10 +43,30 @@ Item {
     // Holds the grab result alive: its `url` is only valid while the object is.
     property var _grab: null
 
+    // A grab that fails is not retried by anything else: _renderedKey is deliberately left
+    // stale so a later key change retries, but on an idle machine nothing changes for hours,
+    // which is precisely the state this feature exists for. So retry a bounded number of
+    // times, and say plainly what to do when giving up — field AIs read these logs.
+    property int _grabAttempts: 0
+
     function _renderIfStale() {
         if (!renderWanted) return
         if (LastShotChartSource.cacheKey === _renderedKey) return
+        _grabAttempts = 0
         _framesUntilGrab = 2
+    }
+
+    function _grabFailed(why) {
+        if (_grabAttempts < 3) {
+            _grabAttempts += 1
+            _framesUntilGrab = 2
+            console.warn("[Background] Shot-chart grab failed (" + why + ") — attempt "
+                         + _grabAttempts + " of 3, retrying on the next frame")
+            return
+        }
+        console.warn("[Background] Shot-chart grab failed three times (" + why + "). The "
+                     + "background stays on the theme colour for this session; re-pick the "
+                     + "background in Settings > Machine > Theme Mode, or restart, to retry.")
     }
 
     onRenderWantedChanged: {
@@ -115,12 +135,12 @@ Item {
                 // Loud on purpose. A silent failure here is a background that simply never
                 // appears, with nothing in the log to say why — and users' AI assistants
                 // read these logs.
-                console.warn("[Background] Shot-chart grab produced no image; "
-                             + "the background falls back to the theme colour")
+                renderer._grabFailed("empty result")
                 return
             }
             renderer._grab = result
             renderer._renderedKey = key
+            renderer._grabAttempts = 0
             LastShotChartSource._renderedUrl = result.url
             // Reports what the CHART was fed, not what the source holds, and still not the
             // pixels — only an image dump is that. Worth stating because the earlier version
@@ -133,10 +153,8 @@ Item {
                          "| source shot", LastShotChartSource._shotId,
                          "samples", (LastShotChartSource.shotData.pressure || []).length)
         })
-        if (!ok) {
-            console.warn("[Background] Shot-chart grabToImage() was refused — "
-                         + "the item has no window or no size")
-        }
+        if (!ok)
+            renderer._grabFailed("grabToImage refused — no window or no size")
     }
 
     HistoryShotGraph {

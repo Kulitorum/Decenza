@@ -89,7 +89,20 @@ QString SettingsTheme::backgroundPreset() const {
     const QString id = m_settings.value("theme/backgroundPreset", "").toString();
     // An id we do not recognise — a downgrade, a hand-edited ini, a colour removed in a
     // later release — reads back as "none" rather than rendering an undefined background.
-    return BackgroundPresets::hasColour(id) ? id : QString();
+    if (!id.isEmpty() && !BackgroundPresets::hasColour(id)) {
+        // Say so. The WRITE path was hardened against unknown ids and logs; the read path
+        // did not, so upgrading past a removed colour made the background silently vanish
+        // with nothing in the log to connect the two — and field diagnosis of this app
+        // starts from the log.
+        if (!m_warnedUnknownIds.contains(id)) {
+            m_warnedUnknownIds.insert(id);
+            qWarning() << "[Theme] Stored background colour" << id
+                       << "is not in this build's catalogue - showing no background colour."
+                          " Pick one again in Settings > Machine > Theme Mode.";
+        }
+        return QString();
+    }
+    return id;
 }
 
 void SettingsTheme::setBackgroundPreset(const QString& id) {
@@ -141,11 +154,22 @@ QString SettingsTheme::backgroundSource() const {
         && backgroundImagePath().isEmpty())
         return stored;
 
-    if (!backgroundPreset().isEmpty())
-        return QString::fromLatin1(kBackgroundSourceColour);
-    if (!backgroundImagePath().isEmpty())
-        return QString::fromLatin1(kBackgroundSourceImage);
-    return QString::fromLatin1(kBackgroundSourceNone);
+    const QString derived = !backgroundPreset().isEmpty()
+        ? QString::fromLatin1(kBackgroundSourceColour)
+        : (!backgroundImagePath().isEmpty() ? QString::fromLatin1(kBackgroundSourceImage)
+                                            : QString::fromLatin1(kBackgroundSourceNone));
+    // Overriding a stored value is correct — but silently overriding one is how "my
+    // background keeps resetting" becomes undiagnosable. clearBackgroundPreset() names its
+    // reason for exactly this purpose; the read path should not undercut it. Once per value.
+    if (!stored.isEmpty() && stored != derived) {
+        const QString note = stored + QStringLiteral("->") + derived;
+        if (!m_warnedUnknownIds.contains(note)) {
+            m_warnedUnknownIds.insert(note);
+            qInfo() << "[Theme] Stored background source" << stored
+                    << "is not backed by a value this build can draw - using" << derived;
+        }
+    }
+    return derived;
 }
 
 bool SettingsTheme::backgroundShotAdvanced() const {

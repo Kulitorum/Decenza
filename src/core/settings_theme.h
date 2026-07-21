@@ -2,6 +2,7 @@
 
 #include <QMap>
 #include <QObject>
+#include <QSet>
 #include <QSettings>
 #include <QString>
 #include <QStringList>
@@ -304,6 +305,10 @@ private:
     // The other half: emit iff the DERIVED source differs from `before`. Split because the
     // stored key and the derived value move independently — see the definition.
     void notifyBackgroundSourceChanged(const QString& before);
+    // Ids already reported as unknown, so the warning fires once rather than on every read
+    // of a hot const getter. Mutable because the getters are const and this is diagnostics,
+    // not state.
+    mutable QSet<QString> m_warnedUnknownIds;
     void updateResolvedMode();
 
     mutable QSettings m_settings;

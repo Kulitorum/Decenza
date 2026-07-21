@@ -199,13 +199,13 @@ QtObject {
         // A new shot is the point of the feature. A deleted one matters only when it is the
         // one being drawn — otherwise the picture on screen is still correct.
         function onShotSaved(shotId) {
-            if (shotId > 0)
+            if (shotId > 0 && root.shotBackgroundSelected)
                 root._refresh()
         }
         // Without this, none of the not-ready states above can ever recover: a user who
         // pulls no shot stays on a fallback background until the app restarts.
         function onReadyChanged() {
-            if (root._storage.isReady)
+            if (root._storage.isReady && root.shotBackgroundSelected)
                 root._refresh()
         }
 
@@ -219,8 +219,20 @@ QtObject {
         }
     }
 
+    // Only touch the database when this background is actually selected. The singleton is
+    // instantiated as soon as anything reads it — including the chooser — so an unguarded
+    // load meant two SQLite queries at startup for every user, and two more on every shot,
+    // for a feature they may never turn on.
+    // No leading underscore: a property named `_wanted` has no usable change-handler name
+    // (it would be `on_wantedChanged`), so the handler below silently never fires. qmllint
+    // catches it; the same trap already cost a round trip in the renderer.
+    readonly property bool shotBackgroundSelected: Settings.theme.backgroundSource === "shot"
+
+    onShotBackgroundSelectedChanged: if (shotBackgroundSelected && _loadState !== "loaded") _refresh()
+
     Component.onCompleted: {
         _computeVisibilityKey()
-        _refresh()
+        if (shotBackgroundSelected)
+            _refresh()
     }
 }

@@ -322,27 +322,44 @@ Dialog {
                                 border.width: isSelected ? 2 : 1
                                 clip: true
 
-                                // The real renderer, so a tile is a true miniature of the
-                                // page — the same already-rendered image, scaled.
+                                // Only ONE render exists at a time — the one for the entry
+                                // currently applied — so a tile may only show it when it is
+                                // that entry. Binding both tiles to it made "Last Shot" and
+                                // "Last Shot (Advanced)" identical pictures, which is worse
+                                // than showing none: the wrong one claims to be a preview of
+                                // a curve set it is not.
+                                readonly property bool showsLiveRender:
+                                    LastShotChartSource.imageSource.length > 0
+                                    && Settings.theme.backgroundSource === "shot"
+                                    && Settings.theme.backgroundShotAdvanced
+                                       === (shotTile.modelData.which === "advanced")
+
                                 BackgroundSurface {
                                     anchors.fill: parent
                                     anchors.margins: 1
                                     presetId: ""
                                     patternId: ""
                                     imagePath: ""
-                                    shotChart: true
+                                    shotChart: shotTile.showsLiveRender
                                 }
 
-                                // Says WHY the tile is blank rather than leaving the user to
-                                // wonder whether the feature is broken.
+                                // Says WHY a tile is blank rather than leaving the user to
+                                // wonder whether the feature is broken — separately for "you
+                                // have no shots" and "this variant has not been drawn yet",
+                                // because they call for different actions.
                                 Text {
                                     anchors.centerIn: parent
                                     width: parent.width - Theme.scaled(12)
                                     horizontalAlignment: Text.AlignHCenter
                                     wrapMode: Text.WordWrap
-                                    visible: !LastShotChartSource.hasShot && LastShotChartSource.ready
-                                    text: TranslationManager.translate("backgroundPicker.shot.noShot",
-                                              "No shots yet — this fills in after your first shot")
+                                    visible: !shotTile.showsLiveRender
+                                    text: !LastShotChartSource.ready
+                                        ? ""
+                                        : (!LastShotChartSource.hasShot
+                                            ? TranslationManager.translate("backgroundPicker.shot.noShot",
+                                                  "No shots yet — this fills in after your first shot")
+                                            : TranslationManager.translate("backgroundPicker.shot.notDrawn",
+                                                  "Apply to see your last shot here"))
                                     color: Theme.textSecondaryColor
                                     font: Theme.captionFont
                                     Accessible.ignored: true
