@@ -1,6 +1,7 @@
 #include "mcpserver.h"
 #include "mcptoolregistry.h"
 #include "mcptools_shots_helpers.h"
+#include "mcplogfilter.h"
 #include "../history/shothistorystorage.h"
 #include "../core/dbutils.h"
 
@@ -566,13 +567,34 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
         "shots_get_debug_log",
         "Read the debug log captured during a shot extraction. Contains BLE frames, "
         "phase transitions, stop-at-weight events, flow calibration, and all qDebug output "
-        "from the shot. Supports pagination for large logs.",
+        "from the shot. `filter` (substring, or regex when `regex` is true; case-insensitive) "
+        "narrows which lines qualify before pagination. `tail` (last N qualifying lines) takes "
+        "precedence over `offset` when both are given. `minLevel` is accepted but has no effect — "
+        "shot debug log lines are not level-tagged. Every returned line carries its absolute line "
+        "number in the `lines` array.",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
                 {"shotId", QJsonObject{{"type", "integer"}, {"description", "Shot ID"}}},
-                {"offset", QJsonObject{{"type", "integer"}, {"description", "Line number to start from (0-based). Default: 0"}}},
-                {"limit", QJsonObject{{"type", "integer"}, {"description", "Maximum lines to return (1-2000). Default: 500"}}}
+                {"offset", QJsonObject{{"type", "integer"}, {"description", "Line number to start from (0-based). Default: 0. Ignored when tail is set."}}},
+                {"limit", QJsonObject{{"type", "integer"}, {"description", "Maximum lines to return (1-2000). Default: 500"}}},
+                {"filter", QJsonObject{
+                    {"type", "string"},
+                    {"description", "Only return lines containing this text (case-insensitive substring, or regex when `regex` is true)"}
+                }},
+                {"regex", QJsonObject{
+                    {"type", "boolean"},
+                    {"description", "Treat `filter` as a case-insensitive regular expression instead of a literal substring"}
+                }},
+                {"minLevel", QJsonObject{
+                    {"type", "string"},
+                    {"enum", QJsonArray{"DEBUG", "INFO", "WARN", "ERROR", "FATAL"}},
+                    {"description", "Accepted but ignored — shot debug log lines carry no severity level"}
+                }},
+                {"tail", QJsonObject{
+                    {"type", "integer"},
+                    {"description", "Return only the last N qualifying lines instead of paginating from offset. Takes precedence over offset when both are set."}
+                }}
             }},
             {"required", QJsonArray{"shotId"}}
         },
@@ -590,10 +612,14 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
 
             qsizetype offset = qMax(qsizetype(0), static_cast<qsizetype>(args["offset"].toInt(0)));
             qsizetype limit = qBound(qsizetype(1), static_cast<qsizetype>(args["limit"].toInt(500)), qsizetype(2000));
+            const QString filter = args["filter"].toString();
+            const bool regexMode = args["regex"].toBool(false);
+            const bool hasTail = args.contains("tail");
+            const qsizetype tail = hasTail ? qMax(qsizetype(0), static_cast<qsizetype>(args["tail"].toInt(0))) : 0;
 
             const QString dbPath = shotHistory->databasePath();
 
-            QThread* thread = QThread::create([dbPath, shotId, offset, limit, respond]() {
+            QThread* thread = QThread::create([dbPath, shotId, offset, limit, filter, regexMode, hasTail, tail, respond]() {
                 QJsonObject result;
 
                 if (!withTempDb(dbPath, "mcp_shot_debug", [&](QSqlDatabase& db) {
@@ -604,9 +630,10 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                         QString debugLog = query.value(0).toString();
                         if (debugLog.isEmpty()) {
                             result["error"] = "No debug log for shot " + QString::number(shotId);
-                        } else {
-                            QStringList allLines = debugLog.split('\n');
-                            qsizetype totalLines = allLines.size();
+                        } else if (filter.isEmpty() && !hasTail) {
+                            // Unnarrowed — original chunk behavior/shape, unchanged.
+                            const QStringList allLines = debugLog.split('\n');
+                            const qsizetype totalLines = allLines.size();
 
                             QStringList chunk;
                             for (qsizetype i = offset; i < qMin(offset + limit, totalLines); ++i)
@@ -619,6 +646,37 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                             result["returnedLines"] = static_cast<int>(chunk.size());
                             result["hasMore"] = (offset + chunk.size()) < totalLines;
                             result["log"] = chunk.join('\n');
+                        } else {
+                            const QStringList allLines = debugLog.split('\n');
+                            const qsizetype totalLines = allLines.size();
+
+                            QString filterError;
+                            const QList<McpLogFilter::LineMatch> qualifying =
+                                McpLogFilter::filterLines(allLines, 0, filter, regexMode, QString(), &filterError);
+                            if (!filterError.isEmpty()) {
+                                result["error"] = filterError;
+                                return;
+                            }
+                            const QList<McpLogFilter::LineMatch> page =
+                                McpLogFilter::paginate(qualifying, offset, limit, tail);
+
+                            result["shotId"] = shotId;
+                            result["offsetLines"] = static_cast<int>(offset);
+                            result["limitLines"] = static_cast<int>(limit);
+                            result["totalLines"] = static_cast<int>(totalLines);
+                            result["qualifyingLines"] = static_cast<int>(qualifying.size());
+                            result["returnedLines"] = static_cast<int>(page.size());
+                            result["hasMore"] = hasTail ? false : ((offset + page.size()) < qualifying.size());
+
+                            QStringList texts;
+                            QJsonArray lineArray;
+                            texts.reserve(page.size());
+                            for (const auto& m : page) {
+                                texts.append(m.text);
+                                lineArray.append(QJsonObject{{"line", static_cast<qint64>(m.line)}, {"text", m.text}});
+                            }
+                            result["log"] = texts.join('\n');
+                            result["lines"] = lineArray;
                         }
                     } else {
                         result["error"] = "Shot not found: " + QString::number(shotId);

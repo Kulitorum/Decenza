@@ -10,12 +10,16 @@
 #include <QDir>
 #include <QDirIterator>
 #include <QRegularExpression>
+#include <QTemporaryDir>
+#include <QFile>
+#include <QTextStream>
 
 #include "mocks/McpTestFixture.h"
 #include "core/settings_app.h"
 #include "core/settings_brew.h"
 #include "core/settings_dye.h"
 #include "mcp/mcpresourceregistry.h"
+#include "network/webdebuglogger.h"
 #include "ble/protocol/de1characteristics.h"
 #include "ble/protocol/binarycodec.h"
 #include "profile/recipeparams.h"
@@ -31,6 +35,18 @@ void registerMcpResources(McpResourceRegistry* registry, DE1Device* device,
                           MachineState* machineState, ProfileManager* profileManager,
                           ShotHistoryStorage* shotHistory, MemoryMonitor* memoryMonitor,
                           Settings* settings);
+void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor);
+
+// RAII: points WebDebugLogger::instance() at a test-owned logger backed by an
+// explicit file for the guard's lifetime, restoring no-singleton on
+// destruction — debug_get_log's handler resolves the real WebDebugLogger::instance().
+struct WebDebugLoggerTestGuard {
+    WebDebugLogger logger;
+    explicit WebDebugLoggerTestGuard(const QString& logFilePath) : logger(logFilePath) {
+        WebDebugLogger::installForTesting(&logger);
+    }
+    ~WebDebugLoggerTestGuard() { WebDebugLogger::installForTesting(nullptr); }
+};
 
 // Direct tests for ProfileManager — the core class extracted in the refactor.
 // Verifies the profile lifecycle (load, state, save, upload, signals) works
@@ -736,6 +752,144 @@ private slots:
         QVERIFY2(error.isEmpty(), qPrintable(error));
         QCOMPARE(result["targetWeightG"].toDouble(), 40.0);
         QCOMPARE(result["targetTemperatureC"].toDouble(), 91.5);
+    }
+
+    // === MCP tool: debug_get_log ===
+
+    static void writeLogFile(const QString& path, const QString& content) {
+        QFile f(path);
+        QVERIFY2(f.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text), "failed to write test log file");
+        QTextStream(&f) << content;
+    }
+
+    void debugGetLog_noNewParamsReproducesPriorShape() {
+        QTemporaryDir dir;
+        writeLogFile(dir.filePath("debug.log"),
+            "[   0.100] INFO  line one\n"
+            "[   0.200] WARN  line two\n"
+            "[   0.300] ERROR line three\n");
+        WebDebugLoggerTestGuard guard(dir.filePath("debug.log"));
+
+        McpTestFixture f;
+        registerDebugTools(&f.registry, nullptr);
+
+        QJsonObject result = f.callTool("debug_get_log", QJsonObject{{"offset", 0}, {"limit", 500}});
+        QCOMPARE(result["totalLines"].toInt(), 3);
+        QCOMPARE(result["returnedLines"].toInt(), 3);
+        QVERIFY(!result["hasMore"].toBool());
+        QVERIFY(result["log"].toString().contains("line one"));
+        QVERIFY(result["log"].toString().contains("line three"));
+        // Additive-only contract: no qualifyingLines/lines when nothing narrowed the range.
+        QVERIFY(!result.contains("qualifyingLines"));
+    }
+
+    void debugGetLog_substringFilterIsCaseInsensitive() {
+        QTemporaryDir dir;
+        writeLogFile(dir.filePath("debug.log"),
+            "[   0.100] INFO  connecting to R2\n"
+            "[   0.200] INFO  scale ready\n"
+            "[   0.300] WARN  r2 error 0/2\n");
+        WebDebugLoggerTestGuard guard(dir.filePath("debug.log"));
+
+        McpTestFixture f;
+        registerDebugTools(&f.registry, nullptr);
+
+        QJsonObject result = f.callTool("debug_get_log", QJsonObject{{"filter", "R2"}});
+        QCOMPARE(result["qualifyingLines"].toInt(), 2);
+        QJsonArray lines = result["lines"].toArray();
+        QCOMPARE(lines.size(), 2);
+        QCOMPARE(lines[0].toObject()["line"].toInt(), 0);
+        QCOMPARE(lines[1].toObject()["line"].toInt(), 2);
+    }
+
+    void debugGetLog_regexFilter() {
+        QTemporaryDir dir;
+        writeLogFile(dir.filePath("debug.log"),
+            "[   0.100] INFO  SAW trigger at 34g\n"
+            "[   0.200] INFO  nothing here\n"
+            "[   0.300] INFO  SAW trigger at 36g\n");
+        WebDebugLoggerTestGuard guard(dir.filePath("debug.log"));
+
+        McpTestFixture f;
+        registerDebugTools(&f.registry, nullptr);
+
+        QJsonObject result = f.callTool("debug_get_log", QJsonObject{{"filter", "SAW.*trigger"}, {"regex", true}});
+        QCOMPARE(result["qualifyingLines"].toInt(), 2);
+    }
+
+    void debugGetLog_minLevelAlone() {
+        QTemporaryDir dir;
+        writeLogFile(dir.filePath("debug.log"),
+            "[   0.100] DEBUG chatter\n"
+            "[   0.200] WARN  low water\n"
+            "[   0.300] ERROR BLE write failed\n");
+        WebDebugLoggerTestGuard guard(dir.filePath("debug.log"));
+
+        McpTestFixture f;
+        registerDebugTools(&f.registry, nullptr);
+
+        QJsonObject result = f.callTool("debug_get_log", QJsonObject{{"minLevel", "WARN"}});
+        QCOMPARE(result["qualifyingLines"].toInt(), 2);
+        QVERIFY(!result["log"].toString().contains("chatter"));
+    }
+
+    void debugGetLog_minLevelCombinedWithFilter() {
+        QTemporaryDir dir;
+        writeLogFile(dir.filePath("debug.log"),
+            "[   0.100] ERROR unrelated failure\n"
+            "[   0.200] DEBUG BLE chatter\n"
+            "[   0.300] ERROR BLE write failed\n");
+        WebDebugLoggerTestGuard guard(dir.filePath("debug.log"));
+
+        McpTestFixture f;
+        registerDebugTools(&f.registry, nullptr);
+
+        QJsonObject result = f.callTool("debug_get_log", QJsonObject{{"filter", "BLE"}, {"minLevel", "ERROR"}});
+        QCOMPARE(result["qualifyingLines"].toInt(), 1);
+        QVERIFY(result["log"].toString().contains("BLE write failed"));
+    }
+
+    void debugGetLog_tailReturnsLastNAndOverridesOffset() {
+        QTemporaryDir dir;
+        QString content;
+        for (int i = 0; i < 10; ++i)
+            content += QString("[  %1.000] INFO  line %2\n").arg(i, 2, 10, QChar('0')).arg(i);
+        writeLogFile(dir.filePath("debug.log"), content);
+        WebDebugLoggerTestGuard guard(dir.filePath("debug.log"));
+
+        McpTestFixture f;
+        registerDebugTools(&f.registry, nullptr);
+
+        // offset supplied alongside tail — tail must win.
+        QJsonObject result = f.callTool("debug_get_log", QJsonObject{{"offset", 2}, {"tail", 3}});
+        QJsonArray lines = result["lines"].toArray();
+        QCOMPARE(lines.size(), 3);
+        QCOMPARE(lines[0].toObject()["line"].toInt(), 7);
+        QCOMPARE(lines[2].toObject()["line"].toInt(), 9);
+        QVERIFY(!result["hasMore"].toBool());
+    }
+
+    void debugGetLog_sessionScopedFilterUsesAbsoluteLineNumbers() {
+        QTemporaryDir dir;
+        writeLogFile(dir.filePath("debug.log"),
+            "========== SESSION START: 2026-01-01T09:00:00 ==========\n"
+            "[   0.100] INFO  first session line\n"
+            "[   0.200] WARN  first session warning\n"
+            "========== SESSION START: 2026-01-01T10:00:00 ==========\n"
+            "[   0.100] INFO  second session line\n"
+            "[   0.200] WARN  second session warning\n");
+        WebDebugLoggerTestGuard guard(dir.filePath("debug.log"));
+
+        McpTestFixture f;
+        registerDebugTools(&f.registry, nullptr);
+
+        // Most recent session only, filtered to WARN — absolute line number
+        // must reflect position in the WHOLE file, not the session-relative offset.
+        QJsonObject result = f.callTool("debug_get_log", QJsonObject{{"session", -1}, {"minLevel", "WARN"}});
+        QJsonArray lines = result["lines"].toArray();
+        QCOMPARE(lines.size(), 1);
+        QCOMPARE(lines[0].toObject()["line"].toInt(), 5);
+        QVERIFY(lines[0].toObject()["text"].toString().contains("second session warning"));
     }
 
     // === QML binding smoke test ===
