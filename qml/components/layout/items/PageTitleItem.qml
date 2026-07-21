@@ -67,15 +67,27 @@ Item {
         // Escape hatch: long-press the Idle page title to open Settings. A user
         // whose bottom bar overflowed can lose the Settings widget off the screen
         // edge (issue #1586) with no other route into Settings — this gives one
-        // that never depends on the customizable layout. Idle-only (onIdlePage);
-        // a short tap does nothing so it can't be triggered by accident.
+        // that does not depend on where the Settings widget ended up. Idle-only
+        // (onIdlePage); a short tap does NOT open Settings, so it cannot be
+        // triggered by accident.
         //
-        // Accessible.ignored on purpose: screen-reader users are not the ones
-        // locked out — an off-screen Settings widget is unclipped and still in the
-        // a11y tree, so TalkBack/VoiceOver can focus it by swipe navigation. This
-        // gesture is a rescue for sighted touch users, who cannot see or reach an
-        // off-screen button. Announcing it as a second interactive node over the
-        // title would only duplicate the title readout for AT.
+        // Two limits worth knowing before relying on this as THE rescue:
+        //  - It lives in the compact (status-bar) rendering only. The pageTitle
+        //    widget is itself layout-editable, so a user who moved it to a center
+        //    zone or removed it has no hatch — this narrows #1586, it does not
+        //    make Settings unconditionally reachable.
+        //  - Accessible.ignored keeps it out of the a11y TREE, but not out of the
+        //    touch path: with a screen reader active a short tap still runs
+        //    AccessibleTapHandler's announce(). It is ignored because the root
+        //    Item already exposes the title as StaticText, and a second node over
+        //    the same text would just duplicate that readout.
+        // The reason no AT-facing action is offered here: nothing in the overflow
+        // chain sets clip (see LayoutBarZone), so an off-screen Settings widget is
+        // expected to remain in the a11y tree and focusable by swipe navigation —
+        // i.e. screen-reader users are expected not to be the ones locked out.
+        // That last step is an OS-level assumption, not something verified here;
+        // if TalkBack turns out not to focus out-of-bounds nodes, this handler
+        // should gain a real accessible action rather than stay ignored.
         AccessibleTapHandler {
             anchors.fill: parent
             enabled: root.onIdlePage
@@ -83,6 +95,10 @@ Item {
             supportLongPress: true
             Accessible.ignored: true
             accessibleName: root.pageTitle
+            // AccessibleTapHandler is a MouseArea and defaults to a pointing-hand
+            // cursor. A click here does nothing, so on desktop that would promise
+            // an affordance that isn't there — keep the plain arrow.
+            cursorShape: Qt.ArrowCursor
             onAccessibleLongPressed: {
                 var win = Window.window
                 if (win && win.goToSettings)

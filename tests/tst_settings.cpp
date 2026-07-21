@@ -106,6 +106,7 @@ private:
     bool m_origMilkAutoCapture;
     double m_origSteamSecPerGram;
     int m_origActiveRecipeId;
+    QString m_origLayoutConfiguration;
 
 private slots:
 
@@ -139,10 +140,18 @@ private slots:
           m_origVesselPresets = raw.value("water/vesselPresets").toByteArray();
           m_origPitcherPresets = raw.value("steam/pitcherPresets").toByteArray(); }
         m_origActiveRecipeId = m_settings.dye()->activeRecipeId();
+        // Layout: saved/restored here for the same reason as the font sizes
+        // above. The layout tests mutate a shared store and a trailing restore
+        // inside each test is skipped when an assertion fails — leaving a
+        // half-built layout (or, after resetLayoutToDefault(), NO layout key at
+        // all) for every later layout test to trip over, which buries the first
+        // real failure under cascading ones.
+        m_origLayoutConfiguration = m_settings.network()->layoutConfiguration();
     }
 
     void cleanup() {
         // Restore all originals after each test (runs even on assertion failure)
+        m_settings.network()->setLayoutConfiguration(m_origLayoutConfiguration);
         m_settings.theme()->setCustomFontSizes(m_origCustomFontSizes);
         m_settings.brew()->setTargetWeight(m_origTargetWeight);
         m_settings.brew()->setDoseCupTareWeight(m_origDoseCupTare);
@@ -1245,7 +1254,6 @@ private slots:
     // methods below, which MainController calls once per schema upgrade.
     void removedButtonsStayRemovedOnReload() {
         SettingsNetwork* net = m_settings.network();
-        const QString orig = net->layoutConfiguration();
 
         // A settled layout with neither Equipment nor Recipes anywhere, but with
         // Settings still reachable so nothing else repairs it.
@@ -1258,6 +1266,10 @@ private slots:
             "{\"type\":\"settings\",\"id\":\"settings1\"}]"
             "}}"));
 
+        // setLayoutConfiguration invalidates the cache, so this re-enters
+        // getLayoutObject() with a cold cache and reads from storage — which
+        // under the old code WAS the injection path. These two lines are what
+        // fail if the presence-gated inject is ever reinstated.
         QVERIFY(!net->hasItemType("equipment"));
         QVERIFY(!net->hasItemType("recipes"));
 
@@ -1266,14 +1278,13 @@ private slots:
         SettingsNetwork* reloadedNet = reloaded.network();
         QVERIFY(!reloadedNet->hasItemType("equipment"));
         QVERIFY(!reloadedNet->hasItemType("recipes"));
-
-        net->setLayoutConfiguration(orig);
     }
 
-    // The one-time inject places Equipment after beans when it is missing.
+    // The one-time inject places Equipment after beans when it is missing, and
+    // the result must survive a restart — the bug class here is "what comes back
+    // on the next launch", so an in-memory-only write would miss the point.
     void injectEquipmentPlacesAfterBeans() {
         SettingsNetwork* net = m_settings.network();
-        const QString orig = net->layoutConfiguration();
 
         net->setLayoutConfiguration(QStringLiteral(
             "{\"version\":1,\"zones\":{"
@@ -1287,18 +1298,47 @@ private slots:
         QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
                  QStringList({"history", "beans", "equipment", "settings"}));
 
+        // Read back through an independent instance: proves the inject actually
+        // reached storage rather than only the in-process layout cache.
+        Settings reloaded;
+        QCOMPARE(typesOf(reloaded.network()->getZoneItems("bottomRight")),
+                 QStringList({"history", "beans", "equipment", "settings"}));
+
         // Second call is a no-op — no duplicate even though the "gate" (a real
         // schema crossing) is what makes it one-time in production.
         net->injectEquipmentButtonIfMissing();
         QCOMPARE(typesOf(net->getZoneItems("bottomRight")).count("equipment"), 1);
+    }
 
-        net->setLayoutConfiguration(orig);
+    // The beans anchor is searched across ALL zones, not just the bottom bar, and
+    // zones are visited in QJsonObject::keys() order (alphabetical). In the
+    // CURRENT default layout beans lives in centerTop, so an upgrading user gets
+    // Equipment in the centre row rather than the bottom bar. Pinning it because
+    // it is surprising, and because nothing else in the suite exercises a beans
+    // anchor outside bottomRight.
+    void injectEquipmentFollowsBeansIntoCenterZone() {
+        SettingsNetwork* net = m_settings.network();
+
+        net->setLayoutConfiguration(QStringLiteral(
+            "{\"version\":1,\"zones\":{"
+            "\"centerTop\":["
+            "{\"type\":\"beans\",\"id\":\"beans1\"},"
+            "{\"type\":\"steam\",\"id\":\"steam1\"}],"
+            "\"bottomRight\":["
+            "{\"type\":\"history\",\"id\":\"history1\"},"
+            "{\"type\":\"settings\",\"id\":\"settings1\"}]"
+            "}}"));
+
+        net->injectEquipmentButtonIfMissing();
+        QCOMPARE(typesOf(net->getZoneItems("centerTop")),
+                 QStringList({"beans", "equipment", "steam"}));
+        QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
+                 QStringList({"history", "settings"}));
     }
 
     // With no beans anywhere, Equipment falls back to appending to bottomRight.
     void injectEquipmentFallsBackToBottomRight() {
         SettingsNetwork* net = m_settings.network();
-        const QString orig = net->layoutConfiguration();
 
         net->setLayoutConfiguration(QStringLiteral(
             "{\"version\":1,\"zones\":{"
@@ -1310,14 +1350,11 @@ private slots:
         net->injectEquipmentButtonIfMissing();
         QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
                  QStringList({"history", "settings", "equipment"}));
-
-        net->setLayoutConfiguration(orig);
     }
 
     // Recipes goes immediately left of espresso when missing.
     void injectRecipesPlacesLeftOfEspresso() {
         SettingsNetwork* net = m_settings.network();
-        const QString orig = net->layoutConfiguration();
 
         net->setLayoutConfiguration(QStringLiteral(
             "{\"version\":1,\"zones\":{"
@@ -1334,14 +1371,11 @@ private slots:
         // Idempotent second call.
         net->injectRecipesButtonIfMissing();
         QCOMPARE(typesOf(net->getZoneItems("bottomRight")).count("recipes"), 1);
-
-        net->setLayoutConfiguration(orig);
     }
 
     // No espresso: Recipes sits beside equipment, else appends to bottomRight.
     void injectRecipesFallsBackBesideEquipment() {
         SettingsNetwork* net = m_settings.network();
-        const QString orig = net->layoutConfiguration();
 
         net->setLayoutConfiguration(QStringLiteral(
             "{\"version\":1,\"zones\":{"
@@ -1354,15 +1388,14 @@ private slots:
         net->injectRecipesButtonIfMissing();
         QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
                  QStringList({"history", "equipment", "recipes", "settings"}));
-
-        net->setLayoutConfiguration(orig);
     }
 
-    // Inject is a no-op when the widget already exists (fresh install's default
-    // ships both — the crossing gate must not double-add).
+    // Inject is a no-op when the widget already exists. This is the ONLY thing
+    // stopping a double-add on a fresh install: a new DB is seeded at schema 1
+    // and climbs past both 22 and 25, so both gates fire on first launch while
+    // the default layout already ships both buttons.
     void injectIsNoOpWhenAlreadyPresent() {
         SettingsNetwork* net = m_settings.network();
-        const QString orig = net->layoutConfiguration();
 
         net->resetLayoutToDefault();  // default ships equipment + recipes
         const QStringList centerTopBefore = typesOf(net->getZoneItems("centerTop"));
@@ -1373,8 +1406,6 @@ private slots:
 
         QCOMPARE(typesOf(net->getZoneItems("centerTop")), centerTopBefore);
         QCOMPARE(typesOf(net->getZoneItems("bottomRight")), bottomRightBefore);
-
-        net->setLayoutConfiguration(orig);
     }
 
     void applyRecipesFirstUpgradePristineGetsFullNewDefault() {

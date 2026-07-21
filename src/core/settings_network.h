@@ -163,6 +163,18 @@ public:
     // the widget — the bug these one-time gates replace (see issue #1586).
     void injectEquipmentButtonIfMissing();
     void injectRecipesButtonIfMissing();
+
+private:
+    // saveLayoutObject + a VERIFIED flush. Returns false (and warns, naming
+    // `what`) when the write did not reach storage. The one-time injections
+    // need this: their gate is consumed inside runMigrations() before
+    // SettingsNetwork is even asked to write, so a silently-dropped
+    // QSettings::setValue means the widget is never added AND never retried —
+    // and logging success on that path would put a false statement in a field
+    // debug.log. Mirrors SettingsHardware::setConnectionPriority's pattern.
+    bool saveLayoutObjectVerified(const QJsonObject& layout, const QString& what);
+
+public:
     // Both setters return false when the write was refused (unstorable value)
     // or no item with itemId exists (e.g. deleted from another device while an
     // editor was open) — callers should surface that instead of assuming success.

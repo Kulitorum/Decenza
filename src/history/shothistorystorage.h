@@ -37,16 +37,28 @@ public:
     int totalShots() const { return m_totalShots; }
     bool loadingFiltered() const { return m_loadingFiltered; }
 
-    // Did this run's migrations advance the schema past version `v` — i.e. was
-    // the DB below `v` on open and at/above it after migrating? This is the
-    // genuine one-time signal a schema-introducing feature (equipment=22,
-    // recipes=25) actually ran, used to drive a matching one-time layout
-    // injection exactly once instead of re-firing whenever the widget is
+    // Did the most recent initialize() advance the schema past version `v` —
+    // i.e. was the DB below `v` on open and at/above it after migrating? This is
+    // the genuine one-time signal that a schema-introducing feature
+    // (equipment=22, recipes=25) actually ran, used to drive a matching one-time
+    // layout injection exactly once instead of re-firing whenever the widget is
     // absent. False on a machine already at/above `v` (the upgrade is history),
-    // so a user who removed the widget is never re-served it. See
-    // MainController::init and SettingsNetwork::injectEquipmentButtonIfMissing.
+    // so a user who removed the widget is not re-served it. Callers live in the
+    // MainController constructor (see maincontroller.cpp, after
+    // setupRecipeConnections) and SettingsNetwork::injectEquipmentButtonIfMissing.
+    //
+    // Two cases a caller must handle rather than assume away:
+    //  - A first-ever launch returns TRUE for every `v`: createTables() seeds
+    //    schema_version at 1 and migrations climb from there. So a caller must
+    //    be idempotent, not merely upgrade-safe.
+    //  - Losing the DB file (deletion, partial OS restore) looks identical to a
+    //    fresh install and re-arms every crossing, so a deliberately removed
+    //    widget can come back. Restoring a backup does NOT do this — that path
+    //    merges rows and never rolls schema_version backwards.
+    // Returns false when the version could not be read at all (DB never opened,
+    // or the schema_version query failed), so a bad read never fakes a crossing.
     bool crossedSchemaVersion(int v) const {
-        return m_schemaVersionAtStart < v && m_schemaVersion >= v;
+        return m_schemaVersionAtStartKnown && m_schemaVersionAtStart < v && m_schemaVersion >= v;
     }
 
     // Save a completed shot (async). Extracts data on main thread, runs DB work on background thread.
@@ -442,6 +454,7 @@ private:
     int m_totalShots = 0;
     int m_schemaVersion = 1;
     int m_schemaVersionAtStart = 1;  // schema version on open, before this run's migrations (crossedSchemaVersion)
+    bool m_schemaVersionAtStartKnown = false;  // false until read successfully; suppresses phantom crossings
     qint64 m_lastSavedShotId = 0;
     qint64 m_migratedActiveBagId = -1;
     std::atomic<bool> m_backupInProgress{false};  // Prevent concurrent backup/export operations (thread-safe)

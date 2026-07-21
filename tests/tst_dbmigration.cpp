@@ -935,6 +935,84 @@ private slots:
                  "enjoyment_source column must be absent after migration 16");
     }
 
+    // ==========================================================
+    // crossedSchemaVersion() — the one-time gate behind the
+    // equipment/recipes idle-button injection (issue #1586)
+    // ==========================================================
+
+    // THE regression assertion for #1586. The equipment button used to be
+    // injected whenever it was absent, evaluated on every launch, so removing it
+    // brought it back on the next start. Injection is now gated on the DB
+    // actually crossing the schema version that introduced the feature, which
+    // can only happen once. This pins the "and not on the next launch" half:
+    // pass one crosses 22/25, pass two on the same file must report neither.
+    //
+    // If someone were to capture the start version AFTER migrations run (making
+    // it permanently equal to the end version, so every gate reads true forever),
+    // every other test in the suite would still pass and the bug would be back.
+    // This is the test that fails.
+    void crossedSchemaVersion_firesOnceThenNeverAgain()
+    {
+        const QString path = freshDbPath();
+
+        // Pass one: a brand-new DB is seeded at version 1 and climbs the whole
+        // chain, so it genuinely crosses both feature versions.
+        {
+            ShotHistoryStorage s1;
+            initAndClose(path, s1);
+            QVERIFY2(s1.crossedSchemaVersion(22),
+                     "a fresh DB climbs from 1 and must report crossing schema 22 (equipment)");
+            QVERIFY2(s1.crossedSchemaVersion(25),
+                     "a fresh DB climbs from 1 and must report crossing schema 25 (recipes)");
+        }
+
+        // Pass two: same file, already fully migrated. Nothing is crossed, so a
+        // deliberately removed button is never re-injected.
+        {
+            ShotHistoryStorage s2;
+            initAndClose(path, s2);
+            QVERIFY2(!s2.crossedSchemaVersion(22),
+                     "an already-migrated DB must NOT re-report crossing 22 — that is issue #1586");
+            QVERIFY2(!s2.crossedSchemaVersion(25),
+                     "an already-migrated DB must NOT re-report crossing 25 — that is issue #1586");
+        }
+    }
+
+    // The two gates are independent: a DB parked between them must report only
+    // the one it actually crosses. Pins that the numbers are not interchangeable.
+    void crossedSchemaVersion_gatesAreIndependent()
+    {
+        const QString path = freshDbPath();
+        {
+            ShotHistoryStorage s1;
+            initAndClose(path, s1);
+        }
+
+        // Rewind to 24 — past equipment (22), short of recipes (25).
+        withRawDb(path, "crossed_rewind24", [](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            QVERIFY(q.exec("DELETE FROM schema_version"));
+            QVERIFY(q.exec("INSERT INTO schema_version (version) VALUES (24)"));
+        });
+
+        ShotHistoryStorage s2;
+        initAndClose(path, s2);
+        QVERIFY2(!s2.crossedSchemaVersion(22),
+                 "starting at 24 is already past equipment's 22 — must not report a crossing");
+        QVERIFY2(s2.crossedSchemaVersion(25),
+                 "starting at 24 and migrating up must report crossing recipes' 25");
+    }
+
+    // A DB that never opened reports no crossing at all. Guards the inject
+    // callers against firing off default-initialised members when the DB is
+    // unavailable — silence is the safe answer, not "everything just crossed".
+    void crossedSchemaVersion_falseWhenNeverInitialised()
+    {
+        ShotHistoryStorage storage;  // no initialize() call
+        QVERIFY(!storage.crossedSchemaVersion(22));
+        QVERIFY(!storage.crossedSchemaVersion(25));
+    }
+
     // Migration 16 contract: rows with enjoyment_source = 'inferred' have
     // their enjoyment reset to 0 (unrated) — unconditionally, NOT to any
     // configured default; the default-shot-rating setting that once supplied

@@ -419,7 +419,8 @@ QJsonObject SettingsNetwork::getLayoutObject() const {
 
     // NOTE: the Equipment and Recipes idle buttons are NOT injected here. They
     // are one-time additions tied to the DB schema crossing that introduced each
-    // feature (equipment=22, recipes=25), driven from MainController::init via
+    // feature (equipment=22, recipes=25), driven from the MainController
+    // constructor (maincontroller.cpp, after setupRecipeConnections) via
     // injectEquipmentButtonIfMissing()/injectRecipesButtonIfMissing(). They used
     // to live in this method gated only on "is the widget absent?", which re-ran
     // on every launch and resurrected the button every time a user removed it
@@ -606,11 +607,25 @@ namespace {
 //
 // Every zone here except centerStatus has been structurally invariant across
 // every past default (verified against git history back to the layout
-// system's introduction in #855): the pre-existing equipment/recipes
-// injection migrations and the connectionStatus->machineStatus rename
-// unconditionally normalize any older stored layout to this exact
-// centerTop/bottomRight composition by the time getLayoutObject() returns
-// it, regardless of which release the user first installed on. centerStatus
+// system's introduction in #855). Two mechanisms bring an older stored layout
+// to this exact centerTop/bottomRight composition, and they are NOT equally
+// strong — the difference matters for the "recipes"/"equipment" entries below:
+//  - connectionStatus->machineStatus is renamed inside getLayoutObject(), so
+//    it applies unconditionally on every read.
+//  - The equipment/recipes buttons are NOT. They used to be injected on every
+//    read, but that is exactly the bug fixed in issue #1586 (a removed button
+//    came back on the next launch). They are now injected once, from the
+//    MainController constructor, on the launch whose migrations cross schema
+//    22 / 25 — earlier in the same startup than any acceptRecipesFirstUpgrade()
+//    call, which is user-triggered from a dialog. So an upgrading user's stored
+//    layout does still carry both by the time this runs.
+// The caveat that buys: if migration 22 or 25 defers (they log "incomplete -
+// will retry next launch" and leave schema_version unbumped), the injection
+// has not happened yet, a genuinely pristine layout will not match this
+// snapshot, and isPristineOldDefault() returns false — so the user gets the
+// surgical transform instead of a full resetLayoutToDefault(). Degraded, not
+// destructive, and it corrects itself on the launch that completes the
+// migration. Do not restore the old "unconditional per-read" wording. centerStatus
 // is the one exception — it shipped as {temperature, waterLevel,
 // machineStatus} from #855 through #1372, then as empty from #1372 ("Layout
 // editor: drag-reorder... default cleanups") onward, and nothing ever
@@ -699,10 +714,12 @@ void SettingsNetwork::applyRecipesFirstUpgrade() {
     //
     // The swap RELOCATES the existing Recipes button into the Profiles slot
     // rather than only inserting one when none exists — the fix for the former
-    // "insert only if !hasRecipes" guard, which was dead code: by the time this
-    // ran, getLayoutObject() (called above) had already injected a Recipes
-    // button (by default immediately left of Profiles), so hasRecipes was always
-    // true. A user whose Recipes button lived anywhere but the center (e.g. the
+    // "insert only if !hasRecipes" guard, which was dead code AT THE TIME: back
+    // then getLayoutObject() injected a Recipes button on every read (by default
+    // immediately left of Profiles), so hasRecipes was always true. That is
+    // history — getLayoutObject() no longer injects anything (issue #1586), so
+    // the call above returns the stored layout as-is. A user whose Recipes
+    // button lived anywhere but the center (e.g. the
     // bottom bar) thus had Profiles pulled out with nothing put in its place.
     // Correctness no longer depends on that injection: the recipesItem default
     // below drops a Recipes button into the slot even if none is found; an
@@ -1183,6 +1200,26 @@ void SettingsNetwork::ensureSettingsAccessible() {
     qDebug() << "SettingsNetwork: Added settings widget to bottomRight (no settings access found)";
 }
 
+bool SettingsNetwork::saveLayoutObjectVerified(const QJsonObject& layout, const QString& what) {
+    saveLayoutObject(layout);
+    // QSettings::setValue is fire-and-forget (no return, no throw). On read-only
+    // storage, a full disk, or a kill before the deferred flush, the write drops
+    // silently. That was survivable while this ran on every launch — it simply
+    // re-ran next time — but the crossing-gated callers get exactly one attempt
+    // ever, so force the flush and surface a failure instead of reporting a
+    // success that did not happen.
+    m_settings.sync();
+    if (m_settings.status() != QSettings::NoError) {
+        qWarning().noquote()
+            << "SettingsNetwork: FAILED to persist" << what
+            << "(QSettings status" << static_cast<int>(m_settings.status())
+            << ") — its one-time schema gate is already consumed, so this will NOT be retried;"
+            << "add the widget from Settings -> Layout if it is missing";
+        return false;
+    }
+    return true;
+}
+
 void SettingsNetwork::injectEquipmentButtonIfMissing() {
     // Add an Equipment idle button immediately after the beans item so an
     // upgraded user gets it in a sensible default place regardless of their
@@ -1221,8 +1258,8 @@ void SettingsNetwork::injectEquipmentButtonIfMissing() {
         zones["bottomRight"] = br;
     }
     layout["zones"] = zones;
-    saveLayoutObject(layout);
-    qDebug() << "SettingsNetwork: injected Equipment idle button (schema 22 crossed)";
+    if (saveLayoutObjectVerified(layout, QStringLiteral("the Equipment idle button")))
+        qDebug() << "SettingsNetwork: injected Equipment idle button (schema 22 crossed)";
 }
 
 void SettingsNetwork::injectRecipesButtonIfMissing() {
@@ -1262,8 +1299,8 @@ void SettingsNetwork::injectRecipesButtonIfMissing() {
         zones["bottomRight"] = br;
     }
     layout["zones"] = zones;
-    saveLayoutObject(layout);
-    qDebug() << "SettingsNetwork: injected Recipes idle button (schema 25 crossed)";
+    if (saveLayoutObjectVerified(layout, QStringLiteral("the Recipes idle button")))
+        qDebug() << "SettingsNetwork: injected Recipes idle button (schema 25 crossed)";
 }
 
 bool SettingsNetwork::setItemProperty(const QString& itemId, const QString& key, const QVariant& value) {
