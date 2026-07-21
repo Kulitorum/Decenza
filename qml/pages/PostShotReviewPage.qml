@@ -15,7 +15,9 @@ Page {
     readonly property string pageTitle: TranslationManager.translate("postshotreview.title", "Shot Review")
 
     objectName: "postShotReviewPage"
-    background: ThemedPageBackground {}
+    // suppressShotChart: this page draws its own graph, and the last-shot chart
+    // background would put a second set of curves behind it.
+    background: ThemedPageBackground { suppressShotChart: true }
 
     Component.onCompleted: {
         if (editShotId > 0) {
@@ -277,6 +279,13 @@ Page {
         target: MainController.shotHistory
         function onShotReady(shotId, shot) {
             if (shotId !== postShotReviewPage.editShotId) return
+            // Ignore a RE-delivery of the shot we already hold. requestShot is a shared
+            // async API and this page is not its only caller — the last-shot background
+            // re-reads the newest shot whenever one is saved, which is this shot, at the
+            // moment this page opens. Re-running the block below would repopulate every
+            // edit field from the database and reset the upload status, which is the same
+            // clobber-an-in-progress-edit hazard onVisualizerInfoUpdated documents below.
+            if (editShotData && editShotData.id === shotId) return
             editShotData = shot
             _profileName = editShotData.profileName || ""
             _visualizerId = editShotData.visualizerId || ""

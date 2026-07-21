@@ -235,6 +235,12 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     // As device-independent as the colour, and half the user's choice — omitting it meant a
     // migration restored the colour and silently dropped its pattern.
     theme["backgroundPattern"] = settings->theme()->backgroundPattern();
+    // WHICH KIND of background is chosen. Needed because a shot-chart background has no
+    // parameter of its own to infer it from — omit this and a restore of a device using
+    // one comes back with no background at all, reporting success. Same omission the
+    // pattern suffered above; it is exported for the same reason.
+    theme["backgroundSource"] = settings->theme()->backgroundSource();
+    theme["backgroundShotAdvanced"] = settings->theme()->backgroundShotAdvanced();
     theme["glassChrome"] = settings->theme()->glassChrome();
 
     // Export active palette as customColors (backward compat) plus both palettes
@@ -728,6 +734,33 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         if (theme.contains("themeMode")) settings->theme()->setThemeMode(theme["themeMode"].toString());
         if (theme.contains("backgroundPreset")) settings->theme()->setBackgroundPreset(theme["backgroundPreset"].toString());
         if (theme.contains("backgroundPattern")) settings->theme()->setBackgroundPattern(theme["backgroundPattern"].toString());
+        // AFTER the colour, deliberately: selecting the shot chart clears the colour, so
+        // restoring it last is what makes the imported source win rather than be stomped
+        // by the colour line above.
+        //
+        // Every source is handled, not just "shot". Acting only on "shot" meant a backup
+        // saying "none" restored onto a device using the shot chart left the chart in place
+        // and reported success — the same silent-divergence bug the pattern once had, in the
+        // opposite direction. Gated on contains(): a legacy backup carries no source at all,
+        // and must not be read as a request to clear a device-local image.
+        if (theme.contains("backgroundSource")) {
+            const QString source = theme["backgroundSource"].toString();
+            if (source == QStringLiteral("shot")) {
+                settings->theme()->selectShotChartBackground(theme["backgroundShotAdvanced"].toBool());
+            } else if (source == QStringLiteral("none")) {
+                settings->theme()->clearBackground();
+            } else if (source == QStringLiteral("image")) {
+                // backgroundImagePath is deliberately not exported (a local filesystem path
+                // means nothing on the target), so this one cannot be restored. Clear to a
+                // DEFINED state that matches the message below: log-and-do-nothing left the
+                // device half-applied — the unconditional setBackgroundPreset("") above had
+                // already wiped its colour, while a shot source survived untouched, so the
+                // restore diverged from the backup in a different way per device.
+                settings->theme()->clearBackground();
+                qInfo() << "[Settings] Backup used a background image; image paths are "
+                           "device-local and are not restored. Pick a background again.";
+            }
+        }
         if (theme.contains("glassChrome")) settings->theme()->setGlassChrome(theme["glassChrome"].toBool());
 
         // Restore dual palettes if present (new format)

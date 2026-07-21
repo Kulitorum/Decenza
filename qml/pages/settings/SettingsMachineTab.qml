@@ -827,7 +827,7 @@ KeyboardAwareContainer {
                         Text {
                             Layout.fillWidth: true
                             text: TranslationManager.translate("settings.preferences.glassChromeHint",
-                                "Softens the bars, tiles and controls. With a background image set, cards and dialogs also become translucent so the photo shows through — and it is always on in that case.")
+                                "Softens the bars, tiles and controls. With a background image or the last-shot chart set, cards and dialogs also become translucent so the picture shows through — and it is always on in those cases.")
                             color: Theme.textSecondaryColor
                             font: Theme.captionFont
                             wrapMode: Text.Wrap
@@ -849,10 +849,12 @@ KeyboardAwareContainer {
 
 
                             AccessibleButton {
-                                // "Change" once anything is set — a preset counts as much
-                                // as an image; they are one choice made in one chooser.
-                                text: (Settings.theme.backgroundImagePath.length > 0
-                                       || Settings.theme.backgroundPreset.length > 0)
+                                // "Change" once anything is set — colour, image or shot
+                                // chart; they are one choice made in one chooser. Asked of
+                                // the SOURCE, not the individual parameters: testing the
+                                // two legacy properties said "Choose…" while the shot-chart
+                                // background was active, because that source sets neither.
+                                text: Settings.theme.backgroundSource !== "none"
                                     ? TranslationManager.translate("settings.preferences.backgroundChange", "Change…")
                                     : TranslationManager.translate("settings.preferences.backgroundChoose", "Choose…")
                                 accessibleName: TranslationManager.translate("settings.preferences.background", "Background")

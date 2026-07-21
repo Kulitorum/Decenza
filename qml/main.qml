@@ -1095,6 +1095,20 @@ ApplicationWindow {
         return true
     }
 
+    // Renders the last shot's chart to an image for the background, once per change.
+    // Lives here because grabToImage() needs a live scene graph and a window; it draws
+    // nothing on screen (it sits outside the window) and takes no input.
+    //
+    // Behind a Loader so nothing is built for users who never choose this background. The
+    // renderer holds a HistoryShotGraph — a GraphsView with a dozen series — as a direct
+    // child, so without this it was constructed at startup on every device, including the
+    // tablets, for a feature most people will not turn on.
+    Loader {
+        id: lastShotChartRenderer
+        active: Settings.theme.backgroundSource === "shot"
+        source: "components/LastShotChartRenderer.qml"
+    }
+
     // Page stack for navigation
     StackView {
         id: pageStack

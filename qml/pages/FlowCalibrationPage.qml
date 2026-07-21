@@ -14,7 +14,9 @@ Page {
     readonly property string pageTitle: TranslationManager.translate("flowCalibration.title", "Flow Calibration")
 
     objectName: "flowCalibrationPage"
-    background: ThemedPageBackground {}
+    // suppressShotChart: this page draws its own graph, and the last-shot chart
+    // background would put a second set of curves behind it.
+    background: ThemedPageBackground { suppressShotChart: true }
 
     Component.onCompleted: {
         FlowCalibrationModel.loadRecentShots()

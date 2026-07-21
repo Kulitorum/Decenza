@@ -66,22 +66,9 @@ private:
         return (l + 0.05) / 0.05 >= 1.05 / (l + 0.05) ? QColor("#000000") : QColor("#ffffff");
     }
 
-    // Mirrors Theme._liftFrom: a fixed step in L* (not a fixed RGB fraction), found by
-    // bisection. The distinction matters — a fixed fraction is a large perceptual move
-    // near black and almost nothing at L* 70, which is what previously made the whole
-    // mid-light range unusable.
-    static constexpr double kCardLift = 6.0;   // cards and bars
-    static constexpr double kTileLift = 12.0;  // action tiles, which must read as pressable
-    static QColor liftFrom(const QColor& base, double deltaL = kCardLift) {
-        const QColor target = lstar(base) + deltaL <= 100.0 ? QColor("#ffffff") : QColor("#000000");
-        double lo = 0.0, hi = 1.0;
-        for (int i = 0; i < 24; ++i) {
-            const double m = (lo + hi) / 2;
-            if (std::abs(lstar(mix(base, target, m)) - lstar(base)) < deltaL) lo = m;
-            else hi = m;
-        }
-        return mix(base, target, (lo + hi) / 2);
-    }
+    // NOTE: there is deliberately no local liftFrom/derive here any more. The floors call
+    // BackgroundPresets directly, so they measure the shipped arithmetic. A private copy
+    // made the suite agree with itself while the app shipped something else.
 
 private slots:
     void init() {
@@ -244,14 +231,19 @@ private slots:
 
         for (const auto& c : BackgroundPresets::colours()) {
             const QColor page(c.value);
-            const QColor text = contrastColorFor(page);
-            const QColor secondary = mix(text, page, 0.28);
+            // The SHIPPED derivation, not a local copy of the arithmetic. Re-deriving here
+            // meant the floors measured this file rather than the app: change kCardLift or
+            // kSecondaryMix in backgroundpresets.cpp and every colour could ship failing
+            // 4.5:1 while the suite stayed green on its own constants.
+            const BackgroundPresets::Derived d = BackgroundPresets::derive(page);
+            const QColor text = d.text;
+            const QColor secondary = d.textSecondary;
             struct Case { QColor bg; const char* label; };
             const Case surfaces[] = {
                 {page,                              "page"},
                 {mix(page, text, worstShift),       "page under the densest pattern"},
-                {liftFrom(page, kCardLift),         "card"},
-                {liftFrom(page, kTileLift),         "action tile"},
+                {d.surface,                         "card"},
+                {d.actionTile,                      "action tile"},
             };
             for (const Case& s : surfaces) {
                 for (auto [fg, what] : {std::pair{text, "text"}, std::pair{secondary, "secondary"}}) {
@@ -278,8 +270,8 @@ private slots:
         // itself, which paints chrome that is invisible with nothing to report it.
         for (const auto& c : BackgroundPresets::colours()) {
             const QColor page(c.value);
-            for (double requested : {kCardLift, kTileLift}) {
-                const QColor fill = liftFrom(page, requested);
+            for (double requested : {BackgroundPresets::kCardLift, BackgroundPresets::kTileLift}) {
+                const QColor fill = BackgroundPresets::liftFrom(page, requested);
                 const double achieved = std::abs(lstar(fill) - lstar(page));
                 QVERIFY2(std::abs(achieved - requested) < 0.5,
                          qPrintable(QString("%1: asked for %2 L* of lift, got %3 — no headroom "
@@ -388,8 +380,8 @@ private slots:
         // Guards the guard: pure white and pure black are the cases where one lift direction
         // is impossible, and they must still produce a visible step by going the other way.
         for (const QColor& extreme : {QColor("#ffffff"), QColor("#000000")}) {
-            for (double requested : {kCardLift, kTileLift}) {
-                const QColor fill = liftFrom(extreme, requested);
+            for (double requested : {BackgroundPresets::kCardLift, BackgroundPresets::kTileLift}) {
+                const QColor fill = BackgroundPresets::liftFrom(extreme, requested);
                 const double achieved = std::abs(lstar(fill) - lstar(extreme));
                 QVERIFY2(std::abs(achieved - requested) < 0.5,
                          qPrintable(QString("%1: asked for %2 L*, got %3")
@@ -425,6 +417,13 @@ private slots:
         raw.setValue("theme/backgroundPreset", "retired-in-a-later-release");
         raw.sync();
 
+        // The read path now says so out loud — upgrading past a removed colour used to make
+        // the background vanish with nothing in the log to connect the two. Expected here,
+        // and asserted rather than merely tolerated: if the warning stops firing, the
+        // diagnosis it exists to provide has gone with it.
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression("not in this build's catalogue"));
+
         SettingsTheme theme;
         QCOMPARE(theme.backgroundPreset(), QString());
         QVERIFY(theme.activeBackgroundPreset().isEmpty());
@@ -441,6 +440,350 @@ private slots:
         theme.setBackgroundImagePath("/tmp/another-photo.jpg");
         QCOMPARE(theme.backgroundImagePath(), QString("/tmp/another-photo.jpg"));
         QCOMPARE(theme.backgroundPreset(), QString());
+    }
+
+    // --- The background source ---------------------------------------------
+    //
+    // Three kinds mean six ordered pairs, and the failure this guards is two of them live
+    // at once — whereupon whichever renderer tests first decides what you see. Driving all
+    // six is the point: the pairwise clearing these replaced was correct for the two pairs
+    // it was written for and had no opinion about the other four.
+
+    // Select a source by kind, so the exclusivity table below reads as a table.
+    static void selectSource(SettingsTheme& theme, const QString& kind) {
+        if (kind == "colour")      theme.setBackgroundPreset("cast-iron");
+        else if (kind == "image")  theme.setBackgroundImagePath("/tmp/a-photo.jpg");
+        else if (kind == "shot")   theme.selectShotChartBackground(false);
+        else                       theme.clearBackground();
+    }
+
+    void everySourceReplacesEveryOther() {
+        const QStringList kinds = {"colour", "image", "shot"};
+        for (const QString& first : kinds) {
+            for (const QString& second : kinds) {
+                if (first == second)
+                    continue;
+                SettingsTheme theme;
+                selectSource(theme, first);
+                QCOMPARE(theme.backgroundSource(), first);
+
+                selectSource(theme, second);
+                QVERIFY2(theme.backgroundSource() == second,
+                         qPrintable(QString("%1 -> %2 left the source at %3")
+                                        .arg(first, second, theme.backgroundSource())));
+
+                // The parameters of the sources NOT selected must be empty, or a renderer
+                // testing them in a different order draws something else entirely.
+                if (second != "colour")
+                    QVERIFY2(theme.backgroundPreset().isEmpty(),
+                             qPrintable(QString("%1 -> %2 left a colour set").arg(first, second)));
+                if (second != "image")
+                    QVERIFY2(theme.backgroundImagePath().isEmpty(),
+                             qPrintable(QString("%1 -> %2 left an image path set").arg(first, second)));
+
+                // The STORED key, not just the derived getter. backgroundSource() falls back
+                // to deriving the kind from whichever parameter is set, which is right for
+                // migration and self-healing but means it reconstructs the correct answer
+                // even when nothing wrote the key at all. Asserting only the getter, this
+                // test passed with every source write deleted.
+                QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+                QCOMPARE(raw.value("theme/backgroundSource").toString(), second);
+            }
+        }
+    }
+
+    void clearingReturnsToNone() {
+        for (const QString& kind : {QString("colour"), QString("image"), QString("shot")}) {
+            SettingsTheme theme;
+            selectSource(theme, kind);
+            theme.clearBackground();
+            QCOMPARE(theme.backgroundSource(), QString("none"));
+            QVERIFY(theme.backgroundPreset().isEmpty());
+            QVERIFY(theme.backgroundImagePath().isEmpty());
+        }
+    }
+
+    void clearingOneSourceDoesNotDisturbAnother() {
+        // Choosing an image clears the colour as a SIDE EFFECT, and that clear arrives
+        // after the source is already "image". If releasing a source were unconditional
+        // rather than "only if it is still mine", this is where it would stomp.
+        SettingsTheme theme;
+        theme.setBackgroundPreset("cortado");
+        theme.setBackgroundImagePath("/tmp/a-photo.jpg");
+        QCOMPARE(theme.backgroundSource(), QString("image"));
+
+        theme.selectShotChartBackground(true);
+        QCOMPARE(theme.backgroundSource(), QString("shot"));
+    }
+
+    // --- The source has to NOTIFY, not just hold the right value -----------
+    //
+    // Theme.hasBackgroundImage and Theme.glassChrome read backgroundSource, and ~70 chrome
+    // call sites read those. A correct value that never announces itself leaves every one
+    // of them latched on the previous answer until the app restarts.
+
+    void clearingTheImageTellsTheAppTheBackgroundIsGone() {
+        // The path ScreensaverVideoManager takes when it deletes the file a background was
+        // using. Without a notify the whole app stays in translucent-over-a-photo mode with
+        // no photo — which is the exact state that clearing code exists to prevent.
+        SettingsTheme theme;
+        theme.setBackgroundImagePath("/tmp/photo.jpg");
+        QSignalSpy spy(&theme, &SettingsTheme::backgroundSourceChanged);
+
+        theme.setBackgroundImagePath(QString());
+
+        QCOMPARE(theme.backgroundSource(), QString("none"));
+        QVERIFY2(spy.count() >= 1,
+                 "no backgroundSourceChanged on clear — every binding stays on \"image\"");
+    }
+
+    void everyClearLeavesBindingsOnTheFinalValue() {
+        // A QML binding re-reads the property INSIDE the change handler, so emitting before
+        // the parameters are cleared hands every binding the value being cleared.
+        for (const QString& kind : {QString("colour"), QString("image"), QString("shot")}) {
+            SettingsTheme theme;
+            selectSource(theme, kind);
+
+            QString atEmit;
+            QObject::connect(&theme, &SettingsTheme::backgroundSourceChanged,
+                             &theme, [&]{ atEmit = theme.backgroundSource(); });
+
+            theme.clearBackground();
+
+            QCOMPARE(theme.backgroundSource(), QString("none"));
+            QVERIFY2(atEmit == QString("none"),
+                     qPrintable(QString("clearing from %1 announced %2").arg(kind, atEmit)));
+        }
+    }
+
+    void flippingAdvancedWhileAlreadyOnTheChartStillNotifies() {
+        // The source does not move here, so the only thing that can tell the renderer to
+        // re-draw is this signal. Without it the Advanced entry is a permanent no-op that
+        // still shows as selected in the picker.
+        SettingsTheme theme;
+        theme.selectShotChartBackground(false);
+        QSignalSpy spy(&theme, &SettingsTheme::backgroundSourceChanged);
+
+        theme.selectShotChartBackground(true);
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(theme.backgroundShotAdvanced(), true);
+
+        // ...and re-selecting the same entry must NOT, or every apply costs a re-render.
+        theme.selectShotChartBackground(true);
+        QCOMPARE(spy.count(), 1);
+    }
+
+    void theShotSelectionSurvivesARestart() {
+        // The most visible way this feature can fail: it works all session and is gone on
+        // the next launch. A second SettingsTheme over the same store is that restart.
+        {
+            SettingsTheme theme;
+            theme.selectShotChartBackground(true);
+        }
+        SettingsTheme reopened;
+        QCOMPARE(reopened.backgroundSource(), QString("shot"));
+        QCOMPARE(reopened.backgroundShotAdvanced(), true);
+    }
+
+    void choosingTheShotChartKeepsThePattern() {
+        // Documented in settings_theme.h — the pattern is retained so returning to a colour
+        // restores it. Nothing pinned it, and losing a user's texture silently is exactly
+        // what happened once already when the preset was split into two axes.
+        SettingsTheme theme;
+        theme.setBackgroundPreset("cortado");
+        theme.setBackgroundPattern("linen");
+
+        theme.selectShotChartBackground(false);
+        QCOMPARE(theme.backgroundPattern(), QString("linen"));
+
+        theme.setBackgroundPreset("cortado");
+        QCOMPARE(theme.backgroundPattern(), QString("linen"));
+    }
+
+    void theShotEntryCarriesItsOwnAdvancedFlag() {
+        SettingsTheme theme;
+        theme.selectShotChartBackground(false);
+        QCOMPARE(theme.backgroundShotAdvanced(), false);
+        theme.selectShotChartBackground(true);
+        QCOMPARE(theme.backgroundSource(), QString("shot"));
+        QCOMPARE(theme.backgroundShotAdvanced(), true);
+    }
+
+    void anInstallPredatingTheSourceKeepsItsBackground() {
+        // The migration: no stored source at all, which is every existing install. The
+        // kind is derived from the values that ARE set, and nothing is rewritten.
+        {
+            SettingsTheme theme;
+            theme.setBackgroundPreset("walnut");
+            QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+            raw.remove("theme/backgroundSource");
+            raw.sync();
+            QCOMPARE(theme.backgroundSource(), QString("colour"));
+        }
+        {
+            SettingsTheme theme;
+            theme.setBackgroundImagePath("/tmp/legacy.jpg");
+            QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+            raw.remove("theme/backgroundSource");
+            raw.sync();
+            QCOMPARE(theme.backgroundSource(), QString("image"));
+        }
+        {
+            // The blocks share one store and init() only runs per test FUNCTION, so the
+            // image above is still set unless it is cleared — an install with no background
+            // at all has to start from an empty store to mean anything.
+            QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+            raw.remove("theme");
+            raw.sync();
+            SettingsTheme theme;
+            QCOMPARE(theme.backgroundSource(), QString("none"));
+        }
+    }
+
+    void aStoredSourceItsParameterCannotBackIsNotBelieved() {
+        // "colour" with no colour describes something no renderer can draw. A hand-edited
+        // ini, a downgrade, or a colour removed in a later release all reach this. Falling
+        // through to the derivation is the same code path as the migration, deliberately.
+        SettingsTheme theme;
+        theme.setBackgroundImagePath("/tmp/real.jpg");
+        QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+        raw.setValue("theme/backgroundSource", "colour");
+        raw.sync();
+        QCOMPARE(theme.backgroundSource(), QString("image"));
+    }
+
+    // Named for what it actually checks. The private setter's refusal branch is only
+    // reachable from internal callers passing compile-time constants, so the reachable
+    // hazard is a BAD STORED value — a hand-edited ini, or a downgrade — and what matters
+    // is that reading one does not erase the background the user still has.
+    void anUnknownStoredSourceIsDerivedAroundRatherThanErasingTheBackground() {
+        SettingsTheme theme;
+        theme.setBackgroundPreset("espresso");
+        QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+        raw.setValue("theme/backgroundSource", "hologram");
+        raw.sync();
+        // Unknown reads back as the derived kind, and the colour itself is untouched.
+        QCOMPARE(theme.backgroundSource(), QString("colour"));
+        QCOMPARE(theme.backgroundPreset(), QString("espresso"));
+    }
+
+    void everyStoredSourceItsParameterCannotBackFallsThrough() {
+        // One case was covered ("colour" with no colour). These are the rest, including the
+        // one that does NOT fall through: "shot" carries no parameter, so it is believed as
+        // stored, and that asymmetry should be deliberate rather than discovered.
+        struct Case { const char* stored; const char* preset; const char* image; const char* expect; };
+        const Case cases[] = {
+            {"image",  "",        "",              "none"},    // no path to back it
+            {"none",   "walnut",  "",              "colour"},  // a colour IS set
+            {"none",   "",        "/tmp/a.jpg",    "image"},   // a path IS set
+            {"shot",   "",        "",              "shot"},    // no parameter needed
+        };
+        for (const Case& c : cases) {
+            QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+            raw.remove("theme");
+            raw.setValue("theme/backgroundSource", c.stored);
+            if (*c.preset) raw.setValue("theme/backgroundPreset", c.preset);
+            if (*c.image)  raw.setValue("theme/backgroundImagePath", c.image);
+            raw.sync();
+
+            SettingsTheme theme;
+            QVERIFY2(theme.backgroundSource() == QString(c.expect),
+                     qPrintable(QString("stored %1 (preset '%2', image '%3') derived %4, expected %5")
+                                    .arg(c.stored, c.preset, c.image, theme.backgroundSource(), c.expect)));
+        }
+    }
+
+    void theShotSourceSurvivesABackup() {
+        // A shot-chart background has no parameter of its own, so it is the one source a
+        // backup can lose completely while reporting success — exactly how the pattern was
+        // lost when the single preset became two axes.
+        Settings settings;
+        settings.theme()->selectShotChartBackground(true);
+
+        const QJsonObject exported = SettingsSerializer::exportToJson(&settings, false);
+
+        settings.theme()->setBackgroundPreset("porcelain");
+        QCOMPARE(settings.theme()->backgroundSource(), QString("colour"));
+
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression("importFromJson replacing .* favorites"));
+        SettingsSerializer::importFromJson(&settings, exported);
+
+        QCOMPARE(settings.theme()->backgroundSource(), QString("shot"));
+        QCOMPARE(settings.theme()->backgroundShotAdvanced(), true);
+        QVERIFY(settings.theme()->backgroundPreset().isEmpty());
+    }
+
+    // --- The shot-chart background's cache key -----------------------------
+    //
+    // The key itself lives in QML (LastShotChartSource) and this suite is C++ with no Qt
+    // Quick Test harness, so the key's ARITHMETIC is verified live rather than here. What
+    // is testable, and what actually breaks, is its COMPLETENESS: the key lists the graph
+    // visibility settings by name, and a curve added to the chart later without a matching
+    // entry produces a background that silently stops updating when you toggle it. Nothing
+    // about that looks broken — the old chart is still a real chart.
+    //
+    // So compare the two lists in the two files directly. A source-consistency check rather
+    // than a behaviour one, in the same spirit as declaredCoverageMatchesTheArtwork above.
+
+    static QStringList graphKeysIn(const QString& relativePath, const QRegularExpression& pattern) {
+        QFile file(QStringLiteral(DECENZA_SOURCE_DIR "/") + relativePath);
+        if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+            return {};
+        QString text = QString::fromUtf8(file.readAll());
+        // Drop // comments first. Without this, a key commented out while debugging still
+        // counts as covered — the cache key silently loses a curve and the test stays green,
+        // which is the exact failure this test exists to prevent.
+        text.remove(QRegularExpression(QStringLiteral("//[^\n]*")));
+        QStringList keys;
+        auto it = pattern.globalMatch(text);
+        while (it.hasNext()) {
+            const QString key = it.next().captured(1);
+            if (!keys.contains(key))
+                keys << key;
+        }
+        keys.sort();
+        return keys;
+    }
+
+    void theShotBackgroundKeyCoversEveryCurveTheChartDraws() {
+        // Every graph/show* the chart reads...
+        const QStringList drawn = graphKeysIn(
+            "qml/components/HistoryShotGraph.qml",
+            QRegularExpression(R"RX(Settings\.boolValue\("(graph/[^"]+)")RX"));
+        QVERIFY2(drawn.size() >= 10,
+                 qPrintable(QString("only found %1 curve settings in HistoryShotGraph — the "
+                                    "pattern that finds them has probably gone stale")
+                                .arg(drawn.size())));
+
+        // ...must appear in the key the cached render is invalidated on.
+        const QStringList keyed = graphKeysIn(
+            "qml/components/LastShotChartSource.qml",
+            QRegularExpression(R"RX("(graph/[^"]+)")RX"));
+
+        QStringList missing;
+        for (const QString& k : drawn) {
+            if (!keyed.contains(k))
+                missing << k;
+        }
+        QVERIFY2(missing.isEmpty(),
+                 qPrintable(QString("LastShotChartSource's cache key does not mention %1 — "
+                                    "toggling %2 would leave the background showing the "
+                                    "previous render, with nothing to indicate it is stale")
+                                .arg(missing.join(", "),
+                                     missing.size() == 1 ? missing.first()
+                                                         : QStringLiteral("one of them"))));
+
+        // And nothing keyed that the chart does not actually draw: a stale entry here is a
+        // re-render triggered by a setting with no effect on the picture.
+        QStringList extra;
+        for (const QString& k : keyed) {
+            if (!drawn.contains(k))
+                extra << k;
+        }
+        QVERIFY2(extra.isEmpty(),
+                 qPrintable("cache key mentions settings the chart does not read: "
+                            + extra.join(", ")));
     }
 
     void changingTheActiveThemeClearsTheColour() {

@@ -2,6 +2,7 @@
 
 #include <QMap>
 #include <QObject>
+#include <QSet>
 #include <QSettings>
 #include <QString>
 #include <QStringList>
@@ -79,9 +80,33 @@ class SettingsTheme : public QObject {
     // clears it when the backing file is deleted; a preset has no backing file.
     Q_PROPERTY(QString backgroundPreset READ backgroundPreset WRITE setBackgroundPreset NOTIFY backgroundPresetChanged)
 
+    // Which KIND of background is active: "none", "colour", "image" or "shot".
+    //
+    // Read-only from QML on purpose. The background is one choice, and the way to make it
+    // is to say what you want — setBackgroundPreset, setBackgroundImagePath,
+    // selectShotChartBackground, clearBackground — each of which sets the source itself.
+    // A writable source could be set to "image" with no path, which is a state no renderer
+    // can draw.
+    //
+    // Before this existed the kind was INFERRED from which of preset/image was non-empty,
+    // and each setter cleared the other. That works for two and stops working at three:
+    // the clearing becomes quadratic and the failure is two sources live at once, where
+    // whichever renderer tests first wins. Existing installs are migrated by derivation on
+    // read (see backgroundSource()), not by rewriting stored values.
+    Q_PROPERTY(QString backgroundSource READ backgroundSource NOTIFY backgroundSourceChanged)
+
+    // For the "shot" source: whether the advanced curve set is drawn. A property of the
+    // chosen ENTRY, deliberately not a mirror of shotReview/advancedMode — that toggle is
+    // used to inspect one shot and must not repaint the whole app.
+    Q_PROPERTY(bool backgroundShotAdvanced READ backgroundShotAdvanced NOTIFY backgroundSourceChanged)
+
     // Optional pattern drawn over the background colour. A SECOND axis rather than a
     // property of each colour: baking the two together produced a catalogue where half the
     // entries were near-invisible variants of the other half. Empty = no pattern.
+    //
+    // Not drawn over an image or a shot chart; the chooser disables the row there rather
+    // than accepting a selection that does nothing, and the stored value is retained so
+    // returning to a colour restores it.
     Q_PROPERTY(QString backgroundPattern READ backgroundPattern WRITE setBackgroundPattern NOTIFY backgroundPatternChanged)
 
     // The two catalogues, for the chooser.
@@ -148,6 +173,15 @@ public:
 
     QString backgroundPreset() const;
     void setBackgroundPreset(const QString& id);
+
+    QString backgroundSource() const;
+    bool backgroundShotAdvanced() const;
+    // Select the last-shot chart as the background. `advanced` picks between the two
+    // catalogue entries (Last Shot / Last Shot (Advanced)).
+    Q_INVOKABLE void selectShotChartBackground(bool advanced);
+    // Back to the theme's own background colour, whatever the current source is.
+    Q_INVOKABLE void clearBackground();
+
     QString backgroundPattern() const;
     void setBackgroundPattern(const QString& id);
     QVariantList backgroundPresets() const;
@@ -252,6 +286,7 @@ signals:
     void backgroundImagePathChanged();
     void backgroundPresetChanged();
     void backgroundPatternChanged();
+    void backgroundSourceChanged();
     void glassChromeChanged();
     void activeShaderChanged();
     void shaderParamsChanged();
@@ -265,6 +300,15 @@ private:
     // Clearing the background colour is a side effect of several unrelated actions, so it
     // records which one did it — see the definition.
     void clearBackgroundPreset(const char* reason);
+    // The ONE place the stored source key is written; emits nothing.
+    void storeBackgroundSource(const QString& source);
+    // The other half: emit iff the DERIVED source differs from `before`. Split because the
+    // stored key and the derived value move independently — see the definition.
+    void notifyBackgroundSourceChanged(const QString& before);
+    // Ids already reported as unknown, so the warning fires once rather than on every read
+    // of a hot const getter. Mutable because the getters are const and this is diagnostics,
+    // not state.
+    mutable QSet<QString> m_warnedUnknownIds;
     void updateResolvedMode();
 
     mutable QSettings m_settings;

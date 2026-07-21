@@ -25,14 +25,41 @@ Item {
     property string patternId: Settings.theme.backgroundPattern
     // Absolute filesystem path, "" = none. Mutually exclusive with presetId.
     property string imagePath: Settings.theme.backgroundImagePath
+    // Whether this surface draws the last shot's chart. Overridden by the chooser to preview
+    // an entry that has not been applied.
+    property bool shotChart: Settings.theme.backgroundSource === "shot"
+
+    // How strongly the chart is drawn as wallpaper.
+    //
+    // At full strength it competes with the page instead of sitting behind it: the shot-plan
+    // line ("Brew 36.0g of Espresso, using…") crosses the weight ramp and the flow line, and
+    // white text over bright hairlines is HARDER to read than white text over a photo — a
+    // photo is blurry and low-frequency, a chart is high-contrast and thin. Dimming trades a
+    // little of the scale's crispness for text that reads, which is the right way round for
+    // something whose job is to be a background.
+    //
+    // Applied at DRAW time rather than baked into the render, so changing it costs nothing:
+    // no re-render, and no opacity term needed in the cache key.
+    readonly property real shotChartWallpaperOpacity: 0.55
 
     // Resolved catalogue entries ({} when the id is empty or unknown).
     readonly property var _preset: _lookup(Settings.theme.backgroundPresets, presetId)
     readonly property var _pattern: _lookup(Settings.theme.backgroundPatterns, patternId)
 
     readonly property bool _hasPreset: _preset.id !== undefined
-    readonly property bool _hasPattern: _pattern.id !== undefined
-    readonly property bool _hasImage: !_hasPreset && imagePath.length > 0
+    // A shot chart, once rendered, IS an image — so it flows down the image path below and
+    // inherits its scrim, its decode-in-progress fallback and its stale-source behaviour
+    // rather than getting a parallel implementation of each. The chart is drawn by
+    // LastShotChartRenderer; nothing here builds one.
+    // `!_hasPreset` is a safety net, not a nicety. Each source defaults from the LIVE
+    // setting so the page background needs no configuration — but that means a caller which
+    // sets one input and stays silent about the others INHERITS them, and with a shot
+    // background active every colour tile in the chooser drew the last shot instead of its
+    // colour. A surface told to show a specific colour must never show something else.
+    readonly property bool _hasShotChart: shotChart && !_hasPreset
+                                          && LastShotChartSource.imageSource.length > 0
+    readonly property bool _hasPattern: _pattern.id !== undefined && !_hasShotChart
+    readonly property bool _hasImage: !_hasPreset && (_hasShotChart || imagePath.length > 0)
 
     // The flat colour actually being painted, and the ink that will read on it.
     //
@@ -61,7 +88,15 @@ Item {
     Rectangle {
         anchors.fill: parent
         color: root.surfaceColour
-        visible: !root._hasImage || bgImage.status !== Image.Ready
+        // Also shows while EITHER image is still decoding, which is what makes the fallback
+        // a fallback: the flat colour holds the page until there is something to draw.
+        //
+        // And it stays UNDER the shot chart permanently, because that chart is drawn
+        // translucent (see shotChartWallpaperOpacity) and needs a page colour to sit on
+        // rather than the bare window.
+        visible: !root._hasImage
+                 || root._hasShotChart
+                 || bgImage.status !== Image.Ready
     }
 
     // Pattern above the flat colour. One monochrome asset serves every colour because it
@@ -94,15 +129,44 @@ Item {
         }
     }
 
+    // A PHOTO. sourceSize caps decode cost for a multi-megapixel file, and
+    // PreserveAspectCrop fills the surface without distorting it.
     Image {
         id: bgImage
         anchors.fill: parent
-        visible: root._hasImage && status === Image.Ready
-        source: root._hasImage ? "file:///" + root.imagePath : ""
+        visible: root._hasImage && !root._hasShotChart && status === Image.Ready
+        source: root._hasImage && !root._hasShotChart ? "file:///" + root.imagePath : ""
         fillMode: Image.PreserveAspectCrop
         asynchronous: true
         sourceSize.width: Screen.width
         sourceSize.height: Screen.height
         Accessible.ignored: true
+        // Without this a missing or unreadable file degrades to the flat colour with nothing
+        // anywhere to say why — the page looks deliberately plain rather than broken.
+        onStatusChanged: if (status === Image.Error)
+            console.warn("[Background] Background image failed to load:", source,
+                         "- falling back to the theme colour")
+    }
+
+    // THE SHOT CHART. Its own element rather than a pile of ternaries on the one above,
+    // because every property it wants differs: it was rendered at the surface's own size, so
+    // it is stretched rather than cropped (cropping would drop the shot's last seconds off
+    // the edge), and it must NOT be given a sourceSize — Qt refuses that on a grabToImage url
+    // and warns, and resampling a correctly-sized raster would be pure loss anyway.
+    Image {
+        id: shotChartImage
+        anchors.fill: parent
+        visible: root._hasShotChart && status === Image.Ready
+        source: root._hasShotChart ? LastShotChartSource.imageSource : ""
+        fillMode: Image.Stretch
+        opacity: root.shotChartWallpaperOpacity
+        asynchronous: true
+        Accessible.ignored: true
+        // The url is an image-provider handle whose lifetime is the grab result the renderer
+        // holds. If that is ever released while a surface is still bound to it, this is the
+        // only place it would show — and silently, as a plain background.
+        onStatusChanged: if (status === Image.Error)
+            console.warn("[Background] Shot-chart image failed to load:", source,
+                         "- falling back to the theme colour")
     }
 }

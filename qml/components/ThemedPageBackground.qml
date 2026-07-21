@@ -16,4 +16,34 @@ import QtQuick
 // since this component's own Image.Error fallback isn't visible to the many other call
 // sites that read Theme.hasBackgroundImage.)
 BackgroundSurface {
+    id: pageBackground
+
+    // Set by pages that draw a graph of their own. The last-shot chart is the one background
+    // that competes with page CONTENT rather than merely sitting behind it: a live shot drawn
+    // over the previous shot's chart is two sets of curves in the same colours at different
+    // scales, and neither is readable. Those pages fall back to the plain background.
+    //
+    // Opt-IN per page rather than a list of page names here, so a new graph page is a one-line
+    // change at the page — and so the failure mode is a page that forgot to say so, which is
+    // visible, rather than a name that drifted, which is not.
+    //
+    // Only the shot chart is suppressed. A colour, a pattern or a photo sits behind a graph
+    // perfectly well, and turning those off would take away a choice for no reason.
+    property bool suppressShotChart: false
+    shotChart: !suppressShotChart && Settings.theme.backgroundSource === "shot"
+
+    // The PAGE background is the one surface whose size the shot chart should be rendered
+    // at. The chooser's tiles and preview are also BackgroundSurfaces, and they are small —
+    // if they reported their size the wallpaper would be re-rendered at thumbnail
+    // resolution every time the chooser opened.
+    onWidthChanged: _reportSize()
+    onHeightChanged: _reportSize()
+    Component.onCompleted: _reportSize()
+
+    function _reportSize() {
+        if (width > 0 && height > 0) {
+            LastShotChartSource.targetWidth = width
+            LastShotChartSource.targetHeight = height
+        }
+    }
 }

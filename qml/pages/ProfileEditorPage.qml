@@ -12,7 +12,9 @@ Page {
     readonly property string pageTitle: profile ? profile.title : TranslationManager.translate("profileEditor.title", "Profile Editor")
 
     objectName: "profileEditorPage"
-    background: ThemedPageBackground {}
+    // suppressShotChart: this page draws its own graph, and the last-shot chart
+    // background would put a second set of curves behind it.
+    background: ThemedPageBackground { suppressShotChart: true }
 
     property var profile: null
     property int selectedStepIndex: -1
