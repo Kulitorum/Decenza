@@ -529,11 +529,13 @@ QString ShotServer::generateBeansPage() const
             <div><label>Roast level</label><input id="fRoastLevel"></div>
         </div>
 
-        <details class="dialog-section" id="getInfoSection">
-            <summary>Get info from a roaster page (AI)</summary>
-            <label>Product URL</label><input id="fInfoUrl" placeholder="https://…">
-            <div class="actions"><button onclick="extractInfo()">Get info</button></div>
-        </details>
+        <!-- One Product URL field, same as the app's bag form: it is the bag's
+             stored product link AND the page the AI extraction reads. A second,
+             extraction-only URL box used to live here and was never cleared
+             between editor opens, so a new bag arrived carrying the previous
+             bag's URL (#1588). -->
+        <label>Product URL</label><input id="dLink" placeholder="https://…">
+        <div class="actions"><button onclick="extractInfo()">Get info from page</button></div>
 
         <details class="dialog-section" id="coffeeDetails">
             <summary>Bean details</summary>
@@ -550,7 +552,6 @@ QString ShotServer::generateBeansPage() const
                 <div><label>Purchased at</label><input id="dPlace"></div>
             </div>
             <label>Tasting notes</label><textarea id="dNotes"></textarea>
-            <label>Product link</label><input id="dLink">
         </details>
 
         <details class="dialog-section" id="teaDetails">
@@ -633,10 +634,14 @@ QString ShotServer::generateBeansPage() const
         const COFFEE_KEYS = [['dOrigin','origin'],['dRegion','region'],['dFarm','farm'],
             ['dProducer','producer'],['dVariety','variety'],['dElevation','elevation'],
             ['dProcess','process'],['dHarvest','harvest'],['dQuality','qualityScore'],
-            ['dPlace','placeOfPurchase'],['dNotes','tastingNotes'],['dLink','link']];
+            ['dPlace','placeOfPurchase'],['dNotes','tastingNotes']];
         const TEA_KEYS = [['tType','teaType'],['tGarden','garden'],['tCultivar','cultivar'],
             ['tFlush','flush'],['tBrewTemp','brewTempC'],['tLeaf','leafGramsPer100Ml'],
             ['tSteep','steepTime'],['tOrigin','origin']];
+        // The product link belongs to both kinds — tea bags are bought from a
+        // page too, and the extraction reads it — so it sits outside the
+        // kind-specific lists and is applied on top of whichever is active.
+        const LINK_KEYS = [['dLink','link']];
 
         const parseBlob = (s) => { try { return s ? JSON.parse(s) : {}; } catch (e) { return {}; } };
         function thumbErr(img, emoji) {
@@ -801,7 +806,6 @@ QString ShotServer::generateBeansPage() const
         function applyKindUi() {
             const isTea = editingKind === 'tea';
             el('searchSection').style.display = isTea ? 'none' : '';
-            el('getInfoSection').style.display = isTea ? 'none' : '';
             el('coffeeDetails').style.display = isTea ? 'none' : '';
             el('teaDetails').style.display = isTea ? '' : 'none';
             el('lblCoffee').textContent = isTea ? 'Tea name' : 'Coffee';
@@ -837,9 +841,13 @@ QString ShotServer::generateBeansPage() const
             fillEquipmentSelect(defaultPkg);
             refreshGrindCandidates();
             el('fNotes').value = b.notes || '';
-            COFFEE_KEYS.concat(TEA_KEYS).forEach(([fid, key]) => { const e = el(fid); if (e) e.value = editBlob[key] || ''; });
+            COFFEE_KEYS.concat(TEA_KEYS, LINK_KEYS).forEach(([fid, key]) => { const e = el(fid); if (e) e.value = editBlob[key] || ''; });
             el('fSearch').value = '';
             el('searchResults').style.display = 'none';
+            // Every field above is (re)assigned from the record, so nothing
+            // survives from the bag edited before this one — including a status
+            // line left over from that bag's search or extraction.
+            status('');
             updateYieldLabel();
             applyKindUi();
             el('editor').showModal();
@@ -887,14 +895,14 @@ QString ShotServer::generateBeansPage() const
             editBeanBaseId = r.id || '';
             if (r.roasterName) el('fRoaster').value = r.roasterName;
             if (r.roastName) el('fCoffee').value = r.roastName;
-            COFFEE_KEYS.forEach(([fid, key]) => { const e = el(fid); if (e && r[key] != null) e.value = r[key]; });
+            COFFEE_KEYS.concat(LINK_KEYS).forEach(([fid, key]) => { const e = el(fid); if (e && r[key] != null) e.value = r[key]; });
             el('searchResults').style.display = 'none';
             status('Linked to Bean Base — review and Save.');
         }
 
         // --- AI "get info from page" ---
         function extractInfo() {
-            const url = el('fInfoUrl').value.trim();
+            const url = el('dLink').value.trim();
             if (!url) { status('Enter a product URL first'); return; }
             status('Fetching page and extracting…');
             const ctrl = new AbortController();
@@ -910,7 +918,10 @@ QString ShotServer::generateBeansPage() const
                     (editingKind === 'tea' ? TEA_KEYS : COFFEE_KEYS).forEach(([fid, key]) => {
                         const e = el(fid); if (e && f[key] != null && f[key] !== '') e.value = f[key];
                     });
-                    if (f.link) el('dLink').value = f.link;
+                    // f.link is deliberately not written back: extraction runs
+                    // from the URL in that same field, so the user's own URL is
+                    // what gets stored, not whatever canonical link the page
+                    // advertises for itself.
                     status('Extracted — review and Save.');
                 })
                 .catch(e => { if (e.name !== 'AbortError') status('Extraction failed: ' + e.message);
@@ -944,7 +955,7 @@ QString ShotServer::generateBeansPage() const
             else bodyData.yieldG = 0;
 
             // Merge edited descriptive fields into the working blob and send it.
-            (editingKind === 'tea' ? TEA_KEYS : COFFEE_KEYS).forEach(([fid, key]) => {
+            (editingKind === 'tea' ? TEA_KEYS : COFFEE_KEYS).concat(LINK_KEYS).forEach(([fid, key]) => {
                 const e = el(fid); if (!e) return;
                 const v = e.value.trim();
                 if (v) editBlob[key] = v; else delete editBlob[key];

@@ -87,9 +87,12 @@ inline constexpr const char* WEB_CSS_MANAGEMENT = R"CSS(
         .section-head button { font-size: 0.85rem; }
 
         /* Create/edit dialog */
+        /* margin:auto restores the centering the `* { margin: 0 }` reset takes
+           away from the UA's dialog rule — without it every management dialog
+           opens pinned to the top-left corner of the viewport. */
         dialog { background: var(--surface); color: var(--text); border: 1px solid var(--border);
                  border-radius: 14px; padding: 1.25rem; max-width: 560px; width: 94%;
-                 max-height: 88vh; overflow-y: auto; }
+                 max-height: 88vh; overflow-y: auto; margin: auto; }
         dialog::backdrop { background: rgba(0,0,0,0.6); }
         dialog h2 { font-size: 1.1rem; margin-bottom: 0.5rem; }
         dialog label { display: block; margin: 0.6rem 0 0.15rem; font-size: 0.82rem;
