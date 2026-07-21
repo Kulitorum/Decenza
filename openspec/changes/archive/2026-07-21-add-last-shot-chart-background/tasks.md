@@ -88,25 +88,25 @@
 - [x] 8.1 Full local suite green — there is no PR CI gate, so this is the gate
 - [x] 8.2 `qmllint` with `-I` on the build dir, unqualified access ON: undeclared QML identifiers
       compile clean and fail only at runtime
-- [ ] 8.3 Live in the running app: every idle-screen control still responds with the chart behind
+- [x] 8.3 Live in the running app: every idle-screen control still responds with the chart behind
       it (a chart that eats taps is the worst failure here)
-- [ ] 8.4 Live: pull a shot and confirm the background updates; delete it and confirm it refreshes
-- [ ] 8.5 Live: toggle curves in the review legend and confirm the background follows
-- [ ] 8.6 Live: switch between colour, image and shot backgrounds in every order; confirm no
+- [x] 8.4 Live: pull a shot and confirm the background updates; delete it and confirm it refreshes
+- [x] 8.5 Live: toggle curves in the review legend and confirm the background follows
+- [x] 8.6 Live: switch between colour, image and shot backgrounds in every order; confirm no
       combination leaves two sources drawn or the pattern stuck
 - [x] 8.7 Live: apply a different theme and confirm the background re-renders in its colours.
       This is the stale-cache failure, and it is silent — check it deliberately
-- [ ] 8.8 **On a real TABLET, time the one-off grab at shot end.** Steady state is a texture, so
+- [~] 8.8 DEFERRED to the beta (same as #1584's moiré check): **On a real TABLET, time the one-off grab at shot end.** Steady state is a texture, so
       per-page cost is no longer the question; what matters is whether the render stalls the app
       at the moment a shot finishes. Note the number in the PR either way
-- [ ] 8.9 Confirm the light-theme case: the chart on a light canvas, scrimmed, still readable
+- [~] 8.9 PARTIAL: the render adapts to a light theme (verified via image dump); the composited page needs an eyeball in the beta: Confirm the light-theme case: the chart on a light canvas, scrimmed, still readable
 
 ## 9. Docs
 
-- [ ] 9.1 Update the wiki manual (`Kulitorum/Decenza.wiki`, `Manual` page): the two entries, that
+- [x] 9.1 Update the wiki manual (`Kulitorum/Decenza.wiki`, `Manual` page): the two entries, that
       per-line visibility is shared with the review page, that the entry chooses basic vs
       advanced, and that patterns do not apply
-- [ ] 9.2 Re-read the delta specs against what actually shipped before archiving — on the last
+- [x] 9.2 Re-read the delta specs against what actually shipped before archiving — on the last
       background change the delta had gone stale on its own implementation and would have been
       promoted contradicting the code
 - [ ] 9.3 Run `openspec archive add-last-shot-chart-background` as the final commit on the branch,

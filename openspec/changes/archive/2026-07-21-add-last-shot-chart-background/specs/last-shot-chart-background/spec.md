@@ -122,16 +122,23 @@ exactly as it does with any other background.
 - **WHEN** the user taps or hovers anywhere over the background
 - **THEN** no crosshair, inspect bar or tooltip appears
 
-### Requirement: Legibility treatment matches the background-image case
-The chart SHALL be drawn scrimmed at the alpha already used for background images, and the glass
-chrome SHALL be forced on while it is active, because opaque cards sitting on a chart read as
-slabs. Foreground colours SHALL NOT be derived from the chart's content: the chart's canvas is
-the theme's own background colour, and deriving from the drawn pixels would shift the whole UI's
-text colour every time a shot finished.
+### Requirement: Legibility treatment
+The chart SHALL be drawn dimmed — at a fixed wallpaper opacity over the theme's own background
+colour, applied at draw time so changing it costs no re-render — because at full strength thin
+bright curves under white text read worse than a photo does. The glass chrome SHALL be forced on
+while a RENDER EXISTS, not merely while the source is selected: with nothing drawn (a fresh
+install, an empty history) the chrome stays opaque over the flat colour, since scrimming chrome
+over a flat page cancels its elevation for nothing. Foreground colours SHALL NOT be derived from
+the chart's content: the chart's canvas is the theme's own background colour, and deriving from
+the drawn pixels would shift the whole UI's text colour every time a shot finished.
 
-#### Scenario: Glass is forced on
-- **WHEN** a shot-chart background is active and the glass option is off
-- **THEN** the chrome is translucent anyway
+#### Scenario: Glass is forced on when the chart is drawn
+- **WHEN** a shot-chart background is active, a render exists, and the glass option is off
+- **THEN** the chrome is translucent anyway, appearing in the same update as the picture
+
+#### Scenario: No render, no glass
+- **WHEN** a shot-chart background is selected but there is no shot to draw
+- **THEN** the chrome stays opaque over the theme colour
 
 #### Scenario: Text colour does not move when a shot completes
 - **WHEN** a new shot becomes the background
