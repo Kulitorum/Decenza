@@ -126,27 +126,117 @@ Dialog {
                 font.bold: true
             }
 
-            // Live idle-screen preview — same component the Layout settings tab uses, now
-            // showing the highlighted (not yet saved) candidate, rendered by the same
-            // BackgroundSurface the real page background uses so the preview cannot drift
-            // from the result. Deliberately small: the tile sections below need most of
-            // the vertical space.
-            Rectangle {
-                Layout.alignment: Qt.AlignHCenter
-                Layout.preferredWidth: Theme.scaled(220)
-                Layout.preferredHeight: Theme.scaled(138)
-                color: Theme.backgroundColor
-                radius: Theme.cardRadius
-                border.color: Theme.borderColor
-                border.width: 1
-                clip: true
+            // Preview on the left, pattern tiles filling the space beside it. The preview is
+            // only ~220 wide, so a full-width row for it alone left most of the dialog's
+            // widest band empty while the pattern tiles sat below the fold.
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.scaled(12)
 
-                LayoutPreview {
-                    anchors.fill: parent
-                    anchors.margins: Theme.scaled(4)
-                    backgroundImageSource: popup.candidatePath
-                    backgroundPresetSource: popup.candidatePreset
-                    backgroundPatternSource: popup.candidatePattern
+                // Live idle-screen preview — same component the Layout settings tab uses,
+                // showing the highlighted (not yet saved) candidate and rendered by the same
+                // BackgroundSurface the real page background uses, so the preview cannot
+                // drift from the result.
+                Rectangle {
+                    Layout.alignment: Qt.AlignTop
+                    Layout.preferredWidth: Theme.scaled(220)
+                    Layout.preferredHeight: Theme.scaled(138)
+                    color: Theme.backgroundColor
+                    radius: Theme.cardRadius
+                    border.color: Theme.borderColor
+                    border.width: 1
+                    clip: true
+
+                    LayoutPreview {
+                        anchors.fill: parent
+                        anchors.margins: Theme.scaled(4)
+                        backgroundImageSource: popup.candidatePath
+                        backgroundPresetSource: popup.candidatePreset
+                        backgroundPatternSource: popup.candidatePattern
+                    }
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignTop
+                    spacing: Theme.scaled(6)
+
+                    // --- Patterns -------------------------------------------------
+                    // A second axis rather than a property of each colour, so every colour
+                    // can carry every texture without a grid of near-identical tiles.
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: TranslationManager.translate("backgroundPicker.section.patterns", "Pattern")
+                        color: Theme.textSecondaryColor
+                        font: Theme.captionFont
+                    }
+
+                    Flow {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(6)
+
+                        Repeater {
+                            // "None" first, then the catalogue.
+                            model: [{ id: "", nameKey: "backgroundPicker.none", nameFallback: "None" }]
+                                   .concat(Settings.theme.backgroundPatterns)
+
+                            Rectangle {
+                                id: patternTile
+                                required property var modelData
+
+                                readonly property bool isSelected: popup.candidatePattern === modelData.id
+                                // Previewed on the colour that is actually selected, so the
+                                // tile shows the real combination rather than an abstract swatch.
+                                readonly property color _base: popup.candidatePreset.length > 0
+                                    ? popup._presetColour(popup.candidatePreset)
+                                    : Theme.backgroundColor
+
+                                width: Theme.scaled(96)
+                                height: Theme.scaled(64)
+                                radius: Theme.scaled(8)
+                                color: "transparent"
+                                border.color: isSelected ? Theme.primaryColor : Theme.borderColor
+                                border.width: isSelected ? 2 : 1
+                                clip: true
+
+                                BackgroundSurface {
+                                    anchors.fill: parent
+                                    anchors.margins: 1
+                                    presetId: popup.candidatePreset
+                                    patternId: patternTile.modelData.id
+                                    imagePath: ""
+                                }
+
+                                Text {
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.bottom: parent.bottom
+                                    anchors.margins: Theme.scaled(4)
+                                    text: TranslationManager.translate(patternTile.modelData.nameKey,
+                                                                       patternTile.modelData.nameFallback)
+                                    color: Theme.contrastColorFor(patternTile._base)
+                                    font: Theme.captionFont
+                                    horizontalAlignment: Text.AlignHCenter
+                                    elide: Text.ElideRight
+                                    Accessible.ignored: true
+                                }
+
+                                SelectedTick { visible: patternTile.isSelected }
+
+                                AccessibleMouseArea {
+                                    anchors.fill: parent
+                                    accessibleName: TranslationManager.translate(patternTile.modelData.nameKey,
+                                                                                 patternTile.modelData.nameFallback)
+                                        + (patternTile.isSelected
+                                            ? ", " + TranslationManager.translate("accessibility.selected", "selected")
+                                            : "")
+                                    accessibleItem: patternTile
+                                    onAccessibleClicked: popup.candidatePattern = patternTile.modelData.id
+                                }
+                            }
+                }
+            }
                 }
             }
 
@@ -166,7 +256,7 @@ Dialog {
 
                     Text {
                         Layout.fillWidth: true
-                        text: TranslationManager.translate("backgroundPicker.section.presets", "Colours & patterns")
+                        text: TranslationManager.translate("backgroundPicker.section.presets", "Colours")
                         color: Theme.textSecondaryColor
                         font: Theme.captionFont
                     }
@@ -262,85 +352,6 @@ Dialog {
                                             : "")
                                     accessibleItem: presetTile
                                     onAccessibleClicked: popup.selectPreset(presetTile.modelData.id)
-                                }
-                            }
-                        }
-                    }
-
-                    // --- Patterns -------------------------------------------------
-                    // A second axis rather than a property of each colour, so every
-                    // colour can carry every texture from two short rows instead of a
-                    // grid of near-identical tiles.
-
-                    Text {
-                        Layout.fillWidth: true
-                        Layout.topMargin: Theme.scaled(6)
-                        text: TranslationManager.translate("backgroundPicker.section.patterns", "Pattern")
-                        color: Theme.textSecondaryColor
-                        font: Theme.captionFont
-                    }
-
-                    Flow {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(6)
-
-                        Repeater {
-                            // "None" first, then the catalogue.
-                            model: [{ id: "", nameKey: "backgroundPicker.none", nameFallback: "None" }]
-                                   .concat(Settings.theme.backgroundPatterns)
-
-                            Rectangle {
-                                id: patternTile
-                                required property var modelData
-
-                                readonly property bool isSelected: popup.candidatePattern === modelData.id
-                                // Previewed on the colour that is actually selected, so the
-                                // tile shows the real combination rather than an abstract swatch.
-                                readonly property color _base: popup.candidatePreset.length > 0
-                                    ? popup._presetColour(popup.candidatePreset)
-                                    : Theme.backgroundColor
-
-                                width: Theme.scaled(96)
-                                height: Theme.scaled(64)
-                                radius: Theme.scaled(8)
-                                color: "transparent"
-                                border.color: isSelected ? Theme.primaryColor : Theme.borderColor
-                                border.width: isSelected ? 2 : 1
-                                clip: true
-
-                                BackgroundSurface {
-                                    anchors.fill: parent
-                                    anchors.margins: 1
-                                    presetId: popup.candidatePreset
-                                    patternId: patternTile.modelData.id
-                                    imagePath: ""
-                                }
-
-                                Text {
-                                    anchors.left: parent.left
-                                    anchors.right: parent.right
-                                    anchors.bottom: parent.bottom
-                                    anchors.margins: Theme.scaled(4)
-                                    text: TranslationManager.translate(patternTile.modelData.nameKey,
-                                                                       patternTile.modelData.nameFallback)
-                                    color: Theme.contrastColorFor(patternTile._base)
-                                    font: Theme.captionFont
-                                    horizontalAlignment: Text.AlignHCenter
-                                    elide: Text.ElideRight
-                                    Accessible.ignored: true
-                                }
-
-                                SelectedTick { visible: patternTile.isSelected }
-
-                                AccessibleMouseArea {
-                                    anchors.fill: parent
-                                    accessibleName: TranslationManager.translate(patternTile.modelData.nameKey,
-                                                                                 patternTile.modelData.nameFallback)
-                                        + (patternTile.isSelected
-                                            ? ", " + TranslationManager.translate("accessibility.selected", "selected")
-                                            : "")
-                                    accessibleItem: patternTile
-                                    onAccessibleClicked: popup.candidatePattern = patternTile.modelData.id
                                 }
                             }
                         }
