@@ -824,6 +824,7 @@ set(HEADERS
     src/ble/protocol/de1characteristics.h
     src/ble/protocol/decentscaleprotocol.h
     src/ble/blecapability.h
+    src/ble/bleserviceerror.h
     src/ble/blemanager.h
     src/ble/de1transport.h
     src/ble/de1device.h

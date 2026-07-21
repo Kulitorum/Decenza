@@ -1,5 +1,6 @@
 #include "qtscalebletransport.h"
 #include "../blecapability.h"
+#include "../bleserviceerror.h"
 #include "../blemanager.h"
 #include <QDateTime>
 #include <QDebug>
@@ -710,20 +711,15 @@ void QtScaleBleTransport::onServiceError(QLowEnergyService::ServiceError err) {
     QLowEnergyService* service = qobject_cast<QLowEnergyService*>(sender());
     QString serviceUuid = service ? service->serviceUuid().toString() : "unknown";
 
-    QString errorName;
-    switch (err) {
-        case QLowEnergyService::NoError: errorName = "NoError"; break;
-        case QLowEnergyService::OperationError: errorName = "OperationError"; break;
-        case QLowEnergyService::CharacteristicWriteError: errorName = "CharacteristicWriteError"; break;
-        case QLowEnergyService::DescriptorWriteError:
-            // CCCD write failures are non-fatal - some scales reject them but still notify
-            QT_TRANSPORT_LOG("DescriptorWriteError (non-fatal, scale may still send notifications)");
-            return;
-        case QLowEnergyService::UnknownError: errorName = "UnknownError"; break;
-        case QLowEnergyService::CharacteristicReadError: errorName = "CharacteristicReadError"; break;
-        case QLowEnergyService::DescriptorReadError: errorName = "DescriptorReadError"; break;
-        default: errorName = QString::number(static_cast<int>(err)); break;
+    if (err == QLowEnergyService::DescriptorWriteError) {
+        // CCCD write failures are non-fatal - some scales reject them but still notify
+        QT_TRANSPORT_LOG("DescriptorWriteError (non-fatal, scale may still send notifications)");
+        return;
     }
+
+    // Shared with the DE1 transport so both links name the same failure the same
+    // way (bleserviceerror.h, #1586).
+    const QString errorName = bleServiceErrorName(err);
     QT_TRANSPORT_LOG(QString("!!! SERVICE ERROR: %1 on %2 !!!").arg(errorName, serviceUuid));
     emit error(QString("Service error: %1").arg(errorName));
 }
