@@ -12,6 +12,75 @@
 #include <functional>
 #include <memory>
 
+// True when a failed statement failed because someone else holds the lock
+// (SQLITE_BUSY = 5, SQLITE_LOCKED = 6) rather than for a reason retrying cannot
+// fix. The text checks are a backstop: the native code is empty on some driver
+// paths, and Qt appends its own prefix to the message.
+//
+// This distinction is what separates "wait and try again" from "give up": a
+// constraint violation or a nested-transaction error must never be retried.
+inline bool isSqliteLockError(const QSqlError& e) {
+    const QString code = e.nativeErrorCode();
+    return code == QLatin1String("5") || code == QLatin1String("6")
+        || e.text().contains(QLatin1String("locked"), Qt::CaseInsensitive)
+        || e.text().contains(QLatin1String("busy"), Qt::CaseInsensitive);
+}
+
+// Outcome of beginImmediateTransaction().
+enum class TxnBegin {
+    Started,  // we own a fresh write transaction
+    Nested,   // already inside one; the outer transaction provides atomicity
+    Locked,   // another writer held the lock through every attempt
+    Failed,   // anything else — see the logged error
+};
+
+// Starts a top-level write transaction, retrying briefly while another writer
+// holds the lock.
+//
+// Use this, NOT QSqlDatabase::transaction(), for any transaction that reads
+// before it writes. Qt's SQLite driver issues a plain DEFERRED BEGIN
+// (qsql_sqlite.cpp: `q.exec("BEGIN")`), which takes a read lock for the first
+// SELECT and then has to UPGRADE it for the first write — and if another
+// connection wrote in between, SQLite fails that upgrade IMMEDIATELY rather than
+// waiting out busy_timeout, because waiting could deadlock. The PRAGMA
+// busy_timeout that withTempDb sets is simply not consulted, so the write fails
+// on the first brush with contention.
+//
+// That is not theoretical here: four storages (shots, bags, equipment, recipes)
+// share shots.db, each on its own worker thread, so their writes overlap by
+// design — ordering is guaranteed per storage, not globally. It cost a real
+// recipe save twice in a three-day log ("database is locked", and a "Couldn't
+// save to the recipe" banner) before this existed.
+//
+// BEGIN IMMEDIATE takes the write lock up front, which is what lets busy_timeout
+// absorb the contention. It also means contention can only bite HERE — once the
+// lock is held, no statement inside the transaction can block on another writer —
+// so callers need no retry loop around the body.
+inline TxnBegin beginImmediateTransaction(QSqlDatabase& db, const char* what, int attempts = 4) {
+    QSqlQuery q(db);
+    for (int attempt = 1; ; ++attempt) {
+        if (q.exec(QStringLiteral("BEGIN IMMEDIATE")))
+            return TxnBegin::Started;
+        const QSqlError err = q.lastError();
+        if (!isSqliteLockError(err)) {
+            // A caller that already opened a transaction gets "cannot start a
+            // transaction within a transaction". Not an error: the outer
+            // transaction still makes the caller's work atomic.
+            if (err.text().contains(QLatin1String("within a transaction"), Qt::CaseInsensitive))
+                return TxnBegin::Nested;
+            qWarning() << "beginImmediateTransaction:" << what << "failed:" << err.text();
+            return TxnBegin::Failed;
+        }
+        if (attempt >= attempts) {
+            qWarning() << "beginImmediateTransaction:" << what << "could not take the write lock after"
+                       << attempts << "attempts:" << err.text();
+            return TxnBegin::Locked;
+        }
+        // Short escalating backoff: a backstop for a writer held past busy_timeout.
+        QThread::msleep(static_cast<unsigned long>(50 * attempt));
+    }
+}
+
 // Opens a temporary QSQLITE connection, runs `work(db)`, then removes the connection.
 // Sets PRAGMA busy_timeout and foreign_keys. Returns true if the DB opened successfully.
 // Thread-safe: each call uses a unique connection name based on the current thread ID.

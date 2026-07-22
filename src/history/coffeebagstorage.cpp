@@ -851,9 +851,13 @@ qint64 CoffeeBagStorage::convertLegacyPresetSettings(const QString& dbPath)
         if (!probe.exec("SELECT COUNT(*) FROM coffee_bags"))
             return;
 
-        if (!db.transaction()) {
-            qWarning() << "CoffeeBagStorage: legacy preset transaction begin failed:"
-                       << db.lastError().text();
+        // importLegacyPresetsStatic probes for duplicates before inserting, so
+        // this reads before it writes and must take the write lock up front —
+        // see beginImmediateTransaction. One-time legacy path, but the shape is
+        // the same one that cost a recipe save.
+        if (beginImmediateTransaction(db, "legacy preset import") != TxnBegin::Started) {
+            qWarning() << "CoffeeBagStorage: legacy preset transaction begin failed - "
+                          "leaving the keys for a later retry";
             return;
         }
         imported = importLegacyPresetsStatic(db, presets, selectedIndex, &selectedBagId);

@@ -2070,12 +2070,6 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
 
     qint64 shotId = -1;
     withTempDb(dbPath, "shs_save", [&](QSqlDatabase& db) {
-        auto isLockError = [](const QSqlError& e) {
-            const QString code = e.nativeErrorCode();
-            return code == QLatin1String("5") || code == QLatin1String("6")
-                || e.text().contains(QLatin1String("locked"), Qt::CaseInsensitive)
-                || e.text().contains(QLatin1String("busy"), Qt::CaseInsensitive);
-        };
         // A transient SQLITE_BUSY/locked from a concurrent writer (the post-shot
         // bags_update stamp, reconciliation drain, daily backup, WAL checkpoint)
         // must not drop a real shot. BEGIN IMMEDIATE (below) lets busy_timeout
@@ -2094,7 +2088,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
             // handler rides out the brief writer, so the lock no longer surfaces.
             QSqlQuery beginQuery(db);
             if (!beginQuery.exec(QStringLiteral("BEGIN IMMEDIATE"))) {
-                locked = isLockError(beginQuery.lastError());
+                locked = isSqliteLockError(beginQuery.lastError());
                 qWarning() << "ShotHistoryStorage: Failed to start transaction:" << beginQuery.lastError().text();
                 return false;
             }
@@ -2192,7 +2186,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
             query.bindValue(":hot_water_json", data.hotWaterJson.isEmpty() ? QVariant() : data.hotWaterJson);
 
             if (!query.exec()) {
-                locked = isLockError(query.lastError());
+                locked = isSqliteLockError(query.lastError());
                 qWarning() << "ShotHistoryStorage: Failed to insert shot:" << query.lastError().text()
                            << "(sqlite code" << query.lastError().nativeErrorCode() << ")";
                 QSqlQuery(db).exec(QStringLiteral("ROLLBACK"));
@@ -2208,7 +2202,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
             query.bindValue(":blob", data.compressedSamples);
 
             if (!query.exec()) {
-                locked = isLockError(query.lastError());
+                locked = isSqliteLockError(query.lastError());
                 qWarning() << "ShotHistoryStorage: Failed to insert samples:" << query.lastError().text();
                 QSqlQuery(db).exec(QStringLiteral("ROLLBACK"));
                 shotId = -1;
@@ -2238,7 +2232,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
             // falls through to ROLLBACK + a full-transaction retry.)
             QSqlQuery commitQuery(db);
             for (int commitTry = 1; !commitQuery.exec(QStringLiteral("COMMIT")); ++commitTry) {
-                const bool commitLocked = isLockError(commitQuery.lastError());
+                const bool commitLocked = isSqliteLockError(commitQuery.lastError());
                 if (!commitLocked || commitTry >= 4) {
                     locked = commitLocked;
                     qWarning() << "ShotHistoryStorage: Failed to commit shot:"
@@ -4035,8 +4029,15 @@ qint64 ShotHistoryStorage::importShotRecordStatic(QSqlDatabase& db, const ShotRe
         }
     }
 
-    // Begin transaction
-    db.transaction();
+    // Reads (the grinder-identity lookup just below) before it writes, and runs
+    // on a worker thread against the live shots.db while bag/recipe/equipment
+    // writers are active — so it takes the write lock up front rather than
+    // upgrading a read lock. See beginImmediateTransaction.
+    if (beginImmediateTransaction(db, "shot import") == TxnBegin::Locked) {
+        qWarning() << "ShotHistoryStorage: import could not take the write lock, skipping shot"
+                   << record.summary.uuid;
+        return -1;
+    }
 
     // Resolve the parsed grinder identity to an equipment package so the
     // imported shot keeps its grinder (the per-shot grinder_brand/model/burrs

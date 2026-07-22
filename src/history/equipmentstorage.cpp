@@ -1109,7 +1109,20 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
     // bags without retiring the old package (a duplicate live package). Wrap in a
     // transaction and roll back to the no-op identity (return packageId) on any
     // failure. (withTempDb runs in autocommit, so this is a top-level txn.)
-    const bool inTxn = db.transaction();
+    //
+    // Reads (findPackageByGrinderIdentityStatic) before it writes, so it takes
+    // the write lock up front — see beginImmediateTransaction.
+    const TxnBegin begun = beginImmediateTransaction(db, "equipment identity edit");
+    if (begun == TxnBegin::Locked || begun == TxnBegin::Failed) {
+        // Nested would be fine — an outer transaction still makes this atomic —
+        // but a lock leaves nothing to inherit atomicity from, and running the
+        // edit unwrapped could repoint bags without retiring the old package:
+        // exactly the duplicate-live-package state above. Give up as a no-op.
+        qWarning() << "EquipmentStorage: identity edit for package" << packageId
+                   << "could not start a transaction - leaving the package unchanged";
+        return packageId;
+    }
+    const bool inTxn = (begun == TxnBegin::Started);
     auto fail = [&]() -> qint64 { if (inTxn) db.rollback(); return packageId; };
     auto done = [&](qint64 result) -> qint64 {
         if (inTxn && !db.commit()) { db.rollback(); return packageId; }

@@ -525,49 +525,16 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
     runAsync("recipes_update",
         [recipeId, patchFields = std::move(patch), hintedBev, success, failReason](QSqlDatabase& db) {
             // The whole update is transactional so the validity check below
-            // can reject the patch without leaving a half-applied row.
+            // can reject the patch without leaving a half-applied row. It reads
+            // (loadRecipeStatic) before it writes, so it must take the write
+            // lock up front — see beginImmediateTransaction, which this is the
+            // bug report for: a plain BEGIN cost a real save here, twice.
             //
-            // BEGIN IMMEDIATE, not db.transaction(): Qt's SQLite driver issues a
-            // plain (DEFERRED) BEGIN, which takes a read lock for the
-            // loadRecipeStatic below and then has to UPGRADE it for the UPDATE.
-            // If any other connection wrote in between, SQLite returns
-            // SQLITE_BUSY *immediately* rather than waiting out busy_timeout —
-            // waiting could deadlock, so it doesn't. Not hypothetical: four
-            // storages (shots, bags, equipment, recipes) share shots.db, each on
-            // its own worker thread, so writes overlap by design, and this
-            // surfaced twice in a three-day log as "database is locked" — a real
-            // lost save, and a "Couldn't save to the recipe" banner for the
-            // user. Taking the write lock up front lets busy_timeout absorb the
-            // contention instead. Same fix, and same reasoning, as the shot
-            // insert in ShotHistoryStorage::saveShotStatic.
-            //
-            // With the lock held from the start, contention can only bite HERE —
-            // the statements below cannot block on another writer — so retrying
-            // the BEGIN alone is enough, and the body needs no retry loop. The
-            // short escalating backoff is a backstop for a writer held past
-            // busy_timeout.
-            auto isLockError = [](const QSqlError& e) {
-                const QString code = e.nativeErrorCode();
-                return code == QLatin1String("5") || code == QLatin1String("6")
-                    || e.text().contains(QLatin1String("locked"), Qt::CaseInsensitive)
-                    || e.text().contains(QLatin1String("busy"), Qt::CaseInsensitive);
-            };
-            QSqlQuery beginQuery(db);
-            bool begun = false;
-            for (int attempt = 1; attempt <= 4; ++attempt) {
-                if (beginQuery.exec(QStringLiteral("BEGIN IMMEDIATE"))) {
-                    begun = true;
-                    break;
-                }
-                if (!isLockError(beginQuery.lastError()) || attempt == 4)
-                    break;  // a real error, or out of attempts — retrying cannot help
-                qWarning() << "RecipeStorage: update for recipe" << recipeId
-                           << "hit a transient lock, retrying (" << attempt << "of 3)";
-                QThread::msleep(static_cast<unsigned long>(50 * attempt));
-            }
-            if (!begun) {
-                qWarning() << "RecipeStorage: update transaction begin failed for recipe"
-                           << recipeId << "-" << beginQuery.lastError().text();
+            // Nested is treated as a failure rather than tolerated: the
+            // rejection paths below roll back, which would discard an outer
+            // caller's work too. No such caller exists today.
+            if (beginImmediateTransaction(db, "recipe update") != TxnBegin::Started) {
+                qWarning() << "RecipeStorage: update transaction begin failed for recipe" << recipeId;
                 return;
             }
             // Pre-update state, captured inside the transaction: the name-uniqueness
