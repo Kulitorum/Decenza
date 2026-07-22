@@ -959,6 +959,92 @@ void MainController::setupRecipeConnections() {
     connect(m_recipeStorage, &RecipeStorage::recipeActivationReady, this,
             &MainController::applyActivatedRecipe);
 
+    // recipe-auto-load: loadAutoLoadRecipeIfNeeded() requests the target
+    // recipe by id to check existence/archived state before activating
+    // (RecipeStorage has no synchronous accessor). Filtered on
+    // m_pendingAutoLoadRecipeId so it only reacts to its own request, not
+    // every recipeReady the app fires (e.g. the active-recipe cache refresh
+    // connection below). m_pendingAutoLoadRecheckId is the edit-time
+    // counterpart below — handled in the same slot since both wait on the
+    // same signal, but it never reaches activateRecipe().
+    connect(m_recipeStorage, &RecipeStorage::recipeReady, this,
+            [this](qint64 recipeId, const QVariantMap& recipe) {
+        if (recipeId == m_pendingAutoLoadRecheckId) {
+            m_pendingAutoLoadRecheckId = -1;
+            // Proactive re-check only ever clears a newly-stale pin — never
+            // activates, or merely editing the pinned recipe while a
+            // different one is active (or none is) would silently switch
+            // the live session onto it.
+            if (RecipeStorage::isRecipeStale(recipe)) {
+                qDebug() << "MainController: auto-load recipe" << recipeId
+                         << "no longer available - clearing";
+                m_settings->dye()->setAutoLoadRecipeId(-1);
+                emit autoLoadRecipeStaleCleared();
+            }
+            return;
+        }
+        if (recipeId != m_pendingAutoLoadRecipeId)
+            return;
+        m_pendingAutoLoadRecipeId = -1;
+        if (RecipeStorage::isRecipeStale(recipe)) {
+            qDebug() << "MainController: auto-load recipe" << recipeId
+                     << "no longer available - clearing";
+            m_settings->dye()->setAutoLoadRecipeId(-1);
+            emit autoLoadRecipeStaleCleared();
+            return;
+        }
+        qDebug() << "MainController: loading auto-load recipe" << recipeId;
+        activateRecipe(recipeId);
+    });
+    // recipe-auto-load: a DB-open failure on either request above leaves its
+    // pending flag set forever unless cleared here — recipeReady never fires
+    // for that id. This does not clear the setting itself (a transient open
+    // failure isn't proof the row is stale); the next trigger, or the next
+    // edit, tries again.
+    connect(m_recipeStorage, &RecipeStorage::recipeCheckFailed, this,
+            [this](qint64 recipeId) {
+        if (recipeId == m_pendingAutoLoadRecipeId) {
+            m_pendingAutoLoadRecipeId = -1;
+            qWarning() << "MainController: auto-load recipe" << recipeId
+                       << "check failed - storage unavailable, will retry next trigger";
+        }
+        if (recipeId == m_pendingAutoLoadRecheckId) {
+            m_pendingAutoLoadRecheckId = -1;
+            qWarning() << "MainController: auto-load recipe" << recipeId
+                       << "re-check failed - storage unavailable";
+        }
+    });
+
+    // recipe-auto-load: proactively re-check the auto-load target the moment
+    // IT is the row that changed, rather than waiting for the next trigger to
+    // discover it was archived out from under the setting — mirrors the
+    // active-recipe recipeUpdated/recipeReady pair below, which re-reads on
+    // update and does its own archived check in the recipeReady half. Never
+    // activates — see the recipeReady handler above.
+    connect(m_recipeStorage, &RecipeStorage::recipeUpdated, this,
+            [this](qint64 recipeId, bool success) {
+        if (!success || !m_settings || recipeId != m_settings->dye()->autoLoadRecipeId())
+            return;
+        m_pendingAutoLoadRecheckId = recipeId;
+        m_recipeStorage->requestRecipe(recipeId);
+    });
+    // Deletion has no row left to re-read — clear directly. Also cancels any
+    // in-flight request for this id so a slower recipeReady/recipeCheckFailed
+    // arrival can't act on a now-stale pending flag and double-fire the
+    // signal below.
+    connect(m_recipeStorage, &RecipeStorage::recipeDeleted, this,
+            [this](qint64 recipeId, bool success) {
+        if (!success || !m_settings || recipeId != m_settings->dye()->autoLoadRecipeId())
+            return;
+        if (m_pendingAutoLoadRecipeId == recipeId)
+            m_pendingAutoLoadRecipeId = -1;
+        if (m_pendingAutoLoadRecheckId == recipeId)
+            m_pendingAutoLoadRecheckId = -1;
+        qDebug() << "MainController: auto-load recipe" << recipeId << "deleted - clearing";
+        m_settings->dye()->setAutoLoadRecipeId(-1);
+        emit autoLoadRecipeStaleCleared();
+    });
+
     // --- Relink lifecycle (recipe-bag-lifecycle): recipes follow bag
     // inventory events, silently and dup-guarded — roll-on-finish when a
     // bag leaves inventory, wake-on-restock when a new bag arrives. Pure
@@ -1821,6 +1907,24 @@ void MainController::deactivateRecipe() {
     // eco users go cold).
     if (hadMilk)
         applySteamSettings();
+}
+
+void MainController::loadAutoLoadRecipeIfNeeded() {
+    if (!m_settings || !m_recipeStorage)
+        return;
+
+    const qint64 recipeId = m_settings->dye()->autoLoadRecipeId();
+    if (recipeId < 0)
+        return;
+
+    if (recipeId == m_settings->dye()->activeRecipeId())
+        return; // Already active
+
+    // Existence/archived state is checked via the async recipeReady path
+    // (see setupRecipeConnections) — RecipeStorage has no synchronous
+    // accessor for a single row.
+    m_pendingAutoLoadRecipeId = recipeId;
+    m_recipeStorage->requestRecipe(recipeId);
 }
 
 bool MainController::activeRecipeHasMilk() const {

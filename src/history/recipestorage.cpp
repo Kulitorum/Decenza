@@ -319,6 +319,14 @@ void RecipeStorage::requestArchived()
 
 void RecipeStorage::requestRecipe(qint64 recipeId)
 {
+    // Terminal emit even when uninitialized — runAsync() silently drops the
+    // job on an empty dbPath, which would leave a caller waiting on this
+    // specific id (recipe-auto-load) hanging forever on a pending flag.
+    if (m_dbPath.isEmpty()) {
+        qWarning() << "RecipeStorage: requestRecipe on uninitialized storage, recipe" << recipeId;
+        emit recipeCheckFailed(recipeId);
+        return;
+    }
     auto result = std::make_shared<QVariantMap>();
     runAsync("recipes_get",
         [recipeId, result](QSqlDatabase& db) {
@@ -326,10 +334,19 @@ void RecipeStorage::requestRecipe(qint64 recipeId)
             if (recipe.isValid())
                 *result = recipe.toVariantMap();
         },
-        // Read: skip the emit on open failure. An empty result would be read
-        // as "active recipe vanished" by SettingsDye; only a genuine
-        // not-found (db opened, row absent) should do that.
-        [this, recipeId, result](bool dbOpened) { if (dbOpened) emit recipeReady(recipeId, *result); });
+        // An empty result on a successful open would be read as "active
+        // recipe vanished" by SettingsDye; only a genuine not-found (db
+        // opened, row absent) should do that. A failed open instead fires
+        // recipeCheckFailed so a caller needing a terminal signal (recipe-
+        // auto-load) isn't left waiting; the pre-existing active-recipe
+        // cache-refresh caller ignores it and simply retries on the next
+        // refresh.
+        [this, recipeId, result](bool dbOpened) {
+            if (dbOpened)
+                emit recipeReady(recipeId, *result);
+            else
+                emit recipeCheckFailed(recipeId);
+        });
 }
 
 void RecipeStorage::requestLastEquipmentForDrinkType(const QString& drinkType)
@@ -875,6 +892,12 @@ Recipe RecipeStorage::loadRecipeStatic(QSqlDatabase& db, qint64 recipeId)
     if (!query.exec() || !query.next())
         return Recipe();
     return recipeFromQueryRow(query);
+}
+
+// static
+bool RecipeStorage::isRecipeStale(const QVariantMap& recipe)
+{
+    return recipe.isEmpty() || recipe.value("archived").toBool();
 }
 
 qint64 RecipeStorage::findRecipeByNameStatic(QSqlDatabase& db, const QString& name, qint64 excludeId)

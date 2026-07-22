@@ -451,6 +451,7 @@ ApplicationWindow {
                 if (pageName === "idlePage") {
                     console.log("[AutoLoad] Idle countdown expired — invoking auto-load")
                     ProfileManager.loadAutoLoadProfileIfNeeded()
+                    MainController.loadAutoLoadRecipeIfNeeded()
                 }
                 root.autoLoadIdleCountdown = root.autoLoadCountdownReload()
             }
@@ -460,8 +461,10 @@ ApplicationWindow {
     function autoLoadCountdownReload() {
         var pageName = pageStack.currentItem ? pageStack.currentItem.objectName : ""
         // 0 disables the idle-revert trigger only — startup and wake-from-sleep
-        // still fire via their own paths.
-        if (Settings.app.autoLoadProfileFilename === ""
+        // still fire via their own paths. Nothing configured on EITHER side
+        // (recipe-auto-load: the two are mutually exclusive, so at most one
+        // of these is ever non-default) also disables it.
+        if ((Settings.app.autoLoadProfileFilename === "" && Settings.dye.autoLoadRecipeId === -1)
             || Settings.app.autoLoadRevertMinutes <= 0
             || pageName !== "idlePage") {
             return -1
@@ -477,6 +480,11 @@ ApplicationWindow {
         target: Settings.app
         function onAutoLoadProfileFilenameChanged() { root.autoLoadResetCountdown() }
         function onAutoLoadRevertMinutesChanged() { root.autoLoadResetCountdown() }
+    }
+
+    Connections {
+        target: Settings.dye
+        function onAutoLoadRecipeIdChanged() { root.autoLoadResetCountdown() }
     }
 
     // Trigger: DE1 wake from Sleep → Idle. Tracks previous state in QML since
@@ -504,6 +512,7 @@ ApplicationWindow {
             if (prev === root.de1StateSleep && curr === root.de1StateIdle) {
                 console.log("[AutoLoad] DE1 Sleep -> Idle — invoking auto-load")
                 ProfileManager.loadAutoLoadProfileIfNeeded()
+                MainController.loadAutoLoadRecipeIfNeeded()
             }
         }
     }
@@ -514,10 +523,27 @@ ApplicationWindow {
     Connections {
         target: ProfileManager
         function onAutoLoadStaleCleared() {
+            autoLoadStaleToast.message = trAutoLoadStaleToast.text
             autoLoadStaleToast.opacity = 1
             autoLoadStaleToastTimer.restart()
             if (AccessibilityManager.enabled) {
                 AccessibilityManager.announce(trAutoLoadStaleToast.text, true)
+            }
+        }
+    }
+
+    // Trigger: recipe-auto-load stale-target toast — MainController clears
+    // Settings.dye.autoLoadRecipeId and emits this signal when the pinned
+    // recipe no longer exists or was archived. Shares the toast surface
+    // below with the profile version (message property swapped per-trigger).
+    Connections {
+        target: MainController
+        function onAutoLoadRecipeStaleCleared() {
+            autoLoadStaleToast.message = trAutoLoadRecipeStaleToast.text
+            autoLoadStaleToast.opacity = 1
+            autoLoadStaleToastTimer.restart()
+            if (AccessibilityManager.enabled) {
+                AccessibilityManager.announce(trAutoLoadRecipeStaleToast.text, true)
             }
         }
     }
@@ -929,6 +955,7 @@ ApplicationWindow {
         // so the load sees the fully-initialised profile catalog.
         Qt.callLater(function() {
             ProfileManager.loadAutoLoadProfileIfNeeded()
+            MainController.loadAutoLoadRecipeIfNeeded()
             root.autoLoadResetCountdown()
         })
     }
@@ -4171,11 +4198,16 @@ ApplicationWindow {
     // ============ AUTO-LOAD STALE TOAST ============
     // Shown when ProfileManager.loadAutoLoadProfileIfNeeded() finds the pinned
     // filename no longer resolves to a Selected-list profile (deleted, hidden,
-    // or imported from another device). Setting is cleared automatically.
+    // or imported from another device), or when MainController's recipe-side
+    // equivalent finds the pinned recipe no longer exists or was archived
+    // (recipe-auto-load). Setting is cleared automatically in both cases;
+    // this one toast surface is shared, with `message` swapped per-trigger.
     Tr { id: trAutoLoadStaleToast; key: "profileselector.toast.auto_load_stale"; fallback: "Auto-load profile is no longer available"; visible: false }
+    Tr { id: trAutoLoadRecipeStaleToast; key: "recipes.toast.auto_load_stale"; fallback: "Auto-load recipe is no longer available"; visible: false }
 
     Rectangle {
         id: autoLoadStaleToast
+        property string message: trAutoLoadStaleToast.text
         anchors.bottom: parent.bottom
         anchors.bottomMargin: Theme.scaled(40)
         anchors.horizontalCenter: parent.horizontalCenter
@@ -4195,7 +4227,7 @@ ApplicationWindow {
         Text {
             id: autoLoadStaleToastLabel
             anchors.centerIn: parent
-            text: trAutoLoadStaleToast.text
+            text: autoLoadStaleToast.message
             color: Theme.textColor
             font.pixelSize: Theme.scaled(13)
             Accessible.ignored: true

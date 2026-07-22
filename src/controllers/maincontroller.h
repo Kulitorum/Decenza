@@ -245,6 +245,16 @@ public:
     // Leave the recipe (pill deselects). The recipe row itself is unchanged;
     // live settings stay as they are — the user is free-styling now.
     Q_INVOKABLE void deactivateRecipe();
+    // Auto-load entry point (recipe-auto-load), mirroring
+    // ProfileManager::loadAutoLoadProfileIfNeeded(). No-op when
+    // Settings.dye.autoLoadRecipeId is -1 or already the active recipe;
+    // clears the setting and emits autoLoadRecipeStaleCleared() when the id
+    // no longer resolves to an existing, non-archived recipe; otherwise
+    // calls activateRecipe(). Invoked from qml/main.qml at app startup, DE1
+    // Sleep->Idle wake, and the idle-inactivity countdown, alongside
+    // ProfileManager's equivalent call — the two settings are mutually
+    // exclusive so at most one ever does real work per trigger.
+    Q_INVOKABLE void loadAutoLoadRecipeIfNeeded();
     // Compact-JSON snapshot of the steam spec currently in effect (recipe's
     // hasMilk when one is active, plus live steam settings + pitcher +
     // milk weight). Stamped onto every saved shot and used by the composer
@@ -364,6 +374,14 @@ signals:
     void activeRecipeChanged();
     void brewBaselineChanged();
     void selectedRecipeIdChanged();
+
+    // Emitted when the configured Settings.dye.autoLoadRecipeId no longer
+    // resolves to an existing, non-archived recipe — either discovered by
+    // loadAutoLoadRecipeIfNeeded() at a trigger, or proactively when the
+    // pinned recipe is edited or deleted (mirrors
+    // ProfileManager::autoLoadStaleCleared()). The setting is already
+    // cleared to -1 by the time this fires; QML uses it to show a toast.
+    void autoLoadRecipeStaleCleared();
 
     // Recipes-first layout upgrade offer (recipes-idle-layout-upgrade):
     // willCreateStarterRecipe/milkPreselected answer checkRecipesUpgradeEligibility().
@@ -540,6 +558,21 @@ private:
     // bug). Left false on startup restore, relink refresh, and QML editor
     // prefill reads — none of which should re-apply values to the live session.
     bool m_refreshDialFromRecipeEdit = false;
+    // recipe-auto-load: the id loadAutoLoadRecipeIfNeeded() is waiting on a
+    // recipeReady()/recipeCheckFailed() for, so its existence/archived check
+    // can filter out every OTHER recipeReady the app fires (active-recipe
+    // refresh, wizard reads, etc.) without needing a one-shot connection.
+    // This is the only pending flag that may lead to activateRecipe() — see
+    // m_pendingAutoLoadRecheckId below for the edit-time re-check, which
+    // never activates. -1 = not waiting.
+    qint64 m_pendingAutoLoadRecipeId = -1;
+    // recipe-auto-load: the id the proactive re-check (the recipeUpdated
+    // hook in setupRecipeConnections, fired when the pinned recipe itself is
+    // edited) is waiting on. Kept separate from m_pendingAutoLoadRecipeId so
+    // that editing the pinned recipe can only ever clear a newly-stale pin —
+    // never silently activate it and switch the live session. -1 = not
+    // waiting.
+    qint64 m_pendingAutoLoadRecheckId = -1;
     // Pure state machine behind selectedRecipeId + the deferred recipe-shot
     // start. MainController only wires it to Qt signals and the device; the
     // policy (lead/converge/rollback, arm/fire) lives in the header-only model

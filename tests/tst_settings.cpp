@@ -106,6 +106,7 @@ private:
     bool m_origMilkAutoCapture;
     double m_origSteamSecPerGram;
     int m_origActiveRecipeId;
+    int m_origAutoLoadRecipeId;
     QString m_origLayoutConfiguration;
 
 private slots:
@@ -140,6 +141,7 @@ private slots:
           m_origVesselPresets = raw.value("water/vesselPresets").toByteArray();
           m_origPitcherPresets = raw.value("steam/pitcherPresets").toByteArray(); }
         m_origActiveRecipeId = m_settings.dye()->activeRecipeId();
+        m_origAutoLoadRecipeId = m_settings.dye()->autoLoadRecipeId();
         // Layout: saved/restored here for the same reason as the font sizes
         // above. The layout tests mutate a shared store and a trailing restore
         // inside each test is skipped when an assertion fails — leaving a
@@ -176,6 +178,9 @@ private slots:
           raw.sync(); }
         // Recipe state (add-recipes).
         m_settings.dye()->setActiveRecipeId(m_origActiveRecipeId);
+        // recipe-auto-load: restored last so it wins regardless of what the
+        // autoLoadProfileFilename restore above may have cross-cleared it to.
+        m_settings.dye()->setAutoLoadRecipeId(m_origAutoLoadRecipeId);
     }
 
     // ==========================================
@@ -468,6 +473,115 @@ private slots:
         QVERIFY(SettingsSerializer::importFromJson(&m_settings, bundle));
         QCOMPARE(m_settings.app()->autoLoadProfileFilename(), QString("preferred-profile"));
         QCOMPARE(m_settings.app()->autoLoadRevertMinutes(), 17);
+    }
+
+    // ==========================================
+    // Auto-load recipe settings (recipe-auto-load) + mutual exclusion
+    // ==========================================
+
+    void autoLoadRecipeIdDefaultIsMinusOne() {
+        QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+        raw.remove("dye/autoLoadRecipeId");
+        raw.sync();
+        Settings fresh;
+        QCOMPARE(fresh.dye()->autoLoadRecipeId(), -1);
+    }
+
+    void autoLoadRecipeIdRoundTrip() {
+        m_settings.dye()->setAutoLoadRecipeId(-1);  // baseline
+        QSignalSpy spy(m_settings.dye(), &SettingsDye::autoLoadRecipeIdChanged);
+        m_settings.dye()->setAutoLoadRecipeId(42);
+        QCOMPARE(m_settings.dye()->autoLoadRecipeId(), 42);
+        QCOMPARE(spy.count(), 1);
+        // Setting the same value again is a no-op (no second signal).
+        m_settings.dye()->setAutoLoadRecipeId(42);
+        QCOMPARE(spy.count(), 1);
+    }
+
+    void autoLoadRecipeIdNotExportedAsDeviceLocalId() {
+        // Device-local DB row ids (activeBagId, activeEquipmentId,
+        // activeRecipeId) are deliberately excluded from settings export —
+        // autoLoadRecipeId is the same kind of value and follows suit. Only
+        // the shared revertMinutes (already exported under the profile
+        // side) round-trips.
+        m_settings.dye()->setAutoLoadRecipeId(7);
+        m_settings.app()->setAutoLoadRevertMinutes(23);
+
+        QJsonObject bundle = SettingsSerializer::exportToJson(&m_settings, false);
+        QVERIFY(!bundle.value("profile").toObject().contains("autoLoadRecipeId"));
+        // Not present anywhere else in the bundle either.
+        QVERIFY(!bundle.contains("autoLoadRecipeId"));
+
+        m_settings.dye()->setAutoLoadRecipeId(-1);
+        m_settings.app()->setAutoLoadRevertMinutes(5);
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("SettingsSerializer: importFromJson replacing .* favorites")));
+        QVERIFY(SettingsSerializer::importFromJson(&m_settings, bundle));
+        // autoLoadRecipeId was never in the bundle, so import leaves it alone.
+        QCOMPARE(m_settings.dye()->autoLoadRecipeId(), -1);
+        // The shared timeout still round-trips.
+        QCOMPARE(m_settings.app()->autoLoadRevertMinutes(), 23);
+    }
+
+    void autoLoadMutualExclusion_recipeClearsProfile() {
+        m_settings.app()->setAutoLoadProfileFilename("some-profile");
+        m_settings.dye()->setAutoLoadRecipeId(-1);  // baseline
+
+        m_settings.dye()->setAutoLoadRecipeId(99);
+
+        QCOMPARE(m_settings.dye()->autoLoadRecipeId(), 99);
+        QCOMPARE(m_settings.app()->autoLoadProfileFilename(), QString());
+    }
+
+    void autoLoadMutualExclusion_profileClearsRecipe() {
+        m_settings.app()->setAutoLoadProfileFilename("");  // baseline
+        m_settings.dye()->setAutoLoadRecipeId(99);
+
+        m_settings.app()->setAutoLoadProfileFilename("some-profile");
+
+        QCOMPARE(m_settings.app()->autoLoadProfileFilename(), QString("some-profile"));
+        QCOMPARE(m_settings.dye()->autoLoadRecipeId(), -1);
+    }
+
+    void autoLoadMutualExclusion_clearingOneDoesNotSpuriouslyTouchOther() {
+        // Both already at their "cleared" defaults — clearing one must not
+        // emit a changed signal on, or otherwise disturb, the other.
+        m_settings.app()->setAutoLoadProfileFilename("");
+        m_settings.dye()->setAutoLoadRecipeId(-1);
+
+        QSignalSpy recipeSpy(m_settings.dye(), &SettingsDye::autoLoadRecipeIdChanged);
+        m_settings.app()->setAutoLoadProfileFilename("");
+        QCOMPARE(recipeSpy.count(), 0);
+        QCOMPARE(m_settings.dye()->autoLoadRecipeId(), -1);
+
+        QSignalSpy profileSpy(m_settings.app(), &SettingsApp::autoLoadProfileFilenameChanged);
+        m_settings.dye()->setAutoLoadRecipeId(-1);
+        QCOMPARE(profileSpy.count(), 0);
+        QCOMPARE(m_settings.app()->autoLoadProfileFilename(), QString());
+    }
+
+    void autoLoadMutualExclusion_reconciledAtConstructionIfBothPersisted() {
+        // The reactive cross-clear above only fires on a live changed signal
+        // — it can't see a conflict that was already on disk before Settings
+        // is even constructed (hand-edited config, a future migration bug).
+        // Settings' constructor must reconcile this once at load time rather
+        // than let both auto-loads silently race on the next trigger.
+        QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+        raw.setValue("profile/autoLoadFilename", "conflicting-profile");
+        raw.setValue("dye/autoLoadRecipeId", 55);
+        raw.sync();
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
+            "Settings: both profile and recipe auto-load were persisted simultaneously.*"));
+        Settings fresh;
+        // Recipe wins, matching this file's own restore-order convention.
+        QCOMPARE(fresh.dye()->autoLoadRecipeId(), 55);
+        QCOMPARE(fresh.app()->autoLoadProfileFilename(), QString());
+
+        raw.remove("profile/autoLoadFilename");
+        raw.remove("dye/autoLoadRecipeId");
+        raw.sync();
     }
 
     void recipeSortRoundTrip() {

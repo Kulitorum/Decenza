@@ -134,6 +134,28 @@ private slots:
         QVERIFY(r.drinkType.isEmpty());
     }
 
+    // --- isRecipeStale (recipe-auto-load) ---
+    // Pure decision behind MainController's recipe-auto-load stale check —
+    // lives on RecipeStorage rather than MainController specifically so it
+    // can be tested here without linking MainController's full subsystem
+    // closure.
+
+    void isRecipeStaleEmptyMapIsStale() {
+        QVERIFY(RecipeStorage::isRecipeStale(QVariantMap()));
+    }
+
+    void isRecipeStaleArchivedIsStale() {
+        QVariantMap recipe = sampleRecipe().toVariantMap();
+        recipe["archived"] = true;
+        QVERIFY(RecipeStorage::isRecipeStale(recipe));
+    }
+
+    void isRecipeStaleLiveNonArchivedIsNotStale() {
+        QVariantMap recipe = sampleRecipe().toVariantMap();
+        recipe["archived"] = false;
+        QVERIFY(!RecipeStorage::isRecipeStale(recipe));
+    }
+
     // --- drink-type derivation + hot-water gate (add-recipe-wizard-tea) ---
 
     void hotWaterActiveGate() {
@@ -311,6 +333,23 @@ private slots:
             QVERIFY(q.next());
             QCOMPARE(q.value(0).toInt(), 2);
         });
+    }
+
+    // requestRecipe() must emit a terminal signal even when storage was
+    // never initialized (recipe-auto-load), rather than silently dropping
+    // the job the way runAsync() does for every other caller — a caller
+    // waiting on a specific id would otherwise hang on a pending flag
+    // forever with no signal ever arriving.
+    void requestRecipeOnUninitializedStorageEmitsRecipeCheckFailed() {
+        RecipeStorage storage;  // no initialize() call
+        QSignalSpy readySpy(&storage, &RecipeStorage::recipeReady);
+        QSignalSpy failedSpy(&storage, &RecipeStorage::recipeCheckFailed);
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("RecipeStorage: requestRecipe on uninitialized storage.*"));
+        storage.requestRecipe(42);
+        QCOMPARE(failedSpy.count(), 1);
+        QCOMPARE(failedSpy.at(0).at(0).toLongLong(), (qint64)42);
+        QCOMPARE(readySpy.count(), 0);
     }
 
     // Re-saving a recipe under the name it ALREADY has must succeed, even when

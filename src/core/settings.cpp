@@ -399,6 +399,35 @@ Settings::Settings(QObject* parent)
         m_brew->setHotWaterSawOffset(2.0);  // Back to default
         m_brew->setHotWaterSawSampleCount(0);
     });
+
+    // Cross-domain wiring: profile auto-load and recipe auto-load are
+    // mutually exclusive (recipe-auto-load) — setting one clears the other.
+    // Each setter already no-ops when the value is unchanged, so clearing the
+    // *other* domain's already-cleared value here does not re-enter or emit
+    // a spurious changed signal.
+    connect(m_app, &SettingsApp::autoLoadProfileFilenameChanged, this, [this]() {
+        if (!m_app->autoLoadProfileFilename().isEmpty())
+            m_dye->setAutoLoadRecipeId(-1);
+    });
+    connect(m_dye, &SettingsDye::autoLoadRecipeIdChanged, this, [this]() {
+        if (m_dye->autoLoadRecipeId() != -1)
+            m_app->setAutoLoadProfileFilename("");
+    });
+
+    // Load-time reconciliation: the reactive cross-clear above only fires on
+    // a live changed signal, so if both sides were ever simultaneously
+    // persisted on disk (hand-edited config, an import bundle predating this
+    // feature's export exclusion, or a future bug writing QSettings directly
+    // instead of through the setters), nothing would otherwise notice — and
+    // qml/main.qml fires both loadAutoLoadProfileIfNeeded() and
+    // loadAutoLoadRecipeIfNeeded() unconditionally on every trigger, so both
+    // would silently race. Recipe wins, matching the tests' restore-order
+    // convention (SettingsDye::autoLoadRecipeId restored last so it wins).
+    if (!m_app->autoLoadProfileFilename().isEmpty() && m_dye->autoLoadRecipeId() != -1) {
+        qWarning() << "Settings: both profile and recipe auto-load were persisted "
+                      "simultaneously - clearing the profile side (recipe wins)";
+        m_app->setAutoLoadProfileFilename("");
+    }
 }
 
 // Domain sub-object QML accessors. Each sub-object IS-A QObject; the upcast
