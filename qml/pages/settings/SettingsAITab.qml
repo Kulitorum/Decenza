@@ -6,7 +6,7 @@ import "../../components"
 
 KeyboardAwareContainer {
     id: aiTab
-    textFields: [apiKeyField, ollamaEndpointField, openrouterModelField, customUrlField, claudeRcUrlField]
+    textFields: [apiKeyField, ollamaEndpointField, openrouterModelField, customUrlField, claudeRcUrlField, providerEndpointField]
     targetFlickable: aiFlickable
 
     property string testResultMessage: ""
@@ -240,6 +240,51 @@ KeyboardAwareContainer {
                         }
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(11)
+                    }
+                }
+
+                // Custom endpoint (OpenAI / Anthropic only)
+                ColumnLayout {
+                    visible: Settings.ai.aiProvider === "openai" || Settings.ai.aiProvider === "anthropic"
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(8)
+
+                    Tr {
+                        key: "settings.ai.customEndpoint"
+                        fallback: "Custom Endpoint (optional)"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(14)
+                        font.bold: true
+                    }
+
+                    StyledTextField {
+                        id: providerEndpointField
+                        Layout.fillWidth: true
+                        placeholderText: Settings.ai.aiProvider === "openai"
+                            ? "https://api.openai.com"
+                            : "https://api.anthropic.com"
+                        inputMethodHints: Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase | Qt.ImhUrlCharactersOnly
+                        text: {
+                            switch(Settings.ai.aiProvider) {
+                                case "openai": return Settings.ai.openaiEndpoint
+                                case "anthropic": return Settings.ai.anthropicEndpoint
+                                default: return ""
+                            }
+                        }
+                        onTextChanged: {
+                            switch(Settings.ai.aiProvider) {
+                                case "openai": Settings.ai.openaiEndpoint = text; break
+                                case "anthropic": Settings.ai.anthropicEndpoint = text; break
+                            }
+                        }
+                    }
+
+                    Text {
+                        text: TranslationManager.translate("settings.ai.customEndpointHint", "Leave empty for default. Set to use an OpenAI/Anthropic-compatible API endpoint.")
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(11)
+                        wrapMode: Text.Wrap
+                        Layout.fillWidth: true
                     }
                 }
 

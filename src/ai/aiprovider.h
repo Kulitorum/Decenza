@@ -132,6 +132,7 @@ public:
     QString modelHint() const override;
 
     void setApiKey(const QString& key) { m_apiKey = key; }
+    void setBaseUrl(const QString& url) { m_baseUrl = url; }
     // Select the wire model. Ignores empty (keeps current default) and any id
     // not in availableModels(), so a stale/unknown stored value can't break the
     // request.
@@ -158,6 +159,7 @@ private:
     void sendResponsesRequest(const QJsonObject& requestBody);
 
     QString m_apiKey;
+    QString m_baseUrl;
     // Selected wire model. Defaulted in the constructor to the first
     // availableModels() entry (the recommended default), so the C++ default and
     // the UI's "unset → index 0" fallback reference the same fact and can't drift.
@@ -184,6 +186,7 @@ public:
     QString modelHint() const override;
 
     void setApiKey(const QString& key) { m_apiKey = key; }
+    void setBaseUrl(const QString& url) { m_baseUrl = url; }
     // Select the wire model. Ignores empty (keeps current default) and any id
     // not in availableModels(), so a stale/unknown stored value can't break the
     // request.
@@ -215,6 +218,7 @@ private:
     static QJsonArray messagesWithCachedFirstUser(const QJsonArray& messages);
 
     QString m_apiKey;
+    QString m_baseUrl;
     // Selected wire model. Defaulted in the constructor to the first
     // availableModels() entry (the recommended default), so the C++ default and
     // the UI's "unset → index 0" fallback reference the same fact and can't drift.

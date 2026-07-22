@@ -95,6 +95,30 @@ void SettingsAI::setOpenrouterApiKey(const QString& key) {
     }
 }
 
+QString SettingsAI::openaiEndpoint() const {
+    return m_settings.value("ai/openaiEndpoint", "").toString();
+}
+
+void SettingsAI::setOpenaiEndpoint(const QString& endpoint) {
+    if (openaiEndpoint() != endpoint) {
+        m_settings.setValue("ai/openaiEndpoint", endpoint);
+        emit openaiEndpointChanged();
+        emit configurationChanged();
+    }
+}
+
+QString SettingsAI::anthropicEndpoint() const {
+    return m_settings.value("ai/anthropicEndpoint", "").toString();
+}
+
+void SettingsAI::setAnthropicEndpoint(const QString& endpoint) {
+    if (anthropicEndpoint() != endpoint) {
+        m_settings.setValue("ai/anthropicEndpoint", endpoint);
+        emit anthropicEndpointChanged();
+        emit configurationChanged();
+    }
+}
+
 QString SettingsAI::openrouterModel() const {
     return m_settings.value("ai/openrouterModel", "anthropic/claude-sonnet-4").toString();
 }

@@ -102,6 +102,7 @@ void AIManager::createProviders()
     QString openaiKey = m_settings->ai()->openaiApiKey();
     auto* openai = new OpenAIProvider(m_networkManager, openaiKey, this);
     openai->setModel(m_settings->ai()->providerModel("openai"));  // empty → keeps default
+    openai->setBaseUrl(m_settings->ai()->openaiEndpoint());
     connect(openai, &AIProvider::analysisComplete, this, &AIManager::onAnalysisComplete);
     connect(openai, &AIProvider::analysisFailed, this, &AIManager::onAnalysisFailed);
     connect(openai, &AIProvider::testResult, this, &AIManager::onTestResult);
@@ -111,6 +112,7 @@ void AIManager::createProviders()
     QString anthropicKey = m_settings->ai()->anthropicApiKey();
     auto* anthropic = new AnthropicProvider(m_networkManager, anthropicKey, this);
     anthropic->setModel(m_settings->ai()->providerModel("anthropic"));  // empty → keeps default
+    anthropic->setBaseUrl(m_settings->ai()->anthropicEndpoint());
     connect(anthropic, &AIProvider::analysisComplete, this, &AIManager::onAnalysisComplete);
     connect(anthropic, &AIProvider::analysisFailed, this, &AIManager::onAnalysisFailed);
     connect(anthropic, &AIProvider::testResult, this, &AIManager::onTestResult);
@@ -1663,12 +1665,14 @@ void AIManager::onSettingsChanged()
     if (openai) {
         openai->setApiKey(m_settings->ai()->openaiApiKey());
         openai->setModel(m_settings->ai()->providerModel("openai"));  // empty → keeps default
+        openai->setBaseUrl(m_settings->ai()->openaiEndpoint());
     }
 
     auto* anthropic = dynamic_cast<AnthropicProvider*>(m_anthropicProvider.get());
     if (anthropic) {
         anthropic->setApiKey(m_settings->ai()->anthropicApiKey());
         anthropic->setModel(m_settings->ai()->providerModel("anthropic"));  // empty → keeps default
+        anthropic->setBaseUrl(m_settings->ai()->anthropicEndpoint());
     }
 
     auto* gemini = dynamic_cast<GeminiProvider*>(m_geminiProvider.get());
