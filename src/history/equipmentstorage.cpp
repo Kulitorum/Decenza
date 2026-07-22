@@ -1165,6 +1165,26 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
         if (!repointBags(packageId, mergeTarget))
             return -1;
         if (shotCount() == 0) {
+            // Inherit the lineage before the row goes: an older package may have
+            // been superseded BY this one, and hard-deleting it would leave that
+            // package pointing at an id that no longer exists — it would render
+            // as "older" with no successor to resolve. requestDeletePackage
+            // refuses the delete outright for this reason; here the merge target
+            // is the natural successor, so re-point rather than refuse.
+            //
+            // Found by merging a package that was itself a fork target, on a live
+            // database: the check `superseded_by NOT IN (SELECT id FROM
+            // equipment_packages)` came back non-empty afterwards.
+            QSqlQuery lineage(db);
+            lineage.prepare("UPDATE equipment_packages SET superseded_by = :target, "
+                            "updated_at = strftime('%s','now') WHERE superseded_by = :source");
+            lineage.bindValue(":target", mergeTarget);
+            lineage.bindValue(":source", packageId);
+            if (!lineage.exec()) {
+                qWarning() << "EquipmentStorage: lineage re-point failed for package" << packageId
+                           << "-" << lineage.lastError().text();
+                return -1;
+            }
             QSqlQuery di(db);
             di.prepare("DELETE FROM equipment_items WHERE package_id = :id");
             di.bindValue(":id", packageId);

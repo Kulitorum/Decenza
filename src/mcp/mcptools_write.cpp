@@ -2423,6 +2423,16 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                     view.grinder = EquipmentStorage::loadGrinderItemStatic(db, resultId);
                     view.basket = EquipmentStorage::loadBasketItemStatic(db, resultId);
                     view.puckPrep = EquipmentStorage::loadPuckPrepItemStatic(db, resultId);
+                    // shotCount is a per-query aggregate, not a package column, so
+                    // it defaults to 0 unless filled in — and this response was
+                    // reporting every edited package as having no history, however
+                    // many shots it held. An assistant reading that would conclude
+                    // the package is disposable.
+                    QSqlQuery shots(db);
+                    shots.prepare("SELECT COUNT(*) FROM shots WHERE equipment_id = :id");
+                    shots.bindValue(":id", resultId);
+                    if (shots.exec() && shots.next())
+                        view.shotCount = shots.value(0).toLongLong();
                 });
                 QMetaObject::invokeMethod(qApp, [ok, nameInUse, view, activeId, packageId, packageToJson, respond]() {
                     if (nameInUse) {
