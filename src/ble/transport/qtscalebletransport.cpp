@@ -1,5 +1,6 @@
 #include "qtscalebletransport.h"
 #include "../blecapability.h"
+#include "../bleserviceerror.h"
 #include "../blemanager.h"
 #include <QDateTime>
 #include <QDebug>
@@ -50,9 +51,12 @@ void QtScaleBleTransport::log(const QString& message) {
 }
 
 void QtScaleBleTransport::warn(const QString& message) {
-    // Significant connection-priority events: WARN so they stand out in the
-    // user-attached debug.log (this feature is validated by reading those),
-    // and still flow to the scale log view via logMessage.
+    // Events a user-attached debug.log has to show: WARN so they stand out when
+    // that log is read after the fact (which is how this subsystem is
+    // validated), and still flow to the scale log view via logMessage.
+    // Originally scoped to connection-priority events; broadened when service
+    // errors joined it, since anything that reaches the user through error()
+    // needs to be findable in the log they send in (#1586).
     QString msg = QString("[BLE QtTransport] ") + message;
     qWarning().noquote() << msg;
     emit logMessage(msg);
@@ -710,21 +714,21 @@ void QtScaleBleTransport::onServiceError(QLowEnergyService::ServiceError err) {
     QLowEnergyService* service = qobject_cast<QLowEnergyService*>(sender());
     QString serviceUuid = service ? service->serviceUuid().toString() : "unknown";
 
-    QString errorName;
-    switch (err) {
-        case QLowEnergyService::NoError: errorName = "NoError"; break;
-        case QLowEnergyService::OperationError: errorName = "OperationError"; break;
-        case QLowEnergyService::CharacteristicWriteError: errorName = "CharacteristicWriteError"; break;
-        case QLowEnergyService::DescriptorWriteError:
-            // CCCD write failures are non-fatal - some scales reject them but still notify
-            QT_TRANSPORT_LOG("DescriptorWriteError (non-fatal, scale may still send notifications)");
-            return;
-        case QLowEnergyService::UnknownError: errorName = "UnknownError"; break;
-        case QLowEnergyService::CharacteristicReadError: errorName = "CharacteristicReadError"; break;
-        case QLowEnergyService::DescriptorReadError: errorName = "DescriptorReadError"; break;
-        default: errorName = QString::number(static_cast<int>(err)); break;
+    if (err == QLowEnergyService::DescriptorWriteError) {
+        // CCCD write failures are non-fatal - some scales reject them but still notify
+        QT_TRANSPORT_LOG("DescriptorWriteError (non-fatal, scale may still send notifications)");
+        return;
     }
-    QT_TRANSPORT_LOG(QString("!!! SERVICE ERROR: %1 on %2 !!!").arg(errorName, serviceUuid));
+
+    // Shared with the DE1 transport so both links name the same failure the same
+    // way (bleserviceerror.h, #1586).
+    const QString errorName = bleServiceErrorName(err);
+    // warn(), not log(): this reaches the user through error() the same way the
+    // DE1 side reaches them through errorOccurred, and warn() is what makes an
+    // event visible in a user-attached debug.log. Leaving this at debug level
+    // would reproduce the #1586 defect on the scale link — a user-facing error
+    // absent from the log they send in.
+    warn(QString("!!! SERVICE ERROR: %1 on %2 !!!").arg(errorName, serviceUuid));
     emit error(QString("Service error: %1").arg(errorName));
 }
 

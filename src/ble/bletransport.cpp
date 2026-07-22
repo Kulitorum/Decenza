@@ -1,5 +1,6 @@
 #include "bletransport.h"
 #include "blecapability.h"
+#include "bleserviceerror.h"
 #ifndef DECENZA_TESTING
 #include "blemanager.h"
 #endif
@@ -593,10 +594,17 @@ void BleTransport::onServiceDiscovered(const QBluetoothUuid& uuid) {
                                 emit queueDrained();
                         }
                     } else {
-                        emit errorOccurred(QString("Service error: %1").arg(error));
+                        // Log BEFORE emitting. This branch used to emit straight to
+                        // the UI with no log call at all, so a user could report
+                        // "Service error: 5" and the debug log they attached would
+                        // not contain it anywhere — the one error they named was
+                        // the one thing undiagnosable from the capture (#1586).
+                        const QString name = bleServiceErrorName(error);
+                        warn(QString("SERVICE ERROR: %1").arg(name));
+                        emit errorOccurred(QString("Service error: %1").arg(name));
                     }
                 } else {
-                    log(QString("Descriptor error (suppressed): %1").arg(static_cast<int>(error)));
+                    log(QString("Descriptor error (suppressed): %1").arg(bleServiceErrorName(error)));
                 }
             }, qc);
             log("Starting characteristic discovery for DE1 service");
