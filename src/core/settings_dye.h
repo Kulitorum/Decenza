@@ -97,6 +97,13 @@ class SettingsDye : public QObject {
     // deactivate-on-ingredient-swap are MainController's job (the recipe layer
     // sits above the settings façade, unlike bags whose fields ARE dye state).
     Q_PROPERTY(int activeRecipeId READ activeRecipeId WRITE setActiveRecipeId NOTIFY activeRecipeIdChanged)
+    // The recipe pinned to auto-load (recipe-auto-load), -1 = none. Mutually
+    // exclusive with SettingsApp::autoLoadProfileFilename — setting either one
+    // clears the other; the cross-clear is wired in Settings (the façade that
+    // owns both sub-objects), not here, so this class stays ignorant of
+    // SettingsApp. Shares SettingsApp::autoLoadRevertMinutes with the profile
+    // side rather than having its own timeout.
+    Q_PROPERTY(int autoLoadRecipeId READ autoLoadRecipeId WRITE setAutoLoadRecipeId NOTIFY autoLoadRecipeIdChanged)
     // Lifecycle fields of the active bag, mirrored for QML display and the
     // shot snapshot (read-only here; edited via CoffeeBagStorage).
     Q_PROPERTY(QString activeBagFrozenDate READ activeBagFrozenDate NOTIFY activeBagChanged)
@@ -263,6 +270,11 @@ public:
     int activeRecipeId() const;
     void setActiveRecipeId(int recipeId);
 
+    // Auto-load recipe (recipe-auto-load). See the Q_PROPERTY note above for
+    // the mutual-exclusion contract with SettingsApp::autoLoadProfileFilename.
+    int autoLoadRecipeId() const;
+    void setAutoLoadRecipeId(int recipeId);
+
     // The active bag's own yield spec (add-yield-ratio-anchor): {value, mode}
     // with mode "none" | "absolute" | "ratio". mode "none" = the bag designs
     // no yield and the ladder falls through to the profile. Applied to the
@@ -311,6 +323,7 @@ signals:
     void activeBagIdChanged();
     void activeBagChanged();
     void activeRecipeIdChanged();
+    void autoLoadRecipeIdChanged();
     // Emitted only from applyActiveBag (a user bean switch, not a keep-fields
     // historical/favorite load) carrying the new bag's yield spec. The
     // MainController applies it to the session anchor after the switch's

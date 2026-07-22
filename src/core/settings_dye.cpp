@@ -612,6 +612,20 @@ void SettingsDye::setActiveRecipeId(int recipeId) {
     emit activeRecipeIdChanged();
 }
 
+// Auto-load recipe (recipe-auto-load). Mutual exclusion with
+// SettingsApp::autoLoadProfileFilename is wired in Settings, not here.
+
+int SettingsDye::autoLoadRecipeId() const {
+    return m_settings.value("dye/autoLoadRecipeId", -1).toInt();
+}
+
+void SettingsDye::setAutoLoadRecipeId(int recipeId) {
+    if (autoLoadRecipeId() == recipeId)
+        return;
+    m_settings.setValue("dye/autoLoadRecipeId", recipeId);
+    emit autoLoadRecipeIdChanged();
+}
+
 int SettingsDye::activeBagId() const {
     return m_settings.value("dye/activeBagId", -1).toInt();
 }

@@ -402,6 +402,13 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
         },
         "read");
 
+    // recipe_get_auto_load / recipe_set_auto_load / recipe_clear_auto_load
+    // (recipe-auto-load) live in mcptools_write.cpp, not here — they only
+    // need ShotHistoryStorage + Settings, and keeping them out of this file
+    // means they (and profiles_set_auto_load's tests) don't drag in
+    // MainController's full closure the way recipe_activate/recipe_archive
+    // below do (this file is not linked by any test target as a result).
+
     // recipe_create — new recipe from explicit fields.
     registry->registerAsyncTool(
         "recipe_create",

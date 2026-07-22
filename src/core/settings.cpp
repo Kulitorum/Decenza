@@ -399,6 +399,20 @@ Settings::Settings(QObject* parent)
         m_brew->setHotWaterSawOffset(2.0);  // Back to default
         m_brew->setHotWaterSawSampleCount(0);
     });
+
+    // Cross-domain wiring: profile auto-load and recipe auto-load are
+    // mutually exclusive (recipe-auto-load) — setting one clears the other.
+    // Each setter already no-ops when the value is unchanged, so clearing the
+    // *other* domain's already-cleared value here does not re-enter or emit
+    // a spurious changed signal.
+    connect(m_app, &SettingsApp::autoLoadProfileFilenameChanged, this, [this]() {
+        if (!m_app->autoLoadProfileFilename().isEmpty())
+            m_dye->setAutoLoadRecipeId(-1);
+    });
+    connect(m_dye, &SettingsDye::autoLoadRecipeIdChanged, this, [this]() {
+        if (m_dye->autoLoadRecipeId() != -1)
+            m_app->setAutoLoadProfileFilename("");
+    });
 }
 
 // Domain sub-object QML accessors. Each sub-object IS-A QObject; the upcast

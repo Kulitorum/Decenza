@@ -3,6 +3,7 @@
 #include "mcptoolregistry.h"
 #include "../history/shothistorystorage.h"
 #include "../history/shotprojection.h"
+#include "../history/recipestorage.h"
 #include "../history/coffeebagstorage.h"
 #include "../history/equipmentstorage.h"
 #include "../core/basketaliases.h"
@@ -1442,7 +1443,9 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
         "profiles_set_auto_load",
         "Pin a profile as the auto-load target. The pinned profile is reloaded "
         "on app start, DE1 wake-from-sleep, and after `revertMinutes` of "
-        "inactivity on the Idle page. Replaces any prior auto-load. The "
+        "inactivity on the Idle page. Replaces any prior auto-load AND clears "
+        "any recipe auto-load (see recipe_set_auto_load) — a profile and a "
+        "recipe auto-load are mutually exclusive. The "
         "filename must exist and be in the Selected list.",
         QJsonObject{
             {"type", "object"},
@@ -1499,7 +1502,8 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
         "profiles_clear_auto_load",
         "Disable auto-load by clearing the pinned filename. Does not modify "
         "`revertMinutes` — the configured timeout is preserved across "
-        "enable/disable cycles.",
+        "enable/disable cycles. Only clears the profile side; a configured "
+        "recipe auto-load (see recipe_clear_auto_load) is unaffected.",
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
         [settings](const QJsonObject&, std::function<void(QJsonObject)> respond) {
             if (!settings) {
@@ -1508,6 +1512,163 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             }
             QMetaObject::invokeMethod(qApp, [settings, respond]() {
                 settings->app()->setAutoLoadProfileFilename("");
+                respond(QJsonObject{{"success", true}});
+            }, Qt::QueuedConnection);
+        },
+        "settings");
+
+    // recipe_get_auto_load — mirrors profiles_get_auto_load (recipe-auto-load).
+    // Lives here rather than mcptools_recipes.cpp: that file's
+    // recipe_activate/recipe_archive call real MainController methods, so
+    // linking it at all (even for tools that don't need MainController) pulls
+    // in MainController's full subsystem closure — this file already tests
+    // cleanly without it.
+    registry->registerAsyncTool(
+        "recipe_get_auto_load",
+        "Get the configured auto-load recipe id and the shared revert timeout. Auto-load "
+        "reloads the pinned recipe on app start, DE1 wake-from-sleep, and after "
+        "`revertMinutes` of inactivity on the Idle page. A profile and a recipe auto-load "
+        "are mutually exclusive — pinning one clears the other (see profiles_get_auto_load).",
+        QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+        [shotHistory, settings](const QJsonObject&, std::function<void(QJsonObject)> respond) {
+            if (!settings) {
+                respond(QJsonObject{{"error", "Settings not available"}});
+                return;
+            }
+            const qint64 recipeId = settings->dye()->autoLoadRecipeId();
+            const int revertMinutes = settings->app()->autoLoadRevertMinutes();
+            if (recipeId < 0 || !shotHistory || !shotHistory->isReady()) {
+                QJsonObject result;
+                result["recipeId"] = QJsonValue(QJsonValue::Null);
+                result["revertMinutes"] = revertMinutes;
+                respond(result);
+                return;
+            }
+            const QString dbPath = shotHistory->databasePath();
+            QThread* thread = QThread::create([dbPath, recipeId, revertMinutes, respond]() {
+                QString name;
+                bool found = false;
+                const bool opened = withTempDb(dbPath, "mcp_recipe_get_auto_load", [&](QSqlDatabase& db) {
+                    const Recipe r = RecipeStorage::loadRecipeStatic(db, recipeId);
+                    if (r.isValid()) {
+                        name = r.name;
+                        found = true;
+                    }
+                });
+                QMetaObject::invokeMethod(qApp, [opened, found, name, recipeId, revertMinutes, respond]() {
+                    QJsonObject result;
+                    // A stale id (row deleted since) is reported as unconfigured rather
+                    // than surfaced as an error — the next auto-load trigger will
+                    // discover and clear it the same way; this read is a snapshot.
+                    result["recipeId"] = (opened && found) ? QJsonValue(recipeId) : QJsonValue(QJsonValue::Null);
+                    if (opened && found)
+                        result["name"] = name;
+                    result["revertMinutes"] = revertMinutes;
+                    respond(result);
+                }, Qt::QueuedConnection);
+            });
+            QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+            thread->start();
+        },
+        "read");
+
+    // recipe_set_auto_load — pin a recipe as the auto-load target. Mirrors
+    // profiles_set_auto_load; validates recipeId against the DB on a
+    // background thread (existence + not archived), then hops to the GUI
+    // thread for the settings write. Setting this clears any profile
+    // auto-load (SettingsApp::autoLoadProfileFilename), wired via Settings'
+    // cross-domain connections (see settings.cpp) — not duplicated here.
+    registry->registerAsyncTool(
+        "recipe_set_auto_load",
+        "Pin a recipe as the auto-load target. The pinned recipe is reactivated on app start, "
+        "DE1 wake-from-sleep, and after `revertMinutes` of inactivity on the Idle page. "
+        "Replaces any prior recipe auto-load AND clears any profile auto-load (the two are "
+        "mutually exclusive). The recipeId must exist and not be archived.",
+        QJsonObject{
+            {"type", "object"},
+            {"properties", QJsonObject{
+                {"recipeId", QJsonObject{{"type", "integer"}, {"description", "Recipe ID (from recipe_list)"}}},
+                {"revertMinutes", QJsonObject{{"type", "integer"}, {"description", "Optional. Minutes of idle inactivity on the Idle page before reverting to the auto-load recipe. Range 0..60 (clamped); 0 disables the idle trigger but keeps the startup and wake-from-sleep triggers. Shared with the profile auto-load timeout."}}}
+            }},
+            {"required", QJsonArray{"recipeId"}}
+        },
+        [shotHistory, settings](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+            if (!settings) {
+                respond(QJsonObject{{"error", "Settings not available"}});
+                return;
+            }
+            if (!args.contains("recipeId")) {
+                respond(QJsonObject{{"error", "recipeId is required"}});
+                return;
+            }
+            const qint64 recipeId = args["recipeId"].toInteger();
+            if (recipeId <= 0) {
+                respond(QJsonObject{{"error", "recipeId is required"}});
+                return;
+            }
+            if (!shotHistory || !shotHistory->isReady()) {
+                respond(QJsonObject{{"error", "Storage not available"}});
+                return;
+            }
+            const bool hasRevert = args.contains("revertMinutes");
+            const int revertMinutes = hasRevert ? args["revertMinutes"].toInt() : -1;
+            const QString dbPath = shotHistory->databasePath();
+            QThread* thread = QThread::create([dbPath, recipeId, hasRevert, revertMinutes, settings, respond]() {
+                QString name;
+                bool found = false;
+                bool archived = false;
+                const bool opened = withTempDb(dbPath, "mcp_recipe_set_auto_load", [&](QSqlDatabase& db) {
+                    const Recipe r = RecipeStorage::loadRecipeStatic(db, recipeId);
+                    if (r.isValid()) {
+                        found = true;
+                        name = r.name;
+                        archived = r.archived;
+                    }
+                });
+                QMetaObject::invokeMethod(qApp, [opened, found, archived, name, recipeId, hasRevert, revertMinutes, settings, respond]() {
+                    if (!opened) {
+                        respond(QJsonObject{{"error", "Could not open shot database"}});
+                        return;
+                    }
+                    if (!found) {
+                        respond(QJsonObject{{"error", QString("Recipe not found: %1").arg(recipeId)}});
+                        return;
+                    }
+                    if (archived) {
+                        respond(QJsonObject{{"error", "Recipe is archived"}});
+                        return;
+                    }
+                    settings->dye()->setAutoLoadRecipeId(static_cast<int>(recipeId));
+                    if (hasRevert)
+                        settings->app()->setAutoLoadRevertMinutes(revertMinutes);
+                    QJsonObject result;
+                    result["success"] = true;
+                    result["recipeId"] = recipeId;
+                    result["name"] = name;
+                    result["revertMinutes"] = settings->app()->autoLoadRevertMinutes();
+                    respond(result);
+                }, Qt::QueuedConnection);
+            });
+            QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+            thread->start();
+        },
+        "settings");
+
+    // recipe_clear_auto_load — disable auto-load without affecting the
+    // shared revert timeout. Mirrors profiles_clear_auto_load.
+    registry->registerAsyncTool(
+        "recipe_clear_auto_load",
+        "Disable auto-load by clearing the pinned recipe id. Does not modify `revertMinutes` "
+        "— the configured timeout (shared with the profile side) is preserved across "
+        "enable/disable cycles.",
+        QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+        [settings](const QJsonObject&, std::function<void(QJsonObject)> respond) {
+            if (!settings) {
+                respond(QJsonObject{{"error", "Settings not available"}});
+                return;
+            }
+            QMetaObject::invokeMethod(qApp, [settings, respond]() {
+                settings->dye()->setAutoLoadRecipeId(-1);
                 respond(QJsonObject{{"success", true}});
             }, Qt::QueuedConnection);
         },
