@@ -1,6 +1,9 @@
-## Command Line Build (for Claude sessions)
+## Command Line Build (human / CI reference)
 
-> **Don't build automatically** — let the user build in Qt Creator (~50× faster than CLI). Only use these commands if the user explicitly asks for a CLI build.
+> **Not for assistant use.** An assistant builds and tests through the Qt Creator MCP
+> (`mcp__qtcreator__build`, `mcp__qtcreator__run_tests`) and nothing else — see the Building
+> section of the root `CLAUDE.md`. These commands are here for humans building by hand and for
+> reproducing what CI does. If the MCP path is blocked, stop and ask rather than running them.
 
 ### Windows (MSVC)
 

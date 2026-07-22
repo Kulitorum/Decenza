@@ -6,6 +6,13 @@ Qt Test (QTest) — ships with Qt, no external dependencies, integrates with CMa
 
 ## Building and Running
 
+> **Assistants: use the Qt Creator MCP, not the commands below.** `mcp__qtcreator__run_tests`
+> (`scope: "all"`, or `scope: "named"` for one test) builds and runs, and returns a pass/fail
+> summary; `mcp__qtcreator__build` is the build half. The `cmake`/`ctest`/`./tests/tst_*` lines
+> in this file are reference for **humans and CI**. Never run them from a shell — including for
+> the full pre-PR suite, a single target, or after an MCP call times out. If the MCP path is
+> blocked, stop and ask. See the Building section of the root `CLAUDE.md`.
+
 Tests are **auto-enabled in Debug builds** (single-config generators like Ninja/Make) and **in Linux CI releases**. Multi-config generators (Visual Studio, Xcode) require `-DBUILD_TESTS=ON` explicitly since `CMAKE_BUILD_TYPE` is empty at configure time.
 
 ```bash
@@ -274,7 +281,7 @@ Run this after any changes to `src/mcp/`, `src/controllers/profilemanager.cpp`, 
 1. Create `tests/tst_yourtest.cpp` with `QTEST_GUILESS_MAIN(tst_YourTest)` and `#include "tst_yourtest.moc"`
 2. Add to `tests/CMakeLists.txt` using `add_decenza_test(tst_yourtest tst_yourtest.cpp ...source files...)`
 3. If accessing private members, add `friend class tst_YourTest;` behind `#ifdef DECENZA_TESTING` in the production header
-4. Run `ctest` to verify
+4. Run `mcp__qtcreator__run_tests` to verify (`scope: "named"`, `names: ["tst_YourTest"]`; if a freshly added target isn't in the Autotest model yet, just retry — it re-parses)
 
 ## Handling Warnings
 
