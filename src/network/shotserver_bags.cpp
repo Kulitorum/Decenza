@@ -465,7 +465,7 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
             }
             auto conn = std::make_shared<QMetaObject::Connection>();
             // The client saw the product URL change to a new non-empty value:
-            // evict the cached photo and re-resolve from the new page, as the
+            // re-resolve the photo from the new page, as the
             // in-app dialog does on the same edit (the web and MCP `bag_update`
             // are otherwise the places a URL edit keeps the old page's picture).
             // The client gates it because only the form knows the URL it opened
@@ -498,10 +498,10 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
                         const QString imageKey = canonicalId.isEmpty()
                             ? QStringLiteral("bag-%1").arg(bagId) : canonicalId;
                         if (!extractedImageUrl.isEmpty()) {
-                            // The extraction's own photo wins over re-scraping
-                            // the page: stage 2 only returns one when the page
-                            // is JS-rendered, i.e. exactly when a re-scrape
-                            // would find no og:image and give up.
+                            // The extraction's own photo wins over re-scraping:
+                            // stage 2 ran because the page yielded almost no
+                            // body text, which is usually a page a re-scrape
+                            // also comes back empty-handed from.
                             safeBeanbase->replaceBagImageFromUrl(imageKey, extractedImageUrl);
                             imageRefreshed = true;
                         } else if (!link.isEmpty()) {
@@ -735,6 +735,7 @@ QString ShotServer::generateBeansPage() const
         let editOpenedLink = '';    // product URL as the form opened (image-refresh gate)
         let editBlobReadable = true; // false when the stored blob would not parse
         let editImageUrl = '';      // stage-2 product photo the extraction found
+        let editImageUrlFor = '';   // the product URL that photo was extracted FROM
         // Bumped on every editor open. An extraction or search takes up to 90s,
         // and its reply must not be applied to whatever bag the editor moved on
         // to in the meantime — that is #1588's bug (one record's state landing
@@ -963,6 +964,13 @@ QString ShotServer::generateBeansPage() const
             editBeanBaseId = b.beanBaseId || '';
             editOpenedLink = (editBlob.link || '').trim();
             editImageUrl = '';
+            editImageUrlFor = '';
+            // The in-flight reply is discarded by the generation check, but the
+            // busy state is per-editor: without this, opening another bag while
+            // an extraction runs leaves Get info greyed out and silent for up
+            // to 95s — the same cross-record carryover as #1588.
+            extracting = false;
+            el('btnGetInfo').disabled = false;
             el('editorTitle').textContent = id ? 'Edit Bag' : (editingKind === 'tea' ? 'New Tea' : 'New Coffee');
             el('fRoaster').value = b.roasterName || '';
             el('fCoffee').value = b.coffeeName || '';
@@ -1049,11 +1057,14 @@ QString ShotServer::generateBeansPage() const
             if (!r) return;
             // Copy the canonical entry into the working blob (id/visualizerCanonicalId
             // + descriptive keys) and stamp the identity fields, mirroring the app.
+            // The canonical entry replaces the blob wholesale, so whatever was
+            // unreadable before is gone — this one is ours and parses.
             editBlob = Object.assign({}, r);
+            editBlobReadable = true;
             editBeanBaseId = r.id || '';
             // The canonical entry's link is now what the form "opened" with:
-            // without this, Save always reports a URL change and evicts a photo
-            // to re-fetch it from the very page it was just resolved from.
+            // without this, Save always reports a URL change and re-fetches the
+            // photo from the very page it was just resolved from.
             editOpenedLink = (editBlob.link || '').trim();
             if (r.roasterName) el('fRoaster').value = r.roasterName;
             if (r.roastName) el('fCoffee').value = r.roastName;
@@ -1105,11 +1116,13 @@ QString ShotServer::generateBeansPage() const
                     take('fRoastLevel', 'roastLevel');   // column, not a blob key
                     (editingKind === 'tea' ? TEA_KEYS : COFFEE_KEYS).forEach(([fid, key]) => take(fid, key));
                     // Stage 2 (JS-rendered shops) returns the product photo's
-                    // URL directly, because those pages have no og:image for
-                    // the scraper to find — so this is the ONLY photo such a
-                    // bag will ever get. It is not a form field; hold it for
-                    // the save, which is when a bag id exists to key it by.
-                    if (f.imageUrl) editImageUrl = String(f.imageUrl);
+                    // URL directly. Stage 2 runs when the page yielded almost no
+                    // body text, which is usually also a page the og:image
+                    // scraper comes back empty-handed from — so this is often
+                    // the only photo such a bag will get. It is not a form
+                    // field; hold it for the save, which is when a bag id
+                    // exists to key it by.
+                    if (f.imageUrl) { editImageUrl = String(f.imageUrl); editImageUrlFor = url; }
                     // Roaster/coffee name and link are deliberately absent:
                     // AIManager::parseBagExtraction's key whitelist has none of
                     // them, so there is nothing to apply. The URL field in
@@ -1175,13 +1188,20 @@ QString ShotServer::generateBeansPage() const
             // because the column's bind hook collapses empty to SQL NULL, a
             // real clear, where '{}' would persist a junk non-null blob.
             //
-            // EXCEPT when the stored blob would not parse. Then editBlob is {}
-            // because we could not READ it, not because the user cleared it, and
-            // sending '' would wipe details the form never showed them. Omitting
-            // the key leaves the column untouched — the pre-fix behaviour, which
-            // was accidentally right for this one case.
-            if (editBlobReadable)
-                bodyData.beanBaseData = Object.keys(editBlob).length ? JSON.stringify(editBlob) : '';
+            // EXCEPT one case: the stored blob would not parse AND the user has
+            // put nothing in its place. Then editBlob is {} because we could not
+            // READ it, not because anything was cleared, and sending '' would
+            // wipe details the form never showed them — so omit the key and
+            // leave the column untouched.
+            //
+            // Anything the user DID enter still goes: the guard is "don't write
+            // an empty blob over one we couldn't read", not "never write". The
+            // broader form silently discarded fresh input on exactly the bags
+            // that needed repairing, and left a Bean Base pick linked to a bag
+            // whose corrupt blob the web editor could then never fix.
+            const haveBlob = Object.keys(editBlob).length > 0;
+            if (haveBlob || editBlobReadable)
+                bodyData.beanBaseData = haveBlob ? JSON.stringify(editBlob) : '';
             if (editBeanBaseId) bodyData.beanBaseId = editBeanBaseId;
             // A URL edited to a new non-empty value re-resolves the bag photo:
             // the cached pixels describe the OLD page. Gated here, not on the
@@ -1193,7 +1213,15 @@ QString ShotServer::generateBeansPage() const
                 bodyData.refreshImage = true;
             // Rides along on the save rather than a second round trip; the
             // server derives the cache key, so the client never names a file.
-            if (editImageUrl) bodyData.extractedImageUrl = editImageUrl;
+            //
+            // Only when it still describes the URL being saved. The photo is
+            // stashed at extraction time, but the URL can move afterwards —
+            // the user edits the field, or picks a Bean Base entry, which
+            // rewrites the link wholesale — and the server PREFERS this photo
+            // over re-resolving, so a stale one would pin a picture from a page
+            // the bag is no longer linked to.
+            if (editImageUrl && editImageUrlFor === (editBlob.link || '').trim())
+                bodyData.extractedImageUrl = editImageUrl;
             if (!editingId) bodyData.kind = editingKind;
 
             const req = editingId ? post('/api/bag/' + editingId, bodyData) : post('/api/bags', bodyData);

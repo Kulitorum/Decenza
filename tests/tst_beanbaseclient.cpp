@@ -386,12 +386,15 @@ private slots:
                      "direct productUrl must skip the canonical re-search");
     }
 
-    void refreshBagImageEvictsAndReresolvesFromNewUrl() {
+    void refreshBagImageReresolvesFromTheNewUrl() {
         // The user edited the bag's product URL. ensureBagImage() alone would
         // short-circuit twice over — the cached file exists AND the id is in
         // the once-per-session attempt guard — and confirm the "refresh" with
-        // the OLD page's pixels, silently and forever. refreshBagImage() has
-        // to clear both. Nothing about that failure is observable at runtime:
+        // the OLD page's pixels, silently and forever. refreshBagImage() has to
+        // defeat both: it clears the guard and forces past the cache hit, then
+        // the new bytes replace the file atomically (it does NOT evict first —
+        // see refreshBagImageKeepsTheOldPhotoWhenTheNewPageHasNone for why).
+        // Nothing about that failure is observable at runtime:
         // bagImageReady still fires and the UI still updates, just with the
         // wrong roaster's photo, which is why it is pinned here.
         //

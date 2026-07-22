@@ -427,11 +427,13 @@ void BeanBaseClient::downloadBagImage(const QString& canonicalId, const QString&
             return;
 
         // File write + eviction off the main thread (disk-I/O rule). The write
-        // is atomic (temp file + verified write + rename) so a disk-full or
-        // crash mid-write can never leave a truncated file that satisfies
-        // bagImagePath() and suppresses re-resolution forever. The completion
-        // hops back via the `this` connection context and emits only if the
-        // rename landed.
+        // is atomic (QSaveFile: temp file, verified write, commit-or-discard) so
+        // a disk-full or crash mid-write can never leave a truncated file that
+        // satisfies bagImagePath() and suppresses re-resolution forever. The
+        // completion hops back via the `this` connection context and emits when
+        // a file is present at the path — after a refresh whose download failed
+        // that is the PREVIOUS photo, which is the intended outcome: the bag
+        // keeps the picture it had rather than losing it to a failed refresh.
         const QString dir = imageCacheDir();
         const QString path = dir + QLatin1Char('/') + canonicalId;
         QPointer<BeanBaseClient> self(this);

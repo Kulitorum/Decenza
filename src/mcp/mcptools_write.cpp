@@ -35,6 +35,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QPointer>
+#include <functional>
 #include <QSet>
 #include <QDebug>
 #include <QSqlDatabase>
@@ -1825,7 +1826,14 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
               }, Qt::QueuedConnection);
             };
 
-            auto proceed = [dbPath, bagId, bagStorage, respondWithBag, respond](const QVariantMap& finalFields) {
+            // onSuccess runs ONLY after the write is confirmed. Anything with
+            // side effects outside this bag — evicting a bag photo whose cache
+            // key is shared by every bag on the same canonical bean — belongs
+            // there, not before the write, where a failed or nonexistent update
+            // would still have changed what other bags display.
+            auto proceed = [dbPath, bagId, bagStorage, respondWithBag, respond](
+                               const QVariantMap& finalFields,
+                               std::function<void()> onSuccess = {}) {
                 if (bagStorage) {
                     // Route through the storage INSTANCE so the write fires
                     // bagsChanged (open inventory views refresh), bagVisualizer-
@@ -1834,10 +1842,10 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                     // handler. That refresh is a no-op re-apply, so it does NOT
                     // reset the user's brew overrides — unlike the old
                     // setActiveBagId(-1) toggle, which fired clearBrewOverrides.
-                    QMetaObject::invokeMethod(qApp, [bagStorage, bagId, finalFields, respondWithBag, respond]() {
+                    QMetaObject::invokeMethod(qApp, [bagStorage, bagId, finalFields, respondWithBag, respond, onSuccess]() {
                         auto conn = std::make_shared<QMetaObject::Connection>();
                         *conn = QObject::connect(bagStorage, &CoffeeBagStorage::bagUpdated, bagStorage,
-                            [conn, bagId, respondWithBag, respond](qint64 updatedId, bool success) {
+                            [conn, bagId, respondWithBag, respond, onSuccess](qint64 updatedId, bool success) {
                                 if (updatedId != bagId)
                                     return;  // a concurrent update of a different bag
                                 QObject::disconnect(*conn);
@@ -1846,6 +1854,8 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                                                                   + QString::number(bagId)}});
                                     return;
                                 }
+                                if (onSuccess)
+                                    onSuccess();
                                 respondWithBag();
                             });
                         bagStorage->requestUpdateBag(bagId, finalFields);
@@ -1855,12 +1865,14 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
 
                 // Fallback (no storage instance — e.g. headless tests): direct
                 // static write. Skips the in-app refresh/sync signals.
-                QThread* thread = QThread::create([dbPath, bagId, finalFields, respondWithBag, respond]() {
+                QThread* thread = QThread::create([dbPath, bagId, finalFields, respondWithBag, respond, onSuccess]() {
                     bool success = false;
                     withTempDb(dbPath, "mcp_bagupd", [&](QSqlDatabase& db) {
                         success = CoffeeBagStorage::updateBagFieldsStatic(db, bagId, finalFields);
                     });
                     if (success) {
+                        if (onSuccess)
+                            QMetaObject::invokeMethod(qApp, onSuccess, Qt::QueuedConnection);
                         respondWithBag();
                     } else {
                         QMetaObject::invokeMethod(qApp, [bagId, respond]() {
@@ -1978,18 +1990,27 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                     // page. The bag editor and the web /beans editor both
                     // re-resolve on this edit; without it MCP was the remaining
                     // way to change the URL and keep the wrong picture.
-                    // No race to gate against here: the pre-read above put the
-                    // old blob in hand before the write.
+                    //
+                    // Deferred to the write's success handler, NOT run here. The
+                    // comparison itself is race-free (the pre-read put the old
+                    // blob in hand), but the cache key is shared by every bag on
+                    // the same canonical bean, so refreshing for an update that
+                    // then fails would change the photo other bags display for a
+                    // link change that was never persisted.
                     const auto linkOf = [](const QString& blob) {
                         return QJsonDocument::fromJson(blob.toUtf8())
                             .object().value(QStringLiteral("link")).toString().trimmed();
                     };
                     const QString newLink = linkOf(merged);
+                    std::function<void()> refreshPhoto;
                     if (safeBeanbase && !newLink.isEmpty() && newLink != linkOf(currentBlob)) {
-                        safeBeanbase->refreshBagImage(
-                            curBeanBaseId.isEmpty() ? QStringLiteral("bag-%1").arg(bagId)
-                                                    : curBeanBaseId,
-                            fields.value("coffeeName", curCoffee).toString(), newLink);
+                        const QString imageKey = curBeanBaseId.isEmpty()
+                            ? QStringLiteral("bag-%1").arg(bagId) : curBeanBaseId;
+                        const QString roastName = fields.value("coffeeName", curCoffee).toString();
+                        refreshPhoto = [safeBeanbase, imageKey, roastName, newLink]() {
+                            if (safeBeanbase)
+                                safeBeanbase->refreshBagImage(imageKey, roastName, newLink);
+                        };
                     }
                     if (finalFields.isEmpty()) {
                         // Everything merged to its current value (idempotent
@@ -1999,7 +2020,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                         respondWithBag();
                         return;
                     }
-                    proceed(finalFields);
+                    proceed(finalFields, refreshPhoto);
                 }, Qt::QueuedConnection);
             });
             QObject::connect(mergeThread, &QThread::finished, mergeThread, &QObject::deleteLater);

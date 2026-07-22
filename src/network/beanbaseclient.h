@@ -78,7 +78,9 @@ public:
     // alone would take its cache-hit branch and keep serving the stale pixels.
     //
     // Resolve-THEN-swap: the old file stays in place until the new bytes land
-    // (downloadBagImage's write is already atomic — .part + rename). Evicting
+    // (downloadBagImage commits through QSaveFile, which replaces the target
+    // atomically — and, unlike QFile::rename, will replace one that already
+    // exists, which is what keeping the old file requires). Evicting
     // up front left the bag with NO photo for the length of a network round
     // trip, which a consumer that re-reads immediately — the web /beans grid
     // reloads the instant the save returns — renders as the photo vanishing on
