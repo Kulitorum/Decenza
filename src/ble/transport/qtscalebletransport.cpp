@@ -51,9 +51,12 @@ void QtScaleBleTransport::log(const QString& message) {
 }
 
 void QtScaleBleTransport::warn(const QString& message) {
-    // Significant connection-priority events: WARN so they stand out in the
-    // user-attached debug.log (this feature is validated by reading those),
-    // and still flow to the scale log view via logMessage.
+    // Events a user-attached debug.log has to show: WARN so they stand out when
+    // that log is read after the fact (which is how this subsystem is
+    // validated), and still flow to the scale log view via logMessage.
+    // Originally scoped to connection-priority events; broadened when service
+    // errors joined it, since anything that reaches the user through error()
+    // needs to be findable in the log they send in (#1586).
     QString msg = QString("[BLE QtTransport] ") + message;
     qWarning().noquote() << msg;
     emit logMessage(msg);
@@ -722,9 +725,9 @@ void QtScaleBleTransport::onServiceError(QLowEnergyService::ServiceError err) {
     const QString errorName = bleServiceErrorName(err);
     // warn(), not log(): this reaches the user through error() the same way the
     // DE1 side reaches them through errorOccurred, and warn() is what makes an
-    // event visible in a user-attached debug.log (see the comment on warn()
-    // above). Leaving this at debug level would reproduce the #1586 defect on
-    // the scale link — a user-facing error absent from the log they send in.
+    // event visible in a user-attached debug.log. Leaving this at debug level
+    // would reproduce the #1586 defect on the scale link — a user-facing error
+    // absent from the log they send in.
     warn(QString("!!! SERVICE ERROR: %1 on %2 !!!").arg(errorName, serviceUuid));
     emit error(QString("Service error: %1").arg(errorName));
 }
