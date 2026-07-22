@@ -2408,7 +2408,14 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                                 haveBasketBrand ? basketBrand : curBasket.brand,
                                 haveBasketModel ? basketModel : curBasket.model,
                                 PuckPrep::canonicalMerged(curPuck.model, puckOverrides));
-                        ok = (resultId > 0);
+                        // -1 = the identity edit rolled back. Stop rather than
+                        // applying the rest against a sentinel id and reporting a
+                        // partial save (see supersedeOrEditStatic).
+                        if (resultId <= 0) {
+                            ok = false;
+                            return;
+                        }
+                        ok = true;
                     }
                     if (!pkgFields.isEmpty())
                         ok = EquipmentStorage::updatePackageFieldsStatic(db, resultId, pkgFields) || ok;

@@ -423,6 +423,14 @@ add_decenza_test(tst_autowakewindow
     ${CMAKE_SOURCE_DIR}/src/core/autowakemanager.cpp
 )
 
+# --- tst_dbtxn: BEGIN IMMEDIATE lock discipline shared by the four storages ---
+# Header-only (dbutils.h), so no extra sources. Covers the outcomes the storage
+# suites never reach: they all run uncontended, single-connection, and so only
+# ever exercise TxnBegin::Started.
+add_decenza_test(tst_dbtxn
+    tst_dbtxn.cpp
+)
+
 # --- tst_updatechecker: shared GitHub releases request + connection policy ---
 # Guards ConnectionCacheExpiryTimeoutSecondsAttribute, whose absence is invisible
 # except as an hourly Qt warning in shipped logs. Friend-class access is via

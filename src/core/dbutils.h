@@ -12,13 +12,20 @@
 #include <functional>
 #include <memory>
 
-// True when a failed statement failed because someone else holds the lock
-// (SQLITE_BUSY = 5, SQLITE_LOCKED = 6) rather than for a reason retrying cannot
-// fix. The text checks are a backstop: the native code is empty on some driver
-// paths, and Qt appends its own prefix to the message.
+// True when a statement failed because someone else holds the lock rather than
+// for a reason retrying cannot fix. This is what separates "wait and try again"
+// from "give up": a constraint violation must never be retried.
 //
-// This distinction is what separates "wait and try again" from "give up": a
-// constraint violation or a nested-transaction error must never be retried.
+// The TEXT match is the primary detector, not a backstop — do not delete it as
+// "fragile string matching". Qt enables SQLite's EXTENDED result codes by default
+// (qsql_sqlite.cpp, `useExtendedResultCodes`, cleared only by a connect option
+// this app never sets), and the failure this whole helper exists to catch — the
+// WAL read→write upgrade — reports SQLITE_BUSY_SNAPSHOT = 517, not 5. So
+// nativeErrorCode() is "517" and the numeric checks below miss it entirely; what
+// catches it is sqlite3_errmsg's "database is locked". The numeric checks cover
+// the plain SQLITE_BUSY (5) / SQLITE_LOCKED (6) cases and driver paths that
+// report no text. QSqlError::text() is the database message with Qt's driver text
+// appended.
 inline bool isSqliteLockError(const QSqlError& e) {
     const QString code = e.nativeErrorCode();
     return code == QLatin1String("5") || code == QLatin1String("6")
@@ -27,24 +34,36 @@ inline bool isSqliteLockError(const QSqlError& e) {
 }
 
 // Outcome of beginImmediateTransaction().
+//
+// Only `Started` means "you own a transaction and must commit or roll it back
+// exactly once". Every caller here refuses everything else, and new ones should
+// too: test `!= TxnBegin::Started`, not `== TxnBegin::Locked`. Handling one
+// failure state and falling through on the others runs the body with no
+// transaction at all, which turns its rollbacks into silent no-ops.
+//
+// `Nested` is unreachable today — every caller runs on a fresh withTempDb
+// connection in autocommit. It is distinguished anyway because an outer
+// transaction is the one case where proceeding could be legitimate, and a caller
+// that adopts one must NOT commit or roll back. If you find yourself wanting
+// that, prefer restructuring so the transaction has a single owner.
 enum class TxnBegin {
-    Started,  // we own a fresh write transaction
-    Nested,   // already inside one; the outer transaction provides atomicity
+    Started,  // we own a fresh write transaction — commit or roll back exactly once
+    Nested,   // already inside one, owned by an outer frame — do not terminate it
     Locked,   // another writer held the lock through every attempt
     Failed,   // anything else — see the logged error
 };
 
-// Starts a top-level write transaction, retrying briefly while another writer
-// holds the lock.
+// Starts a write transaction, retrying while another writer holds the lock.
 //
 // Use this, NOT QSqlDatabase::transaction(), for any transaction that reads
-// before it writes. Qt's SQLite driver issues a plain DEFERRED BEGIN
-// (qsql_sqlite.cpp: `q.exec("BEGIN")`), which takes a read lock for the first
+// before it writes. Qt's SQLite driver issues a plain DEFERRED BEGIN (see
+// QSQLiteDriver::beginTransaction()), which takes a read lock for the first
 // SELECT and then has to UPGRADE it for the first write — and if another
 // connection wrote in between, SQLite fails that upgrade IMMEDIATELY rather than
-// waiting out busy_timeout, because waiting could deadlock. The PRAGMA
-// busy_timeout that withTempDb sets is simply not consulted, so the write fails
-// on the first brush with contention.
+// waiting out busy_timeout. (In WAL, which this database uses, the read snapshot
+// is stale and waiting could never succeed, so the busy handler is not consulted
+// at all.) The PRAGMA busy_timeout that withTempDb sets is simply not reached, so
+// the write fails on the first brush with contention.
 //
 // That is not theoretical here: four storages (shots, bags, equipment, recipes)
 // share shots.db, each on its own worker thread, so their writes overlap by
@@ -53,10 +72,24 @@ enum class TxnBegin {
 // save to the recipe" banner) before this existed.
 //
 // BEGIN IMMEDIATE takes the write lock up front, which is what lets busy_timeout
-// absorb the contention. It also means contention can only bite HERE — once the
-// lock is held, no statement inside the transaction can block on another writer —
-// so callers need no retry loop around the body.
-inline TxnBegin beginImmediateTransaction(QSqlDatabase& db, const char* what, int attempts = 4) {
+// absorb the contention, and concentrates it HERE: no other writer can exist once
+// the lock is held, so the body never has to retry the read→write upgrade. COMMIT
+// is the one statement that can still come back busy (see the commit retry in
+// ShotHistoryStorage::saveShotStatic) — a caller that cannot afford to lose
+// staged work should check it.
+//
+// PRECONDITION: no statement may be active on `db`. An unfinished QSqlQuery holds
+// a read transaction open, and SQLite skips the busy handler while the connection
+// sits in one — so BEGIN IMMEDIATE fails instantly and every retry fails the same
+// way, however idle the database is. A SELECT that returned rows and was not
+// stepped to exhaustion counts: call QSqlQuery::finish() first. (COUNT(*) always
+// returns a row, so a count probe ALWAYS needs it.)
+//
+// COST: each failed attempt can itself wait the full busy_timeout (5 s via
+// withTempDb) before returning, so the default bounds the wait at roughly 10 s of
+// a blocked worker thread, not the ~50 ms the backoff below suggests. Callers on
+// the GUI thread should pass attempts = 1.
+[[nodiscard]] inline TxnBegin beginImmediateTransaction(QSqlDatabase& db, const char* what, int attempts = 2) {
     QSqlQuery q(db);
     for (int attempt = 1; ; ++attempt) {
         if (q.exec(QStringLiteral("BEGIN IMMEDIATE")))
@@ -64,10 +97,15 @@ inline TxnBegin beginImmediateTransaction(QSqlDatabase& db, const char* what, in
         const QSqlError err = q.lastError();
         if (!isSqliteLockError(err)) {
             // A caller that already opened a transaction gets "cannot start a
-            // transaction within a transaction". Not an error: the outer
-            // transaction still makes the caller's work atomic.
-            if (err.text().contains(QLatin1String("within a transaction"), Qt::CaseInsensitive))
+            // transaction within a transaction" — a SQLITE_ERROR with no distinct
+            // result code, so the message is the only signal available.
+            if (err.text().contains(QLatin1String("within a transaction"), Qt::CaseInsensitive)) {
+                // Logged, not silent: this is the one outcome whose caller-side
+                // warning would otherwise carry no cause at all.
+                qWarning() << "beginImmediateTransaction:" << what
+                           << "is nested inside a transaction owned by an outer frame";
                 return TxnBegin::Nested;
+            }
             qWarning() << "beginImmediateTransaction:" << what << "failed:" << err.text();
             return TxnBegin::Failed;
         }
@@ -76,7 +114,8 @@ inline TxnBegin beginImmediateTransaction(QSqlDatabase& db, const char* what, in
                        << attempts << "attempts:" << err.text();
             return TxnBegin::Locked;
         }
-        // Short escalating backoff: a backstop for a writer held past busy_timeout.
+        // Backoff on top of the busy_timeout each attempt already waited out: a
+        // backstop for a writer held past it.
         QThread::msleep(static_cast<unsigned long>(50 * attempt));
     }
 }

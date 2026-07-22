@@ -850,12 +850,20 @@ qint64 CoffeeBagStorage::convertLegacyPresetSettings(const QString& dbPath)
         QSqlQuery probe(db);
         if (!probe.exec("SELECT COUNT(*) FROM coffee_bags"))
             return;
+        // Release the probe's statement before the BEGIN below. A COUNT(*) always
+        // returns a row, so Qt leaves it un-reset, and an active statement holds a
+        // read transaction open — which makes BEGIN IMMEDIATE fail immediately and
+        // unrecoverably. See beginImmediateTransaction's precondition.
+        probe.finish();
 
         // importLegacyPresetsStatic probes for duplicates before inserting, so
         // this reads before it writes and must take the write lock up front —
         // see beginImmediateTransaction. One-time legacy path, but the shape is
         // the same one that cost a recipe save.
-        if (beginImmediateTransaction(db, "legacy preset import") != TxnBegin::Started) {
+        // attempts = 1: this runs on the GUI thread from ShotHistoryStorage::
+        // initialize(), and a single attempt already waits out busy_timeout. The
+        // keys survive a failure, so the next launch retries anyway.
+        if (beginImmediateTransaction(db, "legacy preset import", 1) != TxnBegin::Started) {
             qWarning() << "CoffeeBagStorage: legacy preset transaction begin failed - "
                           "leaving the keys for a later retry";
             return;

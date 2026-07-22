@@ -416,7 +416,18 @@ void EquipmentStorage::requestUpdatePackage(qint64 packageId, const QVariantMap&
                 const QString bModel = fields.value(QStringLiteral("basketModel"), curBasket.model).toString();
                 const QString puck = PuckPrep::canonicalMerged(curPuck.model, fields);
                 *resultId = supersedeOrEditStatic(db, packageId, brand, model, burrs, bBrand, bModel, puck);
-                any = (*resultId > 0);
+                if (*resultId <= 0) {
+                    // The identity edit rolled back (lock, or a genuine SQL error).
+                    // Stop here rather than applying the remaining fields: a save
+                    // that persists the rename but drops the burr change, and
+                    // reports success, is the worst of the three outcomes.
+                    qWarning() << "EquipmentStorage: identity edit failed for package" << packageId
+                               << "- reporting the whole update as failed";
+                    *success = false;
+                    *resultId = packageId;  // signals carry a real id, not the sentinel
+                    return;
+                }
+                any = true;
             }
             // Strip identity keys before the package-column update; apply the rest
             // (e.g. name) to the RESULT package.
@@ -489,8 +500,15 @@ void EquipmentStorage::requestDeletePackage(qint64 packageId)
                 qWarning() << "EquipmentStorage: refusing to delete package" << packageId << "with references";
                 return;
             }
+            // Release the pre-check statement: an active read holds a read
+            // transaction open, which would make the BEGIN below fail outright
+            // (see beginImmediateTransaction's precondition).
+            countQuery.finish();
             // Delete items + package atomically so a failure can't orphan items.
-            const bool txn = db.transaction();
+            // Both statements are writes, so a plain BEGIN would be safe here on
+            // the lock-upgrade axis — but IMMEDIATE costs nothing and keeps every
+            // transaction in this file on one rule.
+            const bool txn = (beginImmediateTransaction(db, "equipment package delete") == TxnBegin::Started);
             QSqlQuery delItems(db);
             delItems.prepare("DELETE FROM equipment_items WHERE package_id = :id");
             delItems.bindValue(":id", packageId);
@@ -1107,25 +1125,34 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
 
     // The whole identity edit must be atomic — a partial commit could repoint
     // bags without retiring the old package (a duplicate live package). Wrap in a
-    // transaction and roll back to the no-op identity (return packageId) on any
-    // failure. (withTempDb runs in autocommit, so this is a top-level txn.)
+    // transaction and roll back on any failure.
+    //
+    // Failure returns -1, NOT packageId. Both are "the package still has its old
+    // identity", but packageId is also what a successful edit-in-place returns,
+    // and callers only have `> 0` to test — so returning it reported every failure
+    // as a save, closed the editor, and dropped the user's change silently.
     //
     // Reads (findPackageByGrinderIdentityStatic) before it writes, so it takes
     // the write lock up front — see beginImmediateTransaction.
     const TxnBegin begun = beginImmediateTransaction(db, "equipment identity edit");
-    if (begun == TxnBegin::Locked || begun == TxnBegin::Failed) {
-        // Nested would be fine — an outer transaction still makes this atomic —
-        // but a lock leaves nothing to inherit atomicity from, and running the
-        // edit unwrapped could repoint bags without retiring the old package:
-        // exactly the duplicate-live-package state above. Give up as a no-op.
+    if (begun != TxnBegin::Started) {
+        // Nested is refused rather than tolerated: fail() below rolls back, which
+        // would discard an outer caller's work, and NOT rolling back would leave
+        // a half-applied identity staged in their transaction — bags repointed
+        // without the old package retired, the duplicate-live-package state above.
+        // Unreachable today; both callers run under withTempDb in autocommit.
         qWarning() << "EquipmentStorage: identity edit for package" << packageId
                    << "could not start a transaction - leaving the package unchanged";
-        return packageId;
+        return -1;
     }
-    const bool inTxn = (begun == TxnBegin::Started);
-    auto fail = [&]() -> qint64 { if (inTxn) db.rollback(); return packageId; };
+    auto fail = [&]() -> qint64 { db.rollback(); return -1; };
     auto done = [&](qint64 result) -> qint64 {
-        if (inTxn && !db.commit()) { db.rollback(); return packageId; }
+        if (!db.commit()) {
+            qWarning() << "EquipmentStorage: identity edit commit failed for package" << packageId
+                       << "-" << db.lastError().text();
+            db.rollback();
+            return -1;
+        }
         return result;
     };
 

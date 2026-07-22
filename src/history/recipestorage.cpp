@@ -533,8 +533,16 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
             // Nested is treated as a failure rather than tolerated: the
             // rejection paths below roll back, which would discard an outer
             // caller's work too. No such caller exists today.
-            if (beginImmediateTransaction(db, "recipe update") != TxnBegin::Started) {
-                qWarning() << "RecipeStorage: update transaction begin failed for recipe" << recipeId;
+            const TxnBegin begun = beginImmediateTransaction(db, "recipe update");
+            if (begun != TxnBegin::Started) {
+                qWarning() << "RecipeStorage: update transaction begin failed for recipe" << recipeId
+                           << "- outcome" << static_cast<int>(begun);
+                // "busy" is the one failure here the user can act on — pressing
+                // Save again works. Without it every surface reports the generic
+                // string, and MCP's is "Recipe N not found or update failed",
+                // which reads as "your recipe is gone".
+                if (begun == TxnBegin::Locked)
+                    *failReason = QStringLiteral("busy");
                 return;
             }
             // Pre-update state, captured inside the transaction: the name-uniqueness
