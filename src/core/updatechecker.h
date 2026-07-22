@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
+#include <QNetworkRequest>
 #include <QTimer>
 #include <QFile>
 #include <QFileInfo>
@@ -142,6 +143,10 @@ private slots:
     void onPeriodicCheck();
 
 private:
+    // The GitHub releases request, shared by the manual check and the hourly
+    // poll so both carry the same headers and connection policy.
+    QNetworkRequest releaseInfoRequest() const;
+
     void parseReleaseInfo(const QByteArray& data);
     void startDownload();
     bool installApk(const QString& apkPath);
@@ -206,4 +211,8 @@ private:
 
     static const QString GITHUB_API_URL;
     static const QString GITHUB_REPO;
+
+#ifdef DECENZA_TESTING
+    friend class tst_UpdateChecker;
+#endif
 };
