@@ -1243,9 +1243,11 @@ void SettingsNetwork::injectEquipmentButtonIfMissing() {
     // Placement policy: immediately after the beans item, so an upgraded user
     // gets it in a sensible default place regardless of their custom layout;
     // append to bottomRight if beans was removed. Note the beans anchor is
-    // searched across ALL zones in key order, so a layout whose beans sits in
-    // centerTop (the current default) puts Equipment in the centre row, not the
-    // bottom bar. (Contract and gating: see the declaration.)
+    // searched across ALL zones in alphabetical key order (QJsonObject::keys()
+    // sorts; it is NOT the order the zones appear in the JSON), so a layout
+    // whose beans sits in centerTop — which the current default does — puts
+    // Equipment in the centre row, not the bottom bar. (Contract and gating:
+    // see the declaration.)
     QJsonObject layout = getLayoutObject();
     QJsonObject zones = layout["zones"].toObject();
     for (const QString& zoneName : zones.keys()) {
