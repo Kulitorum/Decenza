@@ -450,6 +450,17 @@ void EquipmentStorage::requestUpdatePackage(qint64 packageId, const QVariantMap&
                     qWarning() << "EquipmentStorage: package-field update failed for" << *resultId
                                << "- reporting the whole update as failed";
                     *success = false;
+                    // Report the id the CALLER asked about, as the identity
+                    // branch above does. Leaving the forked id here made the
+                    // ShotServer handler — which filters on `updatedId ==
+                    // packageId` — drop the terminal signal, so the HTTP request
+                    // never got a response at all.
+                    *resultId = packageId;
+                    // `any` is true here only if the identity edit already
+                    // committed, so name which of the two failures this is: the
+                    // save is half-applied and re-submitting it is not a no-op.
+                    *failReason = any ? QStringLiteral("partiallyApplied")
+                                      : QStringLiteral("updateFailed");
                     return;
                 }
                 any = true;
@@ -1165,7 +1176,7 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
     auto done = [&](qint64 result) -> qint64 {
         if (!txn.commit()) {
             qWarning() << "EquipmentStorage: identity edit commit failed for package" << packageId
-                       << "-" << db.lastError().text();
+                       << "-" << txn.commitError();
             return -1;
         }
         return result;

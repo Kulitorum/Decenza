@@ -2417,8 +2417,15 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                         }
                         ok = true;
                     }
-                    if (!pkgFields.isEmpty())
-                        ok = EquipmentStorage::updatePackageFieldsStatic(db, resultId, pkgFields) || ok;
+                    if (!pkgFields.isEmpty() && !EquipmentStorage::updatePackageFieldsStatic(db, resultId, pkgFields)) {
+                        // NOT `|| ok`: a successful identity edit must not mask a
+                        // failed rename. equipment_update reimplements
+                        // requestUpdatePackage rather than calling it, so the fix
+                        // there does not reach this surface — an assistant would
+                        // otherwise be told a half-applied save succeeded.
+                        ok = false;
+                        return;
+                    }
                     view.package = EquipmentStorage::loadPackageStatic(db, resultId);
                     view.grinder = EquipmentStorage::loadGrinderItemStatic(db, resultId);
                     view.basket = EquipmentStorage::loadBasketItemStatic(db, resultId);

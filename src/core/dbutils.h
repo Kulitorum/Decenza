@@ -119,12 +119,28 @@ public:
     }
 
     ~DbWriteTxn() {
-        if (m_db)
-            m_db->rollback();
+        // A failing rollback here means the transaction we thought we owned was
+        // already terminated by someone else — in practice, a caller that
+        // committed with the raw QSqlDatabase::commit() instead of commit()
+        // below, which leaves this guard armed. That happened at two sites
+        // within a day of the class existing, silently, because the return was
+        // discarded. Logging it makes the next occurrence fail loudly instead:
+        // the test suite runs with QTest::failOnWarning(), so any storage test
+        // touching such a path now breaks, at every present and future site,
+        // without anyone having to write a test for it.
+        //
+        // It also catches the genuinely dangerous case: on a long-lived
+        // connection a failed ROLLBACK leaves the write transaction open, and
+        // every later write on that connection silently joins it.
+        if (m_db && !m_db->rollback())
+            qWarning() << "DbWriteTxn: ROLLBACK failed — the transaction was already ended by "
+                          "someone else (a raw db.commit()?), or is still open:"
+                       << m_db->lastError().text();
     }
 
     DbWriteTxn(DbWriteTxn&& other) noexcept
-        : m_db(other.m_db), m_lockTimedOut(other.m_lockTimedOut) { other.m_db = nullptr; }
+        : m_db(other.m_db), m_lockTimedOut(other.m_lockTimedOut),
+          m_commitError(std::move(other.m_commitError)) { other.m_db = nullptr; }
     DbWriteTxn(const DbWriteTxn&) = delete;
     DbWriteTxn& operator=(const DbWriteTxn&) = delete;
     DbWriteTxn& operator=(DbWriteTxn&&) = delete;
@@ -142,21 +158,27 @@ public:
     // back in that case) or if we never held one. After this the guard is inert,
     // so the destructor does nothing.
     bool commit() {
-        if (!m_db)
+        if (!m_db) {
+            m_commitError = QStringLiteral("no transaction was held");
             return false;
+        }
         QSqlDatabase* db = m_db;
         m_db = nullptr;
         if (db->commit())
             return true;
-        // Capture before the rollback below replaces it — otherwise a caller
-        // logging db.lastError() after a failed commit reports the ROLLBACK's
-        // outcome (often success) instead of the reason the COMMIT failed.
+        // Capture now. A SUCCESSFUL rollback leaves lastError() alone — Qt's
+        // driver only calls setLastError on failure — but a FAILING one
+        // overwrites it, and it fails exactly when SQLite has already unwound
+        // the transaction ("cannot rollback - no transaction is active"). In
+        // that case a caller logging db.lastError() would name the rollback
+        // instead of the commit, which is the case worth diagnosing.
         m_commitError = db->lastError().text();
         db->rollback();
         return false;
     }
 
-    // Why the last commit() failed. Empty unless commit() returned false.
+    // Why the last commit() failed. Always set when commit() returns false,
+    // including when the guard held no transaction. Empty after a success.
     QString commitError() const { return m_commitError; }
 
 private:

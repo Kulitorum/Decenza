@@ -876,7 +876,7 @@ qint64 CoffeeBagStorage::convertLegacyPresetSettings(const QString& dbPath)
         }
         if (!txn.commit()) {
             qWarning() << "CoffeeBagStorage: legacy preset import commit failed:"
-                       << db.lastError().text();
+                       << txn.commitError();
             return;
         }
         committed = true;

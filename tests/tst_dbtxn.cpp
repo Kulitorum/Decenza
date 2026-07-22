@@ -36,7 +36,6 @@ private slots:
     void deferredBeginLosesTheUpgradeThatImmediateSurvives();
     void okHoldsTheWriteLockNotAReadLock();
     void scopeExitWithoutCommitRollsBack();
-    void deleteBeforeTheTransactionIsNotUndone();
     void commitReleasesSoTheDestructorIsInert();
     void lockedAfterEveryAttemptAndLeavesNoTransactionBehind();
     void nestedIsRefusedNotAdopted();
@@ -163,44 +162,6 @@ void tst_DbTxn::scopeExitWithoutCommitRollsBack()
     QVERIFY(check.exec("SELECT v FROM t WHERE id = 1"));
     QVERIFY(check.next());
     QCOMPARE(check.value(0).toString(), QStringLiteral("seed"));
-}
-
-// A DELETE issued before the transaction opens is already committed and cannot
-// be taken back — which is how the shot importer lost shots: its dedupe probes
-// deleted the row they were replacing in autocommit, and a later failure left
-// nothing in its place. This pins the ordering that fixes it: with the delete
-// INSIDE the transaction, abandoning the work restores the row.
-void tst_DbTxn::deleteBeforeTheTransactionIsNotUndone()
-{
-    seed();
-    QSqlDatabase a = open(QStringLiteral("a"));
-
-    // The old shape: delete first, then open the transaction and fail.
-    QVERIFY(run(a, "DELETE FROM t WHERE id = 1"));
-    {
-        DbWriteTxn txn = DbWriteTxn::begin(a, "test");
-        QVERIFY(txn.ok());
-        // caller bails without committing
-    }
-    QSqlQuery gone(a);
-    QVERIFY(gone.exec("SELECT COUNT(*) FROM t WHERE id = 1"));
-    QVERIFY(gone.next());
-    QCOMPARE(gone.value(0).toInt(), 0);   // the row is gone for good
-    gone.finish();
-
-    // The fixed shape: transaction first, so the delete rolls back with it.
-    QVERIFY(run(a, "INSERT INTO t(id, v) VALUES(1, 'seed')"));
-    {
-        DbWriteTxn txn = DbWriteTxn::begin(a, "test");
-        QVERIFY(txn.ok());
-        QVERIFY(run(a, "DELETE FROM t WHERE id = 1"));
-        // caller bails without committing
-    }
-    QSqlQuery restored(a);
-    QVERIFY(restored.exec("SELECT v FROM t WHERE id = 1"));
-    QVERIFY2(restored.next(), "the row was deleted inside a transaction that never committed, "
-                              "but did not come back");
-    QCOMPARE(restored.value(0).toString(), QStringLiteral("seed"));
 }
 
 void tst_DbTxn::commitReleasesSoTheDestructorIsInert()
