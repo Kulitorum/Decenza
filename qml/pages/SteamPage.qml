@@ -343,26 +343,46 @@ Page {
     // placement re-enables weight scaling. Event-based, not a timer.
     property bool steamTimeoutUserAdjusted: false
 
-    // Confirm before storing the empty-pitcher weight (footgun: weighing a pitcher
-    // that still has milk in it would skew every net-milk reading thereafter).
-    property real pendingPitcherWeight: 0
-    Dialog {
-        id: pitcherWeighConfirm
+    // Weighing an empty pitcher stores the reading straight away and confirms with a
+    // toast — the value also appears in the pitcher-weight field, so no dialog is
+    // needed. (The old confirm dialog rendered white-on-white in dark themes and just
+    // added friction.) The button's accessible name and the toast carry the "empty
+    // pitcher" wording that the confirm used to state.
+    function showPitcherToast(message) {
+        pitcherToastText.text = message
+        pitcherToast.opacity = 1
+        pitcherToastTimer.restart()
+        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+            AccessibilityManager.announce(message, true)
+    }
+    Rectangle {
+        id: pitcherToast
         parent: Overlay.overlay
-        anchors.centerIn: parent
-        modal: true
-        width: Math.min(Theme.scaled(380), parent ? parent.width * 0.9 : Theme.scaled(380))
-        standardButtons: Dialog.Save | Dialog.Cancel
-        contentItem: Text {
-            text: TranslationManager.translate("steam.confirmPitcherWeight",
-                "Store %1 g as the empty pitcher weight? Make sure the pitcher is empty (no milk).")
-                .arg(steamPage.pendingPitcherWeight.toFixed(1))
-            wrapMode: Text.WordWrap
+        opacity: 0
+        Behavior on opacity { NumberAnimation { duration: 150 } }
+        visible: opacity > 0
+        anchors.bottom: parent ? parent.bottom : undefined
+        anchors.bottomMargin: Theme.bottomBarHeight + Theme.scaled(12)
+        anchors.horizontalCenter: parent ? parent.horizontalCenter : undefined
+        width: pitcherToastText.implicitWidth + Theme.scaled(32)
+        height: Theme.scaled(40)
+        radius: Theme.scaled(20)
+        color: Theme.surfaceColor
+        border.color: Theme.borderColor
+        border.width: 1
+        z: 10
+        Text {
+            id: pitcherToastText
+            anchors.centerIn: parent
             color: Theme.textColor
             font: Theme.bodyFont
-            padding: Theme.spacingLarge
+            Accessible.ignored: true
         }
-        onAccepted: Settings.brew.setSteamPitcherWeight(Settings.brew.selectedSteamPitcher, steamPage.pendingPitcherWeight)
+    }
+    Timer {
+        id: pitcherToastTimer
+        interval: 2500
+        onTriggered: pitcherToast.opacity = 0
     }
 
     // Net milk to scale against once the pitcher is off the scale: prefer the value
@@ -1935,9 +1955,9 @@ Page {
                                 MouseArea { id: tareBtnMa; anchors.fill: parent; onClicked: MachineState.tareScale() }
                             }
 
-                            // Weigh the empty pitcher from the scale (with an empty-pitcher
-                            // confirm); when the scale reads ~0 it becomes "Clear" (saving 0
-                            // disables the feature). Saving 0 needs no confirm.
+                            // Weigh the empty pitcher from the scale: the reading is stored
+                            // immediately and confirmed with a toast. When the scale reads ~0
+                            // the button becomes "Clear" (storing 0 disables the feature).
                             Rectangle {
                                 id: savePitcherWeightBtn
                                 readonly property bool isClear: MachineState.scaleWeight < 5.0
@@ -1977,11 +1997,21 @@ Page {
                                     id: savePitcherWtMa
                                     anchors.fill: parent
                                     onClicked: {
+                                        var idx = Settings.brew.selectedSteamPitcher
+                                        var preset = Settings.brew.getSteamPitcherPreset(idx)
+                                        var pName = preset ? (preset.name || "") : ""
                                         if (savePitcherWeightBtn.isClear) {
-                                            Settings.brew.setSteamPitcherWeight(Settings.brew.selectedSteamPitcher, 0.0)
+                                            Settings.brew.setSteamPitcherWeight(idx, 0.0)
+                                            steamPage.showPitcherToast(TranslationManager.translate(
+                                                "steam.toast.pitcherWeightCleared",
+                                                "Empty %1 pitcher weight cleared").arg(pName))
                                         } else {
-                                            steamPage.pendingPitcherWeight = MachineState.scaleWeight
-                                            pitcherWeighConfirm.open()
+                                            var w = MachineState.scaleWeight
+                                            Settings.brew.setSteamPitcherWeight(idx, w)
+                                            steamPage.showPitcherToast(TranslationManager.translate(
+                                                "steam.toast.pitcherWeightStored",
+                                                "%1 g stored as empty %2 pitcher weight")
+                                                .arg(w.toFixed(1)).arg(pName))
                                         }
                                     }
                                 }
