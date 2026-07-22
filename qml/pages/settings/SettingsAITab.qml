@@ -1430,11 +1430,13 @@ KeyboardAwareContainer {
                 Item { Layout.fillWidth: true }
                 AccessibleButton {
                     text: TranslationManager.translate("common.button.cancel", "Cancel")
+                    accessibleName: TranslationManager.translate("common.button.cancel", "Cancel")
                     onClicked: advancedEndpointDialog.close()
                 }
                 AccessibleButton {
                     primary: true
                     text: TranslationManager.translate("common.button.save", "Save")
+                    accessibleName: TranslationManager.translate("settings.ai.saveEndpointAccessible", "Save custom endpoint")
                     onClicked: {
                         Qt.inputMethod.commit()
                         switch(Settings.ai.aiProvider) {
