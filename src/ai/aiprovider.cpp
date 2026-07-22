@@ -197,7 +197,10 @@ QString OpenAIProvider::shortModelName() const
 
 void OpenAIProvider::sendRequest(const QJsonObject& requestBody)
 {
-    QUrl url(QString::fromLatin1(API_URL));
+    QString urlStr = m_baseUrl.isEmpty()
+        ? QString::fromLatin1(API_URL)
+        : m_baseUrl + QStringLiteral("/v1/chat/completions");
+    QUrl url(urlStr);
     QNetworkRequest req;
     req.setUrl(url);
     req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
@@ -288,7 +291,10 @@ void OpenAIProvider::analyzeUrl(const QString& systemPrompt, const QString& user
 
 void OpenAIProvider::sendResponsesRequest(const QJsonObject& requestBody)
 {
-    QUrl url(QString::fromLatin1(RESPONSES_API_URL));
+    QString urlStr = m_baseUrl.isEmpty()
+        ? QString::fromLatin1(RESPONSES_API_URL)
+        : m_baseUrl + QStringLiteral("/v1/responses");
+    QUrl url(urlStr);
     QNetworkRequest req;
     req.setUrl(url);
     req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
@@ -440,7 +446,10 @@ void OpenAIProvider::testConnection()
     }
 
     // Simple test: list models
-    QUrl url(QString("https://api.openai.com/v1/models"));
+    QString urlStr = m_baseUrl.isEmpty()
+        ? QStringLiteral("https://api.openai.com/v1/models")
+        : m_baseUrl + QStringLiteral("/v1/models");
+    QUrl url(urlStr);
     QNetworkRequest req;
     req.setUrl(url);
     req.setRawHeader("Authorization", ("Bearer " + m_apiKey).toUtf8());
@@ -565,7 +574,10 @@ QString AnthropicProvider::shortModelName() const
 
 void AnthropicProvider::sendRequest(const QJsonObject& requestBody)
 {
-    QUrl url(QString::fromLatin1(API_URL));
+    QString urlStr = m_baseUrl.isEmpty()
+        ? QString::fromLatin1(API_URL)
+        : m_baseUrl + QStringLiteral("/v1/messages");
+    QUrl url(urlStr);
     QNetworkRequest req;
     req.setUrl(url);
     req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
@@ -799,7 +811,10 @@ void AnthropicProvider::testConnection()
     messages.append(userMsg);
     requestBody["messages"] = messages;
 
-    QUrl url(QString::fromLatin1(API_URL));
+    QString urlStr = m_baseUrl.isEmpty()
+        ? QString::fromLatin1(API_URL)
+        : m_baseUrl + QStringLiteral("/v1/messages");
+    QUrl url(urlStr);
     QNetworkRequest req;
     req.setUrl(url);
     req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));

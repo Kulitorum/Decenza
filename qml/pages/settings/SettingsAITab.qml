@@ -460,6 +460,18 @@ KeyboardAwareContainer {
                         }
                     }
 
+                    AccessibleButton {
+                        visible: Settings.ai.aiProvider === "openai" || Settings.ai.aiProvider === "anthropic"
+                        text: TranslationManager.translate("settings.ai.advanced", "Advanced")
+                        accessibleName: TranslationManager.translate("settings.ai.advancedAccessible", "Configure custom API endpoint")
+                        onClicked: {
+                            endpointField.text = Settings.ai.aiProvider === "openai"
+                                ? Settings.ai.openaiEndpoint
+                                : Settings.ai.anthropicEndpoint
+                            advancedEndpointDialog.open()
+                        }
+                    }
+
                     Text {
                         visible: aiTab.testResultMessage.length > 0
                         text: aiTab.testResultMessage
@@ -1364,6 +1376,78 @@ KeyboardAwareContainer {
     }
 
     // Discuss Shot app selector
+    // Advanced endpoint dialog (OpenAI / Anthropic custom endpoint)
+    Dialog {
+        id: advancedEndpointDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(parent ? parent.width - Theme.scaled(32) : Theme.scaled(360), Theme.scaled(420))
+        modal: true
+        closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
+
+        onOpened: AccessibilityManager.announce(endpointDialogTitle.text)
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.scaled(12)
+            border.color: Theme.borderColor
+            border.width: 1
+        }
+
+        contentItem: ColumnLayout {
+            spacing: Theme.scaled(12)
+
+            Text {
+                id: endpointDialogTitle
+                Layout.fillWidth: true
+                text: TranslationManager.translate("settings.ai.customEndpoint", "Custom Endpoint")
+                color: Theme.textColor
+                font.family: Theme.subtitleFont.family
+                font.pixelSize: Theme.subtitleFont.pixelSize
+                font.bold: true
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: TranslationManager.translate("settings.ai.customEndpointHint", "Leave empty for default. Set to use an OpenAI/Anthropic-compatible API endpoint.")
+                color: Theme.textSecondaryColor
+                font.pixelSize: Theme.scaled(12)
+                wrapMode: Text.Wrap
+            }
+
+            StyledTextField {
+                id: endpointField
+                Layout.fillWidth: true
+                placeholderText: Settings.ai.aiProvider === "openai"
+                    ? "https://api.openai.com"
+                    : "https://api.anthropic.com"
+                inputMethodHints: Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase | Qt.ImhUrlCharactersOnly
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.scaled(8)
+                Item { Layout.fillWidth: true }
+                AccessibleButton {
+                    text: TranslationManager.translate("common.button.cancel", "Cancel")
+                    onClicked: advancedEndpointDialog.close()
+                }
+                AccessibleButton {
+                    primary: true
+                    text: TranslationManager.translate("common.button.save", "Save")
+                    onClicked: {
+                        Qt.inputMethod.commit()
+                        switch(Settings.ai.aiProvider) {
+                            case "openai": Settings.ai.openaiEndpoint = endpointField.text; break
+                            case "anthropic": Settings.ai.anthropicEndpoint = endpointField.text; break
+                        }
+                        advancedEndpointDialog.close()
+                    }
+                }
+            }
+        }
+    }
+
     // MCP Help Dialog
     // Confirm rotating the remote-access token (revokes the current URL).
     Dialog {

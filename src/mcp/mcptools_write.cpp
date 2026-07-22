@@ -588,6 +588,8 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 {"discussShotCustomUrl", QJsonObject{{"type", "string"}, {"description", "Custom URL for Discuss Shot"}}},
                 {"ollamaEndpoint", QJsonObject{{"type", "string"}, {"description", "Ollama endpoint URL"}}},
                 {"ollamaModel", QJsonObject{{"type", "string"}, {"description", "Ollama model name"}}},
+                {"openaiEndpoint", QJsonObject{{"type", "string"}, {"description", "Custom OpenAI-compatible endpoint URL (empty for default)"}}},
+                {"anthropicEndpoint", QJsonObject{{"type", "string"}, {"description", "Custom Anthropic-compatible endpoint URL (empty for default)"}}},
                 {"openrouterModel", QJsonObject{{"type", "string"}, {"description", "OpenRouter model name"}}},
                 // MQTT
                 {"mqttEnabled", QJsonObject{{"type", "boolean"}, {"description", "Enable MQTT"}}},
@@ -1167,6 +1169,16 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                     QString v = args["ollamaEndpoint"].toString();
                     addSetter([a, v]() { a->setOllamaEndpoint(v); });
                     updated << "ollamaEndpoint";
+                }
+                if (args.contains("openaiEndpoint")) {
+                    QString v = args["openaiEndpoint"].toString();
+                    addSetter([a, v]() { a->setOpenaiEndpoint(v); });
+                    updated << "openaiEndpoint";
+                }
+                if (args.contains("anthropicEndpoint")) {
+                    QString v = args["anthropicEndpoint"].toString();
+                    addSetter([a, v]() { a->setAnthropicEndpoint(v); });
+                    updated << "anthropicEndpoint";
                 }
                 if (args.contains("ollamaModel")) {
                     QString v = args["ollamaModel"].toString();

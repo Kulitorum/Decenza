@@ -14,6 +14,8 @@ class SettingsAI : public QObject {
     Q_PROPERTY(QString geminiApiKey READ geminiApiKey WRITE setGeminiApiKey NOTIFY geminiApiKeyChanged)
     Q_PROPERTY(QString ollamaEndpoint READ ollamaEndpoint WRITE setOllamaEndpoint NOTIFY ollamaEndpointChanged)
     Q_PROPERTY(QString ollamaModel READ ollamaModel WRITE setOllamaModel NOTIFY ollamaModelChanged)
+    Q_PROPERTY(QString openaiEndpoint READ openaiEndpoint WRITE setOpenaiEndpoint NOTIFY openaiEndpointChanged)
+    Q_PROPERTY(QString anthropicEndpoint READ anthropicEndpoint WRITE setAnthropicEndpoint NOTIFY anthropicEndpointChanged)
     Q_PROPERTY(QString openrouterApiKey READ openrouterApiKey WRITE setOpenrouterApiKey NOTIFY openrouterApiKeyChanged)
     Q_PROPERTY(QString openrouterModel READ openrouterModel WRITE setOpenrouterModel NOTIFY openrouterModelChanged)
     // When true (default), tapping AI Advice opens the tap-only taste intake
@@ -42,6 +44,12 @@ public:
     QString ollamaModel() const;
     void setOllamaModel(const QString& model);
 
+    QString openaiEndpoint() const;
+    void setOpenaiEndpoint(const QString& endpoint);
+
+    QString anthropicEndpoint() const;
+    void setAnthropicEndpoint(const QString& endpoint);
+
     QString openrouterApiKey() const;
     void setOpenrouterApiKey(const QString& key);
 
@@ -66,6 +74,8 @@ signals:
     void geminiApiKeyChanged();
     void ollamaEndpointChanged();
     void ollamaModelChanged();
+    void openaiEndpointChanged();
+    void anthropicEndpointChanged();
     void openrouterApiKeyChanged();
     void openrouterModelChanged();
     void tasteIntakeOnAskChanged();
