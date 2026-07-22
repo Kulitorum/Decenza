@@ -527,21 +527,20 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
             // The whole update is transactional so the validity check below
             // can reject the patch without leaving a half-applied row. It reads
             // (loadRecipeStatic) before it writes, so it must take the write
-            // lock up front — see beginImmediateTransaction, which this is the
+            // lock up front — see DbWriteTxn, which this is the
             // bug report for: a plain BEGIN cost a real save here, twice.
             //
             // Nested is treated as a failure rather than tolerated: the
             // rejection paths below roll back, which would discard an outer
             // caller's work too. No such caller exists today.
-            const TxnBegin begun = beginImmediateTransaction(db, "recipe update");
-            if (begun != TxnBegin::Started) {
-                qWarning() << "RecipeStorage: update transaction begin failed for recipe" << recipeId
-                           << "- outcome" << static_cast<int>(begun);
+            DbWriteTxn txn = DbWriteTxn::begin(db, "recipe update");
+            if (!txn.ok()) {
+                qWarning() << "RecipeStorage: update transaction begin failed for recipe" << recipeId;
                 // "busy" is the one failure here the user can act on — pressing
                 // Save again works. Without it every surface reports the generic
                 // string, and MCP's is "Recipe N not found or update failed",
                 // which reads as "your recipe is gone".
-                if (begun == TxnBegin::Locked)
+                if (txn.lockTimedOut())
                     *failReason = QStringLiteral("busy");
                 return;
             }
@@ -578,20 +577,16 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
                     if (mergedFields.isEmpty()) {
                         // The patch was ONLY the dangling link: nothing left
                         // to apply — succeed as a no-op rather than failing.
-                        db.rollback();
                         *success = true;
                         return;
                     }
                 }
             }
             *success = updateRecipeFieldsStatic(db, recipeId, mergedFields);
-            if (!*success) {
-                db.rollback();
-                return;
-            }
+            if (!*success)
+                return;  // txn rolls back on the way out
             const Recipe updated = loadRecipeStatic(db, recipeId);
             if (!updated.isValid()) {
-                db.rollback();
                 *success = false;
                 return;
             }
@@ -605,7 +600,6 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
                                               updated.hotWaterJson)) {
                 qWarning() << "RecipeStorage: rejecting update that would strand recipe"
                            << recipeId << "(name/profile/hot-water invariant)";
-                db.rollback();
                 *success = false;
                 return;
             }
@@ -627,7 +621,6 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
                 qWarning() << "RecipeStorage: rejecting update of recipe" << recipeId
                            << "- name" << updated.name.trimmed()
                            << "is already used by another active recipe";
-                db.rollback();
                 *success = false;
                 *failReason = QStringLiteral("nameInUse");
                 return;
@@ -666,7 +659,6 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
             if (!db.commit()) {
                 qWarning() << "RecipeStorage: update commit failed for recipe" << recipeId
                            << "-" << db.lastError().text();
-                db.rollback();
                 *success = false;
             }
         },

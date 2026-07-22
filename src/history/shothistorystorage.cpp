@@ -3884,8 +3884,9 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 // the shot list and then UPDATEs inside the loop, on a background
                 // thread, while the other storages' workers write: the same
                 // read-then-write upgrade that cost a recipe save. Take the write
-                // lock up front. See beginImmediateTransaction.
-                if (beginImmediateTransaction(destDb, "import beverage-type backfill") != TxnBegin::Started) {
+                // lock up front. See DbWriteTxn.
+                DbWriteTxn backfillTxn = DbWriteTxn::begin(destDb, "import beverage-type backfill");
+                if (!backfillTxn.ok()) {
                     qWarning() << "ShotHistoryStorage::importDatabaseStatic: Backfill transaction failed:" << destDb.lastError().text();
                 } else {
                 QSqlQuery query(destDb);
@@ -3917,10 +3918,8 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 // Pre-bag sources also have no bag_id — adopt their shots
                 // into existing bags by identity (idempotent, NULL-only).
                 CoffeeBagStorage::linkOrphanShotsStatic(destDb);
-                if (!destDb.commit()) {
+                if (!backfillTxn.commit())
                     qWarning() << "ShotHistoryStorage::importDatabaseStatic: Backfill commit failed:" << destDb.lastError().text();
-                    destDb.rollback();
-                }
                 }
             }
 
@@ -4037,18 +4036,19 @@ qint64 ShotHistoryStorage::importShotRecordStatic(QSqlDatabase& db, const ShotRe
 
     // The dedupe probes above leave a statement active on this connection, which
     // holds a read transaction open and makes BEGIN IMMEDIATE fail on the spot —
-    // see beginImmediateTransaction's precondition. Release it first.
+    // see DbWriteTxn's precondition. Release it first.
     query.finish();
 
     // Reads (the grinder-identity lookup just below) before it writes, and runs
     // against the live shots.db while bag/recipe/equipment writers are active —
     // so it takes the write lock up front rather than upgrading a read lock.
     //
-    // Anything but Started aborts. Falling through without a transaction would
-    // autocommit the shot row and turn the rollbacks below into no-ops, leaving a
-    // shot with no samples blob — a permanently graphless row in the user's
-    // history, while the caller is told the import failed.
-    if (beginImmediateTransaction(db, "shot import") != TxnBegin::Started) {
+    // A failed begin aborts. Proceeding without a transaction would autocommit the
+    // shot row and turn every rollback below into a no-op, leaving a shot with no
+    // samples blob — a permanently graphless row in the user's history, while the
+    // caller is told the import failed.
+    DbWriteTxn txn = DbWriteTxn::begin(db, "shot import");
+    if (!txn.ok()) {
         qWarning() << "ShotHistoryStorage: import could not start a transaction, skipping shot"
                    << record.summary.uuid;
         return -1;
@@ -4157,7 +4157,6 @@ qint64 ShotHistoryStorage::importShotRecordStatic(QSqlDatabase& db, const ShotRe
 
     if (!query.exec()) {
         qWarning() << "ShotHistoryStorage: Failed to import shot:" << query.lastError().text();
-        db.rollback();
         return -1;
     }
 
@@ -4188,7 +4187,6 @@ qint64 ShotHistoryStorage::importShotRecordStatic(QSqlDatabase& db, const ShotRe
 
     if (!query.exec()) {
         qWarning() << "ShotHistoryStorage: Failed to insert imported samples:" << query.lastError().text();
-        db.rollback();
         return -1;
     }
 
@@ -4214,7 +4212,6 @@ qint64 ShotHistoryStorage::importShotRecordStatic(QSqlDatabase& db, const ShotRe
     if (!db.commit()) {
         qWarning() << "ShotHistoryStorage: import commit failed for" << record.summary.uuid
                    << "-" << db.lastError().text();
-        db.rollback();
         return -1;
     }
 

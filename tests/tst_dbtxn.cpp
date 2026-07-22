@@ -8,10 +8,11 @@
 
 #include "core/dbutils.h"
 
-// beginImmediateTransaction() — the read-then-write lock discipline shared by the
-// recipe update, the equipment identity edit, the shot import and the legacy bag
-// import. All four sit on the same rule, and before it existed the recipe one lost
-// real saves ("database is locked", twice in a three-day field log).
+// DbWriteTxn — the read-then-write lock discipline shared by the recipe update,
+// the equipment identity edit, the equipment delete, the shot import, the import
+// backfill and the legacy bag import. They all sit on the same rule, and before it
+// existed the recipe one lost real saves ("database is locked", twice in a
+// three-day field log).
 //
 // Every case here is deterministic, despite testing lock contention. Two things
 // make that work:
@@ -33,9 +34,11 @@ private slots:
     void cleanup();
 
     void deferredBeginLosesTheUpgradeThatImmediateSurvives();
-    void startedHoldsTheWriteLockNotAReadLock();
+    void okHoldsTheWriteLockNotAReadLock();
+    void scopeExitWithoutCommitRollsBack();
+    void commitReleasesSoTheDestructorIsInert();
     void lockedAfterEveryAttemptAndLeavesNoTransactionBehind();
-    void nestedIsRecognisedAndNotRetried();
+    void nestedIsRefusedNotAdopted();
     void activeStatementBlocksTheBeginUntilFinished();
     void constraintFailureIsNotMistakenForALock();
 
@@ -105,35 +108,80 @@ void tst_DbTxn::deferredBeginLosesTheUpgradeThatImmediateSurvives()
     QSqlQuery w(a);
     QVERIFY2(!w.exec("UPDATE t SET v = 'mine' WHERE id = 1"),
              "the DEFERRED upgrade succeeded - if Qt's driver now issues BEGIN IMMEDIATE "
-             "(QSQLiteDriver::beginTransaction), beginImmediateTransaction is redundant");
+             "(QSQLiteDriver::beginTransaction), DbWriteTxn is redundant");
     QVERIFY2(isSqliteLockError(w.lastError()),
              qPrintable(QStringLiteral("upgrade failed for a non-lock reason: %1 (native %2)")
                             .arg(w.lastError().text(), w.lastError().nativeErrorCode())));
     a.rollback();
 
-    // (b) The helper, same interleaving: we hold the write lock from the start,
+    // (b) The guard, same interleaving: we hold the write lock from the start,
     // so the other connection is the one that loses and our read-then-write lands.
-    QCOMPARE(beginImmediateTransaction(a, "test", 1), TxnBegin::Started);
+    DbWriteTxn txn = DbWriteTxn::begin(a, "test", 1);
+    QVERIFY(txn.ok());
     QSqlQuery read2(a);
     QVERIFY(read2.exec("SELECT v FROM t WHERE id = 1"));
     QVERIFY(read2.next());
     read2.finish();
     QVERIFY(!run(b, "INSERT INTO t(v) VALUES('interleaved2')"));
     QVERIFY(run(a, "UPDATE t SET v = 'mine' WHERE id = 1"));
-    QVERIFY(a.commit());
+    QVERIFY(txn.commit());
 }
 
-void tst_DbTxn::startedHoldsTheWriteLockNotAReadLock()
+void tst_DbTxn::okHoldsTheWriteLockNotAReadLock()
 {
     seed();
     QSqlDatabase a = open(QStringLiteral("a"));
     QSqlDatabase b = open(QStringLiteral("b"));
 
-    QCOMPARE(beginImmediateTransaction(a, "test"), TxnBegin::Started);
-    QVERIFY2(!run(b, "INSERT INTO t(v) VALUES('x')"),
-             "another connection wrote while we held the transaction - the BEGIN was not IMMEDIATE");
-    QVERIFY(a.rollback());
-    QVERIFY(run(b, "INSERT INTO t(v) VALUES('x')"));   // released on rollback
+    {
+        DbWriteTxn txn = DbWriteTxn::begin(a, "test");
+        QVERIFY(txn.ok());
+        QVERIFY2(!run(b, "INSERT INTO t(v) VALUES('x')"),
+                 "another connection wrote while we held the transaction - the BEGIN was not IMMEDIATE");
+    }
+    QVERIFY(run(b, "INSERT INTO t(v) VALUES('x')"));   // released when the guard died
+}
+
+// The property the enum could not enforce, and the whole reason for the guard: an
+// early return out of the middle of a transaction must undo the partial work.
+// Every rejection path in RecipeStorage::requestUpdateRecipe and every `return -1`
+// in EquipmentStorage::supersedeOrEditStatic now depends on exactly this.
+void tst_DbTxn::scopeExitWithoutCommitRollsBack()
+{
+    seed();
+    QSqlDatabase a = open(QStringLiteral("a"));
+
+    {
+        DbWriteTxn txn = DbWriteTxn::begin(a, "test");
+        QVERIFY(txn.ok());
+        QVERIFY(run(a, "UPDATE t SET v = 'half-applied' WHERE id = 1"));
+        // ...and the caller bails without committing, as a validation failure does.
+    }
+
+    QSqlQuery check(a);
+    QVERIFY(check.exec("SELECT v FROM t WHERE id = 1"));
+    QVERIFY(check.next());
+    QCOMPARE(check.value(0).toString(), QStringLiteral("seed"));
+}
+
+void tst_DbTxn::commitReleasesSoTheDestructorIsInert()
+{
+    seed();
+    QSqlDatabase a = open(QStringLiteral("a"));
+
+    {
+        DbWriteTxn txn = DbWriteTxn::begin(a, "test");
+        QVERIFY(txn.ok());
+        QVERIFY(run(a, "UPDATE t SET v = 'kept' WHERE id = 1"));
+        QVERIFY(txn.commit());
+        // A destructor that rolled back regardless would undo the commit — or
+        // worse, roll back whatever transaction came next on this connection.
+    }
+
+    QSqlQuery check(a);
+    QVERIFY(check.exec("SELECT v FROM t WHERE id = 1"));
+    QVERIFY(check.next());
+    QCOMPARE(check.value(0).toString(), QStringLiteral("kept"));
 }
 
 void tst_DbTxn::lockedAfterEveryAttemptAndLeavesNoTransactionBehind()
@@ -145,28 +193,38 @@ void tst_DbTxn::lockedAfterEveryAttemptAndLeavesNoTransactionBehind()
     QVERIFY(run(b, "BEGIN IMMEDIATE"));                // held until released below
     QTest::ignoreMessage(QtWarningMsg,
         QRegularExpression(QStringLiteral("could not take the write lock after 2 attempts")));
-    QCOMPARE(beginImmediateTransaction(a, "test", 2), TxnBegin::Locked);
+    DbWriteTxn locked = DbWriteTxn::begin(a, "test", 2);
+    QVERIFY(!locked.ok());
+    // lockTimedOut() is what RecipeStorage turns into the actionable "the database
+    // was busy - tap Save again" instead of the generic failure string.
+    QVERIFY(locked.lockTimedOut());
 
     // Giving up must not leave a half-open transaction on our connection: the
     // caller is about to return and the connection goes back to the pool.
     QVERIFY(run(b, "ROLLBACK"));
-    QCOMPARE(beginImmediateTransaction(a, "test", 1), TxnBegin::Started);
-    QVERIFY(a.rollback());
+    DbWriteTxn retry = DbWriteTxn::begin(a, "test", 1);
+    QVERIFY(retry.ok());
 }
 
-void tst_DbTxn::nestedIsRecognisedAndNotRetried()
+void tst_DbTxn::nestedIsRefusedNotAdopted()
 {
     seed();
     QSqlDatabase a = open(QStringLiteral("a"));
 
-    // Nested is classified by matching SQLite's English message, since it carries
-    // no distinct result code. This is the most fragile classification in the
-    // helper and the cheapest to pin: if SQLite ever reworded it, this fails
-    // rather than silently degrading to Failed at every call site.
+    // A nested begin is a failure, not something to adopt: adopting would let an
+    // inner rejection path leave its partial writes staged in the outer caller's
+    // transaction. It is recognised by matching SQLite's English message, since it
+    // carries no distinct result code — the most fragile classification here and
+    // the cheapest to pin. lockTimedOut() must stay false, so no caller tells the
+    // user to "try again" for something retrying cannot fix.
     QVERIFY(a.transaction());
     QTest::ignoreMessage(QtWarningMsg,
         QRegularExpression(QStringLiteral("is nested inside a transaction owned by an outer frame")));
-    QCOMPARE(beginImmediateTransaction(a, "test"), TxnBegin::Nested);
+    DbWriteTxn nested = DbWriteTxn::begin(a, "test");
+    QVERIFY(!nested.ok());
+    QVERIFY(!nested.lockTimedOut());
+    // The outer transaction must be untouched — still open, still the caller's.
+    QVERIFY(run(a, "UPDATE t SET v = 'outer' WHERE id = 1"));
     QVERIFY(a.rollback());
 }
 
@@ -176,7 +234,7 @@ void tst_DbTxn::activeStatementBlocksTheBeginUntilFinished()
     QSqlDatabase a = open(QStringLiteral("a"));
     QSqlDatabase b = open(QStringLiteral("b"));
 
-    // The helper's documented precondition. An unfinished SELECT holds a read
+    // The guard's documented precondition. An unfinished SELECT holds a read
     // transaction open, and SQLite will not run the busy handler while the
     // connection sits in one — so the BEGIN fails instantly and retrying is
     // futile, however idle the database is. This is not hypothetical: the legacy
@@ -189,11 +247,11 @@ void tst_DbTxn::activeStatementBlocksTheBeginUntilFinished()
 
     QTest::ignoreMessage(QtWarningMsg,
         QRegularExpression(QStringLiteral("could not take the write lock after 1 attempts")));
-    QCOMPARE(beginImmediateTransaction(a, "test", 1), TxnBegin::Locked);
+    QVERIFY(!DbWriteTxn::begin(a, "test", 1).ok());
 
     probe.finish();
-    QCOMPARE(beginImmediateTransaction(a, "test", 1), TxnBegin::Started);
-    QVERIFY(a.rollback());
+    DbWriteTxn afterFinish = DbWriteTxn::begin(a, "test", 1);
+    QVERIFY(afterFinish.ok());
 }
 
 void tst_DbTxn::constraintFailureIsNotMistakenForALock()

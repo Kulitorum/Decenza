@@ -502,25 +502,32 @@ void EquipmentStorage::requestDeletePackage(qint64 packageId)
             }
             // Release the pre-check statement: an active read holds a read
             // transaction open, which would make the BEGIN below fail outright
-            // (see beginImmediateTransaction's precondition).
+            // (see DbWriteTxn's precondition).
             countQuery.finish();
             // Delete items + package atomically so a failure can't orphan items.
             // Both statements are writes, so a plain BEGIN would be safe here on
             // the lock-upgrade axis — but IMMEDIATE costs nothing and keeps every
             // transaction in this file on one rule.
-            const bool txn = (beginImmediateTransaction(db, "equipment package delete") == TxnBegin::Started);
+            //
+            // A failed begin aborts. This used to fall through and delete
+            // unwrapped, which is precisely the orphaned-items state the
+            // transaction is here to prevent.
+            DbWriteTxn txn = DbWriteTxn::begin(db, "equipment package delete");
+            if (!txn.ok()) {
+                qWarning() << "EquipmentStorage: delete of package" << packageId
+                           << "could not start a transaction - leaving it in place";
+                return;
+            }
             QSqlQuery delItems(db);
             delItems.prepare("DELETE FROM equipment_items WHERE package_id = :id");
             delItems.bindValue(":id", packageId);
             QSqlQuery delPkg(db);
             delPkg.prepare("DELETE FROM equipment_packages WHERE id = :id");
             delPkg.bindValue(":id", packageId);
-            if (delItems.exec() && delPkg.exec() && (!txn || db.commit())) {
+            if (delItems.exec() && delPkg.exec() && txn.commit())
                 *success = true;
-            } else {
-                if (txn) db.rollback();
+            else
                 qWarning() << "EquipmentStorage: delete failed:" << delPkg.lastError().text();
-            }
         },
         // Write: emit regardless — *success is false on open failure, terminal.
         [this, packageId, success](bool) {
@@ -1133,24 +1140,19 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
     // as a save, closed the editor, and dropped the user's change silently.
     //
     // Reads (findPackageByGrinderIdentityStatic) before it writes, so it takes
-    // the write lock up front — see beginImmediateTransaction.
-    const TxnBegin begun = beginImmediateTransaction(db, "equipment identity edit");
-    if (begun != TxnBegin::Started) {
-        // Nested is refused rather than tolerated: fail() below rolls back, which
-        // would discard an outer caller's work, and NOT rolling back would leave
-        // a half-applied identity staged in their transaction — bags repointed
-        // without the old package retired, the duplicate-live-package state above.
-        // Unreachable today; both callers run under withTempDb in autocommit.
+    // the write lock up front — see DbWriteTxn.
+    DbWriteTxn txn = DbWriteTxn::begin(db, "equipment identity edit");
+    if (!txn.ok()) {
         qWarning() << "EquipmentStorage: identity edit for package" << packageId
                    << "could not start a transaction - leaving the package unchanged";
         return -1;
     }
-    auto fail = [&]() -> qint64 { db.rollback(); return -1; };
+    // Every `return -1` below rolls back through the guard's destructor; only a
+    // successful commit lets a result out.
     auto done = [&](qint64 result) -> qint64 {
-        if (!db.commit()) {
+        if (!txn.commit()) {
             qWarning() << "EquipmentStorage: identity edit commit failed for package" << packageId
                        << "-" << db.lastError().text();
-            db.rollback();
             return -1;
         }
         return result;
@@ -1161,18 +1163,18 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
                                                                   basketBrand, basketModel, puck);
     if (mergeTarget > 0) {
         if (!repointBags(packageId, mergeTarget))
-            return fail();
+            return -1;
         if (shotCount() == 0) {
             QSqlQuery di(db);
             di.prepare("DELETE FROM equipment_items WHERE package_id = :id");
             di.bindValue(":id", packageId);
-            if (!di.exec()) return fail();
+            if (!di.exec()) return -1;
             QSqlQuery dp(db);
             dp.prepare("DELETE FROM equipment_packages WHERE id = :id");
             dp.bindValue(":id", packageId);
-            if (!dp.exec()) return fail();
+            if (!dp.exec()) return -1;
         } else if (!softDelete(packageId, mergeTarget)) {
-            return fail();
+            return -1;
         }
         return done(mergeTarget);
     }
@@ -1180,14 +1182,14 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
     // Unused package: safe to edit in place (grinder + basket + puckprep items).
     if (shotCount() == 0) {
         if (!updateGrinderItemStatic(db, packageId, brand, model, burrs))
-            return fail();
+            return -1;
         // A false return is a genuine SQL failure (a no-op returns true), so roll
         // back rather than commit a half-applied identity — these edits run inside
         // the transaction opened above.
         if (!setBasketItemStatic(db, packageId, basketBrand, basketModel))
-            return fail();
+            return -1;
         if (!setPuckPrepItemStatic(db, packageId, puck))
-            return fail();
+            return -1;
         return done(packageId);
     }
 
@@ -1201,11 +1203,11 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
     const qint64 newId = createPackageWithGrinderStatic(db, np, brand, model, burrs,
                                                         basketBrand, basketModel, puck);
     if (newId <= 0)
-        return fail();  // fork failed; leave as-is
+        return -1;  // fork failed; leave as-is
     if (!repointBags(packageId, newId))
-        return fail();
+        return -1;
     if (!softDelete(packageId, newId))
-        return fail();
+        return -1;
     return done(newId);
 }
 
