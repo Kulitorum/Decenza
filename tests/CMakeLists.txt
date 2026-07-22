@@ -423,10 +423,10 @@ add_decenza_test(tst_autowakewindow
     ${CMAKE_SOURCE_DIR}/src/core/autowakemanager.cpp
 )
 
-# --- tst_dbtxn: BEGIN IMMEDIATE lock discipline shared by the four storages ---
+# --- tst_dbtxn: DbWriteTxn lock discipline shared by the storages ---
 # Header-only (dbutils.h), so no extra sources. Covers the outcomes the storage
-# suites never reach: they all run uncontended, single-connection, and so only
-# ever exercise TxnBegin::Started.
+# suites never reach: they all run uncontended and single-connection, so they
+# only ever exercise the successful DbWriteTxn::begin() path.
 add_decenza_test(tst_dbtxn
     tst_dbtxn.cpp
 )

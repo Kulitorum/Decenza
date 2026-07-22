@@ -119,6 +119,13 @@ bool ShotHistoryStorage::initialize(const QString& dbPath)
     QSqlQuery pragma(m_db);
     pragma.exec("PRAGMA journal_mode=WAL");
     pragma.exec("PRAGMA foreign_keys=ON");
+    // Same busy_timeout every withTempDb connection gets. Without it this
+    // connection has no busy handler at all, so a write that meets any
+    // contention fails on the spot rather than waiting — and DbWriteTxn's whole
+    // premise ("BEGIN IMMEDIATE is what lets busy_timeout absorb the
+    // contention") does not hold here. The synchronous import path runs on this
+    // connection, so that gap was a lost shot, not just a lost write.
+    pragma.exec("PRAGMA busy_timeout = 5000");
 
     if (!createTables()) {
         qWarning() << "ShotHistoryStorage: Failed to create tables";
@@ -3980,6 +3987,25 @@ void ShotHistoryStorage::importShotRecordAsync(const ShotRecord& record, bool ov
 qint64 ShotHistoryStorage::importShotRecordStatic(QSqlDatabase& db, const ShotRecord& record,
                                                   bool overwriteExisting)
 {
+    // The transaction opens BEFORE the dedupe probes below, because with
+    // overwriteExisting those probes DELETE the shot they find. Outside a
+    // transaction that delete autocommits, so a later failure — including a
+    // failure to start the transaction at all — left the old shot destroyed and
+    // no replacement written. Inside it, the delete rolls back with everything
+    // else and the user keeps the shot they already had.
+    //
+    // Reads before writes (the probes, then the grinder-identity lookup), so it
+    // takes the write lock up front. See DbWriteTxn. A failed begin aborts:
+    // proceeding unwrapped would autocommit the shot row and turn every rollback
+    // below into a no-op, leaving a shot with no samples blob — a permanently
+    // graphless row, while the caller is told the import failed.
+    DbWriteTxn txn = DbWriteTxn::begin(db, "shot import");
+    if (!txn.ok()) {
+        qWarning() << "ShotHistoryStorage: import could not start a transaction, skipping shot"
+                   << record.summary.uuid;
+        return -1;
+    }
+
     QSqlQuery query(db);
 
     // Check for duplicate by Visualizer id first, when the incoming record has
@@ -4034,25 +4060,10 @@ qint64 ShotHistoryStorage::importShotRecordStatic(QSqlDatabase& db, const ShotRe
         }
     }
 
-    // The dedupe probes above leave a statement active on this connection, which
-    // holds a read transaction open and makes BEGIN IMMEDIATE fail on the spot —
-    // see DbWriteTxn's precondition. Release it first.
+    // Release the probes' statement before the writes below: an active read
+    // cursor on the same connection while the same table is being written is
+    // undefined iteration, and the probe rows have already been consumed.
     query.finish();
-
-    // Reads (the grinder-identity lookup just below) before it writes, and runs
-    // against the live shots.db while bag/recipe/equipment writers are active —
-    // so it takes the write lock up front rather than upgrading a read lock.
-    //
-    // A failed begin aborts. Proceeding without a transaction would autocommit the
-    // shot row and turn every rollback below into a no-op, leaving a shot with no
-    // samples blob — a permanently graphless row in the user's history, while the
-    // caller is told the import failed.
-    DbWriteTxn txn = DbWriteTxn::begin(db, "shot import");
-    if (!txn.ok()) {
-        qWarning() << "ShotHistoryStorage: import could not start a transaction, skipping shot"
-                   << record.summary.uuid;
-        return -1;
-    }
 
     // Resolve the parsed grinder identity to an equipment package so the
     // imported shot keeps its grinder (the per-shot grinder_brand/model/burrs
@@ -4209,9 +4220,9 @@ qint64 ShotHistoryStorage::importShotRecordStatic(QSqlDatabase& db, const ShotRe
     // report an imported shot that does not exist — and on the synchronous
     // (m_db) path it would also leave the write transaction open, blocking every
     // other storage on the shared database.
-    if (!db.commit()) {
+    if (!txn.commit()) {
         qWarning() << "ShotHistoryStorage: import commit failed for" << record.summary.uuid
-                   << "-" << db.lastError().text();
+                   << "-" << txn.commitError();
         return -1;
     }
 

@@ -656,9 +656,9 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
                     qWarning() << "RecipeStorage: drink-type re-derivation stamp failed for recipe"
                                << recipeId << "- stored type may be stale";
             }
-            if (!db.commit()) {
+            if (!txn.commit()) {
                 qWarning() << "RecipeStorage: update commit failed for recipe" << recipeId
-                           << "-" << db.lastError().text();
+                           << "-" << txn.commitError();
                 *success = false;
             }
         },

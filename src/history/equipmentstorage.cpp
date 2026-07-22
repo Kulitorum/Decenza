@@ -439,8 +439,21 @@ void EquipmentStorage::requestUpdatePackage(qint64 packageId, const QVariantMap&
             pkgFields.remove(QStringLiteral("basketModel"));
             for (const QString& k : PuckPrep::flagKeys())
                 pkgFields.remove(QStringLiteral("puckPrep_") + k);
-            if (!pkgFields.isEmpty())
-                any = updatePackageFieldsStatic(db, *resultId, pkgFields) || any;
+            if (!pkgFields.isEmpty()) {
+                // NOT `|| any`: a successful identity edit must not mask a failed
+                // rename. That reports a half-applied save as a success — the
+                // same outcome the identity branch above calls the worst of the
+                // three, just in the other order. The identity edit committed in
+                // its own transaction and cannot be undone from here, so the
+                // honest report is failure, with the partial state visible.
+                if (!updatePackageFieldsStatic(db, *resultId, pkgFields)) {
+                    qWarning() << "EquipmentStorage: package-field update failed for" << *resultId
+                               << "- reporting the whole update as failed";
+                    *success = false;
+                    return;
+                }
+                any = true;
+            }
             *success = any;
         },
         // Write: emit regardless — *success is false on open failure, the

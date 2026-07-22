@@ -148,9 +148,16 @@ public:
         m_db = nullptr;
         if (db->commit())
             return true;
+        // Capture before the rollback below replaces it — otherwise a caller
+        // logging db.lastError() after a failed commit reports the ROLLBACK's
+        // outcome (often success) instead of the reason the COMMIT failed.
+        m_commitError = db->lastError().text();
         db->rollback();
         return false;
     }
+
+    // Why the last commit() failed. Empty unless commit() returned false.
+    QString commitError() const { return m_commitError; }
 
 private:
     DbWriteTxn() = default;
@@ -158,6 +165,7 @@ private:
 
     QSqlDatabase* m_db = nullptr;  // non-null = we own an open transaction
     bool m_lockTimedOut = false;
+    QString m_commitError;
 };
 
 // Opens a temporary QSQLITE connection, runs `work(db)`, then removes the connection.
