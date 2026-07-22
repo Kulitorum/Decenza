@@ -375,11 +375,12 @@ signals:
     void brewBaselineChanged();
     void selectedRecipeIdChanged();
 
-    // Emitted when loadAutoLoadRecipeIfNeeded() finds the configured
-    // Settings.dye.autoLoadRecipeId no longer resolves to an existing,
-    // non-archived recipe (mirrors ProfileManager::autoLoadStaleCleared()).
-    // The setting is already cleared to -1 by the time this fires; QML uses
-    // it to show a toast.
+    // Emitted when the configured Settings.dye.autoLoadRecipeId no longer
+    // resolves to an existing, non-archived recipe — either discovered by
+    // loadAutoLoadRecipeIfNeeded() at a trigger, or proactively when the
+    // pinned recipe is edited or deleted (mirrors
+    // ProfileManager::autoLoadStaleCleared()). The setting is already
+    // cleared to -1 by the time this fires; QML uses it to show a toast.
     void autoLoadRecipeStaleCleared();
 
     // Recipes-first layout upgrade offer (recipes-idle-layout-upgrade):
@@ -558,10 +559,20 @@ private:
     // prefill reads — none of which should re-apply values to the live session.
     bool m_refreshDialFromRecipeEdit = false;
     // recipe-auto-load: the id loadAutoLoadRecipeIfNeeded() is waiting on a
-    // recipeReady() for, so its existence/archived check can filter out every
-    // OTHER recipeReady the app fires (active-recipe refresh, wizard reads,
-    // etc.) without needing a one-shot connection. -1 = not waiting.
+    // recipeReady()/recipeCheckFailed() for, so its existence/archived check
+    // can filter out every OTHER recipeReady the app fires (active-recipe
+    // refresh, wizard reads, etc.) without needing a one-shot connection.
+    // This is the only pending flag that may lead to activateRecipe() — see
+    // m_pendingAutoLoadRecheckId below for the edit-time re-check, which
+    // never activates. -1 = not waiting.
     qint64 m_pendingAutoLoadRecipeId = -1;
+    // recipe-auto-load: the id the proactive re-check (the recipeUpdated
+    // hook in setupRecipeConnections, fired when the pinned recipe itself is
+    // edited) is waiting on. Kept separate from m_pendingAutoLoadRecipeId so
+    // that editing the pinned recipe can only ever clear a newly-stale pin —
+    // never silently activate it and switch the live session. -1 = not
+    // waiting.
+    qint64 m_pendingAutoLoadRecheckId = -1;
     // Pure state machine behind selectedRecipeId + the deferred recipe-shot
     // start. MainController only wires it to Qt signals and the device; the
     // policy (lead/converge/rollback, arm/fire) lives in the header-only model

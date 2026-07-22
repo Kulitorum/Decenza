@@ -561,6 +561,29 @@ private slots:
         QCOMPARE(m_settings.app()->autoLoadProfileFilename(), QString());
     }
 
+    void autoLoadMutualExclusion_reconciledAtConstructionIfBothPersisted() {
+        // The reactive cross-clear above only fires on a live changed signal
+        // — it can't see a conflict that was already on disk before Settings
+        // is even constructed (hand-edited config, a future migration bug).
+        // Settings' constructor must reconcile this once at load time rather
+        // than let both auto-loads silently race on the next trigger.
+        QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+        raw.setValue("profile/autoLoadFilename", "conflicting-profile");
+        raw.setValue("dye/autoLoadRecipeId", 55);
+        raw.sync();
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
+            "Settings: both profile and recipe auto-load were persisted simultaneously.*"));
+        Settings fresh;
+        // Recipe wins, matching this file's own restore-order convention.
+        QCOMPARE(fresh.dye()->autoLoadRecipeId(), 55);
+        QCOMPARE(fresh.app()->autoLoadProfileFilename(), QString());
+
+        raw.remove("profile/autoLoadFilename");
+        raw.remove("dye/autoLoadRecipeId");
+        raw.sync();
+    }
+
     void recipeSortRoundTrip() {
         // The recipes-page sort preference (recipe-list-organization) must
         // survive an export -> import cycle. Export/import key strings are

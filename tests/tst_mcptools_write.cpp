@@ -3,6 +3,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QTemporaryDir>
+#include <limits>
 
 #include "mocks/McpTestFixture.h"
 #include "ble/protocol/de1characteristics.h"
@@ -658,6 +659,24 @@ private slots:
         QVERIFY(!result.contains("error"));
     }
 
+    void recipeGetAutoLoadConfiguredButStorageUnavailableIsError()
+    {
+        // A recipe IS pinned, but the tool can't verify it right now (no
+        // ShotHistoryStorage wired up here) — this must be reported as an
+        // error, not collapsed into the same {"recipeId": null} shape as
+        // "nothing is pinned" (which would misinform a caller).
+        McpTestFixture f;
+        const int before = f.settings.dye()->autoLoadRecipeId();  // shared PID-scoped store
+        f.settings.dye()->setAutoLoadRecipeId(42);
+        registerTools(f);  // shotHistory is nullptr here
+
+        QJsonObject result = f.callAsyncTool("recipe_get_auto_load", {});
+        QCOMPARE(result["error"].toString(), QString("Storage not available"));
+        QVERIFY(!result.contains("recipeId"));
+
+        f.settings.dye()->setAutoLoadRecipeId(before);
+    }
+
     void recipeSetAutoLoadSuccessSetsSettingsAndClearsProfile()
     {
         McpTestFixture f;
@@ -689,6 +708,40 @@ private slots:
 
         QJsonObject result = f.callAsyncTool("recipe_set_auto_load", {});
         QCOMPARE(result["error"].toString(), QString("recipeId is required"));
+    }
+
+    void recipeSetAutoLoadInvalidRecipeIdIsDistinctFromMissing()
+    {
+        // recipeId WAS supplied here, just with an invalid value — the error
+        // must say so rather than repeat the "is required" message used for
+        // the genuinely-absent case above (that message would misleadingly
+        // suggest the field was never sent).
+        McpTestFixture f;
+        registerTools(f);
+
+        QJsonObject zero;
+        zero["recipeId"] = 0;
+        QCOMPARE(f.callAsyncTool("recipe_set_auto_load", zero)["error"].toString(),
+                 QString("recipeId must be a positive integer"));
+
+        QJsonObject negative;
+        negative["recipeId"] = -5;
+        QCOMPARE(f.callAsyncTool("recipe_set_auto_load", negative)["error"].toString(),
+                 QString("recipeId must be a positive integer"));
+    }
+
+    void recipeSetAutoLoadOutOfRangeRecipeIdIsError()
+    {
+        // recipeId is stored as a plain `int` (SettingsDye::autoLoadRecipeId),
+        // so a value past INT_MAX must be rejected before the later
+        // static_cast<int>() truncates it into a bogus, silently-wrong id.
+        McpTestFixture f;
+        registerTools(f);
+
+        QJsonObject args;
+        args["recipeId"] = static_cast<qint64>(std::numeric_limits<int>::max()) + 1;
+        QCOMPARE(f.callAsyncTool("recipe_set_auto_load", args)["error"].toString(),
+                 QString("recipeId is out of range"));
     }
 
     void recipeSetAutoLoadNotFoundIsError()
@@ -727,6 +780,35 @@ private slots:
         QJsonObject result = f.callAsyncTool("recipe_set_auto_load", args);
         QCOMPARE(result["error"].toString(), QString("Recipe is archived"));
         QCOMPARE(f.settings.dye()->autoLoadRecipeId(), before);
+    }
+
+    void recipeSetAutoLoadOverwritesExistingPin()
+    {
+        // Pinning a second recipe while one is already pinned must silently
+        // replace it — no error, no double-pin state, no need to clear the
+        // first pin first.
+        McpTestFixture f;
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(f.tempDir.filePath("recipe_set_overwrite.db")));
+        registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
+                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+
+        const qint64 first = seedRecipe(storage, "First Pin");
+        const qint64 second = seedRecipe(storage, "Second Pin");
+        QVERIFY(first > 0 && second > 0 && first != second);
+
+        QJsonObject argsFirst;
+        argsFirst["recipeId"] = first;
+        QJsonObject resultFirst = f.callAsyncTool("recipe_set_auto_load", argsFirst);
+        QVERIFY2(resultFirst["success"].toBool(), qPrintable(QJsonDocument(resultFirst).toJson()));
+        QCOMPARE(f.settings.dye()->autoLoadRecipeId(), static_cast<int>(first));
+
+        QJsonObject argsSecond;
+        argsSecond["recipeId"] = second;
+        QJsonObject resultSecond = f.callAsyncTool("recipe_set_auto_load", argsSecond);
+        QVERIFY2(resultSecond["success"].toBool(), qPrintable(QJsonDocument(resultSecond).toJson()));
+        QCOMPARE(resultSecond["recipeId"].toInteger(), second);
+        QCOMPARE(f.settings.dye()->autoLoadRecipeId(), static_cast<int>(second));
     }
 
     void recipeSetAutoLoadOptionalRevertMinutesUpdatesSharedSetting()

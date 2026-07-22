@@ -37,6 +37,7 @@
 #include <QJsonDocument>
 #include <QPointer>
 #include <functional>
+#include <limits>
 #include <QSet>
 #include <QDebug>
 #include <QSqlDatabase>
@@ -1537,11 +1538,20 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             }
             const qint64 recipeId = settings->dye()->autoLoadRecipeId();
             const int revertMinutes = settings->app()->autoLoadRevertMinutes();
-            if (recipeId < 0 || !shotHistory || !shotHistory->isReady()) {
+            if (recipeId < 0) {
+                // Genuinely unconfigured — nothing pinned, no verification needed.
                 QJsonObject result;
                 result["recipeId"] = QJsonValue(QJsonValue::Null);
                 result["revertMinutes"] = revertMinutes;
                 respond(result);
+                return;
+            }
+            if (!shotHistory || !shotHistory->isReady()) {
+                // A recipe IS configured but its existence/archived state can't be
+                // verified right now — report that distinctly rather than as
+                // "unconfigured" (recipeId: null), which would misinform a caller
+                // into thinking nothing is pinned.
+                respond(QJsonObject{{"error", "Storage not available"}});
                 return;
             }
             const QString dbPath = shotHistory->databasePath();
@@ -1556,12 +1566,18 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                     }
                 });
                 QMetaObject::invokeMethod(qApp, [opened, found, name, recipeId, revertMinutes, respond]() {
+                    if (!opened) {
+                        // A DB-open failure is a transient error, not proof the row
+                        // is gone — distinct from the stale-id case below, which
+                        // deliberately reports as unconfigured rather than an error
+                        // (this read is a snapshot; the next auto-load trigger will
+                        // discover and clear a genuinely stale id the same way).
+                        respond(QJsonObject{{"error", "Could not open shot database"}});
+                        return;
+                    }
                     QJsonObject result;
-                    // A stale id (row deleted since) is reported as unconfigured rather
-                    // than surfaced as an error — the next auto-load trigger will
-                    // discover and clear it the same way; this read is a snapshot.
-                    result["recipeId"] = (opened && found) ? QJsonValue(recipeId) : QJsonValue(QJsonValue::Null);
-                    if (opened && found)
+                    result["recipeId"] = found ? QJsonValue(recipeId) : QJsonValue(QJsonValue::Null);
+                    if (found)
                         result["name"] = name;
                     result["revertMinutes"] = revertMinutes;
                     respond(result);
@@ -1603,7 +1619,11 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             }
             const qint64 recipeId = args["recipeId"].toInteger();
             if (recipeId <= 0) {
-                respond(QJsonObject{{"error", "recipeId is required"}});
+                respond(QJsonObject{{"error", "recipeId must be a positive integer"}});
+                return;
+            }
+            if (recipeId > std::numeric_limits<int>::max()) {
+                respond(QJsonObject{{"error", "recipeId is out of range"}});
                 return;
             }
             if (!shotHistory || !shotHistory->isReady()) {
