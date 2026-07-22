@@ -300,6 +300,8 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     }
     ai["ollamaEndpoint"] = aiSettings->ollamaEndpoint();
     ai["ollamaModel"] = aiSettings->ollamaModel();
+    ai["openaiEndpoint"] = aiSettings->openaiEndpoint();
+    ai["anthropicEndpoint"] = aiSettings->anthropicEndpoint();
     if (includeSensitive) {
         ai["openrouterApiKey"] = aiSettings->openrouterApiKey();
     }
@@ -819,6 +821,8 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         }
         if (ai.contains("ollamaEndpoint")) aiSettings->setOllamaEndpoint(ai["ollamaEndpoint"].toString());
         if (ai.contains("ollamaModel")) aiSettings->setOllamaModel(ai["ollamaModel"].toString());
+        if (ai.contains("openaiEndpoint")) aiSettings->setOpenaiEndpoint(ai["openaiEndpoint"].toString());
+        if (ai.contains("anthropicEndpoint")) aiSettings->setAnthropicEndpoint(ai["anthropicEndpoint"].toString());
         if (ai.contains("openrouterApiKey") && !excludeKeys.contains("openrouterApiKey")) {
             aiSettings->setOpenrouterApiKey(ai["openrouterApiKey"].toString());
         }

@@ -243,51 +243,6 @@ KeyboardAwareContainer {
                     }
                 }
 
-                // Custom endpoint (OpenAI / Anthropic only)
-                ColumnLayout {
-                    visible: Settings.ai.aiProvider === "openai" || Settings.ai.aiProvider === "anthropic"
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(8)
-
-                    Tr {
-                        key: "settings.ai.customEndpoint"
-                        fallback: "Custom Endpoint (optional)"
-                        color: Theme.textColor
-                        font.pixelSize: Theme.scaled(14)
-                        font.bold: true
-                    }
-
-                    StyledTextField {
-                        id: providerEndpointField
-                        Layout.fillWidth: true
-                        placeholderText: Settings.ai.aiProvider === "openai"
-                            ? "https://api.openai.com"
-                            : "https://api.anthropic.com"
-                        inputMethodHints: Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase | Qt.ImhUrlCharactersOnly
-                        text: {
-                            switch(Settings.ai.aiProvider) {
-                                case "openai": return Settings.ai.openaiEndpoint
-                                case "anthropic": return Settings.ai.anthropicEndpoint
-                                default: return ""
-                            }
-                        }
-                        onTextChanged: {
-                            switch(Settings.ai.aiProvider) {
-                                case "openai": Settings.ai.openaiEndpoint = text; break
-                                case "anthropic": Settings.ai.anthropicEndpoint = text; break
-                            }
-                        }
-                    }
-
-                    Text {
-                        text: TranslationManager.translate("settings.ai.customEndpointHint", "Leave empty for default. Set to use an OpenAI/Anthropic-compatible API endpoint.")
-                        color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(11)
-                        wrapMode: Text.Wrap
-                        Layout.fillWidth: true
-                    }
-                }
-
                 // Model selection (providers exposing a fixed catalog of >1 model).
                 // Generic: any provider whose availableModels() returns multiple
                 // entries lights this up automatically — no per-provider wiring.
@@ -502,6 +457,18 @@ KeyboardAwareContainer {
                         onClicked: {
                             aiTab.testResultMessage = TranslationManager.translate("settings.ai.testing", "Testing...")
                             MainController.aiManager.testConnection()
+                        }
+                    }
+
+                    AccessibleButton {
+                        visible: Settings.ai.aiProvider === "openai" || Settings.ai.aiProvider === "anthropic"
+                        text: TranslationManager.translate("settings.ai.advanced", "Advanced")
+                        accessibleName: TranslationManager.translate("settings.ai.advancedAccessible", "Configure custom API endpoint")
+                        onClicked: {
+                            endpointField.text = Settings.ai.aiProvider === "openai"
+                                ? Settings.ai.openaiEndpoint
+                                : Settings.ai.anthropicEndpoint
+                            advancedEndpointDialog.open()
                         }
                     }
 
@@ -1409,6 +1376,78 @@ KeyboardAwareContainer {
     }
 
     // Discuss Shot app selector
+    // Advanced endpoint dialog (OpenAI / Anthropic custom endpoint)
+    Dialog {
+        id: advancedEndpointDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(parent ? parent.width - Theme.scaled(32) : Theme.scaled(360), Theme.scaled(420))
+        modal: true
+        closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
+
+        onOpened: AccessibilityManager.announce(endpointDialogTitle.text)
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.scaled(12)
+            border.color: Theme.borderColor
+            border.width: 1
+        }
+
+        contentItem: ColumnLayout {
+            spacing: Theme.scaled(12)
+
+            Text {
+                id: endpointDialogTitle
+                Layout.fillWidth: true
+                text: TranslationManager.translate("settings.ai.customEndpoint", "Custom Endpoint")
+                color: Theme.textColor
+                font.family: Theme.subtitleFont.family
+                font.pixelSize: Theme.subtitleFont.pixelSize
+                font.bold: true
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: TranslationManager.translate("settings.ai.customEndpointHint", "Leave empty for default. Set to use an OpenAI/Anthropic-compatible API endpoint.")
+                color: Theme.textSecondaryColor
+                font.pixelSize: Theme.scaled(12)
+                wrapMode: Text.Wrap
+            }
+
+            StyledTextField {
+                id: endpointField
+                Layout.fillWidth: true
+                placeholderText: Settings.ai.aiProvider === "openai"
+                    ? "https://api.openai.com"
+                    : "https://api.anthropic.com"
+                inputMethodHints: Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase | Qt.ImhUrlCharactersOnly
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.scaled(8)
+                Item { Layout.fillWidth: true }
+                AccessibleButton {
+                    text: TranslationManager.translate("common.button.cancel", "Cancel")
+                    onClicked: advancedEndpointDialog.close()
+                }
+                AccessibleButton {
+                    primary: true
+                    text: TranslationManager.translate("common.button.save", "Save")
+                    onClicked: {
+                        Qt.inputMethod.commit()
+                        switch(Settings.ai.aiProvider) {
+                            case "openai": Settings.ai.openaiEndpoint = endpointField.text; break
+                            case "anthropic": Settings.ai.anthropicEndpoint = endpointField.text; break
+                        }
+                        advancedEndpointDialog.close()
+                    }
+                }
+            }
+        }
+    }
+
     // MCP Help Dialog
     // Confirm rotating the remote-access token (revokes the current URL).
     Dialog {

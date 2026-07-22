@@ -107,6 +107,10 @@ static QStringList applyAiSettings(Settings* s, AIManager* aiManager, const QJso
         a->setOllamaEndpoint(obj["ollamaEndpoint"].toString());
     if (obj.contains("ollamaModel"))
         a->setOllamaModel(obj["ollamaModel"].toString());
+    if (obj.contains("openaiEndpoint"))
+        a->setOpenaiEndpoint(obj["openaiEndpoint"].toString());
+    if (obj.contains("anthropicEndpoint"))
+        a->setAnthropicEndpoint(obj["anthropicEndpoint"].toString());
     // Per-provider selected model for fixed-catalog providers (see
     // SettingsAI::setProviderModel). Shape: {"gemini": "gemini-2.5-flash"}.
     if (obj["providerModels"].isObject()) {
@@ -599,6 +603,8 @@ QString ShotServer::generateSettingsPage() const
                         <button type="button" class="password-toggle" onclick="togglePassword('openaiApiKey')">&#128065;</button>
                     </div>
                     <div class="help-text">Get your API key from <a href="https://platform.openai.com/api-keys" target="_blank" style="color:var(--accent)">platform.openai.com</a></div>
+                    <label class="form-label" style="margin-top:8px">Custom Endpoint (optional)</label>
+                    <input type="text" class="form-input" id="openaiEndpoint" placeholder="https://api.openai.com">
                 </div>
                 <div class="form-group" id="anthropicGroup" style="display:none;">
                     <label class="form-label">Anthropic API Key</label>
@@ -607,6 +613,8 @@ QString ShotServer::generateSettingsPage() const
                         <button type="button" class="password-toggle" onclick="togglePassword('anthropicApiKey')">&#128065;</button>
                     </div>
                     <div class="help-text">Get your API key from <a href="https://console.anthropic.com/settings/keys" target="_blank" style="color:var(--accent)">console.anthropic.com</a></div>
+                    <label class="form-label" style="margin-top:8px">Custom Endpoint (optional)</label>
+                    <input type="text" class="form-input" id="anthropicEndpoint" placeholder="https://api.anthropic.com">
                 </div>
                 <div class="form-group" id="geminiGroup" style="display:none;">
                     <label class="form-label">Google Gemini API Key</label>
@@ -860,6 +868,8 @@ QString ShotServer::generateSettingsPage() const
                 document.getElementById('openrouterModel').value = data.openrouterModel || '';
                 document.getElementById('ollamaEndpoint').value = data.ollamaEndpoint || '';
                 document.getElementById('ollamaModel').value = data.ollamaModel || '';
+                document.getElementById('openaiEndpoint').value = data.openaiEndpoint || '';
+                document.getElementById('anthropicEndpoint').value = data.anthropicEndpoint || '';
                 modelCatalogs = data.providerModelCatalogs || {};
                 selectedModels = data.providerModels || {};
                 modelDisplayNames = data.providerModelNames || {};
@@ -1124,6 +1134,8 @@ QString ShotServer::generateSettingsPage() const
                         openrouterModel: document.getElementById('openrouterModel').value,
                         ollamaEndpoint: document.getElementById('ollamaEndpoint').value,
                         ollamaModel: document.getElementById('ollamaModel').value,
+                        openaiEndpoint: document.getElementById('openaiEndpoint').value,
+                        anthropicEndpoint: document.getElementById('anthropicEndpoint').value,
                         providerModels: selectedModels
                     })
                 });
@@ -1150,6 +1162,8 @@ QString ShotServer::generateSettingsPage() const
                         openrouterModel: document.getElementById('openrouterModel').value,
                         ollamaEndpoint: document.getElementById('ollamaEndpoint').value,
                         ollamaModel: document.getElementById('ollamaModel').value,
+                        openaiEndpoint: document.getElementById('openaiEndpoint').value,
+                        anthropicEndpoint: document.getElementById('anthropicEndpoint').value,
                         providerModels: selectedModels
                     })
                 });
@@ -1338,7 +1352,7 @@ QString ShotServer::generateSettingsPage() const
         }
 
         // Update provider button styles live as user types API keys
-        document.querySelectorAll('#openaiApiKey,#anthropicApiKey,#geminiApiKey,#openrouterApiKey,#openrouterModel,#ollamaEndpoint,#ollamaModel')
+        document.querySelectorAll('#openaiApiKey,#anthropicApiKey,#geminiApiKey,#openrouterApiKey,#openrouterModel,#ollamaEndpoint,#ollamaModel,#openaiEndpoint,#anthropicEndpoint')
             .forEach(el => el.addEventListener('input', updateProviderButtons));
 
         // Stop polling when page is not visible
@@ -1382,6 +1396,8 @@ void ShotServer::handleGetSettings(QTcpSocket* socket)
         obj["openrouterModel"] = a->openrouterModel();
         obj["ollamaEndpoint"] = a->ollamaEndpoint();
         obj["ollamaModel"] = a->ollamaModel();
+        obj["openaiEndpoint"] = a->openaiEndpoint();
+        obj["anthropicEndpoint"] = a->anthropicEndpoint();
 
         // Per-provider model catalogs, stored selections, current display
         // names, and guidance hints, so the web page can offer the same model

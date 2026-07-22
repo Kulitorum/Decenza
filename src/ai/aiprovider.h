@@ -132,7 +132,8 @@ public:
     QString modelHint() const override;
 
     void setApiKey(const QString& key) { m_apiKey = key; }
-    void setBaseUrl(const QString& url) { m_baseUrl = url; }
+    // empty → keeps default upstream URL
+    void setBaseUrl(const QString& url) { m_baseUrl = url.endsWith(QLatin1Char('/')) ? url.chopped(1) : url; }
     // Select the wire model. Ignores empty (keeps current default) and any id
     // not in availableModels(), so a stale/unknown stored value can't break the
     // request.
@@ -186,7 +187,8 @@ public:
     QString modelHint() const override;
 
     void setApiKey(const QString& key) { m_apiKey = key; }
-    void setBaseUrl(const QString& url) { m_baseUrl = url; }
+    // empty → keeps default upstream URL
+    void setBaseUrl(const QString& url) { m_baseUrl = url.endsWith(QLatin1Char('/')) ? url.chopped(1) : url; }
     // Select the wire model. Ignores empty (keeps current default) and any id
     // not in availableModels(), so a stale/unknown stored value can't break the
     // request.
