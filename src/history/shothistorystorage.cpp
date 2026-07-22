@@ -3893,9 +3893,11 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 // thread, while the other storages' workers write: the same
                 // read-then-write upgrade that cost a recipe save. Take the write
                 // lock up front. See DbWriteTxn.
+                // No error detail here: begin() already logged the real failure, and
+                // destDb.lastError() would be stale — begin runs on its own QSqlQuery.
                 DbWriteTxn backfillTxn = DbWriteTxn::begin(destDb, "import beverage-type backfill");
                 if (!backfillTxn.ok()) {
-                    qWarning() << "ShotHistoryStorage::importDatabaseStatic: Backfill transaction failed:" << destDb.lastError().text();
+                    qWarning() << "ShotHistoryStorage::importDatabaseStatic: Backfill transaction failed - skipping backfill";
                 } else {
                 QSqlQuery query(destDb);
                 query.prepare("SELECT id, profile_json FROM shots WHERE (beverage_type = 'espresso' OR beverage_type IS NULL) AND profile_json IS NOT NULL AND profile_json != ''");
@@ -3927,7 +3929,7 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 // into existing bags by identity (idempotent, NULL-only).
                 CoffeeBagStorage::linkOrphanShotsStatic(destDb);
                 if (!backfillTxn.commit())
-                    qWarning() << "ShotHistoryStorage::importDatabaseStatic: Backfill commit failed:" << destDb.lastError().text();
+                    qWarning() << "ShotHistoryStorage::importDatabaseStatic: Backfill commit failed:" << backfillTxn.commitError();
                 }
             }
 
