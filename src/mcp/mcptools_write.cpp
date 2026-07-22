@@ -2417,14 +2417,19 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                         }
                         ok = true;
                     }
-                    if (!pkgFields.isEmpty() && !EquipmentStorage::updatePackageFieldsStatic(db, resultId, pkgFields)) {
-                        // NOT `|| ok`: a successful identity edit must not mask a
-                        // failed rename. equipment_update reimplements
-                        // requestUpdatePackage rather than calling it, so the fix
-                        // there does not reach this surface — an assistant would
-                        // otherwise be told a half-applied save succeeded.
-                        ok = false;
-                        return;
+                    if (!pkgFields.isEmpty()) {
+                        // The `ok = update(...) || ok` this replaced did TWO jobs:
+                        // it masked a failed rename behind a successful identity
+                        // edit (the bug), and it set ok on a successful rename (not
+                        // the bug). Dropping the whole expression dropped both, so
+                        // a name-only update — no identity fields, ok never set by
+                        // the block above — committed the rename and then reported
+                        // "update failed". Both halves are spelled out now.
+                        if (!EquipmentStorage::updatePackageFieldsStatic(db, resultId, pkgFields)) {
+                            ok = false;
+                            return;
+                        }
+                        ok = true;
                     }
                     view.package = EquipmentStorage::loadPackageStatic(db, resultId);
                     view.grinder = EquipmentStorage::loadGrinderItemStatic(db, resultId);

@@ -232,6 +232,11 @@ private slots:
             blocker.close();
         }
         QSqlDatabase::removeDatabase(QStringLiteral("shs_test_blocker"));
+
+        // Per the note on drain() above: close and drain before the storage
+        // destructs, or the distinct-cache thread can outlive it.
+        storage.close();
+        drain();
     }
 };
 

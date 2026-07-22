@@ -10,6 +10,7 @@
 #include "core/settings_visualizer.h"
 #include "history/shothistorystorage.h"
 #include "history/coffeebagstorage.h"
+#include "history/equipmentstorage.h"
 #include "profile/recipeparams.h"
 #include "ai/aimanager.h"
 
@@ -369,6 +370,58 @@ private slots:
         QJsonObject result3 = f.callAsyncTool("bag_update", args3);
         QVERIFY(result3["success"].toBool());
         QVERIFY(!result3["bag"].toObject().contains("beanBase"));
+
+        storage.close();
+        for (int i = 0; i < 20; i++) {
+            QCoreApplication::processEvents();
+            QThread::msleep(25);
+        }
+    }
+
+    // equipment_update: a name-only rename must be REPORTED as a success, not
+    // merely performed as one.
+    //
+    // The regression this pins: the success flag used to be set by
+    // `ok = updatePackageFieldsStatic(...) || ok`. Removing that expression to
+    // stop a successful identity edit masking a failed rename also removed the
+    // only place `ok` was set for a rename — so a call carrying just a name
+    // committed the rename and then answered "Package not found or update
+    // failed". Nothing else in the suite inspects this tool's response shape.
+    void equipmentUpdateNameOnlyReportsSuccess()
+    {
+        McpTestFixture f;
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(f.tempDir.filePath("equpd.db")));
+        registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
+                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+
+        qint64 packageId = -1;
+        withTempDb(storage.databasePath(), "equpd_seed", [&](QSqlDatabase& db) {
+            EquipmentPackage pkg;
+            pkg.name = QStringLiteral("Bench Grinder");
+            packageId = EquipmentStorage::createPackageWithGrinderStatic(
+                db, pkg, QStringLiteral("Niche"), QStringLiteral("Zero"),
+                QStringLiteral("63mm conical"), QString(), QString(), QString());
+        });
+        QVERIFY2(packageId > 0, "seed package should be created");
+
+        // Name only: no grinder/basket/puckPrep keys at all.
+        QJsonObject args;
+        args["packageId"] = packageId;
+        args["name"] = "Bench Grinder (renamed)";
+        QJsonObject result = f.callAsyncTool("equipment_update", args);
+
+        QVERIFY2(result["success"].toBool(), qPrintable(QJsonDocument(result).toJson()));
+        QCOMPARE(result["package"].toObject()["name"].toString(),
+                 QString("Bench Grinder (renamed)"));
+
+        // And the rename really is on disk, so a green assertion above cannot
+        // mean "reported success without writing".
+        QString stored;
+        withTempDb(storage.databasePath(), "equpd_check", [&](QSqlDatabase& db) {
+            stored = EquipmentStorage::loadPackageStatic(db, packageId).name;
+        });
+        QCOMPARE(stored, QString("Bench Grinder (renamed)"));
 
         storage.close();
         for (int i = 0; i < 20; i++) {
