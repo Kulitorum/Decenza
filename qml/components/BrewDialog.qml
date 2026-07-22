@@ -111,6 +111,10 @@ Dialog {
     // recipeUpdated(recipeId, success) result (RecipesPage's pending-id
     // pattern) so a failure never looks like the tap was ignored.
     property int _pendingRecipeUpdateId: -1
+    // Cause from recipeUpdateFailed, consumed by the recipeUpdated handler that
+    // follows it. Cleared on every read so one failure's reason cannot colour
+    // the next attempt's message.
+    property string _recipeUpdateFailReason: ""
     // Failure banner for the fire-and-forget recipe operations (update /
     // switch). Auto-dismisses — the allowed toast use of a timer.
     property string recipeErrorText: ""
@@ -368,6 +372,14 @@ Dialog {
             if (root.visible)
                 MainController.recipeStorage.requestInventory()
         }
+        // Lands just before recipeUpdated(false) and names the cause. "busy" is
+        // the database being locked by another write — the one failure here the
+        // user can act on, and this is the path the lock bug was reported from,
+        // so it must not fall back to the generic wording.
+        function onRecipeUpdateFailed(recipeId, reason) {
+            if (recipeId === root._pendingRecipeUpdateId)
+                root._recipeUpdateFailReason = reason
+        }
         // "Update Recipe" is fire-and-forget and, with the auto-stamp gone,
         // the ONLY path a yield/temp value reaches the recipe — a swallowed
         // failure would silently lose the user's dialed value.
@@ -375,8 +387,14 @@ Dialog {
             if (recipeId !== root._pendingRecipeUpdateId)
                 return
             root._pendingRecipeUpdateId = -1
-            if (!success && root.visible)
-                root.showRecipeError(TranslationManager.translate("brewDialog.recipeUpdateFailed", "Couldn't save to the recipe"))
+            const reason = root._recipeUpdateFailReason
+            root._recipeUpdateFailReason = ""
+            if (!success && root.visible) {
+                root.showRecipeError(reason === "busy"
+                    ? TranslationManager.translate("brewDialog.recipeUpdateBusy",
+                          "The database was busy — tap Update Recipe again.")
+                    : TranslationManager.translate("brewDialog.recipeUpdateFailed", "Couldn't save to the recipe"))
+            }
         }
     }
 

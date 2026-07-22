@@ -167,15 +167,37 @@ void ShotServer::handleEquipmentApi(QTcpSocket* socket, const QString& method,
                         *failReason = reason;
                 });
             *conn = connect(equipmentStorage, &EquipmentStorage::packageUpdated, this,
-                [conn, reasonConn, packageId, respondJson, failReason](qint64 updatedId, bool success) {
-                    if (updatedId != packageId)
-                        return;
+                [conn, reasonConn, respondJson, failReason](qint64 updatedId, bool success) {
+                    // Deliberately NOT filtered on `updatedId == packageId`. The
+                    // identity edit is copy-on-write: editing a package that HAS
+                    // SHOTS forks it, and the terminal signal then carries the new
+                    // id. Filtering on the requested id dropped that signal, so the
+                    // handler never responded and never disconnected — the request
+                    // hung until the browser gave up, for what is the ordinary case
+                    // of editing a grinder you have actually pulled shots on.
+                    //
+                    // Failures always carry the requested id (requestUpdatePackage
+                    // resets it before emitting), so only a success can differ. The
+                    // residual risk is a package update issued from another surface
+                    // in the same instant being taken for ours; the in-app dialog
+                    // correlates exactly the same way (a one-shot "awaiting" flag,
+                    // not the id), and answering with an equivalent result beats
+                    // never answering at all.
                     disconnect(*conn);
                     disconnect(*reasonConn);
                     if (success)
-                        respondJson(QJsonObject{{"updated", true}, {"packageId", packageId}});
+                        // The RESULTING id, which is what the client must address
+                        // from here on when the edit forked or merged the package.
+                        respondJson(QJsonObject{{"updated", true}, {"packageId", updatedId}});
                     else if (*failReason == QLatin1String("nameInUse"))
                         respondJson(QJsonObject{{"error", "That name is already in use by another equipment package"}}, 409);
+                    else if (*failReason == QLatin1String("partiallyApplied"))
+                        // The identity edit committed in its own transaction and
+                        // cannot be undone from the storage layer, so this is not a
+                        // "nothing happened" 404: re-sending the same body is not a
+                        // no-op, and the client needs to know which half landed.
+                        respondJson(QJsonObject{{"error", "The grinder, basket or puck-prep change was saved, "
+                                                          "but the name was not — reopen the package and rename it"}}, 500);
                     else
                         respondJson(QJsonObject{{"error", "Package not found or update failed"}}, 404);
                 });

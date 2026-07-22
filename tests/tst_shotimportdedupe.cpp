@@ -16,6 +16,7 @@
 #include <QThread>
 #include <QPointF>
 #include <QSqlQuery>
+#include <QRegularExpression>
 
 #include "history/shothistorystorage.h"
 #include "history/shothistory_types.h"
@@ -138,6 +139,104 @@ private slots:
                 phaseCount = q.value(0).toInt();
         });
         QCOMPARE(phaseCount, 2);
+    }
+
+    // A failed overwrite import must leave the shot it was replacing intact.
+    //
+    // The dedupe probes DELETE the existing shot when overwriteExisting is set.
+    // Those deletes used to run before any transaction existed, so they
+    // autocommitted and ANY later failure destroyed the user's shot and wrote
+    // nothing back. The deletes now happen inside the transaction, so they roll
+    // back with it.
+    //
+    // The failure is injected with a BEFORE INSERT trigger rather than lock
+    // contention, deliberately: a contending BEGIN IMMEDIATE held across the call
+    // would also block the old autocommit DELETE, so the row would survive under
+    // the BUGGY code too and the test would pass against the bug it is meant to
+    // catch. RAISE(ABORT) unwinds only the failing statement, leaves the
+    // transaction open for the rollback to undo, and needs no interleaving.
+    void failed_overwrite_import_keeps_the_original_shot()
+    {
+        QVERIFY(m_dir.isValid());
+        const QString path = m_dir.filePath("import_overwrite_rollback.db");
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(path));
+
+        const qint64 t = 1753000000;
+        const qint64 originalId =
+            storage.importShotRecord(makeShot("keep-me", t, "Profile A", QStringLiteral("VIZ-KEEP")), false);
+        QVERIFY2(originalId > 0, "seed import should insert");
+
+        // Make every subsequent INSERT into shots fail, deterministically.
+        withTempDb(path, "shs_test_trigger", [](QSqlDatabase& db) {
+            QSqlQuery(db).exec(QStringLiteral(
+                "CREATE TRIGGER fail_shot_insert BEFORE INSERT ON shots "
+                "BEGIN SELECT RAISE(ABORT, 'injected import failure'); END"));
+        });
+
+        // Same uuid and visualizer id, so the probes match originalId and, with
+        // overwriteExisting, mark it for deletion. The replacement INSERT then fails.
+        // The injected failure is the point of the test, so let its warning through
+        // failOnWarning() — and by consuming it, assert it actually happened.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("Failed to import shot.*injected import failure")));
+        const qint64 failed =
+            storage.importShotRecord(makeShot("keep-me", t, "Profile A", QStringLiteral("VIZ-KEEP")), true);
+        QCOMPARE(failed, qint64(-1));
+
+        storage.close();
+        drain();
+
+        // The caller was told the import failed. The shot it was replacing must
+        // still be there — if the delete escaped the transaction, this is 0.
+        int shots = -1;
+        withTempDb(path, "shs_test_check", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            q.prepare(QStringLiteral("SELECT COUNT(*) FROM shots WHERE id = ?"));
+            q.bindValue(0, originalId);
+            if (q.exec() && q.next())
+                shots = q.value(0).toInt();
+        });
+        QVERIFY2(shots == 1, "the import failed but destroyed the shot it was replacing");
+    }
+
+    // The read-only half of the same ordering: a duplicate we are NOT overwriting
+    // must be reported as skipped (0), not failed (-1). Probing inside the
+    // transaction made this return -1 whenever the write lock was contended,
+    // which both importers count as a failure in their user-facing tally.
+    void duplicate_skip_needs_no_write_lock()
+    {
+        QVERIFY(m_dir.isValid());
+        const QString path = m_dir.filePath("import_skip_no_lock.db");
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(path));
+
+        const qint64 t = 1754000000;
+        QVERIFY(storage.importShotRecord(makeShot("dupe", t, "Profile A", QStringLiteral("VIZ-D")), false) > 0);
+
+        // Hold the write lock on another connection for the whole call. Scoped so
+        // the QSqlDatabase copy is destroyed before removeDatabase, which warns
+        // (and fails the test under failOnWarning) if a handle is still alive.
+        {
+            QSqlDatabase blocker = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"),
+                                                            QStringLiteral("shs_test_blocker"));
+            blocker.setDatabaseName(path);
+            QVERIFY(blocker.open());
+            QVERIFY(QSqlQuery(blocker).exec(QStringLiteral("BEGIN IMMEDIATE")));
+
+            // Read-only dedupe: this must not need the lock at all.
+            QCOMPARE(storage.importShotRecord(makeShot("dupe", t, "Profile A", QStringLiteral("VIZ-D")), false),
+                     qint64(0));
+
+            QVERIFY(QSqlQuery(blocker).exec(QStringLiteral("ROLLBACK")));
+            blocker.close();
+        }
+        QSqlDatabase::removeDatabase(QStringLiteral("shs_test_blocker"));
+
+        // Per the note on drain() above: close and drain before the storage
+        // destructs, or the distinct-cache thread can outlive it.
+        storage.close();
+        drain();
     }
 };
 

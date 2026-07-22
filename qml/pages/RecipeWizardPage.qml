@@ -1773,9 +1773,15 @@ Page {
                     wizardPage._saveFailReason = ""
                     pageStack.pop()
                 } else {
+                    // "busy" means the database was locked by another write — the
+                    // one cause here where trying again actually works, so say so
+                    // rather than showing the generic failure.
                     wizardPage.errorMessage = wizardPage._saveFailReason === "nameInUse"
                         ? TranslationManager.translate("recipes.dialog.nameInUse",
                               "That name is already in use — choose a different name.")
+                        : wizardPage._saveFailReason === "busy"
+                        ? TranslationManager.translate("recipes.wizard.errorSaveBusy",
+                              "The database was busy — tap Save again.")
                         : TranslationManager.translate("recipes.wizard.errorSave", "Could not save the recipe")
                     wizardPage._saveFailReason = ""
                     wizardPage.showSaveError()

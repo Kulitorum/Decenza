@@ -437,9 +437,19 @@ private:
     // run on either the main-thread m_db (importShotRecord) or a background
     // withTempDb connection (importShotRecordAsync) from one implementation.
     // deleteShotStatic is the internal row delete used by the overwrite path.
+    //
+    // beginAttempts is passed through to DbWriteTxn::begin. It defaults to the
+    // guard's own default for the background path; importShotRecord passes 1
+    // because it runs on the GUI thread, where each extra attempt can spend the
+    // full busy_timeout blocking the UI (see the COST note on DbWriteTxn).
     static qint64 importShotRecordStatic(QSqlDatabase& db, const ShotRecord& record,
-                                         bool overwriteExisting);
-    static bool deleteShotStatic(QSqlDatabase& db, qint64 shotId);
+                                         bool overwriteExisting, int beginAttempts = 2);
+    // [[nodiscard]]: dropping this return let a failed delete fall through to the
+    // INSERT, which then either duplicated the shot the import meant to replace
+    // or failed on the uuid constraint and blamed the wrong thing. With
+    // -Werror=unused-result, ignoring it is now a build error rather than a
+    // review finding.
+    [[nodiscard]] static bool deleteShotStatic(QSqlDatabase& db, qint64 shotId);
 
     // Backfill beverage_type from profile_json for existing rows
     void backfillBeverageType();

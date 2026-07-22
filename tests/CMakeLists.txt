@@ -423,6 +423,25 @@ add_decenza_test(tst_autowakewindow
     ${CMAKE_SOURCE_DIR}/src/core/autowakemanager.cpp
 )
 
+# --- tst_dbtxn: DbWriteTxn lock discipline shared by the storages ---
+# Header-only (dbutils.h), so no extra sources. Covers the outcomes the storage
+# suites never reach: they all run uncontended and single-connection, so they
+# only ever exercise the successful DbWriteTxn::begin() path.
+add_decenza_test(tst_dbtxn
+    tst_dbtxn.cpp
+)
+
+# --- tst_updatechecker: shared GitHub releases request + connection policy ---
+# Guards ConnectionCacheExpiryTimeoutSecondsAttribute, whose absence is invisible
+# except as an hourly Qt warning in shipped logs. Friend-class access is via
+# `friend class tst_UpdateChecker` under DECENZA_TESTING in updatechecker.h.
+add_decenza_test(tst_updatechecker
+    tst_updatechecker.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/updatechecker.cpp
+    ${CMAKE_BINARY_DIR}/version_code.cpp
+)
+target_include_directories(tst_updatechecker PRIVATE ${CMAKE_BINARY_DIR})
+
 # --- tst_tclimport: TCL profile import round-trip against de1app profiles ---
 add_decenza_test(tst_tclimport
     tst_tclimport.cpp

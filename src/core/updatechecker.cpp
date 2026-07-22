@@ -229,6 +229,26 @@ UpdateChecker::~UpdateChecker()
     }
 }
 
+QNetworkRequest UpdateChecker::releaseInfoRequest() const
+{
+    QNetworkRequest request{QUrl(GITHUB_API_URL.arg(GITHUB_REPO))};
+    request.setHeader(QNetworkRequest::UserAgentHeader, "Decenza");
+    request.setRawHeader("Accept", "application/vnd.github.v3+json");
+
+    // Drop the connection as soon as the reply is done instead of parking it in
+    // Qt's connection cache for the default 120 s. We check once an hour and
+    // never reuse it, and GitHub closes the idle connection after ~30 s — at
+    // which point Qt's HTTP/2 closure path (QHttp2ProtocolHandler::
+    // handleConnectionClosure -> QHttp2Connection::handleReadyRead) reads from
+    // the already-closed socket and logs "QIODevice::read (QSslSocket): device
+    // not open". Harmless, but it landed in every user's log once an hour.
+    // Closing it ourselves costs nothing: the next check re-handshakes either
+    // way, since the connection was never going to survive the hour.
+    request.setAttribute(QNetworkRequest::ConnectionCacheExpiryTimeoutSecondsAttribute, 0);
+
+    return request;
+}
+
 QString UpdateChecker::currentVersion() const
 {
     return VERSION_STRING;
@@ -255,12 +275,7 @@ void UpdateChecker::checkForUpdates()
     emit checkingChanged();
     emit errorMessageChanged();
 
-    QUrl url(GITHUB_API_URL.arg(GITHUB_REPO));
-    QNetworkRequest request(url);
-    request.setHeader(QNetworkRequest::UserAgentHeader, "Decenza");
-    request.setRawHeader("Accept", "application/vnd.github.v3+json");
-
-    m_currentReply = m_network->get(request);
+    m_currentReply = m_network->get(releaseInfoRequest());
     connect(m_currentReply, &QNetworkReply::finished, this, &UpdateChecker::onReleaseInfoReceived);
 }
 
@@ -959,12 +974,7 @@ void UpdateChecker::onPeriodicCheck()
     qDebug() << "UpdateChecker: Periodic update check";
 
     // Check for updates silently
-    QUrl url(GITHUB_API_URL.arg(GITHUB_REPO));
-    QNetworkRequest request(url);
-    request.setHeader(QNetworkRequest::UserAgentHeader, "Decenza");
-    request.setRawHeader("Accept", "application/vnd.github.v3+json");
-
-    QNetworkReply* reply = m_network->get(request);
+    QNetworkReply* reply = m_network->get(releaseInfoRequest());
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         m_checking = false;
         emit checkingChanged();

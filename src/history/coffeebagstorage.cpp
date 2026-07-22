@@ -850,22 +850,33 @@ qint64 CoffeeBagStorage::convertLegacyPresetSettings(const QString& dbPath)
         QSqlQuery probe(db);
         if (!probe.exec("SELECT COUNT(*) FROM coffee_bags"))
             return;
+        // Release the probe's statement before the BEGIN below. A COUNT(*) always
+        // returns a row, so Qt leaves it un-reset, and an active statement holds a
+        // read transaction open — which makes BEGIN IMMEDIATE fail immediately and
+        // unrecoverably. See DbWriteTxn's precondition.
+        probe.finish();
 
-        if (!db.transaction()) {
-            qWarning() << "CoffeeBagStorage: legacy preset transaction begin failed:"
-                       << db.lastError().text();
+        // importLegacyPresetsStatic probes for duplicates before inserting, so
+        // this reads before it writes and must take the write lock up front —
+        // see DbWriteTxn. One-time legacy path, but the shape is
+        // the same one that cost a recipe save.
+        // attempts = 1: this runs on the GUI thread from ShotHistoryStorage::
+        // initialize(), and a single attempt already waits out busy_timeout. The
+        // keys survive a failure, so the next launch retries anyway.
+        DbWriteTxn txn = DbWriteTxn::begin(db, "legacy preset import", 1);
+        if (!txn.ok()) {
+            qWarning() << "CoffeeBagStorage: legacy preset transaction begin failed - "
+                          "leaving the keys for a later retry";
             return;
         }
         imported = importLegacyPresetsStatic(db, presets, selectedIndex, &selectedBagId);
         if (imported < 0) {
             qWarning() << "CoffeeBagStorage: legacy preset import failed - rolling back";
-            db.rollback();
-            return;
+            return;  // txn rolls back on the way out
         }
-        if (!db.commit()) {
+        if (!txn.commit()) {
             qWarning() << "CoffeeBagStorage: legacy preset import commit failed:"
-                       << db.lastError().text();
-            db.rollback();
+                       << txn.commitError();
             return;
         }
         committed = true;

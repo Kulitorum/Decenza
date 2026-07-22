@@ -119,6 +119,14 @@ bool ShotHistoryStorage::initialize(const QString& dbPath)
     QSqlQuery pragma(m_db);
     pragma.exec("PRAGMA journal_mode=WAL");
     pragma.exec("PRAGMA foreign_keys=ON");
+    // No busy_timeout pragma here on purpose: Qt's SQLite driver already calls
+    // sqlite3_busy_timeout(5000) on every connection it opens, overridable only
+    // by a QSQLITE_BUSY_TIMEOUT connect option this app never sets. Setting it
+    // again would be redundant AND harmful — "PRAGMA busy_timeout = N" returns a
+    // row, and Qt leaves a row-returning statement un-reset, so this reused
+    // QSqlQuery would hold a read transaction open across createTables(),
+    // runMigrations() and the startup WAL checkpoint. foreign_keys returns no
+    // row, which is why ending on it leaves the connection clean.
 
     if (!createTables()) {
         qWarning() << "ShotHistoryStorage: Failed to create tables";
@@ -2070,12 +2078,6 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
 
     qint64 shotId = -1;
     withTempDb(dbPath, "shs_save", [&](QSqlDatabase& db) {
-        auto isLockError = [](const QSqlError& e) {
-            const QString code = e.nativeErrorCode();
-            return code == QLatin1String("5") || code == QLatin1String("6")
-                || e.text().contains(QLatin1String("locked"), Qt::CaseInsensitive)
-                || e.text().contains(QLatin1String("busy"), Qt::CaseInsensitive);
-        };
         // A transient SQLITE_BUSY/locked from a concurrent writer (the post-shot
         // bags_update stamp, reconciliation drain, daily backup, WAL checkpoint)
         // must not drop a real shot. BEGIN IMMEDIATE (below) lets busy_timeout
@@ -2094,7 +2096,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
             // handler rides out the brief writer, so the lock no longer surfaces.
             QSqlQuery beginQuery(db);
             if (!beginQuery.exec(QStringLiteral("BEGIN IMMEDIATE"))) {
-                locked = isLockError(beginQuery.lastError());
+                locked = isSqliteLockError(beginQuery.lastError());
                 qWarning() << "ShotHistoryStorage: Failed to start transaction:" << beginQuery.lastError().text();
                 return false;
             }
@@ -2192,7 +2194,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
             query.bindValue(":hot_water_json", data.hotWaterJson.isEmpty() ? QVariant() : data.hotWaterJson);
 
             if (!query.exec()) {
-                locked = isLockError(query.lastError());
+                locked = isSqliteLockError(query.lastError());
                 qWarning() << "ShotHistoryStorage: Failed to insert shot:" << query.lastError().text()
                            << "(sqlite code" << query.lastError().nativeErrorCode() << ")";
                 QSqlQuery(db).exec(QStringLiteral("ROLLBACK"));
@@ -2208,7 +2210,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
             query.bindValue(":blob", data.compressedSamples);
 
             if (!query.exec()) {
-                locked = isLockError(query.lastError());
+                locked = isSqliteLockError(query.lastError());
                 qWarning() << "ShotHistoryStorage: Failed to insert samples:" << query.lastError().text();
                 QSqlQuery(db).exec(QStringLiteral("ROLLBACK"));
                 shotId = -1;
@@ -2238,7 +2240,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
             // falls through to ROLLBACK + a full-transaction retry.)
             QSqlQuery commitQuery(db);
             for (int commitTry = 1; !commitQuery.exec(QStringLiteral("COMMIT")); ++commitTry) {
-                const bool commitLocked = isLockError(commitQuery.lastError());
+                const bool commitLocked = isSqliteLockError(commitQuery.lastError());
                 if (!commitLocked || commitTry >= 4) {
                     locked = commitLocked;
                     qWarning() << "ShotHistoryStorage: Failed to commit shot:"
@@ -3885,8 +3887,17 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
             // Wrapped in a transaction to avoid per-UPDATE write lock contention with
             // the main thread's connection (this runs on a background thread).
             {
-                if (!destDb.transaction()) {
-                    qWarning() << "ShotHistoryStorage::importDatabaseStatic: Backfill transaction failed:" << destDb.lastError().text();
+                // destDb is the LIVE shots.db (importDatabaseStatic's destDbPath),
+                // not the imported file — srcDb is the separate one. So this reads
+                // the shot list and then UPDATEs inside the loop, on a background
+                // thread, while the other storages' workers write: the same
+                // read-then-write upgrade that cost a recipe save. Take the write
+                // lock up front. See DbWriteTxn.
+                // No error detail here: begin() already logged the real failure, and
+                // destDb.lastError() would be stale — begin runs on its own QSqlQuery.
+                DbWriteTxn backfillTxn = DbWriteTxn::begin(destDb, "import beverage-type backfill");
+                if (!backfillTxn.ok()) {
+                    qWarning() << "ShotHistoryStorage::importDatabaseStatic: Backfill transaction failed - skipping backfill";
                 } else {
                 QSqlQuery query(destDb);
                 query.prepare("SELECT id, profile_json FROM shots WHERE (beverage_type = 'espresso' OR beverage_type IS NULL) AND profile_json IS NOT NULL AND profile_json != ''");
@@ -3917,10 +3928,8 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 // Pre-bag sources also have no bag_id — adopt their shots
                 // into existing bags by identity (idempotent, NULL-only).
                 CoffeeBagStorage::linkOrphanShotsStatic(destDb);
-                if (!destDb.commit()) {
-                    qWarning() << "ShotHistoryStorage::importDatabaseStatic: Backfill commit failed:" << destDb.lastError().text();
-                    destDb.rollback();
-                }
+                if (!backfillTxn.commit())
+                    qWarning() << "ShotHistoryStorage::importDatabaseStatic: Backfill commit failed:" << backfillTxn.commitError();
                 }
             }
 
@@ -3956,7 +3965,10 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
         qWarning() << "ShotHistoryStorage: Cannot import - not ready";
         return -1;
     }
-    return importShotRecordStatic(m_db, record, overwriteExisting);
+    // beginAttempts = 1: this overload runs synchronously on the GUI thread
+    // (ShotImporter batches it from a timer), and each further attempt can spend
+    // the full busy_timeout blocking the UI with no way to cancel.
+    return importShotRecordStatic(m_db, record, overwriteExisting, 1);
 }
 
 void ShotHistoryStorage::importShotRecordAsync(const ShotRecord& record, bool overwriteExisting,
@@ -3979,8 +3991,27 @@ void ShotHistoryStorage::importShotRecordAsync(const ShotRecord& record, bool ov
 }
 
 qint64 ShotHistoryStorage::importShotRecordStatic(QSqlDatabase& db, const ShotRecord& record,
-                                                  bool overwriteExisting)
+                                                  bool overwriteExisting, int beginAttempts)
 {
+    // The dedupe probes below are READ-ONLY: when they match a shot we are
+    // replacing they only record its id, and the delete happens later, inside
+    // the transaction. That ordering carries the whole correctness argument of
+    // this function, so it is worth stating why it is not either of the two
+    // shapes this code has had before:
+    //
+    //  - Deleting where the probe matches, outside a transaction, autocommits
+    //    the delete. Any later failure then left the user's old shot destroyed
+    //    with no replacement written. That is a real shot loss, reachable on
+    //    shipped builds.
+    //  - Opening the transaction first and probing inside it fixes that, but
+    //    makes every import take the write lock — including the pure-duplicate
+    //    case that writes nothing — which turns a "skipped" result into a
+    //    "failed" one under contention and serialises bulk imports for no gain.
+    //
+    // Probing read-only and deleting inside the transaction gets both: a
+    // duplicate we are not overwriting returns 0 having taken no lock at all,
+    // and everything the import does destroy rolls back with it.
+    QList<qint64> replaceIds;   // shots this import replaces; deleted inside the txn
     QSqlQuery query(db);
 
     // Check for duplicate by Visualizer id first, when the incoming record has
@@ -3997,12 +4028,11 @@ qint64 ShotHistoryStorage::importShotRecordStatic(QSqlDatabase& db, const ShotRe
         query.prepare("SELECT id FROM shots WHERE visualizer_id = ?");
         query.bindValue(0, record.visualizerId);
         if (query.exec() && query.next()) {
-            if (overwriteExisting) {
-                deleteShotStatic(db, query.value(0).toLongLong());
-            } else {
-                // Already have this exact Visualizer shot, skip
-                return 0;
-            }
+            if (!overwriteExisting)
+                return 0;   // already have this exact Visualizer shot, skip
+            const qint64 existingId = query.value(0).toLongLong();
+            if (!replaceIds.contains(existingId))
+                replaceIds.append(existingId);
         }
     }
 
@@ -4010,14 +4040,11 @@ qint64 ShotHistoryStorage::importShotRecordStatic(QSqlDatabase& db, const ShotRe
     query.prepare("SELECT id FROM shots WHERE uuid = ?");
     query.bindValue(0, record.summary.uuid);
     if (query.exec() && query.next()) {
-        if (overwriteExisting) {
-            // Delete existing record to allow re-import
-            qint64 existingId = query.value(0).toLongLong();
-            deleteShotStatic(db, existingId);
-        } else {
-            // Duplicate found, skip
-            return 0;
-        }
+        if (!overwriteExisting)
+            return 0;   // duplicate found, skip
+        const qint64 existingId = query.value(0).toLongLong();
+        if (!replaceIds.contains(existingId))
+            replaceIds.append(existingId);
     }
 
     // Also check by timestamp (within 5 seconds) and profile to catch near-duplicates
@@ -4025,18 +4052,35 @@ qint64 ShotHistoryStorage::importShotRecordStatic(QSqlDatabase& db, const ShotRe
     query.bindValue(0, record.summary.timestamp);
     query.bindValue(1, record.summary.profileName);
     if (query.exec() && query.next()) {
-        if (overwriteExisting) {
-            // Delete existing record to allow re-import
-            qint64 existingId = query.value(0).toLongLong();
-            deleteShotStatic(db, existingId);
-        } else {
-            // Near-duplicate found, skip
-            return 0;
-        }
+        if (!overwriteExisting)
+            return 0;   // near-duplicate found, skip
+        const qint64 existingId = query.value(0).toLongLong();
+        if (!replaceIds.contains(existingId))
+            replaceIds.append(existingId);
     }
 
-    // Begin transaction
-    db.transaction();
+    // Release the probes' statement: it matched a row and was never stepped to
+    // exhaustion, so it is still active, and an active statement holds a read
+    // transaction open — which makes BEGIN IMMEDIATE fail instantly and
+    // unrecoverably. See DbWriteTxn's precondition.
+    query.finish();
+
+    DbWriteTxn txn = DbWriteTxn::begin(db, "shot import", beginAttempts);
+    if (!txn.ok()) {
+        qWarning() << "ShotHistoryStorage: import could not start a transaction, skipping shot"
+                   << record.summary.uuid;
+        return -1;
+    }
+
+    // Now inside the transaction, so these roll back with everything else.
+    for (const qint64 replaceId : std::as_const(replaceIds)) {
+        if (!deleteShotStatic(db, replaceId)) {
+            qWarning() << "ShotHistoryStorage: import could not remove the shot it replaces"
+                       << replaceId << "for" << record.summary.uuid
+                       << "- aborting rather than leaving a duplicate";
+            return -1;
+        }
+    }
 
     // Resolve the parsed grinder identity to an equipment package so the
     // imported shot keeps its grinder (the per-shot grinder_brand/model/burrs
@@ -4141,7 +4185,6 @@ qint64 ShotHistoryStorage::importShotRecordStatic(QSqlDatabase& db, const ShotRe
 
     if (!query.exec()) {
         qWarning() << "ShotHistoryStorage: Failed to import shot:" << query.lastError().text();
-        db.rollback();
         return -1;
     }
 
@@ -4172,7 +4215,6 @@ qint64 ShotHistoryStorage::importShotRecordStatic(QSqlDatabase& db, const ShotRe
 
     if (!query.exec()) {
         qWarning() << "ShotHistoryStorage: Failed to insert imported samples:" << query.lastError().text();
-        db.rollback();
         return -1;
     }
 
@@ -4191,7 +4233,14 @@ qint64 ShotHistoryStorage::importShotRecordStatic(QSqlDatabase& db, const ShotRe
         query.exec();  // Non-critical if markers fail
     }
 
-    db.commit();
+    // A failed COMMIT means nothing was written, so returning shotId here would
+    // report an imported shot that does not exist. (The guard has already rolled
+    // back by this point, so nothing is left open on the connection.)
+    if (!txn.commit()) {
+        qWarning() << "ShotHistoryStorage: import commit failed for" << record.summary.uuid
+                   << "-" << txn.commitError();
+        return -1;
+    }
 
     return shotId;
 }
