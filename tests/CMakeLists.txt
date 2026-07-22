@@ -575,6 +575,11 @@ add_decenza_test(tst_profileupload
     mocks/MockTransport.h
 )
 
+# --- tst_bleserviceerror: QLowEnergyService::ServiceError name mapping (#1586) ---
+add_decenza_test(tst_bleserviceerror
+    tst_bleserviceerror.cpp
+)
+
 # --- tst_blefidelity: BLE encode round-trip for all built-in profiles ---
 add_decenza_test(tst_blefidelity
     tst_blefidelity.cpp

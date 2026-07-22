@@ -1444,10 +1444,23 @@ Page {
         // band from swallowing taps meant for the bottom bar underneath.
         opacity: idlePage.carouselOverlapsBand ? 0 : 1
         enabled: !idlePage.carouselOverlapsBand
-        // A fully transparent item is still traversable by TalkBack/VoiceOver, so
-        // without this a screen reader lands on band widgets that are not on
-        // screen. `visible: false` would be the obvious fix but collapses the
-        // band's height (see the binding above) and so moves the layout.
+        // A fully transparent item IS still traversable by TalkBack/VoiceOver, so
+        // the faded-out band must be neutralised for screen readers too.
+        // `enabled: false` above is what actually does that: enabled propagates
+        // down, so every widget in the band reports the disabled state.
+        //
+        // The Accessible.ignored below does NOT hide the band's contents, despite
+        // how it reads. Qt's bridge FLATTENS an ignored node rather than pruning
+        // its subtree — unignoredChildren() in qaccessiblequickitem.cpp recurses
+        // through it and promotes any descendant carrying its own role (every
+        // AccessibleTapHandler/AccessibleButton in the band does) up past it. It
+        // only drops this Rectangle's own node, which, having no role or name, is
+        // barely a node to begin with. Kept because it is harmless and states the
+        // intent; do not rely on it alone to hide anything.
+        //
+        // `visible: false` is the only construct that genuinely removes a subtree
+        // from the accessibility tree, but it collapses the band's height (see the
+        // binding above) and so moves the layout.
         Accessible.ignored: idlePage.carouselOverlapsBand
         Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutQuad } }
         // Slides UP with the center content to clear a bottom-zone picker popup.

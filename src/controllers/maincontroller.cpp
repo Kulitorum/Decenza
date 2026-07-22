@@ -239,6 +239,20 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     requestRecipeTempOffsetConversion();
     setupRecipeConnections();
 
+    // One-time idle-button injections (issue #1586). What the gate means is
+    // documented on ShotHistoryStorage::crossedSchemaVersion; what the injections
+    // guarantee is documented on their declarations in settings_network.h.
+    //
+    // What is specific to THIS site is the ordering, which is why the calls live
+    // here and not somewhere more obvious: they must run after
+    // m_shotHistory->initialize() above (it is what computes the crossing) and
+    // before the QML engine is created in main.cpp (so the layout is settled by
+    // first paint, with no visible re-arrangement).
+    if (m_shotHistory->crossedSchemaVersion(22))
+        m_settings->network()->injectEquipmentButtonIfMissing();
+    if (m_shotHistory->crossedSchemaVersion(25))
+        m_settings->network()->injectRecipesButtonIfMissing();
+
     // Switching beans resets the brew overrides to the active profile's
     // defaults — a new coffee starts from the profile + bean baseline, not
     // the previous coffee's manual tweaks (the bag's own dose is applied by
