@@ -87,9 +87,13 @@ inline constexpr const char* WEB_CSS_MANAGEMENT = R"CSS(
         .section-head button { font-size: 0.85rem; }
 
         /* Create/edit dialog */
+        /* margin:auto restores the centering taken away by `* { margin: 0 }` in
+           WEB_CSS_VARIABLES (webtemplates/base_css.h) — an author rule, so it
+           beats the UA's `dialog:modal { margin: auto }`. Without it every
+           management dialog opens pinned to the viewport's top-left corner. */
         dialog { background: var(--surface); color: var(--text); border: 1px solid var(--border);
                  border-radius: 14px; padding: 1.25rem; max-width: 560px; width: 94%;
-                 max-height: 88vh; overflow-y: auto; }
+                 max-height: 88vh; overflow-y: auto; margin: auto; }
         dialog::backdrop { background: rgba(0,0,0,0.6); }
         dialog h2 { font-size: 1.1rem; margin-bottom: 0.5rem; }
         dialog label { display: block; margin: 0.6rem 0 0.15rem; font-size: 0.82rem;

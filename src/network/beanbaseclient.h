@@ -73,10 +73,19 @@ public:
     Q_INVOKABLE void ensureBagImage(const QString& canonicalId,
                                     const QString& roastName,
                                     const QString& productUrl);
-    // The user edited the bag's product URL: evict the cached image + the
-    // once-per-session attempt guard for this id and re-resolve from the new
-    // URL (add-bag-detail-editing). ensureBagImage() alone would keep serving
-    // the stale pixels.
+    // The user edited the bag's product URL: re-resolve from the new URL,
+    // overwriting the cached image (add-bag-detail-editing). ensureBagImage()
+    // alone would take its cache-hit branch and keep serving the stale pixels.
+    //
+    // Resolve-THEN-swap: the old file stays in place until the new bytes land
+    // (downloadBagImage commits through QSaveFile, which replaces the target
+    // atomically — and, unlike QFile::rename, will replace one that already
+    // exists, which is what keeping the old file requires). Evicting
+    // up front left the bag with NO photo for the length of a network round
+    // trip, which a consumer that re-reads immediately — the web /beans grid
+    // reloads the instant the save returns — renders as the photo vanishing on
+    // save, and permanently if the new page has no og:image. A stale photo is
+    // the lesser wrong, and it is what the user already had.
     Q_INVOKABLE void refreshBagImage(const QString& canonicalId,
                                      const QString& roastName,
                                      const QString& productUrl);
@@ -128,6 +137,13 @@ public:
     // Downloads it into the same cache the og:image pipeline fills; a cache
     // hit is left alone. Emits bagImageReady on success like every other path.
     Q_INVOKABLE void cacheBagImageFromUrl(const QString& imageKey, const QString& imageUrl);
+    // Same, but REPLACES an existing cache entry. cacheBagImageFromUrl lets a
+    // cache hit win, which is right when warming a bag that has no photo yet
+    // and wrong when the user just changed the product URL — the cached pixels
+    // describe the old page and the stage-2 photo is the only one this shop
+    // will ever yield (an SPA has no og:image to re-scrape). The write itself
+    // is atomic, so the old photo survives until the new bytes land.
+    Q_INVOKABLE void replaceBagImageFromUrl(const QString& imageKey, const QString& imageUrl);
 
     // Test seam: redirect requests at a local fake server. Production code
     // never calls this; the default is the live service.
@@ -176,6 +192,11 @@ signals:
 
 private:
     void doSendCanonicalSearch(const QString& query);
+    // Shared body of ensureBagImage/refreshBagImage. force=true skips the
+    // cached-file short-circuit and the once-per-session attempt guard, so a
+    // refresh actually re-fetches where an ensure would no-op.
+    void startBagImageResolve(const QString& canonicalId, const QString& roastName,
+                              const QString& productUrl, bool force);
     void fetchProductPage(const QString& canonicalId, const QString& productUrl);
     void downloadBagImage(const QString& canonicalId, const QString& imageUrl);
     QString imageCacheDir() const;

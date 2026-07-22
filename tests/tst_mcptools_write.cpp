@@ -29,6 +29,7 @@ class Settings;
 class VisualizerUploader;
 class AccessibilityManager;
 class ScreensaverVideoManager;
+class BeanBaseClient;
 class TranslationManager;
 class BatteryManager;
 class CoffeeBagStorage;
@@ -40,7 +41,8 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                         ScreensaverVideoManager* screensaver,
                         TranslationManager* translation,
                         BatteryManager* battery,
-                        AIManager* aiManager);
+                        AIManager* aiManager,
+                        BeanBaseClient* beanbase);
 
 // Test MCP write tools (settings_set, profiles_set_active) against ProfileManager + MockTransport.
 // Critical regression: settings_set temperature/weight must trigger BLE upload.
@@ -152,7 +154,7 @@ private:
         // Pass nullptr for dependencies not needed by the profile paths under test
         // (visualizer, bagStorage, accessibility, screensaver, translation, battery, aiManager).
         registerWriteTools(&f.registry, &f.profileManager, nullptr, &f.settings,
-                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
     }
 
 private slots:
@@ -312,7 +314,7 @@ private slots:
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(f.tempDir.filePath("bagupd.db")));
         registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
-                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 
         qint64 bagId = -1;
         withTempDb(storage.databasePath(), "bagupd_seed", [&](QSqlDatabase& db) {
@@ -386,7 +388,7 @@ private slots:
         CoffeeBagStorage bagStorage;
         bagStorage.initialize(storage.databasePath());
         registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
-                          nullptr, &bagStorage, nullptr, nullptr, nullptr, nullptr, nullptr);
+                          nullptr, &bagStorage, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 
         // Tea bag with brewing data: kind + tea vocabulary round-trip.
         QJsonObject tea;
@@ -439,7 +441,7 @@ private slots:
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(f.tempDir.filePath("bagkind.db")));
         registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
-                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 
         qint64 coffeeId = -1, teaId = -1;
         withTempDb(storage.databasePath(), "bagkind_seed", [&](QSqlDatabase& db) {
@@ -483,7 +485,7 @@ private slots:
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(f.tempDir.filePath("bagupd_linked.db")));
         registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
-                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 
         qint64 bagId = -1;
         withTempDb(storage.databasePath(), "bagupd_seed3", [&](QSqlDatabase& db) {

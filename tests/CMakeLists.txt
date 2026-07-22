@@ -861,12 +861,14 @@ target_include_directories(tst_mcptools_profiles PRIVATE ${CMAKE_BINARY_DIR})
 target_sources(tst_mcptools_profiles PRIVATE ${PROFILES_QRC})
 
 # --- tst_mcptools_write: Write MCP tools (settings_set temp/weight BLE upload) ---
-# mcptools_write.cpp includes all write tools, pulling in Accessibility/Screensaver/Translation/Battery
+# mcptools_write.cpp includes all write tools, pulling in Accessibility/Screensaver/Translation/Battery,
+# and BeanBaseClient since bag_update re-resolves the bag photo when the product URL changes.
 find_package(Qt6 REQUIRED COMPONENTS TextToSpeech Multimedia)
 add_decenza_test(tst_mcptools_write
     tst_mcptools_write.cpp
     ${MCP_MOC_HEADERS}
     ${CMAKE_SOURCE_DIR}/src/mcp/mcptools_write.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/beanbaseclient.cpp
     ${PROFILEMANAGER_SOURCES}
     ${CMAKE_SOURCE_DIR}/src/core/accessibilitymanager.cpp
     ${CMAKE_SOURCE_DIR}/src/screensaver/screensavervideomanager.cpp

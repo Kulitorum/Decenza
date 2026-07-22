@@ -52,8 +52,13 @@ if 'error' in d:
     sys.exit(1)
 r = d.get('result', {})
 content = r.get('content', [])
-if content and 'text' in content[0]:
-    print(content[0]['text'])
+# Take the first block that HAS text, not content[0]. Tools that expose a
+# resource put a resource_link first, so a content[0]-only reader silently
+# fell through to dumping the whole result and every field assertion failed —
+# 18 of them, against a server that was answering correctly the whole time.
+blocks = [c for c in content if 'text' in c]
+if blocks:
+    print(blocks[0]['text'])
 else:
     print(json.dumps(r))
 " 2>/dev/null
@@ -126,8 +131,11 @@ echo -e "${CYAN}1. Protocol${NC}"
 # Test: MCP disabled returns 404 (can't test if enabled — skip)
 # Test: Initialize
 create_session
+# Not pinned to one revision: the server advertises the newest spec it speaks
+# (2025-11-25 at time of writing), and an equality check turns every protocol
+# bump into a red suite. Assert the shape and a floor instead.
 assert_ok "initialize returns protocolVersion" "$INIT_RESP" \
-    "d.get('result',{}).get('protocolVersion') == '2025-03-26'"
+    "(lambda v: isinstance(v, str) and len(v) == 10 and v[4] == '-' and v[7] == '-' and v >= '2025-03-26')(d.get('result',{}).get('protocolVersion'))"
 assert_ok "initialize returns serverInfo" "$INIT_RESP" \
     "'Decenza' in d.get('result',{}).get('serverInfo',{}).get('name','')"
 assert_ok "initialize returns tools capability" "$INIT_RESP" \
@@ -141,7 +149,14 @@ else
 fi
 
 if [ -z "$SESSION" ]; then
-    echo -e "${RED}No session ID — cannot continue. Is MCP enabled?${NC}"
+    # Say which of the two it is. An unreachable app produces exactly the same
+    # empty responses as a running one with MCP switched off, and blaming the
+    # setting for what was actually a stopped app costs real debugging time.
+    if curl -s --max-time 5 -o /dev/null "http://$HOST/"; then
+        echo -e "${RED}No session ID, but $HOST is serving — is MCP enabled in Settings?${NC}"
+    else
+        echo -e "${RED}Cannot reach $HOST at all — is the app running, and is this the right host:port?${NC}"
+    fi
     exit 1
 fi
 

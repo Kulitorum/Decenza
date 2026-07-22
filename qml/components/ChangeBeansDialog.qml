@@ -719,8 +719,14 @@ Dialog {
             // that the row id (= its cache key) exists. Linked bags were
             // warmed at entry pick under their canonical id. A stage-2
             // extraction photo URL (SPA page, no og:image) wins directly.
+            // Key on the canonical id when one is set: the photo is stashed
+            // only while fBeanBaseId is empty, but an entry can be picked
+            // afterwards — extract-then-pick — and the card reads the canonical
+            // id, so "bag-<rowid>" would cache it where nothing looks.
             if (root._extractedImageUrl.length > 0)
-                MainController.beanbase.cacheBagImageFromUrl("bag-" + bagId, root._extractedImageUrl)
+                MainController.beanbase.replaceBagImageFromUrl(
+                    root.fBeanBaseId.length > 0 ? root.fBeanBaseId : "bag-" + bagId,
+                    root._extractedImageUrl)
             else if (root.fBeanBaseId.length === 0 && root.fLink.trim().length > 0)
                 MainController.beanbase.ensureBagImage(
                     "bag-" + bagId, root.fCoffee.trim(), root.fLink.trim())
@@ -1289,12 +1295,18 @@ Dialog {
                             // image URL directly (no og:image on SPA pages).
                             // Edit mode caches it now; create mode stashes it
                             // until the row id (= cache key) exists.
+                            //
+                            // replaceBagImageFromUrl, not cacheBagImageFromUrl:
+                            // the extraction ran against a URL the user is
+                            // editing, so a cached photo of the OLD page must
+                            // not win. cacheBagImageFromUrl's cache-hit-wins is
+                            // for warming a bag that has no photo yet.
                             if (fields["imageUrl"]) {
                                 var imgKey = root.fBeanBaseId.length > 0 ? root.fBeanBaseId
                                     : (root.formMode === "edit" && root.editBagId > 0
                                         ? "bag-" + root.editBagId : "")
                                 if (imgKey.length > 0)
-                                    MainController.beanbase.cacheBagImageFromUrl(imgKey, String(fields["imageUrl"]))
+                                    MainController.beanbase.replaceBagImageFromUrl(imgKey, String(fields["imageUrl"]))
                                 else
                                     root._extractedImageUrl = String(fields["imageUrl"])
                             }

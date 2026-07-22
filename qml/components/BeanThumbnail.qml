@@ -29,6 +29,14 @@ Rectangle {
     property real imageSourceSize: Theme.scaled(88)
 
     property string cachedImagePath: ""
+    // Bumped when the cache reports new bytes for this key. A refresh writes
+    // to the SAME path, so `cachedImagePath` is reassigned an identical string
+    // — no change signal, no re-read — and even a rebuilt delegate would be
+    // served the old pixels from Qt's pixmap cache, which is keyed by URL and
+    // never checks mtime. Editing a bag's product URL would then show the old
+    // roaster's photo until the app restarted. Same fix as LibraryItemCard's
+    // _thumbVersion, and it keeps caching on for the common no-change case.
+    property int _imageVersion: 0
     function refreshImage() {
         if (imageKey.length === 0) {
             cachedImagePath = ""
@@ -43,8 +51,10 @@ Rectangle {
     Connections {
         target: MainController.beanbase
         function onBagImageReady(id, path) {
-            if (id === thumb.imageKey)
-                thumb.cachedImagePath = path
+            if (id !== thumb.imageKey)
+                return
+            thumb.cachedImagePath = path
+            thumb._imageVersion++   // new bytes at the same path: bust the cache
         }
     }
 
@@ -72,6 +82,7 @@ Rectangle {
         visible: status === Image.Ready
         source: thumb.cachedImagePath.length > 0
             ? "file:///" + thumb.cachedImagePath
+              + (thumb._imageVersion > 0 ? "?v=" + thumb._imageVersion : "")
             : thumb.legacyImageUrl
         sourceSize.width: thumb.imageSourceSize
         sourceSize.height: thumb.imageSourceSize
