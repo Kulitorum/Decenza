@@ -431,6 +431,51 @@ private slots:
         QCOMPARE(cachedBytes(), QByteArray("NEWBYTES"));
     }
 
+    void replaceBagImageFromUrlOverwritesWhereCacheFromUrlDeclines() {
+        // The pair differs by exactly one guard, and that guard is the whole
+        // point of having two: cacheBagImageFromUrl lets an existing photo win
+        // (right when warming a bag that has none), replaceBagImageFromUrl does
+        // not (right when the user just changed the product URL and the stage-2
+        // photo is the only one that page will give up). Pinned together so a
+        // future edit cannot quietly collapse them into one behaviour.
+        FakeBeanBaseServer server;
+        server.respondForPath("/first.jpg", "FIRSTBYTES");
+        server.respondForPath("/second.jpg", "SECONDBYTES");
+
+        QTemporaryDir cacheDir;
+        BeanBaseClient client(&m_nam, &m_settings);
+        client.setVisualizerBaseUrl(server.baseUrl());
+        client.setImageCacheDir(cacheDir.path());
+
+        auto cachedBytes = [&client]() {
+            QFile f(client.bagImagePath(QStringLiteral("bag-77")));
+            return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray();
+        };
+
+        QSignalSpy first(&client, &BeanBaseClient::bagImageReady);
+        client.cacheBagImageFromUrl("bag-77", server.baseUrl() + "/first.jpg");
+        QVERIFY(first.wait(5000));
+        QCOMPARE(cachedBytes(), QByteArray("FIRSTBYTES"));
+
+        // cacheBagImageFromUrl declines: the entry already exists, no request.
+        const qsizetype afterFirst = server.requestCount();
+        client.cacheBagImageFromUrl("bag-77", server.baseUrl() + "/second.jpg");
+        QTest::qWait(200);
+        QCOMPARE(server.requestCount(), afterFirst);
+        QCOMPARE(cachedBytes(), QByteArray("FIRSTBYTES"));
+
+        // replaceBagImageFromUrl overwrites it.
+        QSignalSpy replaced(&client, &BeanBaseClient::bagImageReady);
+        client.replaceBagImageFromUrl("bag-77", server.baseUrl() + "/second.jpg");
+        QVERIFY(replaced.wait(5000));
+        QCOMPARE(cachedBytes(), QByteArray("SECONDBYTES"));
+
+        // And it refuses a traversal-shaped key like every sibling entry point.
+        client.replaceBagImageFromUrl("../escape", server.baseUrl() + "/second.jpg");
+        QTest::qWait(100);
+        QCOMPARE(client.bagImagePath(QStringLiteral("../escape")), QString());
+    }
+
     void refreshBagImageKeepsTheOldPhotoWhenTheNewPageHasNone() {
         // Resolve-then-swap: the cached file must survive a refresh that
         // resolves nothing. Evicting up front made a failed refresh blank the

@@ -479,8 +479,8 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
             const QString extractedImageUrl =
                 bodyJson.value(QStringLiteral("extractedImageUrl")).toString().trimmed();
             *conn = connect(bagStorage, &CoffeeBagStorage::bagUpdated, this,
-                [conn, bagId, respondJson, fields, wantsImageRefresh, extractedImageUrl, safeBeanbase](
-                    qint64 updatedId, bool success) {
+                [conn, bagId, respondJson, wantsImageRefresh, extractedImageUrl, safeBeanbase,
+                 dbPath = bagStorage->databasePath()](qint64 updatedId, bool success) {
                     if (updatedId != bagId)
                         return;
                     disconnect(*conn);
@@ -488,34 +488,62 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
                         respondJson(QJsonObject{{"error", "Bag not found or update failed"}}, 404);
                         return;
                     }
-                    bool imageRefreshed = false;
-                    if (safeBeanbase && (wantsImageRefresh || !extractedImageUrl.isEmpty())) {
-                        const QString link =
-                            QJsonDocument::fromJson(
-                                fields.value(QStringLiteral("beanBaseData")).toString().toUtf8())
-                                .object().value(QStringLiteral("link")).toString();
-                        const QString canonicalId = fields.value(QStringLiteral("beanBaseId")).toString();
-                        const QString imageKey = canonicalId.isEmpty()
-                            ? QStringLiteral("bag-%1").arg(bagId) : canonicalId;
-                        if (!extractedImageUrl.isEmpty()) {
-                            // The extraction's own photo wins over re-scraping:
-                            // stage 2 ran because the page yielded almost no
-                            // body text, which is usually a page a re-scrape
-                            // also comes back empty-handed from.
-                            safeBeanbase->replaceBagImageFromUrl(imageKey, extractedImageUrl);
-                            imageRefreshed = true;
-                        } else if (!link.isEmpty()) {
-                            safeBeanbase->refreshBagImage(
-                                imageKey, fields.value(QStringLiteral("coffeeName")).toString(), link);
-                            imageRefreshed = true;
-                        }
+                    if (!safeBeanbase || (!wantsImageRefresh && extractedImageUrl.isEmpty())) {
+                        respondJson(QJsonObject{{"updated", true}, {"bagId", bagId}});
+                        return;
                     }
-                    // Echo the decision: a caller that asked for a refresh it did
-                    // not get would otherwise read `updated: true` as "done".
-                    QJsonObject reply{{"updated", true}, {"bagId", bagId}};
-                    if (wantsImageRefresh || !extractedImageUrl.isEmpty())
-                        reply.insert(QStringLiteral("imageRefreshed"), imageRefreshed);
-                    respondJson(reply);
+                    // Resolve the cache key and the link from the STORED row,
+                    // never from the request body. A caller that updates a
+                    // linked bag without resending beanBaseId — the browser
+                    // always does, but this route is documented for MCP/AI
+                    // callers too — would otherwise be keyed "bag-<rowid>" and
+                    // the photo written where nothing ever reads it, while the
+                    // reply claimed success. The write has already landed, so
+                    // the row is the post-update truth.
+                    const QString photoDbPath = dbPath;
+                    QThread* photoThread = QThread::create(
+                        [photoDbPath, bagId, extractedImageUrl, safeBeanbase, respondJson]() {
+                            QString canonicalId, coffeeName, link;
+                            (void)withTempDb(photoDbPath, "web_bag_photo", [&](QSqlDatabase& db) {
+                                const CoffeeBag bag = CoffeeBagStorage::loadBagStatic(db, bagId);
+                                if (bag.isValid()) {
+                                    canonicalId = bag.beanBaseId;
+                                    coffeeName = bag.coffeeName;
+                                    link = QJsonDocument::fromJson(bag.beanBaseData.toUtf8())
+                                               .object().value(QStringLiteral("link")).toString();
+                                }
+                            });
+                            QMetaObject::invokeMethod(qApp,
+                                [canonicalId, coffeeName, link, bagId, extractedImageUrl,
+                                 safeBeanbase, respondJson]() {
+                                    bool imageRefreshed = false;
+                                    if (safeBeanbase) {
+                                        const QString imageKey = canonicalId.isEmpty()
+                                            ? QStringLiteral("bag-%1").arg(bagId) : canonicalId;
+                                        if (!extractedImageUrl.isEmpty()) {
+                                            // The extraction's own photo wins over
+                                            // re-scraping: stage 2 ran because the
+                                            // page yielded almost no body text,
+                                            // usually a page a re-scrape also comes
+                                            // back empty-handed from.
+                                            safeBeanbase->replaceBagImageFromUrl(
+                                                imageKey, extractedImageUrl);
+                                            imageRefreshed = true;
+                                        } else if (!link.isEmpty()) {
+                                            safeBeanbase->refreshBagImage(imageKey, coffeeName, link);
+                                            imageRefreshed = true;
+                                        }
+                                    }
+                                    // Echo the decision: a caller that asked for a
+                                    // refresh it did not get would otherwise read
+                                    // `updated: true` as "done".
+                                    respondJson(QJsonObject{{"updated", true},
+                                                            {"bagId", bagId},
+                                                            {"imageRefreshed", imageRefreshed}});
+                                }, Qt::QueuedConnection);
+                        });
+                    QObject::connect(photoThread, &QThread::finished, photoThread, &QObject::deleteLater);
+                    photoThread->start();
                 });
             // Setting a Bean Base link propagates it onto the bag's shots, exactly
             // as the in-app edit dialog's link path does.
