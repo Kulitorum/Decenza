@@ -409,6 +409,14 @@ add_decenza_test(tst_textescaping
 )
 target_link_libraries(tst_textescaping PRIVATE Qt6::Qml)
 
+# --- tst_recipesearch: Recipes-page tokenized search matcher ---
+# Runs the real JS out of qml/components/RecipeSearch.js in a QJSEngine, so it guards
+# shipping source rather than a copy. Needs Qt6::Qml for QJSEngine.
+add_decenza_test(tst_recipesearch
+    tst_recipesearch.cpp
+)
+target_link_libraries(tst_recipesearch PRIVATE Qt6::Qml)
+
 # --- tst_beanbaseclient: Bean Base API client (debounce, rate limit, cache, parse) ---
 add_decenza_test(tst_beanbaseclient
     tst_beanbaseclient.cpp

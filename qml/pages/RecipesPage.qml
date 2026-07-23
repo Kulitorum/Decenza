@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
 import "../components"
+import "../components/RecipeSearch.js" as RecipeSearch
 
 // Recipes management (add-recipes): mirrors BeanInfoPage — cards in a Flow
 // grid, tap a card to activate the recipe, compact action row per card.
@@ -79,14 +80,21 @@ Page {
     }
 
     function filterAndSort(list, query, field, dir) {
-        var q = String(query || "").trim().toLowerCase()
+        // Tokenized AND match (RecipeSearch.js): `-` `/` `.` deleted, query split on
+        // whitespace, every token must be a substring of the combined text. So a
+        // cross-field query like "Yirg Df" matches a Yirgacheffe recipe on a
+        // "D-Flow / Q" profile ("D-Flow" collapses to "dflow"). Empty query => all pass.
+        // The haystack spans the same five fields as the web /recipes matcher
+        // (shotserver_recipes.cpp): name, roaster, coffee, profile, and the drink-type
+        // label — so "latte" or "tea" narrows the list too.
+        var tokens = RecipeSearch.tokenize(query)
         var out = []
         for (var i = 0; i < list.length; ++i) {
             var r = list[i]
-            if (q.length > 0) {
-                var hay = ((r.name || "") + " " + (r.roasterName || "") + " "
-                           + (r.coffeeName || "") + " " + (r.profileTitle || "")).toLowerCase()
-                if (hay.indexOf(q) === -1)
+            if (tokens.length > 0) {
+                var hay = RecipeSearch.buildHaystack(
+                    r, DrinkType.shortLabel(DrinkType.fromRecipeMap(r)))
+                if (!RecipeSearch.matches(hay, tokens))
                     continue
             }
             out.push(r)

@@ -893,11 +893,25 @@ QString ShotServer::generateRecipesPage() const
                 + '<div class="actions">' + actions + '</div></div>';
         }
 
-        function matchesFilter(r) {
-            if (!filterText) return true;
-            const hay = [r.name, r.profileTitle, r.roasterName, r.coffeeName, drinkLabel(r.drinkType)]
-                .join(' ').toLowerCase();
-            return hay.indexOf(filterText) !== -1;
+        // Tokenized AND match: `-` `/` `.` are DELETED from both query and text, the
+        // query splits into tokens on whitespace, and every token must appear as a
+        // substring. Same algorithm and same five searched fields (name, profile,
+        // roaster, coffee, drink-type label) as the in-app path (RecipeSearch.js +
+        // RecipesPage.filterAndSort) so "Yirg Df" matches a Yirgacheffe recipe on a
+        // "D-Flow / Q" profile here too (deleting punctuation collapses "D-Flow" to
+        // "dflow"). The drink-label field differs from the app in two narrow ways: it is
+        // English here vs the app's localized DrinkType.shortLabel, and it reads
+        // r.drinkType directly whereas the app derives a type for legacy rows with no
+        // stored drinkType via DrinkType.fromRecipeMap. Guarded by tests/tst_recipesearch.cpp,
+        // which extracts normalizeSearch/tokenizeSearch/matchesFilter and re-runs the
+        // shared cases — keep the two in sync. tokens are computed once per render().
+        function normalizeSearch(s) { return String(s || '').toLowerCase().replace(/[-\/.]/g, ''); }
+        function tokenizeSearch(q) { return normalizeSearch(q).split(/\s+/).filter(Boolean); }
+        function matchesFilter(r, tokens) {
+            if (!tokens.length) return true;
+            const hay = normalizeSearch(
+                [r.name, r.profileTitle, r.roasterName, r.coffeeName, drinkLabel(r.drinkType)].join(' '));
+            return tokens.every(t => hay.indexOf(t) !== -1);
         }
         function sortRecipes(list) {
             const key = SORTS[sortIdx][0];
@@ -916,8 +930,11 @@ QString ShotServer::generateRecipesPage() const
         }
 
         function render() {
-            const active = sortRecipes(recipes.filter(r => !r.archived && matchesFilter(r)));
-            const archived = recipes.filter(r => r.archived);
+            const tokens = tokenizeSearch(filterText);
+            const active = sortRecipes(recipes.filter(r => !r.archived && matchesFilter(r, tokens)));
+            // Archived grid is filtered by the same query as the active grid (spec: the
+            // search applies to both), so "Show archived (N)" counts and shows only matches.
+            const archived = recipes.filter(r => r.archived && matchesFilter(r, tokens));
             el('searchbar').style.display = recipes.some(r => !r.archived) ? '' : 'none';
             el('searchClear').style.display = filterText ? '' : 'none';
 

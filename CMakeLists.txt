@@ -1247,6 +1247,7 @@ set(QML_FILES
     qml/components/QrCode.qml
     qml/components/DateUtils.js
     qml/components/qrcode.js
+    qml/components/RecipeSearch.js
     qml/components/SettingsSearchIndex.js
     qml/components/SettingsTabs.qml
 
