@@ -94,9 +94,16 @@ public:
     // scales even with the Simulated Scale switch off.
     void setDisabled(bool disabled);
     bool isScaleSimulated() const { return m_scaleSimulated; }
-    // Mirrors the "Simulated Scale" switch. When on, a simulated scale owns the
-    // weight stream, so connecting a real one would fight it — that, and only
-    // that, is what blocks real scale connects.
+    // True when a simulated scale is actually driving the weight stream, in
+    // which case connecting a real one would fight it — the only thing that
+    // blocks real scale connects.
+    //
+    // NOT simply the "Simulated Scale" setting. main.cpp composes this from
+    // simulationMode() AND simulatedScaleEnabled(), because the SimulatedScale
+    // object is only constructed under simulation mode and simulatedScaleEnabled
+    // defaults to true — reading that setting alone would block every real scale
+    // on builds that have no simulated scale at all. Callers must not
+    // re-derive it from settings; take it from here.
     void setScaleSimulated(bool simulated);
     QVariantList discoveredDevices() const;
     QVariantList discoveredScales() const;
@@ -563,6 +570,9 @@ signals:
     // via cancelWifiProbe()). main.cpp switches to the WiFi primary when reachable.
     void wifiPrimaryReachable(bool reachable);
     void disabledChanged();
+    // Emitted on BOTH edges of setScaleSimulated — see its implementation for
+    // why the falling edge matters (nothing else re-arms the scale reconnect).
+    void scaleSimulatedChanged();
     void disconnectScaleRequested();  // Emitted when switching to a different scale, BLE is disabled, or saved scale is cleared
     void refractometersChanged();
     void refractometerConnectedChanged();
@@ -799,7 +809,7 @@ private:
     // Simulator mode - disable all BLE operations
     bool m_disabled = false;
     // Set from the "Simulated Scale" switch, NOT from DE1 simulation mode.
-    // Gates the two real-scale connect paths (switchScale,
+    // Gates the two real-scale connect paths (connectToSavedScale,
     // tryDirectConnectToScale) that used to consult m_disabled.
     bool m_scaleSimulated = false;
 

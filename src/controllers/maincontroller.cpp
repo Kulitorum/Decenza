@@ -3107,7 +3107,11 @@ void MainController::onEspressoCycleStarted() {
     // abort here (during preheat) — before any water flows.
     // Volume-based profiles can proceed without a physical scale.
     // Skip this check if any real scale (BLE or USB) is currently active.
-    if (m_bleManager && !m_bleManager->isDisabled() && m_bleManager->hasSavedScale()) {
+    // Gated on the SCALE simulator, not the DE1 one. This used to read
+    // isDisabled() back when the DE1 simulator flag also meant "no scale" — it
+    // no longer does, so with DE1 simulation on and a real scale saved but
+    // disconnected, that reading would skip the pre-shot safety abort entirely.
+    if (m_bleManager && !m_bleManager->isScaleSimulated() && m_bleManager->hasSavedScale()) {
         // Check if any real scale is connected (BLE scale, USB scale, etc.)
         ScaleDevice* activeScale = m_machineState ? m_machineState->scale() : nullptr;
         bool hasRealScale = activeScale && activeScale->isConnected()

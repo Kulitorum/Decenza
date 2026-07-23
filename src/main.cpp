@@ -1105,19 +1105,36 @@ int main(int argc, char *argv[])
     checkpoint("TranslationManager");
     BLEManager bleManager;
 
-    // Two independent switches, deliberately kept apart:
+    // Two switches, deliberately kept apart:
     //   simulationMode        — "no DE1 attached". Disables DE1 BLE only.
     //   simulatedScaleEnabled — "Simulated Scale". Blocks real scale connects,
     //                           because the simulator owns the weight stream.
     // Wiring both to setDisabled() used to mean that running the DE1 simulator
     // silently disabled real scales even with Simulated Scale switched off.
+    //
+    // The AND is load-bearing, not defensive. The two settings have different
+    // defaults — simulatedScaleEnabled defaults to TRUE unconditionally, while
+    // simulationMode defaults to true only on debug Windows/macOS — and the
+    // SimulatedScale object is constructed ONLY inside `if (simulationMode())`
+    // further down. Reading simulatedScaleEnabled alone therefore blocks every
+    // real scale on a debug iOS/Android/Linux build, and on any desktop build
+    // where the DE1 simulator is off, with no simulated scale to take over and
+    // no way back: the Settings row is `visible: Settings.app.simulationMode`,
+    // so the switch is hidden in exactly that state. "A simulated scale owns
+    // the weight stream" is only true when a simulated scale actually exists.
 #ifdef QT_DEBUG
+    const auto applyScaleSimulated = [&bleManager, &settings]() {
+        bleManager.setScaleSimulated(settings.app()->simulationMode()
+                                     && settings.app()->simulatedScaleEnabled());
+    };
     bleManager.setDisabled(settings.app()->simulationMode());
-    bleManager.setScaleSimulated(settings.app()->simulatedScaleEnabled());
+    applyScaleSimulated();
     QObject::connect(settings.app(), &SettingsApp::simulatedScaleEnabledChanged,
-                     &bleManager, [&bleManager, &settings]() {
-        bleManager.setScaleSimulated(settings.app()->simulatedScaleEnabled());
-    });
+                     &bleManager, applyScaleSimulated);
+    // simulationMode is an input to the gate above, so it must re-evaluate it
+    // too — otherwise turning the DE1 simulator off leaves the scale blocked.
+    QObject::connect(settings.app(), &SettingsApp::simulationModeChanged,
+                     &bleManager, applyScaleSimulated);
 #endif
 
     DE1Device de1Device;
@@ -2054,6 +2071,29 @@ int main(int argc, char *argv[])
         bleManager.appendScaleLog(QString("Scheduling reconnect in %1 s (startup failure)")
                                   .arg(reconnectDelays[0] / 1000));
         qDebug() << "Scale reconnect: scheduled first retry in" << reconnectDelays[0] << "ms (startup failure)";
+    });
+
+    // Re-arm the scale reconnect when the simulated scale is switched OFF.
+    // setScaleSimulated(true) stops the connection timer and drops the physical
+    // scale; nothing restarts either, so without this the real scale stays
+    // stranded until an app restart or a manual rescan — with no user-visible
+    // reason. Mirrors the R2 disabledChanged re-arm further down.
+    QObject::connect(&bleManager, &BLEManager::scaleSimulatedChanged,
+                     &bleManager, [&bleManager, &settings, &scaleReconnectTimer,
+                                   &scaleReconnectAttempt, &reconnectDelays,
+                                   &scaleAutoReconnectSuppressed]() {
+        if (bleManager.isScaleSimulated())
+            return;  // rising edge — the teardown in setScaleSimulated is correct
+        if (settings.scaleAddress().isEmpty()
+            || settings.scaleAddress().startsWith(QStringLiteral("usb:"), Qt::CaseInsensitive)
+            || scaleAutoReconnectSuppressed
+            || scaleReconnectTimer.isActive())
+            return;
+        scaleReconnectAttempt = 0;
+        scaleReconnectTimer.start(reconnectDelays[0]);
+        bleManager.appendScaleLog(
+            QString("Simulated scale switched off — resuming reconnect in %1 s")
+            .arg(reconnectDelays[0] / 1000));
     });
 
     // Re-arm the reconnect ladder on EVERY scale-connection failure, not just

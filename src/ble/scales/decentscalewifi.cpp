@@ -105,25 +105,39 @@ void DecentScaleWifi::connectToHost(const QString& hostname, const QString& pref
     // cache, so a stale preferredIp can never clobber a good cached value (the
     // reason the earlier pre-seed was removed). If it fails the recognition
     // window, onRecognitionTimeout falls back to attemptHostname to re-resolve.
-    // The previous attempt ended because nothing answered. Re-dialing a
-    // remembered address would just repeat it, so resolve the name first —
-    // that picks up an address that moved AND puts an mDNS exchange on the
-    // wire. Consumed here (one re-resolve per failure, not a sticky mode);
-    // if this attempt also fails transiently, onError sets it again.
     //
-    // Checked ahead of BOTH shortcuts below: preferredIp is stale by exactly
-    // the same argument as the cache once an attempt has failed this way.
-    if (m_retryShouldReresolve) {
+    // preferredIp OUTRANKS m_retryShouldReresolve. It is checked first because
+    // it is strictly fresher than anything a re-resolve could produce: the
+    // caller resolved it *after* the attempt that set the flag, and it reflects
+    // a deliberate user action (a scan selection, or the dialog's "Use"
+    // button). Discarding it in favour of re-resolving would throw away the
+    // user's explicit choice — and if resolution then fails, attemptHostname
+    // dials nothing at all, so the tap would produce no network activity
+    // whatsoever. Consume the flag here: dialling a freshly-resolved address
+    // satisfies the same obligation a re-resolve would have.
+    if (!preferredIp.isEmpty() && preferredIp != hostname) {
         m_retryShouldReresolve = false;
-        WIFI_LOG(QString("Previous attempt found %1 unreachable — re-resolving before retry")
-                 .arg(hostname));
-        attemptHostname();
+        WIFI_LOG(QString("Trying freshly-resolved IP %1 for %2").arg(preferredIp, hostname));
+        attemptTarget(preferredIp, /*isHostname=*/false);
         return;
     }
 
-    if (!preferredIp.isEmpty() && preferredIp != hostname) {
-        WIFI_LOG(QString("Trying freshly-resolved IP %1 for %2").arg(preferredIp, hostname));
-        attemptTarget(preferredIp, /*isHostname=*/false);
+    // The previous attempt ended because nothing answered. Re-dialling a
+    // remembered address would just repeat it, so resolve the name first —
+    // that picks up an address that moved AND puts an mDNS exchange on the wire.
+    //
+    // NOT consumed here. The flag means "we have not reached the scale since a
+    // transient failure", and only onRecognizedAsHds — proof we are talking to
+    // a real scale — clears it. Clearing it on entry instead made the driver
+    // oscillate: re-resolve, fail, fall back to the cache next cycle, fail,
+    // re-arm, forever, with half the attempts knowingly dialling an address the
+    // previous cycle had just proven unreachable. attemptHostname falls back to
+    // the cached IP when resolution fails, so leaving the flag set still dials
+    // something on every cycle.
+    if (m_retryShouldReresolve) {
+        WIFI_LOG(QString("Previous attempt found %1 unreachable — re-resolving before retry")
+                 .arg(hostname));
+        attemptHostname();
         return;
     }
 
@@ -137,6 +151,24 @@ void DecentScaleWifi::connectToHost(const QString& hostname, const QString& pref
     } else {
         attemptHostname();
     }
+}
+
+bool DecentScaleWifi::dialCachedIpAfterResolveFailure() {
+    // Resolution failed. Before giving the cycle up entirely, fall back to the
+    // cached IP if we hold one: a remembered address that might be stale beats
+    // opening no socket at all, and it is the reason the cache exists — mDNS is
+    // exactly what goes deaf under BLE-coexistence load.
+    //
+    // Without this the re-resolve flag (which stays set until a recognized
+    // connect) would make every subsequent cycle re-resolve, fail, and dial
+    // nothing, so a deaf-mDNS device would never attempt a connection again.
+    const QString cachedIp = m_ipResolver ? m_ipResolver(m_hostname) : QString();
+    if (cachedIp.isEmpty() || cachedIp == m_hostname)
+        return false;
+    WIFI_LOG(QString("Resolution failed — falling back to cached IP %1 for %2")
+             .arg(cachedIp, m_hostname));
+    attemptTarget(cachedIp, /*isHostname=*/false);
+    return true;
 }
 
 void DecentScaleWifi::attemptTarget(const QString& target, bool isHostname) {
@@ -254,8 +286,9 @@ void DecentScaleWifi::attemptHostname() {
                     // the backstop: it retries, recovers a still-booting scale, and
                     // for a genuinely-gone scale emits the FlowScale-fallback notice
                     // that informs the user. (See #1253.)
-                    WIFI_WARN(QString("mDNS resolution failed for %1 — no responder; "
-                                      "not dialing (transient; auto-reconnect will retry)").arg(host));
+                    if (dialCachedIpAfterResolveFailure()) return;
+                    WIFI_WARN(QString("mDNS resolution failed for %1 — no responder and no "
+                                      "cached IP; not dialing (transient; auto-reconnect will retry)").arg(host));
                     m_userInitiatedShutdown = true;  // mark expected; reconnect owned by main.cpp
                 }
             }, Qt::QueuedConnection);
@@ -291,7 +324,8 @@ void DecentScaleWifi::attemptHostname() {
                 // WiFi. Same handling as the Android mDNS-miss branch above: log,
                 // don't dial, don't pop a modal. BLEManager's connection timer
                 // (onScaleConnectionTimeout) is the backstop.
-                WIFI_WARN(QString("QHostInfo resolution failed for %1: %2 — "
+                if (dialCachedIpAfterResolveFailure()) return;
+                WIFI_WARN(QString("QHostInfo resolution failed for %1: %2 — no cached IP; "
                                   "not dialing (transient; auto-reconnect will retry)")
                           .arg(host, info.errorString()));
                 m_userInitiatedShutdown = true;  // mark expected; reconnect owned by main.cpp
@@ -664,25 +698,51 @@ int DecentScaleWifi::encodeButton(int buttonNumber, int pressCode) {
 }
 
 bool DecentScaleWifi::isTransientTransportError(QAbstractSocket::SocketError err) {
+    // Mapping verified against Qt 6.11.1 (qtbase/src/network/socket/
+    // qnativesocketengine_unix.cpp, nativeConnect's errno switch). Re-check on a
+    // Qt upgrade — this classification is only as good as that switch, and the
+    // enum names do NOT tell you which errno values land where.
     switch (err) {
-    // Qt reports EHOSTUNREACH / EHOSTDOWN / ENETUNREACH as NetworkError. This
-    // is the class the WiFi-scale reconnect defect turned on: an ESP32 in WiFi
-    // power-save misses an ARP request, the OS caches a negative route for the
-    // peer, and every connect() then fails in well under a millisecond without
-    // ever binding a local port. Nothing answered, so nothing was learned about
-    // whether the address is still the scale's.
+    // The only class that matters in practice. nativeConnect maps BOTH
+    // EHOSTUNREACH and ENETUNREACH here, and also ETIMEDOUT (a connect that
+    // never got a reply) — so "nothing answered" arrives as NetworkError in all
+    // three shapes. This is the class the reconnect defect turned on: an ESP32
+    // in WiFi power-save misses an ARP request, the OS caches a negative route,
+    // and connect() then fails in well under a millisecond without ever binding
+    // a local port. Nothing answered, so nothing was learned about whether the
+    // address is still the scale's.
+    //
+    // NOTE: EHOSTDOWN is NOT in that switch — it falls through to
+    // UnknownSocketError and is therefore treated as non-transient here. That
+    // is a Qt gap, not a decision of ours; if a platform starts producing it
+    // for a sleeping scale, this is the line to revisit.
     case QAbstractSocket::NetworkError:
-    // A connect that never got a reply. Same reasoning.
+    // Not produced by nativeConnect (ETIMEDOUT becomes NetworkError above), but
+    // reachable from the waitFor* paths. Same reasoning, kept for completeness.
     case QAbstractSocket::SocketTimeoutError:
-    // The NAME didn't resolve, so we never even reached an address. Says
-    // nothing about a cached IP.
-    case QAbstractSocket::HostNotFoundError:
         return true;
     default:
-        // Everything else implies a peer responded somehow — a RST
-        // (ConnectionRefusedError), a rejected upgrade, a protocol error, a
-        // close after connecting. Those ARE evidence about the address and
-        // stay on the evict-and-fall-back path.
+        // Everything else stays on the evict-and-fall-back path.
+        //
+        // HostNotFoundError is deliberately NOT transient, despite "the name
+        // didn't resolve" sounding like nothing answered. It can only reach
+        // onError from a bare-hostname dial — ".local" names are resolved
+        // out-of-band in attemptHostname and never handed to QWebSocket as a
+        // name — and a hostname attempt has m_currentTargetIsHostname set, so
+        // it was already excluded from the cached-IP eviction branch. Marking
+        // it transient therefore protects no cache decision; its only effect
+        // would be to suppress the give-up path that raises the manual
+        // "Add WiFi Scale" failure dialog, leaving a user who typed a bad
+        // hostname with no feedback at all.
+        //
+        // ConnectionRefusedError USUALLY means a host is up and refused the
+        // port — the DHCP-reassignment evidence this branch acts on. It is not
+        // airtight: a firewall REJECT produces it with no host at the address,
+        // Qt also maps EINVAL onto it, and a rebooting ESP32 refuses briefly
+        // before its WebSocket server binds. Eviction self-heals via the
+        // hostname fallback, so a false positive costs one extra resolve —
+        // cheap enough to prefer over the alternative, which is never
+        // correcting a genuinely reassigned address.
         return false;
     }
 }

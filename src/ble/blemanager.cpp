@@ -656,6 +656,14 @@ void BLEManager::setScaleSimulated(bool simulated) {
     }
     qDebug() << "BLEManager: real-scale connects"
              << (simulated ? "blocked (simulated scale active)" : "allowed");
+    // MUST be emitted on BOTH edges. The rising edge stops the connection timer
+    // and drops the physical scale; nothing restarts either of those, so without
+    // a falling-edge signal for main.cpp to hang a re-arm on, switching the
+    // simulated scale back off leaves the real scale stranded until the app is
+    // restarted or the user rescans — with no indication why. This mirrors
+    // disabledChanged, which main.cpp already uses for exactly this purpose on
+    // the R2 reconnect path.
+    emit scaleSimulatedChanged();
 }
 
 bool BLEManager::isScanning() const {
@@ -722,6 +730,17 @@ void BLEManager::connectToScale(const QString& address) {
             // scaleDiscovered here (no QBluetoothDeviceInfo / factory path).
             emit usbConnectRequested();
         } else if (entry.transport == QStringLiteral("wifi")) {
+            // Arm the connection timer, exactly as connectToWifiScale,
+            // switchToWifiPrimary and tryDirectConnectToScale all do. This is
+            // the ONLY backstop on the tap-a-discovered-scale path: the WiFi
+            // driver treats an unreachable host as transient and returns
+            // without retrying, deferring to the app-level ladder — and that
+            // ladder is started by flowScaleFallback / scaleRetryNeeded, both
+            // of which are emitted by onScaleConnectionTimeout. Without the
+            // timer nothing emits either, so a scale that dropped into
+            // power-save between the scan and the tap fails with no retry, no
+            // dialog and no user-visible trace at all.
+            m_scaleConnectionTimer->start();
             // Strip the "wifi:" prefix to get the bare hostname.
             m_pendingWifiHostname = address.mid(QStringLiteral("wifi:").size());
             // Hand along the IP the scan's mDNS discovery already resolved
@@ -2070,7 +2089,7 @@ void BLEManager::ensureWifiDiscovery() {
 }
 
 void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
-    // See switchScale: the DE1 simulator must not gate real scale connects.
+    // See connectToSavedScale: the DE1 simulator must not gate real scale connects.
     // This early-return on m_disabled is why a WiFi scale could never recover
     // on its own in simulator mode — the driver correctly deferred its retry to
     // the app-level reconnect loop, and the loop landed here and gave up.

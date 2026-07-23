@@ -138,6 +138,11 @@ struct ScopedWarningFilter {
 
     QRegularExpression m_pattern;
 
+    // A copy would register nothing but still decrement s_depth on destruction,
+    // uninstalling the handler early and leaving a dangling &m_pattern in
+    // s_filters. Nothing copies one today; this makes sure nothing starts.
+    Q_DISABLE_COPY_MOVE(ScopedWarningFilter)
+
     explicit ScopedWarningFilter(const QString& pattern) : m_pattern(pattern) {
         s_filters.append(&m_pattern);
         if (s_depth++ == 0)
@@ -858,11 +863,19 @@ private slots:
         QCOMPARE(errorSpy.count(), 0);  // dialog path removed
     }
 
-    // When the cached-IP dial fires a fatal transient socket error
-    // (HostNotFoundError, ConnectionRefusedError, NetworkError, SocketTimeoutError),
-    // the driver must NOT sit on the 5 s recognition timer waiting for it to
-    // expire — the kernel just told us the cached IP is dead, so the hostname
-    // fallback should run immediately. The user-visible symptom this prevents
+    // When the cached-IP dial is REFUSED (ConnectionRefusedError — a peer
+    // answered and rejected the port), the driver must NOT sit on the 5 s
+    // recognition timer waiting for it to expire — that is evidence the address
+    // was reassigned, so the hostname fallback should run immediately.
+    //
+    // NOTE: this comment used to list HostNotFoundError, NetworkError and
+    // SocketTimeoutError here too, calling them all "transient". Those three
+    // now mean the OPPOSITE — see isTransientTransportError() and
+    // transportErrorClassification(). Nothing answered in those cases, so the
+    // cached IP is retained and the retry is deferred rather than run
+    // immediately. Only ConnectionRefusedError still belongs in this test.
+    //
+    // The user-visible symptom this prevents
     // is on macOS cold start: ARP/route stale at .242 → cached-IP connect
     // fast-fails → without this fix we wait 5 s, during which BLE-fallback
     // also fails (CoreBluetooth radio not powered on yet), tripping a
@@ -1077,24 +1090,38 @@ private slots:
     // Transient vs wrong-host failure classification
     // ==========================================
 
-    // The classifier is the whole fix in one function, so pin every value
-    // rather than the two an OS will produce on demand. The question it
-    // answers is "did ANY peer answer", not "did the attempt fail".
+    // The classifier is the whole fix in one function, so pin the values it
+    // reasons about explicitly plus representatives of the default bucket. It
+    // does NOT cover all 24 SocketError enumerators — the untested ones all
+    // fall through to non-transient by design. The question it answers is
+    // "did ANY peer answer", not "did the attempt fail".
     //
-    // ConnectionRefusedError sitting on the wrong-host side is the
-    // counter-intuitive entry and the one most likely to be "corrected" by a
-    // future reader: a TCP RST proves a host is up at that address and refused
-    // the port, which is exactly the DHCP-reassignment evidence the hostname
-    // fallback exists to act on. The two tests above
-    // (cachedIpFailureEvictsCacheBeforeFallback / cachedIpFastFailsToHostnameFallback)
-    // depend on it, and would fail if it moved.
+    // TWO entries are counter-intuitive and are the ones a future reader is
+    // most likely to "correct". Both are deliberate:
+    //
+    //   ConnectionRefusedError -> NOT transient. A TCP RST usually means a host
+    //     is up and refused the port: the DHCP-reassignment evidence the
+    //     hostname fallback acts on. cachedIpFailureEvictsCacheBeforeFallback
+    //     and cachedIpFastFailsToHostnameFallback both depend on this and would
+    //     fail if it moved.
+    //
+    //   HostNotFoundError -> NOT transient, despite "the name didn't resolve"
+    //     sounding like nothing answered. It can only reach onError from a bare
+    //     hostname dial, and a hostname attempt was already excluded from the
+    //     cached-IP eviction branch — so classifying it transient protects no
+    //     cache decision. Its only effect would be to suppress the give-up path
+    //     that raises the manual "Add WiFi Scale" failure dialog, leaving a user
+    //     who typed a bad hostname with no feedback at all.
     void transportErrorClassification() {
         // Nothing answered — carries no evidence about who owns the address.
+        // NetworkError is the load-bearing one: Qt maps EHOSTUNREACH,
+        // ENETUNREACH and ETIMEDOUT all onto it.
         QVERIFY(DecentScaleWifi::isTransientTransportError(QAbstractSocket::NetworkError));
         QVERIFY(DecentScaleWifi::isTransientTransportError(QAbstractSocket::SocketTimeoutError));
-        QVERIFY(DecentScaleWifi::isTransientTransportError(QAbstractSocket::HostNotFoundError));
 
-        // Something answered — evidence the address is no longer the scale's.
+        // Something answered, or the failure says nothing useful about the
+        // cached IP — either way, not transient.
+        QVERIFY(!DecentScaleWifi::isTransientTransportError(QAbstractSocket::HostNotFoundError));
         QVERIFY(!DecentScaleWifi::isTransientTransportError(QAbstractSocket::ConnectionRefusedError));
         QVERIFY(!DecentScaleWifi::isTransientTransportError(QAbstractSocket::RemoteHostClosedError));
         QVERIFY(!DecentScaleWifi::isTransientTransportError(QAbstractSocket::UnknownSocketError));
@@ -1106,15 +1133,25 @@ private slots:
     // A cached IP that is unreachable at the network layer must NOT be evicted:
     // nothing answered, so nothing was learned about whether the address is
     // still the scale's. Previously any error evicted the cache and immediately
-    // re-dialed the hostname ~45 ms later — inside the same unreachability
-    // window — which failed identically, consumed the fallback, and left a
+    // re-dialed the hostname within the same event-loop turn — inside the same
+    // unreachability window — which failed identically, consumed the fallback, and left a
     // healthy scale disconnected until the user manually rescanned.
     //
-    // 0.0.0.1 is the test's unreachable address: the OS rejects it at the
-    // routing layer in well under a millisecond with EHOSTUNREACH, which Qt
-    // surfaces as NetworkError — the same code and the same sub-millisecond
-    // timing as the production failure. No listener and no network access
-    // needed, so it cannot flake on a sandboxed or offline runner.
+    // 0.0.0.1 is the test's unreachable address. VERIFIED ON macOS ONLY: the
+    // kernel rejects it at the routing layer in ~0.15 ms with EHOSTUNREACH,
+    // which qnativesocketengine_unix.cpp maps to NetworkError — the same code
+    // and the same sub-millisecond timing as the production failure, with no
+    // listener and no network access needed.
+    //
+    // It is NOT known to behave that way everywhere. Linux rejects zeronet
+    // destinations in __mkroute_output() with EINVAL, and Qt maps EINVAL to
+    // ConnectionRefusedError — which this change deliberately classifies as
+    // NON-transient. So on Linux this address may well exercise the opposite
+    // branch. Rather than assert a cache outcome that would then fail for a
+    // reason unrelated to the behaviour under test, each of these tests checks
+    // the precondition first and skips with an explanation. The classification
+    // itself is covered on every platform by transportErrorClassification(),
+    // which needs no socket at all.
     void transientTransportErrorRetainsCachedIp() {
         // DECLARED FIRST, before `driver`, so it outlives it: locals are
         // destroyed in reverse order, and ~DecentScaleWifi emits transport
@@ -1125,16 +1162,32 @@ private slots:
         // is an implementation detail of the attempt (and of Qt's socket
         // signalling), and the test is about the cache, not the log volume.
         ScopedWarningFilter wsErrors{QStringLiteral("WebSocket error")};
+        // cacheWrites is declared before `driver` for the same reason the filter
+        // is: the driver holds a callback capturing it by reference, and that
+        // callback is reachable from ~DecentScaleWifi. Declared after, it would
+        // be destroyed first and the callback would write to a dead QList —
+        // a use-after-free this suite runs ASan over.
+        QList<QPair<QString, QString>> cacheWrites;
         DecentScaleWifi driver;
         driver.setIpResolver([](const QString&) {
-            return QStringLiteral("0.0.0.1:80");  // instant EHOSTUNREACH
+            return QStringLiteral("0.0.0.1:80");  // instant EHOSTUNREACH (macOS)
         });
-        QList<QPair<QString, QString>> cacheWrites;
         driver.setIpCacheUpdate([&](const QString& host, const QString& ip) {
             cacheWrites.append({host, ip});
         });
 
         driver.connectToHost(QStringLiteral("hds.invalid"));
+
+        // Precondition, not an assertion: confirm this platform actually
+        // produced a transient (NetworkError) failure for the unreachable
+        // address. m_retryShouldReresolve is set only by onError's transient
+        // branch, so it is the cheapest available proof of which branch ran.
+        QTest::qWait(600);
+        if (!driver.m_retryShouldReresolve) {
+            QSKIP("connect() to 0.0.0.1:80 did not yield a transient NetworkError on "
+                  "this platform (Linux maps zeronet to EINVAL -> ConnectionRefusedError). "
+                  "Classification is covered by transportErrorClassification().");
+        }
 
         // Waits past the 5 s recognition window on purpose. A 600 ms wait here
         // passes even with the bug this guards against: onError correctly
@@ -1160,6 +1213,10 @@ private slots:
     //
     // Waits past the 5 s recognition window: if the transient path still armed
     // or left the recognition timer running, the give-up branch fires inside it.
+    // (Note that only transientTransportErrorRetainsCachedIp actually pins the
+    // timer ORDERING — with the ordering reverted, the 5 s timeout here lands in
+    // the cached-IP fallback branch, which does not emit recognitionFailed. This
+    // test's long wait guards the onError branch, not attemptTarget's ordering.)
     void transientTransportErrorDoesNotEmitRecognitionFailed() {
         ScopedWarningFilter wsErrors{QStringLiteral("WebSocket error")};  // before `driver`
         DecentScaleWifi driver;
@@ -1170,7 +1227,12 @@ private slots:
 
         driver.connectToHost(QStringLiteral("hds.invalid"));
 
-        QTest::qWait(6000);
+        QTest::qWait(600);
+        if (!driver.m_retryShouldReresolve)
+            QSKIP("0.0.0.1:80 did not yield a transient NetworkError here — see "
+                  "transientTransportErrorRetainsCachedIp for why this is skipped.");
+
+        QTest::qWait(5400);
         QCOMPARE(failedSpy.count(), 0);
     }
 
@@ -1198,6 +1260,9 @@ private slots:
         driver.connectToHost(hostnameServer.host());
         QTest::qWait(600);
         QCOMPARE(resolverCalls, 1);
+        if (!driver.m_retryShouldReresolve)
+            QSKIP("0.0.0.1:80 did not yield a transient NetworkError here — see "
+                  "transientTransportErrorRetainsCachedIp for why this is skipped.");
 
         // Second attempt — what main.cpp's scaleReconnectTimer would fire.
         // It must skip the cache entirely; if it consulted the resolver it
@@ -1205,10 +1270,13 @@ private slots:
         QSignalSpy connectedSpy(&hostnameServer, &FakeHdsServer::clientConnected);
         driver.connectToHost(hostnameServer.host());
 
+        // NOTE: connectedSpy.wait() is NOT the assertion that catches a revert.
+        // Without the re-resolve shortcut the old eviction path queues
+        // attemptHostname(), which reaches this same live server — so the
+        // handshake still succeeds. resolverCalls below is what actually pins it.
         QVERIFY2(connectedSpy.wait(2000),
-                 "Retry after a transient failure must re-resolve and reach the "
-                 "hostname, not re-dial the cached IP that just failed");
-        QCOMPARE(resolverCalls, 1);  // cache deliberately not consulted
+                 "Retry after a transient failure must reach the hostname server");
+        QCOMPARE(resolverCalls, 1);  // cache deliberately not consulted — the real check
         QTRY_VERIFY_WITH_TIMEOUT(hostnameServer.received().size() >= 4, 2000);
     }
 
@@ -1232,6 +1300,9 @@ private slots:
         driver.connectToHost(server.host());
         QTest::qWait(600);
         QCOMPARE(resolverCalls, 1);
+        if (!driver.m_retryShouldReresolve)
+            QSKIP("0.0.0.1:80 did not yield a transient NetworkError here — see "
+                  "transientTransportErrorRetainsCachedIp for why this is skipped.");
 
         // 2. Retry re-resolves, connects, and is recognized as a real HDS —
         //    which clears the obligation.

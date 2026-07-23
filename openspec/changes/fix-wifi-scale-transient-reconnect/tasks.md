@@ -35,7 +35,7 @@
 - [x] 5.2 Fix any pre-existing warnings or failures surfaced in the files touched, rather than excusing them as unrelated
 - [x] 5.3 Confirm no wiki manual change is needed; the manual already describes automatic reconnect, which this change makes true. Add a wiki task here if implementation reveals otherwise
 - [x] 5.4 Open a PR (do not push to `main`)
-- [ ] 5.5 Run the automated `/pr-review-toolkit:review-pr` on the PR and address findings
+- [x] 5.5 Run the automated `/pr-review-toolkit:review-pr` on the PR and address findings
 - [ ] 5.6 Archive the change with spec sync as the final commit on the same PR
 
 ## 6. Recognition-timer ordering (found during implementation)
@@ -52,3 +52,19 @@
 - [x] 7.3 Stop `setDisabled()` from tearing down a connected physical scale; move that to `setScaleSimulated()`
 - [x] 7.4 Wire `setScaleSimulated` from `simulatedScaleEnabled` in `main.cpp`, including the change signal
 - [ ] 7.5 Add regression coverage for the gate split (no BLEManager test target exists yet — decide whether to add one or accept manual verification per the QML/manual-testing convention)
+
+## 8. Review findings (from /pr-review-toolkit:review-pr)
+
+- [x] 8.1 CRITICAL: gate `setScaleSimulated` on `simulationMode() && simulatedScaleEnabled()`. Reading the latter alone blocked every real scale on debug iOS/Android/Linux — it defaults to true, while the SimulatedScale object only exists under simulation mode, and the Settings row is hidden in exactly that state
+- [x] 8.2 CRITICAL: arm `m_scaleConnectionTimer` in `connectToScale`'s WiFi branch. Without it, tapping a discovered scale that just went unreachable dead-ended forever — no retry, no dialog. The pre-PR immediate fallback had been the only thing covering that path
+- [x] 8.3 CRITICAL: `0.0.0.1` is not portable — Linux maps zeronet to EINVAL and Qt maps EINVAL to ConnectionRefusedError, so three tests would have failed the tag-push Linux job. Tests now check the precondition and QSKIP with an explanation
+- [x] 8.4 HIGH: remove `HostNotFoundError` from the transient set — it only arrives from a hostname dial, which was already excluded from eviction, so the classification protected nothing and only suppressed the manual-add failure dialog
+- [x] 8.5 HIGH: emit `scaleSimulatedChanged` on both edges and re-arm the reconnect ladder on the falling edge; otherwise switching the simulated scale off stranded the real scale until restart
+- [x] 8.6 HIGH: `preferredIp` now outranks the re-resolve flag — it is strictly fresher, and discarding it could produce an attempt that opened no socket at all
+- [x] 8.7 MEDIUM: stop consuming the re-resolve flag before a resolve succeeds; add `dialCachedIpAfterResolveFailure()` so a deaf-mDNS device dials something every cycle instead of oscillating
+- [x] 8.8 MEDIUM: declare `cacheWrites` before `driver` — the driver holds a callback capturing it, reachable from its destructor (ASan use-after-free)
+- [x] 8.9 LOW: `Q_DISABLE_COPY_MOVE` on ScopedWarningFilter; `switchScale` -> `connectToSavedScale` (no such symbol existed); drop the wrong "seven sites" count; rewrite the test docstring that now taught the inverse rule; drop the unfalsifiable "45 ms"
+- [x] 8.10 LOW: `maincontroller.cpp` pre-shot scale-missing abort gated on `isScaleSimulated()` rather than `isDisabled()` — same DE1/scale conflation this change exists to end
+- [x] 8.11 Correct two comment claims that the Qt source disproved: EHOSTDOWN is NOT mapped to NetworkError (falls through to UnknownSocketError), and ETIMEDOUT maps to NetworkError rather than SocketTimeoutError
+- [ ] 8.12 Verify the behavioural tests on Linux — they now skip rather than fail if the platform disagrees, but the skip has not been observed
+- [ ] 8.13 Still no regression coverage for the simulator-gate split (was 7.5); findings 8.1/8.2/8.5 were all found by reading, not by tests

@@ -165,6 +165,11 @@ private:
     // even where an explicit QHostInfo lookup for the same name succeeds
     // quickly. A non-".local" name dials directly with no resolution step.
     void attemptHostname();
+    // Last resort when hostname resolution fails: dial the cached IP if we hold
+    // one. Returns true if an attempt was started. Keeps a deaf-mDNS device
+    // dialling something every cycle instead of nothing — see the call sites in
+    // attemptHostname and the note on m_retryShouldReresolve.
+    bool dialCachedIpAfterResolveFailure();
     // First snapshot or status frame — confirms we're talking to the HDS.
     void onRecognizedAsHds();
 
@@ -177,22 +182,21 @@ private:
     // the attempt fail" — those are different questions and conflating them is
     // what made a briefly-unreachable scale look like a wrong cached IP.
     //
-    //   nothing answered  -> transient. Says nothing about who owns the IP.
-    //                        NetworkError is Qt's bucket for EHOSTUNREACH /
-    //                        EHOSTDOWN / ENETUNREACH; SocketTimeoutError is a
-    //                        connect that never got a reply; HostNotFoundError
-    //                        is a name that didn't resolve.
-    //   something answered -> NOT transient, handled by the caller as evidence
-    //                        the address was reassigned. ConnectionRefusedError
-    //                        belongs here on purpose: a TCP RST proves a host is
-    //                        up at that address and refused the port, which is
-    //                        exactly the DHCP-reassignment case the hostname
-    //                        fallback exists for.
+    //   nothing answered  -> transient. Says nothing about who owns the IP, so
+    //                        the cached IP is kept and the retry is left to the
+    //                        app-level reconnect loop.
+    //   something answered -> NOT transient. Evidence the address was
+    //                        reassigned; the caller evicts and falls back.
+    //
+    // The .cpp carries the per-value reasoning and the Qt source references —
+    // read it before adding or moving a case. Two entries are counter-intuitive
+    // and are explained there: ConnectionRefusedError is NOT transient, and
+    // HostNotFoundError is NOT transient.
     //
     // Deliberately ignores the error *string*: only the enum is stable across
     // Qt versions and locales. onError logs errorString() next to the enum so a
-    // support log can still separate the errno values Qt collapses onto
-    // NetworkError.
+    // support log can still separate the errno values Qt collapses onto one
+    // enumerator.
     static bool isTransientTransportError(QAbstractSocket::SocketError err);
 
     static constexpr int kRecognitionTimeoutMs = 5000;
@@ -250,15 +254,21 @@ private:
     QString m_lastPowerEventReason;
     int m_lastPowerEventCode = -1;
     // Set on intentional shutdown paths so onDisconnected logs the close as
-    // expected and skips noisy follow-up handling. Seven sites set this to
-    // true: disconnectFromScale (user close), handlePowerFrame (scale told
-    // us it's powering down), attemptHostname (Android mDNS resolution found
-    // no responder), onRecognitionTimeout fallback branch (cached IP didn't
-    // validate → switching to hostname), onRecognitionTimeout give-up branch
-    // (hostname also failed), onError 503 early-return (server-busy), and
-    // onError cached-IP-eviction branch (a peer-answered non-503 error on a
-    // cached-IP attempt → evict the cached IP and fall back to hostname; see
-    // #1281).
+    // expected and skips noisy follow-up handling. Set at:
+    //   - disconnectFromScale (user close)
+    //   - handlePowerFrame (scale told us it's powering down)
+    //   - attemptHostname, BOTH resolution-failure branches (the Android mDNS
+    //     one and the QHostInfo one that runs everywhere else)
+    //   - onRecognitionTimeout fallback branch (cached IP didn't validate →
+    //     switching to hostname)
+    //   - onRecognitionTimeout give-up branch (hostname also failed)
+    //   - onError 503 early-return (server-busy)
+    //   - onError cached-IP-eviction branch (a peer-answered non-503 error on a
+    //     cached-IP attempt → evict the cached IP and fall back to hostname;
+    //     see #1281)
+    // Deliberately not carrying a count: it has been wrong twice, and the list
+    // is the part with any value. `grep -n "m_userInitiatedShutdown = true"` is
+    // the authority.
     //
     // NOT set by onError's transient-transport branch: nothing answered there,
     // which is a genuine abnormal drop, so onDisconnected must keep logging it
