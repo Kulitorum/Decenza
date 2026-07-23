@@ -3050,11 +3050,11 @@ Page {
                                         // — because the wizard edits an arbitrarily selected
                                         // profile, not ProfileManager's m_currentProfile;
                                         // fProfileStepTemps carries the picked profile's
-                                        // frames. baselineShift == fTempDeltaC shifts every
-                                        // frame to the eventual value (at most two temps:
-                                        // "94°C", "80 · 94°C", or "80…96°C"); the same delta
-                                        // feeds the signed tag. Reads identically to the
-                                        // brew-settings Temp Delta readout.
+                                        // frames. The last arg (baselineShift == fTempDeltaC)
+                                        // shifts every frame to the eventual value (at most
+                                        // two temps: "94°C", "80 · 94°C", or "80…96°C"). The
+                                        // hasOverride arg is false: it would append a signed
+                                        // "-2°" tag that just repeats the stepper right below.
                                         Text {
                                             visible: wizardPage.fProfileTempC > 0
                                             Layout.fillWidth: true
@@ -3066,8 +3066,8 @@ Page {
                                                 return "→ " + ProfileManager.temperatureDisplayForSteps(
                                                     wizardPage.fProfileStepTemps,
                                                     wizardPage.fProfileTempC,
-                                                    Math.abs(wizardPage.fTempDeltaC) > 0.05,
-                                                    wizardPage.fProfileTempC + wizardPage.fTempDeltaC,
+                                                    false,
+                                                    wizardPage.fProfileTempC,
                                                     wizardPage.fTempDeltaC)
                                             }
                                             font.family: Theme.bodyFont.family
