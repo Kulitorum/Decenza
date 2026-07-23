@@ -18,6 +18,7 @@
 #include "webtemplates/grind_datalist_js.h"
 #include "../core/yieldspec.h"
 #include "../history/coffeebagstorage.h"
+#include "../profile/profile.h"  // profileJsonToDouble — tolerant string/number parse
 #include "../history/recipepromotion.h"
 #include "../history/recipestorage.h"
 #include "../history/shothistorystorage.h"
@@ -89,8 +90,13 @@ QJsonObject webRecipeJson(const Recipe& r, int activeRecipeId, QSqlDatabase* db,
     // snapshot; omitted when the profile temp can't be resolved.
     double baseTempC = 0.0;
     if (!r.profileJson.isEmpty())
-        baseTempC = QJsonDocument::fromJson(r.profileJson.toUtf8())
-                        .object().value(QStringLiteral("espresso_temperature")).toDouble();
+        // Tolerant parse: Visualizer/de1app-format profile JSON stores
+        // espresso_temperature as a STRING — a raw toDouble() yields 0 and
+        // silently defeats this fallback (the same helper the storage/promotion
+        // readers use). This branch exists for uninstalled/renamed profiles,
+        // which then miss the installed-catalog snapshot below.
+        baseTempC = profileJsonToDouble(QJsonDocument::fromJson(r.profileJson.toUtf8())
+                        .object().value(QStringLiteral("espresso_temperature")));
     if (baseTempC <= 0.0)
         baseTempC = baseTempByTitle.value(r.profileTitle.trimmed().toLower(), 0.0);
     if (baseTempC > 0.0)
