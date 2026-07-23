@@ -682,6 +682,7 @@ QString ShotServer::generateRecipesPage() const
             <option value="americano">Americano</option>
             <option value="long_black">Long black</option>
             <option value="latte">Latte / Cappuccino</option>
+            <option value="latte_hotwater">Latte + Water</option>
             <option value="tea">Tea (portafilter)</option>
             <option value="tea_hotwater">Tea (hot water)</option>
         </select>
@@ -756,7 +757,8 @@ QString ShotServer::generateRecipesPage() const
 
         const DRINK_LABELS = {
             espresso: 'Espresso', filter: 'Filter', americano: 'Americano',
-            long_black: 'Long black', latte: 'Latte', tea: 'Tea', tea_hotwater: 'Tea',
+            long_black: 'Long black', latte: 'Latte', latte_hotwater: 'Latte + Water',
+            tea: 'Tea', tea_hotwater: 'Tea',
         };
         const drinkLabel = (t) => DRINK_LABELS[t] || (t ? t.replace('_', ' ') : '');
         const isTeaType = (t) => t === 'tea' || t === 'tea_hotwater';

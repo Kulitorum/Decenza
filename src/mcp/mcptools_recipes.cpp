@@ -429,7 +429,7 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                                     "for a hot-water-only recipe (hotWater.hasWater true)"}}},
                 {"drinkType", QJsonObject{{"type", "string"},
                     {"enum", QJsonArray{"espresso", "filter", "americano", "long_black",
-                                        "latte", "tea", "tea_hotwater"}},
+                                        "latte", "latte_hotwater", "tea", "tea_hotwater"}},
                     {"description", "The drink this recipe makes (user intent; presentation "
                                     "only — machine behavior follows the blocks). Derived "
                                     "from the blocks when omitted"}}},
@@ -494,7 +494,7 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
             const QString requestedType = fields.value("drinkType").toString();
             if (!requestedType.isEmpty() && !Recipe::isKnownDrinkType(requestedType)) {
                 respond(QJsonObject{{"error", QString("Unknown drinkType '%1' — one of espresso, "
-                    "filter, americano, long_black, latte, tea, tea_hotwater").arg(requestedType)}});
+                    "filter, americano, long_black, latte, latte_hotwater, tea, tea_hotwater").arg(requestedType)}});
                 return;
             }
             if (!Recipe::saveValidationPasses(fields.value("name").toString(),
@@ -558,7 +558,7 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                 {"profileTitle", QJsonObject{{"type", "string"}}},
                 {"drinkType", QJsonObject{{"type", "string"},
                     {"enum", QJsonArray{"espresso", "filter", "americano", "long_black",
-                                        "latte", "tea", "tea_hotwater"}}}},
+                                        "latte", "latte_hotwater", "tea", "tea_hotwater"}}}},
                 {"bagId", QJsonObject{{"type", "integer"},
                     {"description", "Re-point the recipe at this coffee bag (from bag_list)"}}},
                 {"beanBaseId", QJsonObject{{"type", "string"}}},
@@ -610,7 +610,7 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
             const QString requestedType = fields.value("drinkType").toString();
             if (!requestedType.isEmpty() && !Recipe::isKnownDrinkType(requestedType)) {
                 respond(QJsonObject{{"error", QString("Unknown drinkType '%1' — one of espresso, "
-                    "filter, americano, long_black, latte, tea, tea_hotwater").arg(requestedType)}});
+                    "filter, americano, long_black, latte, latte_hotwater, tea, tea_hotwater").arg(requestedType)}});
                 return;
             }
             // Installed profiles embed no JSON: resolve the new title's
