@@ -78,6 +78,16 @@ Dialog {
     property bool _rpmTouched: false
     property int _rpmSnapIndex: -1
 
+    // True when the dialog auto-entered text mode purely because the grind wheel
+    // had nothing to spin at open. This is ambiguous at open time: it means
+    // EITHER the grinder genuinely has no numeric history (stay in text mode) OR
+    // the async distinct-settings cache was still cold (a median-anchored wide
+    // wheel exists, we just couldn't see it yet). The cache warm-up handler
+    // resolves it — if rows appear, promote text -> wheel (never the reverse).
+    // Cleared once the user engages text mode themselves (toggle or typing), so
+    // a late warm-up never yanks the keyboard from someone using it.
+    property bool _autoTextPendingHistory: false
+
     // True while the RPM wheel is parked on the SYNTHETIC anchor with nothing
     // committed — i.e. exactly when Done will NOT write an RPM. The centred row
     // is styled as a placeholder in that state: the accent styling means "this
@@ -119,6 +129,16 @@ Dialog {
             if (!root.opened)
                 return   // next open rebuilds anyway
             root._rebuildRows()
+            // Cold-cache first open fell into text mode with an empty wheel; now
+            // that history warmed and a wheel exists, promote to it (#1605).
+            // text -> wheel ONLY, and only while the user hasn't taken over text
+            // mode themselves, so an actively-typing user is never yanked out.
+            if (root._autoTextPendingHistory && root.textMode
+                    && root._grindRows.length >= 2) {
+                root.textMode = false
+                Qt.inputMethod.hide()
+            }
+            root._autoTextPendingHistory = false   // resolved either way
             if (!root.textMode)
                 Qt.callLater(root._centerWheels)
         }
@@ -230,6 +250,9 @@ Dialog {
         // toggle. This replaces the old "set a grind value in Brew Settings
         // first" dead end — the empty state IS the on-ramp now.
         root.textMode = root._grindRows.length < 2
+        // Remember an auto text-mode entry so a later async history warm-up can
+        // promote it to the wheel (cold-cache first open — see _cacheConn).
+        root._autoTextPendingHistory = root.textMode
         grindText.text = root._pendingGrind
         rpmText.text = root._pendingRpm
         if (!root.textMode)
@@ -245,6 +268,9 @@ Dialog {
     // The header toggle. The icon names the DESTINATION, so switching is
     // self-describing in both directions.
     function _toggleMode() {
+        // The user is driving the mode now — a late history warm-up must not
+        // override their choice by promoting text -> wheel underneath them.
+        root._autoTextPendingHistory = false
         if (root.textMode) {
             // Text -> wheels: adopt the typed values as pending; the wheels
             // re-seed centred on them. Commit the IME's in-progress word first
@@ -495,6 +521,9 @@ Dialog {
                     Layout.fillWidth: true
                     horizontalAlignment: TextInput.AlignHCenter
                     accessibleName: TranslationManager.translate("grind.quickSelect.label", "Grind")
+                    // Typing is engaging text mode — a late warm-up must not
+                    // promote to the wheel and hide the keyboard mid-entry.
+                    onTextEdited: root._autoTextPendingHistory = false
                     Keys.onReturnPressed: root._applyAndClose()
                     Keys.onEnterPressed: root._applyAndClose()
                 }
