@@ -227,6 +227,12 @@ public:
     // thread, pass by value — ProfileManager itself is main-thread-only.
     QString beverageTypeForTitle(const QString& profileTitle) const;
     QHash<QString, QString> beverageTypeByTitleSnapshot() const;
+    // Installed-catalog lookup: profile title (trimmed, lower-cased) → base
+    // espresso_temperature (°C). Read-only web/MCP recipe surfaces fold this
+    // with the recipe's stored offset to show the RESULTING brew temperature
+    // (a recipe carries only the offset). Same snapshot-on-main-thread contract
+    // as beverageTypeByTitleSnapshot for background-thread closures.
+    QHash<QString, double> espressoTempByTitleSnapshot() const;
 
     // === Read-only protection ===
     Q_INVOKABLE bool isCurrentProfileReadOnly() const;
