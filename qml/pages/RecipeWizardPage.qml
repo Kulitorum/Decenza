@@ -2185,11 +2185,17 @@ Page {
                         Layout.alignment: Qt.AlignVCenter
                         sourceComponent: summaryRow.headerActions
                     }
-                    ColoredIcon {
+                    // Decorative edit glyph. Must be mouse-transparent: the
+                    // card's tap target sits at z:-1 (so header-action buttons
+                    // win), so a click-absorbing ColoredIcon here would swallow
+                    // taps that land on the pencil and never open the step —
+                    // the whole card was tappable EXCEPT the pencil (#1606).
+                    // ThemedIcon draws the tinted SVG without grabbing clicks,
+                    // so a tap on the pencil falls through to the card handler.
+                    ThemedIcon {
                         source: "qrc:/icons/edit.svg"
-                        iconWidth: Theme.scaled(16)
-                        iconHeight: Theme.scaled(16)
-                        iconColor: Theme.textSecondaryColor
+                        iconSize: Theme.scaled(16)
+                        color: Theme.textSecondaryColor
                         Accessible.ignored: true
                     }
                 }
