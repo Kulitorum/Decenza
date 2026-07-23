@@ -19,6 +19,7 @@ QtObject {
         case "americano": return TranslationManager.translate("recipes.type.short.americano", "Americano")
         case "long_black": return TranslationManager.translate("recipes.type.short.longBlack", "Long black")
         case "latte": return TranslationManager.translate("recipes.type.short.latte", "Latte")
+        case "latte_hotwater": return TranslationManager.translate("recipes.type.short.latteHotWater", "Latte + Water")
         case "tea": return TranslationManager.translate("recipes.type.short.tea", "Tea")
         case "tea_hotwater": return TranslationManager.translate("recipes.type.short.tea", "Tea")
         }
@@ -32,6 +33,7 @@ QtObject {
         case "americano": return TranslationManager.translate("recipes.wizard.type.americano", "Americano")
         case "long_black": return TranslationManager.translate("recipes.wizard.type.longBlack", "Long black")
         case "latte": return TranslationManager.translate("recipes.wizard.type.latte", "Latte / Cappuccino")
+        case "latte_hotwater": return TranslationManager.translate("recipes.wizard.type.latteHotWater", "Latte + Hot Water")
         case "tea": return TranslationManager.translate("recipes.wizard.type.tea", "Tea")
         case "tea_hotwater": return TranslationManager.translate("recipes.wizard.type.teaHotWater", "Tea (hot water)")
         }
@@ -42,10 +44,20 @@ QtObject {
         switch (t) {
         case "filter": return "qrc:/icons/filter.svg"
         case "americano": case "long_black": return "qrc:/icons/water.svg"
-        case "latte": return "qrc:/icons/steam.svg"
+        case "latte": case "latte_hotwater": return "qrc:/icons/steam.svg"
         case "tea": case "tea_hotwater": return "qrc:/icons/tea.svg"
         }
         return "qrc:/icons/espresso.svg"
+    }
+
+    // Icon set for surfaces that can show more than one glyph (the wizard's
+    // drink-type picker). Latte + Water is the milk drink WITH added hot water,
+    // so it carries both the steam and water glyphs; every other type is a
+    // single-element list matching icon().
+    function icons(t) {
+        if (t === "latte_hotwater")
+            return ["qrc:/icons/steam.svg", "qrc:/icons/water.svg"]
+        return [icon(t)]
     }
 
     // Cheap block-derived fallback for legacy rows without a stored
@@ -71,6 +83,8 @@ QtObject {
         } catch (e) { console.warn("DrinkType: bad hot-water JSON on recipe", (r && r.name) || "?", e) }
         if ((!r || !r.profileTitle || String(r.profileTitle).trim() === "") && water)
             return "tea_hotwater"
+        if (milk && water)
+            return "latte_hotwater"
         if (milk)
             return "latte"
         if (water)

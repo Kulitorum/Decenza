@@ -51,9 +51,10 @@ struct Recipe {
     QString profileJson;   // fallback when the titled profile is not installed
 
     // Drink type (add-recipe-wizard-tea): user intent recorded by the wizard —
-    // "espresso" | "filter" | "americano" | "long_black" | "latte" | "tea" |
-    // "tea_hotwater". Presentation only: activation and machine behavior read
-    // the blocks, never this. Empty (legacy rows) = derive via deriveDrinkType.
+    // "espresso" | "filter" | "americano" | "long_black" | "latte" |
+    // "latte_hotwater" | "tea" | "tea_hotwater". Presentation only: activation
+    // and machine behavior read the blocks, never this. Empty (legacy rows) =
+    // derive via deriveDrinkType.
     QString drinkType;
 
     // Bag link (recipes-bag-links-ui-polish): the SPECIFIC bag this recipe
@@ -131,8 +132,8 @@ struct Recipe {
         static const QStringList kDrinkTypes = {
             QStringLiteral("espresso"), QStringLiteral("filter"),
             QStringLiteral("americano"), QStringLiteral("long_black"),
-            QStringLiteral("latte"), QStringLiteral("tea"),
-            QStringLiteral("tea_hotwater")};
+            QStringLiteral("latte"), QStringLiteral("latte_hotwater"),
+            QStringLiteral("tea"), QStringLiteral("tea_hotwater")};
         return kDrinkTypes.contains(drinkType);
     }
 
@@ -149,9 +150,9 @@ struct Recipe {
     // (caller resolves it; pass empty when the profile is unknown). Used for
     // legacy rows without a stored drinkType and for promote-from-shot.
     // Precedence: profile-less + hot water → tea_hotwater; tea_portafilter →
-    // tea; milk → latte (milk wins over added water: a flat-white-plus-splash
-    // is still a milk drink); hot water by order → americano/long_black;
-    // filter/pourover → filter; else espresso.
+    // tea; milk AND hot water → latte_hotwater (a latte with an added water
+    // pour); milk alone → latte; hot water alone by order →
+    // americano/long_black; filter/pourover → filter; else espresso.
     static QString deriveDrinkType(const Recipe& recipe, const QString& profileBeverageType);
 };
 

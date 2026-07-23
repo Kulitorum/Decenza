@@ -194,6 +194,8 @@ Page {
                         milk: false, water: true, waterOrder: "before", grind: true, isTea: false },
         latte:        { beverages: ["espresso", ""], bagKind: "coffee",
                         milk: true, water: false, grind: true, isTea: false },
+        latte_hotwater: { beverages: ["espresso", ""], bagKind: "coffee",
+                        milk: true, water: true, waterOrder: "before", grind: true, isTea: false },
         tea:          { beverages: ["tea_portafilter"], bagKind: "tea",
                         milk: false, water: false, grind: false, isTea: true },
         tea_hotwater: { beverages: [], bagKind: "tea",
@@ -208,6 +210,7 @@ Page {
     // ("Latte / Cappuccino"); everything downstream uses the short ones.
     function drinkTypeLabel(t) { return DrinkType.longLabel(t) }
     function drinkTypeIcon(t) { return DrinkType.icon(t) }
+    function drinkTypeIcons(t) { return DrinkType.icons(t) }
 
     // --- form state (same vocabulary as the old composer) ------------------
     property string fDrinkType: ""
@@ -573,6 +576,7 @@ Page {
         }
         if (fProfileTitle === "" && fHasWater) return "tea_hotwater"
         if (bev === "tea_portafilter") return "tea"
+        if (fHasMilk && fHasWater) return "latte_hotwater"
         if (fHasMilk) return "latte"
         if (fHasWater) return fWaterOrder === "before" ? "long_black" : "americano"
         if (bev === "filter" || bev === "pourover") return "filter"
@@ -2306,7 +2310,7 @@ Page {
                         Layout.fillWidth: true
                         spacing: Theme.spacingMedium
                         Repeater {
-                            model: ["espresso", "latte", "filter", "americano", "long_black", "tea"]
+                            model: ["espresso", "latte", "latte_hotwater", "filter", "americano", "long_black", "tea"]
                             delegate: Rectangle {
                                 radius: Theme.cardRadius
                                 color: Theme.cardBackgroundColor
@@ -2318,12 +2322,22 @@ Page {
                                 ColumnLayout {
                                     anchors.centerIn: parent
                                     spacing: Theme.spacingSmall
-                                    ThemedIcon {
+                                    // A row so a combination drink (Latte + Water)
+                                    // can show both its glyphs; single-icon types
+                                    // render one centered.
+                                    RowLayout {
                                         Layout.alignment: Qt.AlignHCenter
-                                        source: wizardPage.drinkTypeIcon(modelData)
-                                        iconSize: Theme.scaled(44)
-                                        color: Theme.textColor
-                                        Accessible.ignored: true
+                                        spacing: Theme.spacingSmall
+                                        Repeater {
+                                            model: wizardPage.drinkTypeIcons(modelData)
+                                            delegate: ThemedIcon {
+                                                required property string modelData
+                                                source: modelData
+                                                iconSize: Theme.scaled(44)
+                                                color: Theme.textColor
+                                                Accessible.ignored: true
+                                            }
+                                        }
                                     }
                                     Label {
                                         Layout.alignment: Qt.AlignHCenter
@@ -3337,7 +3351,10 @@ Page {
                                 onActivated: vesselPicker.open()
                             }
                             ColumnLayout {
+                                // Latte + Water fixes the order (water before the
+                                // espresso) — no order choice is offered for it.
                                 visible: !wizardPage.isHotWaterTea
+                                    && wizardPage.fDrinkType !== "latte_hotwater"
                                 Layout.fillWidth: true
                                 spacing: Theme.spacingSmall
                                 Label {

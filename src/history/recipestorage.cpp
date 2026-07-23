@@ -235,6 +235,10 @@ QString Recipe::deriveDrinkType(const Recipe& recipe, const QString& profileBeve
         const QJsonDocument doc = QJsonDocument::fromJson(recipe.steamJson.toUtf8());
         milk = doc.isObject() && doc.object().value(QStringLiteral("hasMilk")).toBool();
     }
+    // Milk + added water is its own drink (a latte with an Americano-style water
+    // pour) — checked before milk-alone so the combination is named distinctly.
+    if (milk && water)
+        return QStringLiteral("latte_hotwater");
     if (milk)
         return QStringLiteral("latte");
 

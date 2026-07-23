@@ -204,15 +204,19 @@ private slots:
         r.hotWaterJson = "{\"hasWater\":true,\"vesselName\":\"Cup\"}";
         QCOMPARE(Recipe::deriveDrinkType(r, "espresso"), QString("americano"));
 
-        // Milk wins over added water (a milk drink with a splash is still
-        // a milk drink) — the documented ambiguous-combination rule.
+        // Milk + added water is its own drink: a latte with an Americano-style
+        // water pour derives latte_hotwater (checked before milk-alone).
         r.steamJson = milk;
         r.hotWaterJson = waterAfter;
-        QCOMPARE(Recipe::deriveDrinkType(r, "espresso"), QString("latte"));
+        QCOMPARE(Recipe::deriveDrinkType(r, "espresso"), QString("latte_hotwater"));
+        r.hotWaterJson = waterBefore;  // order does not matter once milk is present
+        QCOMPARE(Recipe::deriveDrinkType(r, "espresso"), QString("latte_hotwater"));
+        // Milk alone (no water) is a plain latte.
         r.hotWaterJson.clear();
         QCOMPARE(Recipe::deriveDrinkType(r, "espresso"), QString("latte"));
 
         // Tea profile beats milk (the profile type is the strongest signal).
+        r.hotWaterJson = waterAfter;  // even with both blocks, tea profile wins
         QCOMPARE(Recipe::deriveDrinkType(r, "tea_portafilter"), QString("tea"));
 
         // Profile-less + hot water = hot-water tea; with a profile it is not.
@@ -1920,8 +1924,8 @@ private slots:
     void isKnownDrinkTypeVocabulary() {
         for (const QString& t : {QStringLiteral("espresso"), QStringLiteral("filter"),
                                  QStringLiteral("americano"), QStringLiteral("long_black"),
-                                 QStringLiteral("latte"), QStringLiteral("tea"),
-                                 QStringLiteral("tea_hotwater")})
+                                 QStringLiteral("latte"), QStringLiteral("latte_hotwater"),
+                                 QStringLiteral("tea"), QStringLiteral("tea_hotwater")})
             QVERIFY2(Recipe::isKnownDrinkType(t), qPrintable(t));
         QVERIFY(!Recipe::isKnownDrinkType("Tea"));          // case
         QVERIFY(!Recipe::isKnownDrinkType("cappuccino"));   // typo
@@ -1950,6 +1954,31 @@ private slots:
         QVERIFY(spy.at(0).at(1).toBool());
         withRawDb(path, "filter_verify", [&](QSqlDatabase& db) {
             QCOMPARE(RecipeStorage::loadRecipeStatic(db, id).drinkType, QString("filter"));
+        });
+    }
+
+    // Adding a hot-water block to a stored latte (via an MCP/web update that
+    // omits drinkType) re-derives to latte_hotwater — the milk+water name.
+    void updateRederivesLatteToLatteHotWater() {
+        const QString path = freshDbPath();
+        qint64 id = 0;
+        withRawDb(path, "lattehw_setup", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            Recipe r;
+            r.name = "Flat white"; r.profileTitle = "Espresso 1.0";
+            r.drinkType = "latte"; r.steamJson = "{\"hasMilk\":true}";
+            id = RecipeStorage::insertRecipeStatic(db, r);
+        });
+        RecipeStorage storage;
+        storage.initialize(path);
+        QSignalSpy spy(&storage, &RecipeStorage::recipeUpdated);
+        storage.requestUpdateRecipe(id,
+            {{"hotWaterJson", "{\"hasWater\":true,\"vesselName\":\"Cup\",\"order\":\"after\"}"}});
+        QTRY_COMPARE(spy.count(), 1);
+        QVERIFY(spy.at(0).at(1).toBool());
+        withRawDb(path, "lattehw_verify", [&](QSqlDatabase& db) {
+            QCOMPARE(RecipeStorage::loadRecipeStatic(db, id).drinkType,
+                     QString("latte_hotwater"));
         });
     }
 
