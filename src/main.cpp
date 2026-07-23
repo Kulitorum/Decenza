@@ -2345,6 +2345,15 @@ int main(int argc, char *argv[])
                         wifi->setIpCacheUpdate([&settings](const QString& host, const QString& ip) {
                             settings.network()->setWifiScaleIp(host, ip);
                         });
+                        // If BLEManager just resolved this hostname (a scan
+                        // selection), seed the cache with it so connectToHost()
+                        // dials the known IP directly instead of asking Qt's
+                        // resolver to re-resolve ".local" (unreliable on
+                        // non-Android — see decentscalewifi.cpp's attemptHostname).
+                        const QString resolvedIp = bleManager.pendingWifiResolvedIp();
+                        if (!resolvedIp.isEmpty()) {
+                            settings.network()->setWifiScaleIp(bleManager.pendingWifiHostname(), resolvedIp);
+                        }
                         wifi->connectToHost(bleManager.pendingWifiHostname());
                     }
                 } else {
@@ -2585,6 +2594,17 @@ int main(int argc, char *argv[])
                 wifi->setIpCacheUpdate([&settings](const QString& host, const QString& ip) {
                     settings.network()->setWifiScaleIp(host, ip);
                 });
+                // If BLEManager just resolved this hostname (a scan selection
+                // or a saved-primary auto-match), seed the cache with it so
+                // connectToHost() dials the known IP directly instead of
+                // asking Qt's resolver to re-resolve ".local" (unreliable on
+                // non-Android — see decentscalewifi.cpp's attemptHostname).
+                // Empty for manual entries and cache-driven reconnects, which
+                // have nothing fresh to offer (see BLEManager call sites).
+                const QString resolvedIp = bleManager.pendingWifiResolvedIp();
+                if (!resolvedIp.isEmpty()) {
+                    settings.network()->setWifiScaleIp(hostname, resolvedIp);
+                }
                 // For manual entries: commit the deferred persistence ONLY
                 // after the WS endpoint validates as HDS, and surface a
                 // user-visible failure if validation fails. Both connections
