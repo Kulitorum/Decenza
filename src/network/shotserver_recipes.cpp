@@ -857,11 +857,22 @@ QString ShotServer::generateRecipesPage() const
                 + '<div class="actions">' + actions + '</div></div>';
         }
 
-        function matchesFilter(r) {
-            if (!filterText) return true;
-            const hay = [r.name, r.profileTitle, r.roasterName, r.coffeeName, drinkLabel(r.drinkType)]
-                .join(' ').toLowerCase();
-            return hay.indexOf(filterText) !== -1;
+        // Tokenized AND match: `-` `/` `.` are DELETED from both query and text, the
+        // query splits into tokens on whitespace, and every token must appear as a
+        // substring. Same algorithm and same five searched fields (name, profile,
+        // roaster, coffee, drink-type label) as the in-app path (RecipeSearch.js +
+        // RecipesPage.filterAndSort) so "Yirg Df" matches a Yirgacheffe recipe on a
+        // "D-Flow / Q" profile here too (deleting punctuation collapses "D-Flow" to
+        // "dflow"). Only difference: the drink label is English here vs the app's
+        // localized DrinkType.shortLabel. Guarded by tests/tst_recipesearch.cpp, which
+        // extracts THESE functions and re-runs the shared cases — keep the two in sync.
+        // tokens are computed once per render (see render()), not once per recipe.
+        function normalizeSearch(s) { return String(s || '').toLowerCase().replace(/[-\/.]/g, ''); }
+        function matchesFilter(r, tokens) {
+            if (!tokens.length) return true;
+            const hay = normalizeSearch(
+                [r.name, r.profileTitle, r.roasterName, r.coffeeName, drinkLabel(r.drinkType)].join(' '));
+            return tokens.every(t => hay.indexOf(t) !== -1);
         }
         function sortRecipes(list) {
             const key = SORTS[sortIdx][0];
@@ -880,7 +891,8 @@ QString ShotServer::generateRecipesPage() const
         }
 
         function render() {
-            const active = sortRecipes(recipes.filter(r => !r.archived && matchesFilter(r)));
+            const tokens = normalizeSearch(filterText).split(/\s+/).filter(Boolean);
+            const active = sortRecipes(recipes.filter(r => !r.archived && matchesFilter(r, tokens)));
             const archived = recipes.filter(r => r.archived);
             el('searchbar').style.display = recipes.some(r => !r.archived) ? '' : 'none';
             el('searchClear').style.display = filterText ? '' : 'none';
