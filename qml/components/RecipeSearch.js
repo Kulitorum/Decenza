@@ -35,6 +35,18 @@ function tokenize(query) {
     return normalize(query).split(/\s+/).filter(function(t) { return t.length > 0 })
 }
 
+// Combined searchable text for one recipe: name + roaster + coffee + profile + the
+// drink-type label. The label is passed in rather than derived here, because its
+// source is surface-specific — the in-app page derives+localizes it via DrinkType,
+// the web /recipes page uses its own English map — but the FIELD LIST lives here so
+// "which fields are searched" is one place, testable without loading the page. The
+// web page mirrors this same five-field set inline (shotserver_recipes.cpp).
+function buildHaystack(r, drinkLabel) {
+    return (r.name || "") + " " + (r.roasterName || "") + " "
+         + (r.coffeeName || "") + " " + (r.profileTitle || "") + " "
+         + (drinkLabel || "")
+}
+
 // True iff every token appears in the normalized haystack. tokens is normally the
 // output of tokenize(); an empty tokens array matches everything. Each token is
 // re-normalized here (idempotent for tokenize() output) so a caller that passes a

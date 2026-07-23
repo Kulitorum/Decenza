@@ -36,7 +36,12 @@ private slots:
     void singleTokenStillMatches();
     void emptyQueryMatchesEverything();
     void caseInsensitive();
+    void collapsesInternalWhitespace();
     void matchesToleratesUnnormalizedTokens();
+    void matchesNoOpTokenIsIgnored();
+
+    // In-app haystack assembly (RecipeSearch.buildHaystack, as RecipesPage uses it)
+    void appHaystackSearchesAllFields();
 
     // Web matcher (shotserver_recipes.cpp) — must agree with the in-app matcher
     void webMatcherAgreesOnSharedCases();
@@ -56,6 +61,12 @@ private:
 // Pull a `function <name>(...) { ... }` block out of source by brace matching. Fails
 // (returns empty) if the name is absent or appears more than once, so an ambiguous
 // extraction is caught loudly by the caller rather than testing the wrong text.
+//
+// Constraint: this counts raw `{`/`}` with no awareness of strings, regex, or object
+// literals, so the extracted web functions must keep their BODIES brace-free (no
+// `${...}`, `/\s{2,}/`, or inline `{}`). A stray brace inside a string could truncate
+// the block into something that still parses; if these functions grow braces, switch
+// to a real tokenizer or assert the extracted text ends at the true function end.
 static QString extractFunction(const QString& src, const QString& name)
 {
     const QString needle = "function " + name + "(";
@@ -91,32 +102,37 @@ void TestRecipeSearch::initTestCase()
                                  QRegularExpression::MultilineOption));
     const QString libProgram =
         QStringLiteral("(function(){ %1\n return { tokenize: tokenize, matches: matches,"
-                       "                           normalize: normalize }; })()").arg(js);
+                       "     normalize: normalize, buildHaystack: buildHaystack }; })()").arg(js);
     m_lib = m_engine.evaluate(libProgram);
     QVERIFY2(!m_lib.isError(), qPrintable(m_lib.toString()));
     QVERIFY2(m_lib.property("matches").isCallable(), "matches() not found in RecipeSearch.js");
     QVERIFY2(m_lib.property("tokenize").isCallable(), "tokenize() not found in RecipeSearch.js");
+    QVERIFY2(m_lib.property("buildHaystack").isCallable(), "buildHaystack() not found in RecipeSearch.js");
 
     // --- Web matcher: extracted from generateRecipesPage() in shotserver_recipes.cpp ---
     const QString cpp = readSource("/src/network/shotserver_recipes.cpp");
     QVERIFY2(!cpp.isEmpty(), "could not read shotserver_recipes.cpp");
     const QString normalizeSearch = extractFunction(cpp, "normalizeSearch");
+    const QString tokenizeSearch = extractFunction(cpp, "tokenizeSearch");
     const QString matchesFilter = extractFunction(cpp, "matchesFilter");
     QVERIFY2(!normalizeSearch.isEmpty(), "normalizeSearch() not found (or ambiguous) in shotserver_recipes.cpp");
+    QVERIFY2(!tokenizeSearch.isEmpty(), "tokenizeSearch() not found (or ambiguous) in shotserver_recipes.cpp");
     QVERIFY2(!matchesFilter.isEmpty(), "matchesFilter() not found (or ambiguous) in shotserver_recipes.cpp");
 
     // matchesFilter references drinkLabel(); stub it to echo the raw drink type so the
-    // field's INCLUSION is exercised without pulling in the DRINK_LABELS map.
+    // field's INCLUSION is exercised without pulling in the DRINK_LABELS map. webMatch
+    // routes through the REAL tokenizeSearch used by render(), so the query-tokenization
+    // step is guarded too, not re-implemented here.
     const QString webProgram =
         QStringLiteral("(function(){ var drinkLabel = function(t){ return t || ''; };\n"
-                       "  %1\n  %2\n"
-                       "  return { normalizeSearch: normalizeSearch, webMatch:"
+                       "  %1\n  %2\n  %3\n"
+                       "  return { normalizeSearch: normalizeSearch, tokenizeSearch: tokenizeSearch,"
+                       "    webMatch:"
                        "    function(name, profileTitle, roaster, coffee, drinkType, q) {"
                        "      var r = { name: name, profileTitle: profileTitle, roasterName: roaster,"
                        "                coffeeName: coffee, drinkType: drinkType };"
-                       "      var tokens = normalizeSearch(q).split(/\\s+/).filter(Boolean);"
-                       "      return matchesFilter(r, tokens);"
-                       "    } }; })()").arg(normalizeSearch, matchesFilter);
+                       "      return matchesFilter(r, tokenizeSearch(q));"
+                       "    } }; })()").arg(normalizeSearch, tokenizeSearch, matchesFilter);
     m_web = m_engine.evaluate(webProgram);
     QVERIFY2(!m_web.isError(), qPrintable(m_web.toString()));
     QVERIFY2(m_web.property("webMatch").isCallable(), "web matcher failed to build");
@@ -188,6 +204,37 @@ void TestRecipeSearch::caseInsensitive()
              "matching must ignore case on both sides");
 }
 
+// Any run of whitespace (spaces, tabs) splits tokens; leading/trailing whitespace is
+// dropped rather than producing empty tokens.
+void TestRecipeSearch::collapsesInternalWhitespace()
+{
+    const QString hay = "Ethiopia Yirgacheffe  D-Flow";
+    QVERIFY2(match(hay, "yirg\t df"), "a tab between tokens still splits them");
+    QVERIFY2(match(hay, "  yirg   df  "), "leading/trailing/repeated whitespace is harmless");
+}
+
+// The app builds its haystack via RecipeSearch.buildHaystack (name + roaster + coffee
+// + profile + drink label). Guards that all five fields are searchable — the app path
+// the web test cannot reach, and the one field (drink label) sourced differently here.
+void TestRecipeSearch::appHaystackSearchesAllFields()
+{
+    QJSValue r = m_engine.newObject();
+    r.setProperty("name", QJSValue(QStringLiteral("Morning cup")));
+    r.setProperty("roasterName", QJSValue(QStringLiteral("Prodigal")));
+    r.setProperty("coffeeName", QJSValue(QStringLiteral("Ethiopia Yirgacheffe")));
+    r.setProperty("profileTitle", QJSValue(QStringLiteral("D-Flow / Q")));
+    const QString hay =
+        m_lib.property("buildHaystack").call({r, QJSValue(QStringLiteral("Latte"))}).toString();
+
+    QVERIFY2(match(hay, "morning"), "name field must be searchable");
+    QVERIFY2(match(hay, "prodigal"), "roaster field must be searchable");
+    QVERIFY2(match(hay, "yirg"), "coffee field must be searchable");
+    QVERIFY2(match(hay, "df"), "profile field must be searchable (df -> D-Flow)");
+    QVERIFY2(match(hay, "latte"), "drink-label field must be searchable");
+    QVERIFY2(match(hay, "yirg latte"), "cross-field: coffee token + drink-label token");
+    QVERIFY2(!match(hay, "kenya"), "a token present in no field must exclude the recipe");
+}
+
 // #5 robustness: matches() must tolerate a raw, un-normalized token (e.g. one still
 // carrying a hyphen) rather than silently never matching.
 void TestRecipeSearch::matchesToleratesUnnormalizedTokens()
@@ -197,6 +244,19 @@ void TestRecipeSearch::matchesToleratesUnnormalizedTokens()
     QJSValue r = m_lib.property("matches").call({QJSValue(QStringLiteral("D-Flow / Q")), rawTokens});
     QVERIFY2(!r.isError(), qPrintable(r.toString()));
     QVERIFY2(r.toBool(), "matches() must normalize raw tokens so 'd-flow' still matches 'D-Flow'");
+}
+
+// A raw token that normalizes to "" (e.g. "-") must impose NO constraint rather than
+// excluding everything — matches() relies on indexOf("") === 0. tokenize() filters
+// these out before matches() sees them, so exercise matches() directly.
+void TestRecipeSearch::matchesNoOpTokenIsIgnored()
+{
+    QJSValue toks = m_engine.newArray(2);
+    toks.setProperty(0, QJSValue(QStringLiteral("yirg")));
+    toks.setProperty(1, QJSValue(QStringLiteral("-")));   // normalizes to ""
+    QJSValue r = m_lib.property("matches").call({QJSValue(QStringLiteral("Yirgacheffe")), toks});
+    QVERIFY2(!r.isError(), qPrintable(r.toString()));
+    QVERIFY2(r.toBool(), "a token that normalizes to empty must not exclude the recipe");
 }
 
 // The web matcher must reach the same verdicts as the in-app matcher on the shared

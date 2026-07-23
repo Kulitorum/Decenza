@@ -92,9 +92,8 @@ Page {
         for (var i = 0; i < list.length; ++i) {
             var r = list[i]
             if (tokens.length > 0) {
-                var hay = (r.name || "") + " " + (r.roasterName || "") + " "
-                          + (r.coffeeName || "") + " " + (r.profileTitle || "") + " "
-                          + DrinkType.shortLabel(DrinkType.fromRecipeMap(r))
+                var hay = RecipeSearch.buildHaystack(
+                    r, DrinkType.shortLabel(DrinkType.fromRecipeMap(r)))
                 if (!RecipeSearch.matches(hay, tokens))
                     continue
             }
