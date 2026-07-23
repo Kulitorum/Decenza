@@ -565,13 +565,18 @@ Dialog {
                                                 if (drag.active) popup._planDragging = true
                                             }
                                             onReleased: {
-                                                if (popup._planDragging) {
-                                                    var endIndex = planChip.liveIndex
-                                                    if (_startIndex >= 0 && endIndex !== _startIndex)
-                                                        popup.planMoveItem(_startIndex, endIndex)
-                                                }
+                                                // Read state out of the delegate context and reset
+                                                // BEFORE the move: planMoveItem() reassigns
+                                                // shotPlanItems, which rebuilds the DelegateModel and
+                                                // destroys this delegate — so it must be the last
+                                                // statement, or the trailing lines run in a torn-down
+                                                // context where `popup` no longer resolves.
+                                                var from = _startIndex
+                                                var to = popup._planDragging ? planChip.liveIndex : -1
                                                 popup._planDragging = false
                                                 _startIndex = -1
+                                                if (from >= 0 && to >= 0 && to !== from)
+                                                    popup.planMoveItem(from, to)
                                             }
                                             onCanceled: {
                                                 // Roll back any live swaps so the DelegateModel
