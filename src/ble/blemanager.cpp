@@ -2103,6 +2103,19 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
         return;
     }
 
+    // The simulator's synthetic primary is not dialable. Guarded HERE, at the
+    // single chokepoint every reconnect path funnels through, rather than at
+    // each caller. Without it a "sim:" address falls past the wifi:/usb: cases
+    // into the BLE branch, which builds an invalid QBluetoothAddress, arms the
+    // 20 s connection timer, and on timeout raises the "No Scale Found" dialog
+    // and re-arms the ladder — forever. Reachable as soon as anything starts
+    // the ladder while the simulated scale is switched off.
+    if (savedScaleIsSimulated()) {
+        qDebug() << "BLEManager: tryDirectConnectToScale - saved scale is the simulator's "
+                    "synthetic address, nothing to dial";
+        return;
+    }
+
     if (!isBluetoothAvailable()) {
         qDebug() << "BLEManager: tryDirectConnectToScale - Bluetooth is powered off, skipping";
         return;

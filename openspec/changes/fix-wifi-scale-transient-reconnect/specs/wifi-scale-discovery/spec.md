@@ -39,7 +39,7 @@ To make WiFi reconnect robust against unreliable mDNS resolution, the WiFi drive
 A failed attempt SHALL be classified by what the failure proves about the cached IP:
 
 - A **wrong-host failure** is one where a peer answered but is not an HDS — a refused connection (TCP RST, proving a host is up at that address), a completed TCP connection that fails the WebSocket handshake (HTTP 403/404, protocol error), or one that upgrades but delivers no recognizable HDS frame within the recognition window. This is evidence the cached IP now belongs to a different device, so the driver SHALL evict the cached IP and fall back to the hostname.
-- A **transient transport failure** is one where nothing answered at all — host unreachable, host down, network unreachable, or connect timeout before the WebSocket upgrade. This is NOT evidence about which device owns the IP, so the driver SHALL preserve the cached IP, SHALL NOT consume the hostname fallback, and SHALL end the attempt so the app-level reconnect loop owns the retry.
+- A **transient transport failure** is one where nothing answered at all — host unreachable, network unreachable, or connect timeout before the WebSocket upgrade. This is NOT evidence about which device owns the IP, so the driver SHALL preserve the cached IP, SHALL NOT consume the hostname fallback, and SHALL end the attempt so the app-level reconnect loop owns the retry.
 
 #### Scenario: First connect by hostname caches the peer IP
 - **WHEN** the driver opens a WebSocket using the hostname (no cached IP available) and receives the first snapshot or status frame within the recognition window
@@ -66,7 +66,7 @@ A failed attempt SHALL be classified by what the failure proves about the cached
 - **THEN** the driver evicts the cached IP and retries via the hostname within the same connect cycle, because a refusal is evidence the address has been reassigned
 
 #### Scenario: Cached IP is unreachable — preserve cache, defer to the reconnect loop
-- **WHEN** the cached IP attempt fails before the WebSocket upgrade with a socket-layer error indicating nothing answered (host unreachable, host down, network unreachable, or connect timeout)
+- **WHEN** the cached IP attempt fails before the WebSocket upgrade with a socket-layer error indicating nothing answered (host unreachable, network unreachable, or connect timeout)
 - **THEN** the driver retains the cached IP, does NOT mark the hostname fallback as consumed, does NOT dial the hostname within this connect cycle, and ends the attempt so the app-level `scaleReconnectTimer` schedules the next try
 
 #### Scenario: An unreachable scale recovers without user action
@@ -81,7 +81,11 @@ A failed attempt SHALL be classified by what the failure proves about the cached
 
 The WiFi driver SHALL NOT schedule reconnect attempts internally. On WebSocket `disconnected`, and on a connect attempt that fails transiently before ever reaching the connected state, the driver calls `setConnected(false)` and returns. The app-level reconnect loop in `main.cpp` (the `scaleReconnectTimer`, gated on `settings.scaleAddress()` being non-empty) owns retry orchestration via `BLEManager::tryDirectConnectToScale()` → `DecentScaleWifi::connectToHost()`.
 
-Each app-level retry of a `.local` hostname SHALL re-resolve that hostname via mDNS before dialling, rather than reusing the resolution from a previous attempt. The mDNS exchange is what clears an operating-system negative route cached for an unreachable peer; reusing a stale resolution would retry into that same negative cache and fail identically.
+After an attempt has ended with a transient transport failure, the next attempt SHALL re-resolve the hostname rather than re-dial the remembered address, so that an address which has changed is picked up. This is required because a transient classification retains the cached IP: when DHCP moves the scale the address it vacated usually goes dark, which itself classifies as transient, and without a re-resolve the driver would re-dial that dead address indefinitely with no other path to correction.
+
+The justification is address freshness only. No claim is made that the mDNS exchange clears operating-system state for an unreachable peer — for a `.local` name the responder is the scale itself, so during an unreachability window the resolution typically fails too. Recovery in that case comes from the backoff delay.
+
+If that resolution fails, the driver SHALL still dial the remembered address rather than dial nothing, so a device whose mDNS is unreliable attempts a connection on every cycle.
 
 #### Scenario: WebSocket disconnects mid-stream
 - **WHEN** the WiFi WebSocket emits `disconnected` after having been connected
@@ -92,8 +96,16 @@ Each app-level retry of a `.local` hostname SHALL re-resolve that hostname via m
 - **THEN** the driver ends the attempt without an internal retry, and the app-level `scaleReconnectTimer` schedules the next attempt on its existing backoff schedule
 
 #### Scenario: Retry re-resolves the hostname
-- **WHEN** the app-level reconnect loop retries a saved `.local` WiFi scale hostname
+- **WHEN** the app-level reconnect loop retries a saved `.local` WiFi scale hostname after a transient failure
 - **THEN** an mDNS resolution for that hostname is performed as part of the attempt, and the freshly resolved address is the one dialled
+
+#### Scenario: Scale moved to a new address and the old one went dark
+- **WHEN** DHCP has reassigned the scale to a different address, the address it vacated answers nothing, and the driver holds the vacated address in its cache
+- **THEN** the failure classifies as transient and the cache is retained, and the following attempt re-resolves and dials the scale's new address rather than re-dialling the dead one indefinitely
+
+#### Scenario: Resolution fails on the retry — dial the remembered address anyway
+- **WHEN** the retry's hostname resolution fails (an unreliable or unavailable mDNS responder) and a cached IP is held for that hostname
+- **THEN** the driver dials the cached IP rather than ending the attempt without opening a socket, so a connection is attempted on every cycle
 
 #### Scenario: Reconnect also fails
 - **WHEN** the app-level reconnect re-fires `connectToHost()` and that attempt also disconnects

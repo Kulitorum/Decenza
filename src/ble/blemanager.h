@@ -109,6 +109,14 @@ public:
     QVariantList discoveredScales() const;
     bool scaleConnectionFailed() const { return m_scaleConnectionFailed; }
     bool hasSavedScale() const { return !m_savedScaleAddress.isEmpty(); }
+    // True when the saved primary is the debug simulator's synthetic entry
+    // ("sim:..."), which main.cpp promotes to primary when no real scale has
+    // ever been paired. It is NOT a connectable address: every real connect
+    // path would treat it as a BLE MAC and dial nonsense. Callers that act on
+    // "a scale is saved" must exclude it — hasSavedScale() alone is true for it.
+    bool savedScaleIsSimulated() const {
+        return m_savedScaleAddress.startsWith(QStringLiteral("sim:"), Qt::CaseInsensitive);
+    }
 
     // Optional TranslationManager — when set, user-visible error strings
     // (those emitted via errorOccurred) are run through translate() with

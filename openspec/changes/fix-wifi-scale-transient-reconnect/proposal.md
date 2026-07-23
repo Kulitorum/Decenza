@@ -6,7 +6,7 @@ Observed on macOS 26 against a healthy scale: the WebSocket endpoint accepted ha
 
 ## What Changes
 
-- **Classify socket-layer transport errors as transient, not as cache invalidation.** `DecentScaleWifi::onError` currently evicts the cached IP on *any* error. Errors that mean *nothing answered* (host unreachable, host down, network unreachable, connection refused, timeout) carry no evidence about whether the IP is the right host, and MUST NOT evict the cache or consume the hostname fallback. Errors that mean *something else answered* (WebSocket handshake/protocol failures such as an HTTP 403 from a router) retain the existing eviction behaviour.
+- **Classify socket-layer transport errors as transient, not as cache invalidation.** `DecentScaleWifi::onError` currently evicts the cached IP on *any* error. Errors that mean *nothing answered* (host unreachable, network unreachable, connect timeout) carry no evidence about whether the IP is the right host, and MUST NOT evict the cache or consume the hostname fallback. Errors that mean *something else answered* — a TCP RST (connection refused), or a WebSocket handshake/protocol failure such as an HTTP 403 from a router — retain the existing eviction behaviour. Note `EHOSTDOWN` is NOT in this transient set: Qt does not map it to `NetworkError`, it falls through to `UnknownSocketError`.
 - **Stop the instant in-cycle retry against an unreachable host.** On a transient transport error the driver ends the attempt and lets the existing app-level `scaleReconnectTimer` own the retry, per the already-specified reconnect-ownership requirement.
 - **Re-resolve the hostname via mDNS before each reconnect attempt.** The mDNS exchange is what clears the operating system's cached negative route for the peer — empirically, a manual rescan is the only thing that currently recovers the connection, and mDNS is the traffic that rescan generates. Re-resolving makes the first backoff retry (5 s) able to succeed instead of failing inside the still-live negative-cache window.
 - Diagnostic logging distinguishes a transient transport failure from a wrong-host failure, so the two are separable in a support log.
@@ -29,7 +29,6 @@ None. This corrects the behaviour of an existing capability.
 ## Impact
 
 - `src/ble/scales/decentscalewifi.cpp` / `.h` — error classification in `onError`, the cached-IP eviction path, and the hostname-fallback trigger.
-- `src/network/wifiscalediscovery.{h,cpp}` — reused for the pre-retry mDNS re-resolve; no new resolver.
-- `src/main.cpp` — the `scaleReconnectTimer` retry path invokes the re-resolve before dialling. The `{5 s, 30 s, 60 s}` backoff ladder itself is unchanged.
+- `src/main.cpp` — the simulator-gate wiring and the reconnect re-arm. The `{5 s, 30 s, 60 s}` backoff ladder itself is unchanged, and the retry path is NOT modified: the re-resolve lives entirely inside the driver, keyed off its own state.
 - No settings, schema, BLE protocol, or QML changes. BLE scale transports are untouched.
 - User-visible behaviour: a WiFi scale that drops out recovers on its own within one backoff step instead of requiring a manual rescan. Wiki manual update is not expected — the documented behaviour ("the scale reconnects automatically") is what this change makes true; confirm during implementation.

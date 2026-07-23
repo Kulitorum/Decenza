@@ -1280,6 +1280,40 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(hostnameServer.received().size() >= 4, 2000);
     }
 
+    // The re-resolve must not be able to leave the driver dialling nothing.
+    // When resolution fails, dialCachedIpAfterResolveFailure() falls back to the
+    // cached IP — otherwise a device whose mDNS is unreliable (exactly what the
+    // IP cache exists for) would spend every reconnect cycle resolving, failing,
+    // and opening no socket at all.
+    //
+    // This path had NO coverage before: every other test uses a
+    // "127.0.0.1:<port>" hostname, which is not ".local", so attemptHostname()
+    // dials it directly and never runs a resolution that could fail. Only a
+    // ".local" name that cannot resolve reaches the fallback.
+    void resolveFailureFallsBackToCachedIp() {
+        ScopedWarningFilter resolveNoise{QStringLiteral("resolution failed")};  // before `driver`
+        FakeHdsServer server;
+        DecentScaleWifi driver;
+        driver.setIpResolver([&](const QString&) { return server.host(); });
+
+        QSignalSpy connectedSpy(&server, &FakeHdsServer::clientConnected);
+
+        // A .local name that will not resolve, so attemptHostname()'s resolve
+        // branch fails and the fallback is the only way a socket gets opened.
+        // Reached via the re-resolve flag rather than the plain cached-IP path:
+        // connectToHost consults the cache first unless the flag is set.
+        driver.m_retryShouldReresolve = true;
+        driver.connectToHost(QStringLiteral("decenza-nonexistent-xyz.local"));
+
+        // Generous timeout: resolution latency for a missing .local varies a lot
+        // by platform (fast where no responder is installed, 1-2 s with avahi or
+        // mDNSResponder), and the fallback only runs once it has given up.
+        QVERIFY2(connectedSpy.wait(15000),
+                 "Resolution failed and no socket was opened — the cached-IP "
+                 "fallback did not run, so this cycle dialled nothing");
+        QTRY_VERIFY_WITH_TIMEOUT(server.received().size() >= 4, 2000);
+    }
+
     // The re-resolve obligation is discharged by recognition, not by a bare WS
     // upgrade — and once discharged, a later connect uses the cache again. Without
     // this, a single transient failure would permanently disable the cached-IP

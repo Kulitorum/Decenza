@@ -3111,7 +3111,13 @@ void MainController::onEspressoCycleStarted() {
     // isDisabled() back when the DE1 simulator flag also meant "no scale" — it
     // no longer does, so with DE1 simulation on and a real scale saved but
     // disconnected, that reading would skip the pre-shot safety abort entirely.
-    if (m_bleManager && !m_bleManager->isScaleSimulated() && m_bleManager->hasSavedScale()) {
+    //
+    // savedScaleIsSimulated() excludes the simulator's synthetic primary. It
+    // satisfies hasSavedScale() but is not a real scale, so counting it would
+    // abort every stop-at-weight shot in a simulator build the moment the
+    // Simulated Scale switch is off — a debug-workflow break, not a safety win.
+    if (m_bleManager && !m_bleManager->isScaleSimulated()
+        && m_bleManager->hasSavedScale() && !m_bleManager->savedScaleIsSimulated()) {
         // Check if any real scale is connected (BLE scale, USB scale, etc.)
         ScaleDevice* activeScale = m_machineState ? m_machineState->scale() : nullptr;
         bool hasRealScale = activeScale && activeScale->isConnected()

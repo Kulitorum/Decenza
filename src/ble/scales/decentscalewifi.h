@@ -218,17 +218,33 @@ private:
     bool m_pendingHostnameFallback = false;  // Set in onRecognitionTimeout; consumed by onDisconnected.
     // Set when an attempt ends with a transient transport error (nothing
     // answered), cleared in onRecognizedAsHds once we're talking to a real
-    // scale. While set, the NEXT connectToHost() bypasses both the preferredIp
-    // and cached-IP shortcuts and goes through attemptHostname(), which
-    // re-resolves the name.
+    // scale. While set, the next connectToHost() bypasses the CACHED-IP
+    // shortcut and goes through attemptHostname(), which re-resolves the name.
     //
-    // Why re-resolve rather than re-dial the cached IP: the retry after a
-    // transient failure is the one that has to break out of whatever made the
-    // host unreachable. Re-dialing a remembered address repeats the attempt
-    // that just failed, whereas resolving first both picks up a moved address
-    // and puts an mDNS exchange on the wire. The cached IP is deliberately
-    // NOT evicted — it's still our best guess at the scale's identity, it just
-    // isn't what we dial on the recovery attempt.
+    // A supplied preferredIp always wins over this flag and consumes it — it
+    // was resolved AFTER the attempt that set the flag, so it is strictly
+    // fresher than anything a re-resolve could produce. See the priority note
+    // at the top of connectToHost(); this flag never causes preferredIp to be
+    // skipped.
+    //
+    // WHY THIS EXISTS — it closes a hole that the transient classification
+    // itself opens. When DHCP moves the scale, the address it left behind
+    // usually goes dark rather than being immediately reassigned. A dark
+    // address answers nothing, so it classifies as transient, so the cache is
+    // retained — and without this flag the driver would re-dial that dead
+    // address on every cycle forever, with no other path to correction (the
+    // WiFi->BLE fallback scan is useless for a WiFi-only scale, and the
+    // switch-back probe only tests the same cached IP). Before this change any
+    // error evicted, so the case self-corrected. Re-resolving is what restores
+    // that.
+    //
+    // Note the justification is ADDRESS FRESHNESS, not any claim about
+    // clearing operating-system state for an unreachable peer. For a ".local"
+    // name the mDNS responder IS the scale, so during an unreachability window
+    // the resolve most likely fails too and falls back to the cached IP —
+    // recovery there comes from the backoff delay, not from re-resolving.
+    // The cached IP is deliberately NOT evicted: it's still our best guess at
+    // the scale's identity, it just isn't what we dial on the recovery attempt.
     //
     // An event-based flag, not a timer: it is set by a failure event and
     // cleared by a recognition event, per the project's no-timers-as-guards
@@ -258,7 +274,10 @@ private:
     //   - disconnectFromScale (user close)
     //   - handlePowerFrame (scale told us it's powering down)
     //   - attemptHostname, BOTH resolution-failure branches (the Android mDNS
-    //     one and the QHostInfo one that runs everywhere else)
+    //     one and the QHostInfo one that runs everywhere else) — but ONLY when
+    //     dialCachedIpAfterResolveFailure() found no cached IP to fall back on.
+    //     When it dials one, that early return runs first and the flag is not
+    //     set, because the cycle is still in progress.
     //   - onRecognitionTimeout fallback branch (cached IP didn't validate →
     //     switching to hostname)
     //   - onRecognitionTimeout give-up branch (hostname also failed)

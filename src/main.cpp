@@ -2084,8 +2084,14 @@ int main(int argc, char *argv[])
                                    &scaleAutoReconnectSuppressed]() {
         if (bleManager.isScaleSimulated())
             return;  // rising edge — the teardown in setScaleSimulated is correct
+        // "sim:" is excluded because the simulator promotes its own synthetic
+        // address to primary when no real scale was ever paired — arming the
+        // ladder against it dials nonsense and ends in a "No Scale Found"
+        // dialog every 60 s. tryDirectConnectToScale guards this too; the check
+        // is repeated here so the ladder isn't started only to no-op.
         if (settings.scaleAddress().isEmpty()
             || settings.scaleAddress().startsWith(QStringLiteral("usb:"), Qt::CaseInsensitive)
+            || settings.scaleAddress().startsWith(QStringLiteral("sim:"), Qt::CaseInsensitive)
             || scaleAutoReconnectSuppressed
             || scaleReconnectTimer.isActive())
             return;

@@ -26,7 +26,7 @@
 
 - [ ] 4.1 Reproduce the original failure: confirm the instant sub-millisecond `Host unreachable (code 7)` with `local=<unbound>` still appears in the log and is now classified transient
 - [ ] 4.2 Confirm the scale reconnects with no manual rescan, and record which backoff step (5 s / 30 s / 60 s) actually succeeds
-- [ ] 4.3 Resolve the open question from `design.md`: determine whether the mDNS re-resolve measurably clears the OS reject route or whether the backoff delay alone accounts for recovery; if it contributes nothing, drop the claim from the spec rather than leaving an unverified mechanism documented
+- [x] 4.3 Resolve the open question from `design.md`: determine whether the mDNS re-resolve measurably clears the OS reject route or whether the backoff delay alone accounts for recovery; if it contributes nothing, drop the claim from the spec rather than leaving an unverified mechanism documented
 - [ ] 4.4 Sanity-check the classification against a real DHCP reassignment (point the cached IP at another host on the LAN) and confirm recovery still happens, one backoff step later than before
 
 ## 5. Full suite and review
@@ -68,3 +68,43 @@
 - [x] 8.11 Correct two comment claims that the Qt source disproved: EHOSTDOWN is NOT mapped to NetworkError (falls through to UnknownSocketError), and ETIMEDOUT maps to NetworkError rather than SocketTimeoutError
 - [ ] 8.12 Verify the behavioural tests on Linux — they now skip rather than fail if the platform disagrees, but the skip has not been observed
 - [ ] 8.13 Still no regression coverage for the simulator-gate split (was 7.5); findings 8.1/8.2/8.5 were all found by reading, not by tests
+
+## 9. Simplification pass (independent review)
+
+Prompted by the maintainer asking whether the change had grown too complicated for the task. An
+independent review was run on the question and **overrode the proposal to delete the re-resolve
+feature** — deleting it would have shipped a regression against `main`.
+
+- [x] 9.1 Establish what the re-resolve actually buys. Deleting it is NOT safe: when DHCP moves the
+      scale, the vacated address usually goes dark rather than being reassigned; dark answers
+      nothing, so it classifies transient, so the cache is retained — and the driver would re-dial a
+      dead address forever with no other correction path. On `main` any error evicted, so this
+      self-corrected. Root-cause fix 1.2 opens that hole and `m_retryShouldReresolve` closes it
+- [x] 9.2 Trim the accretion instead: remove `m_evictedIpThisCycle`, `m_cacheFallbackDial`, the
+      `isCacheFallback` parameter, the `onError` gate restructure and early-return, the
+      `onRecognitionTimeout` eviction block, and the per-cycle resets. Keep the sticky flag plus the
+      plain cached-IP fallback
+- [x] 9.3 `m_evictedIpThisCycle` did not do what its comment claimed — cleared per cycle, never
+      written back, and `onRecognizedAsHds` only caches on a hostname target, so a successful
+      last-resort dial could never restore the address. The dead-end it named is pre-existing on
+      `main`, not introduced here. Removed rather than repaired
+- [x] 9.4 Re-base the `m_retryShouldReresolve` rationale on ADDRESS FRESHNESS, which is verifiable
+      by inspection, instead of the unmeasured "mDNS clears the OS negative route" mechanism. For a
+      `.local` name the responder is the scale itself, so during an unreachability window the
+      resolve usually fails too — recovery there comes from the backoff delay
+- [x] 9.5 Close 4.3 without hardware, as it permitted: drop the unverified mechanism claim from the
+      spec rather than leave it documented as fact
+- [x] 9.6 Correct four factual errors that would otherwise be archived as the permanent record:
+      `EHOSTDOWN` listed as transient in the spec delta and `design.md` (Qt maps it to
+      `UnknownSocketError`); `HostNotFoundError` still transient in `design.md`; connection-refused
+      still transient in `proposal.md`; `proposal.md` claiming edits to
+      `src/network/wifiscalediscovery.{h,cpp}` and the `main.cpp` retry path that were never made
+- [x] 9.7 Add spec scenarios for the DHCP-moved-and-dark case and the resolve-failure fallback —
+      both normative behaviour with no scenario previously
+- [x] 9.8 Add `resolveFailureFallsBackToCachedIp`. This path had no coverage because every other
+      test uses a `127.0.0.1:<port>` hostname, which is not `.local`, so `attemptHostname()` dials
+      directly and never runs a resolution that can fail
+- [ ] 9.9 Residual, unchanged by this pass: 4.1/4.2/4.4 ship unverified on real hardware, and the
+      transient classification is exercised in tests only via `0.0.0.1:80` (see 8.3/8.12). Its
+      real-world behaviour rests on the maintainer's device logs for the `NetworkError` case and on
+      reading for the rest
