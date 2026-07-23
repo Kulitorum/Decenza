@@ -86,7 +86,18 @@ public:
     bool isBluetoothAvailable() const;
     bool isScanningForScales() const { return m_scanningForScales; }
     bool isDisabled() const { return m_disabled; }
-    void setDisabled(bool disabled);  // Disable all BLE operations (for simulator mode)
+    // Disable DE1 BLE operations (DE1 simulator mode — "no machine attached").
+    // Deliberately does NOT gate scale connectivity: the scale simulator is a
+    // separate user-facing switch (see setScaleSimulated). Scale scanning has
+    // always been allowed here; scale *connecting* used to be blocked by this
+    // flag too, which meant running the DE1 simulator silently disabled real
+    // scales even with the Simulated Scale switch off.
+    void setDisabled(bool disabled);
+    bool isScaleSimulated() const { return m_scaleSimulated; }
+    // Mirrors the "Simulated Scale" switch. When on, a simulated scale owns the
+    // weight stream, so connecting a real one would fight it — that, and only
+    // that, is what blocks real scale connects.
+    void setScaleSimulated(bool simulated);
     QVariantList discoveredDevices() const;
     QVariantList discoveredScales() const;
     bool scaleConnectionFailed() const { return m_scaleConnectionFailed; }
@@ -787,6 +798,10 @@ private:
 
     // Simulator mode - disable all BLE operations
     bool m_disabled = false;
+    // Set from the "Simulated Scale" switch, NOT from DE1 simulation mode.
+    // Gates the two real-scale connect paths (switchScale,
+    // tryDirectConnectToScale) that used to consult m_disabled.
+    bool m_scaleSimulated = false;
 
     // Direct connect state - prevents duplicate connections from scan
     bool m_directConnectInProgress = false;

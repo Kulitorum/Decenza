@@ -635,13 +635,27 @@ void BLEManager::setDisabled(bool disabled) {
             if (m_scanning) {
                 stopScan();
             }
-            m_scaleConnectionTimer->stop();
-            // Disconnect physical scale so FlowScale takes over
-            emit disconnectScaleRequested();
+            // NOTE: no longer stops m_scaleConnectionTimer or drops the physical
+            // scale. Those belong to the scale, and the DE1 simulator has no
+            // business tearing down a real scale the user is weighing with —
+            // that teardown is now setScaleSimulated's job.
         }
-        qDebug() << "BLEManager: BLE operations" << (disabled ? "disabled (simulator mode)" : "enabled");
+        qDebug() << "BLEManager: DE1 BLE operations" << (disabled ? "disabled (simulator mode)" : "enabled");
         emit disabledChanged();
     }
+}
+
+void BLEManager::setScaleSimulated(bool simulated) {
+    if (m_scaleSimulated == simulated) return;
+    m_scaleSimulated = simulated;
+    if (m_scaleSimulated) {
+        // A simulated scale is taking over the weight stream — stand the real
+        // one down so the two don't both drive weight.
+        m_scaleConnectionTimer->stop();
+        emit disconnectScaleRequested();
+    }
+    qDebug() << "BLEManager: real-scale connects"
+             << (simulated ? "blocked (simulated scale active)" : "allowed");
 }
 
 bool BLEManager::isScanning() const {
@@ -877,8 +891,12 @@ void BLEManager::connectToSavedScale() {
     // otherwise we'd disconnect the current scale and tryDirectConnectToScale()
     // would then silently early-return, leaving the user on FlowScale with no
     // feedback. (These mirror tryDirectConnectToScale()'s own guards.)
-    if (m_disabled) {
-        appendScaleLog("Scale switch ignored — simulator mode");
+    // Gated on the SCALE simulator, not the DE1 one. Running the DE1 simulator
+    // means "no machine attached"; it says nothing about whether the user has a
+    // real scale they want to weigh with — and for a WiFi scale there isn't
+    // even a radio in common with the DE1.
+    if (m_scaleSimulated) {
+        appendScaleLog("Scale switch ignored — simulated scale is active");
         return;
     }
     if (!isBluetoothAvailable()) {
@@ -2052,8 +2070,12 @@ void BLEManager::ensureWifiDiscovery() {
 }
 
 void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
-    if (m_disabled) {
-        qDebug() << "BLEManager: tryDirectConnectToScale - disabled (simulator mode)";
+    // See switchScale: the DE1 simulator must not gate real scale connects.
+    // This early-return on m_disabled is why a WiFi scale could never recover
+    // on its own in simulator mode — the driver correctly deferred its retry to
+    // the app-level reconnect loop, and the loop landed here and gave up.
+    if (m_scaleSimulated) {
+        qDebug() << "BLEManager: tryDirectConnectToScale - simulated scale is active";
         return;
     }
 

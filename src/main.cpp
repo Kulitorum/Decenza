@@ -1105,9 +1105,19 @@ int main(int argc, char *argv[])
     checkpoint("TranslationManager");
     BLEManager bleManager;
 
-    // Disable BLE when simulation mode is active
+    // Two independent switches, deliberately kept apart:
+    //   simulationMode        — "no DE1 attached". Disables DE1 BLE only.
+    //   simulatedScaleEnabled — "Simulated Scale". Blocks real scale connects,
+    //                           because the simulator owns the weight stream.
+    // Wiring both to setDisabled() used to mean that running the DE1 simulator
+    // silently disabled real scales even with Simulated Scale switched off.
 #ifdef QT_DEBUG
     bleManager.setDisabled(settings.app()->simulationMode());
+    bleManager.setScaleSimulated(settings.app()->simulatedScaleEnabled());
+    QObject::connect(settings.app(), &SettingsApp::simulatedScaleEnabledChanged,
+                     &bleManager, [&bleManager, &settings]() {
+        bleManager.setScaleSimulated(settings.app()->simulatedScaleEnabled());
+    });
 #endif
 
     DE1Device de1Device;
