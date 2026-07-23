@@ -2323,11 +2323,11 @@ Page {
                                 ColumnLayout {
                                     anchors.centerIn: parent
                                     spacing: Theme.spacingSmall
-                                    Image {
+                                    ThemedIcon {
                                         Layout.alignment: Qt.AlignHCenter
                                         source: wizardPage.drinkTypeIcon(modelData)
-                                        sourceSize.width: Theme.scaled(44)
-                                        sourceSize.height: Theme.scaled(44)
+                                        iconSize: Theme.scaled(44)
+                                        color: Theme.textColor
                                     }
                                     Label {
                                         Layout.alignment: Qt.AlignHCenter
