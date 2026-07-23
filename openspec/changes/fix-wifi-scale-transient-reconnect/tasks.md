@@ -34,7 +34,7 @@
 - [x] 5.1 Run the full test suite via `mcp__qtcreator__run_tests` (scope `all`) — this is the pre-PR gate; there is no PR CI
 - [x] 5.2 Fix any pre-existing warnings or failures surfaced in the files touched, rather than excusing them as unrelated
 - [x] 5.3 Confirm no wiki manual change is needed; the manual already describes automatic reconnect, which this change makes true. Add a wiki task here if implementation reveals otherwise
-- [ ] 5.4 Open a PR (do not push to `main`)
+- [x] 5.4 Open a PR (do not push to `main`)
 - [ ] 5.5 Run the automated `/pr-review-toolkit:review-pr` on the PR and address findings
 - [ ] 5.6 Archive the change with spec sync as the final commit on the same PR
 
