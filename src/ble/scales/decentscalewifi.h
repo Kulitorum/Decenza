@@ -44,7 +44,16 @@ public:
     // non-empty string), validated via the recognition window. With no cached
     // IP (or if it fails validation) it resolves the hostname — on Android via
     // a direct mDNS A-query, since Qt's resolver can't resolve ".local".
-    void connectToHost(const QString& hostname);
+    //
+    // `preferredIp`: a just-completed mDNS resolution the caller already has in
+    // hand (a scan selection / the "Add WiFi Scale" dialog's "Use" button).
+    // When set it's dialed FIRST — it's the freshest ground truth for where the
+    // scale is right now — ahead of the persisted cache. Deliberately NOT
+    // written to that cache: only a verified connect (onRecognizedAsHds) or an
+    // eviction ever touches it, so an unverified/stale preferredIp can never
+    // clobber a good cached value. On recognition failure the normal fallback
+    // re-resolves. Empty for manual entries and cache-driven reconnects.
+    void connectToHost(const QString& hostname, const QString& preferredIp = QString());
 
     QString name() const override { return m_name; }
     QString type() const override { return ScaleTypeIds::scaleTypeId(ScaleType::DecentScaleWifi); }

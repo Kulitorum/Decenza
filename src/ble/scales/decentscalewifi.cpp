@@ -82,7 +82,7 @@ void DecentScaleWifi::connectToDevice(const QBluetoothDeviceInfo& device) {
     connectToHost(m_hostname.isEmpty() ? QStringLiteral("hds.local") : m_hostname);
 }
 
-void DecentScaleWifi::connectToHost(const QString& hostname) {
+void DecentScaleWifi::connectToHost(const QString& hostname, const QString& preferredIp) {
     m_hostname = hostname;
     m_userInitiatedShutdown = false;
     m_triedHostnameFallback = false;
@@ -96,6 +96,20 @@ void DecentScaleWifi::connectToHost(const QString& hostname) {
     m_powerOffInitiatedByApp = false;
     // New connection cycle — invalidate any in-flight resolve from a prior call.
     ++m_resolveGeneration;
+
+    // A caller with a just-completed mDNS resolution (a scan selection / the
+    // "Add WiFi Scale" dialog's "Use" button) passes it as preferredIp. Dial it
+    // first — it's the freshest ground truth for where the scale is right now,
+    // so it supersedes both the persisted cache and a fresh re-resolve. It is
+    // NOT persisted here: only a verified connect (onRecognizedAsHds) writes the
+    // cache, so a stale preferredIp can never clobber a good cached value (the
+    // reason the earlier pre-seed was removed). If it fails the recognition
+    // window, onRecognitionTimeout falls back to attemptHostname to re-resolve.
+    if (!preferredIp.isEmpty() && preferredIp != hostname) {
+        WIFI_LOG(QString("Trying freshly-resolved IP %1 for %2").arg(preferredIp, hostname));
+        attemptTarget(preferredIp, /*isHostname=*/false);
+        return;
+    }
 
     // Try the cached IP first if we have one. The recognition-timer guard
     // catches the case where DHCP has reassigned the IP and we're connecting
@@ -540,7 +554,11 @@ void DecentScaleWifi::onRecognizedAsHds() {
     m_recognitionTimer->stop();
 
     // Cache the peer IP after a hostname connect succeeds, so the next
-    // connect can skip the OS resolver entirely.
+    // connect can skip the OS resolver entirely. A cached-IP hit or a
+    // freshly-resolved preferredIp doesn't re-cache here (the resolve path
+    // already persists the IP it dials via m_ipCacheUpdate, and a preferredIp
+    // connect self-populates the cache on the first reconnect's re-resolve),
+    // so a cached-IP hit stays a pure direct connect with no cache write.
     if (m_currentTargetIsHostname && m_ipCacheUpdate) {
         const QString peerIp = m_socket ? m_socket->peerAddress().toString() : QString();
         if (!peerIp.isEmpty() && peerIp != m_hostname) {
