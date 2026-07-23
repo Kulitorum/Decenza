@@ -183,13 +183,17 @@ Item {
         // above: it never falls back to the loaded profile's frames.
         if (profileStepTemps && profileStepTemps.length > 0)
             return ProfileManager.temperatureDisplayForSteps(profileStepTemps, profileTemp, false, 0, recipeTempOffsetC)
-        // A recipe's temperature is the baseline (a baseline is a baseline): show
-        // the recipe's OWN temps (profile frames shifted by the recipe's delta,
-        // e.g. "81 · 91°C") anchored on the recipe, so a tag appears only for a
-        // per-brew deviation FROM the recipe — never a profile-relative delta. With
-        // no recipe, shift 0 and anchor on the profile → unchanged.
-        var shift = recipeBaselineTemp > 0 ? (recipeBaselineTemp - profileTemp) : 0
-        return ProfileManager.temperatureDisplay(_tempHlBaseline, tempOverridden, overrideTemp, shift)
+        // Show the RESULTING temperature — the frames the machine will brew —
+        // never a "baseline + signed tag" that makes the reader do the math. The
+        // effective anchor is the per-brew override when one is set, else the
+        // recipe's own baseline (or the profile when neither applies); the frames
+        // shift by that anchor's offset from the profile so a recipe reads as its
+        // own temps (e.g. "81 · 91°C") and an override reads as the dialed temps.
+        // hasOverride is false to suppress the tag; the _tempOverride highlight
+        // (keyed off the same override flag) is what signals "different from the
+        // baseline", matching the Brew Settings and recipe-wizard readouts.
+        var eff = tempOverridden ? overrideTemp : _tempHlBaseline
+        return ProfileManager.temperatureDisplay(eff, false, eff, eff - profileTemp)
     }
     // Roaster = brand only; Coffee = bean name only; Grind = grinder setting + RPM when recorded.
     // Each item gates exactly its named content so saved widget configs mean what they say.
