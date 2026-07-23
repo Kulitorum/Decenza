@@ -398,8 +398,8 @@ private:
     // heater voltage, refill-kit status) and writeMMRVerified's read-back.
     // Guards against a dropped READ_FROM_MMR response notification (e.g. the
     // post-connect subscription race) leaving a value silently missing or a
-    // verification pending forever. See docs/CLAUDE_MD/BLE_PROTOCOL.md and
-    // openspec/changes/harden-de1-ble-reliability for the failure this fixes.
+    // verification pending forever. See docs/CLAUDE_MD/BLE_PROTOCOL.md and the
+    // harden-de1-ble-reliability change for the failure this fixes.
     void issueMMRReadWithRetry(uint32_t address, const QString& reason);
     void sendMMRReadRequest(uint32_t address) const;
     void checkMMRReadTimeouts();
@@ -530,11 +530,18 @@ private:
     // Monotonic ms of the last SUCCESSFUL profile upload completion, or 0.
     // startEspresso() defers by up to PROFILE_UPLOAD_SETTLE_MS from this point
     // so it doesn't race the DE1 firmware's post-upload internal flash write
-    // (see startEspresso()). Consumed (reset to 0) when the deferral is armed.
+    // (see startEspresso()). Reset to 0 only on transport disconnect; it is
+    // deliberately NOT zeroed when a deferral is armed — re-entrancy during the
+    // window is gated by m_espressoStartDeferred, and the elapsed-time check
+    // makes a retained (stale) timestamp harmless for a later unrelated start.
     qint64 m_lastProfileUploadCompleteMs = 0;
     // True while a startEspresso() is deferred waiting out the settle window,
     // so a concurrent second startEspresso() can't bypass it (see startEspresso()).
     bool m_espressoStartDeferred = false;
+    // Stoppable single-shot timer that fires the deferred startEspresso(). Must
+    // be cancellable (not QTimer::singleShot) so a disconnect inside the window
+    // can abort the pending start — see onTransportDisconnected().
+    QTimer m_espressoSettleTimer;
     // reaprime's proven profileDownloadGuard value for the same DE1 firmware
     // flash-write timing (see startEspresso()).
     static constexpr int PROFILE_UPLOAD_SETTLE_MS = 500;

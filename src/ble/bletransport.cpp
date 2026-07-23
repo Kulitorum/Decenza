@@ -102,7 +102,15 @@ BleTransport::BleTransport(QObject* parent)
     m_subscribeTimeoutTimer.setSingleShot(true);
     m_subscribeTimeoutTimer.setInterval(SUBSCRIBE_TIMEOUT_MS);
     connect(&m_subscribeTimeoutTimer, &QTimer::timeout, this, [this]() {
-        warn(QString("Notification subscribe timed out (%1) — proceeding without confirmation")
+        // Proceeding without confirmation means this characteristic's
+        // notifications may never start flowing this session, yet the app will
+        // present as fully connected. Name the stream and the consequence so a
+        // field AI reading the log can tie "telemetry frozen / stale data" back
+        // to this line rather than having to infer it. The zombie-link detector
+        // is the only in-session backstop (up to NOTIFICATION_STALE_MS later).
+        warn(QString("Notification subscribe timed out (%1) — proceeding without "
+                     "confirmation; that stream's notifications may not flow until "
+                     "the next reconnect")
                  .arg(m_currentSubscribeUuid.toString().mid(1, 8)));
         m_writePending = false;
         subscribeNext();

@@ -29,14 +29,21 @@ private:
         TestFixture() { device.setTransport(&transport); }
     };
 
+    // An MMR read response for `address`: len byte, 3 address bytes (big
+    // endian), then the value byte(s). parseMMRResponse reads d[4] for the
+    // single-byte GHC/refill status and d[4..7] (LE) for the 4-byte reads.
+    static QByteArray mmrResponse(uint32_t address, uint8_t value0) {
+        QByteArray r(20, 0);
+        r[1] = static_cast<char>((address >> 16) & 0xFF);
+        r[2] = static_cast<char>((address >> 8) & 0xFF);
+        r[3] = static_cast<char>(address & 0xFF);
+        r[4] = static_cast<char>(value0);
+        return r;
+    }
+
     // A GHC_INFO read response: len byte, 3 address bytes (big endian), status byte.
     static QByteArray ghcResponse(uint8_t status) {
-        QByteArray r(20, 0);
-        r[1] = static_cast<char>((DE1::MMR::GHC_INFO >> 16) & 0xFF);
-        r[2] = static_cast<char>((DE1::MMR::GHC_INFO >> 8) & 0xFF);
-        r[3] = static_cast<char>(DE1::MMR::GHC_INFO & 0xFF);
-        r[4] = static_cast<char>(status);
-        return r;
+        return mmrResponse(DE1::MMR::GHC_INFO, status);
     }
 
     // Force every pending read's deadline into the past and run one sweep,
@@ -125,6 +132,9 @@ private slots:
         expireAndSweep(f.device);
         QTest::ignoreMessage(QtWarningMsg,
             QRegularExpression("\\[MMR\\] read FAILED after retries"));
+        // GHC exhaustion additionally logs the capability-unconfirmed advisory.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("GHC status unconfirmed after retries"));
         expireAndSweep(f.device);
 
         QVERIFY(!f.device.m_pendingMMRReads.contains(DE1::MMR::GHC_INFO));
@@ -162,6 +172,71 @@ private slots:
         // no longer sits pending forever with no signal.
         QVERIFY(!f.device.m_pendingMMRReads.contains(addr));
         QVERIFY(!f.device.m_pendingMMRVerifies.contains(addr));
+    }
+
+    // ===== Multiple concurrent pending reads (the real sendInitialSettings path) =====
+
+    void oneResponseLeavesOtherReadsPendingAndTimerRunning() {
+        // The production path issues six reads at once; a single-entry test
+        // never exercises the selective timer-stop or the collect-then-mutate
+        // iterator safety. Two concurrent reads pin both.
+        TestFixture f;
+        f.device.issueMMRReadWithRetry(DE1::MMR::GHC_INFO, QStringLiteral("GHC info"));
+        f.device.issueMMRReadWithRetry(DE1::MMR::REFILL_KIT, QStringLiteral("refill kit status"));
+        QVERIFY(f.device.m_mmrReadRetryTimer.isActive());
+        QCOMPARE(f.device.m_pendingMMRReads.size(), 2);
+
+        // One response arrives: only that entry clears, the other stays pending,
+        // and the sweep timer keeps running (not stopped while work remains).
+        emit f.transport.dataReceived(DE1::Characteristic::READ_FROM_MMR,
+                                      mmrResponse(DE1::MMR::REFILL_KIT, 1));
+        QVERIFY(!f.device.m_pendingMMRReads.contains(DE1::MMR::REFILL_KIT));
+        QVERIFY(f.device.m_pendingMMRReads.contains(DE1::MMR::GHC_INFO));
+        QVERIFY(f.device.m_mmrReadRetryTimer.isActive());
+
+        // The last response drains the table and stops the timer.
+        QTest::ignoreMessage(QtDebugMsg, QRegularExpression("GHC status: active"));
+        emit f.transport.dataReceived(DE1::Characteristic::READ_FROM_MMR, ghcResponse(3));
+        QVERIFY(f.device.m_pendingMMRReads.isEmpty());
+        QVERIFY(!f.device.m_mmrReadRetryTimer.isActive());
+    }
+
+    void concurrentReadsExpiringTogetherAreIteratorSafe() {
+        // Two reads expiring in the same sweep exercises the collect-then-mutate
+        // guard against hash-iterator invalidation (a crash/UB regression if the
+        // guard were removed). Runs under ASan/UBSan in the debug build.
+        TestFixture f;
+        f.device.issueMMRReadWithRetry(DE1::MMR::CPU_BOARD_MODEL, QStringLiteral("CPU board model"));
+        f.device.issueMMRReadWithRetry(DE1::MMR::MACHINE_MODEL, QStringLiteral("machine model"));
+
+        // Exhaust both together: 2 retries then expire, each sweep emits one
+        // warning per still-pending read.
+        for (int round = 0; round < 3; ++round) {
+            for (auto it = f.device.m_pendingMMRReads.begin();
+                 it != f.device.m_pendingMMRReads.end(); ++it) {
+                QTest::ignoreMessage(QtWarningMsg,
+                    QRegularExpression(round < 2 ? "\\[MMR\\] read timeout, retrying"
+                                                 : "\\[MMR\\] read FAILED after retries"));
+            }
+            expireAndSweep(f.device);
+        }
+
+        QVERIFY(f.device.m_pendingMMRReads.isEmpty());
+        QVERIFY(!f.device.m_mmrReadRetryTimer.isActive());
+    }
+
+    // ===== Disconnect clears pending reads and settle state =====
+
+    void disconnectClearsPendingReadsAndStopsTimer() {
+        TestFixture f;
+        f.device.issueMMRReadWithRetry(DE1::MMR::GHC_INFO, QStringLiteral("GHC info"));
+        QVERIFY(!f.device.m_pendingMMRReads.isEmpty());
+        QVERIFY(f.device.m_mmrReadRetryTimer.isActive());
+
+        f.transport.setConnectedSim(false);
+
+        QVERIFY(f.device.m_pendingMMRReads.isEmpty());
+        QVERIFY(!f.device.m_mmrReadRetryTimer.isActive());
     }
 
     // ===== Profile-upload settle window before starting espresso =====
@@ -239,6 +314,48 @@ private slots:
         QTest::qWait(200);
         QCOMPARE(countEspressoStateWrites(f.transport), qsizetype(1));
     }
+
+    void disconnectCancelsDeferredStart() {
+        // Safety: a deferred start must NOT fire on a link that reconnects
+        // inside the settle window — that would be an unrequested shot. The
+        // settle timer is stopped on disconnect, cancelling the pending start.
+        TestFixture f;
+        f.device.uploadProfile(makeSimpleProfile());
+        f.transport.ackAllWritesInOrder();
+
+        f.device.startEspresso();  // defers
+        QVERIFY(f.device.m_espressoStartDeferred);
+        QVERIFY(f.device.m_espressoSettleTimer.isActive());
+
+        // Link drops within the window.
+        f.transport.setConnectedSim(false);
+        QVERIFY(!f.device.m_espressoStartDeferred);
+        QVERIFY(!f.device.m_espressoSettleTimer.isActive());
+
+        // Reconnect, then wait past the original window. No Espresso state
+        // change should have been issued by the cancelled deferral.
+        f.transport.clearWrites();
+        f.transport.setConnectedSim(true);
+        QTest::qWait(PROFILE_UPLOAD_SETTLE_WAIT_MS);
+        QCOMPARE(countEspressoStateWrites(f.transport), qsizetype(0));
+    }
+
+    void disconnectClearsSettleWindow() {
+        // After a disconnect, a fresh startEspresso must fire immediately — the
+        // dead connection's upload timestamp must not gate the new link.
+        TestFixture f;
+        f.device.uploadProfile(makeSimpleProfile());
+        f.transport.ackAllWritesInOrder();
+        f.transport.setConnectedSim(false);
+        f.transport.setConnectedSim(true);
+        f.transport.clearWrites();
+
+        f.device.startEspresso();
+        QCOMPARE(countEspressoStateWrites(f.transport), qsizetype(1));
+    }
+
+private:
+    static constexpr int PROFILE_UPLOAD_SETTLE_WAIT_MS = 700;  // > 500ms window
 };
 
 QTEST_MAIN(tst_DE1DeviceMMRReads)

@@ -44,6 +44,18 @@ DE1Device::DE1Device(QObject* parent)
     // table drains, so it's inert outside a connect/verify window.
     m_mmrReadRetryTimer.setInterval(250);
     connect(&m_mmrReadRetryTimer, &QTimer::timeout, this, &DE1Device::checkMMRReadTimeouts);
+
+    // Fires the deferred startEspresso() once the profile-upload settle window
+    // elapses (see startEspresso()). A stoppable member timer, NOT a fire-and-
+    // forget QTimer::singleShot: a disconnect inside the window must be able to
+    // CANCEL the pending start (onTransportDisconnected stops it), otherwise the
+    // shot would fire on whatever link exists when it elapses — including a
+    // fresh reconnect the user never asked to start a shot on.
+    m_espressoSettleTimer.setSingleShot(true);
+    connect(&m_espressoSettleTimer, &QTimer::timeout, this, [this]() {
+        m_espressoStartDeferred = false;
+        startEspresso();
+    });
 }
 
 DE1Device::~DE1Device() {
@@ -147,11 +159,12 @@ void DE1Device::onTransportDisconnected() {
     m_pendingMMRReads.clear();
     m_mmrReadRetryTimer.stop();
     // Drop any pending profile-upload settle window — it belongs to the dead
-    // connection's upload, not the next one's. (An armed deferred start's timer
-    // lambda will still fire, but with the flag cleared and no recent upload it
-    // simply falls through to a normal start against the reconnected link.)
+    // connection's upload, not the next one's. Stopping the settle timer CANCELS
+    // an armed deferred start outright, so it can't fire an unrequested shot on
+    // a reconnect that lands within the window.
     m_lastProfileUploadCompleteMs = 0;
     m_espressoStartDeferred = false;
+    m_espressoSettleTimer.stop();
     m_deviceSteamTargetC = -1.0;
     m_deviceSteamDurationSec = -1;
     m_deviceHotWaterTempC = -1.0;
@@ -673,6 +686,19 @@ void DE1Device::checkMMRReadTimeouts() {
             "[MMR] read FAILED after retries: 0x%1 [%2] — leaving existing/default value")
             .arg(address, 6, 16, QLatin1Char('0'))
             .arg(reason);
+
+        // GHC_INFO is the one exhausted read with a behavioral (not just
+        // display) consequence: isHeadless stays at its permissive default, so
+        // the app shows in-app start controls whose availability it could not
+        // actually confirm with the machine. Spell that out — the other reads
+        // (identity strings, heater voltage, refill-kit) only affect display.
+        if (address == DE1::MMR::GHC_INFO) {
+            qWarning().noquote() << QStringLiteral(
+                "[MMR] GHC status unconfirmed after retries — in-app start "
+                "availability reflects the permissive default (isHeadless=true), "
+                "not a confirmed machine state");
+        }
+
         m_pendingMMRReads.remove(address);
 
         // If this was a writeMMRVerified read-back, don't leave the
@@ -922,16 +948,16 @@ void DE1Device::startEspresso() {
             qDebug().noquote() << QString(
                 "[BLE DE1] startEspresso: deferring %1ms for profile-upload settle")
                 .arg(remainingMs);
-            // Arm a single deferred start. The flag (not zeroing the timestamp)
-            // is what a concurrent second startEspresso() checks below — so a
-            // double-tap inside the window can't slip an immediate start past
-            // the settle. The deferred call clears the flag and re-runs; by then
-            // the window has elapsed (or, if a newer upload landed, re-defers).
+            // Arm a single deferred start via the stoppable member timer. The
+            // flag (not zeroing the timestamp) is what a concurrent second
+            // startEspresso() checks below — so a double-tap inside the window
+            // can't slip an immediate start past the settle. The timer's handler
+            // clears the flag and re-runs; by then the window has elapsed (or,
+            // if a newer upload landed, re-defers). A disconnect cancels it (see
+            // onTransportDisconnected) so a queued shot can't fire on a fresh
+            // reconnect the user never requested a shot on.
             m_espressoStartDeferred = true;
-            QTimer::singleShot(remainingMs, this, [this]() {
-                m_espressoStartDeferred = false;
-                startEspresso();
-            });
+            m_espressoSettleTimer.start(remainingMs);
             return;
         }
     }
@@ -1667,7 +1693,7 @@ void DE1Device::sendInitialSettings() {
 
     // Read GHC info via MMR. Timeout+retry (issueMMRReadWithRetry) guards
     // against the post-connect subscription race dropping this one-shot
-    // response silently — see openspec/changes/harden-de1-ble-reliability.
+    // response silently — see the harden-de1-ble-reliability change.
     issueMMRReadWithRetry(DE1::MMR::GHC_INFO, QStringLiteral("GHC info"));
 
     // Read machine identity MMRs (CPU board model, machine model, firmware build)
