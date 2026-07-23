@@ -472,7 +472,17 @@ void BleTransport::onControllerError(QLowEnergyController::Error error) {
         default: stateName = QString::number(static_cast<int>(m_controller ? m_controller->state() : -1)); break;
     }
     warn(QString("!!! CONTROLLER ERROR: %1 (state=%2) !!!").arg(errorName, stateName));
-    emit errorOccurred(userMessage);
+
+    // AuthorizationError on the DE1/accessory link is never a user-actionable
+    // pairing failure — these devices have no PIN. It's the OS tearing down the
+    // encrypted link under BLE contention (dual-HIGH; with the scale left at HIGH
+    // in observe mode by design), and the link auto-reconnects. Surfacing a modal
+    // "Connection Error: Authorization error" that the user can only dismiss is
+    // pure noise, so log it (warn above) and drive the wedge detector via
+    // de1LinkFault below, but don't raise a dialog. (#1093, observe-mode contention)
+    if (error != QLowEnergyController::AuthorizationError) {
+        emit errorOccurred(userMessage);
+    }
 
     // Connection-teardown family is the dual-HIGH BLE-contention signature
     // (#1093 AuthorizationError, #1176 ConnectionError). Surface it to the

@@ -436,6 +436,12 @@ public:
     // an immediate scan when a saved refractometer is not connected and
     // Bluetooth is up; otherwise the reconnect tick resumes the hunt later.
     Q_INVOKABLE void setRefractometerHunt(bool active);
+    // True while the post-shot review page is open. The R2 is only used to
+    // capture TDS/EY on that page, so its auto-reconnect is scoped to the hunt:
+    // tryDirectConnectToRefractometer() no-ops when this is false, and the
+    // app-wide reconnect tick self-stops. The scale has no such scoping — it is
+    // needed everywhere and keeps its own always-on reconnect.
+    bool isRefractometerHunt() const { return m_refractometerHunt; }
 
     // DE1 address management
     void setSavedDE1Address(const QString& address, const QString& name);

@@ -66,7 +66,13 @@ Page {
     // Also end the refractometer hunt — continuous scanning is scoped to this
     // page being the active page.
     StackView.onDeactivating: {
+        // The R2 is only used to capture TDS/EY on this page. Leaving it ends the
+        // hunt AND disconnects, so it isn't holding a BLE link (contending with
+        // the DE1/scale) while we're off the page. The hunt reconnects on return.
         BLEManager.setRefractometerHunt(false)
+        if (Refractometer && Refractometer.connected) {
+            Refractometer.disconnectFromDevice()
+        }
         autosave()
     }
 

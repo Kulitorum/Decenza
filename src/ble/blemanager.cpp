@@ -1789,12 +1789,34 @@ void BLEManager::setRefractometerDevice(RefractometerDevice* device) {
     m_refractometerDevice = device;
     if (m_refractometerDevice) {
         connect(m_refractometerDevice, &RefractometerDevice::connectedChanged,
-                this, &BLEManager::refractometerConnectedChanged);
+                this, [this]() {
+            emit refractometerConnectedChanged();
+            // Keep the hunt persistent while the review page is open: onScanFinished
+            // only re-chains when a scan is already in flight, and none is once we
+            // were connected. So if the R2 drops mid-page, re-kick the scan chain.
+            if (m_refractometerHunt && !isRefractometerConnected() && !m_scanningForScales) {
+                qDebug().noquote() << "[R2-diag] R2 dropped while hunting — re-kicking scan";
+                tryDirectConnectToRefractometer();
+            }
+        });
     }
     emit refractometerConnectedChanged();
 }
 
 void BLEManager::tryDirectConnectToRefractometer() {
+    // The R2 is only used to read TDS/EY on the post-shot review page, so its
+    // auto-reconnect is scoped to the hunt (review page open). Off that page we
+    // don't need the R2, and keeping it scanning/connecting there was pure BLE
+    // contention noise — endless failed connect attempts that never help. This
+    // is the single chokepoint every auto-reconnect path funnels through (the
+    // reconnect tick, startup, resume, screensaver-exit), so gating it here
+    // scopes them all without touching the scale's separate, always-on
+    // reconnect. Manual pairing from Settings goes through connectToRefractometer()
+    // → refractometerDiscovered and is intentionally unaffected.
+    if (!m_refractometerHunt) {
+        qDebug().noquote() << "[R2-diag] tryDirectConnectToRefractometer no-op (not hunting — review page closed)";
+        return;
+    }
     if (m_savedRefractometerAddress.isEmpty() || m_disabled) {
         qDebug().noquote() << QString("[R2-diag] tryDirectConnectToRefractometer no-op (savedAddrEmpty=%1 disabled=%2)")
             .arg(m_savedRefractometerAddress.isEmpty() ? QStringLiteral("true") : QStringLiteral("false"),

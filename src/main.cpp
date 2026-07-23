@@ -2823,6 +2823,16 @@ int main(int argc, char *argv[])
             qDebug() << "Refractometer reconnect: no saved address, stopping retries";
             return;
         }
+        // The R2 is only used on the post-shot review page (the "hunt"). Off that
+        // page we don't need it, so stop the tick rather than reschedule — no
+        // scanning, no log spam, no BLE contention. setRefractometerHunt(true)
+        // resumes the hunt directly (immediate scan + onScanFinished chaining),
+        // so this timer isn't needed to drive on-page reconnects. The scale's
+        // reconnect is a separate always-on timer and is unaffected.
+        if (!bleManager.isRefractometerHunt()) {
+            qDebug() << "Refractometer reconnect: review page closed — stopping retries until it reopens";
+            return;
+        }
         if (bleManager.isRefractometerConnected()) {
             qDebug() << "Refractometer reconnect: already connected, stopping retries";
             return;
