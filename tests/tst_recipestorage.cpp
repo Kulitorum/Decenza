@@ -223,8 +223,13 @@ private slots:
         Recipe hw;
         hw.hotWaterJson = waterAfter;
         QCOMPARE(Recipe::deriveDrinkType(hw, ""), QString("tea_hotwater"));
-        hw.profileTitle = "Some profile";
-        QCOMPARE(Recipe::deriveDrinkType(hw, "espresso"), QString("americano"));
+        // The profile-less short-circuit runs BEFORE the milk+water check, so a
+        // profile-less recipe with both blocks is still hot-water tea, never
+        // latte_hotwater (which requires a profile).
+        hw.steamJson = milk;
+        QCOMPARE(Recipe::deriveDrinkType(hw, ""), QString("tea_hotwater"));
+        hw.profileTitle = "Some profile";  // now milk+water with a profile
+        QCOMPARE(Recipe::deriveDrinkType(hw, "espresso"), QString("latte_hotwater"));
     }
 
     void lastEquipmentForDrinkType() {
@@ -1979,6 +1984,33 @@ private slots:
         withRawDb(path, "lattehw_verify", [&](QSqlDatabase& db) {
             QCOMPARE(RecipeStorage::loadRecipeStatic(db, id).drinkType,
                      QString("latte_hotwater"));
+        });
+    }
+
+    // The symmetric path: removing the hot-water block from a stored
+    // latte_hotwater re-derives back to latte. Guards that the stored-type
+    // preservation branch (which special-cases only tea/filter) does not strand
+    // latte_hotwater when its water goes away.
+    void updateRederivesLatteHotWaterToLatte() {
+        const QString path = freshDbPath();
+        qint64 id = 0;
+        withRawDb(path, "lattehw_rm_setup", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            Recipe r;
+            r.name = "Latte+water"; r.profileTitle = "Espresso 1.0";
+            r.drinkType = "latte_hotwater";
+            r.steamJson = "{\"hasMilk\":true}";
+            r.hotWaterJson = "{\"hasWater\":true,\"vesselName\":\"Cup\",\"order\":\"before\"}";
+            id = RecipeStorage::insertRecipeStatic(db, r);
+        });
+        RecipeStorage storage;
+        storage.initialize(path);
+        QSignalSpy spy(&storage, &RecipeStorage::recipeUpdated);
+        storage.requestUpdateRecipe(id, {{"hotWaterJson", "{\"hasWater\":false}"}});
+        QTRY_COMPARE(spy.count(), 1);
+        QVERIFY(spy.at(0).at(1).toBool());
+        withRawDb(path, "lattehw_rm_verify", [&](QSqlDatabase& db) {
+            QCOMPARE(RecipeStorage::loadRecipeStatic(db, id).drinkType, QString("latte"));
         });
     }
 
