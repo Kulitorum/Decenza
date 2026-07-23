@@ -33,8 +33,8 @@ Item {
     signal clicked()
 
     // Ordered display items. Keys: "doseYield", "profile", "temperature",
-    // "roaster", "coffee", "grind", "roastDate". Membership shows the item,
-    // position orders it (fragment list / sentence tail).
+    // "roaster", "coffee", "grind", "roastDate", "recipe". Membership shows the
+    // item, position orders it (fragment list / sentence tail).
     property var itemOrder: ["doseYield", "profile", "temperature", "roaster", "coffee", "grind"]
     // Sentence scaffold vs plain fragment list.
     property bool sentence: true
@@ -115,6 +115,13 @@ Item {
     property bool rpmCapable: Settings.dye.grinderRpmCapable(Settings.dye.dyeGrinderBrand, Settings.dye.dyeGrinderModel)
     property string beverageType: ProfileManager.currentProfileBeverageType
     property bool isCleaning: ProfileManager.currentProfileIsMaintenance
+    // The active recipe (drink) name — defaults to the LIVE active recipe so the
+    // home widget needs no wiring, but per-shot consumers (shot-detail /
+    // post-shot-review snapshot lines) override it with the shot's own FROZEN
+    // recipe name. Empty when no recipe is active; an empty recipe never fills
+    // the sentence anchor and contributes nothing as a fragment.
+    property string recipeName:
+        Settings.dye.activeRecipeId >= 0 ? (MainController.activeRecipe.name || "") : ""
 
     // Per-item override highlight (recipe-aware-brew-settings): only the
     // overridden segment(s) recolor — the temperature item on a temp override,
@@ -158,6 +165,15 @@ Item {
     // temperatureDisplay() follows the C/F display unit; its Settings.app.temperatureUnit
     // read is in C++, invisible to QML bindings, so read it here.
     readonly property string _profileStr: (_has("profile") && profileName) ? profileName : ""
+    // Recipe (drink) name — its own item gate. Shown as a fragment and, when it
+    // stands in for an absent profile, as the sentence anchor (see _anchorStr).
+    readonly property string _recipeStr: (_has("recipe") && recipeName.length > 0) ? recipeName : ""
+    // The "using {anchor}" slot: the profile name when the Profile item is shown
+    // with a name, else the active recipe name (add-recipe-to-shot-plan — Recipe
+    // is a stand-in anchor for Profile in the swap case). A shown, available
+    // profile always keeps the anchor; recipe fills it only when profile is
+    // absent. Empty => no anchor => the profile-less recipe sentence.
+    readonly property string _anchorStr: _profileStr !== "" ? _profileStr : _recipeStr
     readonly property string _tempStr: {
         void(Settings.app.temperatureUnit)
         if (!(_has("temperature") && profileTemp > 0)) return ""
@@ -236,24 +252,27 @@ Item {
         var temp = (_tempStr !== "") ? fmt(_tempStr, true, _tempOverride) : ""
         var order = itemOrder || []
 
-        // Sentence format needs the profile as its anchor; without it (item removed
-        // or no profile name) fall through to the fragment list. Word order inside
-        // the scaffold belongs to the translated template — the consumed items
-        // (doseYield's yield, profile, temperature) ignore their list positions.
-        if (sentence && _profileStr !== "") {
+        // Sentence format needs an anchor for its "using %" slot; without one
+        // (no profile name AND no active recipe to stand in) fall through to the
+        // profile-less recipe sentence. The anchor is the profile name, or the
+        // recipe name when the profile is absent (add-recipe-to-shot-plan). Word
+        // order inside the scaffold belongs to the translated template — the
+        // consumed items (doseYield's yield, the anchor, temperature) ignore
+        // their list positions.
+        if (sentence && _anchorStr !== "") {
             var s
             if (_yieldStr !== "" && _tempStr !== "")
                 s = TranslationManager.translate("shotplan.sentence", "Brew %1 of %2, using %3 at %4")
-                    .arg(fmt(_yieldStr, true, _yieldOverride)).arg(fmt(_beverage, false)).arg(fmt(_profileStr, true)).arg(temp)
+                    .arg(fmt(_yieldStr, true, _yieldOverride)).arg(fmt(_beverage, false)).arg(fmt(_anchorStr, true)).arg(temp)
             else if (_yieldStr === "" && _tempStr !== "")
                 s = TranslationManager.translate("shotplan.sentenceNoYield", "Brew %1, using %2 at %3")
-                    .arg(fmt(_beverage, false)).arg(fmt(_profileStr, true)).arg(temp)
+                    .arg(fmt(_beverage, false)).arg(fmt(_anchorStr, true)).arg(temp)
             else if (_yieldStr !== "")
                 s = TranslationManager.translate("shotplan.sentenceNoTemp", "Brew %1 of %2, using %3")
-                    .arg(fmt(_yieldStr, true, _yieldOverride)).arg(fmt(_beverage, false)).arg(fmt(_profileStr, true))
+                    .arg(fmt(_yieldStr, true, _yieldOverride)).arg(fmt(_beverage, false)).arg(fmt(_anchorStr, true))
             else
                 s = TranslationManager.translate("shotplan.sentenceNoYieldNoTemp", "Brew %1, using %2")
-                    .arg(fmt(_beverage, false)).arg(fmt(_profileStr, true))
+                    .arg(fmt(_beverage, false)).arg(fmt(_anchorStr, true))
             var tail = []
             for (var i = 0; i < order.length; i++) {
                 switch (order[i]) {
@@ -262,14 +281,22 @@ Item {
                 case "coffee":    if (_coffeeStr !== "") tail.push(fmt(_coffeeStr, true)); break
                 case "grind":     if (grind !== "") tail.push(grind); break
                 case "roastDate": if (roasted !== "") tail.push(roasted); break
+                // Recipe trails only when it is NOT the anchor — i.e. a profile
+                // filled the slot and recipe is also shown (the both-present
+                // case). When recipe IS the anchor, _profileStr is empty and it
+                // must not also trail.
+                case "recipe":    if (_recipeStr !== "" && _profileStr !== "") tail.push(fmt(_recipeStr, true)); break
                 }
             }
             return tail.length > 0 ? (s + blockSep + tail.join(sep)) : s
         }
 
-        // Recipe sentence — the profile-less anchor. Reached when Sentence is on
-        // but there's no profile anchor (item removed, or no profile name
-        // available), so the plan reads as the recipe itself: "Brew 40.0g of
+        // Beans sentence — the anchorless fallback. ("Recipe sentence" in the
+        // spec, but NOT the Recipe display item — this is the beans-anchored
+        // form reached when neither can fill the "using %" slot.) Reached when
+        // Sentence is on but there's no anchor at all: no profile name (item
+        // removed or none loaded) AND no active recipe to stand in for it
+        // (add-recipe-to-shot-plan). So the plan reads as the drink itself: "Brew 40.0g of
         // Espresso at 92°C from 18.0g of <Roaster> <Bean>". Dose, temperature,
         // roaster and coffee are CONSUMED into the sentence (they don't also
         // trail as fragments); only grind/roastDate trail after. Each piece
@@ -330,6 +357,7 @@ Item {
             case "coffee":      if (_coffeeStr !== "") parts.push(fmt(_coffeeStr, true)); break
             case "grind":       if (grind !== "") parts.push(grind); break
             case "roastDate":   if (roasted !== "") parts.push(roasted); break
+            case "recipe":      if (_recipeStr !== "") parts.push(fmt(_recipeStr, true)); break
             }
         }
         return parts.join(sep)

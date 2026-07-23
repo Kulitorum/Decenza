@@ -1,8 +1,5 @@
-# plan-widgets Specification
+## MODIFIED Requirements
 
-## Purpose
-Defines the text-rendering rules for the `shotPlan` widget's shot-plan and steam-plan sentences: how the configured display-item list maps to sentence and fragment formats, override indicators for temperature and yield, the cleaning-profile warning, page-aware switching between shot and steam plans, and the wrap-before-elide overflow behavior.
-## Requirements
 ### Requirement: Shot plan sentence content follows the display toggles
 
 The Shot Plan text (used by the `shotPlan` widget) SHALL render the display items named by the instance's ordered item list (`shotPlanItems`), in list order, in one of two formats selected by the instance's Sentence style option (`shotPlanSentence`, default ON).
@@ -115,95 +112,7 @@ The plain (accessibility) text and the rich (displayed) text SHALL be produced b
 - **WHEN** the `grind` item is present and no RPM is recorded (dyeGrinderRpm = 0)
 - **THEN** the grind segment shows only the grinder setting, with no RPM placeholder
 
-### Requirement: Override indicators
-
-The Shot Plan text SHALL highlight only the individual overridden item(s), not the whole sentence: when a deliberate temperature override is active (the override differs from the surface's temperature baseline by more than 0.1°C) the temperature item SHALL render in the override-highlight color; when a deliberate yield override is active (the target differs from the surface's yield baseline by more than 0.1 g) the yield item SHALL render as "{baselineYield} → {target}g" in the override-highlight color. Every other part of the sentence, and the plan icon, SHALL remain the default text color. The override-highlight color SHALL be `Theme.highlightColor` — the same color the Brew Settings values use for an override — so the two surfaces read consistently. Natural drift between measured dose and profile dose SHALL NOT trigger either indicator.
-
-Because the highlight lives in the shared `ShotPlanText` component, it SHALL apply on **every** surface that renders the Shot Plan — the idle home widget, recipe cards, the shot-detail and post-shot-review snapshot lines, and the screensaver preview — not only the idle page. Each surface's highlight SHALL be driven by **that surface's own** override inputs: the live dial for the home widget, and the shot's frozen snapshot values for the shot-detail and post-shot-review lines. A frozen-shot surface SHALL NOT reflect the live dial's override state; if it does not render the temperature or yield item, that item simply shows no highlight (it does not borrow the live override).
-
-**Recipe cards have no override inputs of their own and SHALL render with no highlight**: a card shows a static recipe definition, not a live per-brew comparison, so neither its temperature nor its yield item ever carries the override-highlight color. The temperature segment SHALL still be resolved from the recipe's own (possibly not-currently-loaded) profile's frame temperatures, shifted by the recipe's stored `tempOffsetC`, and rendered as the resulting value only — see `recipe-quick-switch` for the full rendering rule. The yield segment SHALL render as the plain resulting value with no arrow.
-
-#### Scenario: Highlight appears on non-idle surfaces
-- **WHEN** a shot snapshot line renders a plan whose shot carries a yield or temperature override
-- **THEN** that overridden item is highlighted using the same per-item scheme as the idle widget, driven by the shot's own values
-
-#### Scenario: Recipe cards never highlight
-- **WHEN** a recipe card renders a recipe with `tempOffsetC` = −3 on a profile whose frames are 84 · 94°C, or a recipe whose stored yield differs from its profile's target
-- **THEN** the card's temperature and yield segments both render in the default text color — no tag, no arrow, no highlight
-
-#### Scenario: Frozen surfaces do not borrow the live override
-- **WHEN** a live temperature override is active and the user opens a historical shot whose snapshot had no override
-- **THEN** the shot-detail plan line shows no highlight (it reflects the shot's frozen state, not the live dial)
-
-#### Scenario: Temperature override highlights only the temperature item
-- **WHEN** a deliberate temperature override is active on the live dial or a shot snapshot
-- **THEN** that surface's temperature item renders in `Theme.highlightColor`
-- **AND** the rest of the sentence and the icon remain the default text color
-
-#### Scenario: Yield override shows the arrow, highlighted
-- **WHEN** the user dials a yield override of 40.0 g on a profile whose default yield is 36.0 g
-- **THEN** the plan shows "36.0 → 40.0g" and that yield fragment renders in `Theme.highlightColor`
-- **AND** the rest of the sentence remains the default text color
-
-#### Scenario: No override, no arrow, no highlight
-- **WHEN** no yield or temperature override is set
-- **THEN** the plan shows the single target weight with no arrow, and the whole sentence renders in the default text color
-
-#### Scenario: Natural dose drift does not highlight
-- **WHEN** the measured dose differs from the profile dose but no deliberate override flag is set
-- **THEN** no item is highlighted
-
-### Requirement: Steam plan sentence
-
-The Steam Plan text (the steam-context rendering of the `shotPlan` widget) SHALL summarise the next steam as "Steam {milk} of milk, using the {pitcher} pitcher for {duration}", degrading to a separator-joined list when a piece is missing, and SHALL render nothing when the selected pitcher preset is the disabled ("Off") preset. When the selected preset's name already contains the word "pitcher" (case-insensitive), the sentence SHALL NOT append another "pitcher", so a preset named "Large Pitcher" never renders "Large Pitcher pitcher". The displayed duration SHALL be the selected preset's effective steam time (scaled when weight-timed steaming has a measured/reference milk, else the preset's base duration), resolved by the single shared `SettingsBrew` helper — never the residue another code path wrote to `steamTimeout`.
-
-#### Scenario: Pitcher name containing "Pitcher"
-
-- **WHEN** the selected preset is named "Large Pitcher"
-- **THEN** the sentence reads "…using the Large Pitcher for 30s" (no duplicated word)
-
-#### Scenario: Duration reflects the selected preset
-
-- **WHEN** the user selects a pitcher preset without tapping it to start
-- **THEN** the displayed duration matches that preset's effective steam time, not a stale value from a previous session
-
-### Requirement: Page-aware steam mode of the Shot Plan widget
-
-The `shotPlan` widget SHALL display the Shot Plan text except in steam context — steam selected on the idle screen, the steam page active, or the machine actively steaming — where it SHALL display the Steam Plan text, unless the instance's Steam plan option (`shotPlanShowSteamPlan`, default ON) is off. Page/mode state SHALL be read from the app's single existing page-state source (the `Theme` singleton), not from a duplicate copy. Outside steam mode the widget SHALL be an activatable control that opens Brew Settings; in steam mode it SHALL be a read-only summary, and its accessibility role and name SHALL match the mode.
-
-#### Scenario: Switches to steam plan
-
-- **WHEN** the user selects steam on the idle screen and the instance's Steam plan option is on
-- **THEN** the widget shows the steam plan and is announced as a read-only "Steam plan"
-
-#### Scenario: Steam plan option off
-
-- **WHEN** the instance's Steam plan option is off and the machine is steaming
-- **THEN** the widget keeps showing the shot plan
-
-#### Scenario: Shot side opens Brew Settings
-
-- **WHEN** the widget is showing the shot plan and is tapped (or activated via a screen reader)
-- **THEN** Brew Settings opens
-
-### Requirement: Shot plan overflow wraps before eliding
-
-When the Shot Plan text is wider than the width available to the widget, it SHALL wrap onto a second line, and only content that does not fit within two lines SHALL be elided. The text SHALL NEVER be clipped mid-word at the widget or screen edge. Wrapping and eliding SHALL apply to both the sentence and fragment formats and preserve the rich-text styling (bolded live values).
-
-#### Scenario: Long plan wraps to a second line
-
-- **WHEN** the rendered plan's natural single-line width exceeds the width granted to the widget
-- **THEN** the text wraps onto a second line and all content remains readable
-
-#### Scenario: Extreme overflow elides, never clips
-
-- **WHEN** the rendered plan does not fit even within two lines at the granted width
-- **THEN** the text ends with an ellipsis at the end of the second line, with no characters cut off at the widget edge
-
-#### Scenario: Short plan stays on one line
-
-- **WHEN** the rendered plan fits the granted width on one line
-- **THEN** it renders on a single line, centered as today
+## ADDED Requirements
 
 ### Requirement: Recipe item defaults off and is offered by both layout editors
 
@@ -234,4 +143,3 @@ On the live idle widget the Recipe item SHALL render the currently active recipe
 
 - **WHEN** the Recipe item is shown on the shot-detail or post-shot-review snapshot line for a past shot, and a different recipe is now active live
 - **THEN** the line shows the recipe recorded for that shot, not the currently active recipe
-
