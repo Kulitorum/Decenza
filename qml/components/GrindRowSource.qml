@@ -150,6 +150,10 @@ QtObject {
     // --- Row generation -----------------------------------------------------
     // Observed-history fallback for a given current value: ~5 below and ~5
     // above the value's slot in the injected grinder's observed settings.
+    // Reached only when the wheel can build no lattice at all AND the median
+    // anchor below yields no wide window (an unparseable value on a grinder
+    // with no numeric history). NOT capped: showing all observed settings is
+    // strictly better than truncating to ~10 (#1605).
     function _observedFallback(cur) {
         var out = []
         var model = String(root.grinderModel || "")
@@ -165,17 +169,58 @@ QtObject {
         var idx = list.indexOf(cur)
         if (idx < 0) {
             // Current not in history: prepend it (when set — an empty current
-            // must not become a blank highlighted row), plus the first ~10.
+            // must not become a blank highlighted row), then ALL observed.
             if (cur.length > 0)
                 out.push({ value: cur, isCurrent: true })
-            for (var k = 0; k < list.length && out.length < 11; k++)
+            for (var k = 0; k < list.length; k++)
                 out.push({ value: list[k], isCurrent: false })
             return out
         }
-        var lo = Math.max(0, idx - 5)
-        var hi = Math.min(list.length - 1, idx + 5)
-        for (var i = lo; i <= hi; i++)
+        for (var i = 0; i < list.length; i++)
             out.push({ value: list[i], isCurrent: i === idx })
+        return out
+    }
+
+    // Median of the injected grinder's observed NUMERIC settings, as a string,
+    // or "" when the grinder has no numeric history. This anchors the wide
+    // wheel when the picker opens on an empty/unparseable grind (#1605): a new
+    // recipe with no dialled grind must still spin a full range, not the ~10
+    // observed values. The numeric subset keeps a stray text setting ("medium")
+    // from skewing the anchor; the median lands the wheel in the middle of the
+    // user's own range (matching where the old capped wheel centred, but wide).
+    function _medianObservedAnchor() {
+        var model = String(root.grinderModel || "")
+        var observed = (MainController.shotHistory && model.length > 0)
+            ? MainController.shotHistory.getDistinctGrinderSettingsForGrinder(model)
+            : []
+        if (!observed || observed.length === 0)
+            return ""
+        var nums = []
+        for (var i = 0; i < observed.length; i++) {
+            var t = String(observed[i]).trim()
+            if (/^-?\d+(\.\d+)?$/.test(t))
+                nums.push(parseFloat(t))
+        }
+        if (nums.length === 0)
+            return ""
+        nums.sort(function(a, b) { return a - b })
+        return String(nums[Math.floor(nums.length / 2)])
+    }
+
+    // Wide window centred on an arbitrary anchor string, deduped, with the
+    // anchor's canonical row flagged isCurrent so _centerWheels lands on it.
+    // Returns [] when the anchor can't seed more than a couple of rows.
+    function _windowAround(anchor, step) {
+        var canon = root.stepGrind(anchor, 0, step)
+        var out = []
+        var seen = ({})
+        for (var n = -root.grindWindowSteps; n <= root.grindWindowSteps; n++) {
+            var v = root.stepGrind(anchor, n, step)
+            if (v === "" || v === undefined) continue
+            if (seen[v]) continue
+            seen[v] = true
+            out.push({ value: v, isCurrent: v === canon })
+        }
         return out
     }
 
@@ -198,8 +243,21 @@ QtObject {
             seen[v] = true
             generated.push({ value: v, isCurrent: v === canonicalCurrent })
         }
-        if (generated.length <= 2)
+        if (generated.length <= 2) {
+            // The value can't seed a lattice (empty on a new recipe, or
+            // unparseable). Rather than fall to the short observed-history
+            // list, anchor a WIDE window on the median observed setting so the
+            // wheel spins a full range centred on the user's own grind (#1605).
+            // Text mode is reserved for the no-numeric-history case, where the
+            // anchor is "" and the window can't be built.
+            var anchor = root._medianObservedAnchor()
+            if (anchor.length > 0) {
+                var win = root._windowAround(anchor, step)
+                if (win.length > 2)
+                    return win
+            }
             return root._observedFallback(cur)
+        }
         return generated
     }
 
