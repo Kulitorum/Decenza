@@ -1943,10 +1943,13 @@ int main(int argc, char *argv[])
     bool wasInSleep = false;
 
     // R2 refractometer auto-reconnect: same persistent backoff as the scale
-    // (5s → 30s → 60s, then 60s forever). The R2 has no DE1-sleep power
-    // management, so there is no deliberate-disconnect suppression to track —
-    // it simply keeps trying whenever it is disconnected and an address is
-    // saved. Shares reconnectDelays with the scale.
+    // (5s → 30s → 60s, then 60s forever). The R2 is only used to capture TDS/EY
+    // on the post-shot review page, so — unlike the scale — this tick is scoped
+    // to that page's "hunt": while the hunt is active it keeps trying whenever
+    // the R2 is disconnected and an address is saved; off the review page the
+    // tick self-stops (see the isRefractometerHunt() guard in its handler) and
+    // is re-armed when the hunt turns back on. Shares reconnectDelays with the
+    // scale (whose reconnect is independent and always-on).
     int refractometerReconnectAttempt = 0;
     QTimer refractometerReconnectTimer;
     refractometerReconnectTimer.setSingleShot(true);
@@ -2892,6 +2895,34 @@ int main(int argc, char *argv[])
         }
     });
 
+    // Arm/stop the R2 reconnect tick to track the review-page hunt. The R2 is
+    // only pursued while the hunt is active, and the tick (which now self-stops
+    // off-page) is the hunt's backoff-paced recovery path: if the back-to-back
+    // scan chain dies — e.g. a scan ends via onScanError, which deliberately
+    // does not re-chain — this armed tick re-kicks it. Without arming on hunt
+    // activation, opening the review page for an R2 that never connected this
+    // session (so no disconnect transition armed the tick) would leave the hunt
+    // dependent solely on the scan-finished chain, unrecoverable if it breaks
+    // until the page is reopened. Stopping on deactivation keeps no stray tick
+    // running off-page. The scale reconnect is a separate timer, untouched.
+    QObject::connect(&bleManager, &BLEManager::refractometerHuntChanged,
+                     [&bleManager, &settings, &refractometerReconnectTimer,
+                      &refractometerReconnectAttempt, &reconnectDelays](bool active) {
+        if (!active) {
+            refractometerReconnectTimer.stop();
+            refractometerReconnectAttempt = 0;
+            return;
+        }
+        if (!settings.savedRefractometerAddress().isEmpty()
+            && !bleManager.isRefractometerConnected()
+            && !refractometerReconnectTimer.isActive()) {
+            refractometerReconnectAttempt = 0;
+            refractometerReconnectTimer.start(reconnectDelays[0]);
+            qDebug() << "Refractometer reconnect: review page opened — arming recovery tick in"
+                     << reconnectDelays[0] << "ms";
+        }
+    });
+
     // Re-arm the R2 reconnect when BLE comes back, because the tick above stops
     // (rather than reschedules) while BLE is disabled. Without this, turning
     // simulator mode off would leave a saved R2 unreachable until the next app
@@ -2911,19 +2942,12 @@ int main(int argc, char *argv[])
                  << reconnectDelays[0] << "ms";
     });
 
-    // Auto-reconnect refractometer on startup. tryDirectConnect kicks one
-    // scan; also arm the persistent reconnect timer so an R2 that is powered
-    // off at startup (and therefore never produces a connect→disconnect
-    // transition to arm it) is still picked up when it powers on later.
-    // Unlike the scale — whose timer is armed reactively by flowScaleFallback
-    // on a detected connection timeout — the R2 has no failure signal, so we
-    // arm unconditionally here; safe because the timeout lambda self-
-    // terminates once the R2 connects or the address is forgotten.
-    if (!settings.savedRefractometerAddress().isEmpty()) {
-        bleManager.tryDirectConnectToRefractometer();
-        refractometerReconnectAttempt = 0;
-        refractometerReconnectTimer.start(reconnectDelays[0]);
-    }
+    // No refractometer auto-connect at startup: the R2 is only used on the
+    // post-shot review page, so it is pursued when that page opens (which fires
+    // refractometerHuntChanged → arms the reconnect tick above) and disconnected
+    // when it closes. A startup arm here would be dead code — tryDirectConnect
+    // no-ops with the hunt off, and the tick self-stops on its first fire. The
+    // scale's own startup/reconnect path is separate and unaffected.
 
 #ifndef Q_OS_IOS
     // When USB scale discovered: wire it as the active scale (same pattern as BLE scale)
@@ -3721,13 +3745,17 @@ int main(int argc, char *argv[])
             }
 
             // Refractometer disconnected while suspended - (re)start its
-            // persistent reconnect sequence (mirrors the scale path above).
+            // reconnect tick. Unlike the scale path above, this only does real
+            // work while the review-page hunt is active: off that page the tick
+            // fires once and self-stops (the R2 is not pursued off-page), and
+            // hunt activation re-arms it. Arming here is harmless in that case
+            // and covers a resume that lands directly on the review page.
             if (!bleManager.isRefractometerConnected()
                 && !settings.savedRefractometerAddress().isEmpty()
                 && !refractometerReconnectTimer.isActive()) {
                 refractometerReconnectAttempt = 0;
                 refractometerReconnectTimer.start(reconnectDelays[0]);
-                qDebug() << "App resumed - starting refractometer reconnect sequence";
+                qDebug() << "App resumed - arming refractometer reconnect tick (effective only while hunting)";
             }
 
             // Resume smart charging check now that app is active again
@@ -3753,7 +3781,9 @@ int main(int argc, char *argv[])
     // mirror that path here, stopping both timers on entry and restarting them
     // on exit. Resume gates differ between the two: scale checks saved address,
     // not connected, not suppressed, not USB; refractometer checks saved address
-    // and not connected (no suppression flag or USB-routing for it).
+    // and not connected (no suppression flag or USB-routing for it). Note the
+    // refractometer restart only does real work while the review-page hunt is
+    // active — off that page its tick fires once and self-stops.
     QObject::connect(&screensaverManager, &ScreensaverVideoManager::screensaverActiveChanged,
                      [&screensaverManager, &physicalScale, &bleManager, &settings,
                       &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays,

@@ -485,10 +485,10 @@ void BleTransport::onControllerError(QLowEnergyController::Error error) {
     }
 
     // Connection-teardown family is the dual-HIGH BLE-contention signature
-    // (#1093 AuthorizationError, #1176 ConnectionError). Surface it to the
-    // connection-priority coordinator. Scale-agnostic: this layer does not
-    // know a scale exists; the coordinator only acts on it after a scale
-    // has requested HIGH priority.
+    // (#1093 AuthorizationError, #1176 ConnectionError, #1238 RemoteHostClosedError
+    // — all three checked below). Surface it to the connection-priority
+    // coordinator. Scale-agnostic: this layer does not know a scale exists; the
+    // coordinator only acts on it after a scale has requested HIGH priority.
     if (error == QLowEnergyController::ConnectionError ||
         error == QLowEnergyController::RemoteHostClosedError ||
         error == QLowEnergyController::AuthorizationError) {

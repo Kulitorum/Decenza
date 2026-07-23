@@ -1853,10 +1853,13 @@ void BLEManager::setRefractometerHunt(bool active) {
     m_refractometerHunt = active;
     qDebug().noquote() << QString("[R2-diag] refractometer hunt %1")
         .arg(active ? QStringLiteral("ON — scans will chain back-to-back while a saved refractometer is disconnected")
-                    : QStringLiteral("OFF — background reconnect cadence resumes"));
+                    : QStringLiteral("OFF — refractometer reconnect stops until the review page reopens"));
     if (active && !isRefractometerConnected()) {
         tryDirectConnectToRefractometer();
     }
+    // Let main.cpp arm/stop the persistent reconnect tick to match the hunt —
+    // the tick is the backoff-paced recovery path if the scan chain dies.
+    emit refractometerHuntChanged(active);
 }
 
 void BLEManager::setSavedDE1Address(const QString& address, const QString& name) {

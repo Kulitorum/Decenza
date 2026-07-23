@@ -557,6 +557,12 @@ signals:
     void refractometerConnectedChanged();
     void refractometerDiscovered(const QBluetoothDeviceInfo& device);
     void disconnectRefractometerRequested();
+    // Emitted when the review-page refractometer hunt turns on/off. The R2 is
+    // only pursued while the hunt is active, so main.cpp arms the persistent
+    // reconnect tick on activation (giving the hunt a backoff-paced recovery
+    // path if the scan chain dies, e.g. via onScanError) and stops it on
+    // deactivation. The scale's reconnect is independent and unaffected.
+    void refractometerHuntChanged(bool active);
     void linuxBlueZCacheHintNeeded();  // Request the BlueZ-cache recovery dialog (Linux, caps OK).
     // Emitted when an automatic BLE-adapter power-cycle begins / completes
     // (#1309). main.cpp uses bleStackRecovered() to reset the DE1 reconnect
