@@ -54,6 +54,7 @@ Dialog {
         case "coffee":      return TranslationManager.translate("shotPlanEditor.showCoffee", "Coffee")
         case "grind":       return TranslationManager.translate("shotPlanEditor.showGrindRpm", "Grind")
         case "roastDate":   return TranslationManager.translate("shotPlanEditor.showRoastDate", "Roast date")
+        case "recipe":      return TranslationManager.translate("shotPlanEditor.itemRecipe", "Recipe")
         case "doseYield":   return TranslationManager.translate("shotPlanEditor.showDoseYield", "Dose & yield")
         }
         return key

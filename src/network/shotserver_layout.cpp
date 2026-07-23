@@ -3567,7 +3567,7 @@ QString ShotServer::generateLayoutPage() const
     // Mirrors qml/components/layout/ShotPlanConfig.js — keep the key set and
     // legacy-derivation rule in sync with it.
 
-    var SP_ALL_KEYS = ["doseYield", "profile", "temperature", "roaster", "coffee", "grind", "roastDate"];
+    var SP_ALL_KEYS = ["doseYield", "profile", "temperature", "roaster", "coffee", "grind", "roastDate", "recipe"];
     var SP_ITEM_LABELS = {
         doseYield: "Dose & yield",
         profile: "Profile",
@@ -3575,7 +3575,8 @@ QString ShotServer::generateLayoutPage() const
         roaster: "Roaster",
         coffee: "Coffee",
         grind: "Grind",
-        roastDate: "Roast date"
+        roastDate: "Roast date",
+        recipe: "Recipe"
     };
     var spItems = [];
 

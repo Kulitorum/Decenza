@@ -601,6 +601,10 @@ Page {
                 roasterBrand: shotData.beanBrand || ""
                 coffeeName: shotData.beanType || ""
                 roastDate: shotData.roastDate || ""
+                // THIS shot's frozen recipe (resolved from shotData.recipeId),
+                // never the live active recipe — same resolver the recipe card
+                // uses. Empty when the shot had no recipe.
+                recipeName: recipeResolver.recipe.name || ""
                 grindSize: shotData.grinderSetting || ""
                 grindRpm: shotData.rpm || 0
                 // Only show RPM for grinders that actually report it (a Niche

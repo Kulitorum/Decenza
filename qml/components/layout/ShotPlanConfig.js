@@ -7,9 +7,11 @@
 // implementations in sync.
 
 // All item keys in canonical (default) order — the pre-configurable fragment
-// order. roastDate is the only item that defaults OFF, matching the legacy
-// shotPlanShowRoastDate default.
-var allKeys = ["doseYield", "profile", "temperature", "roaster", "coffee", "grind", "roastDate"]
+// order. roastDate and recipe are the items that default OFF: roastDate matches
+// the legacy shotPlanShowRoastDate default, and recipe is a new key with no
+// legacy boolean at all (default-OFF is achieved purely by absence from any
+// legacy-derivation branch below and from every pre-change stored list).
+var allKeys = ["doseYield", "profile", "temperature", "roaster", "coffee", "grind", "roastDate", "recipe"]
 
 // Resolve an instance's ordered display-item list: prefer the stored
 // `shotPlanItems` array — its PRESENCE is what matters, an empty array is a
