@@ -3058,6 +3058,44 @@ Page {
                                             wizardPage._detailsUserEdited = true
                                         }
                                     }
+                                    // The temperature the offset RESOLVES TO — issue
+                                    // #1604: the stepper alone shows "+2°" and a user
+                                    // can't dial to a target without knowing the
+                                    // profile's default. Reads through the same
+                                    // formatter the brew-settings Temp Delta uses, so
+                                    // both surfaces render identically (at most two
+                                    // temps: "94°C", "80 · 94°C", or "80…96°C").
+                                    // temperatureDisplayForSteps — NOT temperatureDisplay
+                                    // — because the wizard edits an arbitrarily selected
+                                    // profile, not ProfileManager's m_currentProfile;
+                                    // fProfileStepTemps carries the picked profile's
+                                    // frames. baselineShift == fTempDeltaC shifts every
+                                    // frame to the eventual value; the same delta feeds
+                                    // the signed tag.
+                                    Text {
+                                        visible: wizardPage.fProfileTempC > 0
+                                        Layout.preferredWidth: Theme.scaled(190)
+                                        text: {
+                                            // The unit is read in C++ (not a QML-
+                                            // capturable dependency) — touch it so the
+                                            // readout re-renders on a °C/°F switch.
+                                            void(Settings.app.temperatureUnit)
+                                            return "→ " + ProfileManager.temperatureDisplayForSteps(
+                                                wizardPage.fProfileStepTemps,
+                                                wizardPage.fProfileTempC,
+                                                Math.abs(wizardPage.fTempDeltaC) > 0.05,
+                                                wizardPage.fProfileTempC + wizardPage.fTempDeltaC,
+                                                wizardPage.fTempDeltaC)
+                                        }
+                                        font.family: Theme.bodyFont.family
+                                        font.pixelSize: Theme.scaled(13)
+                                        font.italic: true
+                                        elide: Text.ElideRight
+                                        color: Math.abs(wizardPage.fTempDeltaC) > 0.1
+                                            ? Theme.temperatureColor : Theme.textSecondaryColor
+                                        Accessible.role: Accessible.StaticText
+                                        Accessible.name: text
+                                    }
                                 }
                                 NumberField {
                                     // Portafilter tea only: this edits an ABSOLUTE steep
