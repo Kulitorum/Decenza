@@ -1250,6 +1250,14 @@ QHash<QString, QString> ProfileManager::beverageTypeByTitleSnapshot() const {
     return map;
 }
 
+QHash<QString, double> ProfileManager::espressoTempByTitleSnapshot() const {
+    QHash<QString, double> map;
+    map.reserve(m_allProfiles.size());
+    for (const ProfileInfo& info : m_allProfiles)
+        map.insert(info.title.trimmed().toLower(), info.espressoTemperature);
+    return map;
+}
+
 bool ProfileManager::kbProfileSuitsRoast(const QString& profileTitle, const QString& roastLevel) const {
     const QString normalized = roastLevel.trimmed().toLower().replace(QLatin1Char(' '), QLatin1Char('-'));
     if (normalized.isEmpty())

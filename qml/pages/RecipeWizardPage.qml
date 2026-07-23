@@ -1183,27 +1183,22 @@ Page {
     // recipe-owned grind/rpm) on Equipment. A read establishes a binding
     // dependency, so these re-evaluate as the f* fields change.
 
-    // The recipe's EFFECTIVE brew temperature, unit-aware (the same number the
-    // hero's plan line shows), with the signed offset tagged when non-zero.
-    // "" when nothing is set. Tea edits an absolute; espresso a profile offset.
+    // The recipe's EFFECTIVE (resulting) brew temperature, unit-aware — the same
+    // number the hero's plan line shows. NO signed offset tag: the summary shows
+    // the temperature the machine will brew, not a delta the reader has to add up.
+    // A single resulting value (not the per-frame "84 · 94°C" form) is right here
+    // because the details card joins its parts with " · ", which a per-frame temp
+    // would collide with. "" when nothing is set or the profile temp can't be
+    // resolved. Tea edits an absolute; espresso a profile offset folded into the
+    // resulting value.
     function summaryEffectiveTempStr() {
         if (isHotWaterTea)
             return fVesselTemperatureC > 0 ? Theme.formatTemperature(fVesselTemperatureC, 0) : ""
         if (isTeaDrink)
             return fTeaTempC > 0 ? Theme.formatTemperature(fTeaTempC, 0) : ""
-        if (fProfileTempC > 0) {
-            var eff = Theme.formatTemperature(fProfileTempC + fTempDeltaC, 0)
-            if (Math.abs(fTempDeltaC) > 0.05) {
-                var d = Theme.cDeltaToDisplay(fTempDeltaC)
-                eff += " (" + (d > 0 ? "+" : "") + d.toFixed(0) + "°)"
-            }
-            return eff
-        }
-        // Unresolvable profile temp: show the offset alone rather than nothing.
-        if (Math.abs(fTempDeltaC) > 0.05) {
-            var dd = Theme.cDeltaToDisplay(fTempDeltaC)
-            return (dd > 0 ? "+" : "") + dd.toFixed(0) + "°"
-        }
+        if (fProfileTempC > 0)
+            return Theme.formatTemperature(fProfileTempC + fTempDeltaC, 0)
+        // Profile temp unresolvable → no resulting value to show (never a bare offset).
         return ""
     }
 
@@ -3030,11 +3025,55 @@ Page {
                                     visible: !wizardPage.isTeaDrink
                                     Layout.fillWidth: true
                                     spacing: Theme.scaled(4)
-                                    Label {
-                                        text: TranslationManager.translate("recipes.composer.tempOffsetLabel", "Temp offset")
-                                        font: Theme.captionFont
-                                        color: Theme.textSecondaryColor
-                                        Accessible.ignored: true
+                                    // Label row carries the RESULTING temperature beside
+                                    // the "Temp offset" caption (issue #1604) — the
+                                    // stepper alone shows "+2°" and a user can't dial to
+                                    // a target without knowing the profile's default.
+                                    // Sitting on the caption row (not below the stepper)
+                                    // keeps this column the same height as Dose/Yield/
+                                    // Ratio, so the inputs stay aligned across the grid.
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: Theme.scaled(6)
+                                        Label {
+                                            text: TranslationManager.translate("recipes.composer.tempOffsetLabel", "Temp offset")
+                                            font: Theme.captionFont
+                                            color: Theme.textSecondaryColor
+                                            Accessible.ignored: true
+                                        }
+                                        // temperatureDisplayForSteps — NOT temperatureDisplay
+                                        // — because the wizard edits an arbitrarily selected
+                                        // profile, not ProfileManager's m_currentProfile;
+                                        // fProfileStepTemps carries the picked profile's
+                                        // frames. The last arg (baselineShift == fTempDeltaC)
+                                        // shifts every frame to the eventual value (at most
+                                        // two temps: "94°C", "80 · 94°C", or "80…96°C"). The
+                                        // hasOverride arg is false: it would append a signed
+                                        // "-2°" tag that just repeats the stepper right below.
+                                        Text {
+                                            visible: wizardPage.fProfileTempC > 0
+                                            Layout.fillWidth: true
+                                            text: {
+                                                // The unit is read in C++ (not a QML-
+                                                // capturable dependency) — touch it so the
+                                                // readout re-renders on a °C/°F switch.
+                                                void(Settings.app.temperatureUnit)
+                                                return "→ " + ProfileManager.temperatureDisplayForSteps(
+                                                    wizardPage.fProfileStepTemps,
+                                                    wizardPage.fProfileTempC,
+                                                    false,
+                                                    wizardPage.fProfileTempC,
+                                                    wizardPage.fTempDeltaC)
+                                            }
+                                            font.family: Theme.bodyFont.family
+                                            font.pixelSize: Theme.captionFont.pixelSize
+                                            font.italic: true
+                                            elide: Text.ElideRight
+                                            color: Math.abs(wizardPage.fTempDeltaC) > 0.1
+                                                ? Theme.temperatureColor : Theme.textSecondaryColor
+                                            Accessible.role: Accessible.StaticText
+                                            Accessible.name: text
+                                        }
                                     }
                                     ValueInput {
                                         // Sized to content — a temp stepper must
@@ -3058,44 +3097,6 @@ Page {
                                             wizardPage.fTempDeltaC = Theme.displayToCDelta(newValue)
                                             wizardPage._detailsUserEdited = true
                                         }
-                                    }
-                                    // The temperature the offset RESOLVES TO — issue
-                                    // #1604: the stepper alone shows "+2°" and a user
-                                    // can't dial to a target without knowing the
-                                    // profile's default. Reads through the same
-                                    // formatter the brew-settings Temp Delta uses, so
-                                    // both surfaces render identically (at most two
-                                    // temps: "94°C", "80 · 94°C", or "80…96°C").
-                                    // temperatureDisplayForSteps — NOT temperatureDisplay
-                                    // — because the wizard edits an arbitrarily selected
-                                    // profile, not ProfileManager's m_currentProfile;
-                                    // fProfileStepTemps carries the picked profile's
-                                    // frames. baselineShift == fTempDeltaC shifts every
-                                    // frame to the eventual value; the same delta feeds
-                                    // the signed tag.
-                                    Text {
-                                        visible: wizardPage.fProfileTempC > 0
-                                        Layout.preferredWidth: Theme.scaled(190)
-                                        text: {
-                                            // The unit is read in C++ (not a QML-
-                                            // capturable dependency) — touch it so the
-                                            // readout re-renders on a °C/°F switch.
-                                            void(Settings.app.temperatureUnit)
-                                            return "→ " + ProfileManager.temperatureDisplayForSteps(
-                                                wizardPage.fProfileStepTemps,
-                                                wizardPage.fProfileTempC,
-                                                Math.abs(wizardPage.fTempDeltaC) > 0.05,
-                                                wizardPage.fProfileTempC + wizardPage.fTempDeltaC,
-                                                wizardPage.fTempDeltaC)
-                                        }
-                                        font.family: Theme.bodyFont.family
-                                        font.pixelSize: Theme.scaled(13)
-                                        font.italic: true
-                                        elide: Text.ElideRight
-                                        color: Math.abs(wizardPage.fTempDeltaC) > 0.1
-                                            ? Theme.temperatureColor : Theme.textSecondaryColor
-                                        Accessible.role: Accessible.StaticText
-                                        Accessible.name: text
                                     }
                                 }
                                 NumberField {
