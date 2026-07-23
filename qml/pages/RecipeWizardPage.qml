@@ -1183,27 +1183,22 @@ Page {
     // recipe-owned grind/rpm) on Equipment. A read establishes a binding
     // dependency, so these re-evaluate as the f* fields change.
 
-    // The recipe's EFFECTIVE brew temperature, unit-aware (the same number the
-    // hero's plan line shows), with the signed offset tagged when non-zero.
-    // "" when nothing is set. Tea edits an absolute; espresso a profile offset.
+    // The recipe's EFFECTIVE (resulting) brew temperature, unit-aware — the same
+    // number the hero's plan line shows. NO signed offset tag: the summary shows
+    // the temperature the machine will brew, not a delta the reader has to add up.
+    // A single resulting value (not the per-frame "84 · 94°C" form) is right here
+    // because the details card joins its parts with " · ", which a per-frame temp
+    // would collide with. "" when nothing is set or the profile temp can't be
+    // resolved. Tea edits an absolute; espresso a profile offset folded into the
+    // resulting value.
     function summaryEffectiveTempStr() {
         if (isHotWaterTea)
             return fVesselTemperatureC > 0 ? Theme.formatTemperature(fVesselTemperatureC, 0) : ""
         if (isTeaDrink)
             return fTeaTempC > 0 ? Theme.formatTemperature(fTeaTempC, 0) : ""
-        if (fProfileTempC > 0) {
-            var eff = Theme.formatTemperature(fProfileTempC + fTempDeltaC, 0)
-            if (Math.abs(fTempDeltaC) > 0.05) {
-                var d = Theme.cDeltaToDisplay(fTempDeltaC)
-                eff += " (" + (d > 0 ? "+" : "") + d.toFixed(0) + "°)"
-            }
-            return eff
-        }
-        // Unresolvable profile temp: show the offset alone rather than nothing.
-        if (Math.abs(fTempDeltaC) > 0.05) {
-            var dd = Theme.cDeltaToDisplay(fTempDeltaC)
-            return (dd > 0 ? "+" : "") + dd.toFixed(0) + "°"
-        }
+        if (fProfileTempC > 0)
+            return Theme.formatTemperature(fProfileTempC + fTempDeltaC, 0)
+        // Profile temp unresolvable → no resulting value to show (never a bare offset).
         return ""
     }
 
