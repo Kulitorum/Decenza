@@ -1469,37 +1469,9 @@ Item {
                         }
                     }
 
-                    // Read TDS Now button (only when connected)
-                    AccessibleButton {
-                        Layout.fillWidth: true
-                        visible: BLEManager.refractometerConnected
-                        text: (typeof Refractometer !== "undefined" && Refractometer && Refractometer.measuring)
-                            ? TranslationManager.translate("settings.refractometer.measuring", "Measuring...")
-                            : TranslationManager.translate("settings.refractometer.readNow", "Read TDS Now")
-                        accessibleName: TranslationManager.translate("settings.refractometer.readTdsNow", "Read TDS from refractometer now")
-                        enabled: typeof Refractometer !== "undefined" && Refractometer && !Refractometer.measuring
-                        onClicked: {
-                            if (typeof Refractometer !== "undefined" && Refractometer)
-                                Refractometer.requestMeasurement()
-                        }
-                    }
-
-                    // Last TDS reading (only when connected and has reading)
-                    RowLayout {
-                        Layout.fillWidth: true
-                        visible: BLEManager.refractometerConnected && typeof Refractometer !== "undefined" && Refractometer && Refractometer.tds > 0
-
-                        Text {
-                            text: TranslationManager.translate("settings.refractometer.lastReading", "Last TDS:")
-                            color: Theme.textSecondaryColor
-                        }
-
-                        Text {
-                            text: (typeof Refractometer !== "undefined" && Refractometer) ? Refractometer.tds.toFixed(2) + "%" : ""
-                            color: Theme.textColor
-                            font: Theme.bodyFont
-                        }
-                    }
+                    // Reading TDS lives on the post-shot review page (where the
+                    // R2 is used); Settings only manages pairing (status + Forget
+                    // above) and discovery (list below), so no Read-TDS control here.
 
                     // Scale connection alert toggle
                     RowLayout {
