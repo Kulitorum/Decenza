@@ -304,9 +304,14 @@ void DecentScaleWifi::disconnectFromScale() {
 void DecentScaleWifi::onConnected() {
     const QString peerIp   = m_socket ? m_socket->peerAddress().toString() : QString();
     const quint16 peerPort = m_socket ? m_socket->peerPort() : 0;
+    const QString localIp  = m_socket ? m_socket->localAddress().toString() : QString();
     const quint16 localPort = m_socket ? m_socket->localPort() : 0;
-    WIFI_LOG(QString("WebSocket connected — peer=%1:%2 localPort=%3")
-             .arg(peerIp).arg(peerPort).arg(localPort));
+    // Log the local source address, not just the port: on a multi-homed host
+    // (e.g. wired + WiFi on the same subnet) it names the egress interface the
+    // OS bound this connection to, which is the datum needed to diagnose a
+    // connect that leaves via the wrong / a down interface.
+    WIFI_LOG(QString("WebSocket connected — peer=%1:%2 local=%3:%4")
+             .arg(peerIp).arg(peerPort).arg(localIp).arg(localPort));
     setConnected(true);
 
     // Promote latency-critical traffic to Voice AC via DSCP, and kill Nagle.
@@ -782,7 +787,14 @@ void DecentScaleWifi::onError() {
     const QAbstractSocket::SocketError err = m_socket
         ? m_socket->error() : QAbstractSocket::UnknownSocketError;
     const QString errStr = m_socket ? m_socket->errorString() : QStringLiteral("<no socket>");
-    WIFI_WARN(QString("WebSocket error: %1 (code %2)").arg(errStr).arg(static_cast<int>(err)));
+    // Include the local source address the OS bound (may be set even on a
+    // failed connect) alongside the target: on a multi-homed host a "Host
+    // unreachable" that egressed the wrong / a down interface shows up here as
+    // a local address on an interface that can't reach the target.
+    const QString localIp = m_socket ? m_socket->localAddress().toString() : QString();
+    WIFI_WARN(QString("WebSocket error: %1 (code %2) — target=%3 local=%4")
+              .arg(errStr).arg(static_cast<int>(err))
+              .arg(m_currentTarget, localIp.isEmpty() ? QStringLiteral("<unbound>") : localIp));
 
     // 503 detection — firmware refuses additional clients past its cap. Treat
     // as an expected refusal so it isn't recorded as a transport error, but
