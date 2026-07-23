@@ -1142,9 +1142,15 @@ Page {
                     }
                 }
                 Keys.onBacktabPressed: {
-                    // Stop is the only control in the action row now, so backtab lands on
-                    // the last preset pill.
-                    var back = steamPage.lastVisiblePresetPill()
+                    // Mirror the forward path into this button. In timer view the flow
+                    // slider (and the -5s/+5s pair before it) precede Stop, so reversing
+                    // out of it must land on the flow slider — otherwise Shift+Tab would
+                    // skip those controls. The chart view has neither, so fall back to the
+                    // last preset pill. (This mirrors the backtab the removed Purge button
+                    // used to carry.)
+                    var back = steamViewMode === "timer"
+                               ? steamingFlowSlider
+                               : steamPage.lastVisiblePresetPill()
                     if (back) {
                         back.forceActiveFocus()
                         event.accepted = true
@@ -1168,8 +1174,9 @@ Page {
                     font.pixelSize: Theme.scaled(24)
                     font.weight: Font.Bold
                     // The shouted look is applied here rather than baked into the source
-                    // strings, so one sentence-case purge key can serve this button and the
-                    // settings-view one. Case-less scripts (ar) are unaffected.
+                    // string, so the sentence-case purge key can be shouted for this
+                    // button's second-tap state without baking the casing in. Case-less
+                    // scripts (ar) are unaffected.
                     font.capitalization: Font.AllUppercase
                     Accessible.ignored: true
                 }
@@ -1200,7 +1207,7 @@ Page {
                 }
             }
 
-            } // end Purge + Stop action row
+            } // end Stop action row
 
             Item { Layout.preferredHeight: Theme.scaled(20) }
         }
