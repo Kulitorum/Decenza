@@ -293,9 +293,10 @@ void BLEManager::onDe1Error(const QString& error)
 
 void BLEManager::onDe1LinkFault(const QString& kind)
 {
-    // de1LinkFault fires only on genuine controller errors, never on plain
-    // device-absence — so this timestamp is the load-bearing "stack in trouble"
-    // signal the wedge detector keys off.
+    // de1LinkFault fires only on genuine trouble — controller errors,
+    // write-retry exhaustion, or a detected zombie link (connected but no
+    // notifications) — never on plain device-absence, so this timestamp is the
+    // load-bearing "stack in trouble" signal the wedge detector keys off.
     m_lastDe1FaultTime = QDateTime::currentDateTime();
     evaluateBleWedge(QStringLiteral("de1-fault:%1").arg(kind));
 }

@@ -95,6 +95,19 @@ BleTransport::BleTransport(QObject* parent)
     m_commandTimer.setSingleShot(true);
     connect(&m_commandTimer, &QTimer::timeout, this, &BleTransport::processCommandQueue);
 
+    // Notification-subscribe timeout: bounds each CCCD descriptor write during
+    // subscribeAll() so one stuck subscription can't block the connection
+    // forever. No retry — subscribeNext() just moves on and logs the failure
+    // (see subscribeNext()/onDescriptorWritten()).
+    m_subscribeTimeoutTimer.setSingleShot(true);
+    m_subscribeTimeoutTimer.setInterval(SUBSCRIBE_TIMEOUT_MS);
+    connect(&m_subscribeTimeoutTimer, &QTimer::timeout, this, [this]() {
+        warn(QString("Notification subscribe timed out (%1) — proceeding without confirmation")
+                 .arg(m_currentSubscribeUuid.toString().mid(1, 8)));
+        m_writePending = false;
+        subscribeNext();
+    });
+
     // Write timeout timer - detect hung BLE writes (like de1app)
     m_writeTimeoutTimer.setSingleShot(true);
     m_writeTimeoutTimer.setInterval(WRITE_TIMEOUT_MS);
@@ -242,21 +255,72 @@ void BleTransport::subscribe(const QBluetoothUuid& uuid) {
 void BleTransport::subscribeAll() {
     if (!m_service) return;
 
-    subscribe(DE1::Characteristic::STATE_INFO);
-    subscribe(DE1::Characteristic::SHOT_SAMPLE);
-    subscribe(DE1::Characteristic::WATER_LEVELS);
-    subscribe(DE1::Characteristic::READ_FROM_MMR);
-    subscribe(DE1::Characteristic::TEMPERATURES);
+    // Sequenced, not fire-and-forget: each CCCD "enable notifications" write is
+    // confirmed (or individually timed out) before the next is attempted, and
+    // connected() is not emitted until the whole queue drains. Without this, a
+    // one-shot MMR read (issued once connected() fires) can have its response
+    // notification sent by the DE1 before the client has actually finished
+    // enabling notifications for READ_FROM_MMR — the response is then silently
+    // dropped with no recovery, since it's not a repeating notification like
+    // STATE_INFO/SHOT_SAMPLE that self-heals on the next push.
+    m_pendingSubscribeQueue = {
+        DE1::Characteristic::STATE_INFO,
+        DE1::Characteristic::SHOT_SAMPLE,
+        DE1::Characteristic::WATER_LEVELS,
+        DE1::Characteristic::READ_FROM_MMR,
+        DE1::Characteristic::TEMPERATURES,
+    };
     // SHOT_SETTINGS is intentionally NOT subscribed: the DE1 firmware does
     // not push notifications on writes (confirmed in de1app's de1_comms.tcl).
     // Verification happens via explicit read() after each write in
     // DE1Device::setShotSettings().
 
-    // Read initial values
-    read(DE1::Characteristic::VERSION);
-    read(DE1::Characteristic::STATE_INFO);
-    read(DE1::Characteristic::WATER_LEVELS);
-    read(DE1::Characteristic::SHOT_SETTINGS);
+    subscribeNext();
+}
+
+void BleTransport::subscribeNext() {
+    if (m_pendingSubscribeQueue.isEmpty()) {
+        // All subscriptions are confirmed (or individually timed out past the
+        // point where waiting further is worthwhile). Read initial values —
+        // these are plain GATT reads (an immediate request/response over the
+        // same ATT transaction), not notification-based, so they don't share
+        // the CCCD-vs-notification race and don't need to wait on it.
+        read(DE1::Characteristic::VERSION);
+        read(DE1::Characteristic::STATE_INFO);
+        read(DE1::Characteristic::WATER_LEVELS);
+        read(DE1::Characteristic::SHOT_SETTINGS);
+        // Baseline the liveness clock now so a link that connects but never
+        // pushes a single notification also ages out and is caught as a zombie
+        // on the next reconnect attempt — not just one that goes quiet later.
+        m_notificationLiveness.start();
+        emit connected();
+        return;
+    }
+
+    const QBluetoothUuid uuid = m_pendingSubscribeQueue.takeFirst();
+    if (!m_service || !m_characteristics.contains(uuid)) {
+        log(QString("subscribe(%1) skipped - %2").arg(uuid.toString().mid(1, 8), !m_service ? "no service" : "unknown characteristic"));
+        subscribeNext();
+        return;
+    }
+    QLowEnergyCharacteristic c = m_characteristics[uuid];
+    QLowEnergyDescriptor notification = c.descriptor(
+        QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration);
+    if (!notification.isValid()) {
+        warn(QString("subscribe(%1) FAILED - CCCD descriptor not found")
+            .arg(uuid.toString().mid(1, 8)));
+        subscribeNext();
+        return;
+    }
+
+    m_currentSubscribeUuid = uuid;
+    // Shared with the command queue's single-outstanding-GATT-operation gate —
+    // holding it here keeps a queued characteristic write/read from being
+    // dispatched while a CCCD descriptor write is still in flight, the same
+    // protection m_writePending already gives characteristic writes.
+    m_writePending = true;
+    m_subscribeTimeoutTimer.start();
+    m_service->writeDescriptor(notification, QByteArray::fromHex("0100"));
 }
 
 void BleTransport::disconnect() {
@@ -267,6 +331,17 @@ void BleTransport::disconnect() {
     m_writeRetryCount = 0;
     m_lastWriteUuid.clear();
     m_lastWriteData.clear();
+
+    // Reset the notification-subscribe sequence so a stale in-flight
+    // subscribeAll() from a torn-down connection can't bleed into the next
+    // attempt's subscribeNext() chain.
+    m_pendingSubscribeQueue.clear();
+    m_currentSubscribeUuid = QBluetoothUuid();
+    m_subscribeTimeoutTimer.stop();
+    // Invalidate liveness so a torn-down connection's stale timestamp can't
+    // make the very next fresh connect look like a zombie before its first
+    // notification arrives (subscribeNext() re-baselines it on connected()).
+    m_notificationLiveness.invalidate();
 
     // Stop any pending retries
     m_retryTimer.stop();
@@ -334,14 +409,43 @@ void BleTransport::connectToDevice(const QBluetoothDeviceInfo& device) {
         ? device.deviceUuid().toString()
         : device.address().toString();
 
+    bool zombieReconnect = false;
     if (isConnected()) {
-        log(QString("connectToDevice(%1) skipped - already connected").arg(deviceId));
-        return;
+        // Normally a redundant connect is a no-op. But a zombie link reports
+        // connected and ACKs writes while silently delivering no notifications
+        // — the reconnect ladder would then skip here forever and the DE1 UI
+        // would freeze on stale data. If notifications have gone stale past the
+        // threshold, treat this as a real (not redundant) reconnect: fall
+        // through to teardown + fresh connect instead of returning.
+        const bool notificationsStale =
+            m_notificationLiveness.isValid()
+            && m_notificationLiveness.elapsed() > NOTIFICATION_STALE_MS;
+        if (!notificationsStale) {
+            log(QString("connectToDevice(%1) skipped - already connected").arg(deviceId));
+            return;
+        }
+        warn(QString("connectToDevice(%1) - link reports connected but notifications "
+                     "stale for %2ms; tearing down suspected zombie link and reconnecting")
+                 .arg(deviceId)
+                 .arg(m_notificationLiveness.elapsed()));
+        zombieReconnect = true;
     }
 
     if (m_controller) {
         log("Cleaning up previous controller before new connection");
         disconnect();
+    }
+
+    // Report the zombie fault only AFTER teardown. disconnect() emits
+    // disconnected(), which flips BLEManager's m_de1Connected to false — so the
+    // wedge detector's `!m_de1Connected` gate now passes and this fault can
+    // actually contribute (emitting before teardown left it inert). It also
+    // avoids running the fault handlers re-entrantly in the middle of teardown.
+    // A single zombie fault only records the timestamp; sustained-wedge
+    // recovery still needs its confirm window, so this cannot power-cycle the
+    // adapter out from under the fresh connect started just below.
+    if (zombieReconnect) {
+        emit de1LinkFault(QStringLiteral("zombie-link"));
     }
 
     // Store device for potential retries and reset counter
@@ -429,6 +533,10 @@ void BleTransport::onControllerDisconnected() {
     m_commandTimer.stop();
     m_characteristicsReady = false;
     setServiceDiscoveryActive(false);
+    m_pendingSubscribeQueue.clear();
+    m_currentSubscribeUuid = QBluetoothUuid();
+    m_subscribeTimeoutTimer.stop();
+    m_notificationLiveness.invalidate();
 
     if (!m_disconnectedEmittedForAttempt) {
         m_disconnectedEmittedForAttempt = true;
@@ -557,6 +665,8 @@ void BleTransport::onServiceDiscovered(const QBluetoothUuid& uuid) {
                     this, &BleTransport::onCharacteristicChanged, qc);  // Use same handler for reads
             connect(m_service, &QLowEnergyService::characteristicWritten,
                     this, &BleTransport::onCharacteristicWritten, qc);
+            connect(m_service, &QLowEnergyService::descriptorWritten,
+                    this, &BleTransport::onDescriptorWritten, qc);
             connect(m_service, &QLowEnergyService::errorOccurred,
                     this, [this](QLowEnergyService::ServiceError error) {
                 // Log but don't fail on descriptor errors - common on Windows
@@ -648,7 +758,6 @@ void BleTransport::onServiceStateChanged(QLowEnergyService::ServiceState state) 
         log(QString("Characteristics ready: %1 registered").arg(m_characteristics.size()));
         // Discovery window closed — peer scales can resume normal write traffic.
         setServiceDiscoveryActive(false);
-        subscribeAll();
 
 #ifdef Q_OS_ANDROID
         // Store address for shutdown service (handles swipe-to-kill)
@@ -659,12 +768,46 @@ void BleTransport::onServiceStateChanged(QLowEnergyService::ServiceState state) 
         startBleConnectionService();
 #endif
 
-        emit connected();
+        // connected() is emitted from subscribeNext() once every notification
+        // subscription is confirmed (or individually timed out) — see
+        // subscribeAll()/subscribeNext() for why this can no longer fire here
+        // immediately.
+        subscribeAll();
     }
 }
 
 void BleTransport::onCharacteristicChanged(const QLowEnergyCharacteristic& c, const QByteArray& value) {
+    // Any inbound notification/read response is proof the link is delivering
+    // data — restart the liveness clock the zombie-link check in
+    // connectToDevice() consults. (This slot is wired to both
+    // characteristicChanged and characteristicRead; in steady state the DE1's
+    // periodic pushes dominate, which is exactly the signal we want.)
+    m_notificationLiveness.restart();
     emit dataReceived(c.uuid(), value);
+}
+
+void BleTransport::onDescriptorWritten(const QLowEnergyDescriptor& descriptor, const QByteArray& value) {
+    Q_UNUSED(value);
+    // Only meaningful mid-subscribeAll() sequence. An ad-hoc subscribe(uuid)
+    // call outside that sequence (e.g. firmware update's FW_MAP_REQUEST
+    // subscribe) doesn't arm this timer and isn't part of this bookkeeping.
+    if (!m_subscribeTimeoutTimer.isActive()) return;
+
+    // Only advance when the CCCD that just completed is the one for the
+    // subscription currently in flight. Without this check, a late ACK from a
+    // characteristic that already TIMED OUT (its write is still pending in the
+    // stack after subscribeNext() moved on) would be misattributed to the
+    // current step and advance the sequence prematurely — skipping a real
+    // confirmation and re-opening the dropped-notification race this exists to
+    // close. Exactly the congested-radio timing this change targets.
+    if (!m_characteristics.contains(m_currentSubscribeUuid)) return;
+    const QLowEnergyDescriptor expected = m_characteristics[m_currentSubscribeUuid].descriptor(
+        QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration);
+    if (descriptor != expected) return;  // stray/late ACK for a different characteristic
+
+    m_subscribeTimeoutTimer.stop();
+    m_writePending = false;
+    subscribeNext();
 }
 
 void BleTransport::onCharacteristicWritten(const QLowEnergyCharacteristic& c, const QByteArray& value) {

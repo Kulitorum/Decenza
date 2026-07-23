@@ -203,7 +203,6 @@ public slots:
 
     // Profile upload
     void uploadProfile(const Profile& profile);
-    void uploadProfileAndStartEspresso(const Profile& profile);  // Upload then start in correct order
     void clearCommandQueue();  // Clear all pending BLE commands (use when extraction starts)
 
     // Direct frame writing (for direct control mode)
@@ -389,11 +388,21 @@ private:
     void parseVersion(const QByteArray& data);
     void parseMMRResponse(const QByteArray& data);
     void rebuildVersionLine3();
-    void requestGHCStatus();
 
     // writeMMRVerified helpers
     void scheduleMMRVerifyRead(uint32_t address);
     void retryMMRVerify(uint32_t address, const QString& cause);
+
+    // Generic one-shot MMR read with timeout + bounded retry, covering both
+    // the post-connect informational reads (GHC info, machine identity,
+    // heater voltage, refill-kit status) and writeMMRVerified's read-back.
+    // Guards against a dropped READ_FROM_MMR response notification (e.g. the
+    // post-connect subscription race) leaving a value silently missing or a
+    // verification pending forever. See docs/CLAUDE_MD/BLE_PROTOCOL.md and
+    // openspec/changes/harden-de1-ble-reliability for the failure this fixes.
+    void issueMMRReadWithRetry(uint32_t address, const QString& reason);
+    void sendMMRReadRequest(uint32_t address) const;
+    void checkMMRReadTimeouts();
 
     void sendInitialSettings();
 
@@ -402,8 +411,7 @@ private:
     // be called BEFORE queuing the header/frame writes so the listener is
     // attached in time to observe every writeComplete.
     void startProfileUploadTracking(const QString& profileTitle,
-                                    const QList<QByteArray>& frames,
-                                    bool expectEspressoStart);
+                                    const QList<QByteArray>& frames);
     void onProfileUploadWriteComplete(const QBluetoothUuid& uuid,
                                       const QByteArray& data);
     void finishProfileUpload(bool success, const QString& reason = QString());
@@ -467,6 +475,26 @@ private:
         QString reason;
     };
     QHash<uint32_t, PendingMMRVerify> m_pendingMMRVerifies;
+    // Pending one-shot MMR reads keyed by address — covers both the
+    // post-connect informational reads issued via issueMMRReadWithRetry() and
+    // writeMMRVerified's read-back (scheduleMMRVerifyRead() registers here
+    // too). Cleared when parseMMRResponse() sees a response for that address,
+    // when retries are exhausted, and on transport disconnect. A single sweep
+    // timer (not one QTimer per address) checks every entry's deadline —
+    // simpler than N timers for what is at most a handful of concurrent reads.
+    struct PendingMMRRead {
+        int attemptsRemaining;
+        qint64 deadlineMs;
+        QString reason;
+    };
+    QHash<uint32_t, PendingMMRRead> m_pendingMMRReads;
+    QTimer m_mmrReadRetryTimer;
+    // Matches reaprime's proven values for this exact DE1 BLE read pattern
+    // (subscribe-before-write, 4s timeout, 2 retries) rather than reusing the
+    // characteristic-write timeout/retry constants, which are tuned for a
+    // different failure mode (a write that never gets a GATT-level ack).
+    static constexpr int MMR_READ_TIMEOUT_MS = 4000;
+    static constexpr int MMR_READ_MAX_RETRIES = 2;
     double m_waterLevel = 0.0;
     double m_waterLevelMm = 0.0;  // Raw mm value (with sensor offset applied)
     int m_waterLevelMl = 0;       // Volume in ml (from CAD lookup table)
@@ -497,10 +525,19 @@ private:
     QList<uint8_t> m_uploadExpectedFrameBytes;
     QList<uint8_t> m_uploadSeenFrameBytes;
     bool m_uploadHeaderAcked = false;
-    bool m_uploadEspressoStartAcked = false;
-    bool m_uploadExpectEspressoStart = false;
     QMetaObject::Connection m_uploadConnection;
     QTimer m_uploadTimeoutTimer;
+    // Monotonic ms of the last SUCCESSFUL profile upload completion, or 0.
+    // startEspresso() defers by up to PROFILE_UPLOAD_SETTLE_MS from this point
+    // so it doesn't race the DE1 firmware's post-upload internal flash write
+    // (see startEspresso()). Consumed (reset to 0) when the deferral is armed.
+    qint64 m_lastProfileUploadCompleteMs = 0;
+    // True while a startEspresso() is deferred waiting out the settle window,
+    // so a concurrent second startEspresso() can't bypass it (see startEspresso()).
+    bool m_espressoStartDeferred = false;
+    // reaprime's proven profileDownloadGuard value for the same DE1 firmware
+    // flash-write timing (see startEspresso()).
+    static constexpr int PROFILE_UPLOAD_SETTLE_MS = 500;
     bool m_usbChargerOn = true;  // Default on (safe default like de1app)
     // True if the app may start operations (no GHC, or a GHC that is present
     // but inactive). Default TRUE, matching de1app, whose ghc_is_installed
@@ -524,5 +561,6 @@ private:
     friend class tst_MMRWrite;
     friend class tst_DE1DeviceFirmware;
     friend class tst_ShotSampleDecode;
+    friend class tst_DE1DeviceMMRReads;
 #endif
 };
