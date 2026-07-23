@@ -577,6 +577,12 @@ add_decenza_test(tst_de1device_headless
     mocks/MockTransport.h
 )
 
+# --- tst_de1device_mmrreads: one-shot MMR read retry + profile-upload settle window ---
+add_decenza_test(tst_de1device_mmrreads
+    tst_de1device_mmrreads.cpp
+    mocks/MockTransport.h
+)
+
 # --- tst_shotsampledecode: SetMixTemp/SetHeadTemp offsets in both BLE specs ---
 add_decenza_test(tst_shotsampledecode
     tst_shotsampledecode.cpp

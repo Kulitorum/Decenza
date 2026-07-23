@@ -3,6 +3,7 @@
 #include "de1transport.h"
 
 #include <QBluetoothDeviceInfo>
+#include <QElapsedTimer>
 #include <QLowEnergyController>
 #include <QLowEnergyService>
 #include <QTimer>
@@ -62,6 +63,7 @@ private slots:
     void onServiceStateChanged(QLowEnergyService::ServiceState state);
     void onCharacteristicChanged(const QLowEnergyCharacteristic& c, const QByteArray& value);
     void onCharacteristicWritten(const QLowEnergyCharacteristic& c, const QByteArray& value);
+    void onDescriptorWritten(const QLowEnergyDescriptor& descriptor, const QByteArray& value);
     void processCommandQueue();
 
 private:
@@ -76,6 +78,18 @@ private:
     void setupService();
     void writeCharacteristic(const QBluetoothUuid& uuid, const QByteArray& data);
     void queueCommand(std::function<void()> command);
+
+    // Post-connect notification subscription (CCCD enable), sequenced and
+    // confirmed one at a time — see subscribeAll(). Fires connected() only
+    // once every characteristic in m_pendingSubscribeQueue has been confirmed
+    // or individually timed out, closing the race where a one-shot MMR read's
+    // response notification could be sent before the client had actually
+    // finished enabling notifications for it.
+    void subscribeNext();
+    QList<QBluetoothUuid> m_pendingSubscribeQueue;
+    QBluetoothUuid m_currentSubscribeUuid;
+    QTimer m_subscribeTimeoutTimer;
+    static constexpr int SUBSCRIBE_TIMEOUT_MS = 3000;
 
     QLowEnergyController* m_controller = nullptr;
     QLowEnergyService* m_service = nullptr;
@@ -130,4 +144,22 @@ private:
     // genuine wedge where nothing else did.
     QTimer m_connectWatchdogTimer;
     static constexpr int CONNECT_WATCHDOG_MS = 35000;
+
+    // Zombie-link detection: a link that stays GATT-connected and keeps ACKing
+    // writes but has silently stopped delivering push notifications (reaprime
+    // PR #246/#431 describe the same failure on the same DE1 protocol). Every
+    // inbound notification restarts m_notificationLiveness; connectToDevice()
+    // treats an already-"connected" link whose last notification is older than
+    // NOTIFICATION_STALE_MS as a zombie and tears it down instead of the
+    // usual "already connected" early return. Checked only at a reconnect
+    // attempt (never a background poll), so a false positive costs one extra
+    // reconnect, not a spurious disconnect of a healthy in-use link.
+    //
+    // The threshold is deliberately conservative and PROVISIONAL: the DE1's
+    // real minimum push cadence across machine phases still needs on-device
+    // measurement of RAW (pre-throttle) notification arrivals — the app's
+    // WaterLevel/StateInfo logging is post-dedup and understates the true
+    // rate. See tasks 5.2 / 8.5 in the harden-de1-ble-reliability change.
+    QElapsedTimer m_notificationLiveness;
+    static constexpr int NOTIFICATION_STALE_MS = 30000;
 };

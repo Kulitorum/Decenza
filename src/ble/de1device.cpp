@@ -36,6 +36,26 @@ DE1Device::DE1Device(QObject* parent)
     connect(&m_uploadTimeoutTimer, &QTimer::timeout, this, [this]() {
         finishProfileUpload(false, QStringLiteral("timeout waiting for write ACKs"));
     });
+
+    // Sweeps m_pendingMMRReads for one-shot MMR reads (GHC info, machine
+    // identity, heater voltage, refill-kit status, writeMMRVerified
+    // read-backs) that haven't gotten a response in time. Repeating rather
+    // than single-shot: started on the first pending read, stopped once the
+    // table drains, so it's inert outside a connect/verify window.
+    m_mmrReadRetryTimer.setInterval(250);
+    connect(&m_mmrReadRetryTimer, &QTimer::timeout, this, &DE1Device::checkMMRReadTimeouts);
+
+    // Fires the deferred startEspresso() once the profile-upload settle window
+    // elapses (see startEspresso()). A stoppable member timer, NOT a fire-and-
+    // forget QTimer::singleShot: a disconnect inside the window must be able to
+    // CANCEL the pending start (onTransportDisconnected stops it), otherwise the
+    // shot would fire on whatever link exists when it elapses — including a
+    // fresh reconnect the user never asked to start a shot on.
+    m_espressoSettleTimer.setSingleShot(true);
+    connect(&m_espressoSettleTimer, &QTimer::timeout, this, [this]() {
+        m_espressoStartDeferred = false;
+        startEspresso();
+    });
 }
 
 DE1Device::~DE1Device() {
@@ -134,6 +154,17 @@ void DE1Device::onTransportDisconnected() {
     // power-cycled or had its firmware state reset between sessions).
     m_lastMMRValues.clear();
     m_pendingMMRVerifies.clear();
+    // Stop chasing reads for a connection that no longer exists — a reconnect
+    // re-issues them fresh via sendInitialSettings()/writeMMRVerified().
+    m_pendingMMRReads.clear();
+    m_mmrReadRetryTimer.stop();
+    // Drop any pending profile-upload settle window — it belongs to the dead
+    // connection's upload, not the next one's. Stopping the settle timer CANCELS
+    // an armed deferred start outright, so it can't fire an unrequested shot on
+    // a reconnect that lands within the window.
+    m_lastProfileUploadCompleteMs = 0;
+    m_espressoStartDeferred = false;
+    m_espressoSettleTimer.stop();
     m_deviceSteamTargetC = -1.0;
     m_deviceSteamDurationSec = -1;
     m_deviceHotWaterTempC = -1.0;
@@ -604,18 +635,88 @@ void DE1Device::rebuildVersionLine3() {
     qDebug() << "[BLE DE1] Machine info:" << parts.join(", ");
 }
 
-void DE1Device::requestGHCStatus() {
-    // Request GHC_INFO via MMR read
-    QByteArray mmrRead(20, 0);
-    mmrRead[0] = 0x00;   // Len = 0 (read 4 bytes)
-    mmrRead[1] = 0x80;   // Address high byte
-    mmrRead[2] = 0x38;   // Address mid byte
-    mmrRead[3] = 0x1C;   // Address low byte (GHC info)
-
+void DE1Device::sendMMRReadRequest(uint32_t address) const {
     if (!m_transport) return;
-    m_transport->write(DE1::Characteristic::READ_FROM_MMR, mmrRead);
+    QByteArray req(20, 0);
+    req[0] = 0x00;  // Len = 0 means "read 4 bytes"
+    req[1] = static_cast<char>((address >> 16) & 0xFF);
+    req[2] = static_cast<char>((address >> 8) & 0xFF);
+    req[3] = static_cast<char>(address & 0xFF);
+    m_transport->write(DE1::Characteristic::READ_FROM_MMR, req);
 }
 
+void DE1Device::issueMMRReadWithRetry(uint32_t address, const QString& reason) {
+    if (!m_transport) return;
+    sendMMRReadRequest(address);
+    m_pendingMMRReads.insert(address, PendingMMRRead{
+        MMR_READ_MAX_RETRIES, monotonicMsNow() + MMR_READ_TIMEOUT_MS, reason});
+    if (!m_mmrReadRetryTimer.isActive()) {
+        m_mmrReadRetryTimer.start();
+    }
+}
+
+void DE1Device::checkMMRReadTimeouts() {
+    const qint64 now = monotonicMsNow();
+
+    // Collect first — retrying/expiring while iterating the hash would
+    // invalidate the iterator.
+    QList<uint32_t> toRetry;
+    QList<uint32_t> toExpire;
+    for (auto it = m_pendingMMRReads.constBegin(); it != m_pendingMMRReads.constEnd(); ++it) {
+        if (now < it.value().deadlineMs) continue;
+        if (it.value().attemptsRemaining > 0) toRetry << it.key();
+        else toExpire << it.key();
+    }
+
+    for (uint32_t address : toRetry) {
+        auto it = m_pendingMMRReads.find(address);
+        it.value().attemptsRemaining--;
+        qWarning().noquote() << QString(
+            "[MMR] read timeout, retrying (%1 left): 0x%2 [%3]")
+            .arg(it.value().attemptsRemaining)
+            .arg(address, 6, 16, QLatin1Char('0'))
+            .arg(it.value().reason);
+        sendMMRReadRequest(address);
+        it.value().deadlineMs = now + MMR_READ_TIMEOUT_MS;
+    }
+
+    for (uint32_t address : toExpire) {
+        const QString reason = m_pendingMMRReads.value(address).reason;
+        qWarning().noquote() << QString(
+            "[MMR] read FAILED after retries: 0x%1 [%2] — leaving existing/default value")
+            .arg(address, 6, 16, QLatin1Char('0'))
+            .arg(reason);
+
+        // GHC_INFO is the one exhausted read with a behavioral (not just
+        // display) consequence: isHeadless stays at its permissive default, so
+        // the app shows in-app start controls whose availability it could not
+        // actually confirm with the machine. Spell that out — the other reads
+        // (identity strings, heater voltage, refill-kit) only affect display.
+        if (address == DE1::MMR::GHC_INFO) {
+            qWarning().noquote() << QStringLiteral(
+                "[MMR] GHC status unconfirmed after retries — in-app start "
+                "availability reflects the permissive default (isHeadless=true), "
+                "not a confirmed machine state");
+        }
+
+        m_pendingMMRReads.remove(address);
+
+        // If this was a writeMMRVerified read-back, don't leave the
+        // verification pending forever with no signal — the write itself
+        // may well have succeeded, but we have no way to confirm it now.
+        if (m_pendingMMRVerifies.contains(address)) {
+            qWarning().noquote() << QString(
+                "[MMR] verify abandoned for 0x%1 — no read-back response after retries [%2]")
+                .arg(address, 6, 16, QLatin1Char('0'))
+                .arg(m_pendingMMRVerifies.value(address).reason);
+            m_pendingMMRVerifies.remove(address);
+        }
+    }
+
+    if (m_pendingMMRReads.isEmpty()) {
+        m_mmrReadRetryTimer.stop();
+    }
+}
 
 void DE1Device::parseMMRResponse(const QByteArray& data) {
     if (data.size() < 5) return;
@@ -627,8 +728,8 @@ void DE1Device::parseMMRResponse(const QByteArray& data) {
                        (static_cast<uint32_t>(d[2]) << 8) |
                        static_cast<uint32_t>(d[3]);
 
-    // Check if this is GHC_INFO response (address 0x80381C)
-    if (address == 0x80381C) {
+    // Check if this is GHC_INFO response
+    if (address == DE1::MMR::GHC_INFO) {
         uint8_t ghcStatus = d[4];
 
         // de1app does not enumerate ghc_is_installed values either; only its
@@ -660,7 +761,7 @@ void DE1Device::parseMMRResponse(const QByteArray& data) {
         }
     }
     // CPU board model (address 0x800008) — e.g. 1300 = pcb 1.3
-    else if (address == 0x800008) {
+    else if (address == DE1::MMR::CPU_BOARD_MODEL) {
         if (data.size() >= 8) {
             uint32_t val = (static_cast<uint32_t>(static_cast<uint8_t>(d[7])) << 24) |
                            (static_cast<uint32_t>(static_cast<uint8_t>(d[6])) << 16) |
@@ -671,7 +772,7 @@ void DE1Device::parseMMRResponse(const QByteArray& data) {
         }
     }
     // Machine model (address 0x80000C) — 1=DE1, 2=DE1+, 3=DE1PRO, etc.
-    else if (address == 0x80000C) {
+    else if (address == DE1::MMR::MACHINE_MODEL) {
         if (data.size() >= 8) {
             uint32_t val = (static_cast<uint32_t>(static_cast<uint8_t>(d[7])) << 24) |
                            (static_cast<uint32_t>(static_cast<uint8_t>(d[6])) << 16) |
@@ -682,7 +783,7 @@ void DE1Device::parseMMRResponse(const QByteArray& data) {
         }
     }
     // Firmware build number (address 0x800010) — e.g. 1342 for "v1342"
-    else if (address == 0x800010) {
+    else if (address == DE1::MMR::FIRMWARE_VERSION) {
         if (data.size() >= 8) {
             uint32_t val = (static_cast<uint32_t>(static_cast<uint8_t>(d[7])) << 24) |
                            (static_cast<uint32_t>(static_cast<uint8_t>(d[6])) << 16) |
@@ -708,7 +809,7 @@ void DE1Device::parseMMRResponse(const QByteArray& data) {
         }
     }
     // Check if this is REFILL_KIT response (address 0x80385C)
-    else if (address == 0x80385C) {
+    else if (address == DE1::MMR::REFILL_KIT) {
         uint8_t kitStatus = d[4];
 
         int detected = (kitStatus > 0) ? 1 : 0;
@@ -746,6 +847,19 @@ void DE1Device::parseMMRResponse(const QByteArray& data) {
         } else {
             retryMMRVerify(address,
                 QString("read-mismatch got=%1").arg(actualValue));
+        }
+    }
+
+    // A response for this address arrived (whether or not its content
+    // matched what the address-specific handling above or the verify check
+    // expected) — clear the "no response at all" timeout tracking. This sits
+    // below every other handler so they still see the response first
+    // (additive, no early return), same as the verify check above.
+    auto pendingReadIt = m_pendingMMRReads.find(address);
+    if (pendingReadIt != m_pendingMMRReads.end()) {
+        m_pendingMMRReads.erase(pendingReadIt);
+        if (m_pendingMMRReads.isEmpty()) {
+            m_mmrReadRetryTimer.stop();
         }
     }
 }
@@ -812,6 +926,45 @@ void DE1Device::startEspresso() {
                               .arg(DE1::stateToString(m_state))
                               .arg(m_isHeadless ? "yes" : "no")
                               .arg(m_simulationMode ? "yes" : "no");
+
+    // Settle window after a profile upload before the Espresso state change is
+    // allowed through. The DE1 firmware writes the shot descriptor to internal
+    // flash on the final frame/tail write and only clears its internal
+    // "download in progress" flag when that flash write returns — a
+    // state=Espresso request that arrives first makes the firmware abort to
+    // HeaterDown right after preinfusion (matches reaprime's profileDownloadGuard
+    // and its cited firmware bug report). The flash write is not observable over
+    // BLE, so this is a genuine timing gap with no event to key on — a fixed
+    // settle window is a deliberate, documented exception to the project's
+    // "no timers as guards" rule (see the harden-de1-ble-reliability design,
+    // Decision 5). Recipe activation uploads the profile and then immediately
+    // calls startEspresso(), so this is the common path, not an edge case.
+    // Skip in simulation (no real firmware to race).
+    if (!m_simulationMode && !m_espressoStartDeferred && m_lastProfileUploadCompleteMs > 0) {
+        const qint64 sinceUploadMs = monotonicMsNow() - m_lastProfileUploadCompleteMs;
+        if (sinceUploadMs < PROFILE_UPLOAD_SETTLE_MS) {
+            const int remainingMs =
+                static_cast<int>(PROFILE_UPLOAD_SETTLE_MS - sinceUploadMs);
+            qDebug().noquote() << QString(
+                "[BLE DE1] startEspresso: deferring %1ms for profile-upload settle")
+                .arg(remainingMs);
+            // Arm a single deferred start via the stoppable member timer. The
+            // flag (not zeroing the timestamp) is what a concurrent second
+            // startEspresso() checks below — so a double-tap inside the window
+            // can't slip an immediate start past the settle. The timer's handler
+            // clears the flag and re-runs; by then the window has elapsed (or,
+            // if a newer upload landed, re-defers). A disconnect cancels it (see
+            // onTransportDisconnected) so a queued shot can't fire on a fresh
+            // reconnect the user never requested a shot on.
+            m_espressoStartDeferred = true;
+            m_espressoSettleTimer.start(remainingMs);
+            return;
+        }
+    }
+
+    // A deferred start is already armed — don't issue a second immediate start
+    // racing it (would defeat the settle window above).
+    if (m_espressoStartDeferred) return;
 
     writeMMR(DE1::MMR::GHC_MODE, 1);
 
@@ -991,36 +1144,13 @@ void DE1Device::uploadProfile(const Profile& profile) {
     // Attach the ACK listener BEFORE queuing writes so we observe every
     // writeComplete for this upload.
     QList<QByteArray> frames = profile.toFrameBytes();
-    startProfileUploadTracking(profile.title(), frames, /*expectEspressoStart=*/false);
+    startProfileUploadTracking(profile.title(), frames);
 
     m_transport->write(DE1::Characteristic::HEADER_WRITE, profile.toHeaderBytes());
     for (const QByteArray& frame : frames) {
         m_transport->write(DE1::Characteristic::FRAME_WRITE, frame);
     }
     writeTankPreheatForProfile(profile);
-}
-
-void DE1Device::uploadProfileAndStartEspresso(const Profile& profile) {
-#ifdef QT_DEBUG
-    if (m_simulationMode && m_simulator) {
-        m_simulator->setProfile(profile);
-    }
-#endif
-
-    if (!m_transport) return;
-    if (dropDeviceWriteIfFirmwareFlash("uploadProfileAndStartEspresso")) return;
-
-    QList<QByteArray> frames = profile.toFrameBytes();
-    startProfileUploadTracking(profile.title(), frames, /*expectEspressoStart=*/true);
-
-    m_transport->write(DE1::Characteristic::HEADER_WRITE, profile.toHeaderBytes());
-    for (const QByteArray& frame : frames) {
-        m_transport->write(DE1::Characteristic::FRAME_WRITE, frame);
-    }
-    writeTankPreheatForProfile(profile);
-    // Queue espresso start AFTER all profile frames
-    m_transport->write(DE1::Characteristic::REQUESTED_STATE,
-                       QByteArray(1, static_cast<char>(DE1::State::Espresso)));
 }
 
 // Tank preheat follows the active profile: de1app's de1_send_shot_frames
@@ -1048,8 +1178,7 @@ void DE1Device::writeTankPreheatForProfile(const Profile& profile) {
 // and on completion verify the two lists match exactly.
 
 void DE1Device::startProfileUploadTracking(const QString& profileTitle,
-                                           const QList<QByteArray>& frames,
-                                           bool expectEspressoStart)
+                                           const QList<QByteArray>& frames)
 {
     // Cancel any still-in-flight tracker. This should be rare (the guard is
     // primarily for defensive coding against callers that re-issue an upload
@@ -1070,8 +1199,6 @@ void DE1Device::startProfileUploadTracking(const QString& profileTitle,
     m_uploadSeenFrameBytes.clear();
     m_uploadSeenFrameBytes.reserve(frames.size());
     m_uploadHeaderAcked = false;
-    m_uploadEspressoStartAcked = false;
-    m_uploadExpectEspressoStart = expectEspressoStart;
 
     m_profileUploadInProgress = true;
 
@@ -1101,24 +1228,13 @@ void DE1Device::onProfileUploadWriteComplete(const QBluetoothUuid& uuid,
         m_uploadSeenFrameBytes.append(data.isEmpty()
                                           ? 0
                                           : static_cast<uint8_t>(data.at(0)));
-    } else if (m_uploadExpectEspressoStart
-               && uuid == DE1::Characteristic::REQUESTED_STATE) {
-        // Only count the Espresso-start write; other REQUESTED_STATE writes
-        // (e.g. a concurrent sleep request) must not satisfy this slot.
-        if (data.size() == 1
-            && static_cast<uint8_t>(data.at(0))
-                   == static_cast<uint8_t>(DE1::State::Espresso)) {
-            m_uploadEspressoStartAcked = true;
-        }
     } else {
         return;  // Unrelated write (MMR, ShotSettings, etc.)
     }
 
     const bool allFrames =
         m_uploadSeenFrameBytes.size() >= m_uploadExpectedFrameBytes.size();
-    const bool allRequired = m_uploadHeaderAcked && allFrames
-                             && (!m_uploadExpectEspressoStart
-                                 || m_uploadEspressoStartAcked);
+    const bool allRequired = m_uploadHeaderAcked && allFrames;
     if (!allRequired) return;
 
     // All the writes we expected have been ACKed by the BLE stack — now
@@ -1173,6 +1289,10 @@ void DE1Device::finishProfileUpload(bool success, const QString& reason)
     // surrounding quotes), making the messages scannable in the debug log
     // and stable for test-harness filters to match against.
     if (success) {
+        // Stamp the completion time so a startEspresso() queued right behind
+        // this upload (the recipe-activation path) settles for the firmware's
+        // internal flash write before requesting the state change.
+        m_lastProfileUploadCompleteMs = monotonicMsNow();
         qDebug().noquote() << QStringLiteral("DE1Device: profile upload verified — %1 frame(s) ACKed in order for profile %2")
                                  .arg(m_uploadExpectedFrameBytes.size())
                                  .arg(m_uploadProfileTitle);
@@ -1185,8 +1305,6 @@ void DE1Device::finishProfileUpload(bool success, const QString& reason)
     m_uploadExpectedFrameBytes.clear();
     m_uploadSeenFrameBytes.clear();
     m_uploadHeaderAcked = false;
-    m_uploadEspressoStartAcked = false;
-    m_uploadExpectEspressoStart = false;
     m_uploadProfileTitle.clear();
 
     emit profileUploaded(success, reason);
@@ -1422,14 +1540,13 @@ void DE1Device::scheduleMMRVerifyRead(uint32_t address) {
         return;
     }
 
-    // Request a read. Response arrives via READ_FROM_MMR notification and is
-    // dispatched by parseMMRResponse, which checks m_pendingMMRVerifies.
-    QByteArray req(20, 0);
-    req[0] = 0x00;  // Len = 0 means "read 4 bytes"
-    req[1] = (address >> 16) & 0xFF;
-    req[2] = (address >> 8) & 0xFF;
-    req[3] = address & 0xFF;
-    m_transport->write(DE1::Characteristic::READ_FROM_MMR, req);
+    // Response arrives via READ_FROM_MMR notification and is dispatched by
+    // parseMMRResponse: a mismatch is handled by the m_pendingMMRVerifies
+    // check (retryMMRVerify re-writes and calls back in here); a response
+    // that never arrives at all is handled by the m_pendingMMRReads tracking
+    // issueMMRReadWithRetry registers below — previously nothing covered that
+    // case and a dropped read-back left the verification pending forever.
+    issueMMRReadWithRetry(address, QStringLiteral("MMR verify read-back"));
 }
 
 void DE1Device::retryMMRVerify(uint32_t address, const QString& cause) {
@@ -1525,13 +1642,7 @@ void DE1Device::setRefillKitPresent(int value) {
 
 void DE1Device::requestRefillKitStatus() {
     if (!m_transport) return;
-    QByteArray mmrRead(20, 0);
-    mmrRead[0] = 0x00;
-    mmrRead[1] = 0x80;
-    mmrRead[2] = 0x38;
-    mmrRead[3] = 0x5C;
-
-    m_transport->write(DE1::Characteristic::READ_FROM_MMR, mmrRead);
+    issueMMRReadWithRetry(DE1::MMR::REFILL_KIT, QStringLiteral("refill kit status"));
 }
 
 void DE1Device::sendInitialSettings() {
@@ -1580,26 +1691,17 @@ void DE1Device::sendInitialSettings() {
     // profile is sent after `initialSettingsComplete` fires, so there's
     // nothing to send here.
 
-    // Read GHC info via MMR
-    QByteArray mmrRead(20, 0);
-    mmrRead[0] = 0x00;
-    mmrRead[1] = 0x80;
-    mmrRead[2] = 0x38;
-    mmrRead[3] = 0x1C;
-
-    m_transport->write(DE1::Characteristic::READ_FROM_MMR, mmrRead);
+    // Read GHC info via MMR. Timeout+retry (issueMMRReadWithRetry) guards
+    // against the post-connect subscription race dropping this one-shot
+    // response silently — see the harden-de1-ble-reliability change.
+    issueMMRReadWithRetry(DE1::MMR::GHC_INFO, QStringLiteral("GHC info"));
 
     // Read machine identity MMRs (CPU board model, machine model, firmware build)
     // These populate the third line of the firmware version string
-    for (uint32_t addr : {DE1::MMR::CPU_BOARD_MODEL, DE1::MMR::MACHINE_MODEL,
-                          DE1::MMR::FIRMWARE_VERSION, DE1::MMR::HEATER_VOLTAGE}) {
-        QByteArray req(20, 0);
-        req[0] = 0x00;
-        req[1] = static_cast<char>((addr >> 16) & 0xFF);
-        req[2] = static_cast<char>((addr >> 8) & 0xFF);
-        req[3] = static_cast<char>(addr & 0xFF);
-        m_transport->write(DE1::Characteristic::READ_FROM_MMR, req);
-    }
+    issueMMRReadWithRetry(DE1::MMR::CPU_BOARD_MODEL, QStringLiteral("CPU board model"));
+    issueMMRReadWithRetry(DE1::MMR::MACHINE_MODEL, QStringLiteral("machine model"));
+    issueMMRReadWithRetry(DE1::MMR::FIRMWARE_VERSION, QStringLiteral("firmware build number"));
+    issueMMRReadWithRetry(DE1::MMR::HEATER_VOLTAGE, QStringLiteral("heater voltage"));
 
     // Read refill kit status
     requestRefillKitStatus();

@@ -192,42 +192,6 @@ private slots:
         QCOMPARE(spy.takeFirst().at(0).toBool(), true);
     }
 
-    // ===== Espresso-start variant: requires REQUESTED_STATE(Espresso) ACK =====
-
-    void uploadAndStartEspressoRequiresEspressoAck() {
-        MockTransport transport;
-        DE1Device device;
-        device.setTransport(&transport);
-
-        QSignalSpy spy(&device, &DE1Device::profileUploaded);
-
-        device.uploadProfileAndStartEspresso(makeSimpleProfile());
-
-        // 1 header + 3 frames + 1 tank-preheat MMR + 1 requested-state = 6 writes
-        QCOMPARE(transport.writes.size(), 6);
-        QCOMPARE(transport.writes.at(4).first, DE1::Characteristic::WRITE_TO_MMR);
-        // The ride-along MMR write targets the tank threshold (0 for this
-        // profile), not some other register that happens to be queued here.
-        QCOMPARE(queuedTankPreheatValue(transport), 0);
-        QCOMPARE(transport.writes.last().first, DE1::Characteristic::REQUESTED_STATE);
-
-        // Ack everything except the espresso-start write. Upload must NOT
-        // resolve yet.
-        emit transport.writeComplete(DE1::Characteristic::HEADER_WRITE,
-                                     transport.writes.at(0).second);
-        for (qsizetype i = 1; i <= 3; ++i) {
-            emit transport.writeComplete(DE1::Characteristic::FRAME_WRITE,
-                                         transport.writes.at(i).second);
-        }
-        QCOMPARE(spy.count(), 0);
-
-        // Now ack the espresso-start write — upload resolves as success.
-        emit transport.writeComplete(DE1::Characteristic::REQUESTED_STATE,
-                                     transport.writes.at(5).second);
-        QCOMPARE(spy.count(), 1);
-        QCOMPARE(spy.takeFirst().at(0).toBool(), true);
-    }
-
     // ===== Regression: leftover FRAME_WRITE acks from a prior batch ignored =====
     //
     // Historical context: sendInitialSettings() used to write a stub profile
