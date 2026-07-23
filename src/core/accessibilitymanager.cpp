@@ -145,9 +145,13 @@ AccessibilityManager::migrateAccessibilityLegacyStore(QSettings& primary,
 void AccessibilityManager::migrateLegacyStore()
 {
     // One-time: carry accessibility/* from the old isolated
-    // QSettings("Decenza","DE1") store into the primary store. The
-    // legacy store is intentionally left intact (harmless; supports
-    // clean downgrade — factoryReset() wipes it explicitly).
+    // QSettings("Decenza","DE1") store into the primary store.
+    //
+    // This function does not remove the legacy store, but it no longer survives
+    // either: once this migration has stamped its guard, runSettingsStoreMigrationOnce()
+    // (settingsstoremigration.cpp, run from main() before this class is constructed)
+    // destroys it on a subsequent launch. factoryReset() also clears it, for
+    // installations that have not reached that point.
     QSettings legacy(QStringLiteral("Decenza"), QStringLiteral("DE1"));
     const LegacyMigrationOutcome r =
         migrateAccessibilityLegacyStore(m_settings, legacy);

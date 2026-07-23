@@ -9,6 +9,25 @@ namespace {
 
 constexpr auto kGuardKey = "migration/settings_store_de1qt_to_decenza_done";
 
+// Keys where the LEGACY value wins a collision instead of being skipped.
+//
+// Skip-if-present is right in general: a key already in the canonical store was
+// put there by the running build. It is wrong for keys the pre-consolidation code
+// wrote to BOTH stores from different places, because then the canonical copy is
+// the output of the very store-scope bug this change removes.
+//
+// `localization/language` is the known instance. TranslationManager read and wrote
+// it through Settings — the legacy store — while the backup-restore and
+// device-to-device paths wrote it to the default (now canonical) store with a bare
+// QSettings. A user who set a language and later restored a backup therefore has
+// the live value in the legacy store and a stale one in the canonical store; plain
+// skip-if-present would keep the stale one and silently change their UI language on
+// upgrade.
+bool legacyWins(const QString& key)
+{
+    return key == QLatin1String("localization/language");
+}
+
 // Clear the keys, then unlink the backing file.
 //
 // The unlink is best-effort by design, and on macOS it usually LOSES: cfprefsd
@@ -41,6 +60,14 @@ void removeEmptyLegacyStoreFile(const QString& organization, const QString& appl
 {
     QSettings store(organization, application);
     store.setFallbacksEnabled(false);   // ask about THIS store, not the search list
+
+    // An UNREADABLE store also enumerates zero keys, and deleting one would destroy
+    // settings nobody can currently see — the exact case migrateLegacySettingsStore()
+    // defers on rather than risk. Empty and unreadable are different answers; only
+    // the first one licenses an unlink.
+    store.sync();
+    if (store.status() != QSettings::NoError)
+        return;
     if (!store.allKeys().isEmpty())
         return;
 
@@ -88,7 +115,7 @@ SettingsStoreMigrationOutcome migrateLegacySettingsStore(QSettings& canonical, Q
     QStringList copiedKeys;
     copiedKeys.reserve(legacyKeys.size());
     for (const QString& key : legacyKeys) {
-        if (canonical.contains(key))
+        if (canonical.contains(key) && !legacyWins(key))
             continue;
         canonical.setValue(key, legacy.value(key));
         copiedKeys.append(key);
@@ -154,21 +181,46 @@ void runSettingsStoreMigrationOnce()
 
     const SettingsStoreMigrationOutcome r = migrateLegacySettingsStore(canonical, legacy);
 
-    // Runs on every launch, including the already-migrated path: on macOS the
-    // in-migration unlink loses a race with cfprefsd and leaves an empty husk,
-    // and this is the launch that clears it.
+    if (r.deferredOnError) {
+        // Touch nothing else. The migration kept the legacy store precisely because
+        // it could not read it, and every cleanup below removes a store.
+        qWarning() << "Settings store migration: deferred, legacy store left intact "
+                      "and guard NOT stamped";
+        return;
+    }
+
+    // Everything below runs on EVERY launch, including the already-migrated path,
+    // and each step is idempotent. That is deliberate: the cleanups have to survive
+    // the launch that performs the migration failing to complete them.
+    //
+    // On macOS the in-migration unlink loses a race with cfprefsd, which writes its
+    // now-empty copy of the domain back to disk afterwards; the next launch is when
+    // the husk can actually be removed.
     removeEmptyLegacyStoreFile(QString::fromLatin1(kLegacyOrganization),
                                QString::fromLatin1(kLegacyApplication));
     removeEmptyLegacyStoreFile(QString::fromLatin1(kLegacyAccessibilityOrganization),
                                QString::fromLatin1(kLegacyAccessibilityApplication));
 
+    // The abandoned accessibility store is only safe to remove once its own migration
+    // has stamped its guard. For most users the copy above carried that guard across,
+    // but a user upgrading from a build predating AccessibilityManager's migration
+    // stamps it LATER in this same launch — after this function has run. Checking on
+    // every launch rather than only the migrating one is what eventually collects
+    // their store; gating this behind the already-done early return would strand it
+    // forever.
+    if (canonical.value(QLatin1String(kAccessibilityMigratedGuard), false).toBool()) {
+        QSettings legacyAccessibility(QString::fromLatin1(kLegacyAccessibilityOrganization),
+                                      QString::fromLatin1(kLegacyAccessibilityApplication));
+        legacyAccessibility.setFallbacksEnabled(false);
+        legacyAccessibility.sync();
+        if (legacyAccessibility.status() == QSettings::NoError
+            && !legacyAccessibility.allKeys().isEmpty()) {
+            destroyStore(legacyAccessibility, "legacy accessibility store");
+        }
+    }
+
     if (r.alreadyDone)
         return;
-    if (r.deferredOnError) {
-        qWarning() << "Settings store migration: deferred, legacy store left intact "
-                      "and guard NOT stamped";
-        return;
-    }
 
     // qInfo (not qDebug) with the legacy key count, so a support log can tell
     // "nothing to migrate" (legacyKeyCount == 0) apart from "everything was
@@ -177,15 +229,5 @@ void runSettingsStoreMigrationOnce()
     qInfo() << "Settings store migration: copied" << r.copied << "of" << r.legacyKeyCount
             << "legacy key(s) into the canonical store; legacy store destroyed:"
             << r.legacyDestroyed;
-
-    // The abandoned accessibility store is only safe to remove once its own
-    // migration has stamped its guard — which the copy above may have just
-    // carried across from the legacy store.
-    if (canonical.value(QLatin1String(kAccessibilityMigratedGuard), false).toBool()) {
-        QSettings legacyAccessibility(QString::fromLatin1(kLegacyAccessibilityOrganization),
-                                      QString::fromLatin1(kLegacyAccessibilityApplication));
-        if (!legacyAccessibility.allKeys().isEmpty())
-            destroyStore(legacyAccessibility, "legacy accessibility store");
-    }
 #endif
 }

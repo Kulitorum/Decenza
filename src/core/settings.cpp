@@ -71,7 +71,7 @@ Settings::Settings(QObject* parent)
     // Snapshot whether this looks like a fresh install before any default-init
     // blocks below write keys. Used by one-shot migrations that need to behave
     // differently for new users vs upgrades.
-    const bool freshInstall = m_settings.allKeys().isEmpty();
+    const bool freshInstall = looksLikeFreshInstall(m_settings.allKeys());
 
     // Evict the dead shot-rating keys. Both are orphans of the removed
     // default-shot-rating feature: shot/defaultRating was the setting itself,
@@ -764,6 +764,13 @@ void Settings::factoryReset()
     for (const auto& [organization, application] : {
              std::pair{QStringLiteral("DecentEspresso"), QStringLiteral("DE1Qt")},
              std::pair{QStringLiteral("Decenza"), QStringLiteral("DE1")},
+             // The pre-rename store, read by migrateDefaultQSettingsFromOldAppName().
+             // Nothing else in the app ever clears it, and its migration guard now
+             // lives in the store wiped above — so omitting it means a factory reset
+             // erases the guard and the next launch copies this store's entire
+             // contents back into the empty canonical store. A "wipe all data" that
+             // restores the user's pre-rename preferences is worse than no reset.
+             std::pair{QStringLiteral("DecentEspresso"), QStringLiteral("Decenza DE1")},
          }) {
         QSettings legacy(organization, application);
         legacy.clear();

@@ -3,8 +3,10 @@
 #include <QObject>
 #include "appsettings.h"
 #include <QString>
+#include <QStringList>
 #include <QVariantList>
 #include <QTimer>
+#include <algorithm>
 #ifdef DECENZA_TESTING
 #include <QCoreApplication>
 #include <QDir>
@@ -181,6 +183,25 @@ public:
     void sync() { m_settings.sync(); }
 
     Q_INVOKABLE void factoryReset();
+
+    // Does this key set belong to an installation that has never been used?
+    //
+    // Not simply "no keys at all". One-time migrations run before Settings is
+    // constructed (see runSettingsStoreMigrationOnce() in main.cpp) and stamp their
+    // done-flags into the store unconditionally — including on a brand-new install,
+    // where there is nothing to migrate but the flag is still recorded. Counting
+    // those would make every install look like an upgrade, and the one-shot blocks
+    // in the constructor would seed legacy defaults for users who should get the
+    // current ones. Migration bookkeeping is not user state, so it does not count.
+    //
+    // Static and pure so the rule is testable without constructing a Settings.
+    static bool looksLikeFreshInstall(const QStringList& existingKeys)
+    {
+        return std::none_of(existingKeys.cbegin(), existingKeys.cend(),
+                            [](const QString& key) {
+                                return !key.startsWith(QLatin1String("migration/"));
+                            });
+    }
 
     // Generic settings access (for extensibility)
     Q_INVOKABLE QVariant value(const QString& key, const QVariant& defaultValue = QVariant()) const;

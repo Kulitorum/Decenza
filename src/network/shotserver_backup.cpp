@@ -1072,33 +1072,32 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                     settings.setValue("shotMap/manualGeocoded", sm["manualGeocoded"].toBool());
                 }
 
-                // Accessibility → PRIMARY store (where AccessibilityManager
-                // reads it). Writing to the bare/secondary `settings`
-                // would be a silent no-op. (only write keys present, to
-                // avoid clobbering defaults)
+                // Accessibility (only write keys present, to avoid clobbering
+                // defaults). Goes through the same `settings` handle as everything
+                // else — there is one store now, so the separate handle this used to
+                // need is gone.
                 {
-                    AppSettings accessStore;
                     if (extra.contains("accessibility")) {
                         QJsonObject a = extra["accessibility"].toObject();
-                        if (a.contains("enabled")) accessStore.setValue("accessibility/enabled", a["enabled"].toBool());
-                        if (a.contains("ttsEnabled")) accessStore.setValue("accessibility/ttsEnabled", a["ttsEnabled"].toBool());
-                        if (a.contains("tickEnabled")) accessStore.setValue("accessibility/tickEnabled", a["tickEnabled"].toBool());
-                        if (a.contains("tickSoundIndex")) accessStore.setValue("accessibility/tickSoundIndex", a["tickSoundIndex"].toInt());
-                        if (a.contains("tickVolume")) accessStore.setValue("accessibility/tickVolume", a["tickVolume"].toInt());
-                        if (a.contains("extractionAnnouncementsEnabled")) accessStore.setValue("accessibility/extractionAnnouncementsEnabled", a["extractionAnnouncementsEnabled"].toBool());
-                        if (a.contains("extractionAnnouncementInterval")) accessStore.setValue("accessibility/extractionAnnouncementInterval", a["extractionAnnouncementInterval"].toInt());
-                        if (a.contains("extractionAnnouncementMode")) accessStore.setValue("accessibility/extractionAnnouncementMode", a["extractionAnnouncementMode"].toString());
+                        if (a.contains("enabled")) settings.setValue("accessibility/enabled", a["enabled"].toBool());
+                        if (a.contains("ttsEnabled")) settings.setValue("accessibility/ttsEnabled", a["ttsEnabled"].toBool());
+                        if (a.contains("tickEnabled")) settings.setValue("accessibility/tickEnabled", a["tickEnabled"].toBool());
+                        if (a.contains("tickSoundIndex")) settings.setValue("accessibility/tickSoundIndex", a["tickSoundIndex"].toInt());
+                        if (a.contains("tickVolume")) settings.setValue("accessibility/tickVolume", a["tickVolume"].toInt());
+                        if (a.contains("extractionAnnouncementsEnabled")) settings.setValue("accessibility/extractionAnnouncementsEnabled", a["extractionAnnouncementsEnabled"].toBool());
+                        if (a.contains("extractionAnnouncementInterval")) settings.setValue("accessibility/extractionAnnouncementInterval", a["extractionAnnouncementInterval"].toInt());
+                        if (a.contains("extractionAnnouncementMode")) settings.setValue("accessibility/extractionAnnouncementMode", a["extractionAnnouncementMode"].toString());
                     }
                     // Whenever extra_settings.json is restored (even with
                     // no accessibility block), stamp the migration guard:
                     // a restored profile is authoritative, so
                     // AccessibilityManager::migrateLegacyStore must not
                     // later merge this device's stale legacy store over it.
-                    accessStore.setValue("accessibility/_migratedFromLegacyV1", true);
-                    accessStore.sync();
-                    if (accessStore.status() != QSettings::NoError) {
+                    settings.setValue("accessibility/_migratedFromLegacyV1", true);
+                    settings.sync();
+                    if (settings.status() != QSettings::NoError) {
                         qWarning() << "ShotServer: accessibility restore sync failed (status="
-                                   << accessStore.status() << ") — settings may not persist";
+                                   << settings.status() << ") — settings may not persist";
                     }
                 }
 

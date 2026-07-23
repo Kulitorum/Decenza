@@ -28,7 +28,7 @@
 ## 4. Switch the canonical store and wire the migration
 
 - [x] 4.1 Repoint `AppSettings` to `("DecentEspresso", "Decenza")`
-- [x] 4.2 Call the migration from `main.cpp` immediately after `runAppNameMigrationOnce()`, and assert by construction that it runs **before** `Settings` and `AccessibilityManager` are constructed (D3 ordering)
+- [x] 4.2 Call the migration from `main.cpp` immediately **before** `runAppNameMigrationOnce()` (order reversed during implementation — see design.md D3: the app-name guard lives in the legacy store, so the store migration has to carry it across first), and assert by construction that it runs **before** `Settings` and `AccessibilityManager` are constructed
 - [x] 4.3 Add a test constructing `AccessibilityManager` against a freshly-migrated store, asserting its `accessibility._migratedFromLegacyV1` guard is seen as stamped and that it does not re-run its own legacy migration
 - [x] 4.4 Ensure the migration does not run under `DECENZA_TESTING`
 - [x] 4.5 Delete the abandoned `("Decenza", "DE1")` accessibility store once its guard is confirmed stamped in the canonical store

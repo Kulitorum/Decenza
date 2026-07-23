@@ -169,6 +169,64 @@ private slots:
                                     QStringLiteral("profile/current")}));
     }
 
+    // An unreadable legacy store must be preserved, not treated as empty. This is
+    // the path that made the cleanup dangerous: a corrupt or unreadable store
+    // enumerates zero keys exactly like an absent one, and anything that acts on
+    // "no keys" alone will delete settings nobody can currently see.
+    void unreadableLegacyStoreDefersAndIsPreserved()
+    {
+        // A directory where the store file belongs: QSettings reports AccessError
+        // and enumerates nothing, rather than failing loudly.
+        const QString blockedLegacy = m_dir.path() + QStringLiteral("/unreadable-legacy.ini");
+        QVERIFY(QDir().mkpath(blockedLegacy));
+
+        QSettings legacyBlocked(blockedLegacy, QSettings::IniFormat);
+        legacyBlocked.sync();
+        QVERIFY2(legacyBlocked.status() != QSettings::NoError,
+                 "precondition: the store must actually be unreadable");
+        QVERIFY2(legacyBlocked.allKeys().isEmpty(),
+                 "precondition: an unreadable store reports no keys — which is why "
+                 "emptiness alone must never license deletion");
+
+        QSettings c = canonical();
+        const SettingsStoreMigrationOutcome r = migrateLegacySettingsStore(c, legacyBlocked);
+
+        QVERIFY(r.deferredOnError);
+        QVERIFY(!r.guardStamped);
+        QVERIFY(!r.legacyDestroyed);
+        QVERIFY2(!canonical().value(QLatin1String(kGuardKey), false).toBool(),
+                 "an unreadable legacy store must not be recorded as migrated, or the "
+                 "next launch treats real settings as absent");
+    }
+
+    // Skip-if-present is wrong for keys the pre-consolidation code wrote to both
+    // stores from different places. `localization/language` is the known instance:
+    // TranslationManager read it through the legacy store while backup-restore wrote
+    // it to the canonical one, so keeping the canonical copy would change a restored
+    // user's UI language on upgrade.
+    void legacyWinsForLanguageButNotForOtherKeys()
+    {
+        {
+            QSettings l = legacy();
+            l.setValue("localization/language", "ja");   // what the app was actually using
+            l.setValue("profile/current", "legacy_profile");
+            l.sync();
+            QSettings c = canonical();
+            c.setValue("localization/language", "en");   // stale, from an old restore
+            c.setValue("profile/current", "current_profile");
+            c.sync();
+        }
+
+        QSettings c = canonical();
+        QSettings l = legacy();
+        (void)migrateLegacySettingsStore(c, l);
+
+        QSettings after = canonical();
+        QCOMPARE(after.value("localization/language").toString(), QStringLiteral("ja"));
+        // Every other colliding key still follows the normal skip-if-present rule.
+        QCOMPARE(after.value("profile/current").toString(), QStringLiteral("current_profile"));
+    }
+
     // The ordering hazard this migration has to defuse. AccessibilityManager's
     // own one-time migration is guarded by a flag that lived in the legacy store;
     // if it were constructed before this migration ran, it would see an unstamped

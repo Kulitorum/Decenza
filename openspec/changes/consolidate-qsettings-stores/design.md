@@ -91,11 +91,21 @@ store. `main.cpp` calls it alongside `runAppNameMigrationOnce()`.
 
 **Ordering is load-bearing**, and one edge is subtle:
 
-1. Existing app-name migration (`Decenza DE1` → `Decenza`) runs first. It targets the same
-   canonical store, and running it first means its values are in place before the legacy-store
-   copy applies its skip-if-present rule.
-2. Legacy-store migration (`DE1Qt` → `Decenza`) runs second.
-3. **Both must complete before `AccessibilityManager` is constructed.** Its
+1. Legacy-store migration (`DE1Qt` → `Decenza`) runs **first**. **Reversed during
+   implementation** — this section originally specified the opposite order. The app-name
+   migration's own done-flag lived in the legacy `DE1Qt` store, and this migration is what
+   carries it into the canonical store; run the app-name migration first and it sees an
+   unstamped flag and redundantly re-runs on every already-migrated installation.
+2. Existing app-name migration (`Decenza DE1` → `Decenza`) runs second, reading its done-flag
+   from the canonical store.
+3. **The legacy-store cleanups run on every launch, not only the migrating one.** Found in
+   review: gating them behind the already-migrated early return stranded the abandoned
+   `("Decenza", "DE1")` store forever for anyone whose accessibility guard gets stamped *later in
+   the same launch* — i.e. users upgrading from a build predating that migration. They are
+   idempotent, so running them unconditionally costs nothing and eventually collects every store.
+   They are skipped only on the defer path, where the migration deliberately preserved a store it
+   could not read.
+4. **Both must complete before `AccessibilityManager` is constructed.** Its
    `migrateLegacyStore()` guard flag (`accessibility._migratedFromLegacyV1`) currently lives in
    the `DE1Qt` store. If the accessibility manager is constructed before that flag has been copied
    across, it sees an unstamped guard and re-runs its own legacy migration, overwriting the user's
@@ -105,6 +115,15 @@ store. `main.cpp` calls it alongside `runAppNameMigrationOnce()`.
 Skip-if-present means the canonical store wins on collision. With zero observed overlap this is
 close to moot, but it is the safe direction: a value already in the canonical store is one the
 running build wrote.
+
+**One documented exception, found in review.** That premise fails for keys the pre-consolidation
+code wrote to *both* stores from different places, because then the canonical copy is the output of
+the store-scope bug this change removes. `localization/language` is the known instance:
+`TranslationManager` read and wrote it through `Settings` (the legacy store), while the
+backup-restore and device-to-device paths wrote it to the default — now canonical — store with a
+bare `QSettings`. A user who set a language and later restored a backup has the live value in the
+legacy store and a stale one in the canonical store, so plain skip-if-present would silently change
+their UI language on upgrade. The migration therefore carries a small legacy-wins list.
 
 ### D4 — Verify, then destroy
 

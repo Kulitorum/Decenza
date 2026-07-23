@@ -111,6 +111,30 @@ private:
 
 private slots:
 
+    // A brand-new install is not "no keys at all". One-time migrations run before
+    // Settings is constructed and stamp their done-flags unconditionally — including
+    // on a fresh install, where there is nothing to migrate. Counting those made
+    // every install look like an upgrade, so the constructor's one-shot blocks seeded
+    // legacy defaults (e.g. two-tap steam stop) for users who should get the current
+    // ones.
+    void looksLikeFreshInstall_ignoresMigrationBookkeeping()
+    {
+        QVERIFY(Settings::looksLikeFreshInstall({}));
+
+        // Only migration guards present — still a fresh install.
+        QVERIFY(Settings::looksLikeFreshInstall({
+            QStringLiteral("migration/settings_store_de1qt_to_decenza_done"),
+            QStringLiteral("migration/app_name_decenza_de1_to_decenza_done"),
+        }));
+
+        // Any real user state means this install has been used.
+        QVERIFY(!Settings::looksLikeFreshInstall({
+            QStringLiteral("migration/settings_store_de1qt_to_decenza_done"),
+            QStringLiteral("profile/current"),
+        }));
+        QVERIFY(!Settings::looksLikeFreshInstall({QStringLiteral("calibration/steamTwoTapStop")}));
+    }
+
     void init() { QTest::failOnWarning();
         // Save all originals before each test
         m_origTargetWeight = m_settings.brew()->targetWeight();
