@@ -1,4 +1,5 @@
 #include "datamigrationclient.h"
+#include "appsettings.h"
 #include "settings.h"
 #include "settingsserializer.h"
 #include "profilestorage.h"
@@ -59,7 +60,7 @@ void DataMigrationClient::addSessionCookie(QNetworkRequest& request)
 
 void DataMigrationClient::saveSessionToken(const QString& serverHost, const QString& token)
 {
-    QSettings settings;
+    AppSettings settings;
     settings.beginGroup("migration_sessions");
     settings.setValue(serverHost, token);
     settings.endGroup();
@@ -67,7 +68,7 @@ void DataMigrationClient::saveSessionToken(const QString& serverHost, const QStr
 
 QString DataMigrationClient::loadSessionToken(const QString& serverHost)
 {
-    QSettings settings;
+    AppSettings settings;
     settings.beginGroup("migration_sessions");
     QString token = settings.value(serverHost).toString();
     settings.endGroup();
@@ -609,7 +610,7 @@ void DataMigrationClient::onAIConversationsReply()
 
         QJsonDocument doc = QJsonDocument::fromJson(data);
         if (doc.isArray()) {
-            QSettings settings;
+            AppSettings settings;
             QJsonArray conversations = doc.array();
 
             // Load existing index to know which keys to skip
@@ -786,7 +787,7 @@ void DataMigrationClient::onExtraSettingsReply()
         if (!extra.isEmpty()) {
             // Apply to the LOCAL stores, mirroring handleBackupRestore's
             // extra_settings.json path.
-            QSettings settings;
+            AppSettings settings;
             if (extra.contains("shotMap")) {
                 const QJsonObject sm = extra["shotMap"].toObject();
                 settings.setValue("shotMap/manualCity", sm["manualCity"].toString());
@@ -796,17 +797,15 @@ void DataMigrationClient::onExtraSettingsReply()
                 settings.setValue("shotMap/manualGeocoded", sm["manualGeocoded"].toBool());
             }
             if (extra.contains("accessibility")) {
-                // Accessibility lives in the primary DecentEspresso/DE1Qt store.
-                QSettings accessStore(QStringLiteral("DecentEspresso"), QStringLiteral("DE1Qt"));
                 const QJsonObject a = extra["accessibility"].toObject();
-                if (a.contains("enabled")) accessStore.setValue("accessibility/enabled", a["enabled"].toBool());
-                if (a.contains("ttsEnabled")) accessStore.setValue("accessibility/ttsEnabled", a["ttsEnabled"].toBool());
-                if (a.contains("tickEnabled")) accessStore.setValue("accessibility/tickEnabled", a["tickEnabled"].toBool());
-                if (a.contains("tickSoundIndex")) accessStore.setValue("accessibility/tickSoundIndex", a["tickSoundIndex"].toInt());
-                if (a.contains("tickVolume")) accessStore.setValue("accessibility/tickVolume", a["tickVolume"].toInt());
-                if (a.contains("extractionAnnouncementsEnabled")) accessStore.setValue("accessibility/extractionAnnouncementsEnabled", a["extractionAnnouncementsEnabled"].toBool());
-                if (a.contains("extractionAnnouncementInterval")) accessStore.setValue("accessibility/extractionAnnouncementInterval", a["extractionAnnouncementInterval"].toInt());
-                if (a.contains("extractionAnnouncementMode")) accessStore.setValue("accessibility/extractionAnnouncementMode", a["extractionAnnouncementMode"].toString());
+                if (a.contains("enabled")) settings.setValue("accessibility/enabled", a["enabled"].toBool());
+                if (a.contains("ttsEnabled")) settings.setValue("accessibility/ttsEnabled", a["ttsEnabled"].toBool());
+                if (a.contains("tickEnabled")) settings.setValue("accessibility/tickEnabled", a["tickEnabled"].toBool());
+                if (a.contains("tickSoundIndex")) settings.setValue("accessibility/tickSoundIndex", a["tickSoundIndex"].toInt());
+                if (a.contains("tickVolume")) settings.setValue("accessibility/tickVolume", a["tickVolume"].toInt());
+                if (a.contains("extractionAnnouncementsEnabled")) settings.setValue("accessibility/extractionAnnouncementsEnabled", a["extractionAnnouncementsEnabled"].toBool());
+                if (a.contains("extractionAnnouncementInterval")) settings.setValue("accessibility/extractionAnnouncementInterval", a["extractionAnnouncementInterval"].toInt());
+                if (a.contains("extractionAnnouncementMode")) settings.setValue("accessibility/extractionAnnouncementMode", a["extractionAnnouncementMode"].toString());
             }
             if (extra.contains("language"))
                 settings.setValue("localization/language", extra["language"].toString());

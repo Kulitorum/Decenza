@@ -1,4 +1,5 @@
 #include "coffeebagstorage.h"
+#include "core/appsettings.h"
 #include "core/settings.h"   // Settings::testQSettingsPath() under DECENZA_TESTING
 #include "core/dbutils.h"
 #include "core/yieldspec.h"
@@ -819,13 +820,7 @@ qint64 CoffeeBagStorage::findBagForShotStatic(QSqlDatabase& db, qint64 shotId,
 
 qint64 CoffeeBagStorage::convertLegacyPresetSettings(const QString& dbPath)
 {
-    // Same QSettings scope the app's Settings object owns — a bare
-    // QSettings() resolves to a different, empty store.
-#ifdef DECENZA_TESTING
-    QSettings appSettings(Settings::testQSettingsPath(), QSettings::IniFormat);
-#else
-    QSettings appSettings(QStringLiteral("DecentEspresso"), QStringLiteral("DE1Qt"));
-#endif
+    AppSettings appSettings;
     const QByteArray presetsJson = appSettings.value(QStringLiteral("bean/presets")).toByteArray();
     if (presetsJson.isEmpty())
         return -1;

@@ -4,6 +4,7 @@
 // BeanBaseClient — the dependencies ai_advisor_invoke and bag_extract_details
 // pull in. Same rationale as mcptools_beansearch.cpp.
 #include "mcptoolregistry.h"
+#include "core/appsettings.h"
 #include "../ai/aimanager.h"
 
 #include <QDateTime>
@@ -46,7 +47,7 @@ void registerAIConversationTools(McpToolRegistry* registry, AIManager* aiManager
         [aiManager](const QJsonObject&) -> QJsonObject {
             if (!aiManager) return QJsonObject{{"error", "AI advisor not available"}};
 
-            QSettings settings;
+            AppSettings settings;
             QJsonArray conversations;
             for (const auto& entry : aiManager->conversationIndex()) {
                 const QString prefix = "ai/conversations/" + entry.key + "/";
@@ -110,7 +111,7 @@ void registerAIConversationTools(McpToolRegistry* registry, AIManager* aiManager
             const QString key = args.value("key").toString().trimmed();
             if (key.isEmpty()) return QJsonObject{{"error", "key is required"}};
 
-            QSettings settings;
+            AppSettings settings;
             const QString prefix = "ai/conversations/" + key + "/";
             const QByteArray messagesJson = settings.value(prefix + "messages").toByteArray();
             if (messagesJson.isEmpty())

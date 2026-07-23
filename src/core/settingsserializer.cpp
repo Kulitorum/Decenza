@@ -1,4 +1,5 @@
 #include "settingsserializer.h"
+#include "appsettings.h"
 #include "settings.h"
 #include "settings_app.h"
 #include "settings_brew.h"
@@ -614,11 +615,7 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
     if (json.contains("beans") && !excludeKeys.contains("beans")) {
         QJsonObject beans = json["beans"].toObject();
         if (beans.contains("presets")) {
-#ifdef DECENZA_TESTING
-            QSettings rawSettings(Settings::testQSettingsPath(), QSettings::IniFormat);
-#else
-            QSettings rawSettings(QStringLiteral("DecentEspresso"), QStringLiteral("DE1Qt"));
-#endif
+            AppSettings rawSettings;
             rawSettings.setValue(QStringLiteral("bean/presets"),
                                  QJsonDocument(beans["presets"].toArray()).toJson());
             if (beans.contains("selectedPreset"))

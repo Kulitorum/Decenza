@@ -1,4 +1,5 @@
 #include "shothistorystorage.h"
+#include "core/appsettings.h"
 #include "shothistorystorage_internal.h"
 #include "coffeebagstorage.h"
 #include "equipmentstorage.h"
@@ -917,20 +918,11 @@ bool ShotHistoryStorage::runMigrations()
                 return false;
             }
 
-            // The back-sync hand-off below MUST use the same QSettings scope
-            // the app's Settings object owns (settings.cpp:
-            // QSettings("DecentEspresso","DE1Qt")), because MainController
-            // reads the pending list from there. A bare QSettings() resolves
-            // to org/app "DecentEspresso"/"Decenza" (main.cpp
-            // setApplicationName) — a DIFFERENT, empty store — so the list
-            // would be written where nothing ever looks for it. This bit the
-            // rating read that used to live here; don't reintroduce it.
-#ifdef DECENZA_TESTING
-            QSettings appSettings(Settings::testQSettingsPath(), QSettings::IniFormat);
-#else
-            QSettings appSettings(QStringLiteral("DecentEspresso"),
-                                  QStringLiteral("DE1Qt"));
-#endif
+            // MainController reads the pending list from the same store, which
+            // AppSettings guarantees (see appsettings.h). This hand-off is what
+            // the two-store split used to break: the list was written to a scope
+            // nothing looked in.
+            AppSettings appSettings;
 
             // 1) Collect inferred rows that were uploaded to Visualizer so
             //    the cloud copy can be corrected after boot. Append to any
@@ -1245,13 +1237,7 @@ bool ShotHistoryStorage::runMigrations()
         bool dataOk = false;
         if (tablesOk && colsOk) {
             // Read the SAME QSettings scope SettingsDye writes to — a bare
-            // QSettings() depends on QCoreApplication org/app being set, which
-            // isn't guaranteed (the scope-mismatch bug migration 16 fixed).
-#ifdef DECENZA_TESTING
-            QSettings settings(Settings::testQSettingsPath(), QSettings::IniFormat);
-#else
-            QSettings settings(QStringLiteral("DecentEspresso"), QStringLiteral("DE1Qt"));
-#endif
+            AppSettings settings;
             const QString curBrand = settings.value("dye/grinderBrand").toString();
             const QString curModel = settings.value("dye/grinderModel").toString();
             const QString curBurrs = settings.value("dye/grinderBurrs").toString();

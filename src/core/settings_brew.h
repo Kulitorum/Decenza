@@ -1,7 +1,7 @@
 #pragma once
 
 #include <QObject>
-#include <QSettings>
+#include "appsettings.h"
 #include <QString>
 #include <QVariantList>
 #include <QVariantMap>
@@ -311,7 +311,7 @@ signals:
     void ignoreVolumeWithScaleChanged();
 
 private:
-    mutable QSettings m_settings;
+    mutable AppSettings m_settings;
 
     // Session-only steam-disable flag (used during descaling)
     bool m_steamDisabled = false;

@@ -1,4 +1,5 @@
 #include "aimanager.h"
+#include "core/appsettings.h"
 #include "aiprovider.h"
 #include "aiconversation.h"
 #include "shotsummarizer.h"
@@ -1733,7 +1734,7 @@ QString AIManager::conversationKey(const QString& beanBrand, const QString& bean
 
 void AIManager::loadConversationIndex()
 {
-    QSettings settings;
+    AppSettings settings;
     QByteArray indexJson = settings.value("ai/conversations/index").toByteArray();
     m_conversationIndex.clear();
 
@@ -1763,7 +1764,7 @@ void AIManager::saveConversationIndex()
     for (const auto& entry : m_conversationIndex) {
         arr.append(entry.toJson());
     }
-    QSettings settings;
+    AppSettings settings;
     settings.setValue("ai/conversations/index", QJsonDocument(arr).toJson(QJsonDocument::Compact));
     emit conversationIndexChanged();
 }
@@ -1793,7 +1794,7 @@ void AIManager::evictOldestConversation()
     ConversationEntry oldest = m_conversationIndex.takeLast();
 
     // Remove its QSettings data
-    QSettings settings;
+    AppSettings settings;
     QString prefix = "ai/conversations/" + oldest.key + "/";
     settings.remove(prefix + "systemPrompt");
     settings.remove(prefix + "messages");
@@ -1805,7 +1806,7 @@ void AIManager::evictOldestConversation()
 
 void AIManager::clearAllConversationsOnce(const QString& migrationId)
 {
-    QSettings settings;
+    AppSettings settings;
     const QString markerKey = QStringLiteral("ai/migrations/") + migrationId;
     if (settings.value(markerKey).toBool())
         return;
@@ -1820,7 +1821,7 @@ void AIManager::clearAllConversationsOnce(const QString& migrationId)
 
 void AIManager::migrateFromLegacyConversation()
 {
-    QSettings settings;
+    AppSettings settings;
 
     // Check if legacy data exists and new index doesn't
     QByteArray legacyMessages = settings.value("ai/conversation/messages").toByteArray();

@@ -37,8 +37,8 @@ Bottom of the left column in `SettingsDataTab.qml`, below the existing "Your Dat
 
 ## What Gets Wiped (in order)
 
-1. **QSettings** (`"DecentEspresso", "DE1Qt"`) — `m_settings.clear()` — favourites, presets, theme, all preferences
-2. **Default QSettings** (`"DecentEspresso", "Decenza"`) — `QSettings().clear()` — secondary store (AI, location, profilestorage)
+1. **The settings store** (`"DecentEspresso", "Decenza"`, via `AppSettings`) — `m_settings.clear()` — favourites, presets, theme, all preferences
+2. **Legacy stores** (`"DecentEspresso", "DE1Qt"` and `"Decenza", "DE1"`) — cleared too. Each one's migration guard lives in the store cleared above, so leaving a legacy store populated lets the next launch repopulate from it and silently undo the reset
 3. **Shot database** — delete `AppDataLocation/shots.db`, `-wal`, `-shm`
 4. **Profiles** — delete `AppDataLocation/profiles/` recursively
 5. **Widget library** — delete `AppDataLocation/library/` recursively

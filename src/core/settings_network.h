@@ -1,7 +1,7 @@
 #pragma once
 
 #include <QObject>
-#include <QSettings>
+#include "appsettings.h"
 #include <QString>
 #include <QStringList>
 #include <QVariant>
@@ -249,7 +249,7 @@ private:
     QString generateItemId(const QString& type) const;
     void invalidateLayoutCache();
 
-    mutable QSettings m_settings;
+    mutable AppSettings m_settings;
     mutable QJsonObject m_layoutCache;
     mutable QString m_layoutJsonCache;
     mutable bool m_layoutCacheValid = false;

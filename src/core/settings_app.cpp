@@ -15,11 +15,6 @@
 
 SettingsApp::SettingsApp(QObject* parent)
     : QObject(parent)
-#ifdef DECENZA_TESTING
-    , m_settings(Settings::testQSettingsPath(), QSettings::IniFormat)
-#else
-    , m_settings("DecentEspresso", "DE1Qt")
-#endif
     , m_use12HourTime(QLocale::system().timeFormat(QLocale::ShortFormat).contains("AP", Qt::CaseInsensitive))
 {
 }
@@ -615,7 +610,7 @@ QString SettingsApp::deviceId() const {
     QString id = m_settings.value("device/uuid").toString();
     if (id.isEmpty()) {
         id = QUuid::createUuid().toString(QUuid::WithoutBraces);
-        const_cast<QSettings&>(m_settings).setValue("device/uuid", id);
+        m_settings.setValue("device/uuid", id);
     }
     return id;
 }

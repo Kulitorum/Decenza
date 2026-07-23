@@ -1,4 +1,5 @@
 #include "databasebackupmanager.h"
+#include "appsettings.h"
 #include "settings.h"
 #include "translationmanager.h"
 #include "settings_app.h"
@@ -391,7 +392,7 @@ bool DatabaseBackupManager::createBackup(bool force)
         settingsJson = SettingsSerializer::exportToJson(m_settings, /*includeSensitive=*/false);
 
         // Add AI conversations
-        QSettings qsettings;
+        AppSettings qsettings;
         QByteArray indexData = qsettings.value("ai/conversations/index").toByteArray();
         if (!indexData.isEmpty()) {
             QJsonDocument indexDoc = QJsonDocument::fromJson(indexData);
@@ -1077,7 +1078,7 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
             if (settingsJson.contains("ai_conversations")) {
                 QJsonArray conversations = settingsJson["ai_conversations"].toArray();
                 if (!conversations.isEmpty()) {
-                    QSettings qsettings;
+                    AppSettings qsettings;
 
                     // In replace mode, clear existing conversations first
                     if (!merge) {

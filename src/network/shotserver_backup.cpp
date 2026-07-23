@@ -1,4 +1,5 @@
 #include "shotserver.h"
+#include "core/appsettings.h"
 #include "webdebuglogger.h"
 #include "webtemplates.h"
 #include "../history/shothistorystorage.h"
@@ -163,7 +164,7 @@ void ShotServer::handleBackupManifest(QTcpSocket* socket)
         manifest["aiConversationCount"] = convCount;
         // Estimate size: read messages JSON for each conversation
         qint64 aiSize = 0;
-        QSettings settings;
+        AppSettings settings;
         for (const auto& entry : m_aiManager->conversationIndex()) {
             aiSize += settings.value("ai/conversations/" + entry.key + "/messages").toByteArray().size();
         }
@@ -223,7 +224,7 @@ void ShotServer::handleBackupSettings(QTcpSocket* socket, bool includeSensitive)
 // two transfer paths stay in parity (finish-recipes-first-class).
 QJsonObject ShotServer::buildExtraSettingsObject()
 {
-    QSettings settings;
+    AppSettings settings;
     QJsonObject extra;
 
     QJsonObject shotMap;
@@ -234,20 +235,15 @@ QJsonObject ShotServer::buildExtraSettingsObject()
     shotMap["manualGeocoded"] = settings.value("shotMap/manualGeocoded", false).toBool();
     extra["shotMap"] = shotMap;
 
-    // Accessibility lives in the PRIMARY store (AccessibilityManager uses
-    // QSettings("DecentEspresso","DE1Qt") like every other settings domain).
-    // Reading it off the bare/secondary `settings` would silently capture
-    // defaults.
-    QSettings accessStore(QStringLiteral("DecentEspresso"), QStringLiteral("DE1Qt"));
     QJsonObject accessibility;
-    accessibility["enabled"] = accessStore.value("accessibility/enabled", false).toBool();
-    accessibility["ttsEnabled"] = accessStore.value("accessibility/ttsEnabled", true).toBool();
-    accessibility["tickEnabled"] = accessStore.value("accessibility/tickEnabled", true).toBool();
-    accessibility["tickSoundIndex"] = accessStore.value("accessibility/tickSoundIndex", 1).toInt();
-    accessibility["tickVolume"] = accessStore.value("accessibility/tickVolume", 100).toInt();
-    accessibility["extractionAnnouncementsEnabled"] = accessStore.value("accessibility/extractionAnnouncementsEnabled", true).toBool();
-    accessibility["extractionAnnouncementInterval"] = accessStore.value("accessibility/extractionAnnouncementInterval", 5).toInt();
-    accessibility["extractionAnnouncementMode"] = accessStore.value("accessibility/extractionAnnouncementMode", "both").toString();
+    accessibility["enabled"] = settings.value("accessibility/enabled", false).toBool();
+    accessibility["ttsEnabled"] = settings.value("accessibility/ttsEnabled", true).toBool();
+    accessibility["tickEnabled"] = settings.value("accessibility/tickEnabled", true).toBool();
+    accessibility["tickSoundIndex"] = settings.value("accessibility/tickSoundIndex", 1).toInt();
+    accessibility["tickVolume"] = settings.value("accessibility/tickVolume", 100).toInt();
+    accessibility["extractionAnnouncementsEnabled"] = settings.value("accessibility/extractionAnnouncementsEnabled", true).toBool();
+    accessibility["extractionAnnouncementInterval"] = settings.value("accessibility/extractionAnnouncementInterval", 5).toInt();
+    accessibility["extractionAnnouncementMode"] = settings.value("accessibility/extractionAnnouncementMode", "both").toString();
     extra["accessibility"] = accessibility;
 
     extra["language"] = settings.value("localization/language", "en").toString();
@@ -411,7 +407,7 @@ QJsonArray ShotServer::serializeAIConversations() const
     if (!m_aiManager)
         return QJsonArray();
 
-    QSettings settings;
+    AppSettings settings;
     QJsonArray result;
 
     for (const auto& entry : m_aiManager->conversationIndex()) {
@@ -1063,7 +1059,7 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
         else if (name == "extra_settings.json") {
             QJsonDocument doc = QJsonDocument::fromJson(entryData);
             if (doc.isObject()) {
-                QSettings settings;
+                AppSettings settings;
                 QJsonObject extra = doc.object();
 
                 // Shot map location
@@ -1081,7 +1077,7 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                 // would be a silent no-op. (only write keys present, to
                 // avoid clobbering defaults)
                 {
-                    QSettings accessStore(QStringLiteral("DecentEspresso"), QStringLiteral("DE1Qt"));
+                    AppSettings accessStore;
                     if (extra.contains("accessibility")) {
                         QJsonObject a = extra["accessibility"].toObject();
                         if (a.contains("enabled")) accessStore.setValue("accessibility/enabled", a["enabled"].toBool());
@@ -1119,7 +1115,7 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
             if (m_aiManager) {
                 QJsonDocument doc = QJsonDocument::fromJson(entryData);
                 if (doc.isArray()) {
-                    QSettings settings;
+                    AppSettings settings;
                     // Load existing index to merge
                     QJsonDocument existingDoc = QJsonDocument::fromJson(
                         settings.value("ai/conversations/index").toByteArray());

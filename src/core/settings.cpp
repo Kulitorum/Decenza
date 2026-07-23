@@ -1,4 +1,5 @@
 #include "settings.h"
+#include "appsettings.h"
 #include "settings_mqtt.h"
 #include "settings_autowake.h"
 #include "settings_hardware.h"
@@ -44,11 +45,6 @@
 
 Settings::Settings(QObject* parent)
     : QObject(parent)
-#ifdef DECENZA_TESTING
-    , m_settings(testQSettingsPath(), QSettings::IniFormat)
-#else
-    , m_settings("DecentEspresso", "DE1Qt")
-#endif
     , m_mqtt(new SettingsMqtt(this))
     , m_autoWake(new SettingsAutoWake(this))
     , m_hardware(new SettingsHardware(this))
@@ -750,7 +746,8 @@ void Settings::factoryReset()
 {
     qWarning() << "Settings::factoryReset() - WIPING ALL DATA";
 
-    // 1. Clear primary QSettings (favorites, presets, theme, all preferences)
+    // 1. Clear the settings store (favorites, presets, theme, all preferences).
+    // There is only one now — see appsettings.h.
     m_settings.clear();
     m_settings.sync();
 
@@ -758,20 +755,20 @@ void Settings::factoryReset()
     m_dye->invalidateCache();
     m_calibration->invalidateCache();
 
-    // 2. Clear secondary QSettings store (used by AI, location, profilestorage)
-    QSettings defaultSettings;
-    defaultSettings.clear();
-    defaultSettings.sync();
-
-    // 2b. Clear the legacy AccessibilityManager store. Accessibility now
-    // lives in the primary store (cleared above), but its one-time
-    // migrateLegacyStore() guard is in the primary store too — so after
-    // a factory reset that guard is gone and the next launch would
-    // resurrect old accessibility settings from this legacy store.
-    // Wipe it so factory reset actually resets accessibility.
-    QSettings legacyAccessibility(QStringLiteral("Decenza"), QStringLiteral("DE1"));
-    legacyAccessibility.clear();
-    legacyAccessibility.sync();
+    // 2. Clear every legacy store the app has ever written. Each one's migration
+    // guard lives in the store cleared above, so a reset that leaves a legacy
+    // store populated erases the guard and lets the next launch repopulate from
+    // it — i.e. the reset silently undoes itself. Clearing them is what makes a
+    // factory reset final. Harmless once a store is already gone: clearing an
+    // absent store is a no-op.
+    for (const auto& [organization, application] : {
+             std::pair{QStringLiteral("DecentEspresso"), QStringLiteral("DE1Qt")},
+             std::pair{QStringLiteral("Decenza"), QStringLiteral("DE1")},
+         }) {
+        QSettings legacy(organization, application);
+        legacy.clear();
+        legacy.sync();
+    }
 
     // 3. Delete all data directories under AppDataLocation
     QString appDataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);

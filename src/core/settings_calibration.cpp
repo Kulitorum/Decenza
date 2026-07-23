@@ -42,11 +42,6 @@ QJsonObject parseFlowCalBatch(const QSettings& settings) {
 SettingsCalibration::SettingsCalibration(Settings* owner, QObject* parent)
     : QObject(parent)
     , m_owner(owner)
-#ifdef DECENZA_TESTING
-    , m_settings(Settings::testQSettingsPath(), QSettings::IniFormat)
-#else
-    , m_settings("DecentEspresso", "DE1Qt")
-#endif
 {
 }
 
@@ -171,7 +166,7 @@ QJsonObject SettingsCalibration::allProfileFlowCalibrations() const {
                    << "- raw data:" << m_settings.value("calibration/perProfileFlow").toByteArray().left(200)
                    << "- per-profile flow calibrations lost";
         // Clear the corrupt data so it doesn't persist and cause repeated warnings
-        const_cast<QSettings&>(m_settings).setValue("calibration/perProfileFlow", "{}");
+        m_settings.setValue("calibration/perProfileFlow", "{}");
         map = QJsonObject();
     }
     // INVARIANT: All modifications to "calibration/perProfileFlow" in QSettings
@@ -641,7 +636,7 @@ QJsonObject SettingsCalibration::loadPerProfileSawHistoryMap() const {
     if (parseError.error != QJsonParseError::NoError) {
         qWarning() << "[SAW] corrupt perProfileHistory JSON:" << parseError.errorString()
                    << "- per-profile SAW history lost";
-        const_cast<QSettings&>(m_settings).setValue("saw/perProfileHistory", "{}");
+        m_settings.setValue("saw/perProfileHistory", "{}");
         map = QJsonObject();
     }
     m_perProfileSawHistoryCache = map;
@@ -664,7 +659,7 @@ QJsonObject SettingsCalibration::loadPerProfileSawBatchMap() const {
         &parseError).object();
     if (parseError.error != QJsonParseError::NoError) {
         qWarning() << "[SAW] corrupt perProfileBatch JSON:" << parseError.errorString();
-        const_cast<QSettings&>(m_settings).setValue("saw/perProfileBatch", "{}");
+        m_settings.setValue("saw/perProfileBatch", "{}");
         map = QJsonObject();
     }
     m_perProfileSawBatchCache = map;

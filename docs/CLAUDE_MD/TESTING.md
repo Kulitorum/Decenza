@@ -34,9 +34,9 @@ Override with `-DBUILD_TESTS=OFF` (Debug) or `-DBUILD_TESTS=ON` (Release) as nee
 
 ### Parallel runs
 
-Always run with `-j` — the full suite drops from ~140 s to ~30 s. It is parallel-safe: every settings class isolates its `QSettings` under `DECENZA_TESTING` via `Settings::testQSettingsPath()` (a PID-scoped `IniFormat` temp file, see `settings.h`), so no two test processes share an on-disk store and the suite never mutates the developer's real `("DecentEspresso", "DE1Qt")` preferences.
+Always run with `-j` — the full suite drops from ~140 s to ~30 s. It is parallel-safe: every settings handle is an `AppSettings`, which under `DECENZA_TESTING` resolves to `Settings::testQSettingsPath()` (a PID-scoped `IniFormat` temp file, see `appsettings.cpp`), so no two test processes share an on-disk store and the suite never mutates the developer's real preferences.
 
-When seeding raw pre-construction settings state in a test, write through the **same** isolated store — `QSettings(Settings::testQSettingsPath(), QSettings::IniFormat)` — never `QSettings("DecentEspresso", "DE1Qt")` directly, or the seed lands in a scope nothing reads (and pollutes the real store).
+When seeding raw pre-construction settings state in a test, construct an `AppSettings` exactly like production code does — never a bare `QSettings`, which escapes the isolation and writes to the developer's real store. `tst_appsettings` enforces this across `src/`.
 
 `--repeat until-pass:3` covers two clock-cadence tests — `tst_settling` (feeds samples at real `qWait` intervals and asserts plateau detection over time windows) and `tst_decentscalewifi` — that can occasionally miss a timing window under heavy CPU contention when many tests run at once. The retry re-runs only a failed test; a genuine regression fails all three attempts. In Qt Creator's CTest settings you can add the same flag, or just re-run a lone flaky result.
 

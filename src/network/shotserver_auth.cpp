@@ -1,4 +1,5 @@
 #include "shotserver.h"
+#include "core/appsettings.h"
 #include "webtemplates/auth_page.h"
 #include "../core/settings.h"
 
@@ -354,7 +355,7 @@ bool ShotServer::hasStoredTotpSecret() const
 void ShotServer::loadSessions()
 {
     if (!m_settings) return;
-    QSettings settings;
+    AppSettings settings;
     int count = settings.beginReadArray("webAuth/sessions");
     for (int i = 0; i < count; i++) {
         settings.setArrayIndex(i);
@@ -374,7 +375,7 @@ void ShotServer::loadSessions()
 
 void ShotServer::saveSessions()
 {
-    QSettings settings;
+    AppSettings settings;
     // Clear expired sessions first
     QMutableHashIterator<QString, SessionInfo> it(m_sessions);
     while (it.hasNext()) {

@@ -1,4 +1,5 @@
 #include "profilestorage.h"
+#include "appsettings.h"
 #include <QStandardPaths>
 #include <QDir>
 #include <QFile>
@@ -15,7 +16,7 @@ ProfileStorage::ProfileStorage(QObject* parent)
     : QObject(parent)
 {
     // Check if user previously skipped setup
-    QSettings settings;
+    AppSettings settings;
     m_setupSkipped = settings.value("storage/setupSkipped", false).toBool();
 
     qDebug() << "[ProfileStorage] Initialized. isConfigured:" << isConfigured()
@@ -80,7 +81,7 @@ void ProfileStorage::selectFolder() {
 
 void ProfileStorage::skipSetup() {
     m_setupSkipped = true;
-    QSettings settings;
+    AppSettings settings;
     settings.setValue("storage/setupSkipped", true);
     emit configuredChanged();
     qDebug() << "[ProfileStorage] Setup skipped by user";

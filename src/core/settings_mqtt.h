@@ -1,7 +1,7 @@
 #pragma once
 
 #include <QObject>
-#include <QSettings>
+#include "appsettings.h"
 #include <QString>
 
 class SettingsMqtt : public QObject {
@@ -64,5 +64,5 @@ signals:
     void mqttClientIdChanged();
 
 private:
-    mutable QSettings m_settings;
+    mutable AppSettings m_settings;
 };
