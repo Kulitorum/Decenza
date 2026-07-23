@@ -359,8 +359,9 @@ Item {
                                 primary: true
                                 onClicked: {
                                     var host = addWifiScaleDialog.mdnsHostname
+                                    var ip = addWifiScaleDialog.mdnsIp
                                     addWifiScaleDialog.close()
-                                    BLEManager.connectToWifiScale(host)
+                                    BLEManager.connectToWifiScale(host, ip)
                                 }
                             }
                         }

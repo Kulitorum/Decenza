@@ -377,7 +377,11 @@ public:
     // recognition never arrives, `manualWifiValidationFailed` is emitted and
     // the address is NOT saved as the primary — a typo or wrong IP can't
     // poison the saved state. (#1281)
-    Q_INVOKABLE void connectToWifiScale(const QString& hostnameOrIp);
+    // `resolvedIp`: pass the IP if the caller already has a fresh mDNS
+    // resolution for `hostnameOrIp` (e.g. the "Add WiFi Scale" dialog's
+    // mDNS-suggested "Use" button — see manualWifiMdnsDiscovered). Leave empty
+    // for a genuinely typed address, where nothing has been resolved yet.
+    Q_INVOKABLE void connectToWifiScale(const QString& hostnameOrIp, const QString& resolvedIp = QString());
     // Fire an mDNS probe for the HDS in parallel with the "Add WiFi Scale"
     // dialog. If the scale is on the LAN, this surfaces it to the user so
     // they don't have to type its address. Emits manualWifiMdnsDiscovered on

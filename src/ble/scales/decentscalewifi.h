@@ -142,8 +142,12 @@ private:
     void attemptTarget(const QString& target, bool isHostname);
     // Resolve m_hostname and dial it. On Android this runs a direct mDNS
     // A-query (MdnsResolver) on a worker thread because Qt's resolver can't
-    // resolve ".local"; on other platforms it dials the hostname and lets the
-    // OS resolver (Bonjour / nss-mdns) handle mDNS.
+    // resolve ".local" at all there. On other platforms, a ".local" name is
+    // resolved explicitly via QHostInfo::lookupHost (the same call
+    // WifiScaleDiscovery uses) rather than letting QWebSocket::open() resolve
+    // it implicitly — that implicit path was observed to stall ~5s and fail
+    // even where an explicit QHostInfo lookup for the same name succeeds
+    // quickly. A non-".local" name dials directly with no resolution step.
     void attemptHostname();
     // First snapshot or status frame — confirms we're talking to the HDS.
     void onRecognizedAsHds();

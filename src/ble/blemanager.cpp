@@ -803,7 +803,7 @@ void BLEManager::probeMdnsForManualEntry() {
     m_manualEntryDiscovery->probe();
 }
 
-void BLEManager::connectToWifiScale(const QString& hostnameOrIp) {
+void BLEManager::connectToWifiScale(const QString& hostnameOrIp, const QString& resolvedIp) {
     QString host = hostnameOrIp.trimmed();
     if (host.isEmpty()) return;
 
@@ -836,9 +836,12 @@ void BLEManager::connectToWifiScale(const QString& hostnameOrIp) {
     m_wifiFallbackToBleActive = false;
     m_scaleConnectionTimer->start();
     m_pendingWifiHostname = host;
-    // No fresh resolution happened here — this is a typed address, not a scan
-    // result — so there's nothing to seed the IP cache with.
-    m_pendingWifiResolvedIp.clear();
+    // Callers with a fresh mDNS resolution in hand (the "Add WiFi Scale"
+    // dialog's suggested-scale "Use" button) pass it along so main.cpp can
+    // seed the IP cache and skip re-resolving the hostname. A genuinely typed
+    // address (the dialog's text-field submit) passes nothing — resolvedIp
+    // defaults to empty and there's nothing to seed.
+    m_pendingWifiResolvedIp = resolvedIp;
     emit scaleDiscovered(QBluetoothDeviceInfo{}, QStringLiteral("decent-wifi"));
 }
 

@@ -9,6 +9,7 @@
 #include <QAbstractSocket>
 #include <QTcpSocket>
 #include <QHostAddress>
+#include <QHostInfo>
 #include <QThread>
 #include <QPointer>
 #include <algorithm>
@@ -226,8 +227,50 @@ void DecentScaleWifi::attemptHostname() {
     }
 #endif
 
-    // Non-Android (OS resolver speaks mDNS), or a non-".local" name: let Qt
-    // resolve the hostname directly.
+    // Non-Android ".local" name: resolve explicitly via QHostInfo::lookupHost
+    // — the same call WifiScaleDiscovery already uses successfully for the
+    // discovery-time mDNS lookup (see wifiscalediscovery.cpp) — then dial the
+    // resolved IP directly, mirroring the Android branch above. Letting
+    // QWebSocket::open() resolve the hostname implicitly instead (the prior
+    // behavior here) was observed in production to stall ~5s and then fail
+    // with a network error, even on a machine where an explicit
+    // QHostInfo::lookupHost() for the exact same name resolves in well under
+    // a second — so route through the known-working call instead of trusting
+    // QAbstractSocket's internal resolution path.
+    if (m_hostname.endsWith(QStringLiteral(".local"), Qt::CaseInsensitive)) {
+        const QString host = m_hostname;
+        const int generation = ++m_resolveGeneration;
+        WIFI_LOG(QString("Resolving %1 via QHostInfo...").arg(host));
+        QHostInfo::lookupHost(host, this, [this, host, generation](const QHostInfo& info) {
+            // `this` is the lookup's context object, so Qt already drops this
+            // callback if `this` was destroyed; the generation check further
+            // drops a stale result superseded by a newer connect/disconnect
+            // while this lookup was in flight.
+            if (generation != m_resolveGeneration) return;
+            if (info.error() != QHostInfo::NoError || info.addresses().isEmpty()) {
+                // Transient — e.g. a power-cycled scale still booting/rejoining
+                // WiFi. Same handling as the Android mDNS-miss branch above: log,
+                // don't dial, don't pop a modal. BLEManager's connection timer
+                // (onScaleConnectionTimeout) is the backstop.
+                WIFI_WARN(QString("QHostInfo resolution failed for %1: %2 — "
+                                  "not dialing (transient; auto-reconnect will retry)")
+                          .arg(host, info.errorString()));
+                m_userInitiatedShutdown = true;  // mark expected; reconnect owned by main.cpp
+                return;
+            }
+            const QString ip = info.addresses().first().toString();
+            WIFI_LOG(QString("Resolved %1 to %2 via QHostInfo").arg(host, ip));
+            // Persist the peer IP so the next connect skips resolution. A stale
+            // answer self-heals: the cached-IP attempt fails the recognition
+            // window and falls back here to re-resolve.
+            if (m_ipCacheUpdate) m_ipCacheUpdate(host, ip);
+            attemptTarget(ip, /*isHostname=*/false);
+        });
+        return;
+    }
+
+    // A non-".local" name: nothing mDNS-specific to resolve — let Qt dial it
+    // directly.
     attemptTarget(m_hostname, /*isHostname=*/true);
 }
 

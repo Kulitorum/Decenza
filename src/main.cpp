@@ -2278,6 +2278,19 @@ int main(int argc, char *argv[])
                      , &usbScaleManager
 #endif
                      ](const QBluetoothDeviceInfo& device, const QString& type) {
+        // Seed DecentScaleWifi's persisted IP cache from a fresh mDNS
+        // resolution BLEManager just handed us (see BLEManager::
+        // pendingWifiResolvedIp()) — but never clobber an IP that's already
+        // cached. A scan-time resolution can be older than one a prior
+        // successful connect already persisted (DecentScaleWifi's own
+        // onRecognizedAsHds callback keeps the cache fresh on every working
+        // connect), so only fill the cache when it's genuinely empty rather
+        // than blindly overwriting a possibly-more-current value.
+        auto seedWifiIpCacheIfEmpty = [&settings](const QString& hostname, const QString& resolvedIp) {
+            if (resolvedIp.isEmpty()) return;
+            if (!settings.network()->wifiScaleIp(hostname).isEmpty()) return;
+            settings.network()->setWifiScaleIp(hostname, resolvedIp);
+        };
 #ifndef Q_OS_IOS
         // Tear down an active USB scale FIRST (before touching physicalScale).
         // The single-scale invariant covers BLE/WiFi via physicalScale, but the
@@ -2348,12 +2361,8 @@ int main(int argc, char *argv[])
                         // If BLEManager just resolved this hostname (a scan
                         // selection), seed the cache with it so connectToHost()
                         // dials the known IP directly instead of asking Qt's
-                        // resolver to re-resolve ".local" (unreliable on
-                        // non-Android — see decentscalewifi.cpp's attemptHostname).
-                        const QString resolvedIp = bleManager.pendingWifiResolvedIp();
-                        if (!resolvedIp.isEmpty()) {
-                            settings.network()->setWifiScaleIp(bleManager.pendingWifiHostname(), resolvedIp);
-                        }
+                        // resolver to re-resolve ".local".
+                        seedWifiIpCacheIfEmpty(bleManager.pendingWifiHostname(), bleManager.pendingWifiResolvedIp());
                         wifi->connectToHost(bleManager.pendingWifiHostname());
                     }
                 } else {
@@ -2597,14 +2606,10 @@ int main(int argc, char *argv[])
                 // If BLEManager just resolved this hostname (a scan selection
                 // or a saved-primary auto-match), seed the cache with it so
                 // connectToHost() dials the known IP directly instead of
-                // asking Qt's resolver to re-resolve ".local" (unreliable on
-                // non-Android — see decentscalewifi.cpp's attemptHostname).
-                // Empty for manual entries and cache-driven reconnects, which
-                // have nothing fresh to offer (see BLEManager call sites).
-                const QString resolvedIp = bleManager.pendingWifiResolvedIp();
-                if (!resolvedIp.isEmpty()) {
-                    settings.network()->setWifiScaleIp(hostname, resolvedIp);
-                }
+                // asking Qt's resolver to re-resolve ".local". Empty for
+                // manual entries and cache-driven reconnects, which have
+                // nothing fresh to offer (see BLEManager call sites).
+                seedWifiIpCacheIfEmpty(hostname, bleManager.pendingWifiResolvedIp());
                 // For manual entries: commit the deferred persistence ONLY
                 // after the WS endpoint validates as HDS, and surface a
                 // user-visible failure if validation fails. Both connections
