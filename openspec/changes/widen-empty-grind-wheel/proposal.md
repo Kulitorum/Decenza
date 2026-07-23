@@ -10,10 +10,12 @@ The current [grind-value-entry](../../specs/grind-value-entry/spec.md) spec *del
 
 ## What Changes
 
-- **A wide wheel on an empty grind.** When `grindRowsFor()` would collapse (empty or unparseable value) but the grinder has a numeric basis — observed numeric settings in history — the control generates the full ±hundreds-of-steps window around a numeric **anchor**: the **median** of the grinder's observed numeric settings. Because the wheel's step is derived from that same history, the user's habitual settings fall on the lattice and appear within the window naturally. The observed-history list is no longer the wheel's whole content and is no longer capped. A grinder with **no** numeric history has no basis and opens in text mode, as today.
+- **A wide wheel on an empty grind.** When `grindRowsFor()` collapses on an **empty** value but the grinder has observed numeric history, the control generates the full ±hundreds-of-steps window around a numeric **anchor**: the **median** of the grinder's observed numeric settings. Because the wheel's step is derived from that same history, the user's habitual settings fall on the lattice and appear within the window naturally. The observed-history list is no longer the wheel's whole content and is no longer capped.
 - **Median commits on Done (no empty-grind path).** The wheel opens centred on the anchor; pressing Done without spinning commits the median. A recipe should end up with a grind, so an untouched Done writes the median default rather than nothing — the reporter's stated preference. No "placeholder" gate is added for grind.
-- **Text mode only when there is no numeric basis at all** — no value and no history, or an unparseable value with no history — unchanged from today.
-- **Unparseable value with history stays on the wheels, uncapped** — a lattice cannot be centred on an unparseable string, so its own value remains the centred row, but the offered history is no longer truncated to ~10.
+- **A set-but-unparseable value keeps its own value.** The collapse branch is also reached for a non-empty free-text grind (e.g. `"coarse"`). That path stays on the observed-history fallback, which centres the user's OWN value and re-commits it unchanged — the median anchor is **empty-only**, so an untouched Done can never overwrite a value the user set.
+- **Cold-cache first open is promoted to the wheel.** Because the candidate history loads asynchronously, the first picker open after app start can land in text mode before the wheel's data exists. When history warms while the dialog is open, an auto-entered text mode is flipped to the wheel (text → wheel only; never for a user who chose text mode or is typing), so the wide wheel isn't silently missed on first use.
+- **Text mode only when there is genuinely nothing to offer** — no lattice and no observed history — unchanged from today.
+- **Uncapped observed history.** The remaining observed-history fallback drops its ~10-row cap and offers all of the grinder's settings.
 
 ## Capabilities
 
@@ -23,11 +25,11 @@ _None — this refines existing grind-picker behaviour._
 
 ### Modified Capabilities
 
-- `grind-value-entry`: the empty/unparseable-value fallback becomes a **wide, median-anchored wheel enriched with observed history** (uncapped) whenever the grinder has a numeric basis, rather than a capped ~10-row observed-history list. Text-mode-on-open is narrowed to the no-numeric-basis case. Applies to every adopting surface; only the empty-open case (new recipe) changes in practice.
+- `grind-value-entry`: an **empty** grind on a grinder with numeric history opens a **wide, median-anchored wheel** rather than a capped ~10-row observed-history list; a non-empty unparseable value keeps its own value on the (now uncapped) observed-history fallback; and an auto-entered text mode is promoted to the wheel when async history warms. Applies to every adopting surface; only the empty-open case (new recipe) changes in practice.
 
 ## Impact
 
-- QML: `qml/components/GrindRowSource.qml` — `grindRowsFor()` collapse branch and `_observedFallback()` (add a median/default anchor + window synthesis; lift the 11-row cap). Behaviour is derived entirely from the injected grinder context, so no host changes are needed.
+- QML: `qml/components/GrindRowSource.qml` — `grindRowsFor()` collapse branch (empty-only median anchor + window synthesis) and `_observedFallback()` (lift the 11-row cap). `qml/components/GrindPickerDialog.qml` — an `_autoTextPendingHistory` flag so the async history warm-up promotes a cold-cache text mode to the wheel. Behaviour is otherwise derived entirely from the injected grinder context, so no host-surface changes are needed.
 - No C++ change required: `grindStepForGrinder()` / `getDistinctGrinderSettingsForGrinder()` already expose the observed settings the anchor is derived from. (If a shared median helper is cleaner than computing it in QML, it can live beside `grindStepForGrinder` — decided during implementation.)
 - No new Settings, no BLE/protocol change, no DB migration.
 - QML is verified manually (no QML test harness) — the `GrindRowSource` row-generation logic is additionally covered by the standalone row-generation simulation used to diagnose this issue.

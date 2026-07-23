@@ -9,6 +9,12 @@
 ## 2. Commit semantics
 
 - [x] 2.1 Verify Done-without-spinning on the median-anchored wheel commits the median (grind's existing centred-value commit already does this — confirm no empty `grindPicked("")` is emitted from the anchored-empty state). Do **not** add a neutral-anchor placeholder gate for grind (per reporter: an untouched Done should write the median, not nothing).
+- [x] 2.2 (PR review) Gate the median-anchor path on `cur.length === 0`. A non-empty but unparseable value must keep the observed-history fallback (its OWN value centred, re-committed unchanged), so an untouched Done can't silently overwrite a set value with the median.
+
+## 2b. Cold-cache first-open promotion (PR review)
+
+- [x] 2b.1 In `GrindPickerDialog.qml`, add `_autoTextPendingHistory` (set in `onAboutToShow` when the open resolves to text mode). In the `_cacheConn` warm-up handler, when history warms and `_grindRows.length >= 2`, promote text → wheel (only that direction) and clear the flag.
+- [x] 2b.2 Clear the flag when the user drives mode themselves — `_toggleMode` and the grind text field's `onTextEdited` — so a late warm-up never yanks the keyboard from an active user.
 
 ## 3. Validation
 

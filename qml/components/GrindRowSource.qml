@@ -16,9 +16,11 @@ import Decenza
 // active grinder — which was harmless while the brew bar was the only host and
 // is exactly the bug this injection exists to prevent.)
 //
-// The pipeline ORDER is unchanged from the widget: catalog-first via
-// SettingsDye.stepGrinderSetting (numeric AND Compound "a+b" notation), then
-// plain-numeric / number-in-text / letter fallbacks, then observed history.
+// Per-candidate stepping is catalog-first via SettingsDye.stepGrinderSetting
+// (numeric AND Compound "a+b" notation), then plain-numeric / number-in-text /
+// letter fallbacks. When that lattice collapses, grindRowsFor's last-resort
+// order is: for an EMPTY value, a median-anchored wide window (_medianObserved-
+// Anchor -> _windowAround, #1605); otherwise the observed-history fallback.
 // The negative-candidate semantics and the window width did change in this
 // change: negatives now generate freely on plain-numeric grinders (a stepless
 // collar's zero is a user-set calibration reference), while click-indexed
@@ -148,12 +150,12 @@ QtObject {
     }
 
     // --- Row generation -----------------------------------------------------
-    // Observed-history fallback for a given current value: ~5 below and ~5
-    // above the value's slot in the injected grinder's observed settings.
-    // Reached only when the wheel can build no lattice at all AND the median
-    // anchor below yields no wide window (an unparseable value on a grinder
-    // with no numeric history). NOT capped: showing all observed settings is
-    // strictly better than truncating to ~10 (#1605).
+    // Observed-history fallback: the full list of the injected grinder's
+    // observed settings, with the current value's slot flagged isCurrent (or
+    // cur prepended when it isn't in history). Reached when the wheel can build
+    // no lattice — an unparseable current value, or an empty value on a grinder
+    // with no numeric history for the median anchor. NOT capped: showing all
+    // observed settings is strictly better than truncating to ~10 (#1605).
     function _observedFallback(cur) {
         var out = []
         var model = String(root.grinderModel || "")
@@ -183,11 +185,13 @@ QtObject {
 
     // Median of the injected grinder's observed NUMERIC settings, as a string,
     // or "" when the grinder has no numeric history. This anchors the wide
-    // wheel when the picker opens on an empty/unparseable grind (#1605): a new
-    // recipe with no dialled grind must still spin a full range, not the ~10
-    // observed values. The numeric subset keeps a stray text setting ("medium")
-    // from skewing the anchor; the median lands the wheel in the middle of the
-    // user's own range (matching where the old capped wheel centred, but wide).
+    // wheel when the picker opens on an EMPTY grind (#1605): a new recipe with
+    // no dialled grind must still spin a full range, not the ~10 observed
+    // values. The numeric subset keeps a stray text setting ("medium") from
+    // skewing the anchor; the median lands the wheel in the middle of the user's
+    // own range. A grinder whose history is ALL compound ("a+b") notation yields
+    // no numeric subset and returns "" — such a grinder keeps the observed
+    // fallback / text mode on an empty grind rather than a synthesised window.
     function _medianObservedAnchor() {
         var model = String(root.grinderModel || "")
         var observed = (MainController.shotHistory && model.length > 0)
@@ -209,7 +213,8 @@ QtObject {
 
     // Wide window centred on an arbitrary anchor string, deduped, with the
     // anchor's canonical row flagged isCurrent so _centerWheels lands on it.
-    // Returns [] when the anchor can't seed more than a couple of rows.
+    // May return a short (or empty) array when the anchor seeds few rows; the
+    // caller (grindRowsFor) treats <= 2 rows as failure and falls through.
     function _windowAround(anchor, step) {
         var canon = root.stepGrind(anchor, 0, step)
         var out = []
@@ -244,17 +249,24 @@ QtObject {
             generated.push({ value: v, isCurrent: v === canonicalCurrent })
         }
         if (generated.length <= 2) {
-            // The value can't seed a lattice (empty on a new recipe, or
-            // unparseable). Rather than fall to the short observed-history
-            // list, anchor a WIDE window on the median observed setting so the
-            // wheel spins a full range centred on the user's own grind (#1605).
-            // Text mode is reserved for the no-numeric-history case, where the
-            // anchor is "" and the window can't be built.
-            var anchor = root._medianObservedAnchor()
-            if (anchor.length > 0) {
-                var win = root._windowAround(anchor, step)
-                if (win.length > 2)
-                    return win
+            // The value seeds no lattice. Two sub-cases:
+            //  - EMPTY value (a new recipe with no dialled grind): anchor a WIDE
+            //    window on the median observed setting so the wheel spins a full
+            //    range centred on the user's own grind, not the ~10 observed
+            //    values (#1605). Only when the grinder has no numeric history is
+            //    the anchor "" and the window can't be built — then text mode.
+            //  - NON-EMPTY but unparseable (free text like "coarse"): keep the
+            //    observed-history fallback, which centres the user's OWN value
+            //    and re-commits it unchanged on Done. Re-anchoring on the median
+            //    here would silently replace a value the user actually set, and
+            //    grind has no untouched-anchor commit gate (GrindPickerDialog).
+            if (cur.length === 0) {
+                var anchor = root._medianObservedAnchor()
+                if (anchor.length > 0) {
+                    var win = root._windowAround(anchor, step)
+                    if (win.length > 2)
+                        return win
+                }
             }
             return root._observedFallback(cur)
         }
