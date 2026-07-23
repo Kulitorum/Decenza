@@ -255,20 +255,18 @@ Page {
     }
 
     // --- Live-view action row focus targets ----------------------------------
-    // Purge and Stop share one row, and each appears independently: Purge only
-    // while steaming, Stop only on a headless machine. Every tab/backtab handler
-    // that enters the row has to pick the first/last button that is actually
-    // showing, so the choice lives here once instead of as a ternary repeated at
-    // each call site. Both return null when the row is empty; callers fall back.
+    // The action row holds only the headless Stop button (GHC machines stop from
+    // the physical button, so the row is empty there). Every tab/backtab handler
+    // that enters the row asks here for the button that is actually showing, so the
+    // choice lives once instead of being repeated at each call site. Both return
+    // null when the row is empty; callers fall back.
     function firstLiveActionButton() {
-        if (livePurgeButton.visible) return livePurgeButton
         if (steamStopButton.visible) return steamStopButton
         return null
     }
 
     function lastLiveActionButton() {
         if (steamStopButton.visible) return steamStopButton
-        if (livePurgeButton.visible) return livePurgeButton
         return null
     }
 
@@ -1091,82 +1089,25 @@ Page {
                 }
             }
 
-            // Purge and Stop share one row. This view has no Flickable — the only one
-            // on the page wraps the settings editor — so content past the bottom edge
-            // clips instead of scrolling, and a second stacked button row did not fit
-            // at the shorter end of the supported aspect range. The row sits outside
-            // the timer/chart view switch, so Purge is available in both views.
+            // The action row holds only the headless Stop button. On machines with a
+            // group-head controller (GHC) steam is stopped from the physical button, so
+            // there is no on-screen stop control here. This view has no Flickable — the
+            // only one on the page wraps the settings editor — so content past the bottom
+            // edge clips instead of scrolling. The row sits outside the timer/chart view
+            // switch, so Stop is available in both views.
             RowLayout {
                 id: liveActionRow
                 Layout.alignment: Qt.AlignHCenter
-                // Mirrors the two children's own conditions rather than reading their
-                // .visible. A `visible` read returns EFFECTIVE visibility, so once this
-                // row hid itself both children would read false forever and the binding
-                // could never re-arm — the row would latch off permanently the first
-                // time the page existed while not steaming.
-                visible: isSteaming || DE1Device.isHeadless
+                // Only the headless Stop button lives here, so the row is shown exactly
+                // when that button is. Mirrors the child's own condition rather than
+                // reading its `.visible`: an EFFECTIVE-visibility read would latch the row
+                // off permanently the first time it existed while hidden and never re-arm.
+                visible: DE1Device.isHeadless
                 spacing: Theme.spacingMedium
 
-                // One source of truth for the button BOX, so the two cannot drift apart
-                // on size. Radius and border are deliberately not shared: Stop keeps the
-                // heavier cardRadius and its contrast border to stay visually dominant as
-                // the stop control, while Purge stays a plain secondary button.
+                // Defines the Stop button box size.
                 readonly property int buttonWidth: Theme.scaled(200)
                 readonly property int buttonHeight: Theme.scaled(60)
-
-            // Purge button on the live steaming view — stops steam and triggers
-            // the DE1 steam-wand purge.
-            Rectangle {
-                id: livePurgeButton
-                visible: isSteaming
-                Layout.preferredWidth: liveActionRow.buttonWidth
-                Layout.preferredHeight: liveActionRow.buttonHeight
-                radius: Theme.buttonRadius
-                color: livePurgeTap.isPressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
-
-                activeFocusOnTab: true
-                // livePurgeTap carries role/name/focusable, so this Rectangle must step
-                // out of the accessibility tree rather than sit in it unnamed.
-                Accessible.ignored: true
-                Keys.onReturnPressed: { livePurgeTap.accessibleClicked(); event.accepted = true }
-                Keys.onSpacePressed:  { livePurgeTap.accessibleClicked(); event.accepted = true }
-                KeyNavigation.tab: steamStopButton.visible
-                                   ? steamStopButton
-                                   : (steamPage.firstVisiblePresetPill() ?? livePurgeButton)
-                // The flow slider lives inside the timer-view subtree, so it is not a
-                // valid backtab target in chart view — fall back to the preset pills,
-                // which are shared by both views.
-                KeyNavigation.backtab: steamViewMode === "timer"
-                                       ? steamingFlowSlider
-                                       : (steamPage.lastVisiblePresetPill() ?? livePurgeButton)
-
-                Tr {
-                    anchors.centerIn: parent
-                    // Same key and same type treatment as steamStopButton beside it, so the
-                    // pair reads as one row. steam.label.purge, not steam.button.purge —
-                    // see the note on that button for why the latter is poisoned.
-                    key: "steam.label.purge"; fallback: "Purge"
-                    color: Theme.primaryContrastColor
-                    font.pixelSize: Theme.scaled(24)
-                    font.weight: Font.Bold
-                    font.capitalization: Font.AllUppercase
-                    Accessible.ignored: true
-                }
-
-                // Using TapHandler for better touch responsiveness. It also brings
-                // announce-first, which matters more here than on a navigation control:
-                // this stops the steam and fires the wand purge. Under a screen reader
-                // (AccessibilityManager.enabled) a raw MouseArea would fire on the
-                // exploratory first touch, where this announces and waits for a
-                // confirming second tap. In normal mode both activate on release.
-                AccessibleTapHandler {
-                    id: livePurgeTap
-                    anchors.fill: parent
-                    accessibleName: TranslationManager.translate("steam.accessible.purge", "Purge the steam wand")
-                    accessibleItem: livePurgeButton
-                    onAccessibleClicked: DE1Device.requestIdle()
-                }
-            }
 
             // Stop button for headless machines.
             // When Settings.hardware.steamTwoTapStop is on (default off), behaves as a
@@ -1201,10 +1142,15 @@ Page {
                     }
                 }
                 Keys.onBacktabPressed: {
-                    // Purge precedes Stop in the shared action row, so it is the backtab
-                    // target whenever it is showing.
-                    var back = livePurgeButton.visible ? livePurgeButton
-                                                       : steamPage.lastVisiblePresetPill()
+                    // Mirror the forward path into this button. In timer view the flow
+                    // slider (and the -5s/+5s pair before it) precede Stop, so reversing
+                    // out of it must land on the flow slider — otherwise Shift+Tab would
+                    // skip those controls. The chart view has neither, so fall back to the
+                    // last preset pill. (This mirrors the backtab the removed Purge button
+                    // used to carry.)
+                    var back = steamViewMode === "timer"
+                               ? steamingFlowSlider
+                               : steamPage.lastVisiblePresetPill()
                     if (back) {
                         back.forceActiveFocus()
                         event.accepted = true
@@ -1228,8 +1174,9 @@ Page {
                     font.pixelSize: Theme.scaled(24)
                     font.weight: Font.Bold
                     // The shouted look is applied here rather than baked into the source
-                    // strings, so one sentence-case purge key can serve this button and the
-                    // settings-view one. Case-less scripts (ar) are unaffected.
+                    // string, so the sentence-case purge key can be shouted for this
+                    // button's second-tap state without baking the casing in. Case-less
+                    // scripts (ar) are unaffected.
                     font.capitalization: Font.AllUppercase
                     Accessible.ignored: true
                 }
@@ -1260,7 +1207,7 @@ Page {
                 }
             }
 
-            } // end Purge + Stop action row
+            } // end Stop action row
 
             Item { Layout.preferredHeight: Theme.scaled(20) }
         }
@@ -1571,7 +1518,7 @@ Page {
                             // Rectangle must step out of the accessibility tree rather than
                             // sit in it unnamed.
                             Accessible.ignored: true
-                            KeyNavigation.tab: settingsPurgeButton.visible ? settingsPurgeButton : durationSlider
+                            KeyNavigation.tab: durationSlider
                             KeyNavigation.backtab: pitcherRepeater.count > 0
                                 ? pitcherRepeater.itemAt(pitcherRepeater.count - 1).focusTarget
                                 : durationSlider
@@ -1648,50 +1595,6 @@ Page {
                         }
                     }
 
-                    // Purge: clear water / condensation from the steam wand.
-                    RowLayout {
-                        Layout.fillWidth: true
-                        visible: !steamPage.currentPitcherDisabled
-                        Item { Layout.fillWidth: true }
-                        Rectangle {
-                            id: settingsPurgeButton
-                            Layout.preferredWidth: Theme.scaled(150)
-                            Layout.preferredHeight: Theme.scaled(48)
-                            radius: Theme.buttonRadius
-                            color: purgeTap.isPressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
-                            activeFocusOnTab: true
-                            // purgeTap carries role/name/focusable, so this Rectangle must
-                            // step out of the accessibility tree rather than sit in it unnamed.
-                            Accessible.ignored: true
-                            // Sits between the add-preset button and the duration slider in
-                            // reading order. It was previously in no tab chain at all — both
-                            // neighbours pointed straight at each other, past this button.
-                            KeyNavigation.tab: durationSlider
-                            KeyNavigation.backtab: addPitcherButton
-                            Keys.onReturnPressed: { purgeTap.accessibleClicked(); event.accepted = true }
-                            Keys.onSpacePressed:  { purgeTap.accessibleClicked(); event.accepted = true }
-                            Tr {
-                                anchors.centerIn: parent
-                                key: "steam.label.purge"; fallback: "Purge"
-                                color: Theme.primaryContrastColor; font: Theme.bodyFont
-                                Accessible.ignored: true
-                            }
-                            // Using TapHandler for better touch responsiveness. Under a screen
-                            // reader it also announces on the first touch and waits for a
-                            // confirming second tap, rather than firing the wand purge on an
-                            // exploratory one. In normal mode both activate on release.
-                            AccessibleTapHandler {
-                                id: purgeTap
-                                anchors.fill: parent
-                                accessibleName: TranslationManager.translate("steam.accessible.purge", "Purge the steam wand")
-                                accessibleItem: settingsPurgeButton
-                                onAccessibleClicked: DE1Device.requestIdle()
-                            }
-                        }
-                    }
-
-                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !steamPage.currentPitcherDisabled }
-
                     // Duration (per-pitcher, auto-saves)
                     RowLayout {
                         Layout.fillWidth: true
@@ -1719,7 +1622,7 @@ Page {
                             valueColor: Theme.primaryColor
                             accessibleName: TranslationManager.translate("steam.label.duration", "Duration")
                             KeyNavigation.tab: flowSlider
-                            KeyNavigation.backtab: settingsPurgeButton.visible ? settingsPurgeButton : addPitcherButton
+                            KeyNavigation.backtab: addPitcherButton
                             onValueModified: function(newValue) {
                                 durationSlider.value = newValue
                                 Settings.brew.steamTimeout = newValue
