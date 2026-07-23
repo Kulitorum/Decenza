@@ -935,24 +935,28 @@ Dialog {
                     }
                 }
 
-                // The baseline temperature(s) the Temp Delta control is measured
-                // from — a baseline is a baseline. With a recipe active that is the
-                // recipe's OWN temps (profile frames shifted by the recipe's delta,
-                // e.g. "Recipe: 81 · 91°C"), matching the Temp Delta reading 0° at the
-                // recipe; a tag appears only for a per-brew deviation FROM the recipe.
-                // With no recipe it is the profile's temps ("Profile: 84 · 94°C" + the
-                // offset tag when the dial is adjusted) — unchanged.
+                // The temperature(s) the dial RESOLVES TO — the frames the machine
+                // will actually brew, updating live as the Temp Delta stepper moves
+                // (e.g. dialing -2° turns "Recipe: 81 · 91°C" into "Recipe: 79 · 89°C").
+                // NOT a signed offset tag: the stepper directly above already shows the
+                // "-2°", so repeating it here read as a doubled "-2°". The eventual temp
+                // stays useful because the numbers move; the stepper owns the offset.
                 Text {
                     id: tempSubtext
-                    // Highlighted / tagged iff the dial deviates from the active baseline.
+                    // Highlighted when the dial deviates from the active baseline.
                     readonly property bool deviatesFromBaseline: Math.abs(root.temperatureValue - root.recipeTempBaseline) > 0.1
-                    readonly property double _shift: root.recipeTempBaseline - root.profileTemperature
                     visible: root.profileTemperature > 0
                     text: {
                         // temperatureDisplay() reads the C/F unit in C++ (not a QML-
                         // capturable dependency), so read it here to re-evaluate on switch.
                         void(Settings.app.temperatureUnit)
-                        var body = ProfileManager.temperatureDisplay(root.recipeTempBaseline, deviatesFromBaseline, root.temperatureValue, _shift)
+                        // Shift every profile frame by the FULL dialed offset from the
+                        // profile so the line shows the resulting brew temps; hasOverride
+                        // is false to suppress the redundant signed tag. The anchor is the
+                        // dialed value too, so a frame-less profile still shows the eventual.
+                        var body = ProfileManager.temperatureDisplay(
+                            root.temperatureValue, false, root.temperatureValue,
+                            root.temperatureValue - root.profileTemperature)
                         return root.recipeActive
                             ? TranslationManager.translate("brewDialog.recipeTempStructure", "Recipe: %1").arg(body)
                             : TranslationManager.translate("brewDialog.profileTempStructure", "Profile: %1").arg(body)
