@@ -2328,6 +2328,7 @@ Page {
                                         source: wizardPage.drinkTypeIcon(modelData)
                                         iconSize: Theme.scaled(44)
                                         color: Theme.textColor
+                                        Accessible.ignored: true
                                     }
                                     Label {
                                         Layout.alignment: Qt.AlignHCenter
