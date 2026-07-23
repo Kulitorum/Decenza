@@ -33,7 +33,7 @@
 
 - [x] 4.1 Build (done by Jeff) — clean.
 - [x] 4.2 Full test suite (done by Jeff) — all tests pass.
-- [ ] 4.3 Manually verify on the Steam page (QML has no test harness): live steaming view shows
+- [x] 4.3 Manually verified on the Steam page (QML has no test harness): live steaming view shows
       no Purge button (Stop still present on headless; empty action row on GHC), settings view
       shows no Purge button, and keyboard tab/backtab traverses both views with no dead stops.
 
