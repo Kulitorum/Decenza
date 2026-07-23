@@ -9,6 +9,7 @@
 #include <QAbstractSocket>
 #include <QTcpSocket>
 #include <QHostAddress>
+#include <QHostInfo>
 #include <QThread>
 #include <QPointer>
 #include <algorithm>
@@ -81,7 +82,7 @@ void DecentScaleWifi::connectToDevice(const QBluetoothDeviceInfo& device) {
     connectToHost(m_hostname.isEmpty() ? QStringLiteral("hds.local") : m_hostname);
 }
 
-void DecentScaleWifi::connectToHost(const QString& hostname) {
+void DecentScaleWifi::connectToHost(const QString& hostname, const QString& preferredIp) {
     m_hostname = hostname;
     m_userInitiatedShutdown = false;
     m_triedHostnameFallback = false;
@@ -95,6 +96,20 @@ void DecentScaleWifi::connectToHost(const QString& hostname) {
     m_powerOffInitiatedByApp = false;
     // New connection cycle — invalidate any in-flight resolve from a prior call.
     ++m_resolveGeneration;
+
+    // A caller with a just-completed mDNS resolution (a scan selection / the
+    // "Add WiFi Scale" dialog's "Use" button) passes it as preferredIp. Dial it
+    // first — it's the freshest ground truth for where the scale is right now,
+    // so it supersedes both the persisted cache and a fresh re-resolve. It is
+    // NOT persisted here: only a verified connect (onRecognizedAsHds) writes the
+    // cache, so a stale preferredIp can never clobber a good cached value (the
+    // reason the earlier pre-seed was removed). If it fails the recognition
+    // window, onRecognitionTimeout falls back to attemptHostname to re-resolve.
+    if (!preferredIp.isEmpty() && preferredIp != hostname) {
+        WIFI_LOG(QString("Trying freshly-resolved IP %1 for %2").arg(preferredIp, hostname));
+        attemptTarget(preferredIp, /*isHostname=*/false);
+        return;
+    }
 
     // Try the cached IP first if we have one. The recognition-timer guard
     // catches the case where DHCP has reassigned the IP and we're connecting
@@ -226,8 +241,50 @@ void DecentScaleWifi::attemptHostname() {
     }
 #endif
 
-    // Non-Android (OS resolver speaks mDNS), or a non-".local" name: let Qt
-    // resolve the hostname directly.
+    // Non-Android ".local" name: resolve explicitly via QHostInfo::lookupHost
+    // — the same call WifiScaleDiscovery already uses successfully for the
+    // discovery-time mDNS lookup (see wifiscalediscovery.cpp) — then dial the
+    // resolved IP directly, mirroring the Android branch above. Letting
+    // QWebSocket::open() resolve the hostname implicitly instead (the prior
+    // behavior here) was observed in production to stall ~5s and then fail
+    // with a network error, even on a machine where an explicit
+    // QHostInfo::lookupHost() for the exact same name resolves in well under
+    // a second — so route through the known-working call instead of trusting
+    // QAbstractSocket's internal resolution path.
+    if (m_hostname.endsWith(QStringLiteral(".local"), Qt::CaseInsensitive)) {
+        const QString host = m_hostname;
+        const int generation = ++m_resolveGeneration;
+        WIFI_LOG(QString("Resolving %1 via QHostInfo...").arg(host));
+        QHostInfo::lookupHost(host, this, [this, host, generation](const QHostInfo& info) {
+            // `this` is the lookup's context object, so Qt already drops this
+            // callback if `this` was destroyed; the generation check further
+            // drops a stale result superseded by a newer connect/disconnect
+            // while this lookup was in flight.
+            if (generation != m_resolveGeneration) return;
+            if (info.error() != QHostInfo::NoError || info.addresses().isEmpty()) {
+                // Transient — e.g. a power-cycled scale still booting/rejoining
+                // WiFi. Same handling as the Android mDNS-miss branch above: log,
+                // don't dial, don't pop a modal. BLEManager's connection timer
+                // (onScaleConnectionTimeout) is the backstop.
+                WIFI_WARN(QString("QHostInfo resolution failed for %1: %2 — "
+                                  "not dialing (transient; auto-reconnect will retry)")
+                          .arg(host, info.errorString()));
+                m_userInitiatedShutdown = true;  // mark expected; reconnect owned by main.cpp
+                return;
+            }
+            const QString ip = info.addresses().first().toString();
+            WIFI_LOG(QString("Resolved %1 to %2 via QHostInfo").arg(host, ip));
+            // Persist the peer IP so the next connect skips resolution. A stale
+            // answer self-heals: the cached-IP attempt fails the recognition
+            // window and falls back here to re-resolve.
+            if (m_ipCacheUpdate) m_ipCacheUpdate(host, ip);
+            attemptTarget(ip, /*isHostname=*/false);
+        });
+        return;
+    }
+
+    // A non-".local" name: nothing mDNS-specific to resolve — let Qt dial it
+    // directly.
     attemptTarget(m_hostname, /*isHostname=*/true);
 }
 
@@ -247,9 +304,14 @@ void DecentScaleWifi::disconnectFromScale() {
 void DecentScaleWifi::onConnected() {
     const QString peerIp   = m_socket ? m_socket->peerAddress().toString() : QString();
     const quint16 peerPort = m_socket ? m_socket->peerPort() : 0;
+    const QString localIp  = m_socket ? m_socket->localAddress().toString() : QString();
     const quint16 localPort = m_socket ? m_socket->localPort() : 0;
-    WIFI_LOG(QString("WebSocket connected — peer=%1:%2 localPort=%3")
-             .arg(peerIp).arg(peerPort).arg(localPort));
+    // Log the local source address, not just the port: on a multi-homed host
+    // (e.g. wired + WiFi on the same subnet) it names the egress interface the
+    // OS bound this connection to, which is the datum needed to diagnose a
+    // connect that leaves via the wrong / a down interface.
+    WIFI_LOG(QString("WebSocket connected — peer=%1:%2 local=%3:%4")
+             .arg(peerIp).arg(peerPort).arg(localIp).arg(localPort));
     setConnected(true);
 
     // Promote latency-critical traffic to Voice AC via DSCP, and kill Nagle.
@@ -497,7 +559,11 @@ void DecentScaleWifi::onRecognizedAsHds() {
     m_recognitionTimer->stop();
 
     // Cache the peer IP after a hostname connect succeeds, so the next
-    // connect can skip the OS resolver entirely.
+    // connect can skip the OS resolver entirely. A cached-IP hit or a
+    // freshly-resolved preferredIp doesn't re-cache here (the resolve path
+    // already persists the IP it dials via m_ipCacheUpdate, and a preferredIp
+    // connect self-populates the cache on the first reconnect's re-resolve),
+    // so a cached-IP hit stays a pure direct connect with no cache write.
     if (m_currentTargetIsHostname && m_ipCacheUpdate) {
         const QString peerIp = m_socket ? m_socket->peerAddress().toString() : QString();
         if (!peerIp.isEmpty() && peerIp != m_hostname) {
@@ -721,7 +787,14 @@ void DecentScaleWifi::onError() {
     const QAbstractSocket::SocketError err = m_socket
         ? m_socket->error() : QAbstractSocket::UnknownSocketError;
     const QString errStr = m_socket ? m_socket->errorString() : QStringLiteral("<no socket>");
-    WIFI_WARN(QString("WebSocket error: %1 (code %2)").arg(errStr).arg(static_cast<int>(err)));
+    // Include the local source address the OS bound (may be set even on a
+    // failed connect) alongside the target: on a multi-homed host a "Host
+    // unreachable" that egressed the wrong / a down interface shows up here as
+    // a local address on an interface that can't reach the target.
+    const QString localIp = m_socket ? m_socket->localAddress().toString() : QString();
+    WIFI_WARN(QString("WebSocket error: %1 (code %2) — target=%3 local=%4")
+              .arg(errStr).arg(static_cast<int>(err))
+              .arg(m_currentTarget, localIp.isEmpty() ? QStringLiteral("<unbound>") : localIp));
 
     // 503 detection — firmware refuses additional clients past its cap. Treat
     // as an expected refusal so it isn't recorded as a transport error, but

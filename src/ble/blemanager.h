@@ -36,6 +36,12 @@ struct ScaleEntry {
     QString transport;            // "ble" or "wifi"
     QString name;                 // Display name (carries " (WiFi)" suffix for WiFi entries)
     QString address;              // Routing handle: BLE MAC/UUID, or "wifi:<hostname>"
+    QString resolvedIp;           // WiFi entries only: the IP WifiScaleDiscovery's mDNS
+                                   // query resolved `address`'s hostname to. Empty for BLE/USB.
+                                   // Lets connectToScale() seed DecentScaleWifi's IP cache so
+                                   // the connect dials the already-known IP instead of making
+                                   // Qt's own resolver re-resolve ".local" (unreliable on
+                                   // non-Android — see connectToScale()).
 };
 
 // Helper to get device identifier - iOS uses UUID, others use MAC address
@@ -96,6 +102,13 @@ public:
     // with a default-constructed device + type=="decent-wifi". The main.cpp
     // handler reads this after the factory creates the DecentScaleWifi driver.
     QString pendingWifiHostname() const { return m_pendingWifiHostname; }
+    // Companion to pendingWifiHostname(): the IP a just-completed mDNS
+    // discovery already resolved that hostname to, if any (empty when no
+    // fresh resolution happened at this call site — e.g. the manual-entry and
+    // persisted-cache-driven paths, which have nothing new to offer). main.cpp
+    // seeds DecentScaleWifi's IP cache with it before dialing, so the connect
+    // skips Qt's own (mDNS-unreliable on non-Android) hostname resolver.
+    QString pendingWifiResolvedIp() const { return m_pendingWifiResolvedIp; }
     // True between beginWifiFallbackToBleScan and the next successful connect.
     // main.cpp reads this when a BLE Decent scale connects during the fallback
     // window — in that case the user's saved WiFi primary address is preserved
@@ -364,7 +377,11 @@ public:
     // recognition never arrives, `manualWifiValidationFailed` is emitted and
     // the address is NOT saved as the primary — a typo or wrong IP can't
     // poison the saved state. (#1281)
-    Q_INVOKABLE void connectToWifiScale(const QString& hostnameOrIp);
+    // `resolvedIp`: pass the IP if the caller already has a fresh mDNS
+    // resolution for `hostnameOrIp` (e.g. the "Add WiFi Scale" dialog's
+    // mDNS-suggested "Use" button — see manualWifiMdnsDiscovered). Leave empty
+    // for a genuinely typed address, where nothing has been resolved yet.
+    Q_INVOKABLE void connectToWifiScale(const QString& hostnameOrIp, const QString& resolvedIp = QString());
     // Fire an mDNS probe for the HDS in parallel with the "Add WiFi Scale"
     // dialog. If the scale is on the LAN, this surfaces it to the user so
     // they don't have to type its address. Emits manualWifiMdnsDiscovered on
@@ -725,6 +742,8 @@ private:
     // WiFi scale (so main.cpp can route the connect after the factory creates
     // the driver). Set immediately before emitting, read immediately after.
     QString m_pendingWifiHostname;
+    // Companion to m_pendingWifiHostname — see pendingWifiResolvedIp().
+    QString m_pendingWifiResolvedIp;
 
     // Saved DE1 for direct wake connection
     QString m_savedDE1Address;

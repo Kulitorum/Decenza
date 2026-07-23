@@ -572,6 +572,42 @@ private slots:
         QCOMPARE(updateCalled, false);
     }
 
+    void preferredIpDialedAheadOfCacheAndNotPersisted() {
+        // A caller with a just-completed mDNS resolution (scan selection / the
+        // "Add WiFi Scale" dialog's "Use" button) passes it as preferredIp. It
+        // must be dialed directly, AHEAD of the persisted cache, and must NOT be
+        // written to the cache — only a verified connect persists, so a stale
+        // preferredIp can never clobber a good cached IP (#1603 review follow-up).
+        FakeHdsServer fresh;     // the fresh, correct target handed as preferredIp
+        SilentServer staleCache; // a stale cache entry that would time out if used
+        DecentScaleWifi driver;
+
+        bool updateCalled = false;
+        driver.setIpResolver([&](const QString& host) {
+            // A (stale) cache entry exists for the hostname.
+            return host == QStringLiteral("hds.local") ? staleCache.host() : QString();
+        });
+        driver.setIpCacheUpdate([&](const QString&, const QString&) { updateCalled = true; });
+
+        QSignalSpy connectedSpy(&fresh, &FakeHdsServer::clientConnected);
+        // preferredIp points at the fresh server; the stale cache must be skipped.
+        driver.connectToHost(QStringLiteral("hds.local"), fresh.host());
+
+        // Connects to the fresh server well within the 5 s cache-validation
+        // timeout — proof the preferredIp was dialed directly, not the cache
+        // (a cache dial would hit the silent server and time out first).
+        QVERIFY(connectedSpy.wait(2000));
+        QTRY_VERIFY_WITH_TIMEOUT(fresh.received().size() >= 4, 2000);
+
+        fresh.sendJson({{ "grams", 25.66 }, { "ms", 12345 }});
+        QSignalSpy weightSpy(&driver, &ScaleDevice::weightChanged);
+        QVERIFY(weightSpy.wait(500));
+
+        // The unverified preferredIp is never written to the cache.
+        QTest::qWait(100);
+        QCOMPARE(updateCalled, false);
+    }
+
     void cachedIpValidationTimeoutFallsBackToHostname() {
         // The "cached IP" resolves to a silent server; the "hostname" resolves
         // to a real fake HDS. Driver should validate-time-out on the silent

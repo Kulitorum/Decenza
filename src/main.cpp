@@ -2278,6 +2278,13 @@ int main(int argc, char *argv[])
                      , &usbScaleManager
 #endif
                      ](const QBluetoothDeviceInfo& device, const QString& type) {
+        // A fresh mDNS resolution BLEManager just handed us (see BLEManager::
+        // pendingWifiResolvedIp()) is passed straight to connectToHost() as its
+        // preferredIp — dialed first, but never written to the persisted IP
+        // cache. Keeping unverified resolutions out of the cache is what stops a
+        // stale scan-time IP from clobbering a fresher one an actual connection
+        // already persisted; the cache is now written only by verified connects
+        // (DecentScaleWifi::onRecognizedAsHds) and eviction.
 #ifndef Q_OS_IOS
         // Tear down an active USB scale FIRST (before touching physicalScale).
         // The single-scale invariant covers BLE/WiFi via physicalScale, but the
@@ -2345,7 +2352,12 @@ int main(int argc, char *argv[])
                         wifi->setIpCacheUpdate([&settings](const QString& host, const QString& ip) {
                             settings.network()->setWifiScaleIp(host, ip);
                         });
-                        wifi->connectToHost(bleManager.pendingWifiHostname());
+                        // If BLEManager just resolved this hostname (a scan
+                        // selection), hand the IP to connectToHost() as its
+                        // preferredIp so it dials the known IP directly instead
+                        // of asking Qt's resolver to re-resolve ".local".
+                        wifi->connectToHost(bleManager.pendingWifiHostname(),
+                                            bleManager.pendingWifiResolvedIp());
                     }
                 } else {
                     physicalScale->connectToDevice(device);
@@ -2640,7 +2652,13 @@ int main(int argc, char *argv[])
                     },
                     Qt::SingleShotConnection);
                 }
-                wifi->connectToHost(hostname);
+                // pendingWifiResolvedIp() carries a fresh mDNS resolution for a
+                // scan selection, the "Add WiFi Scale" dialog's "Use" button, or
+                // a saved-primary auto-match; it's dialed first as preferredIp
+                // (never cached until verified). Empty for manual-typed entries
+                // and cache-driven reconnects — those fall through to the cached
+                // IP / hostname-resolve path (see BLEManager call sites).
+                wifi->connectToHost(hostname, bleManager.pendingWifiResolvedIp());
             }
         } else {
             physicalScale->connectToDevice(device);
