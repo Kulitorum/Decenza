@@ -1,7 +1,7 @@
 #pragma once
 
 #include <QObject>
-#include <QSettings>
+#include "appsettings.h"
 #include <QString>
 
 // MCP server settings: enable, access level, confirmation level, API key.
@@ -75,7 +75,7 @@ private:
     // Generate a fresh 128-bit base64url token (no padding).
     static QString generateToken();
 
-    mutable QSettings m_settings;
+    mutable AppSettings m_settings;
 
 signals:
     void mcpEnabledChanged();

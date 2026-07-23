@@ -5,7 +5,7 @@
 #include <QPointer>
 #include <QTextToSpeech>
 #include <QSoundEffect>
-#include <QSettings>
+#include "appsettings.h"
 
 #ifndef QT_NO_ACCESSIBILITY
 #include <QAccessible>
@@ -181,7 +181,7 @@ private:
     QTextToSpeech* m_tts = nullptr;
     QSoundEffect* m_tickSounds[4] = {nullptr, nullptr, nullptr, nullptr};  // Pre-loaded sounds
     QSoundEffect* m_dingSound = nullptr;  // Weight-capture confirmation ding
-    QSettings m_settings;
+    AppSettings m_settings;
 
     TranslationManager* m_translationManager = nullptr;
 };

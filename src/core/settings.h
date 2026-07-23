@@ -1,10 +1,12 @@
 #pragma once
 
 #include <QObject>
-#include <QSettings>
+#include "appsettings.h"
 #include <QString>
+#include <QStringList>
 #include <QVariantList>
 #include <QTimer>
+#include <algorithm>
 #ifdef DECENZA_TESTING
 #include <QCoreApplication>
 #include <QDir>
@@ -83,21 +85,20 @@ public:
     explicit Settings(QObject* parent = nullptr);
 
 #ifdef DECENZA_TESTING
-    // The isolated QSettings location every Settings*/AccessibilityManager
-    // constructor uses under test builds (each independently constructs its
-    // own QSettings — see settings.cpp and each settings_<domain>.cpp) instead
-    // of the real ("DecentEspresso", "DE1Qt") scope the shipped app reads and
-    // writes on the SAME machine. Without this, every test run silently
-    // clobbers a developer's real settings (e.g. tst_aimanager.cpp's
-    // `setOpenaiApiKey("sk-test")` overwriting a real API key). Tests that
-    // need to seed raw pre-construction state (simulating legacy/pre-migration
-    // keys) MUST write here via
-    // `QSettings(Settings::testQSettingsPath(), QSettings::IniFormat)` instead
-    // of `QSettings("DecentEspresso", "DE1Qt")` directly, or the seeded data
-    // lands in a scope nothing reads. PID-scoped so concurrent/repeated test
-    // runs don't collide. Defined inline (not in settings.cpp) so lean test
-    // binaries that link only a single settings_<domain>.cpp — not the whole
-    // settings.cpp — still resolve the symbol.
+    // The isolated store location test builds use in place of the real one, so
+    // a test run cannot clobber a developer's actual settings on the same
+    // machine (e.g. tst_aimanager.cpp's `setOpenaiApiKey("sk-test")` landing on
+    // a real API key). PID-scoped, so concurrent and repeated runs don't
+    // collide.
+    //
+    // Call sites don't reference this directly — AppSettings resolves here under
+    // DECENZA_TESTING (see appsettings.cpp), which is what makes the isolation
+    // impossible to bypass. Tests seeding raw pre-construction state should
+    // construct an `AppSettings` like production code does.
+    //
+    // Defined inline (not in settings.cpp) so lean test binaries that link only
+    // a single settings_<domain>.cpp — not the whole settings.cpp — still
+    // resolve the symbol.
     static QString testQSettingsPath()
     {
         return QDir::tempPath() + QStringLiteral("/decenza_test_settings_%1.ini")
@@ -183,6 +184,25 @@ public:
 
     Q_INVOKABLE void factoryReset();
 
+    // Does this key set belong to an installation that has never been used?
+    //
+    // Not simply "no keys at all". One-time migrations run before Settings is
+    // constructed (see runSettingsStoreMigrationOnce() in main.cpp) and stamp their
+    // done-flags into the store unconditionally — including on a brand-new install,
+    // where there is nothing to migrate but the flag is still recorded. Counting
+    // those would make every install look like an upgrade, and the one-shot blocks
+    // in the constructor would seed legacy defaults for users who should get the
+    // current ones. Migration bookkeeping is not user state, so it does not count.
+    //
+    // Static and pure so the rule is testable without constructing a Settings.
+    static bool looksLikeFreshInstall(const QStringList& existingKeys)
+    {
+        return std::none_of(existingKeys.cbegin(), existingKeys.cend(),
+                            [](const QString& key) {
+                                return !key.startsWith(QLatin1String("migration/"));
+                            });
+    }
+
     // Generic settings access (for extensibility)
     Q_INVOKABLE QVariant value(const QString& key, const QVariant& defaultValue = QVariant()) const;
     Q_INVOKABLE void setValue(const QString& key, const QVariant& value);
@@ -210,7 +230,7 @@ signals:
 private:
     void writeKnownScales(const QVariantList& scales);
 
-    mutable QSettings m_settings;
+    mutable AppSettings m_settings;
 
     // Domain sub-objects (composition façade)
     SettingsMqtt* m_mqtt = nullptr;

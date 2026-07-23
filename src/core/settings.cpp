@@ -1,4 +1,5 @@
 #include "settings.h"
+#include "appsettings.h"
 #include "settings_mqtt.h"
 #include "settings_autowake.h"
 #include "settings_hardware.h"
@@ -44,11 +45,6 @@
 
 Settings::Settings(QObject* parent)
     : QObject(parent)
-#ifdef DECENZA_TESTING
-    , m_settings(testQSettingsPath(), QSettings::IniFormat)
-#else
-    , m_settings("DecentEspresso", "DE1Qt")
-#endif
     , m_mqtt(new SettingsMqtt(this))
     , m_autoWake(new SettingsAutoWake(this))
     , m_hardware(new SettingsHardware(this))
@@ -75,7 +71,7 @@ Settings::Settings(QObject* parent)
     // Snapshot whether this looks like a fresh install before any default-init
     // blocks below write keys. Used by one-shot migrations that need to behave
     // differently for new users vs upgrades.
-    const bool freshInstall = m_settings.allKeys().isEmpty();
+    const bool freshInstall = looksLikeFreshInstall(m_settings.allKeys());
 
     // Evict the dead shot-rating keys. Both are orphans of the removed
     // default-shot-rating feature: shot/defaultRating was the setting itself,
@@ -750,7 +746,8 @@ void Settings::factoryReset()
 {
     qWarning() << "Settings::factoryReset() - WIPING ALL DATA";
 
-    // 1. Clear primary QSettings (favorites, presets, theme, all preferences)
+    // 1. Clear the settings store (favorites, presets, theme, all preferences).
+    // There is only one now — see appsettings.h.
     m_settings.clear();
     m_settings.sync();
 
@@ -758,20 +755,27 @@ void Settings::factoryReset()
     m_dye->invalidateCache();
     m_calibration->invalidateCache();
 
-    // 2. Clear secondary QSettings store (used by AI, location, profilestorage)
-    QSettings defaultSettings;
-    defaultSettings.clear();
-    defaultSettings.sync();
-
-    // 2b. Clear the legacy AccessibilityManager store. Accessibility now
-    // lives in the primary store (cleared above), but its one-time
-    // migrateLegacyStore() guard is in the primary store too — so after
-    // a factory reset that guard is gone and the next launch would
-    // resurrect old accessibility settings from this legacy store.
-    // Wipe it so factory reset actually resets accessibility.
-    QSettings legacyAccessibility(QStringLiteral("Decenza"), QStringLiteral("DE1"));
-    legacyAccessibility.clear();
-    legacyAccessibility.sync();
+    // 2. Clear every legacy store the app has ever written. Each one's migration
+    // guard lives in the store cleared above, so a reset that leaves a legacy
+    // store populated erases the guard and lets the next launch repopulate from
+    // it — i.e. the reset silently undoes itself. Clearing them is what makes a
+    // factory reset final. Harmless once a store is already gone: clearing an
+    // absent store is a no-op.
+    for (const auto& [organization, application] : {
+             std::pair{QStringLiteral("DecentEspresso"), QStringLiteral("DE1Qt")},
+             std::pair{QStringLiteral("Decenza"), QStringLiteral("DE1")},
+             // The pre-rename store, read by migrateDefaultQSettingsFromOldAppName().
+             // Nothing else in the app ever clears it, and its migration guard now
+             // lives in the store wiped above — so omitting it means a factory reset
+             // erases the guard and the next launch copies this store's entire
+             // contents back into the empty canonical store. A "wipe all data" that
+             // restores the user's pre-rename preferences is worse than no reset.
+             std::pair{QStringLiteral("DecentEspresso"), QStringLiteral("Decenza DE1")},
+         }) {
+        QSettings legacy(organization, application);
+        legacy.clear();
+        legacy.sync();
+    }
 
     // 3. Delete all data directories under AppDataLocation
     QString appDataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);

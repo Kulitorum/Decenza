@@ -1,7 +1,7 @@
 #pragma once
 
 #include <QObject>
-#include <QSettings>
+#include "appsettings.h"
 #include <QString>
 #include <QStringList>
 #include <QVector>
@@ -140,7 +140,7 @@ private:
     QString currentScaleType() const;
 
     Settings* m_owner = nullptr;  // Non-owning; used ONLY for currentScaleType() lookup.
-    mutable QSettings m_settings;
+    mutable AppSettings m_settings;
 
     // SAW learning history cache (avoids re-parsing JSON from QSettings on every weight sample)
     mutable QJsonArray m_sawHistoryCache;

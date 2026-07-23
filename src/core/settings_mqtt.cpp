@@ -3,11 +3,6 @@
 
 SettingsMqtt::SettingsMqtt(QObject* parent)
     : QObject(parent)
-#ifdef DECENZA_TESTING
-    , m_settings(Settings::testQSettingsPath(), QSettings::IniFormat)
-#else
-    , m_settings("DecentEspresso", "DE1Qt")
-#endif
 {
 }
 

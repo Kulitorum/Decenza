@@ -116,7 +116,9 @@ extern "C" const char* __ubsan_default_options()
 #include "core/btlogfilter.h"
 #include "core/emojiassets.h"
 #include "core/markdownrenderer.h"
+#include "core/appsettings.h"
 #include "core/settings.h"
+#include "core/settingsstoremigration.h"
 #include "core/settings_mqtt.h"
 #include "core/settings_autowake.h"
 #include "core/settings_hardware.h"
@@ -341,7 +343,10 @@ void runAppNameMigrationOnce()
         return;
     }
 
-    QSettings migrationSettings("DecentEspresso", "DE1Qt");
+    // Guard lives in the canonical store. It used to live in the legacy DE1Qt
+    // store, which runSettingsStoreMigrationOnce() destroys — leaving the flag
+    // there would re-run this migration on every launch forever.
+    AppSettings migrationSettings;
     if (migrationSettings.value(kMigrationKey, false).toBool()) {
         return;
     }
@@ -803,6 +808,16 @@ int main(int argc, char *argv[])
     app.setOrganizationDomain("decentespresso.com");
     app.setApplicationName("Decenza");
     app.setApplicationVersion(VERSION_STRING);
+
+    // Both migrations must complete here — before Settings (line ~1046) and
+    // AccessibilityManager (line ~1788) are constructed, since both read the
+    // store these populate.
+    //
+    // Store migration runs FIRST so that the app-name migration below finds its
+    // own done-flag: that flag used to live in the legacy DE1Qt store, and this
+    // migration is what carries it into the canonical one. Reversed, the
+    // app-name migration would see an unstamped flag and redundantly re-run.
+    runSettingsStoreMigrationOnce();
     runAppNameMigrationOnce();
 
     // Limit Qt's pixmap cache to 32 MB (default is 10 MB on desktop but unbounded
@@ -1006,7 +1021,7 @@ int main(int argc, char *argv[])
     // Re-register the app bundle with Launch Services when the version changes
     // so macOS picks up the new icon instead of serving a stale cached one.
     {
-        QSettings s;
+        AppSettings s;
         QString lastRegistered = s.value("internal/lastIconRegisteredVersion").toString();
         if (lastRegistered != VERSION_STRING) {
             QString bundlePath = QCoreApplication::applicationDirPath() + "/../..";

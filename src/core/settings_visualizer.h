@@ -1,7 +1,7 @@
 #pragma once
 
 #include <QObject>
-#include <QSettings>
+#include "appsettings.h"
 #include <QString>
 
 // Visualizer (visualizer.coffee) upload settings.
@@ -55,5 +55,5 @@ signals:
     void visualizerClearNotesOnStartChanged();
 
 private:
-    mutable QSettings m_settings;
+    mutable AppSettings m_settings;
 };

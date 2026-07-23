@@ -1,7 +1,7 @@
 #pragma once
 
 #include <QObject>
-#include <QSettings>
+#include "appsettings.h"
 #include <QString>
 #include <QStringList>
 #include <QVariantMap>
@@ -354,7 +354,7 @@ private:
     // Refresh the grinder-identity display cache from a resolved package map.
     void applyEquipmentIdentity(const QVariantMap& pkg);
 
-    mutable QSettings m_settings;
+    mutable AppSettings m_settings;
     CoffeeBagStorage* m_bagStorage = nullptr;    // Non-owning; attached post-init.
     EquipmentStorage* m_equipmentStorage = nullptr; // Non-owning; attached post-init.
 

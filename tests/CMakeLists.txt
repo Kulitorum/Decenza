@@ -71,6 +71,8 @@ set(PROFILE_SOURCES
 set(CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/core/emojiassets.cpp
     ${CMAKE_SOURCE_DIR}/src/core/markdownrenderer.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/appsettings.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/settingsstoremigration.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_mqtt.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_autowake.cpp
@@ -335,6 +337,23 @@ add_decenza_test(tst_roastdate
 add_decenza_test(tst_settings
     tst_settings.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settingsserializer.cpp
+)
+
+# --- tst_appsettings: the single canonical settings store ---
+# Asserts the store-identity assumption the whole consolidation rests on (that the
+# explicit organization/application pair and a default-constructed QSettings address
+# the same file), and scans src/ for handles constructed outside the accessor.
+# Deliberately links nothing: it tests Qt's own store naming plus the source tree.
+add_decenza_test(tst_appsettings
+    tst_appsettings.cpp
+)
+
+# --- tst_settingsstoremigration: the one-time DE1Qt -> canonical store migration ---
+# Drives migrateLegacySettingsStore() over temp IniFormat stores. The source comes
+# from decenza_testlib; nothing here addresses a real store, which matters because
+# this migration destroys what it reads.
+add_decenza_test(tst_settingsstoremigration
+    tst_settingsstoremigration.cpp
 )
 
 # --- tst_backgroundpresets: background preset catalogue + Glass theme ---

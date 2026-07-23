@@ -1,7 +1,7 @@
 #pragma once
 
 #include <QObject>
-#include <QSettings>
+#include "appsettings.h"
 #include <QVariantList>
 
 class SettingsAutoWake : public QObject {
@@ -37,5 +37,5 @@ signals:
     void autoWakeStayAwakeMinutesChanged();
 
 private:
-    mutable QSettings m_settings;
+    mutable AppSettings m_settings;
 };

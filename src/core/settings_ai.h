@@ -1,7 +1,7 @@
 #pragma once
 
 #include <QObject>
-#include <QSettings>
+#include "appsettings.h"
 #include <QString>
 
 // AI Dialing Assistant settings: provider selection, API keys, endpoints.
@@ -86,5 +86,5 @@ signals:
     void configurationChanged();
 
 private:
-    mutable QSettings m_settings;
+    mutable AppSettings m_settings;
 };

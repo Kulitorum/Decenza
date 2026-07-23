@@ -1,4 +1,5 @@
 #include "shotserver.h"
+#include "core/appsettings.h"
 #include "webtemplates.h"
 #include "../ai/aimanager.h"
 
@@ -151,7 +152,7 @@ QString ShotServer::generateAIConversationsPage() const
         </div>
 )HTML";
     } else {
-        QSettings settings;
+        AppSettings settings;
         const auto conversations = m_aiManager->conversationIndex();
         for (const auto& entry : conversations) {
             // Build context label
@@ -252,7 +253,7 @@ void ShotServer::handleAIConversationDownload(QTcpSocket* socket, const QString&
         return;
     }
 
-    QSettings settings;
+    AppSettings settings;
     QString prefix = "ai/conversations/" + key + "/";
 
     // Read conversation data directly from QSettings

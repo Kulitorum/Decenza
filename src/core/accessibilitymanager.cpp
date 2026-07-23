@@ -14,16 +14,10 @@
 
 AccessibilityManager::AccessibilityManager(QObject *parent)
     : QObject(parent)
-    // Primary store, matching every settings_*.cpp domain class. Was
-    // QSettings("Decenza","DE1") — an isolated third store that broke
-    // accessibility backup/restore and survived factory reset. Existing
-    // values are carried over by migrateLegacyStore(). Isolated under
-    // DECENZA_TESTING so tests never touch a developer's real store.
-#ifdef DECENZA_TESTING
-    , m_settings(Settings::testQSettingsPath(), QSettings::IniFormat)
-#else
-    , m_settings("DecentEspresso", "DE1Qt")
-#endif
+    // m_settings is the app-wide store (see appsettings.h), matching every
+    // settings_*.cpp domain class. Was QSettings("Decenza","DE1") — an isolated
+    // third store that broke accessibility backup/restore and survived factory
+    // reset. Existing values are carried over by migrateLegacyStore().
 {
     migrateLegacyStore();
     loadSettings();
@@ -39,7 +33,6 @@ AccessibilityManager::AccessibilityManager(QObject *parent)
 #ifdef DECENZA_TESTING
 AccessibilityManager::AccessibilityManager(TestSkipAudioInit, QObject *parent)
     : QObject(parent)
-    , m_settings(Settings::testQSettingsPath(), QSettings::IniFormat)
 {
     // Deliberately skip migrateLegacyStore()/loadSettings() so tests
     // don't inherit whatever the dev machine has persisted. Member
@@ -152,9 +145,13 @@ AccessibilityManager::migrateAccessibilityLegacyStore(QSettings& primary,
 void AccessibilityManager::migrateLegacyStore()
 {
     // One-time: carry accessibility/* from the old isolated
-    // QSettings("Decenza","DE1") store into the primary store. The
-    // legacy store is intentionally left intact (harmless; supports
-    // clean downgrade — factoryReset() wipes it explicitly).
+    // QSettings("Decenza","DE1") store into the primary store.
+    //
+    // This function does not remove the legacy store, but it no longer survives
+    // either: once this migration has stamped its guard, runSettingsStoreMigrationOnce()
+    // (settingsstoremigration.cpp, run from main() before this class is constructed)
+    // destroys it on a subsequent launch. factoryReset() also clears it, for
+    // installations that have not reached that point.
     QSettings legacy(QStringLiteral("Decenza"), QStringLiteral("DE1"));
     const LegacyMigrationOutcome r =
         migrateAccessibilityLegacyStore(m_settings, legacy);

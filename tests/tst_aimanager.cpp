@@ -15,6 +15,7 @@
 // and asserted for exactly-once occurrences of the hoisted strings.
 
 #include <QtTest>
+#include "core/appsettings.h"
 #include <QVariant>
 #include <QSignalSpy>
 #include <QNetworkAccessManager>
@@ -81,12 +82,12 @@ ShotProjection makeShot(qint64 id, qint64 timestamp,
 }
 
 // RAII guard for tests that need a guaranteed-unconfigured AI provider.
-// Settings reads/writes the REAL on-disk QSettings store ("DecentEspresso",
-// "DE1Qt"), so a bare `Settings settings;` does NOT mean "no provider
-// configured" on a machine that has actually set one up (e.g. dev use) —
-// it means "whatever this machine's real AI settings currently are". Snapshot
-// + clear on construction, restore on destruction (runs even if a QVERIFY
-// fails mid-test and returns early).
+// Settings persists to a store (the PID-scoped test store under DECENZA_TESTING —
+// see appsettings.h) that outlives any single test function, so a bare
+// `Settings settings;` does NOT mean "no provider configured" — it means
+// "whatever an earlier test in this binary last wrote". Snapshot + clear on
+// construction, restore on destruction (runs even if a QVERIFY fails mid-test
+// and returns early).
 struct AiSettingsGuard {
     explicit AiSettingsGuard(Settings* s) : m_settings(s) {
         SettingsAI* ai = s->ai();
@@ -1829,7 +1830,7 @@ private slots:
 
     void aiConversation_addAssistantMessage_persistsStructuredNext()
     {
-        QSettings settings;
+        AppSettings settings;
         settings.clear();
 
         QNetworkAccessManager nam;
@@ -1879,7 +1880,7 @@ private slots:
 
     void aiConversation_addAssistantMessage_omitsKeyWhenAbsent()
     {
-        QSettings settings;
+        AppSettings settings;
         settings.clear();
 
         QNetworkAccessManager nam;
@@ -1896,7 +1897,7 @@ private slots:
         QVERIFY(!conv.structuredNextForLastAssistantTurn().has_value());
 
         conv.saveToStorage();
-        const QByteArray raw = QSettings().value(
+        const QByteArray raw = AppSettings().value(
             QStringLiteral("ai/conversations/test_structurednext_absent/messages")).toByteArray();
         QVERIFY2(!raw.contains("structuredNext"),
                  "absent structuredNext must not be persisted as a key (no null placeholder)");
@@ -1909,7 +1910,7 @@ private slots:
         // A pre-#1054 saved conversation has assistant messages with
         // only {role, content}. Load must succeed; reader returns
         // nullopt for every assistant turn.
-        QSettings settings;
+        AppSettings settings;
         settings.clear();
         const QString prefix = QStringLiteral("ai/conversations/test_structurednext_legacy/");
         settings.setValue(prefix + "systemPrompt", "system");
@@ -1939,7 +1940,7 @@ private slots:
     // directly and asserts saveToStorage() now reconciles instead of clobbering.
     void aiConversation_saveToStorage_reconcilesTurnsAppendedByAnotherWriter()
     {
-        QSettings settings;
+        AppSettings settings;
         settings.clear();
 
         QNetworkAccessManager nam;
@@ -1991,7 +1992,7 @@ private slots:
     // index, even though the MCP path had already written real turns there.
     void aiConversation_saveToStorage_reconcilesEvenWhenNeverLoaded()
     {
-        QSettings settings;
+        AppSettings settings;
         settings.clear();
 
         // AIManager's ctor runs a one-time clearAllConversationsOnce
@@ -2045,7 +2046,7 @@ private slots:
     // discarding the real turns on the next save.
     void switchConversation_loadsRealDiskContentNotInIndex()
     {
-        QSettings settings;
+        AppSettings settings;
         settings.clear();
 
         QNetworkAccessManager nam;
@@ -2233,7 +2234,7 @@ private slots:
         // The static loader is the parity path used by ai_advisor_invoke.
         // Round-trip: write a conversation via QSettings directly, then
         // assert the static loader returns the qualifying turns.
-        QSettings s;
+        AppSettings s;
         s.clear();
         const QString key = "test_recent_advice_static";
         const QString prefix = QStringLiteral("ai/conversations/") + key + "/";
@@ -2267,7 +2268,7 @@ private slots:
         // turn lists for the same persisted conversation. Without parity,
         // the recentAdvice block built by buildRecentAdviceBlock cannot be
         // byte-equivalent across surfaces (#1041 parity contract).
-        QSettings s;
+        AppSettings s;
         s.clear();
 
         // Create AIManager first so clearAllConversationsOnce() fires on empty
@@ -2737,7 +2738,7 @@ private slots:
 
     void appendAssistantTurnForKey_writesUserAndAssistantWithShotId()
     {
-        QSettings s;
+        AppSettings s;
         s.clear();
         const QString key = "test_append_static";
 
@@ -2763,7 +2764,7 @@ private slots:
                  QStringLiteral("4.75"));
 
         // Verify the persisted bytes contain a user message with shotId.
-        const QByteArray raw = QSettings().value(
+        const QByteArray raw = AppSettings().value(
             QStringLiteral("ai/conversations/") + key + QStringLiteral("/messages"))
             .toByteArray();
         const QJsonArray arr = QJsonDocument::fromJson(raw).array();
@@ -2778,7 +2779,7 @@ private slots:
 
     void appendAssistantTurnForKey_appendsRatherThanOverwrites()
     {
-        QSettings s;
+        AppSettings s;
         s.clear();
         const QString key = "test_append_grows";
 
@@ -2796,7 +2797,7 @@ private slots:
             key, 105, "u2", "a2", sn);
 
         // Two pairs => 4 messages.
-        const QByteArray raw = QSettings().value(
+        const QByteArray raw = AppSettings().value(
             QStringLiteral("ai/conversations/") + key + QStringLiteral("/messages"))
             .toByteArray();
         const QJsonArray arr = QJsonDocument::fromJson(raw).array();
@@ -2813,7 +2814,7 @@ private slots:
 
     void appendAssistantTurnForKey_omitsStructuredNextWhenAbsent()
     {
-        QSettings s;
+        AppSettings s;
         s.clear();
         const QString key = "test_append_no_sn";
 
@@ -2821,7 +2822,7 @@ private slots:
             key, 200, "u", "clarifying question, no rec",
             std::nullopt);
 
-        const QByteArray raw = QSettings().value(
+        const QByteArray raw = AppSettings().value(
             QStringLiteral("ai/conversations/") + key + QStringLiteral("/messages"))
             .toByteArray();
         QVERIFY2(!raw.contains("structuredNext"),
@@ -2838,7 +2839,7 @@ private slots:
 
     void appendAssistantTurnForKey_emptyKeyIsNoOp()
     {
-        QSettings s;
+        AppSettings s;
         s.clear();
         AIConversation::appendAssistantTurnForKey(
             QString(), 100, "u", "a", std::nullopt);
@@ -2852,7 +2853,7 @@ private slots:
     {
         // A pre-#1053 conversation has no shotId on any entry; reader
         // must return 0 without error.
-        QSettings s;
+        AppSettings s;
         s.clear();
 
         // Construct AIManager first so clearAllConversationsOnce() fires on
@@ -3072,7 +3073,7 @@ private slots:
 
     void aiConversation_getConversationText_stripsJsonBlock()
     {
-        QSettings s;
+        AppSettings s;
         s.clear();
 
         QNetworkAccessManager nam;
@@ -3114,7 +3115,7 @@ private slots:
 
     void mcpAiConversations_listAndGet_roundTripRealConversation()
     {
-        QSettings settings;
+        AppSettings settings;
         settings.clear();
 
         QNetworkAccessManager nam;
@@ -3166,7 +3167,7 @@ private slots:
 
     void mcpAiConversationGet_missingKey_returnsErrorNotCrash()
     {
-        QSettings settings;
+        AppSettings settings;
         settings.clear();
 
         QNetworkAccessManager nam;
@@ -3190,7 +3191,7 @@ private slots:
     // PR #1500: ai_conversations_list previously swallowed the parse error.
     void mcpAiConversationsList_corruptedEntry_flagsInsteadOfSwallowing()
     {
-        QSettings settings;
+        AppSettings settings;
         settings.clear();
 
         QNetworkAccessManager nam;
@@ -3230,7 +3231,7 @@ private slots:
     // instead of silently returning it blank.
     void mcpAiConversationGet_orphanedKey_fallsBackToStoredTimestamp()
     {
-        QSettings settings;
+        AppSettings settings;
         settings.clear();
 
         // AIManager's constructor runs a one-time clearAllConversationsOnce

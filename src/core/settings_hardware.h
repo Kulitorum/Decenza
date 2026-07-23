@@ -1,7 +1,7 @@
 #pragma once
 
 #include <QObject>
-#include <QSettings>
+#include "appsettings.h"
 
 // Hardware calibration settings sent to the DE1 firmware:
 // heater tweaks, hot-water flow rate, steam two-tap stop.
@@ -80,5 +80,5 @@ signals:
     void fanThresholdChanged();
 
 private:
-    mutable QSettings m_settings;
+    mutable AppSettings m_settings;
 };

@@ -1,4 +1,5 @@
 #include "shotserver.h"
+#include "core/appsettings.h"
 #include "webdebuglogger.h"
 #include "webtemplates.h"
 #include "../history/shothistorystorage.h"
@@ -163,7 +164,7 @@ void ShotServer::handleBackupManifest(QTcpSocket* socket)
         manifest["aiConversationCount"] = convCount;
         // Estimate size: read messages JSON for each conversation
         qint64 aiSize = 0;
-        QSettings settings;
+        AppSettings settings;
         for (const auto& entry : m_aiManager->conversationIndex()) {
             aiSize += settings.value("ai/conversations/" + entry.key + "/messages").toByteArray().size();
         }
@@ -223,7 +224,7 @@ void ShotServer::handleBackupSettings(QTcpSocket* socket, bool includeSensitive)
 // two transfer paths stay in parity (finish-recipes-first-class).
 QJsonObject ShotServer::buildExtraSettingsObject()
 {
-    QSettings settings;
+    AppSettings settings;
     QJsonObject extra;
 
     QJsonObject shotMap;
@@ -234,20 +235,15 @@ QJsonObject ShotServer::buildExtraSettingsObject()
     shotMap["manualGeocoded"] = settings.value("shotMap/manualGeocoded", false).toBool();
     extra["shotMap"] = shotMap;
 
-    // Accessibility lives in the PRIMARY store (AccessibilityManager uses
-    // QSettings("DecentEspresso","DE1Qt") like every other settings domain).
-    // Reading it off the bare/secondary `settings` would silently capture
-    // defaults.
-    QSettings accessStore(QStringLiteral("DecentEspresso"), QStringLiteral("DE1Qt"));
     QJsonObject accessibility;
-    accessibility["enabled"] = accessStore.value("accessibility/enabled", false).toBool();
-    accessibility["ttsEnabled"] = accessStore.value("accessibility/ttsEnabled", true).toBool();
-    accessibility["tickEnabled"] = accessStore.value("accessibility/tickEnabled", true).toBool();
-    accessibility["tickSoundIndex"] = accessStore.value("accessibility/tickSoundIndex", 1).toInt();
-    accessibility["tickVolume"] = accessStore.value("accessibility/tickVolume", 100).toInt();
-    accessibility["extractionAnnouncementsEnabled"] = accessStore.value("accessibility/extractionAnnouncementsEnabled", true).toBool();
-    accessibility["extractionAnnouncementInterval"] = accessStore.value("accessibility/extractionAnnouncementInterval", 5).toInt();
-    accessibility["extractionAnnouncementMode"] = accessStore.value("accessibility/extractionAnnouncementMode", "both").toString();
+    accessibility["enabled"] = settings.value("accessibility/enabled", false).toBool();
+    accessibility["ttsEnabled"] = settings.value("accessibility/ttsEnabled", true).toBool();
+    accessibility["tickEnabled"] = settings.value("accessibility/tickEnabled", true).toBool();
+    accessibility["tickSoundIndex"] = settings.value("accessibility/tickSoundIndex", 1).toInt();
+    accessibility["tickVolume"] = settings.value("accessibility/tickVolume", 100).toInt();
+    accessibility["extractionAnnouncementsEnabled"] = settings.value("accessibility/extractionAnnouncementsEnabled", true).toBool();
+    accessibility["extractionAnnouncementInterval"] = settings.value("accessibility/extractionAnnouncementInterval", 5).toInt();
+    accessibility["extractionAnnouncementMode"] = settings.value("accessibility/extractionAnnouncementMode", "both").toString();
     extra["accessibility"] = accessibility;
 
     extra["language"] = settings.value("localization/language", "en").toString();
@@ -411,7 +407,7 @@ QJsonArray ShotServer::serializeAIConversations() const
     if (!m_aiManager)
         return QJsonArray();
 
-    QSettings settings;
+    AppSettings settings;
     QJsonArray result;
 
     for (const auto& entry : m_aiManager->conversationIndex()) {
@@ -1063,7 +1059,7 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
         else if (name == "extra_settings.json") {
             QJsonDocument doc = QJsonDocument::fromJson(entryData);
             if (doc.isObject()) {
-                QSettings settings;
+                AppSettings settings;
                 QJsonObject extra = doc.object();
 
                 // Shot map location
@@ -1076,33 +1072,32 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
                     settings.setValue("shotMap/manualGeocoded", sm["manualGeocoded"].toBool());
                 }
 
-                // Accessibility → PRIMARY store (where AccessibilityManager
-                // reads it). Writing to the bare/secondary `settings`
-                // would be a silent no-op. (only write keys present, to
-                // avoid clobbering defaults)
+                // Accessibility (only write keys present, to avoid clobbering
+                // defaults). Goes through the same `settings` handle as everything
+                // else — there is one store now, so the separate handle this used to
+                // need is gone.
                 {
-                    QSettings accessStore(QStringLiteral("DecentEspresso"), QStringLiteral("DE1Qt"));
                     if (extra.contains("accessibility")) {
                         QJsonObject a = extra["accessibility"].toObject();
-                        if (a.contains("enabled")) accessStore.setValue("accessibility/enabled", a["enabled"].toBool());
-                        if (a.contains("ttsEnabled")) accessStore.setValue("accessibility/ttsEnabled", a["ttsEnabled"].toBool());
-                        if (a.contains("tickEnabled")) accessStore.setValue("accessibility/tickEnabled", a["tickEnabled"].toBool());
-                        if (a.contains("tickSoundIndex")) accessStore.setValue("accessibility/tickSoundIndex", a["tickSoundIndex"].toInt());
-                        if (a.contains("tickVolume")) accessStore.setValue("accessibility/tickVolume", a["tickVolume"].toInt());
-                        if (a.contains("extractionAnnouncementsEnabled")) accessStore.setValue("accessibility/extractionAnnouncementsEnabled", a["extractionAnnouncementsEnabled"].toBool());
-                        if (a.contains("extractionAnnouncementInterval")) accessStore.setValue("accessibility/extractionAnnouncementInterval", a["extractionAnnouncementInterval"].toInt());
-                        if (a.contains("extractionAnnouncementMode")) accessStore.setValue("accessibility/extractionAnnouncementMode", a["extractionAnnouncementMode"].toString());
+                        if (a.contains("enabled")) settings.setValue("accessibility/enabled", a["enabled"].toBool());
+                        if (a.contains("ttsEnabled")) settings.setValue("accessibility/ttsEnabled", a["ttsEnabled"].toBool());
+                        if (a.contains("tickEnabled")) settings.setValue("accessibility/tickEnabled", a["tickEnabled"].toBool());
+                        if (a.contains("tickSoundIndex")) settings.setValue("accessibility/tickSoundIndex", a["tickSoundIndex"].toInt());
+                        if (a.contains("tickVolume")) settings.setValue("accessibility/tickVolume", a["tickVolume"].toInt());
+                        if (a.contains("extractionAnnouncementsEnabled")) settings.setValue("accessibility/extractionAnnouncementsEnabled", a["extractionAnnouncementsEnabled"].toBool());
+                        if (a.contains("extractionAnnouncementInterval")) settings.setValue("accessibility/extractionAnnouncementInterval", a["extractionAnnouncementInterval"].toInt());
+                        if (a.contains("extractionAnnouncementMode")) settings.setValue("accessibility/extractionAnnouncementMode", a["extractionAnnouncementMode"].toString());
                     }
                     // Whenever extra_settings.json is restored (even with
                     // no accessibility block), stamp the migration guard:
                     // a restored profile is authoritative, so
                     // AccessibilityManager::migrateLegacyStore must not
                     // later merge this device's stale legacy store over it.
-                    accessStore.setValue("accessibility/_migratedFromLegacyV1", true);
-                    accessStore.sync();
-                    if (accessStore.status() != QSettings::NoError) {
+                    settings.setValue("accessibility/_migratedFromLegacyV1", true);
+                    settings.sync();
+                    if (settings.status() != QSettings::NoError) {
                         qWarning() << "ShotServer: accessibility restore sync failed (status="
-                                   << accessStore.status() << ") — settings may not persist";
+                                   << settings.status() << ") — settings may not persist";
                     }
                 }
 
@@ -1119,7 +1114,7 @@ void ShotServer::handleBackupRestore(QTcpSocket* socket, const QString& tempFile
             if (m_aiManager) {
                 QJsonDocument doc = QJsonDocument::fromJson(entryData);
                 if (doc.isArray()) {
-                    QSettings settings;
+                    AppSettings settings;
                     // Load existing index to merge
                     QJsonDocument existingDoc = QJsonDocument::fromJson(
                         settings.value("ai/conversations/index").toByteArray());

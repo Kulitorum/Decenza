@@ -2,7 +2,7 @@
 
 #include <QObject>
 #include <QDateTime>
-#include <QSettings>
+#include "core/appsettings.h"
 
 class SteamDataModel;
 
@@ -99,7 +99,7 @@ private:
     void checkTrend(QList<SteamSessionSummary>& history, int steamFlow, int steamTemp);
     void updateCachedStats(const QList<SteamSessionSummary>& history, int steamTemp);
 
-    QSettings m_settings;
+    AppSettings m_settings;
     int m_sessionCount = 0;
     int m_lastWarnedSession = -99;  // Warning cooldown: session count when last warned
 

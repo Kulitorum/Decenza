@@ -1,4 +1,5 @@
 #include "aiconversation.h"
+#include "core/appsettings.h"
 #include "aimanager.h"
 #include "shotsummarizer.h"
 #include "../core/translationmanager.h"
@@ -159,7 +160,7 @@ void AIConversation::clearHistory()
 {
     // Clear stored data for current key
     if (!m_storageKey.isEmpty()) {
-        QSettings settings;
+        AppSettings settings;
         QString prefix = "ai/conversations/" + m_storageKey + "/";
         settings.remove(prefix + "systemPrompt");
         settings.remove(prefix + "messages");
@@ -321,7 +322,7 @@ AIConversation::loadRecentAssistantTurnsForKey(const QString& storageKey, qsizet
 {
     QList<HistoricalAssistantTurn> out;
     if (storageKey.isEmpty() || max <= 0) return out;
-    QSettings settings;
+    AppSettings settings;
     const QString prefix = QStringLiteral("ai/conversations/") + storageKey + QStringLiteral("/");
     const QByteArray raw = settings.value(prefix + "messages").toByteArray();
     if (raw.isEmpty()) return out;
@@ -352,7 +353,7 @@ void AIConversation::appendAssistantTurnForKey(
     const std::optional<QJsonObject>& structuredNext)
 {
     if (storageKey.isEmpty()) return;
-    QSettings settings;
+    AppSettings settings;
     const QString prefix = QStringLiteral("ai/conversations/") + storageKey + QStringLiteral("/");
 
     // Pull the existing messages array (if any) so we append rather than
@@ -929,7 +930,7 @@ void AIConversation::saveToStorage()
         return;
     }
 
-    QSettings settings;
+    AppSettings settings;
     QString prefix = "ai/conversations/" + m_storageKey + "/";
 
     // Guard against AIConversation::appendAssistantTurnForKey (the MCP
@@ -988,7 +989,7 @@ void AIConversation::loadFromStorage()
 {
     if (m_storageKey.isEmpty()) return;
 
-    QSettings settings;
+    AppSettings settings;
     QString prefix = "ai/conversations/" + m_storageKey + "/";
 
     m_systemPrompt = settings.value(prefix + "systemPrompt").toString();
@@ -1032,7 +1033,7 @@ bool AIConversation::hasSavedConversation() const
 {
     if (m_storageKey.isEmpty()) return false;
 
-    QSettings settings;
+    AppSettings settings;
     QString prefix = "ai/conversations/" + m_storageKey + "/";
     QByteArray messagesJson = settings.value(prefix + "messages").toByteArray();
     if (messagesJson.isEmpty()) return false;

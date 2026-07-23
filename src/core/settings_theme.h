@@ -3,7 +3,7 @@
 #include <QMap>
 #include <QObject>
 #include <QSet>
-#include <QSettings>
+#include "appsettings.h"
 #include <QString>
 #include <QStringList>
 #include <QTimer>
@@ -311,7 +311,7 @@ private:
     mutable QSet<QString> m_warnedUnknownIds;
     void updateResolvedMode();
 
-    mutable QSettings m_settings;
+    mutable AppSettings m_settings;
     bool m_isDarkMode = true;
     QString m_editingPalette = "dark";
 

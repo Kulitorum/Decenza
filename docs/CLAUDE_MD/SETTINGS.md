@@ -29,7 +29,7 @@ That's it — no other files need to change. The narrow consumer set defined in 
 
 Full checklist (8 steps — missing one will silently break things):
 
-1. **Create `src/core/settings_<domain>.h` + `.cpp`**. Inherit `QObject`, own a `mutable QSettings m_settings("DecentEspresso", "DE1Qt")`, declare properties + getters + setters + NOTIFY signals.
+1. **Create `src/core/settings_<domain>.h` + `.cpp`**. Inherit `QObject`, own a `mutable AppSettings m_settings` (default-constructed — `AppSettings` names the store, see `src/core/appsettings.h`), declare properties + getters + setters + NOTIFY signals.
 2. **Add forward declaration in `src/core/settings.h`** at the top. NEVER `#include "settings_<domain>.h"` in `settings.h` — that pulls the new header into ~39 .cpp files transitively and undoes the build win.
 3. **Add `Q_PROPERTY(QObject* <domain> READ <domain>QObject CONSTANT)` to `Settings`**. The property type **must be `QObject*`**, not `Settings<Domain>*`. The typed pointer requires the full type for moc-generated code, which means including the header — losing the build win. `QObject*` lets QML resolve via the runtime metaObject.
 4. **Add typed inline accessor in header**: `Settings<Domain>* <domain>() const { return m_<domain>; }`. C++ callers use this (they include `settings_<domain>.h` themselves).
@@ -142,7 +142,7 @@ QString clientId = m_settings ? m_settingsMqtt->mqttClientId() : "";
 
 ## Storage keys
 
-Each sub-object's `mutable QSettings m_settings("DecentEspresso", "DE1Qt")` opens a **separate handle to the same backing store**. Qt makes that thread-safe on the main thread. Use the same key prefix the property had before the split (e.g. MQTT keys stay `mqtt/enabled`, `mqtt/brokerHost`, etc.) so existing user settings persist across the upgrade.
+Each sub-object's `mutable AppSettings m_settings` opens a **separate handle to the same backing store**. Qt makes that thread-safe on the main thread. Never construct a `QSettings` directly — `AppSettings` is the only place the store identity is named, and it is also what applies test isolation. Use the same key prefix the property had before the split (e.g. MQTT keys stay `mqtt/enabled`, `mqtt/brokerHost`, etc.) so existing user settings persist across the upgrade.
 
 Do **not** rename keys when moving a property between domains — that silently loses every user's saved value.
 
