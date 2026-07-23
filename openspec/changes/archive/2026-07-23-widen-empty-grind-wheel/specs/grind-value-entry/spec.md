@@ -31,7 +31,7 @@ The RPM half SHALL NOT decide the mode (its rows always generate, seeded from
 the neutral anchor when unset): the grind half is the trigger, and both halves
 SHALL switch together, matching the single toggle.
 
-#### Scenario: New bag with no history opens ready to type
+#### Scenario: New bag opens ready to type
 
 - **GIVEN** a new bag with no grind value and no observed history for the grinder
 - **WHEN** the grind control is activated
@@ -39,7 +39,7 @@ SHALL switch together, matching the single toggle.
 - **AND** for an RPM-capable grinder the RPM half SHALL be in text mode too — its always-generatable anchor rows SHALL NOT force wheel mode
 - **AND** it SHALL NOT display a message directing the user to set a grind elsewhere
 
-#### Scenario: Unparseable current value with no history opens in text mode
+#### Scenario: Unparseable current value opens in text mode
 
 - **GIVEN** a recorded grind value the stepper cannot parse AND no observed history for the grinder
 - **WHEN** the picker opens

@@ -29,4 +29,4 @@
 
 ## 5. Archive
 
-- [ ] 5.1 After merge, archive this change and sync `grind-value-entry` specs as the final commit on the PR (per project convention).
+- [x] 5.1 After merge, archive this change and sync `grind-value-entry` specs as the final commit on the PR (per project convention).
