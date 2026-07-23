@@ -1156,7 +1156,7 @@ KeyboardAwareContainer {
                                 id: claudeConnectorsArea
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: Qt.openUrlExternally("https://claude.ai/settings/connectors")
+                                onClicked: Qt.openUrlExternally("https://claude.ai/customize/connectors")
                             }
                             Accessible.onPressAction: claudeConnectorsArea.clicked(null)
                         }

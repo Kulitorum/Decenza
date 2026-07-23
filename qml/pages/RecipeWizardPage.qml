@@ -3577,8 +3577,10 @@ Page {
                                 accessibleName: text
                                 onClicked: {
                                     wizardPage.fHasMilk = !wizardPage.fHasMilk
-                                    if (wizardPage.fHasMilk)
+                                    if (wizardPage.fHasMilk) {
+                                        wizardPage._detailsPage = "steam"
                                         wizardPage.openStep("details")
+                                    }
                                 }
                             }
                             AccessibleButton {
@@ -3588,8 +3590,10 @@ Page {
                                 accessibleName: text
                                 onClicked: {
                                     wizardPage.fHasWater = !wizardPage.fHasWater
-                                    if (wizardPage.fHasWater)
+                                    if (wizardPage.fHasWater) {
+                                        wizardPage._detailsPage = "water"
                                         wizardPage.openStep("details")
+                                    }
                                 }
                             }
                             Item { Layout.fillWidth: true }
