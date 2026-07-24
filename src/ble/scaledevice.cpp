@@ -9,6 +9,13 @@ ScaleDevice::ScaleDevice(QObject* parent)
 }
 
 ScaleDevice::~ScaleDevice() {
+    // The subclass is already gone by the time we get here, so anything that
+    // reaches back through it is unsafe: name() resolved to the base override,
+    // logging `[Scale] "" DISCONNECTED` on every teardown, and
+    // connectedChanged/batteryLevelChanged would be delivered to slots that
+    // legitimately expect a live scale. m_destroying (an event-based flag set
+    // exactly here) makes setConnected() do the bookkeeping and stay quiet.
+    m_destroying = true;
     disconnectFromScale();
 }
 
@@ -74,6 +81,11 @@ void ScaleDevice::disconnectFromScale() {
 void ScaleDevice::setConnected(bool connected) {
     if (m_connected != connected) {
         m_connected = connected;
+        if (m_destroying) {
+            // Destructor path — record the state, drop the timer, emit nothing.
+            m_keepAliveTimer.stop();
+            return;
+        }
         if (connected) {
             qDebug() << "[Scale]" << name() << "CONNECTED";
             m_keepAliveTimer.start();

@@ -240,6 +240,7 @@ void DE1Simulator::startHotWater()
 {
     if (m_state == DE1::State::Sleep) wakeUp();
     qDebug() << "DE1Simulator: Starting hot water";
+    resetYield();
     startOperation(DE1::State::HotWater);
     setState(DE1::State::HotWater, DE1::SubState::Pouring);
 }
@@ -248,8 +249,24 @@ void DE1Simulator::startFlush()
 {
     if (m_state == DE1::State::Sleep) wakeUp();
     qDebug() << "DE1Simulator: Starting flush";
+    resetYield();
     startOperation(DE1::State::HotWaterRinse);
     setState(DE1::State::HotWaterRinse, DE1::SubState::Pouring);
+}
+
+// Zero the yield accumulator and tell the scale about it. Every operation that
+// dispenses into the cup must call this before it starts: m_outputVolume is
+// shared by espresso, hot water and flush, so without the reset a pour reports
+// the PREVIOUS operation's total as its own starting weight — and the scale's
+// tare, taken against that carried-over number, then mis-zeroes the whole
+// operation. startEspresso() has always done this inline; hot water and flush
+// did not.
+void DE1Simulator::resetYield()
+{
+    m_totalVolume = 0.0;
+    m_outputVolume = 0.0;
+    m_scaleWeight = 0.0;
+    emit scaleWeightChanged(0.0);
 }
 
 void DE1Simulator::startDescale()

@@ -114,6 +114,7 @@ set(ANALYSIS_SOURCES
 
 set(SIMULATOR_SOURCES
     ${CMAKE_SOURCE_DIR}/src/simulator/de1simulator.cpp
+    ${CMAKE_SOURCE_DIR}/src/simulator/simulatedscale.cpp
 )
 
 # Standalone codec source (for lightweight tests that only need BLE encoding)
@@ -316,6 +317,11 @@ add_decenza_test(tst_autoflowcal
 add_decenza_test(tst_machinestate
     tst_machinestate.cpp
     mocks/MockScaleDevice.h
+)
+
+# --- tst_simulatedscale: simulator weight -> SimulatedScale -> MachineState ---
+add_decenza_test(tst_simulatedscale
+    tst_simulatedscale.cpp
 )
 
 # --- tst_livesteamcoach: during-steam coaching milestones, gating, completion ---

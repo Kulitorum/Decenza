@@ -94,7 +94,13 @@ void registerScaleTools(McpToolRegistry* registry, MachineState* machineState)
             result["weightG"] = machineState->scaleWeight();
             result["flowRateMlPerSec"] = machineState->scaleFlowRate();
             result["smoothedFlowRateMlPerSec"] = machineState->smoothedScaleFlowRate();
-            result["scaleName"] = machineState->scale()->objectName();
+            // name()/type(), not objectName(): no scale driver ever calls
+            // setObjectName(), so objectName() reported "" for every scale —
+            // including the simulated one — which reads as "no scale attached"
+            // to a model looking at this response.
+            result["scaleName"] = machineState->scale()->name();
+            result["scaleType"] = machineState->scale()->type();
+            result["connected"] = machineState->scale()->isConnected();
             return result;
         },
         "read");
