@@ -1,6 +1,8 @@
 #pragma once
 
 #include <QString>
+#include <QStringList>
+#include <QSet>
 #include <QJsonObject>
 
 /**
@@ -58,6 +60,30 @@ struct ProfileFrame {
     // Convert to/from JSON (supports both our format and de1app format)
     QJsonObject toJson() const;
     static ProfileFrame fromJson(const QJsonObject& json);
+
+    // Step keys we understand. Anything else in a step is a hard import failure
+    // (see unknownJsonKeys), NOT a key we quietly carry along.
+    //
+    // The asymmetry with the top-level passthrough is deliberate. A top-level key
+    // we do not model is usually an app's own metadata block — our `recipe` is
+    // exactly that, and it is "unknown" to reaprime — and preserving it costs
+    // nothing because it does not touch the shot. A key inside a STEP is
+    // different: steps are what the machine executes. If a future app version
+    // adds, say, a new exit condition or pump mode to a frame, round-tripping the
+    // key verbatim would NOT save us — we would still ignore it while brewing and
+    // silently pour a different shot than the file describes.
+    //
+    // So an unrecognised step key means we cannot promise the same coffee, and
+    // the honest response is to refuse the profile and say which key we did not
+    // understand, so it gets reported rather than quietly mis-brewed.
+    //
+    // Verified against every profile available at the time of writing: the 93
+    // shipped built-ins, the 93-file pre-change golden corpus, and 96 reaprime
+    // profiles use exactly 13 distinct step keys between them, all listed here.
+    static const QSet<QString>& knownJsonKeys();
+
+    // Keys present in `json` that knownJsonKeys() does not cover, sorted.
+    static QStringList unknownJsonKeys(const QJsonObject& json);
 
     // Parse from de1app Tcl list format: {key value key value ...}
     static ProfileFrame fromTclList(const QString& tclList);

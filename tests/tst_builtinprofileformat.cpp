@@ -6,6 +6,7 @@
 #include <QJsonArray>
 
 #include "profile/profile.h"
+#include "profile/profileframe.h"
 #include "profile/profilejson.h"
 #include "network/visualizeruploader.h"
 #include "history/shotprojection.h"
@@ -333,6 +334,99 @@ private slots:
         QVERIFY(Profile::jsonParityErrors(
                     QJsonObject{{"target_volume_count_start", QStringLiteral("0")}},
                     QJsonObject{}).isEmpty());
+    }
+
+    // ===== An unrecognised step key is refused, not silently dropped =====
+    //
+    // Preserving such a key would not have helped: we would still ignore it while
+    // brewing and pour a different shot than the file describes. Refusing is the
+    // only honest option, so the user files a bug instead of chasing a bad cup.
+
+    void unknownStepKeyMakesProfileInvalid() {
+        QJsonObject json = makeProfileJson();
+        QJsonArray steps = json.value(QStringLiteral("steps")).toArray();
+        QJsonObject step = steps.at(0).toObject();
+        step[QStringLiteral("exit_on_refractometer")] = QStringLiteral("1.35");
+        steps.replace(0, step);
+        json[QStringLiteral("steps")] = steps;
+
+        const Profile p = Profile::fromJson(QJsonDocument(json));
+
+        QVERIFY2(!p.isValid(), "a profile with an unmodelled step key must not import");
+        QCOMPARE(p.unsupportedStepKeys(), QStringList{QStringLiteral("exit_on_refractometer")});
+
+        // The message has to be worth pasting into a bug report — a bare
+        // "invalid profile" gives the user nothing to report.
+        const QStringList errors = p.validationErrors();
+        QVERIFY(!errors.filter(QStringLiteral("exit_on_refractometer")).isEmpty());
+    }
+
+    void unknownStepKeysAreDedupedAcrossSteps() {
+        QJsonObject json = makeProfileJson();
+        QJsonObject a = json.value(QStringLiteral("steps")).toArray().at(0).toObject();
+        a[QStringLiteral("mystery")] = 1;
+        QJsonObject b = a;
+        b[QStringLiteral("other")] = 2;
+        json[QStringLiteral("steps")] = QJsonArray{a, b};
+
+        const Profile p = Profile::fromJson(QJsonDocument(json));
+        // Reported once each and sorted, not once per offending step.
+        QCOMPARE(p.unsupportedStepKeys(),
+                 (QStringList{QStringLiteral("mystery"), QStringLiteral("other")}));
+    }
+
+    // The strictness is only safe because the real-world key set is small and
+    // fully modelled. If this ever fails, the allowlist has drifted from what we
+    // actually parse and real profiles are about to start being rejected.
+    void everyShippedProfileUsesOnlyKnownStepKeys_data() { builtinProfiles_data(); }
+
+    void everyShippedProfileUsesOnlyKnownStepKeys() {
+        QFETCH(QString, filePath);
+
+        QFile file(filePath);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const QJsonObject onDisk = QJsonDocument::fromJson(file.readAll()).object();
+
+        QStringList unknown;
+        const QJsonArray steps = onDisk.value(QStringLiteral("steps")).toArray();
+        for (const QJsonValue& s : steps)
+            unknown << ProfileFrame::unknownJsonKeys(s.toObject());
+
+        QVERIFY2(unknown.isEmpty(),
+                 qPrintable(QFileInfo(filePath).fileName() + " uses unmodelled step keys: "
+                            + unknown.join(QStringLiteral(", "))));
+    }
+
+    void legacyProfilesUseOnlyKnownStepKeys_data() { legacyProfiles_data(); }
+
+    void legacyProfilesUseOnlyKnownStepKeys() {
+        QFETCH(QString, filePath);
+
+        QFile file(filePath);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const QJsonObject onDisk = QJsonDocument::fromJson(file.readAll()).object();
+
+        QStringList unknown;
+        const QJsonArray steps = onDisk.value(QStringLiteral("steps")).toArray();
+        for (const QJsonValue& s : steps)
+            unknown << ProfileFrame::unknownJsonKeys(s.toObject());
+
+        QVERIFY2(unknown.isEmpty(),
+                 qPrintable(QFileInfo(filePath).fileName() + " uses unmodelled step keys: "
+                            + unknown.join(QStringLiteral(", "))));
+    }
+
+    // Our own output must survive our own strictness — otherwise every save
+    // would produce a file the next launch refuses to load.
+    void canonicalSerializationRoundTripsThroughStrictImport() {
+        const Profile p = Profile::loadFromFile(
+            QStringLiteral(DECENZA_SOURCE_DIR) + QStringLiteral("/resources/profiles/d_flow_default.json"));
+        QVERIFY(p.isValid());
+
+        const Profile again = Profile::fromJson(QJsonDocument(p.toJsonObject()));
+        QVERIFY2(again.isValid(),
+                 qPrintable(QStringLiteral("our own output was rejected: ")
+                            + again.unsupportedStepKeys().join(QStringLiteral(", "))));
     }
 
     // ===== The precision policy is the format's contract with the editors =====

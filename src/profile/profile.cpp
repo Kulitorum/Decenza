@@ -890,7 +890,14 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
 
     QJsonArray stepsArray = obj["steps"].toArray();
     for (const auto& stepVal : stepsArray) {
-        profile.m_steps.append(ProfileFrame::fromJson(stepVal.toObject()));
+        const QJsonObject stepObj = stepVal.toObject();
+        // Collect before parsing: a key we do not model is silently absent from
+        // the resulting frame, so this is the only point at which it is visible.
+        for (const QString& key : ProfileFrame::unknownJsonKeys(stepObj)) {
+            if (!profile.m_unsupportedStepKeys.contains(key))
+                profile.m_unsupportedStepKeys << key;
+        }
+        profile.m_steps.append(ProfileFrame::fromJson(stepObj));
     }
 
     // Generate frames for simple profiles when steps are empty
@@ -1047,7 +1054,33 @@ bool Profile::saveToFile(const QString& filePath) const {
         return false;
     }
 
-    QByteArray data = toJson().toJson(QJsonDocument::Indented);
+    const QJsonObject canonical = toJsonObject();
+
+    // The cross-app contract, checked on the real output rather than only in
+    // tests. Every profile we write is one a user may hand to another app, and
+    // reaprime hard-rejects a profile missing tank_temperature /
+    // target_volume_count_start or carrying an empty steps array.
+    //
+    // This warns and still saves, deliberately. A profile that fails here is OUR
+    // serializer's bug, not the user's mistake — refusing the write would destroy
+    // their work to punish our defect, and they would have no way to fix it. The
+    // warning names the exact failures so it is actionable from the debug log
+    // (which is how field reports reach us), while their profile stays safe.
+    //
+    // Contrast the import direction, which DOES refuse: there the input is
+    // someone else's file and we cannot promise the shot. Here the shot is
+    // already correct locally; only its portability is in question.
+    const QStringList contractErrors = reaprimeReadabilityErrors(canonical);
+    if (!contractErrors.isEmpty()) {
+        qWarning().noquote()
+            << "Profile::saveToFile: SAVED, but this profile is not readable by "
+               "other DE1 apps (reaprime) —" << contractErrors.join(QStringLiteral("; "))
+            << "| profile:" << m_title << "| file:" << filePath
+            << "| This is a Decenza serializer bug, not a problem with your profile. "
+               "Please report it; the profile itself is saved and usable here.";
+    }
+
+    QByteArray data = QJsonDocument(canonical).toJson(QJsonDocument::Indented);
     qint64 bytesWritten = file.write(data);
     if (bytesWritten != data.size()) {
         qWarning() << "Profile::saveToFile: Failed to write all data to:" << filePath
@@ -1317,7 +1350,12 @@ void Profile::moveStep(int from, int to) {
 }
 
 bool Profile::isValid() const {
-    return !m_steps.isEmpty() && m_steps.size() <= MAX_FRAMES;
+    // An unrecognised step key makes the profile invalid on purpose, so that
+    // every existing import path refuses it without each one needing its own
+    // check. We would execute such a frame without whatever the key asked for —
+    // a different shot than the file describes, with nothing to show for it.
+    return !m_steps.isEmpty() && m_steps.size() <= MAX_FRAMES
+           && m_unsupportedStepKeys.isEmpty();
 }
 
 bool Profile::functionallyEqual(const Profile& a, const Profile& b)
@@ -1386,6 +1424,17 @@ QStringList Profile::validationErrors() const {
 
     if (m_steps.isEmpty()) {
         errors << "Profile has no steps";
+    }
+
+    // Named explicitly, and phrased so the message is worth pasting into a bug
+    // report: the key is the whole diagnosis, and a user who only sees "invalid
+    // profile" has nothing to report and no reason to trust the refusal.
+    if (!m_unsupportedStepKeys.isEmpty()) {
+        errors << QStringLiteral(
+                      "Profile uses step settings this version does not understand "
+                      "(%1). It was not imported, because ignoring them would brew "
+                      "a different shot than the profile describes. Please report this.")
+                      .arg(m_unsupportedStepKeys.join(QStringLiteral(", ")));
     }
 
     if (m_steps.size() > MAX_FRAMES) {

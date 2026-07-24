@@ -76,6 +76,43 @@ QJsonObject ProfileFrame::toJson() const {
     return obj;
 }
 
+const QSet<QString>& ProfileFrame::knownJsonKeys() {
+    static const QSet<QString> k = {
+        // The 13 canonical keys, as written by de1app, reaprime and ourselves.
+        // `exit` and `limiter` are nested objects; their inner fields are read by
+        // fromJson below and are not listed here.
+        QStringLiteral("name"),        QStringLiteral("pump"),
+        QStringLiteral("sensor"),      QStringLiteral("transition"),
+        QStringLiteral("temperature"), QStringLiteral("pressure"),
+        QStringLiteral("flow"),        QStringLiteral("seconds"),
+        QStringLiteral("volume"),      QStringLiteral("weight"),
+        QStringLiteral("exit"),        QStringLiteral("limiter"),
+        QStringLiteral("popup"),
+
+        // The flat de1app-style spellings of the same exit/limiter data. Our own
+        // MCP surface and older files use these instead of the nested objects, so
+        // they are equally "known" — same meaning, different encoding.
+        QStringLiteral("exit_if"),             QStringLiteral("exit_type"),
+        QStringLiteral("exit_pressure_over"),  QStringLiteral("exit_pressure_under"),
+        QStringLiteral("exit_flow_over"),      QStringLiteral("exit_flow_under"),
+        QStringLiteral("exit_weight"),
+        QStringLiteral("max_flow_or_pressure"),
+        QStringLiteral("max_flow_or_pressure_range"),
+    };
+    return k;
+}
+
+QStringList ProfileFrame::unknownJsonKeys(const QJsonObject& json) {
+    QStringList unknown;
+    const QSet<QString>& known = knownJsonKeys();
+    for (auto it = json.constBegin(); it != json.constEnd(); ++it) {
+        if (!known.contains(it.key()))
+            unknown << it.key();
+    }
+    unknown.sort();
+    return unknown;
+}
+
 ProfileFrame ProfileFrame::fromJson(const QJsonObject& json) {
     ProfileFrame frame;
     frame.name = json["name"].toString();

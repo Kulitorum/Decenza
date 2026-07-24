@@ -303,6 +303,12 @@ public:
     bool isValid() const;
     QStringList validationErrors() const;
 
+    // Step keys encountered at load that this build does not understand. When
+    // non-empty the profile is deliberately invalid: we cannot promise it brews
+    // the same shot, so it must not be imported. Exposed so callers can name the
+    // offending key in a message the user can turn into a bug report.
+    QStringList unsupportedStepKeys() const { return m_unsupportedStepKeys; }
+
     // Count consecutive leading frames with exit conditions (preinfusion frames)
     static int countPreinfuseFrames(const QList<ProfileFrame>& steps);
 
@@ -376,6 +382,11 @@ private:
     // Decenza load→save round trip instead of being silently stripped (de1app
     // writes several simple-editor keys we never read). Canonical keys always win.
     QJsonObject m_unknownKeys;
+
+    // Step keys seen at load that we do not understand. Non-empty makes the
+    // profile invalid — see ProfileFrame::knownJsonKeys() for why an unknown
+    // key inside a step is refused rather than carried along.
+    QStringList m_unsupportedStepKeys;
 
     RecipeParams m_recipeParams;
 
