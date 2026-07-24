@@ -1,144 +1,151 @@
 {
     "author": "Decent",
     "beverage_type": "espresso",
-    "espresso_decline_time": 20,
-    "espresso_hold_time": 5,
-    "espresso_pressure": 9,
-    "espresso_temperature": 92,
-    "flow_profile_decline": 1.2,
-    "flow_profile_decline_time": 17,
-    "flow_profile_hold": 2,
-    "flow_profile_hold_time": 8,
+    "changes_since_last_espresso": "",
+    "espresso_decline_time": "20.00",
+    "espresso_hold_time": "5.00",
+    "espresso_pressure": "9.00",
+    "espresso_temperature": "92.00",
+    "flow_profile_decline": "1.20",
+    "flow_profile_decline_time": "17.00",
+    "flow_profile_hold": "2.00",
+    "flow_profile_hold_time": "8.00",
     "has_recommended_dose": false,
+    "hidden": "0",
+    "lang": "en",
     "legacy_profile_type": "settings_2a",
-    "maximum_flow": 0,
-    "maximum_flow_range_advanced": 0.6,
-    "maximum_flow_range_default": 1,
-    "maximum_pressure": 0,
-    "maximum_pressure_range_advanced": 0.6,
-    "maximum_pressure_range_default": 0.9,
-    "minimum_pressure": 6,
+    "maximum_flow": "0.00",
+    "maximum_flow_range_advanced": "0.60",
+    "maximum_flow_range_default": "1.00",
+    "maximum_pressure": "0.00",
+    "maximum_pressure_range_advanced": "0.60",
+    "maximum_pressure_range_default": "0.90",
+    "minimum_pressure": "6.00",
     "mode": "frame_based",
     "notes": "This high tech variation on the classic E61 9 bar shot brings out more acidity by increasing pressure towards the end of the shot.  This makes it more appropriate to drink without milk.  It will be quite thick, so adding water to make an Americano is recommended.",
-    "number_of_preinfuse_frames": 0,
-    "preinfusion_flow_rate": 8,
-    "preinfusion_stop_pressure": 4,
-    "preinfusion_time": 10,
-    "pressure_end": 10,
+    "number_of_preinfuse_frames": "0",
+    "preinfusion_flow_rate": "8.00",
+    "preinfusion_stop_pressure": "4.00",
+    "preinfusion_time": "10.00",
+    "pressure_end": "10.00",
     "read_only": 1,
-    "recommended_dose": 18,
+    "recommended_dose": "18.0",
+    "reference_file": "E61 classic gently up to 10 bar",
     "steps": [
         {
             "exit": {
                 "condition": "over",
                 "type": "pressure",
-                "value": 4
+                "value": "4.00"
             },
-            "flow": 8,
+            "flow": "8.00",
             "limiter": {
-                "range": 0.6,
-                "value": 0
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "preinfusion temp boost",
-            "pressure": 1,
+            "pressure": "1.00",
             "pump": "flow",
-            "seconds": 2,
+            "seconds": "2.00",
             "sensor": "coffee",
-            "temperature": 92,
+            "temperature": "92.00",
             "transition": "fast",
-            "volume": 0
+            "volume": "0"
         },
         {
             "exit": {
                 "condition": "over",
                 "type": "pressure",
-                "value": 4
+                "value": "4.00"
             },
-            "flow": 8,
+            "flow": "8.00",
             "limiter": {
-                "range": 0.6,
-                "value": 0
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "preinfusion",
-            "pressure": 1,
+            "pressure": "1.00",
             "pump": "flow",
-            "seconds": 8,
+            "seconds": "8.00",
             "sensor": "coffee",
-            "temperature": 92,
+            "temperature": "92.00",
             "transition": "fast",
-            "volume": 0
+            "volume": "0"
         },
         {
-            "flow": 2,
+            "flow": "2.00",
             "limiter": {
-                "range": 0.6,
-                "value": 0
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "forced rise without limit",
-            "pressure": 9,
+            "pressure": "9.00",
             "pump": "pressure",
-            "seconds": 3,
+            "seconds": "3.00",
             "sensor": "coffee",
-            "temperature": 92,
+            "temperature": "92.00",
             "transition": "fast",
-            "volume": 0
+            "volume": "0"
         },
         {
-            "flow": 2,
+            "flow": "2.00",
             "limiter": {
-                "range": 0.6,
-                "value": 0
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "rise and hold",
-            "pressure": 9,
+            "pressure": "9.00",
             "pump": "pressure",
-            "seconds": 2,
+            "seconds": "2.00",
             "sensor": "coffee",
-            "temperature": 92,
+            "temperature": "92.00",
             "transition": "fast",
-            "volume": 0
+            "volume": "0"
         },
         {
-            "flow": 2,
+            "flow": "2.00",
             "limiter": {
-                "range": 0.6,
-                "value": 0
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "forced rise without limit",
-            "pressure": 9,
+            "pressure": "9.00",
             "pump": "pressure",
-            "seconds": 3,
+            "seconds": "3.00",
             "sensor": "coffee",
-            "temperature": 92,
+            "temperature": "92.00",
             "transition": "fast",
-            "volume": 0
+            "volume": "0"
         },
         {
-            "flow": 2,
+            "flow": "2.00",
             "limiter": {
-                "range": 0.6,
-                "value": 0
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "decline",
-            "pressure": 10,
+            "pressure": "10.00",
             "pump": "pressure",
-            "seconds": 17,
+            "seconds": "17.00",
             "sensor": "coffee",
-            "temperature": 92,
+            "temperature": "92.00",
             "transition": "smooth",
-            "volume": 0
+            "volume": "0"
         }
     ],
-    "tank_desired_water_temperature": 0,
-    "target_volume": 36,
-    "target_weight": 36,
+    "tank_desired_water_temperature": "0.0",
+    "tank_temperature": "0.0",
+    "target_volume": "36.0",
+    "target_volume_count_start": "0",
+    "target_weight": "36.0",
     "temp_steps_enabled": true,
     "temperature_presets": [
-        92,
-        92,
-        92,
-        92
+        "92.00",
+        "92.00",
+        "92.00",
+        "92.00"
     ],
     "title": "E61 classic gently up to 10 bar",
+    "type": "pressure",
     "version": "2"
 }

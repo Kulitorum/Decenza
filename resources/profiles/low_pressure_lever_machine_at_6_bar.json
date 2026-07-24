@@ -1,109 +1,116 @@
 {
     "author": "Decent",
     "beverage_type": "espresso",
-    "espresso_decline_time": 27,
-    "espresso_hold_time": 8,
-    "espresso_pressure": 6,
-    "espresso_temperature": 94,
-    "flow_profile_decline": 1.2,
-    "flow_profile_decline_time": 17,
-    "flow_profile_hold": 2,
-    "flow_profile_hold_time": 8,
+    "changes_since_last_espresso": "",
+    "espresso_decline_time": "27.00",
+    "espresso_hold_time": "8.00",
+    "espresso_pressure": "6.00",
+    "espresso_temperature": "94.00",
+    "flow_profile_decline": "1.20",
+    "flow_profile_decline_time": "17.00",
+    "flow_profile_hold": "2.00",
+    "flow_profile_hold_time": "8.00",
     "has_recommended_dose": false,
+    "hidden": "0",
+    "lang": "en",
     "legacy_profile_type": "settings_2a",
-    "maximum_flow": 6,
-    "maximum_flow_range_advanced": 0.6,
-    "maximum_flow_range_default": 1,
-    "maximum_pressure": 12,
-    "maximum_pressure_range_advanced": 0.6,
-    "maximum_pressure_range_default": 0.9,
-    "minimum_pressure": 6,
+    "maximum_flow": "6.00",
+    "maximum_flow_range_advanced": "0.60",
+    "maximum_flow_range_default": "1.00",
+    "maximum_pressure": "12.00",
+    "maximum_pressure_range_advanced": "0.60",
+    "maximum_pressure_range_default": "0.90",
+    "minimum_pressure": "6.00",
     "mode": "frame_based",
     "notes": "Lever espresso machines are why we refer to pulling an espresso.  You pull a spring-loaded lever by hand to create pressure on the coffee puck.  This 6 bar espresso is a classic Italian technique, and will result in a very sweet and gentle espresso.",
-    "number_of_preinfuse_frames": 0,
-    "preinfusion_flow_rate": 4.5,
-    "preinfusion_stop_pressure": 4,
-    "preinfusion_time": 20,
-    "pressure_end": 0,
+    "number_of_preinfuse_frames": "0",
+    "preinfusion_flow_rate": "4.50",
+    "preinfusion_stop_pressure": "4.00",
+    "preinfusion_time": "20.00",
+    "pressure_end": "0.00",
     "read_only": 1,
-    "recommended_dose": 18,
+    "recommended_dose": "18.0",
+    "reference_file": "Low pressure lever machine at 6 bar",
     "steps": [
         {
             "exit": {
                 "condition": "over",
                 "type": "pressure",
-                "value": 4
+                "value": "4.00"
             },
-            "flow": 4.5,
+            "flow": "4.50",
             "limiter": {
-                "range": 0.6,
-                "value": 0
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "preinfusion",
-            "pressure": 1,
+            "pressure": "1.00",
             "pump": "flow",
-            "seconds": 20,
+            "seconds": "20.00",
             "sensor": "coffee",
-            "temperature": 88,
+            "temperature": "88.00",
             "transition": "fast",
-            "volume": 0
+            "volume": "0"
         },
         {
-            "flow": 2,
+            "flow": "2.00",
             "limiter": {
-                "range": 0.6,
-                "value": 0
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "forced rise without limit",
-            "pressure": 6,
+            "pressure": "6.00",
             "pump": "pressure",
-            "seconds": 3,
+            "seconds": "3.00",
             "sensor": "coffee",
-            "temperature": 88,
+            "temperature": "88.00",
             "transition": "fast",
-            "volume": 0
+            "volume": "0"
         },
         {
-            "flow": 2,
+            "flow": "2.00",
             "limiter": {
-                "range": 1,
-                "value": 6
+                "range": "1.00",
+                "value": "6.00"
             },
             "name": "rise and hold",
-            "pressure": 6,
+            "pressure": "6.00",
             "pump": "pressure",
-            "seconds": 5,
+            "seconds": "5.00",
             "sensor": "coffee",
-            "temperature": 88,
+            "temperature": "88.00",
             "transition": "fast",
-            "volume": 0
+            "volume": "0"
         },
         {
-            "flow": 2,
+            "flow": "2.00",
             "limiter": {
-                "range": 1,
-                "value": 6
+                "range": "1.00",
+                "value": "6.00"
             },
             "name": "decline",
-            "pressure": 0,
+            "pressure": "0.00",
             "pump": "pressure",
-            "seconds": 27,
+            "seconds": "27.00",
             "sensor": "coffee",
-            "temperature": 88,
+            "temperature": "88.00",
             "transition": "smooth",
-            "volume": 0
+            "volume": "0"
         }
     ],
-    "tank_desired_water_temperature": 0,
-    "target_volume": 36,
-    "target_weight": 36,
+    "tank_desired_water_temperature": "0.0",
+    "tank_temperature": "0.0",
+    "target_volume": "36.0",
+    "target_volume_count_start": "0",
+    "target_weight": "36.0",
     "temp_steps_enabled": false,
     "temperature_presets": [
-        88,
-        90,
-        93,
-        96
+        "88.00",
+        "90.00",
+        "93.00",
+        "96.00"
     ],
     "title": "Low pressure lever machine at 6 bar",
+    "type": "pressure",
     "version": "2"
 }

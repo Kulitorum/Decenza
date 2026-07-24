@@ -272,6 +272,19 @@ add_decenza_test(tst_profile
     tst_profile.cpp
 )
 
+# --- tst_builtinprofileformat: every shipped built-in must satisfy reaprime's
+# Profile.fromJson contract (required keys, non-empty steps, enum vocabulary), so
+# a profile makes the same coffee in every DE1 app. See OpenSpec
+# align-profile-json-with-reaprime.
+add_decenza_test(tst_builtinprofileformat
+    tst_builtinprofileformat.cpp
+    ${CMAKE_BINARY_DIR}/version_code.cpp
+)
+# decenza_shotlib: the upload-payload test asserts VisualizerUploader emits the
+# same canonical serialization as the on-disk format.
+target_link_libraries(tst_builtinprofileformat PRIVATE decenza_shotlib)
+target_include_directories(tst_builtinprofileformat PRIVATE ${CMAKE_BINARY_DIR})
+
 # --- tst_visualizershotparse: JSON->ShotRecord recovery parser (string-encoded
 # DYE scalars must not zero; hollow-shot guard; phantom-frame guard). ---
 add_decenza_test(tst_visualizershotparse

@@ -1,17 +1,33 @@
 {
     "author": "Janek",
     "beverage_type": "espresso",
-    "espresso_temperature": 95,
+    "changes_since_last_espresso": "",
+    "espresso_decline_time": "25.00",
+    "espresso_hold_time": "10.00",
+    "espresso_pressure": "9.20",
+    "espresso_temperature": "95.00",
+    "flow_profile_decline": "1.20",
+    "flow_profile_decline_time": "17.00",
+    "flow_profile_hold": "2.00",
+    "flow_profile_hold_time": "8.00",
     "has_recommended_dose": false,
+    "hidden": "0",
+    "lang": "en",
     "legacy_profile_type": "settings_2c",
-    "maximum_flow": 0,
-    "maximum_flow_range_advanced": 0.6,
-    "maximum_pressure": 0,
-    "maximum_pressure_range_advanced": 0.6,
-    "minimum_pressure": 4,
+    "maximum_flow": "0.00",
+    "maximum_flow_range_advanced": "0.60",
+    "maximum_flow_range_default": "1.00",
+    "maximum_pressure": "0.00",
+    "maximum_pressure_range_advanced": "0.60",
+    "maximum_pressure_range_default": "0.90",
+    "minimum_pressure": "4.00",
     "mode": "frame_based",
     "notes": "A-Flow: an alternative profile for D-Flow",
-    "number_of_preinfuse_frames": 2,
+    "number_of_preinfuse_frames": "2",
+    "preinfusion_flow_rate": "4.00",
+    "preinfusion_stop_pressure": "4.00",
+    "preinfusion_time": "5.00",
+    "pressure_end": "4.00",
     "recipe": {
         "dose": 18,
         "espressoPressure": 8.4,
@@ -48,184 +64,189 @@
         "tempPreinfuse": 90,
         "tempStart": 90
     },
-    "recommended_dose": 18,
+    "recommended_dose": "18.0",
+    "reference_file": "A-Flow / default-medium",
     "steps": [
         {
-            "flow": 8,
+            "flow": "8.00",
             "limiter": {
-                "range": 0.6,
-                "value": 8
+                "range": "0.60",
+                "value": "8.00"
             },
             "name": "Pre Fill",
-            "pressure": 3,
+            "pressure": "3.00",
             "pump": "flow",
-            "seconds": 1,
+            "seconds": "1.00",
             "sensor": "coffee",
-            "temperature": 93,
+            "temperature": "93.00",
             "transition": "fast",
-            "volume": 100
+            "volume": "100"
         },
         {
             "exit": {
                 "condition": "over",
                 "type": "pressure",
-                "value": 3
+                "value": "3.00"
             },
-            "flow": 8,
+            "flow": "8.00",
             "limiter": {
-                "range": 0.6,
-                "value": 8
+                "range": "0.60",
+                "value": "8.00"
             },
             "name": "Fill",
-            "pressure": 3,
+            "pressure": "3.00",
             "pump": "flow",
-            "seconds": 15,
+            "seconds": "15.00",
             "sensor": "coffee",
-            "temperature": 93,
+            "temperature": "93.00",
             "transition": "fast",
-            "volume": 100
+            "volume": "100"
         },
         {
-            "flow": 0,
+            "flow": "0.00",
             "limiter": {
-                "range": 0.6,
-                "value": 1
+                "range": "0.60",
+                "value": "1.00"
             },
             "name": "Infuse",
             "popup": "$weight",
-            "pressure": 3,
+            "pressure": "3.00",
             "pump": "pressure",
-            "seconds": 60,
+            "seconds": "60.00",
             "sensor": "coffee",
-            "temperature": 93,
+            "temperature": "93.00",
             "transition": "fast",
-            "volume": 100,
-            "weight": 3.6
+            "volume": "100",
+            "weight": "3.6"
         },
         {
             "exit": {
                 "condition": "over",
                 "type": "pressure",
-                "value": 2.5
+                "value": "2.50"
             },
-            "flow": 8,
+            "flow": "8.00",
             "limiter": {
-                "range": 0.6,
-                "value": 3
+                "range": "0.60",
+                "value": "3.00"
             },
             "name": "2nd Fill",
-            "pressure": 0,
+            "pressure": "0.00",
             "pump": "flow",
-            "seconds": 0,
+            "seconds": "0.00",
             "sensor": "coffee",
-            "temperature": 95,
+            "temperature": "95.00",
             "transition": "fast",
-            "volume": 100
+            "volume": "100"
         },
         {
             "exit": {
                 "condition": "under",
                 "type": "flow",
-                "value": 1
+                "value": "1.00"
             },
-            "flow": 6,
+            "flow": "6.00",
             "limiter": {
-                "range": 0.6,
-                "value": 1
+                "range": "0.60",
+                "value": "1.00"
             },
             "name": "Pause",
-            "pressure": 1,
+            "pressure": "1.00",
             "pump": "pressure",
-            "seconds": 0,
+            "seconds": "0.00",
             "sensor": "coffee",
-            "temperature": 95,
+            "temperature": "95.00",
             "transition": "fast",
-            "volume": 100
+            "volume": "100"
         },
         {
             "exit": {
                 "condition": "over",
                 "type": "flow",
-                "value": 2
+                "value": "2.00"
             },
-            "flow": 8,
+            "flow": "8.00",
             "limiter": {
-                "range": 0.6,
-                "value": 0
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Pressure Up",
             "popup": "$weight",
-            "pressure": 10,
+            "pressure": "10.00",
             "pump": "pressure",
-            "seconds": 10,
+            "seconds": "10.00",
             "sensor": "coffee",
-            "temperature": 93,
+            "temperature": "93.00",
             "transition": "smooth",
-            "volume": 100
+            "volume": "100"
         },
         {
             "exit": {
                 "condition": "under",
                 "type": "flow",
-                "value": 2.1
+                "value": "2.10"
             },
-            "flow": 8,
+            "flow": "8.00",
             "limiter": {
-                "range": 0.6,
-                "value": 0
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Pressure Decline",
             "popup": "$weight",
-            "pressure": 1,
+            "pressure": "1.00",
             "pump": "pressure",
-            "seconds": 0,
+            "seconds": "0.00",
             "sensor": "coffee",
-            "temperature": 93,
+            "temperature": "93.00",
             "transition": "smooth",
-            "volume": 100
+            "volume": "100"
         },
         {
-            "flow": 2,
+            "flow": "2.00",
             "limiter": {
-                "range": 0.6,
-                "value": 0
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Flow Start",
             "popup": "Flow Start",
-            "pressure": 3,
+            "pressure": "3.00",
             "pump": "flow",
-            "seconds": 0,
+            "seconds": "0.00",
             "sensor": "coffee",
-            "temperature": 93,
+            "temperature": "93.00",
             "transition": "fast",
-            "volume": 100
+            "volume": "100"
         },
         {
-            "flow": 4,
+            "flow": "4.00",
             "limiter": {
-                "range": 0.6,
-                "value": 10
+                "range": "0.60",
+                "value": "10.00"
             },
             "name": "Flow Extraction",
             "popup": "$weight",
-            "pressure": 3,
+            "pressure": "3.00",
             "pump": "flow",
-            "seconds": 60,
+            "seconds": "60.00",
             "sensor": "coffee",
-            "temperature": 93,
+            "temperature": "93.00",
             "transition": "smooth",
-            "volume": 100
+            "volume": "100"
         }
     ],
-    "tank_desired_water_temperature": 0,
-    "target_volume": 100,
-    "target_weight": 42,
+    "tank_desired_water_temperature": "0.0",
+    "tank_temperature": "0.0",
+    "target_volume": "100.0",
+    "target_volume_count_start": "2",
+    "target_weight": "42.0",
+    "temp_steps_enabled": false,
     "temperature_presets": [
-        95,
-        95,
-        95,
-        95
+        "95.00",
+        "95.00",
+        "95.00",
+        "95.00"
     ],
     "title": "A-Flow / default-medium",
+    "type": "advanced",
     "version": "2"
 }

@@ -1,124 +1,131 @@
 {
     "author": "Decent",
     "beverage_type": "espresso",
-    "espresso_decline_time": 25,
-    "espresso_hold_time": 10,
-    "espresso_pressure": 9.2,
-    "espresso_temperature": 94,
-    "flow_profile_decline": 1.2,
-    "flow_profile_decline_time": 17,
-    "flow_profile_hold": 2,
-    "flow_profile_hold_time": 8,
+    "changes_since_last_espresso": "",
+    "espresso_decline_time": "25.00",
+    "espresso_hold_time": "10.00",
+    "espresso_pressure": "9.20",
+    "espresso_temperature": "94.00",
+    "flow_profile_decline": "1.20",
+    "flow_profile_decline_time": "17.00",
+    "flow_profile_hold": "2.00",
+    "flow_profile_hold_time": "8.00",
     "has_recommended_dose": false,
+    "hidden": "0",
+    "lang": "en",
     "legacy_profile_type": "settings_2a",
-    "maximum_flow": 4.5,
-    "maximum_flow_range_advanced": 0.6,
-    "maximum_flow_range_default": 1,
-    "maximum_pressure": 0,
-    "maximum_pressure_range_advanced": 0.6,
-    "maximum_pressure_range_default": 0.9,
-    "minimum_pressure": 6,
+    "maximum_flow": "4.50",
+    "maximum_flow_range_advanced": "0.60",
+    "maximum_flow_range_default": "1.00",
+    "maximum_pressure": "0.00",
+    "maximum_pressure_range_advanced": "0.60",
+    "maximum_pressure_range_default": "0.90",
+    "minimum_pressure": "6.00",
     "mode": "frame_based",
     "notes": "This will imitate the espresso style of the majority of cafes around the world. It uses a short preinfusion with a flat 9 bar pressure profile.",
-    "number_of_preinfuse_frames": 0,
-    "preinfusion_flow_rate": 4,
-    "preinfusion_stop_pressure": 4,
-    "preinfusion_time": 5,
-    "pressure_end": 4,
+    "number_of_preinfuse_frames": "0",
+    "preinfusion_flow_rate": "4.00",
+    "preinfusion_stop_pressure": "4.00",
+    "preinfusion_time": "5.00",
+    "pressure_end": "4.00",
     "read_only": 1,
-    "recommended_dose": 18,
+    "recommended_dose": "18.0",
+    "reference_file": "Classic Italian espresso",
     "steps": [
         {
             "exit": {
                 "condition": "over",
                 "type": "pressure",
-                "value": 4
+                "value": "4.00"
             },
-            "flow": 4,
+            "flow": "4.00",
             "limiter": {
-                "range": 0.6,
-                "value": 0
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "preinfusion",
-            "pressure": 1,
+            "pressure": "1.00",
             "pump": "flow",
-            "seconds": 25,
+            "seconds": "25.00",
             "sensor": "coffee",
-            "temperature": 98,
+            "temperature": "98.00",
             "transition": "fast",
-            "volume": 100
+            "volume": "100"
         },
         {
-            "flow": 0,
+            "flow": "0.00",
             "limiter": {
-                "range": 0.6,
-                "value": 0
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "pause",
-            "pressure": 6,
+            "pressure": "6.00",
             "pump": "flow",
-            "seconds": 30,
+            "seconds": "30.00",
             "sensor": "coffee",
-            "temperature": 90,
+            "temperature": "90.00",
             "transition": "fast",
-            "volume": 100
+            "volume": "100"
         },
         {
-            "flow": 2.2,
+            "flow": "2.20",
             "limiter": {
-                "range": 0.6,
-                "value": 0
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "ramp",
-            "pressure": 4,
+            "pressure": "4.00",
             "pump": "flow",
-            "seconds": 5,
+            "seconds": "5.00",
             "sensor": "coffee",
-            "temperature": 92,
+            "temperature": "92.00",
             "transition": "smooth",
-            "volume": 100
+            "volume": "100"
         },
         {
-            "flow": 2.2,
+            "flow": "2.20",
             "limiter": {
-                "range": 0.6,
-                "value": 0
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "flat flow",
-            "pressure": 4,
+            "pressure": "4.00",
             "pump": "flow",
-            "seconds": 20,
+            "seconds": "20.00",
             "sensor": "coffee",
-            "temperature": 92,
+            "temperature": "92.00",
             "transition": "fast",
-            "volume": 100
+            "volume": "100"
         },
         {
-            "flow": 0,
+            "flow": "0.00",
             "limiter": {
-                "range": 0.6,
-                "value": 0
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "reset temperature",
-            "pressure": 4,
+            "pressure": "4.00",
             "pump": "flow",
-            "seconds": 1,
+            "seconds": "1.00",
             "sensor": "coffee",
-            "temperature": 98,
+            "temperature": "98.00",
             "transition": "fast",
-            "volume": 100
+            "volume": "100"
         }
     ],
-    "tank_desired_water_temperature": 0,
-    "target_volume": 36,
-    "target_weight": 36,
+    "tank_desired_water_temperature": "0.0",
+    "tank_temperature": "0.0",
+    "target_volume": "36.0",
+    "target_volume_count_start": "0",
+    "target_weight": "36.0",
     "temp_steps_enabled": false,
     "temperature_presets": [
-        94,
-        94,
-        94,
-        94
+        "94.00",
+        "94.00",
+        "94.00",
+        "94.00"
     ],
     "title": "Classic Italian espresso",
+    "type": "pressure",
     "version": "2"
 }

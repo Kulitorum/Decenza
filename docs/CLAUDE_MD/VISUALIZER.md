@@ -190,7 +190,8 @@ Decenza's upload is at feature parity with de1app for Visualizer's purposes. Key
 ### Visualizer Profile Format
 - Visualizer and de1app use the same JSON format with string-encoded numbers (Tcl huddle serialization)
 - The unified `jsonToDouble()` helper and `ProfileFrame::fromJson()` handle string-to-double conversion and nested-to-flat field mapping transparently
-- The Visualizer uploader (`buildVisualizerProfileJson()`) string-encodes numbers to match de1app convention
+- **The uploaded profile is the canonical format — there is only one.** `buildVisualizerProfileJson()` **delegates to `Profile::toJsonObject()`** and must not re-serialize any field itself. It previously hand-built its own copy of the payload, and the two writers drifted (the Visualizer path gained `tank_temperature` / `target_volume_count_start` / the tablet metadata while the on-disk writer never did, leaving Decenza's exported profiles unreadable by reaprime). Add new profile fields to the canonical serializer only. See "JSON Format (canonical)" in `RECIPE_PROFILES.md`.
+- `buildHistoryShotJson()` also re-serializes the stored profile through `Profile::toJsonObject()`, so re-uploading an old shot emits the current format rather than whatever encoding was stored at the time. It falls back to the raw stored object only if the stored JSON doesn't parse to a valid profile.
 
 ### Profile Import Architecture (ProfileSaveHelper)
 

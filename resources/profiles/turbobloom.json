@@ -1,136 +1,160 @@
 {
-    "title": "TurboBloom",
     "author": "Decent",
     "beverage_type": "espresso",
-    "notes": "Dynamic bloom into pressure extraction. Based on the 'easy blooming' profile structure from Luca and Stephane and modified to primarily target high extraction grinders at high flow rates, typically ending around 3-4.5ml/s. Dial with ratio once grind is giving an ending flowrate in the range. Includes a significant temperature drop that reduces harshness (although the actual temperature drop is much less than programmed). By Joe D.",
+    "changes_since_last_espresso": "",
+    "espresso_decline_time": "30.00",
+    "espresso_hold_time": "15.00",
+    "espresso_pressure": "6.00",
+    "espresso_temperature": "86.00",
+    "flow_profile_decline": "1.20",
+    "flow_profile_decline_time": "17.00",
+    "flow_profile_hold": "2.00",
+    "flow_profile_hold_time": "8.00",
+    "flow_profile_minimum_pressure": 4,
+    "flow_profile_preinfusion": 4,
+    "flow_profile_preinfusion_time": 5,
+    "has_recommended_dose": false,
+    "hidden": "0",
+    "lang": "en",
     "legacy_profile_type": "settings_2c",
-    "version": "2",
-    "number_of_preinfuse_frames": 2,
-    "maximum_pressure": 0.0,
-    "maximum_flow": 0.0,
-    "minimum_pressure": 4.0,
-    "target_weight": 39.0,
-    "target_volume": 0,
+    "maximum_flow": "0.00",
+    "maximum_flow_range_advanced": "1.00",
+    "maximum_flow_range_default": "1.00",
+    "maximum_pressure": "0.00",
+    "maximum_pressure_range_advanced": "0.60",
+    "maximum_pressure_range_default": "0.90",
+    "minimum_pressure": "4.00",
     "mode": "frame_based",
-    "temperature_presets": [
-        86,
-        86,
-        86,
-        86
-    ],
+    "notes": "Dynamic bloom into pressure extraction. Based on the 'easy blooming' profile structure from Luca and Stephane and modified to primarily target high extraction grinders at high flow rates, typically ending around 3-4.5ml/s. Dial with ratio once grind is giving an ending flowrate in the range. Includes a significant temperature drop that reduces harshness (although the actual temperature drop is much less than programmed). By Joe D.",
+    "number_of_preinfuse_frames": "2",
+    "preinfusion_flow_rate": "4.00",
+    "preinfusion_stop_pressure": "4.00",
+    "preinfusion_time": "20.00",
+    "pressure_end": "4.00",
+    "read_only": 1,
+    "recommended_dose": "18.0",
+    "reference_file": "TurboBloom",
     "steps": [
         {
-            "name": "preinfusion start",
-            "temperature": 86.0,
-            "sensor": "coffee",
-            "pump": "flow",
-            "transition": "fast",
-            "pressure": 1.0,
-            "flow": 8.0,
-            "seconds": 2.0,
-            "volume": 100.0
-        },
-        {
-            "name": "preinfusion",
-            "temperature": 86.0,
-            "sensor": "coffee",
-            "pump": "flow",
-            "transition": "fast",
-            "pressure": 1.0,
-            "flow": 8.0,
-            "seconds": 20.0,
-            "volume": 100.0,
-            "exit": {
-                "type": "pressure",
-                "condition": "over",
-                "value": 4.0
-            }
-        },
-        {
-            "name": "dynamic bloom",
-            "temperature": 70.0,
-            "sensor": "coffee",
-            "pump": "flow",
-            "transition": "fast",
-            "pressure": 6.0,
-            "flow": 0.0,
-            "seconds": 40.0,
-            "volume": 100.0,
-            "exit": {
-                "type": "pressure",
-                "condition": "under",
-                "value": 2.2
-            }
-        },
-        {
-            "name": "ramp",
-            "temperature": 80.0,
-            "sensor": "coffee",
-            "pump": "pressure",
-            "transition": "fast",
-            "pressure": 6.0,
-            "flow": 2.2,
-            "seconds": 4.0,
-            "volume": 100.0,
-            "popup": "$weight",
+            "flow": "8.00",
             "limiter": {
-                "value": 0.0,
-                "range": 1.0
-            }
-        },
-        {
-            "name": "6 bar",
-            "temperature": 77.0,
-            "sensor": "coffee",
-            "pump": "pressure",
-            "transition": "fast",
-            "pressure": 6.0,
-            "flow": 2.2,
-            "seconds": 2.0,
-            "volume": 100.0,
-            "exit": {
-                "type": "flow",
-                "condition": "under",
-                "value": 0.0
+                "range": "0.60",
+                "value": "0.00"
             },
-            "limiter": {
-                "value": 4.5,
-                "range": 1.0
-            }
+            "name": "preinfusion start",
+            "pressure": "1.00",
+            "pump": "flow",
+            "seconds": "2.00",
+            "sensor": "coffee",
+            "temperature": "86.00",
+            "transition": "fast",
+            "volume": "100"
         },
         {
-            "name": "decline",
-            "temperature": 77.0,
-            "sensor": "coffee",
-            "pump": "pressure",
-            "transition": "smooth",
-            "pressure": 3.0,
-            "flow": 3.2,
-            "seconds": 40.0,
-            "volume": 100.0,
+            "exit": {
+                "condition": "over",
+                "type": "pressure",
+                "value": "4.00"
+            },
+            "flow": "8.00",
             "limiter": {
-                "value": 4.5,
-                "range": 1.0
-            }
+                "range": "0.60",
+                "value": "0.00"
+            },
+            "name": "preinfusion",
+            "pressure": "1.00",
+            "pump": "flow",
+            "seconds": "20.00",
+            "sensor": "coffee",
+            "temperature": "86.00",
+            "transition": "fast",
+            "volume": "100"
+        },
+        {
+            "exit": {
+                "condition": "under",
+                "type": "pressure",
+                "value": "2.20"
+            },
+            "flow": "0.00",
+            "limiter": {
+                "range": "0.60",
+                "value": "0.00"
+            },
+            "name": "dynamic bloom",
+            "pressure": "6.00",
+            "pump": "flow",
+            "seconds": "40.00",
+            "sensor": "coffee",
+            "temperature": "70.00",
+            "transition": "fast",
+            "volume": "100"
+        },
+        {
+            "flow": "2.20",
+            "limiter": {
+                "range": "1.00",
+                "value": "0.00"
+            },
+            "name": "ramp",
+            "popup": "$weight",
+            "pressure": "6.00",
+            "pump": "pressure",
+            "seconds": "4.00",
+            "sensor": "coffee",
+            "temperature": "80.00",
+            "transition": "fast",
+            "volume": "100"
+        },
+        {
+            "exit": {
+                "condition": "under",
+                "type": "flow",
+                "value": "0.00"
+            },
+            "flow": "2.20",
+            "limiter": {
+                "range": "1.00",
+                "value": "4.50"
+            },
+            "name": "6 bar",
+            "pressure": "6.00",
+            "pump": "pressure",
+            "seconds": "2.00",
+            "sensor": "coffee",
+            "temperature": "77.00",
+            "transition": "fast",
+            "volume": "100"
+        },
+        {
+            "flow": "3.20",
+            "limiter": {
+                "range": "1.00",
+                "value": "4.50"
+            },
+            "name": "decline",
+            "pressure": "3.00",
+            "pump": "pressure",
+            "seconds": "40.00",
+            "sensor": "coffee",
+            "temperature": "77.00",
+            "transition": "smooth",
+            "volume": "100"
         }
     ],
-    "espresso_temperature": 86.0,
-    "tank_desired_water_temperature": 0.0,
-    "maximum_pressure_range_advanced": 0.6,
-    "maximum_flow_range_advanced": 1.0,
-    "espresso_pressure": 6.0,
-    "espresso_decline_time": 30.0,
-    "espresso_hold_time": 15.0,
-    "preinfusion_time": 20.0,
-    "preinfusion_stop_pressure": 4.0,
-    "preinfusion_flow_rate": 4.0,
-    "pressure_end": 4.0,
-    "flow_profile_preinfusion": 4.0,
-    "flow_profile_preinfusion_time": 5.0,
-    "flow_profile_hold": 2.0,
-    "flow_profile_hold_time": 8.0,
-    "flow_profile_decline": 1.2,
-    "flow_profile_decline_time": 17.0,
-    "flow_profile_minimum_pressure": 4.0,
-    "read_only": 1
+    "tank_desired_water_temperature": "0.0",
+    "tank_temperature": "0.0",
+    "target_volume": "0.0",
+    "target_volume_count_start": "2",
+    "target_weight": "39.0",
+    "temp_steps_enabled": false,
+    "temperature_presets": [
+        "86.00",
+        "86.00",
+        "86.00",
+        "86.00"
+    ],
+    "title": "TurboBloom",
+    "type": "advanced",
+    "version": "2"
 }

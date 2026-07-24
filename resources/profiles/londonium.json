@@ -1,151 +1,172 @@
 {
     "author": "Decent",
     "beverage_type": "espresso",
-    "espresso_temperature": 89,
+    "changes_since_last_espresso": "",
+    "espresso_decline_time": "25.00",
+    "espresso_hold_time": "10.00",
+    "espresso_pressure": "9.20",
+    "espresso_temperature": "89.00",
+    "flow_profile_decline": "1.20",
+    "flow_profile_decline_time": "17.00",
+    "flow_profile_hold": "2.00",
+    "flow_profile_hold_time": "8.00",
     "has_recommended_dose": false,
+    "hidden": "0",
+    "lang": "en",
     "legacy_profile_type": "settings_2c",
-    "maximum_flow": 0,
-    "maximum_flow_range_advanced": 0.6,
-    "maximum_pressure": 0,
-    "maximum_pressure_range_advanced": 0.6,
-    "minimum_pressure": 4,
+    "maximum_flow": "0.00",
+    "maximum_flow_range_advanced": "0.60",
+    "maximum_flow_range_default": "1.00",
+    "maximum_pressure": "0.00",
+    "maximum_pressure_range_advanced": "0.60",
+    "maximum_pressure_range_default": "0.90",
+    "minimum_pressure": "4.00",
     "mode": "frame_based",
     "notes": "This profile simulates a Londinium R machines extraction style. This is an advanced profile with some added steps to assist with less than ideal puck prep. Christee-Lee described it as like having a milkshake with extra syrup. Great body and flavour range. 2nd edition.  This is identical to the LRv2 profile, but renamed to be easier to understand. By Damian Brakel",
-    "number_of_preinfuse_frames": 0,
+    "number_of_preinfuse_frames": "2",
+    "preinfusion_flow_rate": "4.00",
+    "preinfusion_stop_pressure": "4.00",
+    "preinfusion_time": "5.00",
+    "pressure_end": "4.00",
     "read_only": 1,
-    "recommended_dose": 18,
+    "recommended_dose": "18.0",
+    "reference_file": "Londonium",
     "steps": [
         {
-            "flow": 8,
+            "flow": "8.00",
             "limiter": {
-                "range": 0.6,
-                "value": 0
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Fill start",
-            "pressure": 2,
+            "pressure": "2.00",
             "pump": "pressure",
-            "seconds": 2,
+            "seconds": "2.00",
             "sensor": "coffee",
-            "temperature": 89,
+            "temperature": "89.00",
             "transition": "fast",
-            "volume": 100
+            "volume": "100"
         },
         {
             "exit": {
                 "condition": "over",
                 "type": "pressure",
-                "value": 1.5
+                "value": "1.50"
             },
-            "flow": 8,
+            "flow": "8.00",
             "limiter": {
-                "range": 0.6,
-                "value": 0
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Fill",
-            "pressure": 2,
+            "pressure": "2.00",
             "pump": "pressure",
-            "seconds": 25,
+            "seconds": "25.00",
             "sensor": "coffee",
-            "temperature": 89,
+            "temperature": "89.00",
             "transition": "fast",
-            "volume": 100
+            "volume": "100"
         },
         {
-            "flow": 8,
+            "flow": "8.00",
             "limiter": {
-                "range": 0.6,
-                "value": 0
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Infuse",
-            "pressure": 3,
+            "pressure": "3.00",
             "pump": "pressure",
-            "seconds": 12,
+            "seconds": "12.00",
             "sensor": "coffee",
-            "temperature": 88.5,
+            "temperature": "88.50",
             "transition": "fast",
-            "volume": 100
+            "volume": "100"
         },
         {
-            "flow": 2,
+            "flow": "2.00",
             "limiter": {
-                "range": 0.6,
-                "value": 0
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Pressure Up",
             "popup": "$weight",
-            "pressure": 9,
+            "pressure": "9.00",
             "pump": "pressure",
-            "seconds": 8,
+            "seconds": "8.00",
             "sensor": "coffee",
-            "temperature": 88.5,
+            "temperature": "88.50",
             "transition": "fast",
-            "volume": 100
+            "volume": "100"
         },
         {
             "exit": {
                 "condition": "over",
                 "type": "flow",
-                "value": 2.8
+                "value": "2.80"
             },
-            "flow": 2,
+            "flow": "2.00",
             "limiter": {
-                "range": 0.6,
-                "value": 0
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Pressure Decline",
-            "pressure": 3,
+            "pressure": "3.00",
             "pump": "pressure",
-            "seconds": 55,
+            "seconds": "55.00",
             "sensor": "coffee",
-            "temperature": 88,
+            "temperature": "88.00",
             "transition": "smooth",
-            "volume": 100
+            "volume": "100"
         },
         {
             "exit": {
                 "condition": "over",
                 "type": "flow",
-                "value": 2.8
+                "value": "2.80"
             },
-            "flow": 2,
+            "flow": "2.00",
             "limiter": {
-                "range": 0.6,
-                "value": 0
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Pressure Hold",
-            "pressure": 3,
+            "pressure": "3.00",
             "pump": "pressure",
-            "seconds": 127,
+            "seconds": "127.00",
             "sensor": "coffee",
-            "temperature": 88,
+            "temperature": "88.00",
             "transition": "fast",
-            "volume": 100
+            "volume": "100"
         },
         {
-            "flow": 2.5,
+            "flow": "2.50",
             "limiter": {
-                "range": 0.6,
-                "value": 0
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Flow Limit",
-            "pressure": 3,
+            "pressure": "3.00",
             "pump": "flow",
-            "seconds": 127,
+            "seconds": "127.00",
             "sensor": "coffee",
-            "temperature": 88,
+            "temperature": "88.00",
             "transition": "fast",
-            "volume": 100
+            "volume": "100"
         }
     ],
-    "tank_desired_water_temperature": 0,
-    "target_volume": 0,
-    "target_weight": 42,
+    "tank_desired_water_temperature": "0.0",
+    "tank_temperature": "0.0",
+    "target_volume": "0.0",
+    "target_volume_count_start": "2",
+    "target_weight": "42.0",
+    "temp_steps_enabled": false,
     "temperature_presets": [
-        89,
-        89,
-        89,
-        89
+        "89.00",
+        "89.00",
+        "89.00",
+        "89.00"
     ],
     "title": "Londonium",
+    "type": "advanced",
     "version": "2"
 }

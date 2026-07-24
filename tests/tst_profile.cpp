@@ -354,8 +354,13 @@ private slots:
         QJsonObject serialized = pf.toJson();
         QVERIFY(serialized.contains("limiter"));
         QJsonObject limOut = serialized["limiter"].toObject();
-        QCOMPARE(limOut["value"].toDouble(), 0.0);
-        QCOMPARE(limOut["range"].toDouble(), 0.2);
+        // Canonical format string-encodes numeric values. Assert isString() before
+        // the value: a numeric QJsonValue stringifies to "", whose toDouble() is 0.0,
+        // so the zero case would otherwise pass even if encoding regressed.
+        QVERIFY(limOut["value"].isString());
+        QVERIFY(limOut["range"].isString());
+        QCOMPARE(limOut["value"].toString().toDouble(), 0.0);
+        QCOMPARE(limOut["range"].toString().toDouble(), 0.2);
     }
 
     // ===== Bug #425: preinfuseFrameCount preserved from JSON =====
@@ -573,6 +578,65 @@ private slots:
         QJsonObject out = doc.object();
         QVERIFY(out.contains("recipe"));
         QVERIFY(!out.contains("editor_type"));  // Never stored
+    }
+
+    // ===== Canonical serialization shape (align-profile-json-with-reaprime) =====
+
+    void toJsonCanonicalShape() {
+        // The one canonical format: string-encoded values, ecosystem-required
+        // aliases, standard DE1 v2 metadata.
+        Profile p = Profile::fromJson(QJsonDocument(makeAdvancedProfileJson("Shape Test")));
+        QJsonObject out = p.toJsonObject();
+
+        // Numeric values are string-encoded.
+        QVERIFY(out["target_weight"].isString());
+        QVERIFY(out["espresso_temperature"].isString());
+        QVERIFY(out["steps"].toArray()[0].toObject()["pressure"].isString());
+
+        // Ecosystem-required aliases present and equal to their source keys.
+        QVERIFY(out.contains("tank_temperature"));
+        QCOMPARE(out["tank_temperature"], out["tank_desired_water_temperature"]);
+        QVERIFY(out.contains("target_volume_count_start"));
+        QCOMPARE(out["target_volume_count_start"], out["number_of_preinfuse_frames"]);
+
+        // Standard DE1 v2 metadata.
+        QCOMPARE(out["type"].toString(), QStringLiteral("advanced"));
+        QCOMPARE(out["lang"].toString(), QStringLiteral("en"));
+        QVERIFY(out.contains("hidden"));
+        QCOMPARE(out["reference_file"].toString(), QStringLiteral("Shape Test"));
+        QVERIFY(out.contains("changes_since_last_espresso"));
+    }
+
+    void toJsonSimpleProfileMaterializesSteps() {
+        // A settings_2a profile constructed with no explicit frames must still
+        // emit a non-empty steps array (reaprime rejects empty steps).
+        QJsonObject obj;
+        obj["title"] = "Simple Pressure";
+        obj["legacy_profile_type"] = "settings_2a";
+        obj["espresso_pressure"] = 9.0;
+        obj["espresso_hold_time"] = 10.0;
+        obj["espresso_decline_time"] = 25.0;
+        obj["steps"] = QJsonArray();  // explicitly empty
+
+        Profile p = Profile::fromJson(QJsonDocument(obj));
+        QJsonObject out = p.toJsonObject();
+        QVERIFY(!out["steps"].toArray().isEmpty());
+        QCOMPARE(out["type"].toString(), QStringLiteral("pressure"));
+    }
+
+    void reaprimeReadabilityAcceptsCanonicalOutput() {
+        Profile p = Profile::fromJson(QJsonDocument(makeAdvancedProfileJson("Readable")));
+        const QStringList errs = Profile::reaprimeReadabilityErrors(p.toJsonObject());
+        QVERIFY2(errs.isEmpty(), qPrintable(errs.join(", ")));
+    }
+
+    void reaprimeReadabilityRejectsMissingKeys() {
+        // A profile object lacking the required keys / with empty steps must fail.
+        QJsonObject bad;
+        bad["title"] = "Bad";
+        bad["steps"] = QJsonArray();
+        const QStringList errs = Profile::reaprimeReadabilityErrors(bad);
+        QVERIFY(!errs.isEmpty());
     }
 
     void legacyRecipePressureOnSettings2c() {

@@ -1,96 +1,101 @@
 {
-    "title": "Test/profile_editor_demo",
     "author": "Damian",
     "beverage_type": "calibrate",
-    "notes": "THIS IS NOT AN EDITABLE PROFILE - Although it will run a copy of D-FLow Q.\n        It is a dummy profile to test the profile_editor framework, this profile has a variable 'profile_editor demo'.    By Damian Nov 2025",
+    "changes_since_last_espresso": "",
+    "espresso_decline_time": "25.00",
+    "espresso_hold_time": "10.00",
+    "espresso_pressure": "9.20",
+    "espresso_temperature": "84.00",
+    "flow_profile_decline": "1.20",
+    "flow_profile_decline_time": "17.00",
+    "flow_profile_hold": "2.00",
+    "flow_profile_hold_time": "8.00",
+    "has_recommended_dose": false,
+    "hidden": "0",
+    "lang": "en",
     "legacy_profile_type": "settings_2c",
-    "version": "2",
-    "number_of_preinfuse_frames": 0,
-    "maximum_pressure": 0.0,
-    "maximum_flow": 0.0,
-    "target_weight": 0.0,
-    "target_volume": 0.0,
-    "recipe": {
-        "dose": 18,
-        "fillFlow": 8,
-        "fillPressure": 6,
-        "fillTemperature": 84,
-        "fillTimeout": 25,
-        "flowLimit": 0,
-        "infuseEnabled": true,
-        "infusePressure": 6,
-        "infuseTime": 1,
-        "infuseVolume": 100,
-        "infuseWeight": 4,
-        "pourFlow": 1.8,
-        "pourPressure": 9,
-        "pourStyle": "flow",
-        "pourTemperature": 94,
-        "pressureLimit": 10,
-        "rampTime": 5,
-        "targetWeight": 36
-    },
+    "maximum_flow": "0.00",
+    "maximum_flow_range_advanced": "0.60",
+    "maximum_flow_range_default": "1.00",
+    "maximum_pressure": "0.00",
+    "maximum_pressure_range_advanced": "0.60",
+    "maximum_pressure_range_default": "0.90",
+    "minimum_pressure": "0.00",
     "mode": "frame_based",
-    "temperature_presets": [
-        88,
-        90,
-        93,
-        96
-    ],
+    "notes": "THIS IS NOT AN EDITABLE PROFILE - Although it will run a copy of D-FLow Q.\n        It is a dummy profile to test the profile_editor framework, this profile has a variable 'profile_editor demo'.    By Damian Nov 2025",
+    "number_of_preinfuse_frames": "0",
+    "preinfusion_flow_rate": "4.00",
+    "preinfusion_stop_pressure": "4.00",
+    "preinfusion_time": "5.00",
+    "pressure_end": "4.00",
+    "read_only": 1,
+    "recommended_dose": "18.0",
+    "reference_file": "Test/profile_editor_demo",
     "steps": [
         {
-            "name": "Filling",
-            "temperature": 84.0,
-            "sensor": "coffee",
-            "pump": "pressure",
-            "transition": "fast",
-            "pressure": 6.0,
-            "flow": 8.0,
-            "seconds": 25.0,
-            "volume": 60.0,
             "exit": {
-                "type": "pressure",
                 "condition": "over",
-                "value": 3.0
+                "type": "pressure",
+                "value": "3.00"
             },
+            "flow": "8.00",
             "limiter": {
-                "value": 0.0,
-                "range": 0.2
-            }
-        },
-        {
-            "name": "Infusing",
-            "temperature": 94.0,
-            "sensor": "coffee",
+                "range": "0.20",
+                "value": "0.00"
+            },
+            "name": "Filling",
+            "pressure": "6.00",
             "pump": "pressure",
+            "seconds": "25.00",
+            "sensor": "coffee",
+            "temperature": "84.00",
             "transition": "fast",
-            "pressure": 6.0,
-            "flow": 8.0,
-            "seconds": 1.0,
-            "volume": 100.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.2
-            }
+            "volume": "60"
         },
         {
-            "name": "Pouring",
-            "temperature": 94.0,
-            "sensor": "coffee",
-            "pump": "flow",
-            "transition": "fast",
-            "pressure": 4.8,
-            "flow": 1.8,
-            "seconds": 127.0,
-            "volume": 100.0,
+            "flow": "8.00",
             "limiter": {
-                "value": 10.0,
-                "range": 0.2
-            }
+                "range": "0.20",
+                "value": "0.00"
+            },
+            "name": "Infusing",
+            "pressure": "6.00",
+            "pump": "pressure",
+            "seconds": "1.00",
+            "sensor": "coffee",
+            "temperature": "94.00",
+            "transition": "fast",
+            "volume": "100"
+        },
+        {
+            "flow": "1.80",
+            "limiter": {
+                "range": "0.20",
+                "value": "10.00"
+            },
+            "name": "Pouring",
+            "pressure": "4.80",
+            "pump": "flow",
+            "seconds": "127.00",
+            "sensor": "coffee",
+            "temperature": "94.00",
+            "transition": "fast",
+            "volume": "100"
         }
     ],
-    "tank_desired_water_temperature": 0.0,
-    "maximum_pressure_range_advanced": 0.6,
-    "maximum_flow_range_advanced": 0.6,
-    "read_only": 1
+    "tank_desired_water_temperature": "0.0",
+    "tank_temperature": "0.0",
+    "target_volume": "0.0",
+    "target_volume_count_start": "0",
+    "target_weight": "0.0",
+    "temp_steps_enabled": false,
+    "temperature_presets": [
+        "88.00",
+        "90.00",
+        "93.00",
+        "96.00"
+    ],
+    "title": "Test/profile_editor_demo",
+    "type": "advanced",
+    "version": "2"
 }

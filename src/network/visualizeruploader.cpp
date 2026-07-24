@@ -1120,103 +1120,19 @@ QJsonObject VisualizerUploader::buildProfileSettings(const Profile* profile)
 
 QJsonObject VisualizerUploader::buildVisualizerProfileJson(const Profile* profile)
 {
-    QJsonObject obj;
-
     if (!profile) {
+        QJsonObject obj;
         obj["title"] = "Unknown";
         return obj;
     }
 
-    // Basic metadata
-    obj["title"] = profile->title();
-    obj["author"] = profile->author();
-    obj["notes"] = profile->profileNotes();
-    obj["beverage_type"] = profile->beverageType();
-
-    // Convert steps to Visualizer format
-    QJsonArray stepsArray;
-    for (const auto& step : profile->steps()) {
-        QJsonObject stepObj;
-
-        // Values as strings (Visualizer format)
-        stepObj["name"] = step.name;
-        stepObj["temperature"] = QString::number(step.temperature, 'f', 2);
-        stepObj["sensor"] = step.sensor;
-        stepObj["pump"] = step.pump;
-        stepObj["transition"] = step.transition;
-        stepObj["pressure"] = QString::number(step.pressure, 'f', 2);
-        stepObj["flow"] = QString::number(step.flow, 'f', 2);
-        stepObj["seconds"] = QString::number(step.seconds, 'f', 2);
-        stepObj["volume"] = QString::number(step.volume, 'f', 0);
-        stepObj["weight"] = QString::number(step.exitWeight, 'f', 1);
-
-        // Exit condition (Visualizer format: {type, value, condition})
-        if (step.exitIf && !step.exitType.isEmpty()) {
-            QJsonObject exitObj;
-            if (step.exitType == "pressure_over") {
-                exitObj["type"] = "pressure";
-                exitObj["value"] = QString::number(step.exitPressureOver, 'f', 2);
-                exitObj["condition"] = "over";
-            } else if (step.exitType == "pressure_under") {
-                exitObj["type"] = "pressure";
-                exitObj["value"] = QString::number(step.exitPressureUnder, 'f', 2);
-                exitObj["condition"] = "under";
-            } else if (step.exitType == "flow_over") {
-                exitObj["type"] = "flow";
-                exitObj["value"] = QString::number(step.exitFlowOver, 'f', 2);
-                exitObj["condition"] = "over";
-            } else if (step.exitType == "flow_under") {
-                exitObj["type"] = "flow";
-                exitObj["value"] = QString::number(step.exitFlowUnder, 'f', 2);
-                exitObj["condition"] = "under";
-            }
-            if (!exitObj.isEmpty()) {
-                stepObj["exit"] = exitObj;
-            }
-        }
-
-        // Limiter (Visualizer format: {value, range})
-        QJsonObject limiterObj;
-        limiterObj["value"] = QString::number(step.maxFlowOrPressure, 'f', 1);
-        limiterObj["range"] = QString::number(step.maxFlowOrPressureRange, 'f', 1);
-        stepObj["limiter"] = limiterObj;
-
-        stepsArray.append(stepObj);
-    }
-    obj["steps"] = stepsArray;
-
-    // Profile-level settings (needed for correct profile download from visualizer)
-    obj["espresso_temperature"] = QString::number(profile->espressoTemperature(), 'f', 2);
-    obj["maximum_pressure"] = QString::number(profile->maximumPressure(), 'f', 1);
-    obj["maximum_flow"] = QString::number(profile->maximumFlow(), 'f', 1);
-    obj["minimum_pressure"] = QString::number(profile->minimumPressure(), 'f', 1);
-    obj["maximum_flow_range_advanced"] = QString::number(profile->maximumFlowRangeAdvanced(), 'f', 1);
-    obj["maximum_pressure_range_advanced"] = QString::number(profile->maximumPressureRangeAdvanced(), 'f', 1);
-    obj["tank_desired_water_temperature"] = QString::number(profile->tankDesiredWaterTemperature(), 'f', 1);
-    obj["tank_temperature"] = obj["tank_desired_water_temperature"];  // Legacy key for Visualizer compat
-    obj["target_weight"] = QString::number(profile->targetWeight(), 'f', 0);
-    obj["target_volume"] = QString::number(profile->targetVolume(), 'f', 0);
-    obj["number_of_preinfuse_frames"] = QString::number(profile->preinfuseFrameCount());
-    obj["target_volume_count_start"] = obj["number_of_preinfuse_frames"];  // Legacy key for Visualizer compat
-    obj["legacy_profile_type"] = profile->profileType();
-
-    // Derive type from profile_type (matches de1app convention)
-    QString profileType = profile->profileType();
-    if (profileType == "settings_2a") {
-        obj["type"] = "pressure";
-    } else if (profileType == "settings_2b") {
-        obj["type"] = "flow";
-    } else {
-        obj["type"] = "advanced";
-    }
-
-    obj["lang"] = "en";
-    obj["hidden"] = "0";
-    obj["reference_file"] = profile->title();
-    obj["changes_since_last_espresso"] = "";
-    obj["version"] = "2";
-
-    return obj;
+    // Single canonical serialization — identical to the on-disk / exported / share-code
+    // format. Profile::toJsonObject() is the one source of truth (string-encoded values,
+    // the ecosystem-required tank_temperature / target_volume_count_start keys, standard
+    // DE1 v2 metadata, non-empty steps), so a profile downloaded from Visualizer is the
+    // same profile any DE1 app would read. Do not re-serialize here — that duplication is
+    // exactly what let the two paths drift.
+    return profile->toJsonObject();
 }
 
 QByteArray VisualizerUploader::buildMultipartData(const QByteArray& jsonData, const QString& boundary)
@@ -1592,6 +1508,13 @@ QByteArray VisualizerUploader::buildHistoryShotJson(const ShotProjection& shotDa
     if (!shotData.profileJson.isEmpty()) {
         QJsonDocument profileDoc = QJsonDocument::fromJson(shotData.profileJson.toUtf8());
         if (!profileDoc.isNull()) {
+            // Upload the STORED snapshot verbatim. Do not re-serialize it through
+            // Profile::fromJson/toJsonObject: fromJson is not a pure decoder — it
+            // fills defaults for absent keys and rewrites espresso_temperature via
+            // the leaked-default repair, so round-tripping would make a historical
+            // shot claim values it never ran (Visualizer-imported profiles omit
+            // espresso_temperature entirely). The snapshot is a record, not a
+            // profile we own; new shots are already stored in canonical form.
             profileJsonObj = profileDoc.object();
             Profile profile = Profile::fromJson(profileDoc);
             if (profile.isValid()) {

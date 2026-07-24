@@ -1,109 +1,116 @@
 {
     "author": "Decent",
     "beverage_type": "manual",
-    "espresso_decline_time": 25,
-    "espresso_hold_time": 10,
-    "espresso_pressure": 9.2,
-    "espresso_temperature": 88,
-    "flow_profile_decline": 1.2,
-    "flow_profile_decline_time": 17,
-    "flow_profile_hold": 2,
-    "flow_profile_hold_time": 8,
+    "changes_since_last_espresso": "",
+    "espresso_decline_time": "25.00",
+    "espresso_hold_time": "10.00",
+    "espresso_pressure": "9.20",
+    "espresso_temperature": "88.00",
+    "flow_profile_decline": "1.20",
+    "flow_profile_decline_time": "17.00",
+    "flow_profile_hold": "2.00",
+    "flow_profile_hold_time": "8.00",
     "has_recommended_dose": false,
+    "hidden": "0",
+    "lang": "en",
     "legacy_profile_type": "settings_2a",
-    "maximum_flow": 6,
-    "maximum_flow_range_advanced": 0.6,
-    "maximum_flow_range_default": 1,
-    "maximum_pressure": 12,
-    "maximum_pressure_range_advanced": 0.6,
-    "maximum_pressure_range_default": 0.9,
-    "minimum_pressure": 4,
+    "maximum_flow": "6.00",
+    "maximum_flow_range_advanced": "0.60",
+    "maximum_flow_range_default": "1.00",
+    "maximum_pressure": "12.00",
+    "maximum_pressure_range_advanced": "0.60",
+    "maximum_pressure_range_default": "0.90",
+    "minimum_pressure": "4.00",
     "mode": "frame_based",
     "notes": "For use with machines that have a group head controller (GHC).  Hold your finger on the GHC for the pressure you want.",
-    "number_of_preinfuse_frames": 0,
-    "preinfusion_flow_rate": 4,
-    "preinfusion_stop_pressure": 4,
-    "preinfusion_time": 5,
-    "pressure_end": 4,
+    "number_of_preinfuse_frames": "0",
+    "preinfusion_flow_rate": "4.00",
+    "preinfusion_stop_pressure": "4.00",
+    "preinfusion_time": "5.00",
+    "pressure_end": "4.00",
     "read_only": 1,
-    "recommended_dose": 18,
+    "recommended_dose": "18.0",
+    "reference_file": "GHC/manual pressure control",
     "steps": [
         {
-            "flow": 4,
+            "flow": "4.00",
             "limiter": {
-                "range": 0.6,
-                "value": 0
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "preinfusion",
-            "pressure": 0,
+            "pressure": "0.00",
             "pump": "pressure",
-            "seconds": 5,
+            "seconds": "5.00",
             "sensor": "coffee",
-            "temperature": 88,
+            "temperature": "88.00",
             "transition": "fast",
-            "volume": 100
+            "volume": "100"
         },
         {
             "exit": {
                 "condition": "over",
                 "type": "pressure",
-                "value": 4
+                "value": "4.00"
             },
-            "flow": 4,
+            "flow": "4.00",
             "limiter": {
-                "range": 0.6,
-                "value": 0
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "preinfusion",
-            "pressure": 1,
+            "pressure": "1.00",
             "pump": "flow",
-            "seconds": 20,
+            "seconds": "20.00",
             "sensor": "coffee",
-            "temperature": 88,
+            "temperature": "88.00",
             "transition": "fast",
-            "volume": 100
+            "volume": "100"
         },
         {
-            "flow": 2,
+            "flow": "2.00",
             "limiter": {
-                "range": 0.6,
-                "value": 0
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "rise and hold",
-            "pressure": 8.6,
+            "pressure": "8.60",
             "pump": "pressure",
-            "seconds": 4,
+            "seconds": "4.00",
             "sensor": "coffee",
-            "temperature": 88,
+            "temperature": "88.00",
             "transition": "fast",
-            "volume": 100
+            "volume": "100"
         },
         {
-            "flow": 2,
+            "flow": "2.00",
             "limiter": {
-                "range": 0.6,
-                "value": 0
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "decline",
-            "pressure": 6,
+            "pressure": "6.00",
             "pump": "pressure",
-            "seconds": 35,
+            "seconds": "35.00",
             "sensor": "coffee",
-            "temperature": 88,
+            "temperature": "88.00",
             "transition": "smooth",
-            "volume": 100
+            "volume": "100"
         }
     ],
-    "tank_desired_water_temperature": 0,
-    "target_volume": 0,
-    "target_weight": 0,
+    "tank_desired_water_temperature": "0.0",
+    "tank_temperature": "0.0",
+    "target_volume": "0.0",
+    "target_volume_count_start": "0",
+    "target_weight": "0.0",
     "temp_steps_enabled": false,
     "temperature_presets": [
-        88,
-        90,
-        93,
-        96
+        "88.00",
+        "90.00",
+        "93.00",
+        "96.00"
     ],
     "title": "GHC/manual pressure control",
+    "type": "pressure",
     "version": "2"
 }

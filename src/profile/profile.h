@@ -3,6 +3,8 @@
 #include <QString>
 #include <QList>
 #include <QJsonDocument>
+#include <QJsonObject>
+#include <QStringList>
 #include <QJsonValue>
 #include <QByteArray>
 #include <QDebug>
@@ -228,8 +230,34 @@ public:
     void regenerateSimpleFrames();
 
     // === Serialization ===
+    // toJsonObject() is the single canonical profile serializer: string-encoded
+    // values, ecosystem-required keys, standard DE1 v2 metadata, non-empty steps.
+    // toJson() wraps it in a document; the Visualizer upload delegates to it too,
+    // so there is exactly one format validated across Decenza, reaprime, and Visualizer.
+    QJsonObject toJsonObject() const;
     QJsonDocument toJson() const;
     static Profile fromJson(const QJsonDocument& doc);
+
+    // Validate a serialized profile object against reaprime's Profile.fromJson
+    // contract (the strictest reader in the DE1 ecosystem): non-empty title and
+    // steps, the required tank_temperature / target_volume_count_start keys, and
+    // in-vocabulary enum values (pump/sensor/transition, exit type/condition).
+    // Returns an empty list when the object is reaprime-readable; otherwise one
+    // human-readable message per violation. Reusable from tests and profile_sync.
+    static QStringList reaprimeReadabilityErrors(const QJsonObject& obj);
+
+    // Deep semantic parity check between two serialized profiles: every key and
+    // value in `before` must survive into `after`. Encoding differences are
+    // normalized (numeric 9.0 == string "9.00"), so this compares MEANING, not
+    // bytes — the exact invariant a format-only change must satisfy.
+    //
+    // Additions are allowed (a canonical serializer may add keys); LOSSES are not.
+    // A dropped object/array, or a dropped or changed non-zero scalar, is an error;
+    // a dropped zero/empty scalar is inert (absent and 0 mean the same to every
+    // reader in this format). Returns one message per violation, empty when parity
+    // holds. Shared by profile_sync's rewrite audit and the built-in parity tests —
+    // a format change that silently drops data fails both.
+    static QStringList jsonParityErrors(const QJsonObject& before, const QJsonObject& after);
 
     // === File I/O ===
     static Profile loadFromFile(const QString& filePath);
@@ -284,6 +312,10 @@ public:
     static bool functionallyEqual(const Profile& a, const Profile& b);
 
 private:
+    // Frames for serialization, materializing simple (settings_2a/2b) profiles
+    // that carry their frames implicitly. const-safe (no mutation of m_steps).
+    QVector<ProfileFrame> materializedSteps() const;
+
     // Metadata
     QString m_title = "Default";
     QString m_author;
@@ -339,6 +371,20 @@ private:
     Mode m_mode = Mode::FrameBased;
 
     // Recipe parameters (for D-Flow/A-Flow/Pressure/Flow editors)
+    // Top-level keys from the source JSON that Decenza does not model. Re-emitted
+    // verbatim on serialize so a profile authored in another DE1 app survives a
+    // Decenza load→save round trip instead of being silently stripped (de1app
+    // writes several simple-editor keys we never read). Canonical keys always win.
+    QJsonObject m_unknownKeys;
+
+    // The `recipe` object exactly as it arrived. RecipeParams::fromJson reads
+    // sub-keys (editorType) that RecipeParams::toJson does not write back, so
+    // serializing from the params alone loses them — a recipe marked "pressure"
+    // would reload as "dflow" (fromJson's default). Serialization overlays the
+    // canonical params ON TOP of this, so managed values win and everything else
+    // survives. Same preserve-and-overlay rule as m_unknownKeys.
+    QJsonObject m_sourceRecipe;
+
     RecipeParams m_recipeParams;
 
     // Read-only flag (de1app compatibility: 0=editable, 1=read-only, 2=reset)

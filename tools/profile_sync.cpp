@@ -17,6 +17,8 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QFileInfo>
 #include <QTextStream>
 #include <QRegularExpression>
@@ -159,10 +161,13 @@ int main(int argc, char* argv[])
 
     const QStringList args = app.arguments();
     if (args.size() < 3) {
-        QTextStream(stderr) << "Usage: profile_sync <de1app_profiles_dir> <builtin_profiles_dir> [--sync]\n"
+        QTextStream(stderr) << "Usage: profile_sync <de1app_profiles_dir> <builtin_profiles_dir> [--sync|--rewrite-format]\n"
                             << "\n"
                             << "  Without --sync: report differences only (compare mode)\n"
                             << "  With    --sync: also overwrite stale JSONs and create missing ones\n"
+                            << "  --rewrite-format: format-only pass — re-save the built-in JSONs through\n"
+                            << "                    the canonical serializer, leaving content untouched\n"
+                            << "                    (de1app dir is ignored; content sync is a separate task)\n"
                             << "\n"
                             << "  Plugin profiles under <de1app_profiles_dir>/../plugins/*/profiles/\n"
                             << "  are scanned automatically and override base profiles with the same\n"
@@ -173,6 +178,73 @@ int main(int argc, char* argv[])
     const QString de1appDir  = args[1];
     const QString builtinDir = args[2];
     const bool    doSync     = args.contains(QLatin1String("--sync"));
+    const bool    doRewrite  = args.contains(QLatin1String("--rewrite-format"));
+
+    // --rewrite-format: FORMAT-ONLY pass over the built-in JSONs. Loads each file
+    // and re-saves it through the canonical serializer (Profile::toJsonObject), so
+    // the shipped set adopts the string-encoded, reaprime-readable format without
+    // touching profile CONTENT. Deliberately independent of the de1app comparison:
+    // reconciling content against de1app/reaprime is a separate concern (OpenSpec
+    // sync-builtin-profiles), and conflating the two would hide content changes
+    // inside a format diff.
+    if (doRewrite) {
+        QDir out(builtinDir);
+        if (!out.exists()) {
+            QTextStream(stderr) << "Error: built-in profiles directory not found: " << builtinDir << "\n";
+            return 1;
+        }
+        QTextStream cout(stdout);
+        int rewritten = 0, failed = 0, unchangedContent = 0;
+        const QStringList jsons = out.entryList({QLatin1String("*.json")}, QDir::Files, QDir::Name);
+        for (const QString& fileName : jsons) {
+            const QString path = out.absoluteFilePath(fileName);
+            // Snapshot the file EXACTLY as it sits on disk. The audit below compares
+            // against this, not against a re-serialization — comparing two outputs of
+            // the same serializer can only ever agree with itself.
+            QJsonObject original;
+            {
+                QFile f(path);
+                if (f.open(QIODevice::ReadOnly))
+                    original = QJsonDocument::fromJson(f.readAll()).object();
+            }
+
+            Profile before = Profile::loadFromFile(path);
+            if (!before.isValid() || original.isEmpty()) {
+                cout << "SKIP (invalid): " << fileName << "\n";
+                ++failed;
+                continue;
+            }
+            if (!before.saveToFile(path)) {
+                cout << "ERROR (write failed): " << fileName << "\n";
+                ++failed;
+                continue;
+            }
+
+            // AUDIT: every key and value in the original file must survive.
+            // functionallyEqual() is NOT sufficient here — it compares frames and the
+            // preinfuse count only, and reported "content-identical" while this pass
+            // was silently stripping recipe blocks and de1app's simple-editor keys
+            // from dozens of built-ins. Deep parity is the invariant that matters.
+            QJsonObject rewritten_;
+            {
+                QFile f(path);
+                if (f.open(QIODevice::ReadOnly))
+                    rewritten_ = QJsonDocument::fromJson(f.readAll()).object();
+            }
+            const QStringList parity = Profile::jsonParityErrors(original, rewritten_);
+            if (parity.isEmpty()) {
+                ++unchangedContent;
+            } else {
+                cout << "DATA LOSS: " << fileName << "\n";
+                for (const QString& e : parity) cout << "    " << e << "\n";
+                ++failed;
+            }
+            ++rewritten;
+        }
+        cout << "\nFormat rewrite complete: " << rewritten << " rewritten ("
+             << unchangedContent << " content-identical), " << failed << " skipped\n";
+        return failed == 0 ? 0 : 1;
+    }
 
     QDir src(de1appDir);
     if (!src.exists()) {
