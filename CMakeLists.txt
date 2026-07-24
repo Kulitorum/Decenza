@@ -1530,6 +1530,60 @@ if(APPLE AND NOT IOS)
         COMMAND /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister -f "$<TARGET_BUNDLE_DIR:Decenza>"
         COMMENT "Re-registering app bundle with Launch Services (icon cache refresh)"
     )
+
+    # Optional stable code-signing identity for LOCAL macOS dev builds.
+    #
+    # Empty by default → the linker's ad-hoc signature stands, which is the
+    # existing behavior; CI (which signs release builds itself on tag push) and
+    # every other developer are completely unaffected.
+    #
+    # Why it exists: an ad-hoc / linker-signed bundle has NO stable code
+    # identity, so macOS falls back to identifying it by its CDHash — a hash of
+    # the binary that changes on every rebuild. TCC (Camera, Bluetooth, and in
+    # particular Local Network) keys its per-app grant to that identity, so each
+    # rebuild reads as a brand-new app: the previous Local Network approval no
+    # longer applies, outbound LAN connections are silently dropped (a WiFi
+    # scale fails with "Host unreachable" while the internet still works), and a
+    # fresh, stale "Decenza" row piles up in System Settings that no UI can
+    # remove. On this project's dev cadence that means a permission re-approval —
+    # in practice a full reboot, since toggling the Local Network row does not
+    # reliably re-arm the grant — after every single rebuild.
+    #
+    # Re-signing the finished bundle with a stable keychain identity gives it a
+    # fixed designated requirement (the bundle id plus the signing cert), which
+    # does not change between rebuilds. macOS then recognizes each rebuild as the
+    # same app and the Local Network grant sticks. One-time setup on the
+    # developer's machine:
+    #
+    #   1. Get a code-signing identity. If you already sign iOS builds you
+    #      HAVE one — reuse it, no new cert needed:
+    #        security find-identity -v -p codesigning
+    #      An "Apple Development: …" identity works for macOS too and carries a
+    #      real Team ID, so its designated requirement is maximally stable. With
+    #      no Apple identity, make a self-signed one instead: Keychain Access →
+    #      Certificate Assistant → Create a Certificate… (Self Signed Root,
+    #      Certificate Type: Code Signing).
+    #   2. Add to the Qt Creator kit's Initial CMake parameters (once). The
+    #      value is the identity's SHA-1 from step 1 (robust — no spaces/parens
+    #      to quote) or any unique substring of its name:
+    #        -DDECENZA_MACOS_CODESIGN_IDENTITY=DFA23C5D…the SHA-1…
+    #
+    # Non-deep on purpose: only the top-level bundle is re-signed, which is what
+    # carries the identity TCC keys on. The linker's ad-hoc signatures on the
+    # nested Qt frameworks are left intact — re-signing them adds launch-failure
+    # risk for no TCC benefit. If a future macOS ever keys Local Network on the
+    # full nested signature, adding --deep is the escalation.
+    set(DECENZA_MACOS_CODESIGN_IDENTITY "" CACHE STRING
+        "Self-signed keychain identity to re-sign the macOS dev build with for a stable TCC/Local Network grant (empty = ad-hoc, the default)")
+    if(DECENZA_MACOS_CODESIGN_IDENTITY)
+        add_custom_command(TARGET Decenza POST_BUILD
+            COMMAND codesign --force
+                    --sign "${DECENZA_MACOS_CODESIGN_IDENTITY}"
+                    "$<TARGET_BUNDLE_DIR:Decenza>"
+            COMMENT "Re-signing with stable dev identity '${DECENZA_MACOS_CODESIGN_IDENTITY}' — keeps the Local Network grant across rebuilds"
+            VERBATIM
+        )
+    endif()
 endif()
 
 # Linux: executable output collides with QML module directory (both named "Decenza")
