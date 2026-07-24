@@ -2,19 +2,35 @@
     "author": "Decent",
     "beverage_type": "filter",
     "changes_since_last_espresso": "",
+    "espresso_decline_time": "30.00",
+    "espresso_hold_time": "15.00",
+    "espresso_pressure": "6.00",
     "espresso_temperature": "92.00",
+    "flow_profile_decline": "1.20",
+    "flow_profile_decline_time": "17.00",
+    "flow_profile_hold": "2.00",
+    "flow_profile_hold_time": "8.00",
+    "flow_profile_minimum_pressure": 4,
+    "flow_profile_preinfusion": 4,
+    "flow_profile_preinfusion_time": 5,
     "has_recommended_dose": false,
     "hidden": "0",
     "lang": "en",
     "legacy_profile_type": "settings_2c",
-    "maximum_flow": "0.0",
-    "maximum_flow_range_advanced": "0.6",
-    "maximum_pressure": "0.0",
-    "maximum_pressure_range_advanced": "0.6",
-    "minimum_pressure": "4.0",
+    "maximum_flow": "0.00",
+    "maximum_flow_range_advanced": "0.60",
+    "maximum_flow_range_default": "1.00",
+    "maximum_pressure": "0.00",
+    "maximum_pressure_range_advanced": "0.60",
+    "maximum_pressure_range_default": "0.90",
+    "minimum_pressure": "4.00",
     "mode": "frame_based",
     "notes": "A new technique developed by Scott Rao, for making filter coffee with an espresso machine and 24g basket.  The process: (1) insert two micron 55mm paper filter into the bottom of a clean portafilter basket.  (2) Rinser the filter and basket with hot water.  (3) Fill the basket with 20g to 22g of finely ground coffee, not quite espresso grind, but far finer than any filter grind.  (4) WDT the grounds.  (5) tamping is optional.  (6) Place a metal mesh filter on top.  (7) Lock in the portafilter and make the espresso to a 5:1 ratio. (8) Dilute with 225g-250g of water.",
     "number_of_preinfuse_frames": "1",
+    "preinfusion_flow_rate": "4.00",
+    "preinfusion_stop_pressure": "4.00",
+    "preinfusion_time": "20.00",
+    "pressure_end": "4.00",
     "read_only": 1,
     "recommended_dose": "18.0",
     "reference_file": "Filter 2.0",
@@ -22,8 +38,8 @@
         {
             "flow": "5.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "preinfusion",
             "pressure": "1.00",
@@ -37,8 +53,8 @@
         {
             "flow": "0.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "pause",
             "pressure": "6.00",
@@ -52,8 +68,8 @@
         {
             "flow": "3.00",
             "limiter": {
-                "range": "0.6",
-                "value": "3.0"
+                "range": "0.60",
+                "value": "3.00"
             },
             "name": "flat flow",
             "pressure": "4.00",
@@ -68,8 +84,8 @@
         {
             "flow": "0.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "reset temperature",
             "pressure": "4.00",
@@ -83,9 +99,10 @@
     ],
     "tank_desired_water_temperature": "0.0",
     "tank_temperature": "0.0",
-    "target_volume": "100",
+    "target_volume": "100.0",
     "target_volume_count_start": "1",
-    "target_weight": "100",
+    "target_weight": "100.0",
+    "temp_steps_enabled": false,
     "temperature_presets": [
         "92.00",
         "92.00",

@@ -14,13 +14,13 @@
     "hidden": "0",
     "lang": "en",
     "legacy_profile_type": "settings_2a",
-    "maximum_flow": "0.0",
-    "maximum_flow_range_advanced": "0.6",
+    "maximum_flow": "0.00",
+    "maximum_flow_range_advanced": "0.60",
     "maximum_flow_range_default": "1.00",
-    "maximum_pressure": "0.0",
-    "maximum_pressure_range_advanced": "0.6",
+    "maximum_pressure": "0.00",
+    "maximum_pressure_range_advanced": "0.60",
     "maximum_pressure_range_default": "0.90",
-    "minimum_pressure": "6.0",
+    "minimum_pressure": "6.00",
     "mode": "frame_based",
     "notes": "Lever espresso machines are why we refer to pulling an espresso.  You pull a spring-loaded lever by hand to create pressure on the coffee puck.  This 9 bar espresso is the most common type of classic lever espresso you'll have, and many fans consider lever shots to be the best espresso they've ever had.",
     "number_of_preinfuse_frames": "0",
@@ -35,8 +35,8 @@
         {
             "flow": "6.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Prewet",
             "pressure": "6.00",
@@ -50,8 +50,8 @@
         {
             "flow": "0.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Pause",
             "pressure": "6.00",
@@ -65,8 +65,8 @@
         {
             "flow": "6.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Main water #1",
             "pressure": "6.00",
@@ -80,8 +80,8 @@
         {
             "flow": "0.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Pause",
             "pressure": "6.00",
@@ -95,8 +95,8 @@
         {
             "flow": "5.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Main water #2",
             "pressure": "6.00",
@@ -110,8 +110,8 @@
         {
             "flow": "0.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Drain",
             "pressure": "6.00",
@@ -125,9 +125,9 @@
     ],
     "tank_desired_water_temperature": "0.0",
     "tank_temperature": "0.0",
-    "target_volume": "36",
+    "target_volume": "36.0",
     "target_volume_count_start": "0",
-    "target_weight": "36",
+    "target_weight": "36.0",
     "temp_steps_enabled": false,
     "temperature_presets": [
         "92.00",

@@ -163,6 +163,11 @@ private slots:
         QJsonObject json = pf.toJson();
         QVERIFY(json.contains("limiter"));
         QJsonObject lim = json["limiter"].toObject();
+        // isString() first: a numeric QJsonValue's toString() is "" and "".toDouble()
+        // is 0.0, so a bare toString().toDouble() == 0.0 check would pass vacuously
+        // if the serializer ever regressed to numeric encoding.
+        QVERIFY(lim["value"].isString());
+        QVERIFY(lim["range"].isString());
         QCOMPARE(lim["value"].toString().toDouble(), 0.0);
         QCOMPARE(lim["range"].toString().toDouble(), 0.2);
     }

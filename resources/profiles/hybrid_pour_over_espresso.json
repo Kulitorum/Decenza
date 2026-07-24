@@ -14,13 +14,13 @@
     "hidden": "0",
     "lang": "en",
     "legacy_profile_type": "settings_2b",
-    "maximum_flow": "6.0",
-    "maximum_flow_range_advanced": "0.6",
+    "maximum_flow": "6.00",
+    "maximum_flow_range_advanced": "0.60",
     "maximum_flow_range_default": "1.00",
-    "maximum_pressure": "12.0",
-    "maximum_pressure_range_advanced": "0.6",
+    "maximum_pressure": "12.00",
+    "maximum_pressure_range_advanced": "0.60",
     "maximum_pressure_range_default": "0.90",
-    "minimum_pressure": "6.0",
+    "minimum_pressure": "6.00",
     "mode": "frame_based",
     "notes": "Another approach created by a famously innovative Seattle-based espresso machine manufacturer, this technique requires you to grind your coffee very finely.  Try this with very lightly roasted coffee beans.  The resulting flavor is a blend of pour-over and espresso techniques.",
     "number_of_preinfuse_frames": "0",
@@ -40,8 +40,8 @@
             },
             "flow": "2.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "preinfusion",
             "pressure": "1.00",
@@ -55,8 +55,8 @@
         {
             "flow": "2.20",
             "limiter": {
-                "range": "0.9",
-                "value": "12.0"
+                "range": "0.90",
+                "value": "12.00"
             },
             "name": "hold",
             "pressure": "9.00",
@@ -70,8 +70,8 @@
         {
             "flow": "1.80",
             "limiter": {
-                "range": "0.9",
-                "value": "12.0"
+                "range": "0.90",
+                "value": "12.00"
             },
             "name": "decline",
             "pressure": "9.00",
@@ -85,9 +85,9 @@
     ],
     "tank_desired_water_temperature": "0.0",
     "tank_temperature": "0.0",
-    "target_volume": "0",
+    "target_volume": "0.0",
     "target_volume_count_start": "0",
-    "target_weight": "36",
+    "target_weight": "36.0",
     "temp_steps_enabled": false,
     "temperature_presets": [
         "88.00",

@@ -2,19 +2,35 @@
     "author": "Decent",
     "beverage_type": "cleaning",
     "changes_since_last_espresso": "",
+    "espresso_decline_time": "35.00",
+    "espresso_hold_time": "38.00",
+    "espresso_pressure": "8.60",
     "espresso_temperature": "105.00",
+    "flow_profile_decline": "1.20",
+    "flow_profile_decline_time": "17.00",
+    "flow_profile_hold": "2.00",
+    "flow_profile_hold_time": "8.00",
+    "flow_profile_minimum_pressure": 4,
+    "flow_profile_preinfusion": 4,
+    "flow_profile_preinfusion_time": 5,
     "has_recommended_dose": false,
     "hidden": "0",
     "lang": "en",
     "legacy_profile_type": "settings_2c",
-    "maximum_flow": "0.0",
-    "maximum_flow_range_advanced": "0.6",
-    "maximum_pressure": "0.0",
-    "maximum_pressure_range_advanced": "0.6",
-    "minimum_pressure": "4.0",
+    "maximum_flow": "0.00",
+    "maximum_flow_range_advanced": "0.60",
+    "maximum_flow_range_default": "1.00",
+    "maximum_pressure": "0.00",
+    "maximum_pressure_range_advanced": "0.60",
+    "maximum_pressure_range_default": "0.90",
+    "minimum_pressure": "4.00",
     "mode": "frame_based",
     "notes": "This profile is gentle on the coffee puck and not too demanding on the barista.  Produces a very acceptable espresso in a wide variety of settings.",
     "number_of_preinfuse_frames": "2",
+    "preinfusion_flow_rate": "0.50",
+    "preinfusion_stop_pressure": "0.20",
+    "preinfusion_time": "3.00",
+    "pressure_end": "6.00",
     "read_only": 1,
     "recommended_dose": "18.0",
     "reference_file": "Cleaning/Weber Spring Clean",
@@ -22,8 +38,8 @@
         {
             "flow": "11.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Initial prefill",
             "pressure": "1.00",
@@ -42,8 +58,8 @@
             },
             "flow": "11.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Initial fill",
             "pressure": "1.00",
@@ -62,8 +78,8 @@
             },
             "flow": "0.30",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Fill and stir",
             "pressure": "1.00",
@@ -77,8 +93,8 @@
         {
             "flow": "0.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Hold",
             "pressure": "1.00",
@@ -97,8 +113,8 @@
             },
             "flow": "0.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Short flush",
             "pressure": "0.00",
@@ -117,8 +133,8 @@
             },
             "flow": "0.10",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Hold",
             "pressure": "1.00",
@@ -137,8 +153,8 @@
             },
             "flow": "0.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Short flush",
             "pressure": "0.00",
@@ -152,8 +168,8 @@
         {
             "flow": "0.10",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Hold",
             "pressure": "0.00",
@@ -167,8 +183,8 @@
         {
             "flow": "0.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Long flush",
             "pressure": "0.00",
@@ -187,8 +203,8 @@
             },
             "flow": "6.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Fill to rinse",
             "pressure": "8.00",
@@ -202,8 +218,8 @@
         {
             "flow": "0.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Flush to rinse",
             "pressure": "0.00",
@@ -222,8 +238,8 @@
             },
             "flow": "4.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Fill to rinse",
             "pressure": "8.00",
@@ -242,8 +258,8 @@
             },
             "flow": "0.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Full flush",
             "pressure": "0.00",
@@ -262,8 +278,8 @@
             },
             "flow": "6.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Fill to rinse",
             "pressure": "0.00",
@@ -277,8 +293,8 @@
         {
             "flow": "6.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Final flush",
             "pressure": "0.00",
@@ -292,9 +308,10 @@
     ],
     "tank_desired_water_temperature": "0.0",
     "tank_temperature": "0.0",
-    "target_volume": "0",
+    "target_volume": "0.0",
     "target_volume_count_start": "2",
-    "target_weight": "0",
+    "target_weight": "0.0",
+    "temp_steps_enabled": false,
     "temperature_presets": [
         "105.00",
         "88.00",

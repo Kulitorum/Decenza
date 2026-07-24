@@ -358,7 +358,18 @@ private:
     Mode m_mode = Mode::FrameBased;
 
     // Recipe parameters (for D-Flow/A-Flow/Pressure/Flow editors)
+    // Top-level keys from the source JSON that Decenza does not model. Re-emitted
+    // verbatim on serialize so a profile authored in another DE1 app survives a
+    // Decenza load→save round trip instead of being silently stripped (de1app
+    // writes several simple-editor keys we never read). Canonical keys always win.
+    QJsonObject m_unknownKeys;
+
     RecipeParams m_recipeParams;
+    // True when this profile was loaded from JSON that carried a `recipe` block.
+    // Serialization preserves an existing recipe even for editor types that would
+    // not synthesize one, so a load→save cycle can never drop authored recipe
+    // parameters (it silently did for 8 shipped built-ins before this flag).
+    bool m_hadRecipeBlock = false;
 
     // Read-only flag (de1app compatibility: 0=editable, 1=read-only, 2=reset)
     int m_readOnly = 0;

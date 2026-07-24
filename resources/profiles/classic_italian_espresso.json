@@ -14,13 +14,13 @@
     "hidden": "0",
     "lang": "en",
     "legacy_profile_type": "settings_2a",
-    "maximum_flow": "4.5",
-    "maximum_flow_range_advanced": "0.6",
+    "maximum_flow": "4.50",
+    "maximum_flow_range_advanced": "0.60",
     "maximum_flow_range_default": "1.00",
-    "maximum_pressure": "0.0",
-    "maximum_pressure_range_advanced": "0.6",
+    "maximum_pressure": "0.00",
+    "maximum_pressure_range_advanced": "0.60",
     "maximum_pressure_range_default": "0.90",
-    "minimum_pressure": "6.0",
+    "minimum_pressure": "6.00",
     "mode": "frame_based",
     "notes": "This will imitate the espresso style of the majority of cafes around the world. It uses a short preinfusion with a flat 9 bar pressure profile.",
     "number_of_preinfuse_frames": "0",
@@ -40,8 +40,8 @@
             },
             "flow": "4.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "preinfusion",
             "pressure": "1.00",
@@ -55,8 +55,8 @@
         {
             "flow": "0.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "pause",
             "pressure": "6.00",
@@ -70,8 +70,8 @@
         {
             "flow": "2.20",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "ramp",
             "pressure": "4.00",
@@ -85,8 +85,8 @@
         {
             "flow": "2.20",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "flat flow",
             "pressure": "4.00",
@@ -100,8 +100,8 @@
         {
             "flow": "0.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "reset temperature",
             "pressure": "4.00",
@@ -115,9 +115,9 @@
     ],
     "tank_desired_water_temperature": "0.0",
     "tank_temperature": "0.0",
-    "target_volume": "36",
+    "target_volume": "36.0",
     "target_volume_count_start": "0",
-    "target_weight": "36",
+    "target_weight": "36.0",
     "temp_steps_enabled": false,
     "temperature_presets": [
         "94.00",

@@ -27,6 +27,35 @@ static double jsonToDouble(const QJsonValue& val, double defaultVal = 0.0) {
     return profileJsonToDouble(val, defaultVal);
 }
 
+// Every top-level key Profile models (reads and/or writes). Anything outside this
+// set is retained verbatim in m_unknownKeys and re-emitted, so a Decenza save does
+// not strip keys another DE1 app authored. Add a key here when Profile starts
+// modelling it — otherwise it would be both parsed AND echoed from the passthrough.
+static const QSet<QString> kKnownProfileKeys = {
+    QStringLiteral("title"), QStringLiteral("author"), QStringLiteral("notes"),
+    QStringLiteral("profile_notes"), QStringLiteral("beverage_type"), QStringLiteral("version"),
+    QStringLiteral("legacy_profile_type"), QStringLiteral("profile_type"), QStringLiteral("type"),
+    QStringLiteral("target_weight"), QStringLiteral("target_volume"),
+    QStringLiteral("target_volume_count_start"), QStringLiteral("espresso_temperature"),
+    QStringLiteral("maximum_pressure"), QStringLiteral("maximum_flow"),
+    QStringLiteral("minimum_pressure"), QStringLiteral("tank_desired_water_temperature"),
+    QStringLiteral("tank_temperature"), QStringLiteral("maximum_flow_range_advanced"),
+    QStringLiteral("maximum_pressure_range_advanced"), QStringLiteral("maximum_flow_range_default"),
+    QStringLiteral("maximum_pressure_range_default"), QStringLiteral("number_of_preinfuse_frames"),
+    QStringLiteral("preinfuse_frame_count"), QStringLiteral("has_recommended_dose"),
+    QStringLiteral("recommended_dose"), QStringLiteral("mode"), QStringLiteral("steps"),
+    QStringLiteral("temperature_presets"), QStringLiteral("temp_steps_enabled"),
+    QStringLiteral("recipe"), QStringLiteral("read_only"), QStringLiteral("is_recipe_mode"),
+    QStringLiteral("preinfusion_time"), QStringLiteral("preinfusion_flow_rate"),
+    QStringLiteral("preinfusion_stop_pressure"), QStringLiteral("espresso_pressure"),
+    QStringLiteral("espresso_hold_time"), QStringLiteral("espresso_decline_time"),
+    QStringLiteral("pressure_end"), QStringLiteral("flow_profile_hold"),
+    QStringLiteral("flow_profile_hold_time"), QStringLiteral("flow_profile_decline"),
+    QStringLiteral("flow_profile_decline_time"),
+    QStringLiteral("lang"), QStringLiteral("hidden"), QStringLiteral("reference_file"),
+    QStringLiteral("changes_since_last_espresso"),
+};
+
 // Generate frames for simple pressure profile (settings_2a)
 // Based on de1app's pressure_to_advanced_list()
 static QVector<ProfileFrame> generatePressureProfileFrames(
@@ -375,24 +404,30 @@ QString Profile::editorType() const {
 QJsonObject Profile::toJsonObject() const {
     auto num = [](double v, int prec) { return QJsonValue(QString::number(v, 'f', prec)); };
 
-    QJsonObject obj;
+    // Unmodelled keys from the source profile go in FIRST so every canonical key
+    // below overwrites them — the passthrough preserves foreign data without ever
+    // letting a stale value shadow one Decenza actually manages.
+    QJsonObject obj = m_unknownKeys;
     obj["title"] = m_title;
     obj["author"] = m_author;
     obj["notes"] = m_profileNotes;
     obj["beverage_type"] = m_beverageType;
     obj["version"] = QStringLiteral("2");
     obj["legacy_profile_type"] = m_profileType;
-    obj["target_weight"] = num(m_targetWeight, 0);
-    obj["target_volume"] = num(m_targetVolume, 0);
+    // Precision must not be below what the editors let a user set, or a
+    // save→reload cycle silently changes the shot. target weight/volume are
+    // 0.1-resolution in ProfileEditorPage; limiter ranges are 0.01.
+    obj["target_weight"] = num(m_targetWeight, 1);
+    obj["target_volume"] = num(m_targetVolume, 1);
     obj["espresso_temperature"] = num(m_espressoTemperature, 2);
-    obj["maximum_pressure"] = num(m_maximumPressure, 1);
-    obj["maximum_flow"] = num(m_maximumFlow, 1);
-    obj["minimum_pressure"] = num(m_minimumPressure, 1);
+    obj["maximum_pressure"] = num(m_maximumPressure, 2);
+    obj["maximum_flow"] = num(m_maximumFlow, 2);
+    obj["minimum_pressure"] = num(m_minimumPressure, 2);
     obj["tank_desired_water_temperature"] = num(m_tankDesiredWaterTemperature, 1);
     // tank_temperature: ecosystem-standard alias required by reaprime.
     obj["tank_temperature"] = obj["tank_desired_water_temperature"];
-    obj["maximum_flow_range_advanced"] = num(m_maximumFlowRangeAdvanced, 1);
-    obj["maximum_pressure_range_advanced"] = num(m_maximumPressureRangeAdvanced, 1);
+    obj["maximum_flow_range_advanced"] = num(m_maximumFlowRangeAdvanced, 2);
+    obj["maximum_pressure_range_advanced"] = num(m_maximumPressureRangeAdvanced, 2);
     obj["number_of_preinfuse_frames"] = QString::number(m_preinfuseFrameCount);
     // target_volume_count_start: ecosystem-standard alias required by reaprime.
     obj["target_volume_count_start"] = obj["number_of_preinfuse_frames"];
@@ -413,8 +448,11 @@ QJsonObject Profile::toJsonObject() const {
     obj["reference_file"] = m_title;
     obj["changes_since_last_espresso"] = QString();
 
-    // Simple profile parameters (settings_2a/2b) — Decenza editor state, string-encoded.
-    if (m_profileType == "settings_2a" || m_profileType == "settings_2b") {
+    // Simple profile parameters. Emitted for EVERY profile type, matching de1app
+    // (which writes them unconditionally) and symmetric with fromJson, which also
+    // reads them unconditionally. Gating this on settings_2a/2b destroyed these
+    // keys on 58+ advanced built-ins the first time they were re-serialized.
+    {
         obj["preinfusion_time"] = num(m_preinfusionTime, 2);
         obj["preinfusion_flow_rate"] = num(m_preinfusionFlowRate, 2);
         obj["preinfusion_stop_pressure"] = num(m_preinfusionStopPressure, 2);
@@ -448,11 +486,27 @@ QJsonObject Profile::toJsonObject() const {
     }
     obj["steps"] = stepsArray;
 
+    // When frames were materialized here (they were not stored on the object), the
+    // preinfuse count must be derived from them exactly as fromJson() and
+    // regenerateSimpleFrames() do — otherwise a profile built through setters emits
+    // generated preinfusion frames alongside a stale target_volume_count_start, and
+    // the machine counts target volume from the wrong frame.
+    if (m_steps.isEmpty() && !steps.isEmpty()) {
+        const QString derived = QString::number(countPreinfuseFrames(steps));
+        obj["number_of_preinfuse_frames"] = derived;
+        obj["target_volume_count_start"] = derived;
+    }
+
     // Recipe params — only write when explicitly populated (not default).
     // D-Flow/A-Flow profiles always have recipe data. Simple profiles (settings_2a/2b)
     // only have recipe data if they were edited through the recipe editor.
     QString et = editorType();
-    if (et == QLatin1String("dflow") || et == QLatin1String("aflow")) {
+    if (m_hadRecipeBlock) {
+        // Never drop an authored recipe on a load→save cycle, whatever the editor
+        // type resolves to. Without this, re-serializing an advanced (settings_2c)
+        // profile that carried recipe parameters silently destroyed them.
+        obj["recipe"] = m_recipeParams.toJson();
+    } else if (et == QLatin1String("dflow") || et == QLatin1String("aflow")) {
         obj["recipe"] = m_recipeParams.toJson();
     } else if ((et == QLatin1String("pressure") || et == QLatin1String("flow"))
                && m_recipeParams.targetWeight > 0
@@ -513,9 +567,15 @@ QStringList Profile::reaprimeReadabilityErrors(const QJsonObject& obj) {
         errors << QStringLiteral("missing/empty 'title'");
 
     // reaprime hard-requires these two keys (its Profile.fromJson throws otherwise).
-    if (obj.value("tank_temperature").isUndefined() || obj.value("tank_temperature").isNull())
+    // An empty string counts as missing: reaprime parses them with double.parse /
+    // int.parse, which throw on "" just as they do on an absent key.
+    auto missingRequired = [&obj](const char* key) {
+        const QJsonValue v = obj.value(QLatin1String(key));
+        return v.isUndefined() || v.isNull() || (v.isString() && v.toString().isEmpty());
+    };
+    if (missingRequired("tank_temperature"))
         errors << QStringLiteral("missing 'tank_temperature'");
-    if (obj.value("target_volume_count_start").isUndefined() || obj.value("target_volume_count_start").isNull())
+    if (missingRequired("target_volume_count_start"))
         errors << QStringLiteral("missing 'target_volume_count_start'");
 
     const QJsonValue stepsVal = obj.value("steps");
@@ -673,6 +733,7 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
 
     // Load recipe params if present
     if (obj.contains("recipe")) {
+        profile.m_hadRecipeBlock = true;
         profile.m_recipeParams = RecipeParams::fromJson(obj["recipe"].toObject());
         // Infer RecipeParams.editorType from profileType/title when the recipe
         // block does not include an explicit editorType enum value
@@ -740,6 +801,17 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
     // for advanced profiles — the profile author sets
     // final_desired_shot_volume_advanced_count_start explicitly, and we must
     // match de1app behavior for the same profile.
+
+    // Retain any top-level key Decenza does not model, so serializing this
+    // profile does not strip data another DE1 app authored (see m_unknownKeys).
+    // Note this reads `doc.object()`, not `obj` — obj's non-const operator[]
+    // has been inserting null members throughout this function, and those
+    // phantom keys must not be captured as if the author had written them.
+    const QJsonObject sourceObj = doc.object();
+    for (auto it = sourceObj.constBegin(); it != sourceObj.constEnd(); ++it) {
+        if (!kKnownProfileKeys.contains(it.key()))
+            profile.m_unknownKeys.insert(it.key(), it.value());
+    }
 
     return profile;
 }

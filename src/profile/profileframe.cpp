@@ -68,8 +68,8 @@ QJsonObject ProfileFrame::toJson() const {
     // Always save the limiter object for round-trip fidelity
     // (D-Flow profiles set range to 0.2 even when limiter value is 0)
     QJsonObject limiterObj;
-    limiterObj["value"] = QString::number(maxFlowOrPressure, 'f', 1);
-    limiterObj["range"] = QString::number(maxFlowOrPressureRange, 'f', 1);
+    limiterObj["value"] = QString::number(maxFlowOrPressure, 'f', 2);
+    limiterObj["range"] = QString::number(maxFlowOrPressureRange, 'f', 2);
     obj["limiter"] = limiterObj;
 
     // User notification popup

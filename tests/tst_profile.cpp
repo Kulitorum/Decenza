@@ -354,7 +354,11 @@ private slots:
         QJsonObject serialized = pf.toJson();
         QVERIFY(serialized.contains("limiter"));
         QJsonObject limOut = serialized["limiter"].toObject();
-        // Canonical format string-encodes numeric values.
+        // Canonical format string-encodes numeric values. Assert isString() before
+        // the value: a numeric QJsonValue stringifies to "", whose toDouble() is 0.0,
+        // so the zero case would otherwise pass even if encoding regressed.
+        QVERIFY(limOut["value"].isString());
+        QVERIFY(limOut["range"].isString());
         QCOMPARE(limOut["value"].toString().toDouble(), 0.0);
         QCOMPARE(limOut["range"].toString().toDouble(), 0.2);
     }

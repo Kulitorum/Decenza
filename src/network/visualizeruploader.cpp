@@ -1508,19 +1508,19 @@ QByteArray VisualizerUploader::buildHistoryShotJson(const ShotProjection& shotDa
     if (!shotData.profileJson.isEmpty()) {
         QJsonDocument profileDoc = QJsonDocument::fromJson(shotData.profileJson.toUtf8());
         if (!profileDoc.isNull()) {
+            // Upload the STORED snapshot verbatim. Do not re-serialize it through
+            // Profile::fromJson/toJsonObject: fromJson is not a pure decoder — it
+            // fills defaults for absent keys and rewrites espresso_temperature via
+            // the leaked-default repair, so round-tripping would make a historical
+            // shot claim values it never ran (Visualizer-imported profiles omit
+            // espresso_temperature entirely). The snapshot is a record, not a
+            // profile we own; new shots are already stored in canonical form.
+            profileJsonObj = profileDoc.object();
             Profile profile = Profile::fromJson(profileDoc);
             if (profile.isValid()) {
-                // Re-serialize through the one canonical serializer so a history
-                // re-upload emits the exact same format as a live upload (and
-                // normalizes an old numeric-encoded stored profile to the current
-                // string format). Fall back to the raw stored object only when the
-                // stored JSON doesn't parse to a valid profile.
-                profileJsonObj = profile.toJsonObject();
                 QJsonObject profileSettings = buildProfileSettings(&profile);
                 for (auto it = profileSettings.begin(); it != profileSettings.end(); ++it)
                     settings[it.key()] = it.value();
-            } else {
-                profileJsonObj = profileDoc.object();
             }
         }
     }

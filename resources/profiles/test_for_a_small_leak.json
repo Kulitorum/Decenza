@@ -2,19 +2,35 @@
     "author": "Decent",
     "beverage_type": "{calibrate}",
     "changes_since_last_espresso": "",
+    "espresso_decline_time": "60.00",
+    "espresso_hold_time": "60.00",
+    "espresso_pressure": "10.00",
     "espresso_temperature": "0.00",
+    "flow_profile_decline": "1.20",
+    "flow_profile_decline_time": "17.00",
+    "flow_profile_hold": "2.00",
+    "flow_profile_hold_time": "8.00",
+    "flow_profile_minimum_pressure": 4,
+    "flow_profile_preinfusion": 4,
+    "flow_profile_preinfusion_time": 5,
     "has_recommended_dose": false,
     "hidden": "0",
     "lang": "en",
     "legacy_profile_type": "settings_2c",
-    "maximum_flow": "0.0",
-    "maximum_flow_range_advanced": "0.6",
-    "maximum_pressure": "0.0",
-    "maximum_pressure_range_advanced": "0.6",
-    "minimum_pressure": "4.0",
+    "maximum_flow": "0.00",
+    "maximum_flow_range_advanced": "0.60",
+    "maximum_flow_range_default": "1.00",
+    "maximum_pressure": "0.00",
+    "maximum_pressure_range_advanced": "0.60",
+    "maximum_pressure_range_default": "0.90",
+    "minimum_pressure": "4.00",
     "mode": "frame_based",
     "notes": "Put a blind (no hole) portafilter basket into your portafilter, and then run this profile to see if there are any water leaks in your machine.  Once pressure is reached, water will be turned off and pressure held.  A small mount of pressure loss is normal, because of leaking around the pump's valve.  After two minutes of no flow, your pressure should be above 8 bar.",
     "number_of_preinfuse_frames": "1",
+    "preinfusion_flow_rate": "8.00",
+    "preinfusion_stop_pressure": "10.00",
+    "preinfusion_time": "60.00",
+    "pressure_end": "10.00",
     "read_only": 1,
     "recommended_dose": "18.0",
     "reference_file": "Test/for a small leak",
@@ -22,8 +38,8 @@
         {
             "flow": "8.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "preinfusion",
             "pressure": "10.00",
@@ -37,8 +53,8 @@
         {
             "flow": "0.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "rise and hold",
             "pressure": "10.00",
@@ -52,8 +68,8 @@
         {
             "flow": "0.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "hold at no flow",
             "pressure": "10.00",
@@ -67,9 +83,10 @@
     ],
     "tank_desired_water_temperature": "0.0",
     "tank_temperature": "0.0",
-    "target_volume": "0",
+    "target_volume": "0.0",
     "target_volume_count_start": "1",
-    "target_weight": "0",
+    "target_weight": "0.0",
+    "temp_steps_enabled": false,
     "temperature_presets": [
         "0.00",
         "0.00",

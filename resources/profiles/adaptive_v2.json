@@ -2,19 +2,35 @@
     "author": "Decent",
     "beverage_type": "espresso",
     "changes_since_last_espresso": "",
+    "espresso_decline_time": "30.00",
+    "espresso_hold_time": "15.00",
+    "espresso_pressure": "6.00",
     "espresso_temperature": "93.00",
+    "flow_profile_decline": "1.20",
+    "flow_profile_decline_time": "17.00",
+    "flow_profile_hold": "2.00",
+    "flow_profile_hold_time": "8.00",
+    "flow_profile_minimum_pressure": 4,
+    "flow_profile_preinfusion": 4,
+    "flow_profile_preinfusion_time": 5,
     "has_recommended_dose": false,
     "hidden": "0",
     "lang": "en",
     "legacy_profile_type": "settings_2c",
-    "maximum_flow": "0.0",
-    "maximum_flow_range_advanced": "0.6",
-    "maximum_pressure": "0.0",
-    "maximum_pressure_range_advanced": "0.6",
-    "minimum_pressure": "4.0",
+    "maximum_flow": "0.00",
+    "maximum_flow_range_advanced": "0.60",
+    "maximum_flow_range_default": "1.00",
+    "maximum_pressure": "0.00",
+    "maximum_pressure_range_advanced": "0.60",
+    "maximum_pressure_range_default": "0.90",
+    "minimum_pressure": "4.00",
     "mode": "frame_based",
     "notes": "This profile aims to unite the best practices in espresso extraction that we have learned so far with the Decent. It unites Brakel's Londonium, Rao's Blooming and Gagné's Adaptive profiles. The flow rate during extraction will automatically adjust itself from the flow rate actually happening during the Pressurize step and then gently increase it from there.  A 15g dose is typical.  Aim for a flow rate around 1.5 ml/s at the Pressurize step. 15g in, 33g out, in 32 seconds is a typical recipe for a medium roast.  Grind fine enough to keep dripping during preinfusion to around 4g. If you have a bluetooth scale, you can keep track of how much dripping into the cup there is before the ramp stage.  4 grams of total dripping, within 1 gram, seems to give the best tasting results. Try adusting your grind and dose to get that amount of dripping, and see if you like how it tastes.",
     "number_of_preinfuse_frames": "3",
+    "preinfusion_flow_rate": "4.00",
+    "preinfusion_stop_pressure": "4.00",
+    "preinfusion_time": "20.00",
+    "pressure_end": "4.00",
     "read_only": 1,
     "recommended_dose": "18.0",
     "reference_file": "Adaptive v2",
@@ -22,8 +38,8 @@
         {
             "flow": "8.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Prefill",
             "pressure": "3.00",
@@ -42,8 +58,8 @@
             },
             "flow": "8.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Fill",
             "pressure": "3.00",
@@ -62,8 +78,8 @@
             },
             "flow": "6.80",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Compressing",
             "pressure": "3.00",
@@ -77,8 +93,8 @@
         {
             "flow": "6.80",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Dripping",
             "pressure": "0.10",
@@ -97,8 +113,8 @@
             },
             "flow": "0.00",
             "limiter": {
-                "range": "0.6",
-                "value": "3.5"
+                "range": "0.60",
+                "value": "3.50"
             },
             "name": "Pressurize",
             "popup": "$weight",
@@ -118,8 +134,8 @@
             },
             "flow": "1.50",
             "limiter": {
-                "range": "0.6",
-                "value": "9.5"
+                "range": "0.60",
+                "value": "9.50"
             },
             "name": "Extraction start",
             "pressure": "3.00",
@@ -133,8 +149,8 @@
         {
             "flow": "3.50",
             "limiter": {
-                "range": "0.6",
-                "value": "9.5"
+                "range": "0.60",
+                "value": "9.50"
             },
             "name": "Extraction",
             "pressure": "3.00",
@@ -148,9 +164,10 @@
     ],
     "tank_desired_water_temperature": "0.0",
     "tank_temperature": "0.0",
-    "target_volume": "36",
+    "target_volume": "36.0",
     "target_volume_count_start": "3",
-    "target_weight": "36",
+    "target_weight": "36.0",
+    "temp_steps_enabled": false,
     "temperature_presets": [
         "89.00",
         "89.00",

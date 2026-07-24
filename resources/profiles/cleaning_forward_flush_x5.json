@@ -2,19 +2,35 @@
     "author": "Decent",
     "beverage_type": "cleaning",
     "changes_since_last_espresso": "",
+    "espresso_decline_time": "30.00",
+    "espresso_hold_time": "10.00",
+    "espresso_pressure": "8.40",
     "espresso_temperature": "85.00",
+    "flow_profile_decline": "1.00",
+    "flow_profile_decline_time": "23.00",
+    "flow_profile_hold": "4.00",
+    "flow_profile_hold_time": "2.00",
+    "flow_profile_minimum_pressure": 6,
+    "flow_profile_preinfusion": 4.2,
+    "flow_profile_preinfusion_time": 6,
     "has_recommended_dose": false,
     "hidden": "0",
     "lang": "en",
     "legacy_profile_type": "settings_2c",
-    "maximum_flow": "0.0",
-    "maximum_flow_range_advanced": "0.6",
-    "maximum_pressure": "0.0",
-    "maximum_pressure_range_advanced": "0.6",
-    "minimum_pressure": "6.0",
+    "maximum_flow": "0.00",
+    "maximum_flow_range_advanced": "0.60",
+    "maximum_flow_range_default": "1.00",
+    "maximum_pressure": "0.00",
+    "maximum_pressure_range_advanced": "0.60",
+    "maximum_pressure_range_default": "0.90",
+    "minimum_pressure": "6.00",
     "mode": "frame_based",
     "notes": "A convenient way to 5 times flush and clean your group head.  (1) Put a blind basket in your portafilter  (2) Put 3g (1/2 teaspoon) of espresso machine detergent in the blind basket  (3) Run this profile  (4) When it is done, remove the portafilter off Flush the DE1 until the water goes clear  (5) Put the portafilter back without detergent and run this profile again  (6) Finally, run FLUSH for 20 seconds.",
     "number_of_preinfuse_frames": "2",
+    "preinfusion_flow_rate": "3.50",
+    "preinfusion_stop_pressure": "4.00",
+    "preinfusion_time": "20.00",
+    "pressure_end": "6.00",
     "read_only": 1,
     "recommended_dose": "18.0",
     "reference_file": "Cleaning/Forward Flush x5",
@@ -22,8 +38,8 @@
         {
             "flow": "4.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Pressure rise 1 start",
             "pressure": "10.00",
@@ -37,8 +53,8 @@
         {
             "flow": "4.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Pressure rise 1",
             "pressure": "10.00",
@@ -52,8 +68,8 @@
         {
             "flow": "6.50",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Pause 1",
             "pressure": "0.00",
@@ -67,8 +83,8 @@
         {
             "flow": "6.50",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Pressure rise 2",
             "pressure": "10.00",
@@ -82,8 +98,8 @@
         {
             "flow": "6.50",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Pause 2",
             "pressure": "-0.00",
@@ -97,8 +113,8 @@
         {
             "flow": "6.50",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Pressure rise 3",
             "pressure": "10.00",
@@ -112,8 +128,8 @@
         {
             "flow": "6.50",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Pause 3",
             "pressure": "-0.00",
@@ -127,8 +143,8 @@
         {
             "flow": "6.50",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Pressure rise 4",
             "pressure": "10.00",
@@ -142,8 +158,8 @@
         {
             "flow": "6.50",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Pause 4",
             "pressure": "-0.00",
@@ -157,8 +173,8 @@
         {
             "flow": "6.50",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "Pressure rise 5",
             "pressure": "10.00",
@@ -172,9 +188,10 @@
     ],
     "tank_desired_water_temperature": "0.0",
     "tank_temperature": "0.0",
-    "target_volume": "0",
+    "target_volume": "0.0",
     "target_volume_count_start": "2",
-    "target_weight": "0",
+    "target_weight": "0.0",
+    "temp_steps_enabled": false,
     "temperature_presets": [
         "85.00",
         "85.00",

@@ -14,13 +14,13 @@
     "hidden": "0",
     "lang": "en",
     "legacy_profile_type": "settings_2b",
-    "maximum_flow": "0.0",
-    "maximum_flow_range_advanced": "0.6",
+    "maximum_flow": "0.00",
+    "maximum_flow_range_advanced": "0.60",
     "maximum_flow_range_default": "1.00",
-    "maximum_pressure": "8.6",
-    "maximum_pressure_range_advanced": "0.6",
+    "maximum_pressure": "8.60",
+    "maximum_pressure_range_advanced": "0.60",
     "maximum_pressure_range_default": "0.90",
-    "minimum_pressure": "6.0",
+    "minimum_pressure": "6.00",
     "mode": "frame_based",
     "notes": "John Buckman, the founder of Decent Espresso, finds that this flow profile produces the best espresso shots for straight espresso drinks in the widest variety of circumstances. It is especially tolerant of not-yet-very-good barista technique.",
     "number_of_preinfuse_frames": "0",
@@ -40,8 +40,8 @@
             },
             "flow": "6.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "preinfusion",
             "pressure": "1.00",
@@ -55,8 +55,8 @@
         {
             "flow": "2.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "rise and hold",
             "pressure": "7.50",
@@ -70,8 +70,8 @@
         {
             "flow": "2.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "decline",
             "pressure": "3.00",
@@ -85,9 +85,9 @@
     ],
     "tank_desired_water_temperature": "0.0",
     "tank_temperature": "0.0",
-    "target_volume": "36",
+    "target_volume": "36.0",
     "target_volume_count_start": "0",
-    "target_weight": "36",
+    "target_weight": "36.0",
     "temp_steps_enabled": false,
     "temperature_presets": [
         "92.00",

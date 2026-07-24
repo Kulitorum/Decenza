@@ -10,17 +10,20 @@
     "flow_profile_decline_time": "17.00",
     "flow_profile_hold": "2.00",
     "flow_profile_hold_time": "8.00",
+    "flow_profile_minimum_pressure": 4,
+    "flow_profile_preinfusion": 4,
+    "flow_profile_preinfusion_time": 5,
     "has_recommended_dose": false,
     "hidden": "0",
     "lang": "en",
     "legacy_profile_type": "settings_2a",
-    "maximum_flow": "0.0",
-    "maximum_flow_range_advanced": "0.6",
+    "maximum_flow": "0.00",
+    "maximum_flow_range_advanced": "0.60",
     "maximum_flow_range_default": "1.00",
-    "maximum_pressure": "0.0",
-    "maximum_pressure_range_advanced": "0.6",
+    "maximum_pressure": "0.00",
+    "maximum_pressure_range_advanced": "0.60",
     "maximum_pressure_range_default": "0.90",
-    "minimum_pressure": "4.0",
+    "minimum_pressure": "4.00",
     "mode": "frame_based",
     "notes": "This profile is gentle on the coffee puck and not too demanding on the barista.  Produces a very acceptable espresso in a wide variety of settings.",
     "number_of_preinfuse_frames": "2",
@@ -40,8 +43,8 @@
             },
             "flow": "8.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "preinfusion temp boost",
             "pressure": "1.00",
@@ -60,8 +63,8 @@
             },
             "flow": "8.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "preinfusion",
             "pressure": "1.00",
@@ -75,8 +78,8 @@
         {
             "flow": "2.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "forced rise without limit",
             "pressure": "8.60",
@@ -90,8 +93,8 @@
         {
             "flow": "2.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "rise and hold",
             "pressure": "8.60",
@@ -105,8 +108,8 @@
         {
             "flow": "2.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "forced rise without limit",
             "pressure": "8.60",
@@ -120,8 +123,8 @@
         {
             "flow": "2.00",
             "limiter": {
-                "range": "0.6",
-                "value": "0.0"
+                "range": "0.60",
+                "value": "0.00"
             },
             "name": "decline",
             "pressure": "6.00",
@@ -135,9 +138,9 @@
     ],
     "tank_desired_water_temperature": "0.0",
     "tank_temperature": "0.0",
-    "target_volume": "36",
+    "target_volume": "36.0",
     "target_volume_count_start": "2",
-    "target_weight": "36",
+    "target_weight": "36.0",
     "temp_steps_enabled": true,
     "temperature_presets": [
         "90.00",
