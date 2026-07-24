@@ -142,11 +142,19 @@ feature** — deleting it would have shipped a regression against `main`.
       deferred to the ladder and re-resolves at ~60 s intervals, and the driver never gives up or
       emits `recognitionFailed`. Separately, with `simulationMode` ON the WiFi scale now connects
       while `tryDirectConnectToDE1` remains correctly disabled — root cause 3 confirmed fixed
-- [ ] 10.8 NOT FIXED, recorded: `isBluetoothAvailable()` still hard-codes `true` under `m_disabled`.
-      Safe before, because `m_disabled` early-returned first; this change removes that gate, so the
-      real-scale paths now reach it and can dial a powered-off adapter with no error. Deferred
-      because that short-circuit also feeds QML bindings and the DE1/R2 paths — scoping it properly
-      is its own change
+- [x] 10.8 FIXED, reframed. The reviewer's literal suggestion (scope/drop the `m_disabled`
+      short-circuit in `isBluetoothAvailable()`) would have REGRESSED this change: that short-circuit
+      is the only reason a WiFi scale connects in simulator mode without triggering a macOS Bluetooth
+      permission prompt for a scale that uses no Bluetooth. Investigating it surfaced the real,
+      release-affecting bug underneath: `tryDirectConnectToScale` and `connectToSavedScale` gated
+      ALL transports on `isBluetoothAvailable()` before dispatching, so a WiFi (or USB) scale could
+      not reconnect while the user had Bluetooth turned off — nonsensical, since neither uses the BT
+      radio, and squarely the recovery this change exists to provide. Fix: the Bluetooth-availability
+      gate now applies to the BLE path only. In `tryDirectConnectToScale` it moved below the wifi:/usb:
+      branches; in `connectToSavedScale` the wifi: case skips it (usb: already exited above). Verified
+      the BLE path is still fully gated — the passive scan and direct `connectToDevice` both sit past
+      the relocated gate, and nothing radio-dependent bypasses it. The `m_disabled` short-circuit
+      stays as-is; it is load-bearing for the WiFi-in-simulator path
 - [ ] 10.9 NOT FIXED, recorded: `BLEManager` tracks the in-flight WiFi target in one unqueued slot
       (`m_pendingWifiHostname` / `m_manualWifiConnect`), shared between foreground user actions and
       the background ladder, so a ladder tick can silently discard a manual "Add WiFi Scale" attempt

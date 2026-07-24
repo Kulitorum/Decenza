@@ -929,7 +929,12 @@ void BLEManager::connectToSavedScale() {
                        "synthetic scale, not a real device");
         return;
     }
-    if (!isBluetoothAvailable()) {
+    // BLE only. A WiFi saved scale reaches the LAN over the network and needs no
+    // Bluetooth adapter — gating it here would refuse a WiFi scale with a
+    // misleading "Bluetooth is powered off" dialog whenever the user had BT off.
+    // (USB already returned above; anything still here is either wifi: or BLE.)
+    if (!m_savedScaleAddress.startsWith(QStringLiteral("wifi:"), Qt::CaseInsensitive)
+        && !isBluetoothAvailable()) {
         appendScaleLog("Cannot switch scale — Bluetooth is powered off");
         emit errorOccurred(translateUiString("ble.error.bluetoothPoweredOff",
                                              "Bluetooth is powered off"));
@@ -2126,10 +2131,12 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
         return;
     }
 
-    if (!isBluetoothAvailable()) {
-        qDebug() << "BLEManager: tryDirectConnectToScale - Bluetooth is powered off, skipping";
-        return;
-    }
+    // The Bluetooth-availability gate is NOT here — it moved below the WiFi and
+    // USB branches so it only gates the BLE path. A WiFi scale reaches the
+    // network over the LAN and shares no radio with Bluetooth; gating its
+    // reconnect on the BT adapter meant a WiFi scale could not reconnect while
+    // the user had Bluetooth turned off, which is the exact recovery this whole
+    // change is about. USB is likewise radio-independent.
 
     if (m_scaleDevice && m_scaleDevice->isConnected()) {
         qDebug() << "BLEManager: tryDirectConnectToScale - scale already connected";
@@ -2189,6 +2196,14 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
     if (m_savedScaleAddress.startsWith(QStringLiteral("usb:"), Qt::CaseInsensitive)) {
         qDebug() << "BLEManager: tryDirectConnectToScale - saved scale is USB; "
                     "reconnect handled by UsbScaleManager";
+        return;
+    }
+
+    // --- BLE only past this point. Now the Bluetooth-availability gate applies:
+    // everything below (the passive scan and the direct connectToDevice) needs a
+    // powered BLE adapter, whereas the WiFi and USB paths above did not.
+    if (!isBluetoothAvailable()) {
+        qDebug() << "BLEManager: tryDirectConnectToScale - Bluetooth is powered off, skipping";
         return;
     }
 
