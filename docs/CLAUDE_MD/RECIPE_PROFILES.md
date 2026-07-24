@@ -596,9 +596,48 @@ The canonical format is:
 - **Decenza extensions**: `recipe`, `mode`, `has_recommended_dose`, `temperature_presets` — de1app ignores these. (The simple-profile params are **not** an extension: de1app writes them unconditionally and so do we; gating them on `settings_2a/2b` is what destroyed those keys on 58+ advanced built-ins.) (`is_recipe_mode` was removed; editor type is now derived at runtime from title + `legacy_profile_type`)
 - **No separate reader**: There is no `loadFromDE1AppJson()` — `fromJson()` handles all variants
 
+### Reading a de1app `.tcl`: which spelling wins depends on `settings_profile_type`
+
+Four de1app fields exist in two spellings, and **which one is authoritative is not fixed —
+it depends on the profile type.** Getting this wrong does not fail loudly; it silently
+produces a profile that brews differently, and it makes any parity tool report drift that
+is not there. A comparison written against the wrong spelling once inflated the built-in
+drift list from 4 rows to 60 and sent a whole day of analysis down the wrong path.
+
+de1app's converter `legacy_profile_to_v2` (`de1plus/profile.tcl:450`) always reads the
+`_advanced` spelling. But it is never called on the raw file — the dispatch at
+`profile.tcl:467-472` first runs one of three builders, and **two of them overwrite the
+`_advanced` fields from their plain counterparts** before the converter sees them:
+
+| Builder | `settings_profile_type` | Overwrites `_advanced`? |
+|---------|------------------------|-------------------------|
+| `pressure_to_advanced_list` (`:11`) | `settings_2a` | **Yes** — `profile.tcl:194-201` |
+| `flow_to_advanced_list` (`:206`) | `settings_2b` | **Yes** — `profile.tcl:345-352` |
+| `settings_to_advanced_list` (`:357`) | `settings_2c`, `settings_2c2` | No |
+
+So the authoritative source is:
+
+| Canonical JSON key | `settings_2a` / `2b` reads | `settings_2c` / `2c2` reads |
+|--------------------|---------------------------|----------------------------|
+| `target_weight` | `final_desired_shot_weight` | `final_desired_shot_weight_advanced` |
+| `target_volume` | `final_desired_shot_volume` | `final_desired_shot_volume_advanced` |
+| `maximum_pressure_range_advanced` | `maximum_pressure_range_default` | `maximum_pressure_range_advanced` |
+| `maximum_flow_range_advanced` | `maximum_flow_range_default` | `maximum_flow_range_advanced` |
+
+The same dispatch appears on de1app's save path (`profile.tcl:692-695`), so the rule is not
+an import-only quirk — it is how de1app defines these fields.
+
+**Corollary: for `settings_2a`/`2b`, the `advanced_shot` stored in the `.tcl` is dead data.**
+de1app regenerates the frames from the simple scalars on load and never reads the stored
+array. A simple profile's `.tcl` can therefore carry frames that contradict its own
+scalars, and de1app will run the scalars. `Steam_only.tcl` is exactly this: it stores
+frames at 82/80/72 °C while `espresso_temperature` is `0`, and de1app brews the `0`.
+Anything that reads those stored frames — a comparison tool, or a sync that copies them
+into a built-in — adopts values de1app discards.
+
 ## Profile Comparison / Sync Tools
 
-- **Profile comparison/sync**: Use the `profile_sync` C++ tool (built with the main project, no extra flags). `profile_sync <de1app_profiles_dir> <builtin_profiles_dir>` compares TCL sources against built-in JSONs. Pass `de1plus/profiles/` as the first arg — the tool also scans `de1plus/plugins/*/profiles/` and a plugin copy overrides a base copy with the same output filename (canonical source wins, e.g. the 9-frame `A_Flow` plugin profiles beat the stale 6-frame copies in `de1plus/profiles/`). Simple profiles (`settings_2a`/`settings_2b`) ship with `"steps": []` and have their frames regenerated in-memory before comparison so the equality check is like-for-like. Add `--sync` to overwrite stale JSONs and create missing ones (**modifies `resources/profiles/` in-place** — review changes before committing).
+- **Profile comparison/sync**: Use the `profile_sync` C++ tool (built with the main project, no extra flags). `profile_sync <de1app_profiles_dir> <builtin_profiles_dir>` compares TCL sources against built-in JSONs. Pass `de1plus/profiles/` as the first arg — the tool also scans `de1plus/plugins/*/profiles/` and a plugin copy overrides a base copy with the same output filename (canonical source wins, e.g. the 9-frame `A_Flow` plugin profiles beat the stale 6-frame copies in `de1plus/profiles/`). **The base copies really are stale, and this is settled**: de1app added them on 2025-09-03 in commit `80eb34cc`, "Added A-Flow default profiles to distribution, so they can be translated" — a snapshot taken so the string extractor could see them — and has never refreshed them, while the source repo `Jan3kJ/A_Flow` updated its profiles twice since (`9ca39813` 2025-09-25, `7784922b` 2025-11-07). The plugin submodule is the source; `de1plus/profiles/` is a translation artefact. Don't "fix" the override by preferring the base copy. Simple profiles (`settings_2a`/`settings_2b`) ship with `"steps": []` and have their frames regenerated in-memory before comparison so the equality check is like-for-like. Add `--sync` to overwrite stale JSONs and create missing ones (**modifies `resources/profiles/` in-place** — review changes before committing).
 - **Format-only rewrite**: `profile_sync <de1app_dir> resources/profiles --rewrite-format` re-saves every built-in through the canonical serializer, leaving **content untouched**. It serializes in memory and audits with `Profile::jsonParityErrors` + `Profile::reaprimeReadabilityErrors` **before** writing, so a file that would lose data is left untouched rather than clobbered-then-reported; failures go to stderr and the tool exits non-zero. (`functionallyEqual` is explicitly NOT sufficient for this — it compares frames only, and once reported "content-identical" while recipe blocks were being stripped from 8 built-ins.) Use this to adopt a serialization change. It deliberately ignores de1app — reconciling *content* against de1app/reaprime is a separate concern (OpenSpec `sync-builtin-profiles`), and conflating the two would hide content changes inside a format diff.
 - **Profile import test**: Run `ctest -R tst_tclimport` (requires `-DBUILD_TESTS=ON`). The `compareWithBuiltin` test loads all TCL files from `tests/data/de1app_profiles/` through the C++ parser and verifies they match their built-in JSON counterparts field-by-field.
 
