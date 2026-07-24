@@ -85,10 +85,13 @@ struct ProfileFrame {
     // Keys present in `json` that knownJsonKeys() does not cover, sorted.
     static QStringList unknownJsonKeys(const QJsonObject& json);
 
-    // Same, for a de1app Tcl frame. Shares knownJsonKeys() because the Tcl frame
-    // vocabulary is a strict subset of it: 89 de1app profiles / 531 frames use 19
-    // distinct keys, all of them already listed there (Tcl spells exits flat and
-    // has no nested `exit`/`limiter` objects).
+    // The Tcl frame vocabulary — exactly what fromTclList reads, which is NOT
+    // the same set as knownJsonKeys(). See the definition: reusing the JSON set
+    // here let a .tcl frame carrying `exit_weight` pass as understood while the
+    // parser ignored it entirely.
+    static const QSet<QString>& knownTclKeys();
+
+    // Keys in a de1app Tcl frame that knownTclKeys() does not cover, sorted.
     static QStringList unknownTclKeys(const QString& tclList);
 
     // Parse from de1app Tcl list format: {key value key value ...}

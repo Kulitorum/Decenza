@@ -24,6 +24,33 @@ double profileJsonToDouble(const QJsonValue& val, double defaultVal) {
     return val.toDouble(defaultVal);
 }
 
+bool profileJsonToBool(const QJsonValue& val, bool defaultVal, bool* ok) {
+    // The boolean twin of profileJsonToDouble, and needed for the same reason:
+    // de1app and reaprime encode flags as "1"/"0" strings, and
+    // QJsonValue::toBool() returns its DEFAULT for anything that is not a real
+    // JSON bool. So `"1"` read with .toBool(false) silently yields false — the
+    // flag is not misread, it is destroyed, and the value that replaces it is
+    // indistinguishable from the profile never having set it.
+    //
+    // `ok` reports whether the value was interpretable as a truth value at all.
+    // Callers that are COMPARING two values must check it: letting an
+    // uninterpretable value fall back to a default is precisely how the parity
+    // audit compared "1" against false and certified them equal.
+    if (ok) *ok = true;
+    if (val.isBool()) return val.toBool();
+    if (val.isDouble()) return !qFuzzyIsNull(val.toDouble());
+    if (val.isString()) {
+        const QString s = val.toString().trimmed().toLower();
+        if (s == QStringLiteral("true")) return true;
+        if (s == QStringLiteral("false")) return false;
+        bool numOk = false;
+        const double n = s.toDouble(&numOk);
+        if (numOk) return !qFuzzyIsNull(n);
+    }
+    if (ok) *ok = false;
+    return defaultVal;
+}
+
 static double jsonToDouble(const QJsonValue& val, double defaultVal = 0.0) {
     return profileJsonToDouble(val, defaultVal);
 }
@@ -681,7 +708,17 @@ bool scalarsEqual(const QJsonValue& a, const QJsonValue& b) {
     const double av = asNumber(a, &aNum);
     const double bv = asNumber(b, &bNum);
     if (aNum && bNum) return qAbs(av - bv) < 0.0005;
-    if (a.isBool() || b.isBool()) return a.toBool() == b.toBool();
+    if (a.isBool() || b.isBool()) {
+        // NOT a.toBool() == b.toBool(). toBool() returns its default for a
+        // non-bool, so comparing de1app's "1" against our serialized `false`
+        // took both sides to false and reported them EQUAL — the audit
+        // certified a destroyed flag as lossless, and the test written to catch
+        // exactly that passed straight through it.
+        bool aOk = false, bOk = false;
+        const bool at = profileJsonToBool(a, false, &aOk);
+        const bool bt = profileJsonToBool(b, false, &bOk);
+        return aOk && bOk && at == bt;
+    }
     const QString as = a.isString() ? a.toString() : QString();
     const QString bs = b.isString() ? b.toString() : QString();
     return as == bs;
@@ -857,7 +894,7 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
         profile.m_preinfuseFrameCount = obj["preinfuse_frame_count"].toInt(0);
     }
 
-    profile.m_hasRecommendedDose = obj["has_recommended_dose"].toBool(false);
+    profile.m_hasRecommendedDose = profileJsonToBool(obj["has_recommended_dose"], false);
     profile.m_recommendedDose = jsonToDouble(obj["recommended_dose"], 18.0);
 
     // Simple profile parameters (settings_2a/2b)
@@ -874,7 +911,7 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
     profile.m_flowProfileDecline = jsonToDouble(obj["flow_profile_decline"], 1.2);
     profile.m_maximumFlowRangeDefault = jsonToDouble(obj["maximum_flow_range_default"], 1.0);
     profile.m_maximumPressureRangeDefault = jsonToDouble(obj["maximum_pressure_range_default"], 0.9);
-    profile.m_tempStepsEnabled = obj["temp_steps_enabled"].toBool(false);
+    profile.m_tempStepsEnabled = profileJsonToBool(obj["temp_steps_enabled"], false);
 
     QString modeStr = obj["mode"].toString("frame_based");
     profile.m_mode = (modeStr == "direct") ? Mode::DirectControl : Mode::FrameBased;

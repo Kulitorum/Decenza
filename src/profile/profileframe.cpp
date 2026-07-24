@@ -248,9 +248,38 @@ static QList<QPair<QString, QString>> tclKeyValues(const QString& tclList) {
     return pairs;
 }
 
+const QSet<QString>& ProfileFrame::knownTclKeys() {
+    // EXACTLY the keys fromTclList's if/else chain reads — no more.
+    //
+    // This deliberately does NOT reuse knownJsonKeys(). That set is a superset:
+    // it carries `exit`, `limiter` (nested JSON objects with no Tcl spelling)
+    // and `exit_weight` (the JSON spelling; Tcl says `weight`). Validating Tcl
+    // against it meant a .tcl frame carrying `exit_weight 36` passed as fully
+    // understood while fromTclList read nothing at all — the weight exit was
+    // silently dropped and the shot ran past target weight.
+    //
+    // A key an allowlist blesses but no parser reads is worse than an unguarded
+    // drop, because the guard certifies it as audited. Every entry here must
+    // correspond to a branch in fromTclList; tst_builtinprofileformat asserts
+    // that correspondence so the two cannot drift.
+    static const QSet<QString> k = {
+        QStringLiteral("name"),                QStringLiteral("temperature"),
+        QStringLiteral("sensor"),              QStringLiteral("pump"),
+        QStringLiteral("transition"),          QStringLiteral("pressure"),
+        QStringLiteral("flow"),                QStringLiteral("seconds"),
+        QStringLiteral("volume"),              QStringLiteral("weight"),
+        QStringLiteral("popup"),               QStringLiteral("exit_if"),
+        QStringLiteral("exit_type"),           QStringLiteral("exit_pressure_over"),
+        QStringLiteral("exit_pressure_under"), QStringLiteral("exit_flow_over"),
+        QStringLiteral("exit_flow_under"),     QStringLiteral("max_flow_or_pressure"),
+        QStringLiteral("max_flow_or_pressure_range"),
+    };
+    return k;
+}
+
 QStringList ProfileFrame::unknownTclKeys(const QString& tclList) {
     QStringList unknown;
-    const QSet<QString>& known = knownJsonKeys();
+    const QSet<QString>& known = knownTclKeys();
     for (const auto& kv : tclKeyValues(tclList)) {
         if (!known.contains(kv.first) && !unknown.contains(kv.first))
             unknown << kv.first;

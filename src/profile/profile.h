@@ -30,6 +30,12 @@
  */
 double profileJsonToDouble(const QJsonValue& val, double defaultVal = 0.0);
 
+// Tolerant boolean reader. QJsonValue::toBool() returns its default for a
+// non-bool, so de1app/reaprime's "1"/"0" string flags read as false and are
+// destroyed rather than misread. Pass `ok` when comparing two values — see the
+// definition for why a silent default is dangerous there.
+bool profileJsonToBool(const QJsonValue& val, bool defaultVal = false, bool* ok = nullptr);
+
 class Profile {
 public:
     // Execution modes

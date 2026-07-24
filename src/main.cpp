@@ -3464,21 +3464,28 @@ int main(int argc, char *argv[])
 
         // Give it the current profile from ProfileManager
         auto* pm = mainController.profileManager();
-        QObject::connect(pm, &ProfileManager::currentProfileChanged, [&de1Simulator, pm]() {
+        // Guarded like the handlers further up: `de1Simulator` lives in a
+        // unique_ptr declared AFTER `engine`, while `pm`/`settings` are declared
+        // before it, so without a context object these outlive their own capture
+        // and fire into freed stack during QML teardown.
+        QObject::connect(pm, &ProfileManager::currentProfileChanged, handlerScope.get(),
+                         [&de1Simulator, pm]() {
             de1Simulator.setProfile(pm->currentProfileObject());
         });
         // Set initial profile
         de1Simulator.setProfile(pm->currentProfileObject());
 
         // Connect dose from settings (affects puck resistance simulation)
-        QObject::connect(settings.dye(), &SettingsDye::dyeBeanWeightChanged, [&de1Simulator, &settings]() {
+        QObject::connect(settings.dye(), &SettingsDye::dyeBeanWeightChanged, handlerScope.get(),
+                         [&de1Simulator, &settings]() {
             de1Simulator.setDose(settings.dye()->dyeBeanWeight());
         });
         // Set initial dose
         de1Simulator.setDose(settings.dye()->dyeBeanWeight());
 
         // Connect grind setting (finer grind = more resistance, can choke machine)
-        QObject::connect(settings.dye(), &SettingsDye::dyeGrinderSettingChanged, [&de1Simulator, &settings]() {
+        QObject::connect(settings.dye(), &SettingsDye::dyeGrinderSettingChanged, handlerScope.get(),
+                         [&de1Simulator, &settings]() {
             de1Simulator.setGrindSetting(settings.dye()->dyeGrinderSetting());
         });
         // Set initial grind
@@ -4223,6 +4230,16 @@ int main(int argc, char *argv[])
     // to stay ahead of ~QQmlApplicationEngine, which runs at scope exit below and
     // can still re-enter C++ setters that emit into those lambdas.
     handlerScope.reset();
+
+    // Same lifetime problem, but NOT a signal connection, so handlerScope cannot
+    // reach it: de1SimulatorPtr is declared after `engine` and dies before
+    // de1Device (declared at the top), which holds a RAW DE1Simulator*. Clear it
+    // while both ends are still alive.
+    //
+    // The simulated scale needs no equivalent: MachineState::m_scale and
+    // ShotTimingController::m_scale are both QPointer, so they self-null when the
+    // scale is destroyed. Only this pointer is unguarded.
+    de1Device.setSimulator(nullptr);
 
     // DE1 signals already disconnected in aboutToQuit handler before BLE disconnect.
 

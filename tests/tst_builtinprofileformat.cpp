@@ -469,6 +469,97 @@ private slots:
                             + again.unsupportedStepKeys().join(QStringLiteral(", "))));
     }
 
+    // A flag encoded de1app-style as "1"/"0" must read as a real boolean, and
+    // the parity audit must SEE it when it does not.
+    //
+    // Both halves were broken and hid each other: fromJson read
+    // has_recommended_dose with QJsonValue::toBool(), which returns its default
+    // for a string, so "1" became false — the flag destroyed, not misread. Then
+    // scalarsEqual compared "1" against false with toBool() on both sides, took
+    // both to false, and reported them EQUAL. The audit certified the loss as
+    // lossless and profile_sync --rewrite-format would have written it out.
+    void stringEncodedBooleansSurviveAndAreAudited() {
+        QCOMPARE(profileJsonToBool(QJsonValue(QStringLiteral("1"))), true);
+        QCOMPARE(profileJsonToBool(QJsonValue(QStringLiteral("0"))), false);
+        QCOMPARE(profileJsonToBool(QJsonValue(QStringLiteral("true"))), true);
+        QCOMPARE(profileJsonToBool(QJsonValue(true)), true);
+        QCOMPARE(profileJsonToBool(QJsonValue(1)), true);
+
+        // Uninterpretable => `ok` false, so a comparison cannot silently pass.
+        bool ok = true;
+        (void)profileJsonToBool(QJsonValue(QStringLiteral("yes-ish")), false, &ok);
+        QVERIFY(!ok);
+
+        // The reader keeps the flag.
+        QJsonObject json = makeProfileJson();
+        json[QStringLiteral("has_recommended_dose")] = QStringLiteral("1");
+        json[QStringLiteral("recommended_dose")] = QStringLiteral("18.0");
+        const Profile p = Profile::fromJson(QJsonDocument(json));
+        QVERIFY2(p.toJsonObject().value(QStringLiteral("has_recommended_dose")).toBool(),
+                 "de1app-style \"1\" was destroyed on load");
+
+        // And the auditor reports it when a flag really does change.
+        QVERIFY(!Profile::jsonParityErrors(
+                     QJsonObject{{"has_recommended_dose", QStringLiteral("1")}},
+                     QJsonObject{{"has_recommended_dose", false}}).isEmpty());
+        // Same truth value across encodings is NOT drift.
+        QVERIFY(Profile::jsonParityErrors(
+                    QJsonObject{{"has_recommended_dose", QStringLiteral("1")}},
+                    QJsonObject{{"has_recommended_dose", true}}).isEmpty());
+    }
+
+    // An allowlist may never bless a key no parser reads — that is worse than an
+    // unguarded drop, because the guard certifies it as audited. Reusing
+    // knownJsonKeys() for Tcl did exactly that for exit/limiter/exit_weight.
+    void tclAllowlistMatchesWhatTheTclParserReads() {
+        // Every allowlisted Tcl key must actually reach a field. Feed each one a
+        // distinctive value in an otherwise-default frame and require SOMETHING
+        // to differ from the default frame — a key no branch reads changes nothing.
+        const ProfileFrame base = ProfileFrame::fromTclList(QStringLiteral("{seconds 30}"));
+        for (const QString& key : ProfileFrame::knownTclKeys()) {
+            if (key == QStringLiteral("seconds")) continue;  // the control itself
+            // The probe value must DIFFER from the field's default, or a key
+            // that is read looks unread. `transition` is the trap: fromTclList
+            // maps anything that is not "smooth"/"slow" to "fast", which is
+            // already the default.
+            QString probe = QStringLiteral("7");
+            if (key == QStringLiteral("transition")) probe = QStringLiteral("smooth");
+            else if (key == QStringLiteral("exit_if")) probe = QStringLiteral("1");
+            else if (key == QStringLiteral("name") || key == QStringLiteral("popup")
+                     || key == QStringLiteral("sensor") || key == QStringLiteral("pump")
+                     || key == QStringLiteral("exit_type")) probe = QStringLiteral("flow");
+            const QString tcl = QStringLiteral("{seconds 30 %1 %2}").arg(key, probe);
+            const ProfileFrame got = ProfileFrame::fromTclList(tcl);
+            const bool changed =
+                got.name != base.name || got.popup != base.popup || got.sensor != base.sensor
+                || got.pump != base.pump || got.transition != base.transition
+                || got.exitType != base.exitType || got.exitIf != base.exitIf
+                || !qFuzzyCompare(got.temperature + 1, base.temperature + 1)
+                || !qFuzzyCompare(got.pressure + 1, base.pressure + 1)
+                || !qFuzzyCompare(got.flow + 1, base.flow + 1)
+                || !qFuzzyCompare(got.volume + 1, base.volume + 1)
+                || !qFuzzyCompare(got.exitWeight + 1, base.exitWeight + 1)
+                || !qFuzzyCompare(got.exitPressureOver + 1, base.exitPressureOver + 1)
+                || !qFuzzyCompare(got.exitPressureUnder + 1, base.exitPressureUnder + 1)
+                || !qFuzzyCompare(got.exitFlowOver + 1, base.exitFlowOver + 1)
+                || !qFuzzyCompare(got.exitFlowUnder + 1, base.exitFlowUnder + 1)
+                || !qFuzzyCompare(got.maxFlowOrPressure + 1, base.maxFlowOrPressure + 1)
+                || !qFuzzyCompare(got.maxFlowOrPressureRange + 1, base.maxFlowOrPressureRange + 1);
+            QVERIFY2(changed, qPrintable(QStringLiteral(
+                "knownTclKeys() lists '%1' but fromTclList reads nothing for it — "
+                "a frame using it would import as fully understood").arg(key)));
+        }
+
+        // And the JSON-only spellings must NOT be accepted on the Tcl path.
+        for (const QString& jsonOnly : {QStringLiteral("exit"), QStringLiteral("limiter"),
+                                        QStringLiteral("exit_weight")}) {
+            QVERIFY2(!ProfileFrame::knownTclKeys().contains(jsonOnly),
+                     qPrintable(jsonOnly + " is a JSON spelling; fromTclList does not read it"));
+        }
+        QCOMPARE(ProfileFrame::unknownTclKeys(QStringLiteral("{seconds 30 exit_weight 36}")),
+                 QStringList{QStringLiteral("exit_weight")});
+    }
+
     // ===== The precision policy is the format's contract with the editors =====
 
     void canonicalEncodingPreservesEditorSteps_data() {
