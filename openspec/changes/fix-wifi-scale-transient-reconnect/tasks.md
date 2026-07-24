@@ -193,10 +193,13 @@ change at the maintainer's request rather than tracked separately.
       null-address entry now matches nothing, so the old pairing simply stops connecting and the user
       re-scans and deletes it. Deliberately not special-cased — keeping the legacy value matching
       would preserve the match-everything behaviour this change exists to remove
-- [ ] 11.6 Verify on hardware: pair a BLE scale on macOS, confirm the saved address is now a UUID
-      rather than `00:00:00:00:00:00`, restart, and confirm the startup direct wake takes the scan
-      path instead of the ~4 s null-address dial. Also confirm `machineAddress` stops being
-      `00:00:00:00:00:00` after the next DE1 connect
+- [x] 11.6 PARTIALLY verified on hardware (build 18:18:57, session 60). The stale zero-MAC scale
+      entry now logs `Direct wake (no MAC) - scanning for "Decent Scale" id: "00:00:00:00:00:00"` and
+      takes the scan path; the pre-fix `Direct wake - connecting ... at 00:00:00:00:00:00` followed
+      by `Direct connect not established (~4s elapsed) — aborting` is GONE — zero occurrences of the
+      abort or `invalid saved address` across the whole session. STILL UNVERIFIED: that a freshly
+      paired BLE scale persists as a UUID (needs a real BLE scale paired on the Mac), and the DE1
+      `machineAddress` side (needs a real DE1 connect over BLE)
 - [ ] 11.7 No regression test. `blemanager.h`'s helpers are free inline functions and could be tested
       without constructing BLEManager, but no test target links this header today (see 10.11) — the
       target would have to be stood up first
