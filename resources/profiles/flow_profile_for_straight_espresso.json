@@ -2,31 +2,34 @@
     "author": "Decent",
     "beverage_type": "espresso",
     "changes_since_last_espresso": "",
-    "espresso_decline_time": "25.00",
-    "espresso_hold_time": "10.00",
-    "espresso_pressure": "9.20",
+    "espresso_decline_time": "0.00",
+    "espresso_hold_time": "30.00",
+    "espresso_pressure": "8.60",
     "espresso_temperature": "92.00",
-    "flow_profile_decline": "1.20",
-    "flow_profile_decline_time": "17.00",
+    "flow_profile_decline": "1.00",
+    "flow_profile_decline_time": "23.00",
     "flow_profile_hold": "2.00",
-    "flow_profile_hold_time": "8.00",
+    "flow_profile_hold_time": "0.00",
+    "flow_profile_minimum_pressure": "6",
+    "flow_profile_preinfusion": "4.2",
+    "flow_profile_preinfusion_time": "6",
     "has_recommended_dose": false,
-    "hidden": "0",
+    "hidden": "1",
     "lang": "en",
     "legacy_profile_type": "settings_2b",
     "maximum_flow": "0.00",
-    "maximum_flow_range_advanced": "0.60",
+    "maximum_flow_range_advanced": "1.00",
     "maximum_flow_range_default": "1.00",
     "maximum_pressure": "8.60",
-    "maximum_pressure_range_advanced": "0.60",
+    "maximum_pressure_range_advanced": "0.90",
     "maximum_pressure_range_default": "0.90",
     "minimum_pressure": "6.00",
     "mode": "frame_based",
     "notes": "John Buckman, the founder of Decent Espresso, finds that this flow profile produces the best espresso shots for straight espresso drinks in the widest variety of circumstances. It is especially tolerant of not-yet-very-good barista technique.",
-    "number_of_preinfuse_frames": "0",
-    "preinfusion_flow_rate": "4.00",
-    "preinfusion_stop_pressure": "4.00",
-    "preinfusion_time": "5.00",
+    "number_of_preinfuse_frames": "2",
+    "preinfusion_flow_rate": "8.00",
+    "preinfusion_stop_pressure": "5.00",
+    "preinfusion_time": "20.00",
     "pressure_end": "4.00",
     "read_only": 1,
     "recommended_dose": "18.0",
@@ -36,9 +39,29 @@
             "exit": {
                 "condition": "over",
                 "type": "pressure",
-                "value": "3.00"
+                "value": "5.00"
             },
-            "flow": "6.00",
+            "flow": "8.00",
+            "limiter": {
+                "range": "0.60",
+                "value": "0.00"
+            },
+            "name": "preinfusion boost",
+            "pressure": "1.00",
+            "pump": "flow",
+            "seconds": "2.00",
+            "sensor": "coffee",
+            "temperature": "92.00",
+            "transition": "fast",
+            "volume": "0.0"
+        },
+        {
+            "exit": {
+                "condition": "over",
+                "type": "pressure",
+                "value": "5.00"
+            },
+            "flow": "8.00",
             "limiter": {
                 "range": "0.60",
                 "value": "0.00"
@@ -46,49 +69,49 @@
             "name": "preinfusion",
             "pressure": "1.00",
             "pump": "flow",
-            "seconds": "10.00",
+            "seconds": "18.00",
             "sensor": "coffee",
-            "temperature": "84.00",
+            "temperature": "92.00",
             "transition": "fast",
-            "volume": "100.0"
+            "volume": "0.0"
         },
         {
             "flow": "2.00",
             "limiter": {
-                "range": "0.60",
-                "value": "0.00"
+                "range": "0.90",
+                "value": "8.60"
             },
-            "name": "rise and hold",
-            "pressure": "7.50",
-            "pump": "pressure",
-            "seconds": "8.00",
-            "sensor": "coffee",
-            "temperature": "81.00",
-            "transition": "fast",
-            "volume": "100.0"
-        },
-        {
-            "flow": "2.00",
-            "limiter": {
-                "range": "0.60",
-                "value": "0.00"
-            },
-            "name": "decline",
-            "pressure": "3.00",
-            "pump": "pressure",
+            "name": "hold",
+            "pressure": "9.00",
+            "pump": "flow",
             "seconds": "30.00",
             "sensor": "coffee",
-            "temperature": "78.00",
+            "temperature": "92.00",
+            "transition": "fast",
+            "volume": "0.0"
+        },
+        {
+            "flow": "1.00",
+            "limiter": {
+                "range": "0.90",
+                "value": "8.60"
+            },
+            "name": "decline",
+            "pressure": "9.00",
+            "pump": "flow",
+            "seconds": "0.00",
+            "sensor": "coffee",
+            "temperature": "92.00",
             "transition": "smooth",
-            "volume": "100.0"
+            "volume": "0.0"
         }
     ],
     "tank_desired_water_temperature": "0.0",
     "tank_temperature": "0.0",
     "target_volume": "36.0",
-    "target_volume_count_start": "0",
+    "target_volume_count_start": "2",
     "target_weight": "36.0",
-    "temp_steps_enabled": false,
+    "temp_steps_enabled": true,
     "temperature_presets": [
         "92.00",
         "92.00",

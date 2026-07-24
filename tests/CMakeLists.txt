@@ -61,6 +61,7 @@ set(BLE_SOURCES
 
 set(PROFILE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/profile/profile.cpp
+    ${CMAKE_SOURCE_DIR}/src/profile/de1apptclfields.cpp
     ${CMAKE_SOURCE_DIR}/src/profile/profileframe.cpp
     ${CMAKE_SOURCE_DIR}/src/profile/recipegenerator.cpp
     ${CMAKE_SOURCE_DIR}/src/profile/recipeanalyzer.cpp

@@ -323,6 +323,28 @@ public:
     // Returns false if either profile has no steps.
     static bool functionallyEqual(const Profile& a, const Profile& b);
 
+    // Human-readable account of WHY functionallyEqual() said no: one line per
+    // differing field, labelled with the frame index. Empty exactly when
+    // functionallyEqual() is true.
+    //
+    // It lives next to functionallyEqual() because it has to apply the same
+    // rules — the same skipped inactive axis, the same active-exit-only
+    // threshold check. It previously existed as two hand-maintained copies, in
+    // profile_sync and in tst_tclimport, and a rule added to one of them did not
+    // reach the other.
+    static QString frameDiffReport(const Profile& a, const Profile& b);
+
+    // Canonical profile-title → base filename mapping (no extension). Accents
+    // are decomposed and stripped, every other non-alphanumeric becomes '_',
+    // runs collapse, leading/trailing '_' are trimmed.
+    //
+    // ONE implementation on purpose: this used to be three (ProfileManager, the
+    // profile_sync tool, tst_tclimport) that had already drifted apart on both
+    // accent handling and a length cap. A tool that computes a different
+    // filename than the app looks in the wrong place and reports a built-in as
+    // missing.
+    static QString titleToFilename(const QString& title);
+
 private:
     // Frames for serialization, materializing simple (settings_2a/2b) profiles
     // that carry their frames implicitly. const-safe (no mutation of m_steps).

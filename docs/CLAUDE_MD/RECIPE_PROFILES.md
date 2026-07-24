@@ -627,7 +627,28 @@ So the authoritative source is:
 The same dispatch appears on de1app's save path (`profile.tcl:692-695`), so the rule is not
 an import-only quirk — it is how de1app defines these fields.
 
-**Corollary: for `settings_2a`/`2b`, the `advanced_shot` stored in the `.tcl` is dead data.**
+**The rule lives in `src/profile/de1apptclfields.h` (`De1AppTcl`), not in the reader.**
+`Profile::loadFromTclString()` and `profile_sync` both resolve keys through
+`De1AppTcl::valueFor()` / `tclKeyFor()`, so the importer and the drift gate cannot disagree
+about which spelling wins. Restating the rule in either one is how the 338-row drift below
+went unnoticed. The same table also carries de1app's **absent-key values**: a profile that
+omits `maximum_flow` / `maximum_pressure` runs with *no* limiter in de1app
+(`profile.tcl:513-519`, "Disable limits by default", inside `convert_all_legacy_to_v2` — the
+same `.tcl` → JSON conversion Decenza performs), where `Profile`'s own defaults are 6 mL/s
+and 12 bar. 28 of 89 de1app profiles omit them, and taking the member default switched on a
+limiter de1app never applies.
+
+**Absent ≠ zero, and absent ≠ our default.** When adding a field to the table, check what
+de1app does when the key is missing before assuming `Profile`'s constructor default matches.
+
+**Corollary: for `settings_2a`/`2b`, the `advanced_shot` stored in the `.tcl` is dead data —
+and Decenza now discards it too.** `loadFromTclString()` regenerates the frames from the
+scalars for every simple profile, matching `pressure_to_advanced_list` /
+`flow_to_advanced_list`, which open with `set temp_advanced(advanced_shot) {}`
+(`profile.tcl:16`, `:212`). `NumberOfPreinfuseFrames` is likewise **derived** for simple
+profiles — de1app resets it to 0 and `incr`s it per generated preinfusion frame
+(`:17/56/79`, `:212/251/274`) — and only read from the file for advanced profiles, where
+de1app does not recompute it and D-Flow/A-Flow depend on the authored number.
 de1app regenerates the frames from the simple scalars on load and never reads the stored
 array. A simple profile's `.tcl` can therefore carry frames that contradict its own
 scalars, and de1app will run the scalars. `Steam_only.tcl` is exactly this: it stores
@@ -639,6 +660,7 @@ into a built-in — adopts values de1app discards.
 
 - **Profile comparison/sync**: Use the `profile_sync` C++ tool (built with the main project, no extra flags). `profile_sync <de1app_profiles_dir> <builtin_profiles_dir>` compares TCL sources against built-in JSONs. Pass `de1plus/profiles/` as the first arg — the tool also scans `de1plus/plugins/*/profiles/` and a plugin copy overrides a base copy with the same output filename (canonical source wins, e.g. the 9-frame `A_Flow` plugin profiles beat the stale 6-frame copies in `de1plus/profiles/`). **The base copies really are stale, and this is settled**: de1app added them on 2025-09-03 in commit `80eb34cc`, "Added A-Flow default profiles to distribution, so they can be translated" — a snapshot taken so the string extractor could see them — and has never refreshed them, while the source repo `Jan3kJ/A_Flow` updated its profiles twice since (`9ca39813` 2025-09-25, `7784922b` 2025-11-07). The plugin submodule is the source; `de1plus/profiles/` is a translation artefact. Don't "fix" the override by preferring the base copy. Simple profiles (`settings_2a`/`settings_2b`) ship with `"steps": []` and have their frames regenerated in-memory before comparison so the equality check is like-for-like. Add `--sync` to overwrite stale JSONs and create missing ones (**modifies `resources/profiles/` in-place** — review changes before committing).
 - **Format-only rewrite**: `profile_sync <de1app_dir> resources/profiles --rewrite-format` re-saves every built-in through the canonical serializer, leaving **content untouched**. It serializes in memory and audits with `Profile::jsonParityErrors` + `Profile::reaprimeReadabilityErrors` **before** writing, so a file that would lose data is left untouched rather than clobbered-then-reported; failures go to stderr and the tool exits non-zero. (`functionallyEqual` is explicitly NOT sufficient for this — it compares frames only, and once reported "content-identical" while recipe blocks were being stripped from 8 built-ins.) Use this to adopt a serialization change. It deliberately ignores de1app — reconciling *content* against de1app/reaprime is a separate concern (OpenSpec `sync-builtin-profiles`), and conflating the two would hide content changes inside a format diff.
+- **Scalar drift gate**: `profile_sync` compares **profile-level scalars** as well as frames, through `De1AppTcl::compareScalars()`, and `tst_tclimport::builtinScalarParity` fails the build on any drift. Before this existed the tool compared frames only, and 338 scalar mismatches across 82 of 89 built-ins went unseen. The comparison reads the raw `.tcl` rather than a parsed `Profile` **on purpose**: routing both sides through the reader would make the gate structurally unable to see a reader bug, which is the class of bug that caused this. Keys present in the corpus but absent from the field map are reported as `UNCOMPARED` rather than skipped — silently narrowing the comparison is how a 338-row drift was once measured as 4. **Frames are still not compared field-by-field against de1app** beyond `Profile::frameDiffReport()`; full frame parity remains open.
 - **Profile import test**: Run `ctest -R tst_tclimport` (requires `-DBUILD_TESTS=ON`). The `compareWithBuiltin` test loads all TCL files from `tests/data/de1app_profiles/` through the C++ parser and verifies they match their built-in JSON counterparts field-by-field.
 
 ## Auto-Load

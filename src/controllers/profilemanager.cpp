@@ -882,49 +882,12 @@ void ProfileManager::markProfileClean() {
 }
 
 QString ProfileManager::titleToFilename(const QString& title) const {
-    // Replace accented characters
-    QString result = title;
-    result.replace(QChar(0xE9), 'e');  // e
-    result.replace(QChar(0xE8), 'e');  // e
-    result.replace(QChar(0xEA), 'e');  // e
-    result.replace(QChar(0xEB), 'e');  // e
-    result.replace(QChar(0xE1), 'a');  // a
-    result.replace(QChar(0xE0), 'a');  // a
-    result.replace(QChar(0xE2), 'a');  // a
-    result.replace(QChar(0xE4), 'a');  // a
-    result.replace(QChar(0xED), 'i');  // i
-    result.replace(QChar(0xEC), 'i');  // i
-    result.replace(QChar(0xEE), 'i');  // i
-    result.replace(QChar(0xEF), 'i');  // i
-    result.replace(QChar(0xF3), 'o');  // o
-    result.replace(QChar(0xF2), 'o');  // o
-    result.replace(QChar(0xF4), 'o');  // o
-    result.replace(QChar(0xF6), 'o');  // o
-    result.replace(QChar(0xFA), 'u');  // u
-    result.replace(QChar(0xF9), 'u');  // u
-    result.replace(QChar(0xFB), 'u');  // u
-    result.replace(QChar(0xFC), 'u');  // u
-    result.replace(QChar(0xF1), 'n');  // n
-    result.replace(QChar(0xE7), 'c');  // c
-
-    // Replace non-alphanumeric with underscore
-    QString sanitized;
-    for (const QChar& c : result) {
-        if (c.isLetterOrNumber()) {
-            sanitized += c.toLower();
-        } else {
-            sanitized += '_';
-        }
-    }
-
-    // Collapse multiple underscores and trim
-    while (sanitized.contains("__")) {
-        sanitized.replace("__", "_");
-    }
-    while (sanitized.startsWith('_')) sanitized.remove(0, 1);
-    while (sanitized.endsWith('_')) sanitized.chop(1);
-
-    return sanitized;
+    // Implementation lives on Profile so the profile_sync tool and the parity
+    // tests derive the same filename the app does. This used to be its own copy
+    // with a 22-entry accent table; the tool's copy used NFD decomposition and a
+    // 50-character cap. They agreed on every shipped title and would not have
+    // agreed on the next one.
+    return Profile::titleToFilename(title);
 }
 
 QString ProfileManager::findProfileByTitle(const QString& title) const {

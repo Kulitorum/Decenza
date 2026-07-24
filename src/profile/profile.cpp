@@ -1,4 +1,5 @@
 #include "profile.h"
+#include "de1apptclfields.h"
 #include "profilejson.h"
 #include "recipegenerator.h"
 #include "recipeanalyzer.h"
@@ -1216,28 +1217,12 @@ Profile Profile::loadFromTclString(const QString& content) {
 
     Profile profile;
 
-    // Helper to extract Tcl variable value
-    // Handles: varName {braced value} OR varName "quoted" OR varName simple_word
+    // Scalar extraction and the type-dependent key rule both live in
+    // De1AppTcl — the drift gate in profile_sync reads the same .tcl through
+    // the same functions, so the reader and the gate cannot disagree about
+    // which spelling is authoritative.
     auto extractValue = [&content](const QString& varName) -> QString {
-        // Use \b word boundary so e.g. "preinfusion_time" doesn't match
-        // "flow_profile_preinfusion_time" (substring false-positive).
-        const QString pattern = "\\b" + varName;
-        // Try braced value first: varName {content}
-        QRegularExpression reBraced(pattern + "\\s+\\{([^}]*)\\}");
-        QRegularExpressionMatch match = reBraced.match(content);
-        if (match.hasMatch()) {
-            return match.captured(1);
-        }
-        // Try quoted value: varName "content"
-        QRegularExpression reQuoted(pattern + "\\s+\"([^\"]*)\"");
-        match = reQuoted.match(content);
-        if (match.hasMatch()) {
-            return match.captured(1);
-        }
-        // Try simple word value: varName word
-        QRegularExpression reSimple(pattern + "\\s+(\\S+)");
-        match = reSimple.match(content);
-        return match.hasMatch() ? match.captured(1) : QString();
+        return De1AppTcl::extractValue(content, varName);
     };
 
     // Extract metadata
@@ -1257,40 +1242,70 @@ Profile Profile::loadFromTclString(const QString& content) {
     }
 
     // Determine if this is an advanced profile (settings_2c or settings_2c2)
-    bool isAdvancedProfile = profile.m_profileType.startsWith("settings_2c");
+    bool isAdvancedProfile = De1AppTcl::isAdvancedType(profile.m_profileType);
 
-    // Extract target weight/volume — de1app uses different keys based on profile type
-    // (no cross-key fallback, matching de1app behavior):
-    // Simple profiles (settings_2a/2b): final_desired_shot_weight, final_desired_shot_volume
-    // Advanced profiles (settings_2c/2c2): final_desired_shot_weight_advanced, final_desired_shot_volume_advanced
+    // Every numeric scalar goes through De1AppTcl by its CANONICAL name. That
+    // one call resolves the dual-spelled fields by profile type and applies
+    // de1app's absent-key values, so neither rule has a second copy here.
     QString val;
-    val = extractValue(isAdvancedProfile ? "final_desired_shot_weight_advanced" : "final_desired_shot_weight");
-    if (!val.isEmpty()) profile.m_targetWeight = val.toDouble();
+    auto readNum = [&](const QString& canonical, double& target) {
+        target = De1AppTcl::valueFor(content, canonical, profile.m_profileType, target);
+    };
 
-    val = extractValue(isAdvancedProfile ? "final_desired_shot_volume_advanced" : "final_desired_shot_volume");
-    if (!val.isEmpty()) profile.m_targetVolume = val.toDouble();
+    readNum(QStringLiteral("target_weight"),                   profile.m_targetWeight);
+    readNum(QStringLiteral("target_volume"),                   profile.m_targetVolume);
+    readNum(QStringLiteral("maximum_flow_range_advanced"),     profile.m_maximumFlowRangeAdvanced);
+    readNum(QStringLiteral("maximum_pressure_range_advanced"), profile.m_maximumPressureRangeAdvanced);
 
-    val = extractValue("espresso_temperature");
-    if (!val.isEmpty()) profile.m_espressoTemperature = val.toDouble();
+    readNum(QStringLiteral("espresso_temperature"),           profile.m_espressoTemperature);
+    readNum(QStringLiteral("maximum_flow"),                   profile.m_maximumFlow);
+    readNum(QStringLiteral("maximum_pressure"),               profile.m_maximumPressure);
+    readNum(QStringLiteral("minimum_pressure"),               profile.m_minimumPressure);
+    readNum(QStringLiteral("tank_desired_water_temperature"), profile.m_tankDesiredWaterTemperature);
 
-    // Extract flow/pressure limits
-    val = extractValue("maximum_flow");
-    if (!val.isEmpty()) profile.m_maximumFlow = val.toDouble();
+    // de1app's simple-editor scalars, read for EVERY profile type. de1app writes
+    // the whole block on every profile regardless of type, so gating them on the
+    // matching settings_2a/2b branch loses the flow-editor values on 2a and 2c
+    // profiles and the pressure-editor ones on 2b. This is the same mistake the
+    // WRITER made, where it "destroyed those keys on 58+ advanced built-ins".
+    readNum(QStringLiteral("preinfusion_time"),               profile.m_preinfusionTime);
+    readNum(QStringLiteral("preinfusion_flow_rate"),          profile.m_preinfusionFlowRate);
+    readNum(QStringLiteral("preinfusion_stop_pressure"),      profile.m_preinfusionStopPressure);
+    readNum(QStringLiteral("espresso_pressure"),              profile.m_espressoPressure);
+    readNum(QStringLiteral("espresso_hold_time"),             profile.m_espressoHoldTime);
+    readNum(QStringLiteral("espresso_decline_time"),          profile.m_espressoDeclineTime);
+    readNum(QStringLiteral("pressure_end"),                   profile.m_pressureEnd);
+    readNum(QStringLiteral("flow_profile_hold"),              profile.m_flowProfileHold);
+    readNum(QStringLiteral("flow_profile_hold_time"),         profile.m_flowProfileHoldTime);
+    readNum(QStringLiteral("flow_profile_decline"),           profile.m_flowProfileDecline);
+    readNum(QStringLiteral("flow_profile_decline_time"),      profile.m_flowProfileDeclineTime);
+    readNum(QStringLiteral("maximum_flow_range_default"),     profile.m_maximumFlowRangeDefault);
+    readNum(QStringLiteral("maximum_pressure_range_default"), profile.m_maximumPressureRangeDefault);
 
-    val = extractValue("maximum_pressure");
-    if (!val.isEmpty()) profile.m_maximumPressure = val.toDouble();
+    val = extractValue(QStringLiteral("espresso_temperature_steps_enabled"));
+    if (!val.isEmpty()) profile.m_tempStepsEnabled = (val.toInt() == 1);
 
-    val = extractValue("flow_profile_minimum_pressure");
-    if (!val.isEmpty()) profile.m_minimumPressure = val.toDouble();
-
-    val = extractValue("tank_desired_water_temperature");
-    if (!val.isEmpty()) profile.m_tankDesiredWaterTemperature = val.toDouble();
-
-    val = extractValue("maximum_flow_range_advanced");
-    if (!val.isEmpty()) profile.m_maximumFlowRangeAdvanced = val.toDouble();
-
-    val = extractValue("maximum_pressure_range_advanced");
-    if (!val.isEmpty()) profile.m_maximumPressureRangeAdvanced = val.toDouble();
+    // de1app scalars Profile does not model, kept verbatim under de1app's own
+    // spelling so a Decenza-written file still means the same thing to de1app.
+    //   - profile_hide → hidden: de1app and reaprime read this to filter their
+    //     profile lists. Decenza's own list uses SettingsApp::isHiddenProfile(),
+    //     a separate per-user filename list, so this is inert locally.
+    //   - flow_profile_preinfusion / _preinfusion_time: NOT aliases of
+    //     preinfusion_flow_rate / preinfusion_time. They are de1app's flow-editor
+    //     (settings_2b) values against the pressure-editor (settings_2a) ones,
+    //     and they legitimately disagree in 61 of 62 shipped built-ins.
+    //   - flow_profile_minimum_pressure: de1app's spelling of minimum_pressure,
+    //     read into m_minimumPressure above and echoed here for de1app's editor.
+    //   - profile_language → lang.
+    auto passThrough = [&](const QString& tclKey, const QString& jsonKey) {
+        const QString v = extractValue(tclKey);
+        if (!v.isEmpty()) profile.m_unknownKeys.insert(jsonKey, v);
+    };
+    passThrough(QStringLiteral("profile_hide"),                  QStringLiteral("hidden"));
+    passThrough(QStringLiteral("profile_language"),              QStringLiteral("lang"));
+    passThrough(QStringLiteral("flow_profile_preinfusion"),      QStringLiteral("flow_profile_preinfusion"));
+    passThrough(QStringLiteral("flow_profile_preinfusion_time"), QStringLiteral("flow_profile_preinfusion_time"));
+    passThrough(QStringLiteral("flow_profile_minimum_pressure"), QStringLiteral("flow_profile_minimum_pressure"));
 
     // Extract temperature presets
     profile.m_temperaturePresets.clear();
@@ -1343,96 +1358,68 @@ Profile Profile::loadFromTclString(const QString& content) {
         }
     }
 
-    // For simple profiles (settings_2a = pressure, settings_2b = flow), generate frames from
-    // individual parameters if advanced_shot was empty
-    if (profile.m_steps.isEmpty() && !isAdvancedProfile) {
-        // Extract simple profile parameters and store them for JSON serialization
-        double preinfusionTime = extractValue("preinfusion_time").toDouble();
-        double preinfusionFlowRate = extractValue("preinfusion_flow_rate").toDouble();
-        double preinfusionStopPressure = extractValue("preinfusion_stop_pressure").toDouble();
-        double holdTime = extractValue("espresso_hold_time").toDouble();
-        double declineTime = extractValue("espresso_decline_time").toDouble();
-        bool tempStepsEnabled = extractValue("espresso_temperature_steps_enabled").toInt() == 1;
-
-        // Store scalar params so they persist when saved to JSON
-        profile.m_preinfusionTime = preinfusionTime;
-        profile.m_preinfusionFlowRate = preinfusionFlowRate;
-        profile.m_preinfusionStopPressure = preinfusionStopPressure;
-        profile.m_espressoHoldTime = holdTime;
-        profile.m_espressoDeclineTime = declineTime;
-        profile.m_tempStepsEnabled = tempStepsEnabled;
-
-        // Temperature presets
-        double temp0 = profile.m_espressoTemperature;
-        double temp1 = temp0, temp2 = temp0, temp3 = temp0;
-        if (!profile.m_temperaturePresets.isEmpty()) {
-            temp0 = profile.m_temperaturePresets.value(0, temp0);
-            temp1 = profile.m_temperaturePresets.value(1, temp0);
-            temp2 = profile.m_temperaturePresets.value(2, temp0);
-            temp3 = profile.m_temperaturePresets.value(3, temp0);
-        }
-
-        if (profile.m_profileType == "settings_2a") {
-            // Simple pressure profile
-            double espressoPressure = extractValue("espresso_pressure").toDouble();
-            double pressureEnd = extractValue("pressure_end").toDouble();
-            double maximumFlow = profile.m_maximumFlow;
-            double maximumFlowRange = extractValue("maximum_flow_range_default").toDouble();
-            if (qFuzzyIsNull(maximumFlowRange)) maximumFlowRange = 1.0;
-
-            // Store pressure-specific params
-            profile.m_espressoPressure = espressoPressure;
-            profile.m_pressureEnd = pressureEnd;
-            profile.m_maximumFlowRangeDefault = maximumFlowRange;
-
-            profile.m_steps = generatePressureProfileFrames(
-                preinfusionTime, preinfusionFlowRate, preinfusionStopPressure,
-                holdTime, espressoPressure,
-                declineTime, pressureEnd,
-                maximumFlow, maximumFlowRange,
-                temp0, temp1, temp2, temp3,
-                tempStepsEnabled);
-
-            qDebug() << "Generated" << profile.m_steps.size() << "frames from simple pressure profile";
-        } else if (profile.m_profileType == "settings_2b") {
-            // Simple flow profile
-            double flowHold = extractValue("flow_profile_hold").toDouble();
-            double flowDecline = extractValue("flow_profile_decline").toDouble();
-            double maximumPressure = profile.m_maximumPressure;
-            double maximumPressureRange = extractValue("maximum_pressure_range_default").toDouble();
-            if (qFuzzyIsNull(maximumPressureRange)) maximumPressureRange = 0.9;
-
-            // Store flow-specific params
-            profile.m_flowProfileHold = flowHold;
-            profile.m_flowProfileHoldTime = extractValue("flow_profile_hold_time").toDouble();
-            profile.m_flowProfileDecline = flowDecline;
-            profile.m_flowProfileDeclineTime = extractValue("flow_profile_decline_time").toDouble();
-            profile.m_maximumPressureRangeDefault = maximumPressureRange;
-
-            profile.m_steps = generateFlowProfileFrames(
-                preinfusionTime, preinfusionFlowRate, preinfusionStopPressure,
-                holdTime, flowHold,
-                declineTime, flowDecline,
-                maximumPressure, maximumPressureRange,
-                temp0, temp1, temp2, temp3,
-                tempStepsEnabled);
-
-            qDebug() << "Generated" << profile.m_steps.size() << "frames from simple flow profile";
-        }
+    // Simple profiles (settings_2a = pressure, settings_2b = flow) derive their
+    // frames from the scalars read above — ALWAYS, discarding any advanced_shot
+    // the .tcl stored, because de1app discards it too. Its builders open with
+    // `set temp_advanced(advanced_shot) {}` (profile.tcl:16, :212) and rebuild
+    // the list from the scalars, so the stored array is dead data: a simple
+    // .tcl can carry frames that contradict its own scalars and de1app runs the
+    // scalars. Steam_only.tcl stores frames at 82/80/72 °C while
+    // espresso_temperature is 0 — de1app brews the 0, and so must we.
+    //
+    // Frame synthesis is the ONLY thing conditional here; the scalars above are
+    // read for every profile of every type. Conflating the two questions ("do I
+    // need to synthesize frames?" and "should I read the scalars?") is what made
+    // most de1app scalars unreadable on any profile carrying a stored array.
+    if (profile.m_profileType == QLatin1String("settings_2a")
+        || profile.m_profileType == QLatin1String("settings_2b")) {
+        // The discarded frames' unknown keys go with them. Refusing the profile
+        // over a key in an array de1app never reads would reject a profile that
+        // brews exactly as specified.
+        profile.m_unsupportedStepKeys.clear();
+        // Same generator the app runs at activation time — an imported profile
+        // and a re-activated one must not produce different frames.
+        profile.regenerateSimpleFrames();
+        qDebug() << "Generated" << profile.m_steps.size() << "frames from simple"
+                 << profile.m_profileType << "profile";
     }
 
-    // Set espresso temperature from first step if not set
-    if (qFuzzyIsNull(profile.m_espressoTemperature) && !profile.m_steps.isEmpty()) {
+    // Back-fill espresso temperature from the first frame — for ADVANCED
+    // profiles only, where the frames are the source of truth and the scalar is
+    // just a summary.
+    //
+    // Never for a simple profile: there the scalar generated the frames, so a 0
+    // is the authored value rather than a gap. Doing it unconditionally is what
+    // made Steam_only import at 82 °C (the first stored frame) when its
+    // espresso_temperature says 0 and de1app brews 0.
+    if (isAdvancedProfile && qFuzzyIsNull(profile.m_espressoTemperature)
+        && !profile.m_steps.isEmpty()) {
         profile.m_espressoTemperature = profile.m_steps.first().temperature;
     }
 
-    // Read preinfuse frame count from TCL data
-    // de1app uses "final_desired_shot_volume_advanced_count_start" as NumberOfPreinfuseFrames
-    // (binary.tcl line 990). Default to 0 when missing, matching de1app's ifexists behavior.
-    // For simple TCL profiles (settings_2a/2b), de1app always includes this field
-    // (set by pressure_to_advanced_list / flow_to_advanced_list in profile.tcl).
-    val = extractValue("final_desired_shot_volume_advanced_count_start");
-    profile.m_preinfuseFrameCount = val.isEmpty() ? 0 : val.toInt();
+    // Preinfuse frame count — de1app's NumberOfPreinfuseFrames, sent in the BLE
+    // header, where it tells the firmware where preinfusion ends. It is stored
+    // as "final_desired_shot_volume_advanced_count_start" (binary.tcl:990).
+    //
+    // For a SIMPLE profile the stored number is not the answer: de1app's
+    // builders reset it to 0 and `incr` it once per preinfusion frame they
+    // generate (profile.tcl:17/56/79 for settings_2a, :212/251/274 for 2b), so
+    // the value follows the frames they just built. Four built-ins carry a
+    // literal 0 while generating two preinfusion frames — taking the literal
+    // would hand the DE1 a 0 and change the shot. regenerateSimpleFrames() has
+    // already derived the right count, so leave it alone.
+    //
+    // Advanced profiles keep the stored value: de1app does not recompute it
+    // there, and D-Flow/A-Flow depend on the authored number surviving.
+    if (isAdvancedProfile) {
+        val = extractValue("final_desired_shot_volume_advanced_count_start");
+        profile.m_preinfuseFrameCount = val.isEmpty() ? 0 : val.toInt();
+    } else {
+        // Derived from the frames, whether they were generated here or read
+        // from a stored advanced_shot — de1app's count always describes the
+        // frame list it is sent with.
+        profile.m_preinfuseFrameCount = countPreinfuseFrames(profile.m_steps);
+    }
 
     qDebug() << "Loaded Tcl profile:" << profile.m_title
              << "with" << profile.m_steps.size() << "steps";
@@ -1516,6 +1503,92 @@ bool Profile::functionallyEqual(const Profile& a, const Profile& b)
     }
 
     return true;
+}
+
+QString Profile::frameDiffReport(const Profile& a, const Profile& b)
+{
+    QString report;
+
+    // Header-level mismatches print even when one side has no frames at all —
+    // otherwise a simple-profile diff renders as an empty body.
+    if (a.steps().size() != b.steps().size())
+        report += QString("  step count: A=%1 B=%2\n")
+                      .arg(a.steps().size()).arg(b.steps().size());
+    if (a.preinfuseFrameCount() != b.preinfuseFrameCount())
+        report += QString("  preinfuseFrameCount: A=%1 B=%2\n")
+                      .arg(a.preinfuseFrameCount()).arg(b.preinfuseFrameCount());
+
+    const qsizetype n = qMin(a.steps().size(), b.steps().size());
+    for (qsizetype i = 0; i < n; ++i) {
+        const ProfileFrame& fa = a.steps()[i];
+        const ProfileFrame& fb = b.steps()[i];
+        const QString p = QString("  FRAME[%1] ").arg(i);
+
+        auto chkS = [&](const QString& lbl, const QString& va, const QString& vb) {
+            if (va != vb) report += p + lbl + ": A=" + va + " B=" + vb + "\n";
+        };
+        auto chkF = [&](const QString& lbl, double va, double vb) {
+            if (qAbs(va - vb) > 0.1)
+                report += p + lbl + ": A=" + QString::number(va) + " B=" + QString::number(vb) + "\n";
+        };
+
+        chkS("pump", fa.pump, fb.pump);
+        chkS("sensor", fa.sensor, fb.sensor);
+        chkS("transition", fa.transition, fb.transition);
+        chkS("popup", fa.popup, fb.popup);
+        if (fa.exitIf != fb.exitIf)
+            report += p + "exitIf: A=" + QString::number(fa.exitIf) + " B=" + QString::number(fb.exitIf) + "\n";
+        if (fa.exitIf) chkS("exitType", fa.exitType, fb.exitType);
+
+        chkF("temperature", fa.temperature, fb.temperature);
+        // Same asymmetry as functionallyEqual(): the inactive axis carries a
+        // de1app default our writer omits, so it only counts when both sides set it.
+        if (fa.pump == "pressure") {
+            chkF("pressure", fa.pressure, fb.pressure);
+            if (fa.flow > 0.1 && fb.flow > 0.1) chkF("flow", fa.flow, fb.flow);
+        } else {
+            chkF("flow", fa.flow, fb.flow);
+            if (fa.pressure > 0.1 && fb.pressure > 0.1) chkF("pressure", fa.pressure, fb.pressure);
+        }
+        chkF("seconds", fa.seconds, fb.seconds);
+        chkF("volume",  fa.volume,  fb.volume);
+
+        // Only the active exit threshold; the other three are noise from de1app TCL.
+        if (fa.exitIf) {
+            if      (fa.exitType == "pressure_over")  chkF("exitPressureOver",  fa.exitPressureOver,  fb.exitPressureOver);
+            else if (fa.exitType == "pressure_under") chkF("exitPressureUnder", fa.exitPressureUnder, fb.exitPressureUnder);
+            else if (fa.exitType == "flow_over")      chkF("exitFlowOver",      fa.exitFlowOver,      fb.exitFlowOver);
+            else if (fa.exitType == "flow_under")     chkF("exitFlowUnder",     fa.exitFlowUnder,     fb.exitFlowUnder);
+        }
+
+        chkF("exitWeight",             fa.exitWeight,             fb.exitWeight);
+        chkF("maxFlowOrPressure",      fa.maxFlowOrPressure,      fb.maxFlowOrPressure);
+        chkF("maxFlowOrPressureRange", fa.maxFlowOrPressureRange, fb.maxFlowOrPressureRange);
+    }
+
+    return report;
+}
+
+QString Profile::titleToFilename(const QString& title)
+{
+    // NFD decomposition splits an accented char into base + combining mark, so
+    // stripping the marks leaves the base letter. This covers every accent,
+    // where the explicit per-character table it replaced covered 22 of them.
+    static const QRegularExpression reCombining(QStringLiteral("[\\x{0300}-\\x{036f}]"));
+    QString decomposed = title.normalized(QString::NormalizationForm_D);
+    decomposed.remove(reCombining);
+
+    QString sanitized;
+    sanitized.reserve(decomposed.size());
+    for (const QChar& c : decomposed)
+        sanitized += c.isLetterOrNumber() ? c.toLower() : QLatin1Char('_');
+
+    while (sanitized.contains(QLatin1String("__")))
+        sanitized.replace(QLatin1String("__"), QLatin1String("_"));
+    while (sanitized.startsWith(QLatin1Char('_'))) sanitized.remove(0, 1);
+    while (sanitized.endsWith(QLatin1Char('_')))   sanitized.chop(1);
+
+    return sanitized;
 }
 
 QStringList Profile::validationErrors() const {

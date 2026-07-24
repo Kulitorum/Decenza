@@ -2,23 +2,26 @@
     "author": "Decent",
     "beverage_type": "manual",
     "changes_since_last_espresso": "",
-    "espresso_decline_time": "25.00",
-    "espresso_hold_time": "10.00",
-    "espresso_pressure": "9.20",
+    "espresso_decline_time": "60.00",
+    "espresso_hold_time": "60.00",
+    "espresso_pressure": "0.00",
     "espresso_temperature": "88.00",
-    "flow_profile_decline": "1.20",
+    "flow_profile_decline": "0.00",
     "flow_profile_decline_time": "17.00",
-    "flow_profile_hold": "2.00",
+    "flow_profile_hold": "0.00",
     "flow_profile_hold_time": "8.00",
+    "flow_profile_minimum_pressure": "4",
+    "flow_profile_preinfusion": "4",
+    "flow_profile_preinfusion_time": "5",
     "has_recommended_dose": false,
-    "hidden": "0",
+    "hidden": "1",
     "lang": "en",
     "legacy_profile_type": "settings_2b",
     "maximum_flow": "0.00",
-    "maximum_flow_range_advanced": "0.60",
+    "maximum_flow_range_advanced": "1.00",
     "maximum_flow_range_default": "1.00",
     "maximum_pressure": "9.00",
-    "maximum_pressure_range_advanced": "0.60",
+    "maximum_pressure_range_advanced": "0.90",
     "maximum_pressure_range_default": "0.90",
     "minimum_pressure": "4.00",
     "mode": "frame_based",
@@ -26,76 +29,41 @@
     "number_of_preinfuse_frames": "0",
     "preinfusion_flow_rate": "4.00",
     "preinfusion_stop_pressure": "4.00",
-    "preinfusion_time": "5.00",
-    "pressure_end": "4.00",
+    "preinfusion_time": "0.00",
+    "pressure_end": "0.00",
     "read_only": 1,
     "recommended_dose": "18.0",
     "reference_file": "GHC/manual flow control",
     "steps": [
         {
-            "flow": "4.00",
+            "flow": "0.00",
             "limiter": {
-                "range": "0.60",
-                "value": "0.00"
+                "range": "0.90",
+                "value": "9.00"
             },
-            "name": "preinfusion",
-            "pressure": "0.00",
-            "pump": "pressure",
-            "seconds": "5.00",
-            "sensor": "coffee",
-            "temperature": "88.00",
-            "transition": "fast",
-            "volume": "100.0"
-        },
-        {
-            "exit": {
-                "condition": "over",
-                "type": "pressure",
-                "value": "4.00"
-            },
-            "flow": "4.00",
-            "limiter": {
-                "range": "0.60",
-                "value": "0.00"
-            },
-            "name": "preinfusion",
-            "pressure": "1.00",
+            "name": "hold",
+            "pressure": "9.00",
             "pump": "flow",
-            "seconds": "20.00",
+            "seconds": "60.00",
             "sensor": "coffee",
             "temperature": "88.00",
             "transition": "fast",
-            "volume": "100.0"
+            "volume": "0.0"
         },
         {
-            "flow": "2.00",
+            "flow": "0.00",
             "limiter": {
-                "range": "0.60",
-                "value": "0.00"
-            },
-            "name": "rise and hold",
-            "pressure": "8.60",
-            "pump": "pressure",
-            "seconds": "4.00",
-            "sensor": "coffee",
-            "temperature": "88.00",
-            "transition": "fast",
-            "volume": "100.0"
-        },
-        {
-            "flow": "2.00",
-            "limiter": {
-                "range": "0.60",
-                "value": "0.00"
+                "range": "0.90",
+                "value": "9.00"
             },
             "name": "decline",
-            "pressure": "6.00",
-            "pump": "pressure",
-            "seconds": "35.00",
+            "pressure": "9.00",
+            "pump": "flow",
+            "seconds": "60.00",
             "sensor": "coffee",
             "temperature": "88.00",
             "transition": "smooth",
-            "volume": "100.0"
+            "volume": "0.0"
         }
     ],
     "tank_desired_water_temperature": "0.0",

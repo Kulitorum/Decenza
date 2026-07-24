@@ -10,11 +10,11 @@
     "flow_profile_decline_time": "17.00",
     "flow_profile_hold": "2.00",
     "flow_profile_hold_time": "8.00",
-    "flow_profile_minimum_pressure": 4,
-    "flow_profile_preinfusion": 4,
-    "flow_profile_preinfusion_time": 5,
+    "flow_profile_minimum_pressure": "4",
+    "flow_profile_preinfusion": "4",
+    "flow_profile_preinfusion_time": "5",
     "has_recommended_dose": false,
-    "hidden": "0",
+    "hidden": "1",
     "lang": "en",
     "legacy_profile_type": "settings_2c",
     "maximum_flow": "0.00",
@@ -57,7 +57,7 @@
                 "value": "0.00"
             },
             "name": "flow",
-            "pressure": "0.00",
+            "pressure": "9.00",
             "pump": "flow",
             "seconds": "5.00",
             "sensor": "water",
@@ -72,7 +72,7 @@
                 "value": "0.00"
             },
             "name": "hold",
-            "pressure": "0.00",
+            "pressure": "9.00",
             "pump": "flow",
             "seconds": "10.00",
             "sensor": "water",
@@ -87,7 +87,7 @@
                 "value": "0.00"
             },
             "name": "flow",
-            "pressure": "0.00",
+            "pressure": "9.00",
             "pump": "flow",
             "seconds": "12.00",
             "sensor": "water",
@@ -102,7 +102,7 @@
                 "value": "0.00"
             },
             "name": "hold",
-            "pressure": "0.00",
+            "pressure": "9.00",
             "pump": "flow",
             "seconds": "12.00",
             "sensor": "water",
@@ -117,7 +117,7 @@
                 "value": "0.00"
             },
             "name": "flow",
-            "pressure": "0.00",
+            "pressure": "9.00",
             "pump": "flow",
             "seconds": "12.00",
             "sensor": "water",
@@ -132,7 +132,7 @@
                 "value": "0.00"
             },
             "name": "hold",
-            "pressure": "0.00",
+            "pressure": "9.00",
             "pump": "flow",
             "seconds": "12.00",
             "sensor": "water",
@@ -147,7 +147,7 @@
                 "value": "0.00"
             },
             "name": "flow",
-            "pressure": "0.00",
+            "pressure": "9.00",
             "pump": "flow",
             "seconds": "12.00",
             "sensor": "water",
@@ -162,7 +162,7 @@
                 "value": "0.00"
             },
             "name": "hold",
-            "pressure": "0.00",
+            "pressure": "9.00",
             "pump": "flow",
             "seconds": "12.00",
             "sensor": "water",
@@ -177,7 +177,7 @@
                 "value": "0.00"
             },
             "name": "flow",
-            "pressure": "0.00",
+            "pressure": "9.00",
             "pump": "flow",
             "seconds": "12.00",
             "sensor": "water",
@@ -192,7 +192,7 @@
                 "value": "0.00"
             },
             "name": "hold",
-            "pressure": "0.00",
+            "pressure": "9.00",
             "pump": "flow",
             "seconds": "12.00",
             "sensor": "water",
@@ -207,7 +207,7 @@
                 "value": "0.00"
             },
             "name": "flow",
-            "pressure": "0.00",
+            "pressure": "9.00",
             "pump": "flow",
             "seconds": "12.00",
             "sensor": "water",
@@ -222,7 +222,7 @@
                 "value": "0.00"
             },
             "name": "hold",
-            "pressure": "0.00",
+            "pressure": "9.00",
             "pump": "flow",
             "seconds": "10.00",
             "sensor": "water",
@@ -237,7 +237,7 @@
                 "value": "0.00"
             },
             "name": "flow",
-            "pressure": "0.00",
+            "pressure": "9.00",
             "pump": "flow",
             "seconds": "10.00",
             "sensor": "water",
@@ -252,7 +252,7 @@
                 "value": "0.00"
             },
             "name": "flow",
-            "pressure": "0.00",
+            "pressure": "9.00",
             "pump": "flow",
             "seconds": "10.00",
             "sensor": "water",
@@ -267,7 +267,7 @@
                 "value": "0.00"
             },
             "name": "flow",
-            "pressure": "0.00",
+            "pressure": "9.00",
             "pump": "flow",
             "seconds": "10.00",
             "sensor": "water",
@@ -281,7 +281,7 @@
     "target_volume": "295.0",
     "target_volume_count_start": "0",
     "target_weight": "0.0",
-    "temp_steps_enabled": false,
+    "temp_steps_enabled": true,
     "temperature_presets": [
         "90.00",
         "88.00",

@@ -1,6 +1,6 @@
 {
     "author": "Decent",
-    "beverage_type": "{espresso}",
+    "beverage_type": "espresso",
     "changes_since_last_espresso": "",
     "espresso_decline_time": "20.00",
     "espresso_hold_time": "10.00",
@@ -10,11 +10,11 @@
     "flow_profile_decline_time": "23.00",
     "flow_profile_hold": "2.30",
     "flow_profile_hold_time": "2.00",
-    "flow_profile_minimum_pressure": 6,
-    "flow_profile_preinfusion": 4.2,
-    "flow_profile_preinfusion_time": 6,
+    "flow_profile_minimum_pressure": "6",
+    "flow_profile_preinfusion": "4.2",
+    "flow_profile_preinfusion_time": "6",
     "has_recommended_dose": false,
-    "hidden": "0",
+    "hidden": "1",
     "lang": "en",
     "legacy_profile_type": "settings_2c",
     "maximum_flow": "0.00",
@@ -23,7 +23,7 @@
     "maximum_pressure": "0.00",
     "maximum_pressure_range_advanced": "0.60",
     "maximum_pressure_range_default": "0.90",
-    "minimum_pressure": "0.00",
+    "minimum_pressure": "6.00",
     "mode": "frame_based",
     "notes": "A dark roast pressure profile that emulates the flow and temperature characteristics of the Espresso Forge manual machine. Good for medium to dark roasts where you want to pull out more fruit flavors, similar to the classic Italian Lever profile.",
     "number_of_preinfuse_frames": "0",
@@ -56,7 +56,7 @@
             "volume": "100.0"
         },
         {
-            "flow": "0.00",
+            "flow": "2.00",
             "limiter": {
                 "range": "0.60",
                 "value": "0.00"
@@ -71,7 +71,7 @@
             "volume": "100.0"
         },
         {
-            "flow": "0.00",
+            "flow": "2.00",
             "limiter": {
                 "range": "0.60",
                 "value": "0.00"

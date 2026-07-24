@@ -2,8 +2,10 @@
 #include <QDir>
 #include <QFile>
 #include <QJsonDocument>
+#include <QJsonObject>
 #include <QRegularExpression>
 
+#include "profile/de1apptclfields.h"
 #include "profile/profile.h"
 #include "profile/profileframe.h"
 
@@ -248,75 +250,353 @@ private slots:
         Profile tcl = Profile::loadFromTclString(QTextStream(&f).readAll());
         QVERIFY2(!tcl.title().isEmpty(), qPrintable("Empty title: " + fileName));
 
-        // Derive built-in filename from title (matches ProfileManager::titleToFilename).
-        // NFD decomposition splits accented chars (e.g. é → e + combining accent),
-        // then strip combining diacritical marks, matching the explicit accented-char
-        // replacements in ProfileManager::titleToFilename.
-        QString fn = tcl.title().normalized(QString::NormalizationForm_D);
-        fn.remove(QRegularExpression("[\\x{0300}-\\x{036f}]")); // strip combining marks
-        fn = fn.toLower();
-        fn.replace(QRegularExpression("[^a-z0-9]+"), "_");
-        fn.replace(QRegularExpression("^_+|_+$"), "");
-        fn.replace(QRegularExpression("_+"), "_");
-        if (fn.length() > 50) fn = fn.left(50);
-
-        QString builtinPath = ":/profiles/" + fn + ".json";
+        // Same mapping the app uses — a local copy would let the test look for a
+        // different file than ProfileManager writes.
+        const QString builtinPath = ":/profiles/" + Profile::titleToFilename(tcl.title()) + ".json";
         QVERIFY2(QFile::exists(builtinPath),
-                 qPrintable("No built-in JSON for '" + tcl.title() + "' (tried " + fn + ".json)"));
+                 qPrintable("No built-in JSON for '" + tcl.title() + "' (tried " + builtinPath + ")"));
 
         Profile builtin = Profile::loadFromFile(builtinPath);
         QVERIFY2(builtin.isValid(), qPrintable("Invalid built-in JSON: " + builtinPath));
 
-        // Skip early if identical — fast path
-        if (Profile::functionallyEqual(tcl, builtin)) return;
-
-        // Build a diff report matching the same logic as functionallyEqual()
-        // (profile-level limits excluded; exit thresholds only when exitIf active)
-        QString report;
-        if (tcl.steps().size() != builtin.steps().size()) {
-            report += QString("  step count: TCL=%1 JSON=%2\n")
-                          .arg(tcl.steps().size()).arg(builtin.steps().size());
-        }
-
-        qsizetype n = qMin(tcl.steps().size(), builtin.steps().size());
-        for (qsizetype i = 0; i < n; ++i) {
-            const ProfileFrame& a = tcl.steps()[i];
-            const ProfileFrame& b = builtin.steps()[i];
-            QString p = QString("  FRAME[%1] ").arg(i);
-            if (a.pump       != b.pump)       report += p + "pump: TCL=" + a.pump + " JSON=" + b.pump + "\n";
-            if (a.sensor     != b.sensor)     report += p + "sensor: TCL=" + a.sensor + " JSON=" + b.sensor + "\n";
-            if (a.transition != b.transition) report += p + "transition: TCL=" + a.transition + " JSON=" + b.transition + "\n";
-            if (a.popup      != b.popup)      report += p + "popup: TCL='" + a.popup + "' JSON='" + b.popup + "'\n";
-            if (a.exitIf     != b.exitIf)     report += p + "exitIf: TCL=" + QString::number(a.exitIf) + " JSON=" + QString::number(b.exitIf) + "\n";
-            if (a.exitIf && a.exitType != b.exitType) report += p + "exitType: TCL=" + a.exitType + " JSON=" + b.exitType + "\n";
-            auto chkF = [&](const QString& lbl, double va, double vb) {
-                if (qAbs(va - vb) > 0.1)
-                    report += p + lbl + ": TCL=" + QString::number(va) + " JSON=" + QString::number(vb) + "\n";
-            };
-            chkF("temperature",  a.temperature,  b.temperature);
-            if (a.pump == "pressure") {
-                chkF("pressure", a.pressure, b.pressure);
-                if (a.flow > 0.1 && b.flow > 0.1) chkF("flow", a.flow, b.flow);
-            } else {
-                chkF("flow", a.flow, b.flow);
-                if (a.pressure > 0.1 && b.pressure > 0.1) chkF("pressure", a.pressure, b.pressure);
-            }
-            chkF("seconds",      a.seconds,      b.seconds);
-            chkF("volume",       a.volume,       b.volume);
-            // Only compare active exit threshold
-            if (a.exitIf) {
-                if (a.exitType == "pressure_over")  chkF("exitPressureOver",  a.exitPressureOver,  b.exitPressureOver);
-                else if (a.exitType == "flow_over")  chkF("exitFlowOver",     a.exitFlowOver,      b.exitFlowOver);
-                else if (a.exitType == "flow_under") chkF("exitFlowUnder",    a.exitFlowUnder,     b.exitFlowUnder);
-                else if (a.exitType == "pressure_under") chkF("exitPressureUnder", a.exitPressureUnder, b.exitPressureUnder);
-            }
-            chkF("exitWeight",            a.exitWeight,            b.exitWeight);
-            chkF("maxFlowOrPressure",     a.maxFlowOrPressure,     b.maxFlowOrPressure);
-            chkF("maxFlowOrPressureRange",a.maxFlowOrPressureRange,b.maxFlowOrPressureRange);
-        }
-
+        // Same report profile_sync prints, from the same function — the tool and
+        // the gate must not be able to disagree about what "different" means.
+        const QString report = Profile::frameDiffReport(tcl, builtin);
         QVERIFY2(report.isEmpty(),
                  qPrintable("\n=== compareProfiles mismatch: " + tcl.title() + " ===\n" + report));
+    }
+
+    // ==========================================
+    // The type-dependent field-selection rule (De1AppTcl)
+    // ==========================================
+
+    void dualSpelledFieldRule_data() {
+        QTest::addColumn<QString>("canonical");
+        QTest::addColumn<QString>("profileType");
+        QTest::addColumn<QString>("expectedTclKey");
+
+        // settings_2a/2b: de1app's pressure_to_advanced_list / flow_to_advanced_list
+        // OVERWRITE the _advanced fields from their plain counterparts before the
+        // v2 converter runs, so the plain spelling is authoritative.
+        for (const QString& simple : {QStringLiteral("settings_2a"), QStringLiteral("settings_2b")}) {
+            QTest::newRow(qPrintable(simple + "/target_weight"))
+                << "target_weight" << simple << "final_desired_shot_weight";
+            QTest::newRow(qPrintable(simple + "/target_volume"))
+                << "target_volume" << simple << "final_desired_shot_volume";
+            QTest::newRow(qPrintable(simple + "/max_pressure_range"))
+                << "maximum_pressure_range_advanced" << simple << "maximum_pressure_range_default";
+            QTest::newRow(qPrintable(simple + "/max_flow_range"))
+                << "maximum_flow_range_advanced" << simple << "maximum_flow_range_default";
+        }
+
+        // settings_2c/2c2: settings_to_advanced_list does NOT overwrite, so the
+        // _advanced spelling is authoritative.
+        for (const QString& adv : {QStringLiteral("settings_2c"), QStringLiteral("settings_2c2")}) {
+            QTest::newRow(qPrintable(adv + "/target_weight"))
+                << "target_weight" << adv << "final_desired_shot_weight_advanced";
+            QTest::newRow(qPrintable(adv + "/target_volume"))
+                << "target_volume" << adv << "final_desired_shot_volume_advanced";
+            QTest::newRow(qPrintable(adv + "/max_pressure_range"))
+                << "maximum_pressure_range_advanced" << adv << "maximum_pressure_range_advanced";
+            QTest::newRow(qPrintable(adv + "/max_flow_range"))
+                << "maximum_flow_range_advanced" << adv << "maximum_flow_range_advanced";
+        }
+
+        // Single-spelled fields resolve to themselves on both branches.
+        QTest::newRow("2a/espresso_pressure")
+            << "espresso_pressure" << "settings_2a" << "espresso_pressure";
+        QTest::newRow("2c/espresso_pressure")
+            << "espresso_pressure" << "settings_2c" << "espresso_pressure";
+    }
+
+    void dualSpelledFieldRule() {
+        QFETCH(QString, canonical);
+        QFETCH(QString, profileType);
+        QFETCH(QString, expectedTclKey);
+        QCOMPARE(De1AppTcl::tclKeyFor(canonical, profileType), expectedTclKey);
+    }
+
+    void unknownCanonicalKeyResolvesToNothing() {
+        // A caller asking for a field the map does not cover must get an empty
+        // key, not a plausible-looking guess.
+        QVERIFY(De1AppTcl::tclKeyFor("not_a_profile_field", "settings_2a").isEmpty());
+    }
+
+    void uncoveredKeysAreReported() {
+        // The specific defect that once measured a 338-row drift as 4 rows: a
+        // de1app key the field map does not mention must surface as uncompared,
+        // never be silently dropped from the comparison.
+        const QString tcl = QStringLiteral(
+            "profile_title {Coverage probe}\n"
+            "settings_profile_type settings_2a\n"
+            "espresso_pressure 9.0\n"
+            "some_future_de1app_field 3\n"
+            "advanced_shot {}\n");
+
+        const QStringList uncovered = De1AppTcl::uncoveredTclKeys(tcl);
+        QVERIFY2(uncovered.contains("some_future_de1app_field"),
+                 qPrintable("uncovered = " + uncovered.join(", ")));
+        QVERIFY(!uncovered.contains("espresso_pressure"));    // compared
+        QVERIFY(!uncovered.contains("settings_profile_type")); // declared non-scalar
+        QVERIFY(!uncovered.contains("profile_title"));         // declared non-scalar
+    }
+
+    void keysInsideBracedValuesAreNotProfileKeys() {
+        // advanced_shot and a multi-line profile_notes both contain words that
+        // would read as top-level assignments if the scan ignored brace depth.
+        const QString tcl = QStringLiteral(
+            "profile_title {Depth probe}\n"
+            "profile_notes {first line\n"
+            "temperature 93 looks like a key but is prose\n"
+            "}\n"
+            "settings_profile_type settings_2c\n");
+        const QStringList keys = De1AppTcl::assignedTclKeys(tcl);
+        QVERIFY(keys.contains("profile_title"));
+        QVERIFY(keys.contains("settings_profile_type"));
+        QVERIFY2(!keys.contains("temperature"), qPrintable("keys = " + keys.join(", ")));
+    }
+
+    // ==========================================
+    // Per-scalar import fidelity
+    //
+    // Every value below is deliberately different from Profile's own default,
+    // so a scalar the reader skips shows up as the default rather than passing
+    // by coincidence. That is exactly how 338 mismatches went unnoticed:
+    // espresso_pressure read 9.2 on all 23 affected profiles because 9.2 is the
+    // fromJson default, not because any file said 9.2.
+    // ==========================================
+
+    void scalarFidelity_data() {
+        QTest::addColumn<QString>("fileName");
+        QTest::addColumn<QString>("field");
+        QTest::addColumn<double>("expected");
+
+        // settings_2a WITH a stored advanced_shot — the case the old gate skipped
+        // entirely, because m_steps was non-empty.
+        const QString a = QStringLiteral("Classic Italian espresso.tcl");
+        QTest::newRow("2a/espresso_pressure")      << a << "espressoPressure"        << 9.0;   // default 9.2
+        QTest::newRow("2a/preinfusion_time")       << a << "preinfusionTime"         << 8.0;   // default 5
+        QTest::newRow("2a/espresso_hold_time")     << a << "espressoHoldTime"        << 35.0;  // default 10
+        QTest::newRow("2a/espresso_decline_time")  << a << "espressoDeclineTime"     << 0.0;   // default 25
+        QTest::newRow("2a/pressure_end")           << a << "pressureEnd"             << 6.0;   // default 4
+        QTest::newRow("2a/preinfusion_flow_rate")  << a << "preinfusionFlowRate"     << 8.0;   // default 4
+        QTest::newRow("2a/preinfusion_stop_press") << a << "preinfusionStopPressure" << 4.0;
+        // Flow-editor scalars on a PRESSURE profile: de1app writes the whole
+        // block on every profile, and reading them only in the settings_2b
+        // branch lost them here.
+        QTest::newRow("2a/flow_profile_hold")         << a << "flowProfileHold"        << 1.8;  // default 2.0
+        QTest::newRow("2a/flow_profile_hold_time")    << a << "flowProfileHoldTime"    << 0.0;  // default 8
+        QTest::newRow("2a/flow_profile_decline")      << a << "flowProfileDecline"     << 1.0;  // default 1.2
+        QTest::newRow("2a/flow_profile_decline_time") << a << "flowProfileDeclineTime" << 23.0; // default 17
+        QTest::newRow("2a/minimum_pressure")          << a << "minimumPressure"        << 6.0;
+        // Dual-spelled: the plain spelling wins on 2a, though _advanced disagrees
+        // (final_desired_shot_weight_advanced is 60, maximum_*_range_advanced 0.6).
+        QTest::newRow("2a/target_weight")          << a << "targetWeight"                  << 36.0;
+        QTest::newRow("2a/max_pressure_range_adv") << a << "maximumPressureRangeAdvanced"  << 0.9;
+        QTest::newRow("2a/max_flow_range_adv")     << a << "maximumFlowRangeAdvanced"      << 1.0;
+        QTest::newRow("2a/max_pressure_range_def") << a << "maximumPressureRangeDefault"   << 0.9;
+        QTest::newRow("2a/max_flow_range_def")     << a << "maximumFlowRangeDefault"       << 1.0;
+
+        // settings_2b, also carrying a stored advanced_shot.
+        const QString b = QStringLiteral("Flow profile for milky drinks.tcl");
+        QTest::newRow("2b/flow_profile_hold")      << b << "flowProfileHold"     << 1.2;  // default 2.0
+        QTest::newRow("2b/flow_profile_decline")   << b << "flowProfileDecline"  << 1.0;  // default 1.2
+        QTest::newRow("2b/espresso_pressure")      << b << "espressoPressure"    << 8.6;  // pressure scalar on a FLOW profile
+        QTest::newRow("2b/preinfusion_time")       << b << "preinfusionTime"     << 20.0;
+        QTest::newRow("2b/target_weight")          << b << "targetWeight"        << 36.0; // _advanced says 42
+        QTest::newRow("2b/max_pressure_range_adv") << b << "maximumPressureRangeAdvanced" << 0.9;
+        QTest::newRow("2b/max_flow_range_adv")     << b << "maximumFlowRangeAdvanced"     << 1.0;
+
+        // settings_2c — the opposite branch of the same rule.
+        const QString c = QStringLiteral("Blooming allonge.tcl");
+        QTest::newRow("2c/flow_profile_decline")   << c << "flowProfileDecline" << 3.5;  // default 1.2
+        QTest::newRow("2c/flow_profile_hold")      << c << "flowProfileHold"    << 4.5;  // default 2.0
+        QTest::newRow("2c/espresso_pressure")      << c << "espressoPressure"   << 8.6;
+        QTest::newRow("2c/espresso_decline_time")  << c << "espressoDeclineTime"<< 18.0;
+        QTest::newRow("2c/preinfusion_flow_rate")  << c << "preinfusionFlowRate"<< 4.5;
+        // Here the _advanced spelling wins: plain says 32 / 160 / 0.9 / 1.0.
+        QTest::newRow("2c/target_weight")          << c << "targetWeight" << 135.0;
+        QTest::newRow("2c/target_volume")          << c << "targetVolume" << 180.0;
+        QTest::newRow("2c/max_pressure_range_adv") << c << "maximumPressureRangeAdvanced" << 0.6;
+        QTest::newRow("2c/max_flow_range_adv")     << c << "maximumFlowRangeAdvanced"     << 0.6;
+    }
+
+    void scalarFidelity() {
+        QFETCH(QString, fileName);
+        QFETCH(QString, field);
+        QFETCH(double, expected);
+
+        const QString content = readFile(DE1APP_PROFILES_DIR + "/" + fileName);
+        if (content.isEmpty()) QSKIP(qPrintable(fileName + " not found"));
+        const Profile p = Profile::loadFromTclString(content);
+
+        const QHash<QString, double> actual = {
+            {"espressoPressure",              p.espressoPressure()},
+            {"preinfusionTime",               p.preinfusionTime()},
+            {"preinfusionFlowRate",           p.preinfusionFlowRate()},
+            {"preinfusionStopPressure",       p.preinfusionStopPressure()},
+            {"espressoHoldTime",              p.espressoHoldTime()},
+            {"espressoDeclineTime",           p.espressoDeclineTime()},
+            {"pressureEnd",                   p.pressureEnd()},
+            {"flowProfileHold",               p.flowProfileHold()},
+            {"flowProfileHoldTime",           p.flowProfileHoldTime()},
+            {"flowProfileDecline",            p.flowProfileDecline()},
+            {"flowProfileDeclineTime",        p.flowProfileDeclineTime()},
+            {"minimumPressure",               p.minimumPressure()},
+            {"targetWeight",                  p.targetWeight()},
+            {"targetVolume",                  p.targetVolume()},
+            {"maximumPressureRangeAdvanced",  p.maximumPressureRangeAdvanced()},
+            {"maximumFlowRangeAdvanced",      p.maximumFlowRangeAdvanced()},
+            {"maximumPressureRangeDefault",   p.maximumPressureRangeDefault()},
+            {"maximumFlowRangeDefault",       p.maximumFlowRangeDefault()},
+        };
+        QVERIFY2(actual.contains(field), qPrintable("test bug: unmapped field " + field));
+        QVERIFY2(qAbs(actual.value(field) - expected) < 0.001,
+                 qPrintable(QString("%1.%2: got %3, expected %4")
+                                .arg(fileName, field)
+                                .arg(actual.value(field)).arg(expected)));
+    }
+
+    void hiddenFlagSurvivesImport() {
+        // profile_hide drives de1app's and reaprime's profile lists. Decenza's
+        // own list filters through SettingsApp::isHiddenProfile() instead, so
+        // this is inert locally and still has to be right on the way out.
+        const QString hiddenTcl = readFile(DE1APP_PROFILES_DIR + "/Flow profile for milky drinks.tcl");
+        if (hiddenTcl.isEmpty()) QSKIP("fixture not found");
+        QCOMPARE(Profile::loadFromTclString(hiddenTcl).toJson().object().value("hidden").toString(),
+                 QStringLiteral("1"));
+
+        const QString visibleTcl = readFile(DE1APP_PROFILES_DIR + "/Classic Italian espresso.tcl");
+        if (visibleTcl.isEmpty()) QSKIP("fixture not found");
+        QCOMPARE(Profile::loadFromTclString(visibleTcl).toJson().object().value("hidden").toString(),
+                 QStringLiteral("0"));
+    }
+
+    void de1appFlowEditorAliasesSurviveImport() {
+        // flow_profile_preinfusion / _preinfusion_time are NOT aliases of
+        // preinfusion_flow_rate / preinfusion_time — they are de1app's flow
+        // editor's own values, and they differ here (4.2/6 against 8.0/8).
+        // Profile does not model them, so they ride through as passthrough keys;
+        // dropping them would silently reset de1app's flow editor.
+        const QString content = readFile(DE1APP_PROFILES_DIR + "/Classic Italian espresso.tcl");
+        if (content.isEmpty()) QSKIP("fixture not found");
+        const QJsonObject obj = Profile::loadFromTclString(content).toJson().object();
+        QCOMPARE(obj.value("flow_profile_preinfusion").toString(), QStringLiteral("4.2"));
+        QCOMPARE(obj.value("flow_profile_preinfusion_time").toString(), QStringLiteral("6"));
+        // ...while the pressure editor's own values stay separate.
+        QCOMPARE(profileJsonToDouble(obj.value("preinfusion_flow_rate")), 8.0);
+        QCOMPARE(profileJsonToDouble(obj.value("preinfusion_time")), 8.0);
+    }
+
+    void simpleProfileFramesFollowTheScalars() {
+        // Steam_only.tcl is settings_2a and stores an advanced_shot at
+        // 82/80/72 °C while its espresso_temperature is 0. de1app never reads
+        // that array for a simple profile — pressure_to_advanced_list opens
+        // with `set temp_advanced(advanced_shot) {}` and rebuilds from the
+        // scalars — so it brews the 0. Importing the stored frames instead is
+        // the difference between our steam and de1app's.
+        const QString content = readFile(DE1APP_PROFILES_DIR + "/Steam_only.tcl");
+        if (content.isEmpty()) QSKIP("Steam_only.tcl not found");
+
+        // The fixture must keep contradicting itself, or this proves nothing.
+        QCOMPARE(De1AppTcl::extractValue(content, "espresso_temperature"), QStringLiteral("0"));
+        QVERIFY(content.contains(QStringLiteral("advanced_shot {{")));
+
+        const Profile p = Profile::loadFromTclString(content);
+        QCOMPARE(p.profileType(), QStringLiteral("settings_2a"));
+        QVERIFY(!p.steps().isEmpty());
+        QCOMPARE(p.espressoTemperature(), 0.0);
+        for (const ProfileFrame& f : p.steps()) {
+            QVERIFY2(qFuzzyIsNull(f.temperature),
+                     qPrintable(QString("frame '%1' at %2 °C — stored frames were kept")
+                                    .arg(f.name).arg(f.temperature)));
+        }
+    }
+
+    void advancedProfileKeepsItsStoredFrames() {
+        // The other half of the rule: settings_2c goes through
+        // settings_to_advanced_list, which does NOT rebuild advanced_shot.
+        const QString content = readFile(DE1APP_PROFILES_DIR + "/Blooming espresso.tcl");
+        if (content.isEmpty()) QSKIP("fixture not found");
+        const Profile p = Profile::loadFromTclString(content);
+        QVERIFY(p.profileType().startsWith("settings_2c"));
+        // Verbatim from the .tcl: 97.5 °C preinfusion, then a 90 °C pause.
+        QCOMPARE(p.steps().first().temperature, 97.5);
+        QCOMPARE(p.steps().at(2).temperature, 90.0);
+    }
+
+    void rewritingABuiltinFromItsSourceDropsNothing_data() {
+        QTest::addColumn<QString>("tclPath");
+        QDir dir(DE1APP_PROFILES_DIR);
+        if (!dir.exists()) QSKIP("de1app profiles dir not found");
+        for (const QString& f : dir.entryList({"*.tcl"}, QDir::Files, QDir::Name))
+            QTest::newRow(qPrintable(f)) << dir.absoluteFilePath(f);
+    }
+
+    void rewritingABuiltinFromItsSourceDropsNothing() {
+        // A built-in is supposed to BE its de1app profile, so profile_sync
+        // REPLACES rather than merges. That is only safe while a rewrite drops
+        // nothing — this asserts it for every shipped profile instead of taking
+        // it on trust. (The A-Flow recipe blocks survive because toJsonObject()
+        // derives them from editorType(); they are not carried over.)
+        QFETCH(QString, tclPath);
+
+        const QString content = readFile(tclPath);
+        QVERIFY(!content.isEmpty());
+        const Profile tcl = Profile::loadFromTclString(content);
+
+        const QString builtinPath = ":/profiles/" + Profile::titleToFilename(tcl.title()) + ".json";
+        if (!QFile::exists(builtinPath)) QSKIP("no built-in counterpart");
+        QFile bf(builtinPath);
+        QVERIFY(bf.open(QIODevice::ReadOnly));
+        const QJsonObject existing = QJsonDocument::fromJson(bf.readAll()).object();
+
+        const QStringList lost = De1AppTcl::keysLostByRewrite(existing, tcl.toJsonObject());
+        QVERIFY2(lost.isEmpty(),
+                 qPrintable(tcl.title() + " would lose: " + lost.join(", ")));
+    }
+
+    // ==========================================
+    // Built-in scalar parity gate
+    //
+    // Frames are compared by compareWithBuiltin above; this covers the
+    // profile-level scalars, which nothing compared until now — which is how 338
+    // mismatches across 82 profiles reached a shipped build.
+    // ==========================================
+
+    void builtinScalarParity_data() {
+        QTest::addColumn<QString>("tclPath");
+
+        QDir dir(DE1APP_PROFILES_DIR);
+        if (!dir.exists()) QSKIP("de1app profiles dir not found");
+        for (const QString& f : dir.entryList({"*.tcl"}, QDir::Files, QDir::Name))
+            QTest::newRow(qPrintable(f)) << dir.absoluteFilePath(f);
+    }
+
+    void builtinScalarParity() {
+        QFETCH(QString, tclPath);
+
+        const QString content = readFile(tclPath);
+        QVERIFY2(!content.isEmpty(), qPrintable("Cannot read: " + tclPath));
+
+        const QString title = De1AppTcl::extractValue(content, "profile_title");
+        QVERIFY2(!title.isEmpty(), qPrintable("No profile_title in: " + tclPath));
+
+        const QString builtinPath = ":/profiles/" + Profile::titleToFilename(title) + ".json";
+        QVERIFY2(QFile::exists(builtinPath),
+                 qPrintable("No built-in JSON for '" + title + "' (tried " + builtinPath + ")"));
+
+        QFile bf(builtinPath);
+        QVERIFY(bf.open(QIODevice::ReadOnly));
+        const QJsonObject builtin = QJsonDocument::fromJson(bf.readAll()).object();
+
+        QString report;
+        for (const De1AppTcl::ScalarDiff& d : De1AppTcl::compareScalars(content, builtin)) {
+            report += QString("  %1 (tcl %2): TCL=%3 JSON=%4\n")
+                          .arg(d.canonical, d.tclKey, d.tclValue, d.jsonValue);
+        }
+        QVERIFY2(report.isEmpty(),
+                 qPrintable("\n=== scalar drift from de1app: " + title + " ===\n" + report));
     }
 
     void aFlowProfileOracle_data() {

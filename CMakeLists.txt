@@ -654,6 +654,7 @@ set(SOURCES
     src/machine/weightprocessor.cpp
     src/machine/stepexitarbiter.cpp
     src/profile/profile.cpp
+    src/profile/de1apptclfields.cpp
     src/profile/profileframe.cpp
     src/profile/profileconverter.cpp
     src/profile/profileimporter.cpp
@@ -1614,6 +1615,7 @@ if(NOT ANDROID AND NOT IOS)
     add_executable(profile_sync
         tools/profile_sync.cpp
         src/profile/profile.cpp
+        src/profile/de1apptclfields.cpp
         src/profile/profileframe.cpp
         src/profile/recipegenerator.cpp
         src/profile/recipeanalyzer.cpp

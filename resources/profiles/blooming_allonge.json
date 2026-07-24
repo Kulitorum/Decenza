@@ -10,11 +10,11 @@
     "flow_profile_decline_time": "17.00",
     "flow_profile_hold": "4.50",
     "flow_profile_hold_time": "8.00",
-    "flow_profile_minimum_pressure": 4,
-    "flow_profile_preinfusion": 4,
-    "flow_profile_preinfusion_time": 5,
+    "flow_profile_minimum_pressure": "4",
+    "flow_profile_preinfusion": "4",
+    "flow_profile_preinfusion_time": "5",
     "has_recommended_dose": false,
-    "hidden": "0",
+    "hidden": "1",
     "lang": "en",
     "legacy_profile_type": "settings_2c",
     "maximum_flow": "0.00",
@@ -42,7 +42,7 @@
                 "value": "0.00"
             },
             "name": "fast pre start",
-            "pressure": "0.00",
+            "pressure": "9.00",
             "pump": "flow",
             "seconds": "2.00",
             "sensor": "coffee",
@@ -62,7 +62,7 @@
                 "value": "0.00"
             },
             "name": "fast pre",
-            "pressure": "0.00",
+            "pressure": "9.00",
             "pump": "flow",
             "seconds": "3.00",
             "sensor": "coffee",
@@ -82,7 +82,7 @@
                 "value": "0.00"
             },
             "name": "ramp down pre",
-            "pressure": "0.00",
+            "pressure": "9.00",
             "pump": "flow",
             "seconds": "15.00",
             "sensor": "coffee",
@@ -144,10 +144,10 @@
     "target_weight": "135.0",
     "temp_steps_enabled": false,
     "temperature_presets": [
-        "91.00",
-        "93.00",
         "95.00",
-        "97.00"
+        "95.00",
+        "95.00",
+        "95.00"
     ],
     "title": "Blooming Allongé",
     "type": "advanced",
