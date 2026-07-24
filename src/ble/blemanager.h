@@ -44,23 +44,41 @@ struct ScaleEntry {
                                    // non-Android — see connectToScale()).
 };
 
-// Helper to get device identifier - iOS uses UUID, others use MAC address
+// Canonical identity for a discovered BLE device — the string persisted as a
+// saved scale / DE1 / refractometer address.
+//
+// The check is at RUNTIME, on whether the backend actually gave us a MAC. It
+// used to be `#ifdef Q_OS_IOS`, which was wrong on macOS: Qt's Bluetooth
+// backend there is CoreBluetooth too, and CoreBluetooth never exposes MAC
+// addresses. So `address().toString()` returned the null address
+// "00:00:00:00:00:00" for EVERY device, and every scale, DE1 and refractometer
+// paired on a Mac was persisted under that one colliding identity — which also
+// made deviceIdentifiersMatch() below return true for any device at all.
+//
+// The rest of the codebase already used this null-check form
+// (difluidr1.cpp, difluidr2.cpp, bletransport.cpp, qtscalebletransport.cpp,
+// bookooscale.cpp); only these two helpers — the ones whose output is written
+// to settings — did not. A runtime check is correct on every platform and does
+// not require maintaining a list of which backends expose MACs.
 inline QString getDeviceIdentifier(const QBluetoothDeviceInfo& device) {
-#ifdef Q_OS_IOS
-    // iOS doesn't expose MAC addresses, use UUID instead
-    return device.deviceUuid().toString();
-#else
-    return device.address().toString();
-#endif
+    return device.address().isNull() ? device.deviceUuid().toString()
+                                     : device.address().toString();
 }
 
-// Helper to compare device identifiers
+// Compare a discovered device against a saved identifier. Must derive the
+// device's side through getDeviceIdentifier so the two stay in lockstep — a
+// direct address()/deviceUuid() comparison here is how the platform-guard bug
+// above stayed hidden.
+//
+// Identifiers persisted by a pre-fix build on macOS are the null address, which
+// identifies nothing. Those are deliberately NOT special-cased: such an entry
+// matches no real device now, so the stale pairing simply stops connecting and
+// the user re-scans. (Before this fix it matched EVERY device, which is worse
+// than not matching — with two BLE scales paired, it connected whichever was
+// seen first.)
 inline bool deviceIdentifiersMatch(const QBluetoothDeviceInfo& device, const QString& identifier) {
-#ifdef Q_OS_IOS
-    return device.deviceUuid().toString() == identifier;
-#else
-    return device.address().toString().compare(identifier, Qt::CaseInsensitive) == 0;
-#endif
+    if (identifier.isEmpty()) return false;
+    return getDeviceIdentifier(device).compare(identifier, Qt::CaseInsensitive) == 0;
 }
 
 class BLEManager : public QObject {

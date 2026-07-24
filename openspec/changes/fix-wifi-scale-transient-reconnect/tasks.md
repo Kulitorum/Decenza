@@ -160,8 +160,43 @@ feature** — deleting it would have shipped a regression against `main`.
 - [ ] 10.11 NOT FIXED, recorded: still no test coverage for the `BLEManager` simulator-gate split. No
       existing test target links `blemanager.cpp`, so this needs a new target stood up against its
       full dependency graph — not the five-line addition it first appeared to be
-- [ ] 10.12 Observed on hardware, pre-existing, NOT part of this change: BLEManager's saved scale at
+- [x] 10.12 Observed on hardware, pre-existing, now FIXED here (see section 11): BLEManager's saved scale at
       startup can be a BLE "Decent Scale" with an all-zero MAC even when `scaleAddress` is
       `wifi:hds.local`, burning ~4 s of BLE radio on an impossible device before the WiFi scale
       connects. This change is what lets it be dialled (the simulator gate no longer blocks it), and
       `savedScaleIsSimulated()` does not catch it — the address has no `sim:` prefix. Track separately
+
+## 11. macOS BLE device identity (found from hardware logs, folded in on request)
+
+Chasing the zero-MAC direct wake in 10.12 turned up a real, pre-existing defect. Folded into this
+change at the maintainer's request rather than tracked separately.
+
+- [x] 11.1 `getDeviceIdentifier()` and `deviceIdentifiersMatch()` in `blemanager.h` guarded on
+      `#ifdef Q_OS_IOS`, but Qt's Bluetooth backend on macOS is CoreBluetooth too and likewise never
+      exposes MAC addresses. `address().toString()` therefore returned the null address
+      `00:00:00:00:00:00` for EVERY device, so every scale, DE1 and refractometer paired on a Mac was
+      persisted under one colliding identity. Replaced with a runtime `address().isNull()` check —
+      the same form already used in difluidr1.cpp, difluidr2.cpp, bletransport.cpp,
+      qtscalebletransport.cpp and bookooscale.cpp. Only these two helpers, whose output is written to
+      settings, had the platform ifdef
+- [x] 11.2 The matching bug was worse than a mismatch: with both sides evaluating to the null
+      address, `deviceIdentifiersMatch()` returned true for ANY device. A user with two BLE scales
+      paired connected whichever advertised first
+- [x] 11.3 `tryDirectConnectToScale` chose direct-MAC-connect vs scan-and-match on `#ifdef Q_OS_IOS`,
+      so macOS dialled `QBluetoothAddress(<uuid or null>)` and burned ~4 s per startup on an address
+      that cannot resolve. Now chosen by whether the SAVED IDENTIFIER is a MAC, which is correct on
+      every platform. Android/Linux (real MACs) and iOS (UUIDs) are unchanged
+- [x] 11.4 Same treatment for `tryDirectConnectToDE1`: it already fell back to scanning on a null
+      address, but logged it as `qWarning() invalid saved address` — a UUID is not invalid, and that
+      would emit a WARN on every macOS launch. Now a debug-level, identifier-driven branch
+- [x] 11.5 NO migration or compatibility shim, per the maintainer's explicit decision: a stale
+      null-address entry now matches nothing, so the old pairing simply stops connecting and the user
+      re-scans and deletes it. Deliberately not special-cased — keeping the legacy value matching
+      would preserve the match-everything behaviour this change exists to remove
+- [ ] 11.6 Verify on hardware: pair a BLE scale on macOS, confirm the saved address is now a UUID
+      rather than `00:00:00:00:00:00`, restart, and confirm the startup direct wake takes the scan
+      path instead of the ~4 s null-address dial. Also confirm `machineAddress` stops being
+      `00:00:00:00:00:00` after the next DE1 connect
+- [ ] 11.7 No regression test. `blemanager.h`'s helpers are free inline functions and could be tested
+      without constructing BLEManager, but no test target links this header today (see 10.11) — the
+      target would have to be stood up first

@@ -1942,23 +1942,19 @@ void BLEManager::tryDirectConnectToDE1() {
 
     QString deviceName = m_savedDE1Name.isEmpty() ? "DE1" : m_savedDE1Name;
 
-#ifdef Q_OS_IOS
-    // On iOS, we have a UUID, not a MAC address.
-    // Direct connect with just a UUID rarely works - scan and match by UUID.
-    qDebug() << "BLEManager: DE1 direct wake (iOS) - scanning for" << deviceName << "UUID:" << m_savedDE1Address;
-    emit de1LogMessage(QString("Direct wake (iOS): scanning for %1").arg(deviceName));
-
-    if (!m_scanning) {
-        startScan();
-    }
-#else
-    // On Android/desktop, we have a MAC address - try direct connect
+    // Same identifier-driven choice as tryDirectConnectToScale: a direct GATT
+    // connect needs a real MAC, and on CoreBluetooth backends (iOS and macOS)
+    // the saved identifier is a device UUID. Not an error — just not dialable.
     QString upperAddress = m_savedDE1Address.toUpper();
     QBluetoothAddress address(upperAddress);
     if (address.isNull()) {
-        qWarning() << "BLEManager: tryDirectConnectToDE1 - invalid saved address:" << m_savedDE1Address;
-        emit de1LogMessage(QString("Direct wake failed: invalid saved address"));
-        if (!m_scanning) startScan();
+        qDebug() << "BLEManager: DE1 direct wake - identifier is not a MAC, scanning for"
+                 << deviceName << "id:" << m_savedDE1Address;
+        emit de1LogMessage(QString("Direct wake: scanning for %1 (identifier is not a MAC)")
+                           .arg(deviceName));
+        if (!m_scanning) {
+            startScan();
+        }
         return;
     }
     QBluetoothDeviceInfo deviceInfo(address, deviceName, QBluetoothDeviceInfo::LowEnergyCoreConfiguration);
@@ -1982,7 +1978,6 @@ void BLEManager::tryDirectConnectToDE1() {
     if (!m_scanning) {
         startScan();
     }
-#endif
 }
 
 void BLEManager::scanForDevices() {
@@ -2221,25 +2216,33 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
         return;
     }
 
-#ifdef Q_OS_IOS
-    // On iOS, we have a UUID, not a MAC address
-    // Direct connect with just a UUID rarely works - we need to find the device via scanning
-    // Just start scanning and match by UUID when found
-    qDebug() << "BLEManager: Direct wake (iOS) - scanning for" << deviceName << "UUID:" << m_savedScaleAddress;
-    appendScaleLog(QString("Direct wake (iOS): scanning for %1").arg(deviceName));
+    // Choose the path by what the SAVED IDENTIFIER actually is, not by platform.
+    // A direct GATT connect needs a real MAC; on CoreBluetooth backends (iOS and
+    // macOS) the identifier is a device UUID, and QBluetoothAddress(uuid) is
+    // null — dialling it can only fail. This used to be `#ifdef Q_OS_IOS`, so
+    // macOS took the MAC branch and spent ~4 s per startup connecting to the
+    // null address before giving up. Behaviour on Android/Linux (real MACs) and
+    // on iOS (UUIDs) is unchanged; macOS now correctly joins the scan path.
+    if (QBluetoothAddress(m_savedScaleAddress.toUpper()).isNull()) {
+        // Direct connect with just a UUID rarely works — find the device by
+        // scanning and match on identity when it advertises.
+        qDebug() << "BLEManager: Direct wake (no MAC) - scanning for" << deviceName
+                 << "id:" << m_savedScaleAddress;
+        appendScaleLog(QString("Direct wake: scanning for %1 (identifier is not a MAC)").arg(deviceName));
 
-    m_directConnectInProgress = true;
-    m_directConnectAddress = m_savedScaleAddress;  // UUID on iOS
+        m_directConnectInProgress = true;
+        m_directConnectAddress = m_savedScaleAddress;  // UUID
 
-    // Start timeout timer
-    m_scaleConnectionTimer->start();
+        // Start timeout timer
+        m_scaleConnectionTimer->start();
 
-    // On iOS, we skip the direct connect attempt and rely on scanning
-    m_scanningForScales = true;
-    if (!m_scanning) {
-        startScan();
+        m_scanningForScales = true;
+        if (!m_scanning) {
+            startScan();
+        }
+        return;
     }
-#else
+
     // Serialize behind the DE1's direct-wake connect: a second BLE GATT connect
     // while the DE1's is in flight collides on the Android stack — the scale
     // connect dies the instant the DE1 finishes, then sits out the 20 s timeout
@@ -2286,7 +2289,6 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
     // cancellable member timer (restarted here) means a fresh attempt or a
     // successful connect stops any stale pending abort rather than leaking shots.
     m_scaleDirectAbortTimer->start();
-#endif
 }
 
 void BLEManager::onDe1ConnectionSettled() {
