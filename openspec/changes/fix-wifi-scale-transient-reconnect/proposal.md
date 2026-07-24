@@ -29,6 +29,8 @@ None. This corrects the behaviour of an existing capability.
 ## Impact
 
 - `src/ble/scales/decentscalewifi.cpp` / `.h` — error classification in `onError`, the cached-IP eviction path, and the hostname-fallback trigger.
+- `src/ble/blemanager.cpp` / `.h` — the simulator-gate split (`setScaleSimulated`, `scaleSimulatedChanged`, `savedScaleIsSimulated`), the guard changes in `connectToScale` / `connectToSavedScale` / `tryDirectConnectToScale`, and the connection timer armed on the discovered-WiFi-scale path.
+- `src/controllers/maincontroller.cpp` — the pre-shot scale-missing abort, re-gated on the scale simulator rather than the DE1 one.
 - `src/main.cpp` — the simulator-gate wiring and the reconnect re-arm. The `{5 s, 30 s, 60 s}` backoff ladder itself is unchanged, and the retry path is NOT modified: the re-resolve lives entirely inside the driver, keyed off its own state.
 - No settings, schema, BLE protocol, or QML changes. BLE scale transports are untouched.
 - User-visible behaviour: a WiFi scale that drops out recovers on its own within one backoff step instead of requiring a manual rescan. Wiki manual update is not expected — the documented behaviour ("the scale reconnects automatically") is what this change makes true; confirm during implementation.

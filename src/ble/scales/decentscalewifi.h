@@ -54,6 +54,11 @@ public:
     // eviction ever touches it, so an unverified/stale preferredIp can never
     // clobber a good cached value. On recognition failure the normal fallback
     // re-resolves. Empty for manual entries and cache-driven reconnects.
+    //
+    // One further case skips the cached IP even when one exists and is valid:
+    // if the previous attempt ended with a transient transport failure, this
+    // call re-resolves instead. A supplied preferredIp still outranks that.
+    // See m_retryShouldReresolve.
     void connectToHost(const QString& hostname, const QString& preferredIp = QString());
 
     QString name() const override { return m_name; }

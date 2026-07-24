@@ -243,9 +243,20 @@ void DecentScaleWifi::recreateSocket() {
 }
 
 void DecentScaleWifi::attemptHostname() {
-    // We've moved past any cached-IP attempt to our best hostname-based
-    // resolution — don't loop back to another raw-hostname fallback after this.
-    m_triedHostnameFallback = true;
+    // NOTE: m_triedHostnameFallback is deliberately NOT set here. It marks "the
+    // hostname fallback has been spent", and merely entering this function does
+    // not spend it — resolution can fail, in which case nothing was tried.
+    //
+    // It is set at each point a dial actually begins: at the two resolved-IP
+    // dials below, and by attemptTarget itself for the non-".local" direct dial
+    // (which passes isHostname=true).
+    //
+    // Setting it on entry, as this used to, made the resolve-failure fallback
+    // dial in dialCachedIpAfterResolveFailure() exempt from BOTH eviction gates
+    // — onError's cachedIpAttempt and onRecognitionTimeout's fallback branch
+    // each require !m_triedHostnameFallback. A cached IP that DHCP had handed to
+    // a live host (a printer answering 403) would then be re-dialled on every
+    // cycle and never evicted, for as long as resolution kept failing.
 
 #ifdef Q_OS_ANDROID
     // Qt's resolver (getaddrinfo) doesn't speak mDNS on Android, so opening
@@ -274,6 +285,9 @@ void DecentScaleWifi::attemptHostname() {
                     // A stale answer self-heals: the cached-IP attempt fails the
                     // recognition window and falls back here to re-resolve.
                     if (m_ipCacheUpdate) m_ipCacheUpdate(host, ip);
+                    // The hostname fallback is spent HERE, not on entry to
+                    // attemptHostname — a resolve that failed spent nothing.
+                    m_triedHostnameFallback = true;
                     attemptTarget(ip, /*isHostname=*/false);
                 } else {
                     // The mDNS A-query found no responder. On Android the OS
@@ -337,6 +351,9 @@ void DecentScaleWifi::attemptHostname() {
             // answer self-heals: the cached-IP attempt fails the recognition
             // window and falls back here to re-resolve.
             if (m_ipCacheUpdate) m_ipCacheUpdate(host, ip);
+            // The hostname fallback is spent HERE, not on entry to
+            // attemptHostname — a resolve that failed spent nothing.
+            m_triedHostnameFallback = true;
             attemptTarget(ip, /*isHostname=*/false);
         });
         return;

@@ -1291,7 +1291,12 @@ private slots:
     // dials it directly and never runs a resolution that could fail. Only a
     // ".local" name that cannot resolve reaches the fallback.
     void resolveFailureFallsBackToCachedIp() {
-        ScopedWarningFilter resolveNoise{QStringLiteral("resolution failed")};  // before `driver`
+        // Narrow to the two resolution-failure warnings this test actually
+        // expects (the QHostInfo branch on desktop, the mDNS branch on Android)
+        // rather than anything containing "resolution failed" — a broader
+        // pattern would silently absorb an unrelated failure firing instead.
+        ScopedWarningFilter resolveNoise{  // declared before `driver`
+            QStringLiteral("(mDNS|QHostInfo) resolution failed")};
         FakeHdsServer server;
         DecentScaleWifi driver;
         driver.setIpResolver([&](const QString&) { return server.host(); });

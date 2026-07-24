@@ -75,7 +75,9 @@ This is the change that actually fixes the bug: the retry moves from 45 ms to at
 
 The cached IP is preserved rather than evicted, so identity knowledge survives; it is simply not the address dialled on the attempt immediately following a transient failure.
 
-On the mechanism: an mDNS query is multicast to `224.0.0.251` and does not itself ARP-resolve the scale's unicast address. The plausible mechanism by which a rescan helps is that the scale's *response*, arriving as a unicast packet from its IP, lets the OS re-learn the mapping and drop the reject route. This is inference from the observed behaviour (a manual rescan recovers the connection; an ICMP ping to the scale also restored it before a `curl` succeeded), not something directly instrumented. The backoff delay is the load-bearing part of the fix; the re-resolve is a cheap additional improvement whose benefit should be measured, not assumed. A verification task covers this.
+**The justification is address freshness, and nothing else.** When DHCP moves the scale, the address it vacated usually goes dark rather than being reassigned. A dark address answers nothing, so it classifies as transient, so the cache is retained — and without a re-resolve the driver would re-dial that dead address on every cycle indefinitely, with no other correction path (the WiFi→BLE fallback scan is useless for a WiFi-only scale, and the proactive switch-back probe only re-tests the same cached IP). Before this change any error evicted, so the case self-corrected. This restores that.
+
+An earlier draft justified the re-resolve differently — that the mDNS exchange clears an operating-system negative route for an unreachable peer. **That claim was never instrumented and is not made.** For a `.local` name the mDNS responder *is* the scale, so during an unreachability window the resolve most likely fails too and falls straight back to the cached IP; recovery in that scenario comes from the backoff delay, not from re-resolving. The address-freshness argument above needs no measurement — it is checkable by reading the classification and cache-retention logic.
 
 ### Logging distinguishes the two classes
 
@@ -97,5 +99,5 @@ No data, settings, or protocol migration. Behaviour-only change inside one drive
 
 ## Open Questions
 
-- Does an mDNS probe measurably clear the OS reject route, or is the backoff delay doing all the work? Covered by a verification task; if the probe contributes nothing, the re-resolve can be kept purely for address freshness and the claim dropped from the spec.
+- ~~Does an mDNS probe measurably clear the OS reject route, or is the backoff delay doing all the work?~~ **Resolved without measurement** (task 9.5), the way the task permitted: the claim is dropped rather than shipped unverified. The re-resolve is kept on the address-freshness justification, which needs no instrumentation. End-to-end hardware verification remained blocked throughout by an unrelated macOS code-signing issue on the development machine.
 - Is the reject-route behaviour macOS-specific? Linux and Windows have their own negative-caching strategies, and Android is the platform most users run. The fix is OS-agnostic (do not misclassify, do not retry instantly), but the ~20 s figure is a macOS observation and should not be treated as universal.

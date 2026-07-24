@@ -95,8 +95,10 @@ public:
     void setDisabled(bool disabled);
     bool isScaleSimulated() const { return m_scaleSimulated; }
     // True when a simulated scale is actually driving the weight stream, in
-    // which case connecting a real one would fight it — the only thing that
-    // blocks real scale connects.
+    // which case connecting a real one would fight it. This is the only place
+    // the SIMULATOR blocks a real scale connect — other, unrelated guards
+    // (Bluetooth powered off, an already-connected scale, a non-dialable saved
+    // address) apply independently.
     //
     // NOT simply the "Simulated Scale" setting. main.cpp composes this from
     // simulationMode() AND simulatedScaleEnabled(), because the SimulatedScale

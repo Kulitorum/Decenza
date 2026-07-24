@@ -24,8 +24,8 @@
 
 ## 4. Verification against real hardware
 
-- [ ] 4.1 Reproduce the original failure: confirm the instant sub-millisecond `Host unreachable (code 7)` with `local=<unbound>` still appears in the log and is now classified transient
-- [ ] 4.2 Confirm the scale reconnects with no manual rescan, and record which backoff step (5 s / 30 s / 60 s) actually succeeds
+- [x] 4.1 Reproduce the original failure: confirm the instant sub-millisecond `Host unreachable (code 7)` with `local=<unbound>` still appears in the log and is now classified transient
+- [x] 4.2 Confirm the scale reconnects with no manual rescan, and record which backoff step (5 s / 30 s / 60 s) actually succeeds
 - [x] 4.3 Resolve the open question from `design.md`: determine whether the mDNS re-resolve measurably clears the OS reject route or whether the backoff delay alone accounts for recovery; if it contributes nothing, drop the claim from the spec rather than leaving an unverified mechanism documented
 - [ ] 4.4 Sanity-check the classification against a real DHCP reassignment (point the cached IP at another host on the LAN) and confirm recovery still happens, one backoff step later than before
 
@@ -108,3 +108,60 @@ feature** — deleting it would have shipped a regression against `main`.
       transient classification is exercised in tests only via `0.0.0.1:80` (see 8.3/8.12). Its
       real-world behaviour rests on the maintainer's device logs for the `NetworkError` case and on
       reading for the rest
+
+## 10. Third review round + hardware verification
+
+- [x] 10.1 Move `m_triedHostnameFallback = true` off `attemptHostname()`'s entry onto the two
+      resolved-IP dial sites. Setting it on entry made the resolve-failure fallback dial exempt from
+      BOTH eviction gates, so a cached IP that DHCP had handed to a live host (a printer answering
+      403) could be re-dialled every cycle and never evicted while resolution kept failing. Found
+      independently by two reviewers. This supersedes the `m_cacheFallbackDial` approach added in
+      round 2 and deleted in the section-9 trim — the same bug, fixed by removing state rather than
+      adding it
+- [x] 10.2 Add `savedScaleIsSimulated()` to `connectToSavedScale()`'s bail list. Guarding only at
+      `tryDirectConnectToScale` was wrong: `connectToSavedScale` emits `disconnectScaleRequested`
+      BEFORE it funnels there, so selecting "Simulated Scale" from Known Devices tore down a working
+      real scale and connected nothing — the exact failure that function's own comment says the bail
+      list exists to prevent
+- [x] 10.3 Both `sim:` guards now use `appendScaleLog` rather than `qDebug`. The sibling guard in
+      `connectToSavedScale` already did; as written the always-on background path was the invisible
+      one, which is backwards
+- [x] 10.4 Replace five copies of the `usb:` ladder-exclusion check with one
+      `scaleAddressIsLadderDialable()` predicate that also excludes `sim:`. Stops the ladder arming
+      against an address it can only ever no-op on, and means the new guard log cannot repeat every
+      60 s
+- [x] 10.5 Narrow `resolveFailureFallsBackToCachedIp`'s warning filter to the two resolution-failure
+      messages actually expected, per TESTING.md's narrow-pattern rule
+- [x] 10.6 Correct `design.md`, which still argued the OS-reject-route mechanism as primary and still
+      listed 4.3 as open — missed when `spec.md` and `tasks.md` were updated in the section-9 trim.
+      Correct `proposal.md`'s Impact list, which omitted `blemanager.{h,cpp}` and `maincontroller.cpp`
+      entirely. Correct the stale `connectToHost` and `isScaleSimulated` docstrings
+- [x] 10.7 HARDWARE VERIFICATION (4.1, 4.2). With the macOS LAN block resolved, device logs confirm:
+      the transient classification fires on the real `Host unreachable (code 7)` (108 occurrences),
+      the cached IP is retained every time (no eviction line in 24,709 log lines), the retry is
+      deferred to the ladder and re-resolves at ~60 s intervals, and the driver never gives up or
+      emits `recognitionFailed`. Separately, with `simulationMode` ON the WiFi scale now connects
+      while `tryDirectConnectToDE1` remains correctly disabled — root cause 3 confirmed fixed
+- [ ] 10.8 NOT FIXED, recorded: `isBluetoothAvailable()` still hard-codes `true` under `m_disabled`.
+      Safe before, because `m_disabled` early-returned first; this change removes that gate, so the
+      real-scale paths now reach it and can dial a powered-off adapter with no error. Deferred
+      because that short-circuit also feeds QML bindings and the DE1/R2 paths — scoping it properly
+      is its own change
+- [ ] 10.9 NOT FIXED, recorded: `BLEManager` tracks the in-flight WiFi target in one unqueued slot
+      (`m_pendingWifiHostname` / `m_manualWifiConnect`), shared between foreground user actions and
+      the background ladder, so a ladder tick can silently discard a manual "Add WiFi Scale" attempt
+      and suppress both its success and failure signals. Pre-existing, but this change widens the
+      race from one DNS resolve to the full ~20 s connection window. Needs an attempt-identity token
+      mirroring `m_resolveGeneration`
+- [ ] 10.10 NOT FIXED, recorded: no idle liveness watchdog. Nothing but `onDisconnected` calls
+      `setConnected(false)`, so if Qt ever failed to follow `errorOccurred` with `disconnected`, a
+      stuck-true flag would permanently defeat the ladder. No reproduction; the reviewer could not
+      point at a failing run. Speculative hardening, deliberately not added
+- [ ] 10.11 NOT FIXED, recorded: still no test coverage for the `BLEManager` simulator-gate split. No
+      existing test target links `blemanager.cpp`, so this needs a new target stood up against its
+      full dependency graph — not the five-line addition it first appeared to be
+- [ ] 10.12 Observed on hardware, pre-existing, NOT part of this change: BLEManager's saved scale at
+      startup can be a BLE "Decent Scale" with an all-zero MAC even when `scaleAddress` is
+      `wifi:hds.local`, burning ~4 s of BLE radio on an impossible device before the WiFi scale
+      connects. This change is what lets it be dialled (the simulator gate no longer blocks it), and
+      `savedScaleIsSimulated()` does not catch it — the address has no `sim:` prefix. Track separately

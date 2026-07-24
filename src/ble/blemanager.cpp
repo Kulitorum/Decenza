@@ -918,6 +918,17 @@ void BLEManager::connectToSavedScale() {
         appendScaleLog("Scale switch ignored — simulated scale is active");
         return;
     }
+    // The simulator's synthetic entry appears in the Known Devices picker like
+    // any other saved scale, so the user can select it — but it is not a
+    // dialable address and tryDirectConnectToScale below refuses it. Without
+    // this bail we would emit disconnectScaleRequested first and drop a working
+    // real scale to connect nothing, which is exactly the failure the comment
+    // above says these guards exist to prevent.
+    if (savedScaleIsSimulated()) {
+        appendScaleLog("Scale switch ignored — that entry is the simulator's "
+                       "synthetic scale, not a real device");
+        return;
+    }
     if (!isBluetoothAvailable()) {
         appendScaleLog("Cannot switch scale — Bluetooth is powered off");
         emit errorOccurred(translateUiString("ble.error.bluetoothPoweredOff",
@@ -2094,7 +2105,11 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
     // on its own in simulator mode — the driver correctly deferred its retry to
     // the app-level reconnect loop, and the loop landed here and gave up.
     if (m_scaleSimulated) {
-        qDebug() << "BLEManager: tryDirectConnectToScale - simulated scale is active";
+        // appendScaleLog, not qDebug: this is the always-on background reconnect
+        // path, so it is the one a user or support engineer reading an exported
+        // scale log would be staring at when their scale never connects. qDebug
+        // reaches only a console nobody is watching.
+        appendScaleLog("Auto-reconnect skipped — simulated scale is active");
         return;
     }
 
@@ -2111,8 +2126,8 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
     // and re-arms the ladder — forever. Reachable as soon as anything starts
     // the ladder while the simulated scale is switched off.
     if (savedScaleIsSimulated()) {
-        qDebug() << "BLEManager: tryDirectConnectToScale - saved scale is the simulator's "
-                    "synthetic address, nothing to dial";
+        appendScaleLog("Auto-reconnect skipped — saved scale is the simulator's "
+                       "synthetic entry, nothing to dial");
         return;
     }
 

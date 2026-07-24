@@ -207,6 +207,23 @@ using namespace Qt::StringLiterals;
 
 namespace {
 
+// True when the saved scale address is one the BLE/WiFi reconnect ladder can
+// actually dial. Two prefixes are excluded, for the same reason in both cases —
+// arming the ladder for them spins a timer that can only ever no-op:
+//   "usb:" — owned by UsbScaleManager, which reconnects via usbScaleAvailable.
+//   "sim:" — the debug simulator's synthetic primary. It is promoted to primary
+//            whenever simulation mode is on and no real scale was ever paired,
+//            it appears in the Known Devices picker like any other entry, and
+//            BLEManager::tryDirectConnectToScale refuses it.
+// Kept as one predicate so a future third prefix is added once rather than at
+// each of the ladder's arming sites.
+bool scaleAddressIsLadderDialable(const QString& address)
+{
+    return !address.isEmpty()
+        && !address.startsWith(QStringLiteral("usb:"), Qt::CaseInsensitive)
+        && !address.startsWith(QStringLiteral("sim:"), Qt::CaseInsensitive);
+}
+
 constexpr const char* kAppNameOld = "Decenza DE1";
 constexpr const char* kAppNameNew = "Decenza";
 constexpr const char* kMigrationKey = "migration/app_name_decenza_de1_to_decenza_done";
@@ -2008,8 +2025,10 @@ int main(int argc, char *argv[])
         // re-arming here would spin forever (and resetScaleConnectionState()
         // below would needlessly stop the BLE connection timer each tick).
         // Stop the timer when the saved scale is USB.
-        if (settings.scaleAddress().startsWith(QStringLiteral("usb:"), Qt::CaseInsensitive)) {
-            qDebug() << "Scale reconnect: saved scale is USB — handled by UsbScaleManager, stopping retries";
+        if (!scaleAddressIsLadderDialable(settings.scaleAddress())) {
+            qDebug() << "Scale reconnect: saved scale is not dialable by this ladder"
+                     << "(USB is handled by UsbScaleManager; sim: is the simulator's"
+                     << "synthetic entry) — stopping retries";
             return;
         }
         qDebug() << "Scale reconnect: attempt" << (scaleReconnectAttempt + 1);
@@ -2055,7 +2074,7 @@ int main(int argc, char *argv[])
         // USB scales reconnect via UsbScaleManager (usbScaleAvailable), not this
         // BLE/WiFi timer. Arming it would fire once and self-terminate at the
         // timeout guard — skip arming entirely.
-        if (settings.scaleAddress().startsWith(QStringLiteral("usb:"), Qt::CaseInsensitive)) {
+        if (!scaleAddressIsLadderDialable(settings.scaleAddress())) {
             return;
         }
         if (scaleAutoReconnectSuppressed) {
@@ -2089,9 +2108,7 @@ int main(int argc, char *argv[])
         // ladder against it dials nonsense and ends in a "No Scale Found"
         // dialog every 60 s. tryDirectConnectToScale guards this too; the check
         // is repeated here so the ladder isn't started only to no-op.
-        if (settings.scaleAddress().isEmpty()
-            || settings.scaleAddress().startsWith(QStringLiteral("usb:"), Qt::CaseInsensitive)
-            || settings.scaleAddress().startsWith(QStringLiteral("sim:"), Qt::CaseInsensitive)
+        if (!scaleAddressIsLadderDialable(settings.scaleAddress())
             || scaleAutoReconnectSuppressed
             || scaleReconnectTimer.isActive())
             return;
@@ -2116,8 +2133,7 @@ int main(int argc, char *argv[])
     QObject::connect(&bleManager, &BLEManager::scaleRetryNeeded,
                      [&settings, &bleManager, &scaleReconnectTimer, &scaleReconnectAttempt,
                       &reconnectDelays, &scaleAutoReconnectSuppressed]() {
-        if (settings.scaleAddress().isEmpty()) return;
-        if (settings.scaleAddress().startsWith(QStringLiteral("usb:"), Qt::CaseInsensitive)) return;
+        if (!scaleAddressIsLadderDialable(settings.scaleAddress())) return;
         if (scaleAutoReconnectSuppressed) return;
         if (scaleReconnectTimer.isActive()) return;
         scaleReconnectAttempt = static_cast<int>(reconnectDelays.size()) - 1;
@@ -2646,8 +2662,7 @@ int main(int argc, char *argv[])
                 // DE1-wake handler re-arms the reconnect.
                 if (scaleAutoReconnectSuppressed) {
                     qDebug() << "Scale disconnect was deliberate (DE1-sleep) - auto-reconnect suppressed until DE1 wakes";
-                } else if (!settings.scaleAddress().isEmpty()
-                           && !settings.scaleAddress().startsWith(QStringLiteral("usb:"), Qt::CaseInsensitive)) {
+                } else if (scaleAddressIsLadderDialable(settings.scaleAddress())) {
                     // USB primary reconnects via UsbScaleManager, not this BLE/WiFi timer.
                     scaleReconnectAttempt = 0;
                     scaleReconnectTimer.start(reconnectDelays[0]);
