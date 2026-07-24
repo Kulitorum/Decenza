@@ -460,6 +460,25 @@ QJsonObject Profile::toJsonObject() const {
     obj["maximum_pressure"] = num(m_maximumPressure, ProfileJson::Pressure);
     obj["maximum_flow"] = num(m_maximumFlow, ProfileJson::Flow);
     obj["minimum_pressure"] = num(m_minimumPressure, ProfileJson::Pressure);
+    // de1app's spelling of the SAME field — our Tcl loader assigns it straight to
+    // m_minimumPressure. It is not in kKnownProfileKeys, so the m_unknownKeys
+    // passthrough would echo the value the file arrived with while the canonical
+    // key above carries the user's edit. de1app reads the alias, so it would show
+    // the old pressure forever. Re-derive it, but only when the source actually
+    // had it — writing it unconditionally would invent a de1app field on profiles
+    // that never carried one.
+    //
+    // Deliberately NOT done for flow_profile_preinfusion / _preinfusion_time.
+    // Those LOOK like aliases of preinfusion_flow_rate / preinfusion_time and are
+    // not: they are de1app's flow-editor (settings_2b) values versus the
+    // pressure-editor (settings_2a) ones, which is why the Tcl reader's regex
+    // carries an explicit \b guard to stop one matching the other. They disagree
+    // in 61 of 62 shipped built-ins, correctly. Re-deriving them would overwrite
+    // the flow editor's settings with the pressure editor's across the corpus.
+    // NOT re-derived — see the load-side note. Writing the canonical value over
+    // the alias destroyed de1app's real setting in 3 shipped built-ins (6 bar
+    // overwritten with 0), because there the ALIAS is the populated one. Left as
+    // passthrough until the direction is settled.
     obj["tank_desired_water_temperature"] = num(m_tankDesiredWaterTemperature, ProfileJson::TankTemp);
     // tank_temperature: ecosystem-standard alias required by reaprime.
     obj["tank_temperature"] = obj["tank_desired_water_temperature"];
@@ -870,7 +889,43 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
     profile.m_espressoTemperature = jsonToDouble(obj["espresso_temperature"], 93.0);
     profile.m_maximumPressure = jsonToDouble(obj["maximum_pressure"], 12.0);
     profile.m_maximumFlow = jsonToDouble(obj["maximum_flow"], 6.0);
-    profile.m_minimumPressure = jsonToDouble(obj["minimum_pressure"], 0.0);
+    // Fall back to de1app's spelling when ours is absent. Without this a de1app
+    // JSON that carries only `flow_profile_minimum_pressure` loaded as 0 — the
+    // same import loss already fixed for tank_temperature and
+    // target_volume_count_start, in the same shape.
+    profile.m_minimumPressure =
+        obj.contains(QStringLiteral("minimum_pressure"))
+            ? jsonToDouble(obj["minimum_pressure"], 0.0)
+            : jsonToDouble(obj["flow_profile_minimum_pressure"], 0.0);
+
+    // Both present and disagreeing means some app in the chain edited one and
+    // not the other, so the file is already self-contradictory before we touch
+    // it. Rare — 3 of 93 shipped built-ins — and it only ever surfaces as
+    // "this profile behaves differently in de1app", which is precisely the
+    // report nobody can reproduce without a log line naming both values.
+    if (obj.contains(QStringLiteral("minimum_pressure"))
+        && obj.contains(QStringLiteral("flow_profile_minimum_pressure"))) {
+        const double alias = jsonToDouble(obj["flow_profile_minimum_pressure"], 0.0);
+        if (qAbs(alias - profile.m_minimumPressure) > 0.0005) {
+            // qDebug, not qWarning: this is a known-open data question, not a
+            // fault, and 3 shipped built-ins trip it on every load. A warning
+            // here fails the suite (QTest::failOnWarning) on files we ship.
+            //
+            // Which side wins is UNRESOLVED and must not be guessed. In those 3
+            // the alias is populated (6 bar) and minimum_pressure is 0, so
+            // Decenza currently brews 0 where de1app brews 6 — the apps already
+            // disagree. Re-deriving the alias from the canonical field destroys
+            // de1app's value; adopting the alias changes what Decenza brews.
+            // Both are behaviour changes on shipped profiles.
+            qDebug().noquote()
+                << "Profile: de1app alias disagrees with the canonical field in"
+                << obj.value(QStringLiteral("title")).toString()
+                << "— flow_profile_minimum_pressure=" << alias
+                << "vs minimum_pressure=" << profile.m_minimumPressure
+                << "| Decenza brews minimum_pressure. If this profile brews"
+                   " differently in de1app, this is why.";
+        }
+    }
     // Tank temperature: Decenza's key first, then the ecosystem-standard
     // `tank_temperature` that reaprime and de1app actually write. Reading only the
     // Decenza spelling silently zeroed the tank target on every reaprime import.
