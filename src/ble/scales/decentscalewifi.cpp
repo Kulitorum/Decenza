@@ -105,9 +105,39 @@ void DecentScaleWifi::connectToHost(const QString& hostname, const QString& pref
     // cache, so a stale preferredIp can never clobber a good cached value (the
     // reason the earlier pre-seed was removed). If it fails the recognition
     // window, onRecognitionTimeout falls back to attemptHostname to re-resolve.
+    //
+    // preferredIp OUTRANKS m_retryShouldReresolve. It is checked first because
+    // it is strictly fresher than anything a re-resolve could produce: the
+    // caller resolved it *after* the attempt that set the flag, and it reflects
+    // a deliberate user action (a scan selection, or the dialog's "Use"
+    // button). Discarding it in favour of re-resolving would throw away the
+    // user's explicit choice — and if resolution then fails, attemptHostname
+    // dials nothing at all, so the tap would produce no network activity
+    // whatsoever. Consume the flag here: dialling a freshly-resolved address
+    // satisfies the same obligation a re-resolve would have.
     if (!preferredIp.isEmpty() && preferredIp != hostname) {
+        m_retryShouldReresolve = false;
         WIFI_LOG(QString("Trying freshly-resolved IP %1 for %2").arg(preferredIp, hostname));
         attemptTarget(preferredIp, /*isHostname=*/false);
+        return;
+    }
+
+    // The previous attempt ended because nothing answered. Re-dialling a
+    // remembered address would just repeat it, so resolve the name first —
+    // that picks up an address that moved AND puts an mDNS exchange on the wire.
+    //
+    // NOT consumed here. The flag means "we have not reached the scale since a
+    // transient failure", and only onRecognizedAsHds — proof we are talking to
+    // a real scale — clears it. Clearing it on entry instead made the driver
+    // oscillate: re-resolve, fail, fall back to the cache next cycle, fail,
+    // re-arm, forever, with half the attempts knowingly dialling an address the
+    // previous cycle had just proven unreachable. attemptHostname falls back to
+    // the cached IP when resolution fails, so leaving the flag set still dials
+    // something on every cycle.
+    if (m_retryShouldReresolve) {
+        WIFI_LOG(QString("Previous attempt found %1 unreachable — re-resolving before retry")
+                 .arg(hostname));
+        attemptHostname();
         return;
     }
 
@@ -121,6 +151,24 @@ void DecentScaleWifi::connectToHost(const QString& hostname, const QString& pref
     } else {
         attemptHostname();
     }
+}
+
+bool DecentScaleWifi::dialCachedIpAfterResolveFailure() {
+    // Resolution failed. Before giving the cycle up entirely, fall back to the
+    // cached IP if we hold one: a remembered address that might be stale beats
+    // opening no socket at all, and it is the reason the cache exists — mDNS is
+    // exactly what goes deaf under BLE-coexistence load.
+    //
+    // Without this the re-resolve flag (which stays set until a recognized
+    // connect) would make every subsequent cycle re-resolve, fail, and dial
+    // nothing, so a deaf-mDNS device would never attempt a connection again.
+    const QString cachedIp = m_ipResolver ? m_ipResolver(m_hostname) : QString();
+    if (cachedIp.isEmpty() || cachedIp == m_hostname)
+        return false;
+    WIFI_LOG(QString("Resolution failed — falling back to cached IP %1 for %2")
+             .arg(cachedIp, m_hostname));
+    attemptTarget(cachedIp, /*isHostname=*/false);
+    return true;
 }
 
 void DecentScaleWifi::attemptTarget(const QString& target, bool isHostname) {
@@ -139,8 +187,17 @@ void DecentScaleWifi::attemptTarget(const QString& target, bool isHostname) {
     const QUrl url(QStringLiteral("ws://%1/snapshot").arg(target));
     WIFI_LOG(QString("Connecting to %1 (%2)").arg(
         url.toString(), isHostname ? QStringLiteral("hostname") : QStringLiteral("cached IP")));
-    m_socket->open(url);
+    // ORDER MATTERS: arm the recognition window BEFORE open(), never after.
+    // open() can fail synchronously — an address the OS rejects at the routing
+    // layer (EHOSTUNREACH, the exact case of a scale that has dropped off the
+    // network) emits errorOccurred from inside this call, not from a later
+    // event-loop turn. With start() after open(), onError's stop() runs against
+    // a timer that has not been started yet, this line then starts it anyway,
+    // and onRecognitionTimeout fires 5 s later on an attempt that was already
+    // resolved — evicting a cached IP that the error handler had deliberately
+    // decided to keep. Arming first makes the stop land.
     m_recognitionTimer->start(kRecognitionTimeoutMs);
+    m_socket->open(url);
 }
 
 void DecentScaleWifi::recreateSocket() {
@@ -186,9 +243,20 @@ void DecentScaleWifi::recreateSocket() {
 }
 
 void DecentScaleWifi::attemptHostname() {
-    // We've moved past any cached-IP attempt to our best hostname-based
-    // resolution — don't loop back to another raw-hostname fallback after this.
-    m_triedHostnameFallback = true;
+    // NOTE: m_triedHostnameFallback is deliberately NOT set here. It marks "the
+    // hostname fallback has been spent", and merely entering this function does
+    // not spend it — resolution can fail, in which case nothing was tried.
+    //
+    // It is set at each point a dial actually begins: at the two resolved-IP
+    // dials below, and by attemptTarget itself for the non-".local" direct dial
+    // (which passes isHostname=true).
+    //
+    // Setting it on entry, as this used to, made the resolve-failure fallback
+    // dial in dialCachedIpAfterResolveFailure() exempt from BOTH eviction gates
+    // — onError's cachedIpAttempt and onRecognitionTimeout's fallback branch
+    // each require !m_triedHostnameFallback. A cached IP that DHCP had handed to
+    // a live host (a printer answering 403) would then be re-dialled on every
+    // cycle and never evicted, for as long as resolution kept failing.
 
 #ifdef Q_OS_ANDROID
     // Qt's resolver (getaddrinfo) doesn't speak mDNS on Android, so opening
@@ -217,6 +285,9 @@ void DecentScaleWifi::attemptHostname() {
                     // A stale answer self-heals: the cached-IP attempt fails the
                     // recognition window and falls back here to re-resolve.
                     if (m_ipCacheUpdate) m_ipCacheUpdate(host, ip);
+                    // The hostname fallback is spent HERE, not on entry to
+                    // attemptHostname — a resolve that failed spent nothing.
+                    m_triedHostnameFallback = true;
                     attemptTarget(ip, /*isHostname=*/false);
                 } else {
                     // The mDNS A-query found no responder. On Android the OS
@@ -229,8 +300,9 @@ void DecentScaleWifi::attemptHostname() {
                     // the backstop: it retries, recovers a still-booting scale, and
                     // for a genuinely-gone scale emits the FlowScale-fallback notice
                     // that informs the user. (See #1253.)
-                    WIFI_WARN(QString("mDNS resolution failed for %1 — no responder; "
-                                      "not dialing (transient; auto-reconnect will retry)").arg(host));
+                    if (dialCachedIpAfterResolveFailure()) return;
+                    WIFI_WARN(QString("mDNS resolution failed for %1 — no responder and no "
+                                      "cached IP; not dialing (transient; auto-reconnect will retry)").arg(host));
                     m_userInitiatedShutdown = true;  // mark expected; reconnect owned by main.cpp
                 }
             }, Qt::QueuedConnection);
@@ -266,7 +338,8 @@ void DecentScaleWifi::attemptHostname() {
                 // WiFi. Same handling as the Android mDNS-miss branch above: log,
                 // don't dial, don't pop a modal. BLEManager's connection timer
                 // (onScaleConnectionTimeout) is the backstop.
-                WIFI_WARN(QString("QHostInfo resolution failed for %1: %2 — "
+                if (dialCachedIpAfterResolveFailure()) return;
+                WIFI_WARN(QString("QHostInfo resolution failed for %1: %2 — no cached IP; "
                                   "not dialing (transient; auto-reconnect will retry)")
                           .arg(host, info.errorString()));
                 m_userInitiatedShutdown = true;  // mark expected; reconnect owned by main.cpp
@@ -278,6 +351,9 @@ void DecentScaleWifi::attemptHostname() {
             // answer self-heals: the cached-IP attempt fails the recognition
             // window and falls back here to re-resolve.
             if (m_ipCacheUpdate) m_ipCacheUpdate(host, ip);
+            // The hostname fallback is spent HERE, not on entry to
+            // attemptHostname — a resolve that failed spent nothing.
+            m_triedHostnameFallback = true;
             attemptTarget(ip, /*isHostname=*/false);
         });
         return;
@@ -557,6 +633,12 @@ void DecentScaleWifi::onRecognizedAsHds() {
     if (m_recognized) return;
     m_recognized = true;
     m_recognitionTimer->stop();
+    // We're talking to a real scale again, so any pending "re-resolve on the
+    // next attempt" obligation from an earlier unreachable window is
+    // discharged. Cleared here rather than in onConnected because a bare WS
+    // upgrade doesn't prove we reached the scale — only a recognized HDS frame
+    // does, and that is the same bar the rest of this driver uses.
+    m_retryShouldReresolve = false;
 
     // Cache the peer IP after a hostname connect succeeds, so the next
     // connect can skip the OS resolver entirely. A cached-IP hit or a
@@ -630,6 +712,56 @@ void DecentScaleWifi::onRecognitionTimeout() {
 
 int DecentScaleWifi::encodeButton(int buttonNumber, int pressCode) {
     return kWifiButtonFlag | ((buttonNumber & 0xF) << 8) | (pressCode & 0xFF);
+}
+
+bool DecentScaleWifi::isTransientTransportError(QAbstractSocket::SocketError err) {
+    // Mapping verified against Qt 6.11.1 (qtbase/src/network/socket/
+    // qnativesocketengine_unix.cpp, nativeConnect's errno switch). Re-check on a
+    // Qt upgrade — this classification is only as good as that switch, and the
+    // enum names do NOT tell you which errno values land where.
+    switch (err) {
+    // The only class that matters in practice. nativeConnect maps BOTH
+    // EHOSTUNREACH and ENETUNREACH here, and also ETIMEDOUT (a connect that
+    // never got a reply) — so "nothing answered" arrives as NetworkError in all
+    // three shapes. This is the class the reconnect defect turned on: an ESP32
+    // in WiFi power-save misses an ARP request, the OS caches a negative route,
+    // and connect() then fails in well under a millisecond without ever binding
+    // a local port. Nothing answered, so nothing was learned about whether the
+    // address is still the scale's.
+    //
+    // NOTE: EHOSTDOWN is NOT in that switch — it falls through to
+    // UnknownSocketError and is therefore treated as non-transient here. That
+    // is a Qt gap, not a decision of ours; if a platform starts producing it
+    // for a sleeping scale, this is the line to revisit.
+    case QAbstractSocket::NetworkError:
+    // Not produced by nativeConnect (ETIMEDOUT becomes NetworkError above), but
+    // reachable from the waitFor* paths. Same reasoning, kept for completeness.
+    case QAbstractSocket::SocketTimeoutError:
+        return true;
+    default:
+        // Everything else stays on the evict-and-fall-back path.
+        //
+        // HostNotFoundError is deliberately NOT transient, despite "the name
+        // didn't resolve" sounding like nothing answered. It can only reach
+        // onError from a bare-hostname dial — ".local" names are resolved
+        // out-of-band in attemptHostname and never handed to QWebSocket as a
+        // name — and a hostname attempt has m_currentTargetIsHostname set, so
+        // it was already excluded from the cached-IP eviction branch. Marking
+        // it transient therefore protects no cache decision; its only effect
+        // would be to suppress the give-up path that raises the manual
+        // "Add WiFi Scale" failure dialog, leaving a user who typed a bad
+        // hostname with no feedback at all.
+        //
+        // ConnectionRefusedError USUALLY means a host is up and refused the
+        // port — the DHCP-reassignment evidence this branch acts on. It is not
+        // airtight: a firewall REJECT produces it with no host at the address,
+        // Qt also maps EINVAL onto it, and a rebooting ESP32 refuses briefly
+        // before its WebSocket server binds. Eviction self-heals via the
+        // hostname fallback, so a false positive costs one extra resolve —
+        // cheap enough to prefer over the alternative, which is never
+        // correcting a genuinely reassigned address.
+        return false;
+    }
 }
 
 bool DecentScaleWifi::send(const QString& text) {
@@ -816,31 +948,62 @@ void DecentScaleWifi::onError() {
         m_lastSocketErrorString = errStr;
     }
 
-    // Cached-IP attempt failed under us: ANY error (handshake refused like 403,
-    // socket-level HostNotFound/Refused/Network/Timeout, anything else) means
-    // this IP isn't a working HDS endpoint. Evict the cached IP so we don't
-    // dial it again on the next connect cycle (or on the next proactive
-    // switch-back probe), and fall through to a fresh hostname/mDNS lookup.
+    // A failure where NOTHING answered says nothing about whether this address
+    // still belongs to the scale, so it must not be treated as cache-invalidating
+    // evidence. Retain the cached IP, leave the hostname fallback unconsumed,
+    // and end the attempt — main.cpp's scaleReconnectTimer owns the retry, as
+    // the reconnect-ownership requirement already specifies for mid-stream drops.
     //
-    // Why catch every error class, not just the original "fast-fail" four: a
-    // poisoned cached IP (manually-typed wrong address, DHCP-reassigned to a
-    // router/printer/NAS) commonly produces handshake-layer errors instead of
-    // socket-layer ones — e.g. the home router answers ws://192.168.1.1/snapshot
-    // with HTTP 403, which surfaces here as WebSocketProtocolError /
-    // UnknownSocketError, NOT in {HostNotFound, ConnectionRefused, NetworkError,
-    // SocketTimeoutError}. Without this, the cached-IP attempt would dead-end:
-    // onDisconnected stops the recognition timer, so the only other path that
-    // would have triggered hostname fallback (onRecognitionTimeout) never fires.
+    // This branch is the fix for a scale that dropped off the network for a few
+    // seconds. Previously ANY error evicted the cache and immediately re-dialed
+    // the hostname; because the re-dial happened ~45 ms later it landed inside
+    // the very same unreachability window, failed identically, consumed the
+    // fallback, and the driver gave up — leaving a healthy scale disconnected
+    // until the user manually rescanned. An instant retry cannot outlast a
+    // condition measured in seconds; only the backoff loop can.
     //
-    // 503 is the one error we DO NOT route here: it's the openscale "client cap
-    // saturated" refusal — the scale is real and the cache is good; the link
-    // is briefly busy. That case is handled by the 503 early-return at the
-    // top of this function (the first thing onError checks).
+    // m_retryShouldReresolve makes the NEXT attempt resolve the hostname rather
+    // than re-dial the remembered address (see the header for why).
+    if (isTransientTransportError(err)) {
+        WIFI_LOG(QString("Transient transport error on %1 (%2) — cached IP retained, "
+                         "retry deferred to the app-level reconnect loop")
+                 .arg(m_currentTarget, errStr));
+        m_retryShouldReresolve = true;
+        m_recognitionTimer->stop();
+        // Deliberately NOT setting m_userInitiatedShutdown: this is a genuine
+        // transport failure and onDisconnected must still log it as an abnormal
+        // drop. m_socketErrorThisConnect was set above for exactly that.
+        return;
+    }
+
+    // Cached-IP attempt where a peer DID answer but isn't an HDS (handshake
+    // refused like 403, a RST from a host that has nothing on port 80, a
+    // protocol error): this IP isn't a working HDS endpoint. Evict the cached
+    // IP so we don't dial it again on the next connect cycle (or on the next
+    // proactive switch-back probe), and fall through to a fresh hostname/mDNS
+    // lookup.
+    //
+    // Why this catches more than socket-layer errors: a poisoned cached IP
+    // (manually-typed wrong address, DHCP-reassigned to a router/printer/NAS)
+    // commonly produces handshake-layer errors — e.g. the home router answers
+    // ws://192.168.1.1/snapshot with HTTP 403, which surfaces here as
+    // WebSocketProtocolError / UnknownSocketError. Without this, the cached-IP
+    // attempt would dead-end: onDisconnected stops the recognition timer, so
+    // the only other path that would have triggered hostname fallback
+    // (onRecognitionTimeout) never fires.
+    //
+    // 503 is the one peer-answered error we DO NOT route here: it's the
+    // openscale "client cap saturated" refusal — the scale is real and the
+    // cache is good; the link is briefly busy. That case is handled by the 503
+    // early-return at the top of this function (the first thing onError checks),
+    // which still short-circuits ahead of both this branch and the transient
+    // classification above.
     const bool cachedIpAttempt = !m_currentTargetIsHostname
                               && !m_triedHostnameFallback
                               && !m_pendingHostnameFallback;
     if (cachedIpAttempt) {
-        WIFI_LOG(QString("Cached IP %1 unreachable (%2) — evicting cache and falling back to hostname %3")
+        WIFI_LOG(QString("Cached IP %1 answered but is not an HDS (%2) — evicting cache "
+                         "and falling back to hostname %3")
                  .arg(m_currentTarget, errStr, m_hostname));
         if (m_ipCacheUpdate) m_ipCacheUpdate(m_hostname, QString());
         m_userInitiatedShutdown = true;

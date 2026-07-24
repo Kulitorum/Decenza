@@ -5,6 +5,7 @@
 #include <QString>
 #include <QTimer>
 #include <QSet>
+#include <QAbstractSocket>
 #include <functional>
 
 class QWebSocket;
@@ -53,6 +54,11 @@ public:
     // eviction ever touches it, so an unverified/stale preferredIp can never
     // clobber a good cached value. On recognition failure the normal fallback
     // re-resolves. Empty for manual entries and cache-driven reconnects.
+    //
+    // One further case skips the cached IP even when one exists and is valid:
+    // if the previous attempt ended with a transient transport failure, this
+    // call re-resolves instead. A supplied preferredIp still outranks that.
+    // See m_retryShouldReresolve.
     void connectToHost(const QString& hostname, const QString& preferredIp = QString());
 
     QString name() const override { return m_name; }
@@ -110,6 +116,12 @@ private slots:
     void onRecognitionTimeout();
 
 private:
+#ifdef DECENZA_TESTING
+    // Grants the test the classifier below. Exercising it as a pure function
+    // covers every SocketError value on every platform; the behavioural tests
+    // can only reach the two or three an OS will actually produce on demand.
+    friend class tst_DecentScaleWifi;
+#endif
     // Send a command text frame over the WS. Returns true on success, false
     // when the socket is not in ConnectedState — Qt's sendTextMessage silently
     // drops in that case (returns 0 bytes, no signal, no log), so the helper
@@ -158,12 +170,39 @@ private:
     // even where an explicit QHostInfo lookup for the same name succeeds
     // quickly. A non-".local" name dials directly with no resolution step.
     void attemptHostname();
+    // Last resort when hostname resolution fails: dial the cached IP if we hold
+    // one. Returns true if an attempt was started. Keeps a deaf-mDNS device
+    // dialling something every cycle instead of nothing — see the call sites in
+    // attemptHostname and the note on m_retryShouldReresolve.
+    bool dialCachedIpAfterResolveFailure();
     // First snapshot or status frame — confirms we're talking to the HDS.
     void onRecognizedAsHds();
 
     // Button encoding: 0x1000 high bit flags WiFi-encoded buttons so they
     // cannot collide with the BLE driver's 0..0xFF single-byte values.
     static int encodeButton(int buttonNumber, int pressCode);
+
+    // Classify a connect-time socket failure by what it proves about the
+    // address we dialed. The discriminator is "did ANY peer answer", NOT "did
+    // the attempt fail" — those are different questions and conflating them is
+    // what made a briefly-unreachable scale look like a wrong cached IP.
+    //
+    //   nothing answered  -> transient. Says nothing about who owns the IP, so
+    //                        the cached IP is kept and the retry is left to the
+    //                        app-level reconnect loop.
+    //   something answered -> NOT transient. Evidence the address was
+    //                        reassigned; the caller evicts and falls back.
+    //
+    // The .cpp carries the per-value reasoning and the Qt source references —
+    // read it before adding or moving a case. Two entries are counter-intuitive
+    // and are explained there: ConnectionRefusedError is NOT transient, and
+    // HostNotFoundError is NOT transient.
+    //
+    // Deliberately ignores the error *string*: only the enum is stable across
+    // Qt versions and locales. onError logs errorString() next to the enum so a
+    // support log can still separate the errno values Qt collapses onto one
+    // enumerator.
+    static bool isTransientTransportError(QAbstractSocket::SocketError err);
 
     static constexpr int kRecognitionTimeoutMs = 5000;
     static constexpr int kWifiButtonFlag = 0x1000;
@@ -182,6 +221,41 @@ private:
     bool m_recognized = false;      // Set on first valid HDS frame; resets on each attempt.
     bool m_triedHostnameFallback = false;  // Prevents looping if hostname fallback also fails.
     bool m_pendingHostnameFallback = false;  // Set in onRecognitionTimeout; consumed by onDisconnected.
+    // Set when an attempt ends with a transient transport error (nothing
+    // answered), cleared in onRecognizedAsHds once we're talking to a real
+    // scale. While set, the next connectToHost() bypasses the CACHED-IP
+    // shortcut and goes through attemptHostname(), which re-resolves the name.
+    //
+    // A supplied preferredIp always wins over this flag and consumes it — it
+    // was resolved AFTER the attempt that set the flag, so it is strictly
+    // fresher than anything a re-resolve could produce. See the priority note
+    // at the top of connectToHost(); this flag never causes preferredIp to be
+    // skipped.
+    //
+    // WHY THIS EXISTS — it closes a hole that the transient classification
+    // itself opens. When DHCP moves the scale, the address it left behind
+    // usually goes dark rather than being immediately reassigned. A dark
+    // address answers nothing, so it classifies as transient, so the cache is
+    // retained — and without this flag the driver would re-dial that dead
+    // address on every cycle forever, with no other path to correction (the
+    // WiFi->BLE fallback scan is useless for a WiFi-only scale, and the
+    // switch-back probe only tests the same cached IP). Before this change any
+    // error evicted, so the case self-corrected. Re-resolving is what restores
+    // that.
+    //
+    // Note the justification is ADDRESS FRESHNESS, not any claim about
+    // clearing operating-system state for an unreachable peer. For a ".local"
+    // name the mDNS responder IS the scale, so during an unreachability window
+    // the resolve most likely fails too and falls back to the cached IP —
+    // recovery there comes from the backoff delay, not from re-resolving.
+    // The cached IP is deliberately NOT evicted: it's still our best guess at
+    // the scale's identity, it just isn't what we dial on the recovery attempt.
+    //
+    // An event-based flag, not a timer: it is set by a failure event and
+    // cleared by a recognition event, per the project's no-timers-as-guards
+    // rule. Retry TIMING remains entirely owned by main.cpp's
+    // scaleReconnectTimer.
+    bool m_retryShouldReresolve = false;
     // Bumped each time we kick off an async mDNS resolve. A resolve result
     // whose generation no longer matches is dropped — a newer connectToHost()
     // or disconnect superseded it while the worker thread was in flight.
@@ -201,14 +275,29 @@ private:
     QString m_lastPowerEventReason;
     int m_lastPowerEventCode = -1;
     // Set on intentional shutdown paths so onDisconnected logs the close as
-    // expected and skips noisy follow-up handling. Seven sites set this to
-    // true: disconnectFromScale (user close), handlePowerFrame (scale told
-    // us it's powering down), attemptHostname (Android mDNS resolution found
-    // no responder), onRecognitionTimeout fallback branch (cached IP didn't
-    // validate → switching to hostname), onRecognitionTimeout give-up branch
-    // (hostname also failed), onError 503 early-return (server-busy), and
-    // onError cached-IP-eviction branch (any non-503 error on a cached-IP
-    // attempt → evict the cached IP and fall back to hostname; see #1281).
+    // expected and skips noisy follow-up handling. Set at:
+    //   - disconnectFromScale (user close)
+    //   - handlePowerFrame (scale told us it's powering down)
+    //   - attemptHostname, BOTH resolution-failure branches (the Android mDNS
+    //     one and the QHostInfo one that runs everywhere else) — but ONLY when
+    //     dialCachedIpAfterResolveFailure() found no cached IP to fall back on.
+    //     When it dials one, that early return runs first and the flag is not
+    //     set, because the cycle is still in progress.
+    //   - onRecognitionTimeout fallback branch (cached IP didn't validate →
+    //     switching to hostname)
+    //   - onRecognitionTimeout give-up branch (hostname also failed)
+    //   - onError 503 early-return (server-busy)
+    //   - onError cached-IP-eviction branch (a peer-answered non-503 error on a
+    //     cached-IP attempt → evict the cached IP and fall back to hostname;
+    //     see #1281)
+    // Deliberately not carrying a count: it has been wrong twice, and the list
+    // is the part with any value. `grep -n "m_userInitiatedShutdown = true"` is
+    // the authority.
+    //
+    // NOT set by onError's transient-transport branch: nothing answered there,
+    // which is a genuine abnormal drop, so onDisconnected must keep logging it
+    // as unexpected rather than as a close we asked for.
+    //
     // Reconnect itself is owned by main.cpp's scaleReconnectTimer — this flag
     // does not gate reconnect.
     bool m_userInitiatedShutdown = false;

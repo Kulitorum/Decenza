@@ -635,13 +635,35 @@ void BLEManager::setDisabled(bool disabled) {
             if (m_scanning) {
                 stopScan();
             }
-            m_scaleConnectionTimer->stop();
-            // Disconnect physical scale so FlowScale takes over
-            emit disconnectScaleRequested();
+            // NOTE: no longer stops m_scaleConnectionTimer or drops the physical
+            // scale. Those belong to the scale, and the DE1 simulator has no
+            // business tearing down a real scale the user is weighing with —
+            // that teardown is now setScaleSimulated's job.
         }
-        qDebug() << "BLEManager: BLE operations" << (disabled ? "disabled (simulator mode)" : "enabled");
+        qDebug() << "BLEManager: DE1 BLE operations" << (disabled ? "disabled (simulator mode)" : "enabled");
         emit disabledChanged();
     }
+}
+
+void BLEManager::setScaleSimulated(bool simulated) {
+    if (m_scaleSimulated == simulated) return;
+    m_scaleSimulated = simulated;
+    if (m_scaleSimulated) {
+        // A simulated scale is taking over the weight stream — stand the real
+        // one down so the two don't both drive weight.
+        m_scaleConnectionTimer->stop();
+        emit disconnectScaleRequested();
+    }
+    qDebug() << "BLEManager: real-scale connects"
+             << (simulated ? "blocked (simulated scale active)" : "allowed");
+    // MUST be emitted on BOTH edges. The rising edge stops the connection timer
+    // and drops the physical scale; nothing restarts either of those, so without
+    // a falling-edge signal for main.cpp to hang a re-arm on, switching the
+    // simulated scale back off leaves the real scale stranded until the app is
+    // restarted or the user rescans — with no indication why. This mirrors
+    // disabledChanged, which main.cpp already uses for exactly this purpose on
+    // the R2 reconnect path.
+    emit scaleSimulatedChanged();
 }
 
 bool BLEManager::isScanning() const {
@@ -708,6 +730,17 @@ void BLEManager::connectToScale(const QString& address) {
             // scaleDiscovered here (no QBluetoothDeviceInfo / factory path).
             emit usbConnectRequested();
         } else if (entry.transport == QStringLiteral("wifi")) {
+            // Arm the connection timer, exactly as connectToWifiScale,
+            // switchToWifiPrimary and tryDirectConnectToScale all do. This is
+            // the ONLY backstop on the tap-a-discovered-scale path: the WiFi
+            // driver treats an unreachable host as transient and returns
+            // without retrying, deferring to the app-level ladder — and that
+            // ladder is started by flowScaleFallback / scaleRetryNeeded, both
+            // of which are emitted by onScaleConnectionTimeout. Without the
+            // timer nothing emits either, so a scale that dropped into
+            // power-save between the scan and the tap fails with no retry, no
+            // dialog and no user-visible trace at all.
+            m_scaleConnectionTimer->start();
             // Strip the "wifi:" prefix to get the bare hostname.
             m_pendingWifiHostname = address.mid(QStringLiteral("wifi:").size());
             // Hand along the IP the scan's mDNS discovery already resolved
@@ -877,11 +910,31 @@ void BLEManager::connectToSavedScale() {
     // otherwise we'd disconnect the current scale and tryDirectConnectToScale()
     // would then silently early-return, leaving the user on FlowScale with no
     // feedback. (These mirror tryDirectConnectToScale()'s own guards.)
-    if (m_disabled) {
-        appendScaleLog("Scale switch ignored — simulator mode");
+    // Gated on the SCALE simulator, not the DE1 one. Running the DE1 simulator
+    // means "no machine attached"; it says nothing about whether the user has a
+    // real scale they want to weigh with — and for a WiFi scale there isn't
+    // even a radio in common with the DE1.
+    if (m_scaleSimulated) {
+        appendScaleLog("Scale switch ignored — simulated scale is active");
         return;
     }
-    if (!isBluetoothAvailable()) {
+    // The simulator's synthetic entry appears in the Known Devices picker like
+    // any other saved scale, so the user can select it — but it is not a
+    // dialable address and tryDirectConnectToScale below refuses it. Without
+    // this bail we would emit disconnectScaleRequested first and drop a working
+    // real scale to connect nothing, which is exactly the failure the comment
+    // above says these guards exist to prevent.
+    if (savedScaleIsSimulated()) {
+        appendScaleLog("Scale switch ignored — that entry is the simulator's "
+                       "synthetic scale, not a real device");
+        return;
+    }
+    // BLE only. A WiFi saved scale reaches the LAN over the network and needs no
+    // Bluetooth adapter — gating it here would refuse a WiFi scale with a
+    // misleading "Bluetooth is powered off" dialog whenever the user had BT off.
+    // (USB already returned above; anything still here is either wifi: or BLE.)
+    if (!m_savedScaleAddress.startsWith(QStringLiteral("wifi:"), Qt::CaseInsensitive)
+        && !isBluetoothAvailable()) {
         appendScaleLog("Cannot switch scale — Bluetooth is powered off");
         emit errorOccurred(translateUiString("ble.error.bluetoothPoweredOff",
                                              "Bluetooth is powered off"));
@@ -1894,23 +1947,19 @@ void BLEManager::tryDirectConnectToDE1() {
 
     QString deviceName = m_savedDE1Name.isEmpty() ? "DE1" : m_savedDE1Name;
 
-#ifdef Q_OS_IOS
-    // On iOS, we have a UUID, not a MAC address.
-    // Direct connect with just a UUID rarely works - scan and match by UUID.
-    qDebug() << "BLEManager: DE1 direct wake (iOS) - scanning for" << deviceName << "UUID:" << m_savedDE1Address;
-    emit de1LogMessage(QString("Direct wake (iOS): scanning for %1").arg(deviceName));
-
-    if (!m_scanning) {
-        startScan();
-    }
-#else
-    // On Android/desktop, we have a MAC address - try direct connect
+    // Same identifier-driven choice as tryDirectConnectToScale: a direct GATT
+    // connect needs a real MAC, and on CoreBluetooth backends (iOS and macOS)
+    // the saved identifier is a device UUID. Not an error — just not dialable.
     QString upperAddress = m_savedDE1Address.toUpper();
     QBluetoothAddress address(upperAddress);
     if (address.isNull()) {
-        qWarning() << "BLEManager: tryDirectConnectToDE1 - invalid saved address:" << m_savedDE1Address;
-        emit de1LogMessage(QString("Direct wake failed: invalid saved address"));
-        if (!m_scanning) startScan();
+        qDebug() << "BLEManager: DE1 direct wake - identifier is not a MAC, scanning for"
+                 << deviceName << "id:" << m_savedDE1Address;
+        emit de1LogMessage(QString("Direct wake: scanning for %1 (identifier is not a MAC)")
+                           .arg(deviceName));
+        if (!m_scanning) {
+            startScan();
+        }
         return;
     }
     QBluetoothDeviceInfo deviceInfo(address, deviceName, QBluetoothDeviceInfo::LowEnergyCoreConfiguration);
@@ -1934,7 +1983,6 @@ void BLEManager::tryDirectConnectToDE1() {
     if (!m_scanning) {
         startScan();
     }
-#endif
 }
 
 void BLEManager::scanForDevices() {
@@ -2052,8 +2100,16 @@ void BLEManager::ensureWifiDiscovery() {
 }
 
 void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
-    if (m_disabled) {
-        qDebug() << "BLEManager: tryDirectConnectToScale - disabled (simulator mode)";
+    // See connectToSavedScale: the DE1 simulator must not gate real scale connects.
+    // This early-return on m_disabled is why a WiFi scale could never recover
+    // on its own in simulator mode — the driver correctly deferred its retry to
+    // the app-level reconnect loop, and the loop landed here and gave up.
+    if (m_scaleSimulated) {
+        // appendScaleLog, not qDebug: this is the always-on background reconnect
+        // path, so it is the one a user or support engineer reading an exported
+        // scale log would be staring at when their scale never connects. qDebug
+        // reaches only a console nobody is watching.
+        appendScaleLog("Auto-reconnect skipped — simulated scale is active");
         return;
     }
 
@@ -2062,10 +2118,25 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
         return;
     }
 
-    if (!isBluetoothAvailable()) {
-        qDebug() << "BLEManager: tryDirectConnectToScale - Bluetooth is powered off, skipping";
+    // The simulator's synthetic primary is not dialable. Guarded HERE, at the
+    // single chokepoint every reconnect path funnels through, rather than at
+    // each caller. Without it a "sim:" address falls past the wifi:/usb: cases
+    // into the BLE branch, which builds an invalid QBluetoothAddress, arms the
+    // 20 s connection timer, and on timeout raises the "No Scale Found" dialog
+    // and re-arms the ladder — forever. Reachable as soon as anything starts
+    // the ladder while the simulated scale is switched off.
+    if (savedScaleIsSimulated()) {
+        appendScaleLog("Auto-reconnect skipped — saved scale is the simulator's "
+                       "synthetic entry, nothing to dial");
         return;
     }
+
+    // The Bluetooth-availability gate is NOT here — it moved below the WiFi and
+    // USB branches so it only gates the BLE path. A WiFi scale reaches the
+    // network over the LAN and shares no radio with Bluetooth; gating its
+    // reconnect on the BT adapter meant a WiFi scale could not reconnect while
+    // the user had Bluetooth turned off, which is the exact recovery this whole
+    // change is about. USB is likewise radio-independent.
 
     if (m_scaleDevice && m_scaleDevice->isConnected()) {
         qDebug() << "BLEManager: tryDirectConnectToScale - scale already connected";
@@ -2128,6 +2199,14 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
         return;
     }
 
+    // --- BLE only past this point. Now the Bluetooth-availability gate applies:
+    // everything below (the passive scan and the direct connectToDevice) needs a
+    // powered BLE adapter, whereas the WiFi and USB paths above did not.
+    if (!isBluetoothAvailable()) {
+        qDebug() << "BLEManager: tryDirectConnectToScale - Bluetooth is powered off, skipping";
+        return;
+    }
+
     // Background reconnect ladder (allowDirectConnect=false): scan only. A
     // passive scan coexists with the DE1 link, whereas a direct connectToDevice()
     // to an absent scale parks the Android BLE stack in Connecting for the full
@@ -2152,25 +2231,33 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
         return;
     }
 
-#ifdef Q_OS_IOS
-    // On iOS, we have a UUID, not a MAC address
-    // Direct connect with just a UUID rarely works - we need to find the device via scanning
-    // Just start scanning and match by UUID when found
-    qDebug() << "BLEManager: Direct wake (iOS) - scanning for" << deviceName << "UUID:" << m_savedScaleAddress;
-    appendScaleLog(QString("Direct wake (iOS): scanning for %1").arg(deviceName));
+    // Choose the path by what the SAVED IDENTIFIER actually is, not by platform.
+    // A direct GATT connect needs a real MAC; on CoreBluetooth backends (iOS and
+    // macOS) the identifier is a device UUID, and QBluetoothAddress(uuid) is
+    // null — dialling it can only fail. This used to be `#ifdef Q_OS_IOS`, so
+    // macOS took the MAC branch and spent ~4 s per startup connecting to the
+    // null address before giving up. Behaviour on Android/Linux (real MACs) and
+    // on iOS (UUIDs) is unchanged; macOS now correctly joins the scan path.
+    if (QBluetoothAddress(m_savedScaleAddress.toUpper()).isNull()) {
+        // Direct connect with just a UUID rarely works — find the device by
+        // scanning and match on identity when it advertises.
+        qDebug() << "BLEManager: Direct wake (no MAC) - scanning for" << deviceName
+                 << "id:" << m_savedScaleAddress;
+        appendScaleLog(QString("Direct wake: scanning for %1 (identifier is not a MAC)").arg(deviceName));
 
-    m_directConnectInProgress = true;
-    m_directConnectAddress = m_savedScaleAddress;  // UUID on iOS
+        m_directConnectInProgress = true;
+        m_directConnectAddress = m_savedScaleAddress;  // UUID
 
-    // Start timeout timer
-    m_scaleConnectionTimer->start();
+        // Start timeout timer
+        m_scaleConnectionTimer->start();
 
-    // On iOS, we skip the direct connect attempt and rely on scanning
-    m_scanningForScales = true;
-    if (!m_scanning) {
-        startScan();
+        m_scanningForScales = true;
+        if (!m_scanning) {
+            startScan();
+        }
+        return;
     }
-#else
+
     // Serialize behind the DE1's direct-wake connect: a second BLE GATT connect
     // while the DE1's is in flight collides on the Android stack — the scale
     // connect dies the instant the DE1 finishes, then sits out the 20 s timeout
@@ -2217,7 +2304,6 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
     // cancellable member timer (restarted here) means a fresh attempt or a
     // successful connect stops any stale pending abort rather than leaking shots.
     m_scaleDirectAbortTimer->start();
-#endif
 }
 
 void BLEManager::onDe1ConnectionSettled() {

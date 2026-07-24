@@ -44,23 +44,41 @@ struct ScaleEntry {
                                    // non-Android — see connectToScale()).
 };
 
-// Helper to get device identifier - iOS uses UUID, others use MAC address
+// Canonical identity for a discovered BLE device — the string persisted as a
+// saved scale / DE1 / refractometer address.
+//
+// The check is at RUNTIME, on whether the backend actually gave us a MAC. It
+// used to be `#ifdef Q_OS_IOS`, which was wrong on macOS: Qt's Bluetooth
+// backend there is CoreBluetooth too, and CoreBluetooth never exposes MAC
+// addresses. So `address().toString()` returned the null address
+// "00:00:00:00:00:00" for EVERY device, and every scale, DE1 and refractometer
+// paired on a Mac was persisted under that one colliding identity — which also
+// made deviceIdentifiersMatch() below return true for any device at all.
+//
+// The rest of the codebase already used this null-check form
+// (difluidr1.cpp, difluidr2.cpp, bletransport.cpp, qtscalebletransport.cpp,
+// bookooscale.cpp); only these two helpers — the ones whose output is written
+// to settings — did not. A runtime check is correct on every platform and does
+// not require maintaining a list of which backends expose MACs.
 inline QString getDeviceIdentifier(const QBluetoothDeviceInfo& device) {
-#ifdef Q_OS_IOS
-    // iOS doesn't expose MAC addresses, use UUID instead
-    return device.deviceUuid().toString();
-#else
-    return device.address().toString();
-#endif
+    return device.address().isNull() ? device.deviceUuid().toString()
+                                     : device.address().toString();
 }
 
-// Helper to compare device identifiers
+// Compare a discovered device against a saved identifier. Must derive the
+// device's side through getDeviceIdentifier so the two stay in lockstep — a
+// direct address()/deviceUuid() comparison here is how the platform-guard bug
+// above stayed hidden.
+//
+// Identifiers persisted by a pre-fix build on macOS are the null address, which
+// identifies nothing. Those are deliberately NOT special-cased: such an entry
+// matches no real device now, so the stale pairing simply stops connecting and
+// the user re-scans. (Before this fix it matched EVERY device, which is worse
+// than not matching — with two BLE scales paired, it connected whichever was
+// seen first.)
 inline bool deviceIdentifiersMatch(const QBluetoothDeviceInfo& device, const QString& identifier) {
-#ifdef Q_OS_IOS
-    return device.deviceUuid().toString() == identifier;
-#else
-    return device.address().toString().compare(identifier, Qt::CaseInsensitive) == 0;
-#endif
+    if (identifier.isEmpty()) return false;
+    return getDeviceIdentifier(device).compare(identifier, Qt::CaseInsensitive) == 0;
 }
 
 class BLEManager : public QObject {
@@ -86,11 +104,39 @@ public:
     bool isBluetoothAvailable() const;
     bool isScanningForScales() const { return m_scanningForScales; }
     bool isDisabled() const { return m_disabled; }
-    void setDisabled(bool disabled);  // Disable all BLE operations (for simulator mode)
+    // Disable DE1 BLE operations (DE1 simulator mode — "no machine attached").
+    // Deliberately does NOT gate scale connectivity: the scale simulator is a
+    // separate user-facing switch (see setScaleSimulated). Scale scanning has
+    // always been allowed here; scale *connecting* used to be blocked by this
+    // flag too, which meant running the DE1 simulator silently disabled real
+    // scales even with the Simulated Scale switch off.
+    void setDisabled(bool disabled);
+    bool isScaleSimulated() const { return m_scaleSimulated; }
+    // True when a simulated scale is actually driving the weight stream, in
+    // which case connecting a real one would fight it. This is the only place
+    // the SIMULATOR blocks a real scale connect — other, unrelated guards
+    // (Bluetooth powered off, an already-connected scale, a non-dialable saved
+    // address) apply independently.
+    //
+    // NOT simply the "Simulated Scale" setting. main.cpp composes this from
+    // simulationMode() AND simulatedScaleEnabled(), because the SimulatedScale
+    // object is only constructed under simulation mode and simulatedScaleEnabled
+    // defaults to true — reading that setting alone would block every real scale
+    // on builds that have no simulated scale at all. Callers must not
+    // re-derive it from settings; take it from here.
+    void setScaleSimulated(bool simulated);
     QVariantList discoveredDevices() const;
     QVariantList discoveredScales() const;
     bool scaleConnectionFailed() const { return m_scaleConnectionFailed; }
     bool hasSavedScale() const { return !m_savedScaleAddress.isEmpty(); }
+    // True when the saved primary is the debug simulator's synthetic entry
+    // ("sim:..."), which main.cpp promotes to primary when no real scale has
+    // ever been paired. It is NOT a connectable address: every real connect
+    // path would treat it as a BLE MAC and dial nonsense. Callers that act on
+    // "a scale is saved" must exclude it — hasSavedScale() alone is true for it.
+    bool savedScaleIsSimulated() const {
+        return m_savedScaleAddress.startsWith(QStringLiteral("sim:"), Qt::CaseInsensitive);
+    }
 
     // Optional TranslationManager — when set, user-visible error strings
     // (those emitted via errorOccurred) are run through translate() with
@@ -552,6 +598,9 @@ signals:
     // via cancelWifiProbe()). main.cpp switches to the WiFi primary when reachable.
     void wifiPrimaryReachable(bool reachable);
     void disabledChanged();
+    // Emitted on BOTH edges of setScaleSimulated — see its implementation for
+    // why the falling edge matters (nothing else re-arms the scale reconnect).
+    void scaleSimulatedChanged();
     void disconnectScaleRequested();  // Emitted when switching to a different scale, BLE is disabled, or saved scale is cleared
     void refractometersChanged();
     void refractometerConnectedChanged();
@@ -787,6 +836,10 @@ private:
 
     // Simulator mode - disable all BLE operations
     bool m_disabled = false;
+    // Set from the "Simulated Scale" switch, NOT from DE1 simulation mode.
+    // Gates the two real-scale connect paths (connectToSavedScale,
+    // tryDirectConnectToScale) that used to consult m_disabled.
+    bool m_scaleSimulated = false;
 
     // Direct connect state - prevents duplicate connections from scan
     bool m_directConnectInProgress = false;
