@@ -377,14 +377,6 @@ private:
     // writes several simple-editor keys we never read). Canonical keys always win.
     QJsonObject m_unknownKeys;
 
-    // The `recipe` object exactly as it arrived. RecipeParams::fromJson reads
-    // sub-keys (editorType) that RecipeParams::toJson does not write back, so
-    // serializing from the params alone loses them — a recipe marked "pressure"
-    // would reload as "dflow" (fromJson's default). Serialization overlays the
-    // canonical params ON TOP of this, so managed values win and everything else
-    // survives. Same preserve-and-overlay rule as m_unknownKeys.
-    QJsonObject m_sourceRecipe;
-
     RecipeParams m_recipeParams;
 
     // Read-only flag (de1app compatibility: 0=editable, 1=read-only, 2=reset)

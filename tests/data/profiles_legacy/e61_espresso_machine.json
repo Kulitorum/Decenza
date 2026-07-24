@@ -1,0 +1,74 @@
+{
+    "author": "Decent",
+    "beverage_type": "espresso",
+    "espresso_decline_time": 0,
+    "espresso_hold_time": 35,
+    "espresso_pressure": 9,
+    "espresso_temperature": 92,
+    "flow_profile_decline": 1.2,
+    "flow_profile_decline_time": 17,
+    "flow_profile_hold": 2,
+    "flow_profile_hold_time": 8,
+    "has_recommended_dose": false,
+    "legacy_profile_type": "settings_2a",
+    "maximum_flow": 0,
+    "maximum_flow_range_advanced": 0.6,
+    "maximum_flow_range_default": 1,
+    "maximum_pressure": 0,
+    "maximum_pressure_range_advanced": 0.6,
+    "maximum_pressure_range_default": 0.9,
+    "minimum_pressure": 6,
+    "mode": "frame_based",
+    "notes": "The E61 machine was invented by Faema in 1961 and is still the most classic and most copied espresso machine design.  It is likely what most people mean when they say Professional Italian Espresso Machine",
+    "number_of_preinfuse_frames": 0,
+    "preinfusion_flow_rate": 4,
+    "preinfusion_stop_pressure": 4,
+    "preinfusion_time": 0,
+    "pressure_end": 2,
+    "read_only": 1,
+    "recommended_dose": 18,
+    "steps": [
+        {
+            "flow": 2,
+            "limiter": {
+                "range": 0.6,
+                "value": 0
+            },
+            "name": "forced rise without limit",
+            "pressure": 9,
+            "pump": "pressure",
+            "seconds": 3,
+            "sensor": "coffee",
+            "temperature": 92,
+            "transition": "fast",
+            "volume": 0
+        },
+        {
+            "flow": 2,
+            "limiter": {
+                "range": 0.6,
+                "value": 0
+            },
+            "name": "rise and hold",
+            "pressure": 9,
+            "pump": "pressure",
+            "seconds": 32,
+            "sensor": "coffee",
+            "temperature": 92,
+            "transition": "fast",
+            "volume": 0
+        }
+    ],
+    "tank_desired_water_temperature": 0,
+    "target_volume": 0,
+    "target_weight": 36,
+    "temp_steps_enabled": true,
+    "temperature_presets": [
+        92,
+        92,
+        92,
+        92
+    ],
+    "title": "E61 espresso machine",
+    "version": "2"
+}

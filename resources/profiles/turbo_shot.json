@@ -50,7 +50,7 @@
             "sensor": "coffee",
             "temperature": "90.00",
             "transition": "fast",
-            "volume": "0"
+            "volume": "0.0"
         },
         {
             "flow": "4.50",
@@ -65,7 +65,7 @@
             "sensor": "coffee",
             "temperature": "90.00",
             "transition": "fast",
-            "volume": "0",
+            "volume": "0.0",
             "weight": "45.0"
         }
     ],

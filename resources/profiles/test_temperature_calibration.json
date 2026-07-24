@@ -45,7 +45,7 @@
             "sensor": "water",
             "temperature": "99.00",
             "transition": "fast",
-            "volume": "70"
+            "volume": "70.0"
         },
         {
             "flow": "0.00",
@@ -60,7 +60,7 @@
             "sensor": "water",
             "temperature": "97.00",
             "transition": "fast",
-            "volume": "100"
+            "volume": "100.0"
         },
         {
             "flow": "6.00",
@@ -75,7 +75,7 @@
             "sensor": "water",
             "temperature": "97.00",
             "transition": "fast",
-            "volume": "250"
+            "volume": "250.0"
         },
         {
             "flow": "0.00",
@@ -90,7 +90,7 @@
             "sensor": "water",
             "temperature": "95.00",
             "transition": "fast",
-            "volume": "250"
+            "volume": "250.0"
         },
         {
             "flow": "5.00",
@@ -105,7 +105,7 @@
             "sensor": "water",
             "temperature": "95.00",
             "transition": "fast",
-            "volume": "200"
+            "volume": "200.0"
         },
         {
             "flow": "0.00",
@@ -120,7 +120,7 @@
             "sensor": "water",
             "temperature": "95.00",
             "transition": "fast",
-            "volume": "175"
+            "volume": "175.0"
         }
     ],
     "tank_desired_water_temperature": "0.0",

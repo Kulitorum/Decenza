@@ -34,6 +34,7 @@
 #include "../core/settings.h"
 #include "../core/settings_visualizer.h"
 #include "../profile/profile.h"
+#include "../profile/profilejson.h"
 #include "../ble/de1device.h"
 #include "version.h"
 #include <QThread>
@@ -1076,23 +1077,23 @@ QJsonObject VisualizerUploader::buildProfileSettings(const Profile* profile)
     s["settings_profile_type"] = profile->profileType();
 
     // Temperature settings (as strings, matching de1app convention)
-    s["espresso_temperature"] = QString::number(profile->espressoTemperature(), 'f', 2);
+    s["espresso_temperature"] = ProfileJson::enc(profile->espressoTemperature(), ProfileJson::Temperature);
     const auto presets = profile->temperaturePresets();
     for (qsizetype i = 0; i < presets.size() && i < 4; ++i)
-        s[QStringLiteral("espresso_temperature_%1").arg(i)] = QString::number(presets[i], 'f', 2);
+        s[QStringLiteral("espresso_temperature_%1").arg(i)] = ProfileJson::enc(presets[i], ProfileJson::Temperature);
 
     // Limits
-    s["maximum_pressure"] = QString::number(profile->maximumPressure(), 'f', 1);
-    s["maximum_flow"] = QString::number(profile->maximumFlow(), 'f', 1);
-    s["flow_profile_minimum_pressure"] = QString::number(profile->minimumPressure(), 'f', 1);
-    s["tank_desired_water_temperature"] = QString::number(profile->tankDesiredWaterTemperature(), 'f', 1);
-    s["maximum_flow_range_advanced"] = QString::number(profile->maximumFlowRangeAdvanced(), 'f', 1);
-    s["maximum_pressure_range_advanced"] = QString::number(profile->maximumPressureRangeAdvanced(), 'f', 1);
+    s["maximum_pressure"] = ProfileJson::enc(profile->maximumPressure(), ProfileJson::Pressure);
+    s["maximum_flow"] = ProfileJson::enc(profile->maximumFlow(), ProfileJson::Flow);
+    s["flow_profile_minimum_pressure"] = ProfileJson::enc(profile->minimumPressure(), ProfileJson::Pressure);
+    s["tank_desired_water_temperature"] = ProfileJson::enc(profile->tankDesiredWaterTemperature(), ProfileJson::TankTemp);
+    s["maximum_flow_range_advanced"] = ProfileJson::enc(profile->maximumFlowRangeAdvanced(), ProfileJson::Limiter);
+    s["maximum_pressure_range_advanced"] = ProfileJson::enc(profile->maximumPressureRangeAdvanced(), ProfileJson::Limiter);
 
     // Target weight/volume
-    s["final_desired_shot_weight"] = QString::number(profile->targetWeight(), 'f', 1);
+    s["final_desired_shot_weight"] = ProfileJson::enc(profile->targetWeight(), ProfileJson::TargetMass);
     s["final_desired_shot_weight_advanced"] = s["final_desired_shot_weight"];
-    s["final_desired_shot_volume"] = QString::number(profile->targetVolume(), 'f', 0);
+    s["final_desired_shot_volume"] = ProfileJson::enc(profile->targetVolume(), ProfileJson::TargetMass);
     s["final_desired_shot_volume_advanced"] = s["final_desired_shot_volume"];
     s["final_desired_shot_volume_advanced_count_start"] = QString::number(profile->preinfuseFrameCount());
 

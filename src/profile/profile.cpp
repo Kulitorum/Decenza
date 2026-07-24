@@ -46,18 +46,22 @@ static const QSet<QString> kKnownProfileKeys = {
     QStringLiteral("preinfuse_frame_count"), QStringLiteral("has_recommended_dose"),
     QStringLiteral("recommended_dose"), QStringLiteral("mode"), QStringLiteral("steps"),
     QStringLiteral("temperature_presets"), QStringLiteral("temp_steps_enabled"),
-    QStringLiteral("recipe"), QStringLiteral("read_only"), QStringLiteral("is_recipe_mode"),
+    QStringLiteral("recipe"), QStringLiteral("read_only"),
     QStringLiteral("preinfusion_time"), QStringLiteral("preinfusion_flow_rate"),
     QStringLiteral("preinfusion_stop_pressure"), QStringLiteral("espresso_pressure"),
     QStringLiteral("espresso_hold_time"), QStringLiteral("espresso_decline_time"),
     QStringLiteral("pressure_end"), QStringLiteral("flow_profile_hold"),
     QStringLiteral("flow_profile_hold_time"), QStringLiteral("flow_profile_decline"),
     QStringLiteral("flow_profile_decline_time"),
-    QStringLiteral("hidden"),
-    QStringLiteral("changes_since_last_espresso"),
-    // NOTE: "reference_file" is deliberately NOT listed. Other apps store the
-    // source filename there; letting it flow through m_unknownKeys preserves it,
-    // and toJsonObject() only synthesizes one when the source had none.
+    // NOTE: "reference_file", "lang", "hidden", "changes_since_last_espresso" and
+    // "is_recipe_mode" are all deliberately ABSENT from this set. Profile does not
+    // model any of them, so listing them here would exclude them from the
+    // m_unknownKeys passthrough while toJsonObject() overwrote them with constants
+    // — silently destroying a foreign profile's state on every save (a de1app
+    // profile marked "hidden":"1" came back visible). Left unlisted, they survive
+    // verbatim and toJsonObject() only supplies a default when the source had none.
+    // "version" IS listed on purpose: we genuinely author v2 and must not echo back
+    // a version claim for semantics we did not write.
 };
 
 // Generate frames for simple pressure profile (settings_2a)
@@ -429,7 +433,7 @@ QJsonObject Profile::toJsonObject() const {
     obj["maximum_pressure"] = num(m_maximumPressure, ProfileJson::Pressure);
     obj["maximum_flow"] = num(m_maximumFlow, ProfileJson::Flow);
     obj["minimum_pressure"] = num(m_minimumPressure, ProfileJson::Pressure);
-    obj["tank_desired_water_temperature"] = num(m_tankDesiredWaterTemperature, 1);
+    obj["tank_desired_water_temperature"] = num(m_tankDesiredWaterTemperature, ProfileJson::TankTemp);
     // tank_temperature: ecosystem-standard alias required by reaprime.
     obj["tank_temperature"] = obj["tank_desired_water_temperature"];
     obj["maximum_flow_range_advanced"] = num(m_maximumFlowRangeAdvanced, ProfileJson::Limiter);
@@ -452,11 +456,11 @@ QJsonObject Profile::toJsonObject() const {
     // Preserve the source profile's language (via m_unknownKeys); only default it
     // when absent. A Korean-authored profile must not come back tagged "en".
     if (!obj.contains("lang")) obj["lang"] = QStringLiteral("en");
-    obj["hidden"] = QStringLiteral("0");
+    if (!obj.contains("hidden")) obj["hidden"] = QStringLiteral("0");
     // Only synthesize when absent — an imported profile's own reference_file
     // (preserved via m_unknownKeys) is more accurate than our title.
     if (!obj.contains("reference_file")) obj["reference_file"] = m_title;
-    obj["changes_since_last_espresso"] = QString();
+    if (!obj.contains("changes_since_last_espresso")) obj["changes_since_last_espresso"] = QString();
 
     // Simple profile parameters. Emitted for EVERY profile type, matching de1app
     // (which writes them unconditionally) and symmetric with fromJson, which also
@@ -510,15 +514,27 @@ QJsonObject Profile::toJsonObject() const {
     // Recipe params — only write when explicitly populated (not default).
     // D-Flow/A-Flow profiles always have recipe data. Simple profiles (settings_2a/2b)
     // only have recipe data if they were edited through the recipe editor.
-    // Canonical params overlaid on the recipe as it arrived, so sub-keys we read
-    // but never write (editorType) survive a round trip.
-    auto recipeJson = [this]() {
-        QJsonObject r = m_sourceRecipe;
-        const QJsonObject canonical = m_recipeParams.toJson();
-        for (auto it = canonical.constBegin(); it != canonical.constEnd(); ++it)
-            r.insert(it.key(), it.value());
-        return r;
-    };
+    // The recipe block is written from RecipeParams ALONE — never overlaid on the
+    // block as it arrived. An earlier revision did overlay it, to stop
+    // `recipe.editorType` being dropped, and that was wrong twice over:
+    //
+    //   1. RecipeParams::fromJson consumes `pourStyle` / `flowLimit` /
+    //      `pressureLimit` as a one-shot MIGRATION SOURCE — migratePourStyle()
+    //      runs after pourPressure/pourFlow are read and overrides them. Echoing
+    //      those keys back made the migration re-fire on every load, so a user's
+    //      edited pour pressure silently reverted to the legacy limit forever.
+    //   2. It defeated ProfileManager's editorType self-repair
+    //      (profilemanager.cpp): the corrected value was applied in memory and
+    //      then discarded on save, so the repair re-ran every load and never
+    //      stuck — and editorType drives frame generation.
+    //
+    // Dropping `editorType` is correct: fromJson infers it for every case where a
+    // recipe block is written at all (dflow/aflow from the title, pressure/flow
+    // from settings_2a/2b), so nothing is lost.
+    //
+    // RULE: a key the reader consumes as a migration source must never be echoed
+    // back. Preserving it converts a one-shot migration into a permanent override.
+    auto recipeJson = [this]() { return m_recipeParams.toJson(); };
 
     // NOTE: an ADVANCED profile deliberately gets no recipe block. Editor type is
     // derived from the title ("D-Flow /", "A-Flow /"), so an advanced profile has
@@ -582,9 +598,41 @@ QVector<ProfileFrame> Profile::materializedSteps() const {
 
 namespace {
 
+// Keys whose READ default is non-zero, so "absent" and "0" mean different things.
+// Dropping an explicit zero for one of these is real loss, never inert.
+const QSet<QString>& nonZeroDefaultKeys() {
+    static const QSet<QString> k = {
+        QStringLiteral("target_weight"), QStringLiteral("espresso_temperature"),
+        QStringLiteral("maximum_pressure"), QStringLiteral("maximum_flow"),
+        QStringLiteral("recommended_dose"), QStringLiteral("espresso_pressure"),
+        QStringLiteral("preinfusion_time"), QStringLiteral("preinfusion_flow_rate"),
+        QStringLiteral("preinfusion_stop_pressure"), QStringLiteral("espresso_hold_time"),
+        QStringLiteral("espresso_decline_time"), QStringLiteral("pressure_end"),
+        QStringLiteral("flow_profile_hold"), QStringLiteral("flow_profile_hold_time"),
+        QStringLiteral("flow_profile_decline"), QStringLiteral("flow_profile_decline_time"),
+        QStringLiteral("maximum_flow_range_advanced"), QStringLiteral("maximum_pressure_range_advanced"),
+        QStringLiteral("maximum_flow_range_default"), QStringLiteral("maximum_pressure_range_default"),
+        // per-step
+        QStringLiteral("temperature"), QStringLiteral("pressure"), QStringLiteral("flow"),
+        QStringLiteral("seconds"), QStringLiteral("range"),
+    };
+    return k;
+}
+
 // True when a value carries no information — absent, null, empty string, or a
-// number that parses to 0. Dropping one of these is inert in this format, because
-// every reader defaults an absent numeric key to 0.
+// number that parses to 0, AND therefore safe to drop.
+//
+// Careful with the justification here: it is NOT "every reader defaults an absent
+// key to 0" — Decenza's own fromJson does the opposite for many keys
+// (target_weight 36.0, espresso_temperature 93.0, maximum_pressure 12.0,
+// espresso_pressure 9.2 …). Dropping an explicit "target_weight":"0" would reload
+// as 36 g and silently switch stop-at-weight ON.
+//
+// The narrow reason this is safe: every key with a non-zero read default is one the
+// canonical serializer ALWAYS re-emits, so the checker never actually sees it
+// dropped. Inertness is therefore only ever applied to foreign keys, which by
+// definition Decenza does not model and cannot default. kNonZeroDefaultKeys below
+// enforces that rather than leaving it to the reader to notice.
 bool isInertValue(const QJsonValue& v) {
     if (v.isUndefined() || v.isNull()) return true;
     if (v.isObject() || v.isArray()) return false;   // structure is never inert
@@ -609,9 +657,26 @@ bool scalarsEqual(const QJsonValue& a, const QJsonValue& b) {
     };
     // A source value carrying no information — null, or "" (de1app writes "" for
     // fields a frame does not use, e.g. flow on a pressure step; reaprime writes
-    // null for version/hidden). Filling one in is an addition, not a loss.
-    if (a.isNull() || a.isUndefined()) return true;
-    if (a.isString() && a.toString().isEmpty()) return true;
+    // null for version/hidden). Filling one in is normally an addition, not a loss.
+    //
+    // BUT not when the replacement is a non-zero number: ProfileFrame::fromJson
+    // defaults are non-zero (pressure 9.0, flow 2.0, seconds 30.0) and
+    // profileJsonToDouble returns the DEFAULT for an unparseable string. So
+    // "seconds":"" silently becomes a fabricated 30-second frame. Treating that as
+    // equal certified a fabrication as lossless; the caller reports it instead.
+    const bool aEmpty = a.isNull() || a.isUndefined()
+                        || (a.isString() && a.toString().isEmpty());
+    if (aEmpty) {
+        bool bNumOk = false;
+        double bNum = 0.0;
+        if (b.isDouble()) {
+            bNum = b.toDouble();
+            bNumOk = true;
+        } else if (b.isString()) {
+            bNum = b.toString().toDouble(&bNumOk);
+        }
+        return !(bNumOk && !qFuzzyIsNull(bNum));   // non-zero fill-in => report it
+    }
     bool aNum = false, bNum = false;
     const double av = asNumber(a, &aNum);
     const double bv = asNumber(b, &bNum);
@@ -654,8 +719,11 @@ void collectParityErrors(const QJsonObject& before, const QJsonObject& after,
     for (auto it = before.constBegin(); it != before.constEnd(); ++it) {
         const QString key = path.isEmpty() ? it.key() : path + QLatin1Char('.') + it.key();
         if (!after.contains(it.key())) {
-            // Only an informative value going missing is a loss.
-            if (!isInertValue(it.value()))
+            // Only an informative value going missing is a loss — EXCEPT for keys
+            // whose read default is non-zero, where dropping an explicit "0" flips
+            // behaviour on reload (a dropped "target_weight":"0" comes back as 36 g
+            // and silently enables stop-at-weight). For those, any drop is a loss.
+            if (!isInertValue(it.value()) || nonZeroDefaultKeys().contains(it.key()))
                 errors << key + QStringLiteral(": KEY LOST");
             continue;
         }
@@ -737,6 +805,14 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
     // imports: their JSON omits espresso_temperature, but the dead contains-guard
     // let the 93.0 default leak through and get saved. See below.)
     const bool hadEspressoTemperature = obj.contains(QStringLiteral("espresso_temperature"));
+    // Same reason, for the alias fallbacks below: these must be snapshotted here,
+    // BEFORE any obj[...] access inserts a null member and makes contains() true.
+    // They are correct today only because nothing above touches them — one added
+    // read would silently break the reaprime tank-temperature/preinfuse-count
+    // import with no test failure.
+    const bool hadTankDesired = obj.contains(QStringLiteral("tank_desired_water_temperature"));
+    const bool hadPreinfuseFrames = obj.contains(QStringLiteral("number_of_preinfuse_frames"));
+    const bool hadVolumeCountStart = obj.contains(QStringLiteral("target_volume_count_start"));
 
     profile.setTitle(obj["title"].toString("Default"));
     profile.m_author = obj["author"].toString();
@@ -762,7 +838,7 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
     // `tank_temperature` that reaprime and de1app actually write. Reading only the
     // Decenza spelling silently zeroed the tank target on every reaprime import.
     profile.m_tankDesiredWaterTemperature =
-        obj.contains("tank_desired_water_temperature")
+        hadTankDesired
             ? jsonToDouble(obj["tank_desired_water_temperature"], 0.0)
             : jsonToDouble(obj["tank_temperature"], 0.0);
     profile.m_maximumFlowRangeAdvanced = jsonToDouble(obj["maximum_flow_range_advanced"], 0.6);
@@ -773,9 +849,9 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
     // `target_volume_count_start`, and old Decenza files use `preinfuse_frame_count`.
     // Missing the second one reset the count to 0 on import, so target volume was
     // counted from frame 0 — including preinfusion — and the shot ran long.
-    if (obj.contains("number_of_preinfuse_frames")) {
+    if (hadPreinfuseFrames) {
         profile.m_preinfuseFrameCount = static_cast<int>(jsonToDouble(obj["number_of_preinfuse_frames"], 0));
-    } else if (obj.contains("target_volume_count_start")) {
+    } else if (hadVolumeCountStart) {
         profile.m_preinfuseFrameCount = static_cast<int>(jsonToDouble(obj["target_volume_count_start"], 0));
     } else {
         profile.m_preinfuseFrameCount = obj["preinfuse_frame_count"].toInt(0);
@@ -856,7 +932,6 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
 
     // Load recipe params if present
     if (obj.contains("recipe")) {
-        profile.m_sourceRecipe = obj["recipe"].toObject();
         profile.m_recipeParams = RecipeParams::fromJson(obj["recipe"].toObject());
         // Infer RecipeParams.editorType from profileType/title when the recipe
         // block does not include an explicit editorType enum value

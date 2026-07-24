@@ -22,14 +22,25 @@ inline constexpr int Temperature = 2;   // editor step 0.1
 inline constexpr int Pressure    = 2;   // editor step 0.01
 inline constexpr int Flow        = 2;   // editor step 0.01
 inline constexpr int Seconds     = 2;   // editor step 1
-inline constexpr int Volume      = 0;   // editor step 1, integer mL
+inline constexpr int Volume      = 1;   // editor step 1, but keep 1dp: ProfileFrame::
+                                        // toTclList() writes volume with 1dp, and an
+                                        // imported frame carrying e.g. 22.5 mL must not
+                                        // truncate to 22 just because our editor is
+                                        // integer-only. The two writers must agree.
 inline constexpr int Weight      = 1;   // editor step 0.1 g
 inline constexpr int Limiter     = 2;   // editor step 0.01
-inline constexpr int TargetMass  = 1;   // target weight/volume, editor step 0.1
+inline constexpr int TargetMass  = 1;   // target_weight editor step 0.1; target_volume is
+                                        // integer-stepped but shares this (1dp covers both)
+inline constexpr int TankTemp    = 1;   // tank target, editor step 1 °C
 
 // Encode a number in the canonical string form used by de1app / the tablet /
 // Visualizer / reaprime. Decenza's own readers stay dual-tolerant via toDouble().
 inline QString enc(double v, int decimals) {
+    // Clamp a negative zero to zero. Imported profiles carry values like -5.7e-15
+    // (seen in a de1app cleaning profile), which format as "-0.00" — valid to any
+    // parser but confusing in a diff, and it reappears on every re-import unless
+    // fixed at the encoder rather than in the data file.
+    if (v > -0.5e-9 && v < 0.0) v = 0.0;
     return QString::number(v, 'f', decimals);
 }
 

@@ -48,7 +48,7 @@
             "sensor": "coffee",
             "temperature": "100.00",
             "transition": "fast",
-            "volume": "500"
+            "volume": "500.0"
         },
         {
             "flow": "0.00",
@@ -63,7 +63,7 @@
             "sensor": "coffee",
             "temperature": "100.00",
             "transition": "fast",
-            "volume": "500"
+            "volume": "500.0"
         },
         {
             "flow": "8.00",
@@ -78,7 +78,7 @@
             "sensor": "coffee",
             "temperature": "100.00",
             "transition": "fast",
-            "volume": "500"
+            "volume": "500.0"
         },
         {
             "flow": "0.00",
@@ -93,7 +93,7 @@
             "sensor": "coffee",
             "temperature": "100.00",
             "transition": "fast",
-            "volume": "500"
+            "volume": "500.0"
         },
         {
             "flow": "8.00",
@@ -108,7 +108,7 @@
             "sensor": "coffee",
             "temperature": "100.00",
             "transition": "fast",
-            "volume": "500"
+            "volume": "500.0"
         },
         {
             "flow": "0.00",
@@ -123,7 +123,7 @@
             "sensor": "coffee",
             "temperature": "100.00",
             "transition": "fast",
-            "volume": "500"
+            "volume": "500.0"
         },
         {
             "flow": "8.00",
@@ -138,7 +138,7 @@
             "sensor": "coffee",
             "temperature": "100.00",
             "transition": "fast",
-            "volume": "500"
+            "volume": "500.0"
         },
         {
             "flow": "0.10",
@@ -153,7 +153,7 @@
             "sensor": "coffee",
             "temperature": "100.00",
             "transition": "fast",
-            "volume": "500"
+            "volume": "500.0"
         }
     ],
     "tank_desired_water_temperature": "30.0",

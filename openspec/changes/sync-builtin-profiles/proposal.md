@@ -15,12 +15,16 @@ The ~63 built-in profiles common to Decenza and reaprime are **not** identical t
 - **A one-time user migration** so users who imported a now-corrected built-in receive the fixed version (Decenza's equivalent of reaprime's M1 metadata-refresh / M2 retire-list).
 - **Upstream PRs to tadelv/reaprime** for profiles where Decenza is the more faithful side (A-Flow 9-frame; any lever/param corrections), updating their `assets/defaultProfiles/` + `manifest.json`.
 - **Sourcing dependency:** obtain Visualizer canonical JSON for genuinely-disputed profiles where neither app's frames are trustworthy (reaprime was blocked on this too — lever re-port, milky differentiation).
+- **Convert existing LOCAL USER profiles to the canonical format — sequenced LAST, after the content reconciliation above.** Change 1 made every profile the app *emits* canonical (save, export, share, Visualizer upload all route through `Profile::toJsonObject()`), but files already on disk stay in the old numeric encoding until something re-saves them. That is not cosmetic: `DatabaseBackupManager` backs profiles up with a raw `copyDirectory()` (`databasebackupmanager.cpp:493`), so legacy-format files travel verbatim into backups and onto other devices, where a stricter reader (reaprime) rejects them for the missing `tank_temperature` / `target_volume_count_start`.
+  - **Parity-gated, never blind.** A one-time pass re-saves each user profile only when `Profile::jsonParityErrors(original, converted)` reports zero loss; anything that would lose a key or drift a value is **skipped and logged**, not written. Verified lossless on a real user profile during Change 1 validation (0 keys lost, 0 value drift).
+  - **Runs after the content work, deliberately.** Reconciling built-in content first means user files are touched exactly once; migrating first would churn them again if the audit changes the format or surfaces a serialization bug.
+  - **Scope note:** this converts *encoding*, never user-authored *values* — which is why it does not conflict with the standing rule against retro-rewriting user-set data.
 - **NOT doing:** the serialization-format work (Change 1) and the `recipe` round-trip (Change 3, `preserve-recipe-visualizer-roundtrip`).
 
 ## Capabilities
 
 ### New Capabilities
-- `builtin-profile-sync`: Cross-app content equivalence of the bundled profile set — a tooling-driven, case-by-case reconciliation of Decenza's built-ins against reaprime (and de1app/Visualizer as references), with a user migration for corrected profiles and upstream PRs where Decenza is canonical.
+- `builtin-profile-sync`: Cross-app content equivalence of the bundled profile set — a tooling-driven, case-by-case reconciliation of Decenza's built-ins against reaprime (and de1app/Visualizer as references), with a user migration for corrected profiles and upstream PRs where Decenza is canonical. Also covers the parity-gated conversion of existing local user profiles to the canonical encoding, sequenced after the content reconciliation.
 
 ### Modified Capabilities
 <!-- TBD when fleshed out. Likely none at spec level; this is data + tooling. -->
@@ -30,7 +34,7 @@ The ~63 built-in profiles common to Decenza and reaprime are **not** identical t
 - **Tool:** `tools/profile_sync.cpp` (3-way compare, reaprime JSON input).
 - **Parser:** `src/profile/profile.cpp` (`settings_2a` prefer-regenerated-frames hardening).
 - **Bundled data:** `resources/profiles/*.json` (content/dedup fixes, regeneration).
-- **Migration:** profile-seeding path (retire/refresh corrected built-ins).
+- **Migration:** profile-seeding path (retire/refresh corrected built-ins), plus the parity-gated user-profile format conversion (sequenced last).
 - **External:** PRs to tadelv/reaprime (`assets/defaultProfiles/`, `manifest.json`); Visualizer canonical JSON sourcing.
 - **Docs:** the audit doc (in this change) + `docs/CLAUDE_MD/RECIPE_PROFILES.md`.
 - **Depends on:** `align-profile-json-with-reaprime` (Change 1) shipping first.

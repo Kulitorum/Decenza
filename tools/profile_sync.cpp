@@ -187,6 +187,13 @@ int main(int argc, char* argv[])
     // reconciling content against de1app/reaprime is a separate concern (OpenSpec
     // sync-builtin-profiles), and conflating the two would hide content changes
     // inside a format diff.
+    if (doRewrite && doSync) {
+        QTextStream(stderr) << "Error: --sync and --rewrite-format are mutually exclusive.\n"
+                            << "  --sync           pulls de1app CONTENT into the built-ins\n"
+                            << "  --rewrite-format re-saves them in the canonical format, content untouched\n";
+        return 1;
+    }
+
     if (doRewrite) {
         QDir out(builtinDir);
         if (!out.exists()) {
@@ -194,7 +201,8 @@ int main(int argc, char* argv[])
             return 1;
         }
         QTextStream cout(stdout);
-        int rewritten = 0, failed = 0, unchangedContent = 0;
+        QTextStream cerr(stderr);   // failures go to stderr so CI/greps can see them
+        int rewritten = 0, lost = 0, skipped = 0, writeFailed = 0;
         const QStringList jsons = out.entryList({QLatin1String("*.json")}, QDir::Files, QDir::Name);
         for (const QString& fileName : jsons) {
             const QString path = out.absoluteFilePath(fileName);
@@ -210,40 +218,55 @@ int main(int argc, char* argv[])
 
             Profile before = Profile::loadFromFile(path);
             if (!before.isValid() || original.isEmpty()) {
-                cout << "SKIP (invalid): " << fileName << "\n";
-                ++failed;
-                continue;
-            }
-            if (!before.saveToFile(path)) {
-                cout << "ERROR (write failed): " << fileName << "\n";
-                ++failed;
+                cerr << "SKIP (invalid): " << fileName << "\n";
+                ++skipped;
                 continue;
             }
 
-            // AUDIT: every key and value in the original file must survive.
-            // functionallyEqual() is NOT sufficient here — it compares frames and the
-            // preinfuse count only, and reported "content-identical" while this pass
-            // was silently stripping recipe blocks and de1app's simple-editor keys
-            // from dozens of built-ins. Deep parity is the invariant that matters.
-            QJsonObject rewritten_;
-            {
-                QFile f(path);
-                if (f.open(QIODevice::ReadOnly))
-                    rewritten_ = QJsonDocument::fromJson(f.readAll()).object();
+            // AUDIT BEFORE WRITING. The serialization happens in memory and the file
+            // is only touched once parity is proven — an earlier revision wrote first
+            // and audited the file it had just clobbered, so by the time "DATA LOSS"
+            // appeared the original existed only in git.
+            //
+            // Parity is checked against the ORIGINAL BYTES ON DISK, never against a
+            // re-serialization: comparing two outputs of the same serializer can only
+            // ever agree with itself. functionallyEqual() is also NOT sufficient — it
+            // compares frames and the preinfuse count only, and reported
+            // "content-identical" while this pass was stripping recipe blocks and
+            // de1app's simple-editor keys from dozens of built-ins.
+            const QJsonObject candidate = before.toJsonObject();
+            const QStringList parity = Profile::jsonParityErrors(original, candidate);
+            if (!parity.isEmpty()) {
+                cerr << "DATA LOSS (file left untouched): " << fileName << "\n";
+                for (const QString& e : parity) cerr << "    " << e << "\n";
+                ++lost;
+                continue;
             }
-            const QStringList parity = Profile::jsonParityErrors(original, rewritten_);
-            if (parity.isEmpty()) {
-                ++unchangedContent;
-            } else {
-                cout << "DATA LOSS: " << fileName << "\n";
-                for (const QString& e : parity) cout << "    " << e << "\n";
-                ++failed;
+            // Also refuse to write something a stricter reader in the ecosystem
+            // would reject outright — the whole point of the canonical format.
+            const QStringList readability = Profile::reaprimeReadabilityErrors(candidate);
+            if (!readability.isEmpty()) {
+                cerr << "NOT READABLE (file left untouched): " << fileName << "\n";
+                for (const QString& e : readability) cerr << "    " << e << "\n";
+                ++lost;
+                continue;
+            }
+
+            if (!before.saveToFile(path)) {
+                cerr << "ERROR (write failed): " << fileName << "\n";
+                ++writeFailed;
+                continue;
             }
             ++rewritten;
         }
-        cout << "\nFormat rewrite complete: " << rewritten << " rewritten ("
-             << unchangedContent << " content-identical), " << failed << " skipped\n";
-        return failed == 0 ? 0 : 1;
+        // Separate counters: an earlier revision folded data-loss, invalid and
+        // write-error into one "skipped" total while ALSO counting the lossy file as
+        // rewritten — so a destructive run read as "the tool skipped a few odd ones".
+        cout << "\nFormat rewrite complete: " << rewritten << " rewritten\n";
+        if (lost)        cerr << "  " << lost        << " REFUSED (data loss / unreadable) — left untouched\n";
+        if (skipped)     cerr << "  " << skipped     << " skipped (unparseable)\n";
+        if (writeFailed) cerr << "  " << writeFailed << " write errors\n";
+        return (lost || skipped || writeFailed) ? 1 : 0;
     }
 
     QDir src(de1appDir);

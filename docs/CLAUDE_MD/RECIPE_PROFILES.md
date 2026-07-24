@@ -579,7 +579,7 @@ qml/components/
 
 **The community goal is that a profile makes the same coffee in every DE1 app**, so Decenza emits exactly one profile format everywhere: on-disk, exported, share-code, and the Visualizer upload.
 
-**`Profile::toJsonObject()` is the single canonical serializer** (`toJson()` wraps it in a document). `VisualizerUploader::buildVisualizerProfileJson()` **delegates** to it and must never re-serialize fields itself — that duplication is exactly what let the two paths silently drift. The history re-upload path also re-serializes through it, so a re-uploaded old shot emits the current format.
+**`Profile::toJsonObject()` is the single canonical serializer** (`toJson()` wraps it in a document). `VisualizerUploader::buildVisualizerProfileJson()` **delegates** to it and must never re-serialize fields itself — that duplication is exactly what let the two paths silently drift. The history re-upload path deliberately does **not** re-serialize — it uploads the stored shot snapshot verbatim, because `fromJson` fills defaults and would make a historical shot claim values it never ran.
 
 The canonical format is:
 
@@ -593,13 +593,13 @@ The canonical format is:
 
 - **Writer keys**: `notes` (not `profile_notes`), `legacy_profile_type` (not `profile_type`), `number_of_preinfuse_frames` (not `preinfuse_frame_count`), nested `exit`/`limiter`/`weight` (no flat exit fields)
 - **Reader fallbacks**: Accepts old flat fields (`exit_if`, `exit_type`, `exit_pressure_over`, `max_flow_or_pressure`, `profile_notes`, `profile_type`, `preinfuse_frame_count`) for backward compat with shot history snapshots
-- **Decenza extensions**: `recipe`, `mode`, `has_recommended_dose`, `temperature_presets`, simple profile params — de1app ignores these. (`is_recipe_mode` was removed; editor type is now derived at runtime from title + `legacy_profile_type`)
+- **Decenza extensions**: `recipe`, `mode`, `has_recommended_dose`, `temperature_presets` — de1app ignores these. (The simple-profile params are **not** an extension: de1app writes them unconditionally and so do we; gating them on `settings_2a/2b` is what destroyed those keys on 58+ advanced built-ins.) (`is_recipe_mode` was removed; editor type is now derived at runtime from title + `legacy_profile_type`)
 - **No separate reader**: There is no `loadFromDE1AppJson()` — `fromJson()` handles all variants
 
 ## Profile Comparison / Sync Tools
 
 - **Profile comparison/sync**: Use the `profile_sync` C++ tool (built with the main project, no extra flags). `profile_sync <de1app_profiles_dir> <builtin_profiles_dir>` compares TCL sources against built-in JSONs. Pass `de1plus/profiles/` as the first arg — the tool also scans `de1plus/plugins/*/profiles/` and a plugin copy overrides a base copy with the same output filename (canonical source wins, e.g. the 9-frame `A_Flow` plugin profiles beat the stale 6-frame copies in `de1plus/profiles/`). Simple profiles (`settings_2a`/`settings_2b`) ship with `"steps": []` and have their frames regenerated in-memory before comparison so the equality check is like-for-like. Add `--sync` to overwrite stale JSONs and create missing ones (**modifies `resources/profiles/` in-place** — review changes before committing).
-- **Format-only rewrite**: `profile_sync <de1app_dir> resources/profiles --rewrite-format` re-saves every built-in through the canonical serializer, leaving **content untouched** (it verifies each file with `functionallyEqual` after the rewrite and warns if content moved). Use this to adopt a serialization change. It deliberately ignores de1app — reconciling *content* against de1app/reaprime is a separate concern (OpenSpec `sync-builtin-profiles`), and conflating the two would hide content changes inside a format diff.
+- **Format-only rewrite**: `profile_sync <de1app_dir> resources/profiles --rewrite-format` re-saves every built-in through the canonical serializer, leaving **content untouched**. It serializes in memory and audits with `Profile::jsonParityErrors` + `Profile::reaprimeReadabilityErrors` **before** writing, so a file that would lose data is left untouched rather than clobbered-then-reported; failures go to stderr and the tool exits non-zero. (`functionallyEqual` is explicitly NOT sufficient for this — it compares frames only, and once reported "content-identical" while recipe blocks were being stripped from 8 built-ins.) Use this to adopt a serialization change. It deliberately ignores de1app — reconciling *content* against de1app/reaprime is a separate concern (OpenSpec `sync-builtin-profiles`), and conflating the two would hide content changes inside a format diff.
 - **Profile import test**: Run `ctest -R tst_tclimport` (requires `-DBUILD_TESTS=ON`). The `compareWithBuiltin` test loads all TCL files from `tests/data/de1app_profiles/` through the C++ parser and verifies they match their built-in JSON counterparts field-by-field.
 
 ## Auto-Load

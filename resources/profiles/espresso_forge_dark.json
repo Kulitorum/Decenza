@@ -53,7 +53,7 @@
             "sensor": "coffee",
             "temperature": "84.00",
             "transition": "fast",
-            "volume": "100"
+            "volume": "100.0"
         },
         {
             "flow": "0.00",
@@ -68,7 +68,7 @@
             "sensor": "coffee",
             "temperature": "81.00",
             "transition": "fast",
-            "volume": "100"
+            "volume": "100.0"
         },
         {
             "flow": "0.00",
@@ -83,7 +83,7 @@
             "sensor": "coffee",
             "temperature": "78.00",
             "transition": "smooth",
-            "volume": "100"
+            "volume": "100.0"
         },
         {
             "flow": "0.00",
@@ -98,7 +98,7 @@
             "sensor": "coffee",
             "temperature": "84.00",
             "transition": "smooth",
-            "volume": "100"
+            "volume": "100.0"
         }
     ],
     "tank_desired_water_temperature": "0.0",

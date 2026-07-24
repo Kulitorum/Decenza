@@ -53,7 +53,7 @@
             "sensor": "coffee",
             "temperature": "92.00",
             "transition": "fast",
-            "volume": "100"
+            "volume": "100.0"
         },
         {
             "flow": "0.00",
@@ -68,7 +68,7 @@
             "sensor": "coffee",
             "temperature": "92.00",
             "transition": "fast",
-            "volume": "100"
+            "volume": "100.0"
         },
         {
             "exit": {
@@ -88,7 +88,7 @@
             "sensor": "coffee",
             "temperature": "92.00",
             "transition": "fast",
-            "volume": "100"
+            "volume": "100.0"
         },
         {
             "exit": {
@@ -108,7 +108,7 @@
             "sensor": "coffee",
             "temperature": "92.00",
             "transition": "fast",
-            "volume": "100"
+            "volume": "100.0"
         },
         {
             "exit": {
@@ -128,7 +128,7 @@
             "sensor": "coffee",
             "temperature": "92.00",
             "transition": "fast",
-            "volume": "100"
+            "volume": "100.0"
         },
         {
             "exit": {
@@ -148,7 +148,7 @@
             "sensor": "coffee",
             "temperature": "92.00",
             "transition": "fast",
-            "volume": "100"
+            "volume": "100.0"
         },
         {
             "exit": {
@@ -168,7 +168,7 @@
             "sensor": "coffee",
             "temperature": "92.00",
             "transition": "fast",
-            "volume": "100"
+            "volume": "100.0"
         },
         {
             "exit": {
@@ -188,7 +188,7 @@
             "sensor": "coffee",
             "temperature": "92.00",
             "transition": "fast",
-            "volume": "100"
+            "volume": "100.0"
         },
         {
             "exit": {
@@ -208,7 +208,7 @@
             "sensor": "coffee",
             "temperature": "92.00",
             "transition": "fast",
-            "volume": "100"
+            "volume": "100.0"
         },
         {
             "exit": {
@@ -228,7 +228,7 @@
             "sensor": "coffee",
             "temperature": "92.00",
             "transition": "fast",
-            "volume": "100"
+            "volume": "100.0"
         },
         {
             "exit": {
@@ -248,7 +248,7 @@
             "sensor": "coffee",
             "temperature": "92.00",
             "transition": "fast",
-            "volume": "100"
+            "volume": "100.0"
         },
         {
             "exit": {
@@ -268,7 +268,7 @@
             "sensor": "coffee",
             "temperature": "92.00",
             "transition": "fast",
-            "volume": "100"
+            "volume": "100.0"
         },
         {
             "exit": {
@@ -288,7 +288,7 @@
             "sensor": "coffee",
             "temperature": "92.00",
             "transition": "fast",
-            "volume": "100"
+            "volume": "100.0"
         },
         {
             "exit": {
@@ -308,7 +308,7 @@
             "sensor": "coffee",
             "temperature": "92.00",
             "transition": "fast",
-            "volume": "100"
+            "volume": "100.0"
         },
         {
             "exit": {
@@ -328,7 +328,7 @@
             "sensor": "coffee",
             "temperature": "92.00",
             "transition": "fast",
-            "volume": "100"
+            "volume": "100.0"
         },
         {
             "exit": {
@@ -348,7 +348,7 @@
             "sensor": "coffee",
             "temperature": "92.00",
             "transition": "fast",
-            "volume": "100"
+            "volume": "100.0"
         },
         {
             "exit": {
@@ -368,7 +368,7 @@
             "sensor": "coffee",
             "temperature": "92.00",
             "transition": "fast",
-            "volume": "100"
+            "volume": "100.0"
         },
         {
             "exit": {
@@ -388,7 +388,7 @@
             "sensor": "coffee",
             "temperature": "92.00",
             "transition": "fast",
-            "volume": "100"
+            "volume": "100.0"
         },
         {
             "exit": {
@@ -408,7 +408,7 @@
             "sensor": "coffee",
             "temperature": "92.00",
             "transition": "fast",
-            "volume": "100"
+            "volume": "100.0"
         },
         {
             "flow": "0.50",
@@ -423,7 +423,7 @@
             "sensor": "coffee",
             "temperature": "92.00",
             "transition": "fast",
-            "volume": "100"
+            "volume": "100.0"
         }
     ],
     "tank_desired_water_temperature": "0.0",
