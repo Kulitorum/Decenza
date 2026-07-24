@@ -1,130 +1,157 @@
 {
-    "title": "Pour over basket/Kalita 20g in, 340ml out",
     "author": "Decent",
     "beverage_type": "pourover",
-    "notes": "We use a little lower flow rate for the Kalita than for the v60 to tame the turbulence. We have found that excessive turbulence chokes brews in the Kalita more readily than in the V60. We recommend giving the brewer a gentle spin after prewetting and after the last pulse of water has sprayed.",
+    "changes_since_last_espresso": "",
+    "espresso_temperature": "100.00",
+    "has_recommended_dose": false,
+    "hidden": "0",
+    "lang": "en",
     "legacy_profile_type": "settings_2c",
-    "version": "2",
-    "number_of_preinfuse_frames": 0,
-    "maximum_pressure": 0.0,
-    "maximum_flow": 0.0,
-    "minimum_pressure": 4.0,
-    "target_weight": 0,
-    "target_volume": 0,
+    "maximum_flow": "0.0",
+    "maximum_flow_range_advanced": "0.6",
+    "maximum_pressure": "0.0",
+    "maximum_pressure_range_advanced": "0.6",
+    "minimum_pressure": "4.0",
     "mode": "frame_based",
-    "temperature_presets": [
-        100,
-        100,
-        100,
-        100
-    ],
+    "notes": "We use a little lower flow rate for the Kalita than for the v60 to tame the turbulence. We have found that excessive turbulence chokes brews in the Kalita more readily than in the V60. We recommend giving the brewer a gentle spin after prewetting and after the last pulse of water has sprayed.",
+    "number_of_preinfuse_frames": "0",
+    "read_only": 1,
+    "recommended_dose": "18.0",
+    "reference_file": "Pour over basket/Kalita 20g in, 340ml out",
     "steps": [
         {
+            "flow": "6.00",
+            "limiter": {
+                "range": "0.6",
+                "value": "0.0"
+            },
             "name": "preinfusion",
-            "temperature": 100.0,
-            "sensor": "coffee",
+            "pressure": "1.00",
             "pump": "flow",
+            "seconds": "11.00",
+            "sensor": "coffee",
+            "temperature": "100.00",
             "transition": "fast",
-            "pressure": 1.0,
-            "flow": 6.0,
-            "seconds": 11.0,
-            "volume": 500.0
+            "volume": "500"
         },
         {
+            "flow": "0.00",
+            "limiter": {
+                "range": "0.6",
+                "value": "0.0"
+            },
             "name": "bloom*",
-            "temperature": 100.0,
-            "sensor": "coffee",
+            "pressure": "0.00",
             "pump": "pressure",
-            "transition": "fast",
-            "pressure": 0.0,
-            "flow": 0.0,
-            "seconds": 30.0,
-            "volume": 500.0
-        },
-        {
-            "name": "pulse",
-            "temperature": 100.0,
+            "seconds": "30.00",
             "sensor": "coffee",
-            "pump": "flow",
+            "temperature": "100.00",
             "transition": "fast",
-            "pressure": 6.0,
-            "flow": 6.0,
-            "seconds": 20.0,
-            "volume": 500.0
+            "volume": "500"
         },
         {
+            "flow": "6.00",
+            "limiter": {
+                "range": "0.6",
+                "value": "0.0"
+            },
+            "name": "pulse",
+            "pressure": "6.00",
+            "pump": "flow",
+            "seconds": "20.00",
+            "sensor": "coffee",
+            "temperature": "100.00",
+            "transition": "fast",
+            "volume": "500"
+        },
+        {
+            "flow": "0.00",
+            "limiter": {
+                "range": "0.6",
+                "value": "0.0"
+            },
             "name": "pause",
-            "temperature": 100.0,
-            "sensor": "coffee",
+            "pressure": "0.00",
             "pump": "pressure",
-            "transition": "fast",
-            "pressure": 0.0,
-            "flow": 0.0,
-            "seconds": 30.0,
-            "volume": 500.0
-        },
-        {
-            "name": "pulse",
-            "temperature": 100.0,
+            "seconds": "30.00",
             "sensor": "coffee",
-            "pump": "flow",
+            "temperature": "100.00",
             "transition": "fast",
-            "pressure": 6.0,
-            "flow": 6.0,
-            "seconds": 20.0,
-            "volume": 500.0
+            "volume": "500"
         },
         {
+            "flow": "6.00",
+            "limiter": {
+                "range": "0.6",
+                "value": "0.0"
+            },
+            "name": "pulse",
+            "pressure": "6.00",
+            "pump": "flow",
+            "seconds": "20.00",
+            "sensor": "coffee",
+            "temperature": "100.00",
+            "transition": "fast",
+            "volume": "500"
+        },
+        {
+            "flow": "0.00",
+            "limiter": {
+                "range": "0.6",
+                "value": "0.0"
+            },
             "name": "pause",
-            "temperature": 100.0,
-            "sensor": "coffee",
+            "pressure": "0.00",
             "pump": "pressure",
-            "transition": "fast",
-            "pressure": 0.0,
-            "flow": 0.0,
-            "seconds": 35.0,
-            "volume": 500.0
-        },
-        {
-            "name": "pulse",
-            "temperature": 100.0,
+            "seconds": "35.00",
             "sensor": "coffee",
-            "pump": "flow",
+            "temperature": "100.00",
             "transition": "fast",
-            "pressure": 6.0,
-            "flow": 6.0,
-            "seconds": 19.0,
-            "volume": 500.0
+            "volume": "500"
         },
         {
+            "flow": "6.00",
+            "limiter": {
+                "range": "0.6",
+                "value": "0.0"
+            },
+            "name": "pulse",
+            "pressure": "6.00",
+            "pump": "flow",
+            "seconds": "19.00",
+            "sensor": "coffee",
+            "temperature": "100.00",
+            "transition": "fast",
+            "volume": "500"
+        },
+        {
+            "flow": "0.10",
+            "limiter": {
+                "range": "0.6",
+                "value": "0.0"
+            },
             "name": "[ spin at end]*",
-            "temperature": 100.0,
-            "sensor": "coffee",
+            "pressure": "6.00",
             "pump": "flow",
+            "seconds": "1.00",
+            "sensor": "coffee",
+            "temperature": "100.00",
             "transition": "fast",
-            "pressure": 6.0,
-            "flow": 0.1,
-            "seconds": 1.0,
-            "volume": 500.0
+            "volume": "500"
         }
     ],
-    "espresso_temperature": 100.0,
-    "tank_desired_water_temperature": 30.0,
-    "espresso_pressure": 8.6,
-    "espresso_decline_time": 25.0,
-    "espresso_hold_time": 10.0,
-    "preinfusion_time": 20.0,
-    "preinfusion_stop_pressure": 1.5,
-    "preinfusion_flow_rate": 4.0,
-    "pressure_end": 6.0,
-    "flow_profile_preinfusion": 4.0,
-    "flow_profile_preinfusion_time": 5.0,
-    "flow_profile_hold": 2.0,
-    "flow_profile_hold_time": 8.0,
-    "flow_profile_decline": 1.2,
-    "flow_profile_decline_time": 17.0,
-    "flow_profile_minimum_pressure": 4.0,
-    "maximum_pressure_range_advanced": 0.6,
-    "maximum_flow_range_advanced": 0.6,
-    "read_only": 1
+    "tank_desired_water_temperature": "30.0",
+    "tank_temperature": "30.0",
+    "target_volume": "0",
+    "target_volume_count_start": "0",
+    "target_weight": "0",
+    "temperature_presets": [
+        "100.00",
+        "100.00",
+        "100.00",
+        "100.00"
+    ],
+    "title": "Pour over basket/Kalita 20g in, 340ml out",
+    "type": "advanced",
+    "version": "2"
 }

@@ -70,7 +70,8 @@ private slots:
         QJsonObject exitObj = json["exit"].toObject();
         QCOMPARE(exitObj["type"].toString(), jsonType);
         QCOMPARE(exitObj["condition"].toString(), jsonCondition);
-        QCOMPARE(exitObj["value"].toDouble(), exitValue);
+        // Canonical format string-encodes numeric values.
+        QCOMPARE(exitObj["value"].toString().toDouble(), exitValue);
 
         // Deserialize back
         ProfileFrame parsed = ProfileFrame::fromJson(json);
@@ -87,7 +88,7 @@ private slots:
 
         QJsonObject json = original.toJson();
         QVERIFY(!json.contains("exit"));       // No exit object (exitIf=false)
-        QCOMPARE(json["weight"].toDouble(), 4.0);  // Weight is separate
+        QCOMPARE(json["weight"].toString().toDouble(), 4.0);  // Weight is separate
 
         ProfileFrame parsed = ProfileFrame::fromJson(json);
         QVERIFY(!parsed.exitIf);
@@ -104,7 +105,7 @@ private slots:
 
         QJsonObject json = original.toJson();
         QVERIFY(json.contains("exit"));
-        QCOMPARE(json["weight"].toDouble(), 5.0);
+        QCOMPARE(json["weight"].toString().toDouble(), 5.0);
 
         ProfileFrame parsed = ProfileFrame::fromJson(json);
         QVERIFY(parsed.exitIf);
@@ -162,8 +163,8 @@ private slots:
         QJsonObject json = pf.toJson();
         QVERIFY(json.contains("limiter"));
         QJsonObject lim = json["limiter"].toObject();
-        QCOMPARE(lim["value"].toDouble(), 0.0);
-        QCOMPARE(lim["range"].toDouble(), 0.2);
+        QCOMPARE(lim["value"].toString().toDouble(), 0.0);
+        QCOMPARE(lim["range"].toString().toDouble(), 0.2);
     }
 
     void jsonLimiterWithValue() {

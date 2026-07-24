@@ -3,6 +3,8 @@
 #include <QString>
 #include <QList>
 #include <QJsonDocument>
+#include <QJsonObject>
+#include <QStringList>
 #include <QJsonValue>
 #include <QByteArray>
 #include <QDebug>
@@ -228,8 +230,21 @@ public:
     void regenerateSimpleFrames();
 
     // === Serialization ===
+    // toJsonObject() is the single canonical profile serializer: string-encoded
+    // values, ecosystem-required keys, standard DE1 v2 metadata, non-empty steps.
+    // toJson() wraps it in a document; the Visualizer upload delegates to it too,
+    // so there is exactly one format validated across Decenza, reaprime, and Visualizer.
+    QJsonObject toJsonObject() const;
     QJsonDocument toJson() const;
     static Profile fromJson(const QJsonDocument& doc);
+
+    // Validate a serialized profile object against reaprime's Profile.fromJson
+    // contract (the strictest reader in the DE1 ecosystem): non-empty title and
+    // steps, the required tank_temperature / target_volume_count_start keys, and
+    // in-vocabulary enum values (pump/sensor/transition, exit type/condition).
+    // Returns an empty list when the object is reaprime-readable; otherwise one
+    // human-readable message per violation. Reusable from tests and profile_sync.
+    static QStringList reaprimeReadabilityErrors(const QJsonObject& obj);
 
     // === File I/O ===
     static Profile loadFromFile(const QString& filePath);
@@ -284,6 +299,10 @@ public:
     static bool functionallyEqual(const Profile& a, const Profile& b);
 
 private:
+    // Frames for serialization, materializing simple (settings_2a/2b) profiles
+    // that carry their frames implicitly. const-safe (no mutation of m_steps).
+    QVector<ProfileFrame> materializedSteps() const;
+
     // Metadata
     QString m_title = "Default";
     QString m_author;

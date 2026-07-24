@@ -1,134 +1,141 @@
 {
     "author": "Decent",
     "beverage_type": "espresso",
-    "espresso_decline_time": 25,
-    "espresso_hold_time": 10,
-    "espresso_pressure": 9.2,
-    "espresso_temperature": 92,
-    "flow_profile_decline": 1.2,
-    "flow_profile_decline_time": 17,
-    "flow_profile_hold": 2,
-    "flow_profile_hold_time": 8,
+    "changes_since_last_espresso": "",
+    "espresso_decline_time": "25.00",
+    "espresso_hold_time": "10.00",
+    "espresso_pressure": "9.20",
+    "espresso_temperature": "92.00",
+    "flow_profile_decline": "1.20",
+    "flow_profile_decline_time": "17.00",
+    "flow_profile_hold": "2.00",
+    "flow_profile_hold_time": "8.00",
     "has_recommended_dose": false,
+    "hidden": "0",
+    "lang": "en",
     "legacy_profile_type": "settings_2a",
-    "maximum_flow": 0,
-    "maximum_flow_range_advanced": 0.6,
-    "maximum_flow_range_default": 1,
-    "maximum_pressure": 0,
-    "maximum_pressure_range_advanced": 0.6,
-    "maximum_pressure_range_default": 0.9,
-    "minimum_pressure": 6,
+    "maximum_flow": "0.0",
+    "maximum_flow_range_advanced": "0.6",
+    "maximum_flow_range_default": "1.00",
+    "maximum_pressure": "0.0",
+    "maximum_pressure_range_advanced": "0.6",
+    "maximum_pressure_range_default": "0.90",
+    "minimum_pressure": "6.0",
     "mode": "frame_based",
     "notes": "Lever espresso machines are why we refer to pulling an espresso.  You pull a spring-loaded lever by hand to create pressure on the coffee puck.  This 9 bar espresso is the most common type of classic lever espresso you'll have, and many fans consider lever shots to be the best espresso they've ever had.",
-    "number_of_preinfuse_frames": 0,
-    "preinfusion_flow_rate": 4,
-    "preinfusion_stop_pressure": 4,
-    "preinfusion_time": 5,
-    "pressure_end": 4,
+    "number_of_preinfuse_frames": "0",
+    "preinfusion_flow_rate": "4.00",
+    "preinfusion_stop_pressure": "4.00",
+    "preinfusion_time": "5.00",
+    "pressure_end": "4.00",
     "read_only": 1,
-    "recommended_dose": 18,
+    "recommended_dose": "18.0",
+    "reference_file": "Traditional lever machine",
     "steps": [
         {
-            "flow": 6,
+            "flow": "6.00",
             "limiter": {
-                "range": 0.6,
-                "value": 0
+                "range": "0.6",
+                "value": "0.0"
             },
             "name": "Prewet",
-            "pressure": 6,
+            "pressure": "6.00",
             "pump": "flow",
-            "seconds": 4,
+            "seconds": "4.00",
             "sensor": "water",
-            "temperature": 99,
+            "temperature": "99.00",
             "transition": "fast",
-            "volume": 70
+            "volume": "70"
         },
         {
-            "flow": 0,
+            "flow": "0.00",
             "limiter": {
-                "range": 0.6,
-                "value": 0
+                "range": "0.6",
+                "value": "0.0"
             },
             "name": "Pause",
-            "pressure": 6,
+            "pressure": "6.00",
             "pump": "flow",
-            "seconds": 40,
+            "seconds": "40.00",
             "sensor": "water",
-            "temperature": 97,
+            "temperature": "97.00",
             "transition": "fast",
-            "volume": 100
+            "volume": "100"
         },
         {
-            "flow": 6,
+            "flow": "6.00",
             "limiter": {
-                "range": 0.6,
-                "value": 0
+                "range": "0.6",
+                "value": "0.0"
             },
             "name": "Main water #1",
-            "pressure": 6,
+            "pressure": "6.00",
             "pump": "flow",
-            "seconds": 14,
+            "seconds": "14.00",
             "sensor": "water",
-            "temperature": 97,
+            "temperature": "97.00",
             "transition": "fast",
-            "volume": 250
+            "volume": "250"
         },
         {
-            "flow": 0,
+            "flow": "0.00",
             "limiter": {
-                "range": 0.6,
-                "value": 0
+                "range": "0.6",
+                "value": "0.0"
             },
             "name": "Pause",
-            "pressure": 6,
+            "pressure": "6.00",
             "pump": "flow",
-            "seconds": 20,
+            "seconds": "20.00",
             "sensor": "water",
-            "temperature": 95,
+            "temperature": "95.00",
             "transition": "fast",
-            "volume": 250
+            "volume": "250"
         },
         {
-            "flow": 5,
+            "flow": "5.00",
             "limiter": {
-                "range": 0.6,
-                "value": 0
+                "range": "0.6",
+                "value": "0.0"
             },
             "name": "Main water #2",
-            "pressure": 6,
+            "pressure": "6.00",
             "pump": "flow",
-            "seconds": 25,
+            "seconds": "25.00",
             "sensor": "water",
-            "temperature": 95,
+            "temperature": "95.00",
             "transition": "fast",
-            "volume": 200
+            "volume": "200"
         },
         {
-            "flow": 0,
+            "flow": "0.00",
             "limiter": {
-                "range": 0.6,
-                "value": 0
+                "range": "0.6",
+                "value": "0.0"
             },
             "name": "Drain",
-            "pressure": 6,
+            "pressure": "6.00",
             "pump": "flow",
-            "seconds": 20,
+            "seconds": "20.00",
             "sensor": "water",
-            "temperature": 95,
+            "temperature": "95.00",
             "transition": "fast",
-            "volume": 175
+            "volume": "175"
         }
     ],
-    "tank_desired_water_temperature": 0,
-    "target_volume": 36,
-    "target_weight": 36,
+    "tank_desired_water_temperature": "0.0",
+    "tank_temperature": "0.0",
+    "target_volume": "36",
+    "target_volume_count_start": "0",
+    "target_weight": "36",
     "temp_steps_enabled": false,
     "temperature_presets": [
-        92,
-        92,
-        92,
-        92
+        "92.00",
+        "92.00",
+        "92.00",
+        "92.00"
     ],
     "title": "Traditional lever machine",
+    "type": "pressure",
     "version": "2"
 }

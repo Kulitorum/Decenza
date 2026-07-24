@@ -16,16 +16,21 @@ static double jsonToDouble(const QJsonValue& val, double defaultVal = 0.0) {
 }
 
 QJsonObject ProfileFrame::toJson() const {
+    // Canonical DE1 v2 serialization: numeric fields are string-encoded, matching
+    // de1app / the tablet / Visualizer / reaprime. Decenza's own import stays
+    // dual-tolerant via jsonToDouble(), so string output round-trips losslessly.
+    // Precisions match the historical Visualizer upload builder so the unified
+    // serializer produces byte-identical step objects.
     QJsonObject obj;
     obj["name"] = name;
-    obj["temperature"] = temperature;
+    obj["temperature"] = QString::number(temperature, 'f', 2);
     obj["sensor"] = sensor;
     obj["pump"] = pump;
     obj["transition"] = transition;
-    obj["pressure"] = pressure;
-    obj["flow"] = flow;
-    obj["seconds"] = seconds;
-    obj["volume"] = volume;
+    obj["pressure"] = QString::number(pressure, 'f', 2);
+    obj["flow"] = QString::number(flow, 'f', 2);
+    obj["seconds"] = QString::number(seconds, 'f', 2);
+    obj["volume"] = QString::number(volume, 'f', 0);
 
     // Exit condition (de1app nested format)
     // Note: weight-only exits (exitType == "weight") are NOT written to the exit object —
@@ -35,34 +40,36 @@ QJsonObject ProfileFrame::toJson() const {
         if (exitType == "pressure_over") {
             exitObj["type"] = QStringLiteral("pressure");
             exitObj["condition"] = QStringLiteral("over");
-            exitObj["value"] = exitPressureOver;
+            exitObj["value"] = QString::number(exitPressureOver, 'f', 2);
         } else if (exitType == "pressure_under") {
             exitObj["type"] = QStringLiteral("pressure");
             exitObj["condition"] = QStringLiteral("under");
-            exitObj["value"] = exitPressureUnder;
+            exitObj["value"] = QString::number(exitPressureUnder, 'f', 2);
         } else if (exitType == "flow_over") {
             exitObj["type"] = QStringLiteral("flow");
             exitObj["condition"] = QStringLiteral("over");
-            exitObj["value"] = exitFlowOver;
+            exitObj["value"] = QString::number(exitFlowOver, 'f', 2);
         } else if (exitType == "flow_under") {
             exitObj["type"] = QStringLiteral("flow");
             exitObj["condition"] = QStringLiteral("under");
-            exitObj["value"] = exitFlowUnder;
+            exitObj["value"] = QString::number(exitFlowUnder, 'f', 2);
         } else if (exitType != "weight") {
             qWarning() << "ProfileFrame::toJson: unrecognized exitType" << exitType;
         }
         if (!exitObj.isEmpty()) obj["exit"] = exitObj;
     }
 
-    // Weight exit (independent of exit object — app-side via scale)
-    if (exitWeight > 0) obj["weight"] = exitWeight;
+    // Weight exit (independent of exit object — app-side via scale).
+    // Omit when zero: reaprime reads an absent weight as "no weight exit"
+    // (parseOptionalDouble → null), so omitting is the correct semantic.
+    if (exitWeight > 0) obj["weight"] = QString::number(exitWeight, 'f', 1);
 
     // Limiter (de1app nested format)
     // Always save the limiter object for round-trip fidelity
     // (D-Flow profiles set range to 0.2 even when limiter value is 0)
     QJsonObject limiterObj;
-    limiterObj["value"] = maxFlowOrPressure;
-    limiterObj["range"] = maxFlowOrPressureRange;
+    limiterObj["value"] = QString::number(maxFlowOrPressure, 'f', 1);
+    limiterObj["range"] = QString::number(maxFlowOrPressureRange, 'f', 1);
     obj["limiter"] = limiterObj;
 
     // User notification popup

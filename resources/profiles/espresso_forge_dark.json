@@ -1,107 +1,102 @@
 {
     "author": "Decent",
     "beverage_type": "{espresso}",
-    "espresso_temperature": 84,
-    "maximum_flow": 0.0,
-    "maximum_pressure": 0.0,
-    "minimum_pressure": 0,
+    "changes_since_last_espresso": "",
+    "espresso_temperature": "84.00",
+    "has_recommended_dose": false,
+    "hidden": "0",
+    "lang": "en",
+    "legacy_profile_type": "settings_2c",
+    "maximum_flow": "0.0",
+    "maximum_flow_range_advanced": "0.6",
+    "maximum_pressure": "0.0",
+    "maximum_pressure_range_advanced": "0.6",
+    "minimum_pressure": "0.0",
     "mode": "frame_based",
     "notes": "A dark roast pressure profile that emulates the flow and temperature characteristics of the Espresso Forge manual machine. Good for medium to dark roasts where you want to pull out more fruit flavors, similar to the classic Italian Lever profile.",
+    "number_of_preinfuse_frames": "0",
+    "read_only": 1,
+    "recommended_dose": "18.0",
+    "reference_file": "Espresso Forge Dark",
     "steps": [
         {
-            "name": "preinfusion",
-            "temperature": 84.0,
-            "sensor": "coffee",
-            "pump": "flow",
-            "transition": "fast",
-            "pressure": 1.0,
-            "flow": 6.0,
-            "seconds": 10.0,
-            "volume": 100.0,
             "exit": {
-                "type": "pressure",
                 "condition": "over",
-                "value": 3.0
+                "type": "pressure",
+                "value": "3.00"
             },
+            "flow": "6.00",
             "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
-        },
-        {
-            "name": "rise and hold",
-            "temperature": 81.0,
-            "sensor": "coffee",
-            "pump": "pressure",
-            "transition": "fast",
-            "pressure": 7.5,
-            "flow": 0.0,
-            "seconds": 8.0,
-            "volume": 100.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
-        },
-        {
-            "name": "decline",
-            "temperature": 78.0,
-            "sensor": "coffee",
-            "pump": "pressure",
-            "transition": "smooth",
-            "pressure": 3.0,
-            "flow": 0.0,
-            "seconds": 30.0,
-            "volume": 100.0,
-            "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
-        },
-        {
-            "name": "reset temperature",
-            "temperature": 84.0,
-            "sensor": "coffee",
+                "range": "0.6",
+                "value": "0.0"
+            },
+            "name": "preinfusion",
+            "pressure": "1.00",
             "pump": "flow",
-            "transition": "smooth",
-            "pressure": 3.0,
-            "flow": 0.0,
-            "seconds": 1.0,
-            "volume": 100.0,
+            "seconds": "10.00",
+            "sensor": "coffee",
+            "temperature": "84.00",
+            "transition": "fast",
+            "volume": "100"
+        },
+        {
+            "flow": "0.00",
             "limiter": {
-                "value": 0.0,
-                "range": 0.6
-            }
+                "range": "0.6",
+                "value": "0.0"
+            },
+            "name": "rise and hold",
+            "pressure": "7.50",
+            "pump": "pressure",
+            "seconds": "8.00",
+            "sensor": "coffee",
+            "temperature": "81.00",
+            "transition": "fast",
+            "volume": "100"
+        },
+        {
+            "flow": "0.00",
+            "limiter": {
+                "range": "0.6",
+                "value": "0.0"
+            },
+            "name": "decline",
+            "pressure": "3.00",
+            "pump": "pressure",
+            "seconds": "30.00",
+            "sensor": "coffee",
+            "temperature": "78.00",
+            "transition": "smooth",
+            "volume": "100"
+        },
+        {
+            "flow": "0.00",
+            "limiter": {
+                "range": "0.6",
+                "value": "0.0"
+            },
+            "name": "reset temperature",
+            "pressure": "3.00",
+            "pump": "flow",
+            "seconds": "1.00",
+            "sensor": "coffee",
+            "temperature": "84.00",
+            "transition": "smooth",
+            "volume": "100"
         }
     ],
-    "target_volume": 0.0,
-    "target_weight": 42,
+    "tank_desired_water_temperature": "0.0",
+    "tank_temperature": "0.0",
+    "target_volume": "0",
+    "target_volume_count_start": "0",
+    "target_weight": "42",
     "temperature_presets": [
-        88,
-        90,
-        93,
-        96
+        "88.00",
+        "90.00",
+        "93.00",
+        "96.00"
     ],
     "title": "Espresso Forge Dark",
-    "version": "2",
-    "legacy_profile_type": "settings_2c",
-    "number_of_preinfuse_frames": 0,
-    "tank_desired_water_temperature": 0.0,
-    "maximum_pressure_range_advanced": 0.6,
-    "maximum_flow_range_advanced": 0.6,
-    "espresso_pressure": 7.0,
-    "espresso_decline_time": 20.0,
-    "espresso_hold_time": 10.0,
-    "preinfusion_time": 5.0,
-    "preinfusion_stop_pressure": 4.0,
-    "preinfusion_flow_rate": 6.0,
-    "pressure_end": 4.3,
-    "flow_profile_preinfusion": 4.2,
-    "flow_profile_preinfusion_time": 6.0,
-    "flow_profile_hold": 2.3,
-    "flow_profile_hold_time": 2.0,
-    "flow_profile_decline": 1.0,
-    "flow_profile_decline_time": 23.0,
-    "flow_profile_minimum_pressure": 6.0,
-    "read_only": 1
+    "type": "advanced",
+    "version": "2"
 }

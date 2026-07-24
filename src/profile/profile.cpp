@@ -361,7 +361,20 @@ QString Profile::editorType() const {
     return QStringLiteral("advanced");
 }
 
-QJsonDocument Profile::toJson() const {
+// Canonical DE1 v2 profile serialization. Single source of truth for every
+// Decenza profile JSON — on-disk, exported, share-code, AND the Visualizer
+// upload (which delegates here). One format, validated across Decenza, reaprime,
+// and Visualizer:
+//   - numeric values are string-encoded (matches de1app / tablet / Visualizer / reaprime);
+//   - the ecosystem-required keys tank_temperature + target_volume_count_start are
+//     always present (reaprime's Profile.fromJson hard-rejects a profile without them);
+//   - the standard DE1 v2 metadata (type/lang/hidden/reference_file/changes_since_last_espresso);
+//   - steps are never empty (simple settings_2a/2b profiles are materialized before emit).
+// Decenza-only keys (mode, temperature_presets, the settings_2a block, recipe,
+// read_only) are additive and ignored by apps that don't understand them.
+QJsonObject Profile::toJsonObject() const {
+    auto num = [](double v, int prec) { return QJsonValue(QString::number(v, 'f', prec)); };
+
     QJsonObject obj;
     obj["title"] = m_title;
     obj["author"] = m_author;
@@ -369,46 +382,68 @@ QJsonDocument Profile::toJson() const {
     obj["beverage_type"] = m_beverageType;
     obj["version"] = QStringLiteral("2");
     obj["legacy_profile_type"] = m_profileType;
-    obj["target_weight"] = m_targetWeight;
-    obj["target_volume"] = m_targetVolume;
-    obj["espresso_temperature"] = m_espressoTemperature;
-    obj["maximum_pressure"] = m_maximumPressure;
-    obj["maximum_flow"] = m_maximumFlow;
-    obj["minimum_pressure"] = m_minimumPressure;
-    obj["tank_desired_water_temperature"] = m_tankDesiredWaterTemperature;
-    obj["maximum_flow_range_advanced"] = m_maximumFlowRangeAdvanced;
-    obj["maximum_pressure_range_advanced"] = m_maximumPressureRangeAdvanced;
-    obj["number_of_preinfuse_frames"] = m_preinfuseFrameCount;
+    obj["target_weight"] = num(m_targetWeight, 0);
+    obj["target_volume"] = num(m_targetVolume, 0);
+    obj["espresso_temperature"] = num(m_espressoTemperature, 2);
+    obj["maximum_pressure"] = num(m_maximumPressure, 1);
+    obj["maximum_flow"] = num(m_maximumFlow, 1);
+    obj["minimum_pressure"] = num(m_minimumPressure, 1);
+    obj["tank_desired_water_temperature"] = num(m_tankDesiredWaterTemperature, 1);
+    // tank_temperature: ecosystem-standard alias required by reaprime.
+    obj["tank_temperature"] = obj["tank_desired_water_temperature"];
+    obj["maximum_flow_range_advanced"] = num(m_maximumFlowRangeAdvanced, 1);
+    obj["maximum_pressure_range_advanced"] = num(m_maximumPressureRangeAdvanced, 1);
+    obj["number_of_preinfuse_frames"] = QString::number(m_preinfuseFrameCount);
+    // target_volume_count_start: ecosystem-standard alias required by reaprime.
+    obj["target_volume_count_start"] = obj["number_of_preinfuse_frames"];
     obj["has_recommended_dose"] = m_hasRecommendedDose;
-    obj["recommended_dose"] = m_recommendedDose;
+    obj["recommended_dose"] = num(m_recommendedDose, 1);
     obj["mode"] = (m_mode == Mode::DirectControl) ? "direct" : "frame_based";
 
-    // Simple profile parameters (settings_2a/2b)
+    // Standard DE1 v2 metadata (de1app / tablet / Visualizer). `type` is derived
+    // from the profile type, matching de1app's convention.
+    if (m_profileType == "settings_2a")
+        obj["type"] = QStringLiteral("pressure");
+    else if (m_profileType == "settings_2b")
+        obj["type"] = QStringLiteral("flow");
+    else
+        obj["type"] = QStringLiteral("advanced");
+    obj["lang"] = QStringLiteral("en");
+    obj["hidden"] = QStringLiteral("0");
+    obj["reference_file"] = m_title;
+    obj["changes_since_last_espresso"] = QString();
+
+    // Simple profile parameters (settings_2a/2b) — Decenza editor state, string-encoded.
     if (m_profileType == "settings_2a" || m_profileType == "settings_2b") {
-        obj["preinfusion_time"] = m_preinfusionTime;
-        obj["preinfusion_flow_rate"] = m_preinfusionFlowRate;
-        obj["preinfusion_stop_pressure"] = m_preinfusionStopPressure;
-        obj["espresso_pressure"] = m_espressoPressure;
-        obj["espresso_hold_time"] = m_espressoHoldTime;
-        obj["espresso_decline_time"] = m_espressoDeclineTime;
-        obj["pressure_end"] = m_pressureEnd;
-        obj["flow_profile_hold"] = m_flowProfileHold;
-        obj["flow_profile_hold_time"] = m_flowProfileHoldTime;
-        obj["flow_profile_decline"] = m_flowProfileDecline;
-        obj["flow_profile_decline_time"] = m_flowProfileDeclineTime;
-        obj["maximum_flow_range_default"] = m_maximumFlowRangeDefault;
-        obj["maximum_pressure_range_default"] = m_maximumPressureRangeDefault;
+        obj["preinfusion_time"] = num(m_preinfusionTime, 2);
+        obj["preinfusion_flow_rate"] = num(m_preinfusionFlowRate, 2);
+        obj["preinfusion_stop_pressure"] = num(m_preinfusionStopPressure, 2);
+        obj["espresso_pressure"] = num(m_espressoPressure, 2);
+        obj["espresso_hold_time"] = num(m_espressoHoldTime, 2);
+        obj["espresso_decline_time"] = num(m_espressoDeclineTime, 2);
+        obj["pressure_end"] = num(m_pressureEnd, 2);
+        obj["flow_profile_hold"] = num(m_flowProfileHold, 2);
+        obj["flow_profile_hold_time"] = num(m_flowProfileHoldTime, 2);
+        obj["flow_profile_decline"] = num(m_flowProfileDecline, 2);
+        obj["flow_profile_decline_time"] = num(m_flowProfileDeclineTime, 2);
+        obj["maximum_flow_range_default"] = num(m_maximumFlowRangeDefault, 2);
+        obj["maximum_pressure_range_default"] = num(m_maximumPressureRangeDefault, 2);
         obj["temp_steps_enabled"] = m_tempStepsEnabled;
     }
 
     QJsonArray tempsArray;
     for (double temp : m_temperaturePresets) {
-        tempsArray.append(temp);
+        tempsArray.append(num(temp, 2));
     }
     obj["temperature_presets"] = tempsArray;
 
+    // Steps: never emit an empty array. Simple settings_2a/2b profiles carry their
+    // frames implicitly (regenerated at activation); materialize them here so any
+    // file Decenza emits is a valid, runnable profile in any DE1 app. In-memory
+    // profiles loaded via fromJson() already have frames; this covers the rest.
+    const QVector<ProfileFrame> steps = materializedSteps();
     QJsonArray stepsArray;
-    for (const auto& step : m_steps) {
+    for (const auto& step : steps) {
         stepsArray.append(step.toJson());
     }
     obj["steps"] = stepsArray;
@@ -432,7 +467,91 @@ QJsonDocument Profile::toJson() const {
         obj["read_only"] = m_readOnly;
     }
 
-    return QJsonDocument(obj);
+    return obj;
+}
+
+QJsonDocument Profile::toJson() const {
+    return QJsonDocument(toJsonObject());
+}
+
+// Return this profile's frames, materializing them for simple (settings_2a/2b)
+// profiles that carry their frames implicitly. const-safe: builds a local vector
+// rather than mutating m_steps (mirrors the generation fromJson() does on load).
+QVector<ProfileFrame> Profile::materializedSteps() const {
+    if (!m_steps.isEmpty())
+        return m_steps;
+    if (m_profileType != "settings_2a" && m_profileType != "settings_2b")
+        return m_steps;
+
+    const double temp0 = m_temperaturePresets.value(0, m_espressoTemperature);
+    const double temp1 = m_temperaturePresets.value(1, m_espressoTemperature);
+    const double temp2 = m_temperaturePresets.value(2, m_espressoTemperature);
+    const double temp3 = m_temperaturePresets.value(3, m_espressoTemperature);
+
+    if (m_profileType == "settings_2a") {
+        return generatePressureProfileFrames(
+            m_preinfusionTime, m_preinfusionFlowRate, m_preinfusionStopPressure,
+            m_espressoHoldTime, m_espressoPressure,
+            m_espressoDeclineTime, m_pressureEnd,
+            m_maximumFlow, m_maximumFlowRangeDefault,
+            temp0, temp1, temp2, temp3,
+            m_tempStepsEnabled);
+    }
+    return generateFlowProfileFrames(
+        m_preinfusionTime, m_preinfusionFlowRate, m_preinfusionStopPressure,
+        m_espressoHoldTime, m_flowProfileHold,
+        m_espressoDeclineTime, m_flowProfileDecline,
+        m_maximumPressure, m_maximumPressureRangeDefault,
+        temp0, temp1, temp2, temp3,
+        m_tempStepsEnabled);
+}
+
+QStringList Profile::reaprimeReadabilityErrors(const QJsonObject& obj) {
+    QStringList errors;
+
+    if (obj.value("title").toString().isEmpty())
+        errors << QStringLiteral("missing/empty 'title'");
+
+    // reaprime hard-requires these two keys (its Profile.fromJson throws otherwise).
+    if (obj.value("tank_temperature").isUndefined() || obj.value("tank_temperature").isNull())
+        errors << QStringLiteral("missing 'tank_temperature'");
+    if (obj.value("target_volume_count_start").isUndefined() || obj.value("target_volume_count_start").isNull())
+        errors << QStringLiteral("missing 'target_volume_count_start'");
+
+    const QJsonValue stepsVal = obj.value("steps");
+    if (!stepsVal.isArray() || stepsVal.toArray().isEmpty()) {
+        errors << QStringLiteral("'steps' missing or empty");
+        return errors;  // nothing further to validate
+    }
+
+    static const QStringList pumps      = {QStringLiteral("pressure"), QStringLiteral("flow")};
+    static const QStringList sensors    = {QStringLiteral("coffee"),   QStringLiteral("water")};
+    static const QStringList transitions= {QStringLiteral("fast"),     QStringLiteral("smooth")};
+    static const QStringList exitTypes  = {QStringLiteral("pressure"), QStringLiteral("flow")};
+    static const QStringList exitConds  = {QStringLiteral("over"),     QStringLiteral("under")};
+
+    const QJsonArray steps = stepsVal.toArray();
+    for (qsizetype i = 0; i < steps.size(); ++i) {
+        const QJsonObject s = steps[i].toObject();
+        const QString where = QStringLiteral("step[%1] ").arg(i);
+        if (s.value("name").toString().isEmpty())
+            errors << where + QStringLiteral("missing 'name'");
+        if (!pumps.contains(s.value("pump").toString()))
+            errors << where + QStringLiteral("invalid 'pump' '%1'").arg(s.value("pump").toString());
+        if (!sensors.contains(s.value("sensor").toString()))
+            errors << where + QStringLiteral("invalid 'sensor' '%1'").arg(s.value("sensor").toString());
+        if (!transitions.contains(s.value("transition").toString()))
+            errors << where + QStringLiteral("invalid 'transition' '%1'").arg(s.value("transition").toString());
+        if (s.contains("exit")) {
+            const QJsonObject e = s.value("exit").toObject();
+            if (!exitTypes.contains(e.value("type").toString()))
+                errors << where + QStringLiteral("invalid exit 'type' '%1'").arg(e.value("type").toString());
+            if (!exitConds.contains(e.value("condition").toString()))
+                errors << where + QStringLiteral("invalid exit 'condition' '%1'").arg(e.value("condition").toString());
+        }
+    }
+
+    return errors;
 }
 
 Profile Profile::fromJson(const QJsonDocument& doc) {
