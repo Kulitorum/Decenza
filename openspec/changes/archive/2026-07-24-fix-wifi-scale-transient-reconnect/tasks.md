@@ -36,7 +36,7 @@
 - [x] 5.3 Confirm no wiki manual change is needed; the manual already describes automatic reconnect, which this change makes true. Add a wiki task here if implementation reveals otherwise
 - [x] 5.4 Open a PR (do not push to `main`)
 - [x] 5.5 Run the automated `/pr-review-toolkit:review-pr` on the PR and address findings
-- [ ] 5.6 Archive the change with spec sync as the final commit on the same PR
+- [x] 5.6 Archive the change with spec sync as the final commit on the same PR
 
 ## 6. Recognition-timer ordering (found during implementation)
 
