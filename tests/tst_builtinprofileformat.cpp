@@ -416,6 +416,46 @@ private slots:
                             + unknown.join(QStringLiteral(", "))));
     }
 
+    // The Tcl import had the identical hole: fromTclList's if/else chain has no
+    // else, so an unmodelled de1app key fell through silently. Same rule now
+    // applies, and this holds the line against the real de1app corpus — if it
+    // ever fails, .tcl imports are about to start being refused in the field.
+    void de1appTclProfiles_data() {
+        QTest::addColumn<QString>("filePath");
+        QDir dir(QStringLiteral(DECENZA_SOURCE_DIR) + QStringLiteral("/tests/data/de1app_profiles"));
+        const QStringList files = dir.entryList({QStringLiteral("*.tcl")}, QDir::Files, QDir::Name);
+        for (const QString& f : files)
+            QTest::newRow(qPrintable(f)) << dir.absoluteFilePath(f);
+    }
+
+    void de1appTclProfilesUseOnlyKnownStepKeys_data() { de1appTclProfiles_data(); }
+
+    void de1appTclProfilesUseOnlyKnownStepKeys() {
+        QFETCH(QString, filePath);
+
+        QFile file(filePath);
+        QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(filePath));
+        const Profile p = Profile::loadFromTclString(QString::fromUtf8(file.readAll()));
+
+        QVERIFY2(p.unsupportedStepKeys().isEmpty(),
+                 qPrintable(QFileInfo(filePath).fileName() + " would now be refused: "
+                            + p.unsupportedStepKeys().join(QStringLiteral(", "))));
+    }
+
+    void unknownTclStepKeyMakesProfileInvalid() {
+        // A frame carrying a setting this build does not model. Everything else
+        // is a normal de1app frame, so only the unknown key can be the cause.
+        const QString tcl = QStringLiteral(
+            "advanced_shot {{exit_if 1 flow 2.0 volume 100 transition fast "
+            "temperature 93.0 name {preinfusion} pressure 1.0 sensor coffee "
+            "pump pressure seconds 10 exit_on_refractometer 1.35}}\n");
+
+        const Profile p = Profile::loadFromTclString(tcl);
+        QCOMPARE(p.unsupportedStepKeys(), QStringList{QStringLiteral("exit_on_refractometer")});
+        QVERIFY2(!p.isValid(), "a Tcl profile with an unmodelled frame key must not import");
+        QVERIFY(!p.validationErrors().filter(QStringLiteral("exit_on_refractometer")).isEmpty());
+    }
+
     // Our own output must survive our own strictness — otherwise every save
     // would produce a file the next launch refuses to load.
     void canonicalSerializationRoundTripsThroughStrictImport() {

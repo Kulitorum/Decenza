@@ -1234,6 +1234,13 @@ Profile Profile::loadFromTclString(const QString& content) {
                 depth--;
                 if (depth == 0 && stepStart >= 0) {
                     QString stepStr = stepsContent.mid(stepStart, i - stepStart + 1);
+                    // Same rule as the JSON path: a frame setting we do not
+                    // model would be dropped here and never brewed, so refuse
+                    // the profile rather than pour something else silently.
+                    for (const QString& key : ProfileFrame::unknownTclKeys(stepStr)) {
+                        if (!profile.m_unsupportedStepKeys.contains(key))
+                            profile.m_unsupportedStepKeys << key;
+                    }
                     ProfileFrame frame = ProfileFrame::fromTclList(stepStr);
                     if (!frame.name.isEmpty() || frame.seconds > 0) {
                         profile.m_steps.append(frame);

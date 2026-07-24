@@ -211,13 +211,13 @@ ProfileFrame ProfileFrame::fromJson(const QJsonObject& json) {
     return frame;
 }
 
-ProfileFrame ProfileFrame::fromTclList(const QString& tclList) {
-    // Parse de1app Tcl list format: {key value key value ...}
-    // Example: {exit_if 1 flow 2.0 volume 100 transition fast exit_flow_under 0.0
-    //           temperature 93.0 name {preinfusion} pressure 1.0 sensor coffee
-    //           pump pressure exit_type pressure_over popup {$weight} seconds 10}
-
-    ProfileFrame frame;
+// Tokenize a de1app Tcl frame into its key/value pairs.
+//
+// Shared by fromTclList() and unknownTclKeys() on purpose. A detector that
+// tokenized differently from the parser would disagree about what counts as a
+// key, and would miss precisely the keys the parser silently drops — the one
+// thing it exists to catch. One tokenizer, so they cannot drift.
+static QList<QPair<QString, QString>> tclKeyValues(const QString& tclList) {
     QString cleaned = tclList.trimmed();
 
     // Remove outer braces if present
@@ -225,15 +225,15 @@ ProfileFrame ProfileFrame::fromTclList(const QString& tclList) {
         cleaned = cleaned.mid(1, cleaned.length() - 2);
     }
 
-    // Parse key-value pairs
     // Handle braced values {content}, quoted strings "content", and simple words
     // Pattern: word + whitespace + ({braced} OR "quoted" OR simple_word)
-    QRegularExpression re("(\\w+)\\s+(?:\\{([^}]*)\\}|\"([^\"]*)\"|([^\\s]+))");
-    QRegularExpressionMatchIterator it = re.globalMatch(cleaned);
+    static const QRegularExpression re(
+        QStringLiteral("(\\w+)\\s+(?:\\{([^}]*)\\}|\"([^\"]*)\"|([^\\s]+))"));
 
+    QList<QPair<QString, QString>> pairs;
+    QRegularExpressionMatchIterator it = re.globalMatch(cleaned);
     while (it.hasNext()) {
-        QRegularExpressionMatch match = it.next();
-        QString key = match.captured(1);
+        const QRegularExpressionMatch match = it.next();
         // Value is in capture group 2 (braced), 3 (quoted), or 4 (simple)
         QString value;
         if (!match.captured(2).isNull()) {
@@ -243,6 +243,33 @@ ProfileFrame ProfileFrame::fromTclList(const QString& tclList) {
         } else {
             value = match.captured(4);  // Simple value
         }
+        pairs.append({match.captured(1), value});
+    }
+    return pairs;
+}
+
+QStringList ProfileFrame::unknownTclKeys(const QString& tclList) {
+    QStringList unknown;
+    const QSet<QString>& known = knownJsonKeys();
+    for (const auto& kv : tclKeyValues(tclList)) {
+        if (!known.contains(kv.first) && !unknown.contains(kv.first))
+            unknown << kv.first;
+    }
+    unknown.sort();
+    return unknown;
+}
+
+ProfileFrame ProfileFrame::fromTclList(const QString& tclList) {
+    // Parse de1app Tcl list format: {key value key value ...}
+    // Example: {exit_if 1 flow 2.0 volume 100 transition fast exit_flow_under 0.0
+    //           temperature 93.0 name {preinfusion} pressure 1.0 sensor coffee
+    //           pump pressure exit_type pressure_over popup {$weight} seconds 10}
+
+    ProfileFrame frame;
+
+    for (const auto& kv : tclKeyValues(tclList)) {
+        const QString& key = kv.first;
+        const QString& value = kv.second;
 
         if (key == "name") {
             frame.name = value;
