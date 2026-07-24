@@ -17,6 +17,8 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QFileInfo>
 #include <QTextStream>
 #include <QRegularExpression>
@@ -196,8 +198,18 @@ int main(int argc, char* argv[])
         const QStringList jsons = out.entryList({QLatin1String("*.json")}, QDir::Files, QDir::Name);
         for (const QString& fileName : jsons) {
             const QString path = out.absoluteFilePath(fileName);
+            // Snapshot the file EXACTLY as it sits on disk. The audit below compares
+            // against this, not against a re-serialization — comparing two outputs of
+            // the same serializer can only ever agree with itself.
+            QJsonObject original;
+            {
+                QFile f(path);
+                if (f.open(QIODevice::ReadOnly))
+                    original = QJsonDocument::fromJson(f.readAll()).object();
+            }
+
             Profile before = Profile::loadFromFile(path);
-            if (!before.isValid()) {
+            if (!before.isValid() || original.isEmpty()) {
                 cout << "SKIP (invalid): " << fileName << "\n";
                 ++failed;
                 continue;
@@ -207,12 +219,26 @@ int main(int argc, char* argv[])
                 ++failed;
                 continue;
             }
-            // Re-load and assert the content survived the format change.
-            Profile after = Profile::loadFromFile(path);
-            if (after.isValid() && Profile::functionallyEqual(before, after))
+
+            // AUDIT: every key and value in the original file must survive.
+            // functionallyEqual() is NOT sufficient here — it compares frames and the
+            // preinfuse count only, and reported "content-identical" while this pass
+            // was silently stripping recipe blocks and de1app's simple-editor keys
+            // from dozens of built-ins. Deep parity is the invariant that matters.
+            QJsonObject rewritten_;
+            {
+                QFile f(path);
+                if (f.open(QIODevice::ReadOnly))
+                    rewritten_ = QJsonDocument::fromJson(f.readAll()).object();
+            }
+            const QStringList parity = Profile::jsonParityErrors(original, rewritten_);
+            if (parity.isEmpty()) {
                 ++unchangedContent;
-            else
-                cout << "WARN: content changed by rewrite: " << fileName << "\n";
+            } else {
+                cout << "DATA LOSS: " << fileName << "\n";
+                for (const QString& e : parity) cout << "    " << e << "\n";
+                ++failed;
+            }
             ++rewritten;
         }
         cout << "\nFormat rewrite complete: " << rewritten << " rewritten ("

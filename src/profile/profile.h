@@ -246,6 +246,19 @@ public:
     // human-readable message per violation. Reusable from tests and profile_sync.
     static QStringList reaprimeReadabilityErrors(const QJsonObject& obj);
 
+    // Deep semantic parity check between two serialized profiles: every key and
+    // value in `before` must survive into `after`. Encoding differences are
+    // normalized (numeric 9.0 == string "9.00"), so this compares MEANING, not
+    // bytes — the exact invariant a format-only change must satisfy.
+    //
+    // Additions are allowed (a canonical serializer may add keys); LOSSES are not.
+    // A dropped object/array, or a dropped or changed non-zero scalar, is an error;
+    // a dropped zero/empty scalar is inert (absent and 0 mean the same to every
+    // reader in this format). Returns one message per violation, empty when parity
+    // holds. Shared by profile_sync's rewrite audit and the built-in parity tests —
+    // a format change that silently drops data fails both.
+    static QStringList jsonParityErrors(const QJsonObject& before, const QJsonObject& after);
+
     // === File I/O ===
     static Profile loadFromFile(const QString& filePath);
     static Profile loadFromJsonString(const QString& jsonContent);
@@ -364,12 +377,15 @@ private:
     // writes several simple-editor keys we never read). Canonical keys always win.
     QJsonObject m_unknownKeys;
 
+    // The `recipe` object exactly as it arrived. RecipeParams::fromJson reads
+    // sub-keys (editorType) that RecipeParams::toJson does not write back, so
+    // serializing from the params alone loses them — a recipe marked "pressure"
+    // would reload as "dflow" (fromJson's default). Serialization overlays the
+    // canonical params ON TOP of this, so managed values win and everything else
+    // survives. Same preserve-and-overlay rule as m_unknownKeys.
+    QJsonObject m_sourceRecipe;
+
     RecipeParams m_recipeParams;
-    // True when this profile was loaded from JSON that carried a `recipe` block.
-    // Serialization preserves an existing recipe even for editor types that would
-    // not synthesize one, so a load→save cycle can never drop authored recipe
-    // parameters (it silently did for 8 shipped built-ins before this flag).
-    bool m_hadRecipeBlock = false;
 
     // Read-only flag (de1app compatibility: 0=editable, 1=read-only, 2=reset)
     int m_readOnly = 0;

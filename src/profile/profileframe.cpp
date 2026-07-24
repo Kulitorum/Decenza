@@ -1,18 +1,14 @@
 #include "profileframe.h"
+#include "profilejson.h"
+#include "profile.h"   // profileJsonToDouble
 #include "../ble/protocol/de1characteristics.h"
 #include <QRegularExpression>
 
-// Convert a JSON value that may be string or number to double (de1app encodes numbers as strings)
+// String-or-number parsing and the canonical precision table both live in
+// profilejson.h — this file must not carry its own copy of either. It did, and a
+// second identical jsonToDouble here is exactly how the two serializers drifted.
 static double jsonToDouble(const QJsonValue& val, double defaultVal = 0.0) {
-    if (val.isString()) {
-        bool ok;
-        double d = val.toString().toDouble(&ok);
-        if (!ok) {
-            qWarning() << "jsonToDouble: failed to parse string" << val.toString() << "- using default" << defaultVal;
-        }
-        return ok ? d : defaultVal;
-    }
-    return val.toDouble(defaultVal);
+    return profileJsonToDouble(val, defaultVal);
 }
 
 QJsonObject ProfileFrame::toJson() const {
@@ -23,14 +19,14 @@ QJsonObject ProfileFrame::toJson() const {
     // serializer produces byte-identical step objects.
     QJsonObject obj;
     obj["name"] = name;
-    obj["temperature"] = QString::number(temperature, 'f', 2);
+    obj["temperature"] = ProfileJson::enc(temperature, ProfileJson::Temperature);
     obj["sensor"] = sensor;
     obj["pump"] = pump;
     obj["transition"] = transition;
-    obj["pressure"] = QString::number(pressure, 'f', 2);
-    obj["flow"] = QString::number(flow, 'f', 2);
-    obj["seconds"] = QString::number(seconds, 'f', 2);
-    obj["volume"] = QString::number(volume, 'f', 0);
+    obj["pressure"] = ProfileJson::enc(pressure, ProfileJson::Pressure);
+    obj["flow"] = ProfileJson::enc(flow, ProfileJson::Flow);
+    obj["seconds"] = ProfileJson::enc(seconds, ProfileJson::Seconds);
+    obj["volume"] = ProfileJson::enc(volume, ProfileJson::Volume);
 
     // Exit condition (de1app nested format)
     // Note: weight-only exits (exitType == "weight") are NOT written to the exit object —
@@ -40,19 +36,19 @@ QJsonObject ProfileFrame::toJson() const {
         if (exitType == "pressure_over") {
             exitObj["type"] = QStringLiteral("pressure");
             exitObj["condition"] = QStringLiteral("over");
-            exitObj["value"] = QString::number(exitPressureOver, 'f', 2);
+            exitObj["value"] = ProfileJson::enc(exitPressureOver, ProfileJson::Pressure);
         } else if (exitType == "pressure_under") {
             exitObj["type"] = QStringLiteral("pressure");
             exitObj["condition"] = QStringLiteral("under");
-            exitObj["value"] = QString::number(exitPressureUnder, 'f', 2);
+            exitObj["value"] = ProfileJson::enc(exitPressureUnder, ProfileJson::Pressure);
         } else if (exitType == "flow_over") {
             exitObj["type"] = QStringLiteral("flow");
             exitObj["condition"] = QStringLiteral("over");
-            exitObj["value"] = QString::number(exitFlowOver, 'f', 2);
+            exitObj["value"] = ProfileJson::enc(exitFlowOver, ProfileJson::Flow);
         } else if (exitType == "flow_under") {
             exitObj["type"] = QStringLiteral("flow");
             exitObj["condition"] = QStringLiteral("under");
-            exitObj["value"] = QString::number(exitFlowUnder, 'f', 2);
+            exitObj["value"] = ProfileJson::enc(exitFlowUnder, ProfileJson::Flow);
         } else if (exitType != "weight") {
             qWarning() << "ProfileFrame::toJson: unrecognized exitType" << exitType;
         }
@@ -62,14 +58,14 @@ QJsonObject ProfileFrame::toJson() const {
     // Weight exit (independent of exit object — app-side via scale).
     // Omit when zero: reaprime reads an absent weight as "no weight exit"
     // (parseOptionalDouble → null), so omitting is the correct semantic.
-    if (exitWeight > 0) obj["weight"] = QString::number(exitWeight, 'f', 1);
+    if (exitWeight > 0) obj["weight"] = ProfileJson::enc(exitWeight, ProfileJson::Weight);
 
     // Limiter (de1app nested format)
     // Always save the limiter object for round-trip fidelity
     // (D-Flow profiles set range to 0.2 even when limiter value is 0)
     QJsonObject limiterObj;
-    limiterObj["value"] = QString::number(maxFlowOrPressure, 'f', 2);
-    limiterObj["range"] = QString::number(maxFlowOrPressureRange, 'f', 2);
+    limiterObj["value"] = ProfileJson::enc(maxFlowOrPressure, ProfileJson::Limiter);
+    limiterObj["range"] = ProfileJson::enc(maxFlowOrPressureRange, ProfileJson::Limiter);
     obj["limiter"] = limiterObj;
 
     // User notification popup
@@ -288,13 +284,13 @@ QString ProfileFrame::toTclList() const {
     parts << QStringLiteral("volume") << QString::number(volume, 'f', 1);
     parts << QStringLiteral("exit_if") << (exitIf ? QStringLiteral("1") : QStringLiteral("0"));
     parts << QStringLiteral("exit_type") << tclVal(exitType);
-    parts << QStringLiteral("exit_pressure_over") << QString::number(exitPressureOver, 'f', 2);
-    parts << QStringLiteral("exit_pressure_under") << QString::number(exitPressureUnder, 'f', 2);
-    parts << QStringLiteral("exit_flow_over") << QString::number(exitFlowOver, 'f', 2);
-    parts << QStringLiteral("exit_flow_under") << QString::number(exitFlowUnder, 'f', 2);
-    parts << QStringLiteral("max_flow_or_pressure") << QString::number(maxFlowOrPressure, 'f', 2);
-    parts << QStringLiteral("max_flow_or_pressure_range") << QString::number(maxFlowOrPressureRange, 'f', 2);
-    parts << QStringLiteral("weight") << QString::number(exitWeight, 'f', 1);
+    parts << QStringLiteral("exit_pressure_over") << ProfileJson::enc(exitPressureOver, ProfileJson::Pressure);
+    parts << QStringLiteral("exit_pressure_under") << ProfileJson::enc(exitPressureUnder, ProfileJson::Pressure);
+    parts << QStringLiteral("exit_flow_over") << ProfileJson::enc(exitFlowOver, ProfileJson::Flow);
+    parts << QStringLiteral("exit_flow_under") << ProfileJson::enc(exitFlowUnder, ProfileJson::Flow);
+    parts << QStringLiteral("max_flow_or_pressure") << ProfileJson::enc(maxFlowOrPressure, ProfileJson::Limiter);
+    parts << QStringLiteral("max_flow_or_pressure_range") << ProfileJson::enc(maxFlowOrPressureRange, ProfileJson::Limiter);
+    parts << QStringLiteral("weight") << ProfileJson::enc(exitWeight, ProfileJson::Weight);
     parts << QStringLiteral("popup") << tclVal(popup);
 
     return QStringLiteral("{%1}").arg(parts.join(' '));

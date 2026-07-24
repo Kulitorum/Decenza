@@ -3,6 +3,7 @@
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonArray>
 
 #include "profile/profile.h"
 #include "network/visualizeruploader.h"
@@ -23,6 +24,24 @@ static const QString BUILTIN_PROFILES_DIR =
 
 class tst_BuiltinProfileFormat : public QObject {
     Q_OBJECT
+
+private:
+    // A minimal valid advanced profile, in the de1app-style string encoding a
+    // foreign app would hand us.
+    static QJsonObject makeProfileJson() {
+        QJsonObject step{
+            {"name", "preinfusion"}, {"pump", "flow"}, {"sensor", "coffee"},
+            {"transition", "fast"}, {"temperature", QStringLiteral("93.0")},
+            {"pressure", QStringLiteral("1.0")}, {"flow", QStringLiteral("4.0")},
+            {"seconds", QStringLiteral("20.0")}, {"volume", QStringLiteral("0")},
+        };
+        return QJsonObject{
+            {"title", "Parity Test"}, {"legacy_profile_type", "settings_2c"},
+            {"version", "2"}, {"beverage_type", "espresso"},
+            {"target_weight", QStringLiteral("36.0")},
+            {"steps", QJsonArray{step}},
+        };
+    }
 
 private slots:
     void init() { QTest::failOnWarning(); }
@@ -68,6 +87,104 @@ private slots:
         QVERIFY(out.value("target_weight").isString());
         QCOMPARE(out.value("tank_temperature"), out.value("tank_desired_water_temperature"));
         QCOMPARE(out.value("target_volume_count_start"), out.value("number_of_preinfuse_frames"));
+    }
+
+    // ===== Parity audit: a format change must never lose data =====
+    //
+    // This is the guard the first attempt at this change lacked. The whole suite
+    // passed while the serializer was silently stripping `recipe` blocks from 8
+    // built-ins and de1app's simple-editor keys from 58 more, because every test
+    // asserted what the OUTPUT looks like and none asserted that the INPUT survived.
+
+    void builtinProfilesRoundTripLosesNothing_data() { builtinProfiles_data(); }
+
+    void builtinProfilesRoundTripLosesNothing() {
+        QFETCH(QString, filePath);
+
+        QFile file(filePath);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const QJsonObject onDisk = QJsonDocument::fromJson(file.readAll()).object();
+
+        const Profile p = Profile::loadFromFile(filePath);
+        QVERIFY(p.isValid());
+
+        // Every key and value in the shipped file must survive load -> serialize.
+        const QStringList lost = Profile::jsonParityErrors(onDisk, p.toJsonObject());
+        QVERIFY2(lost.isEmpty(),
+                 qPrintable(QFileInfo(filePath).fileName() + ": " + lost.join("; ")));
+    }
+
+    void builtinProfilesSerializationIsIdempotent_data() { builtinProfiles_data(); }
+
+    void builtinProfilesSerializationIsIdempotent() {
+        QFETCH(QString, filePath);
+
+        // serialize(parse(serialize(p))) must equal serialize(p). A serializer that
+        // is not a fixed point means every save mutates the file a little further.
+        const QJsonObject once = Profile::loadFromFile(filePath).toJsonObject();
+        const QJsonObject twice =
+            Profile::fromJson(QJsonDocument(once)).toJsonObject();
+        QCOMPARE(QJsonDocument(twice).toJson(QJsonDocument::Compact),
+                 QJsonDocument(once).toJson(QJsonDocument::Compact));
+    }
+
+    // Serialization precision must not fall below what the editors can set, or a
+    // save/reload silently changes the shot. ProfileEditorPage uses 0.1 g steps for
+    // target weight and 0.01 steps for limiter ranges; serializing those with too
+    // few decimals turned 36.5 g into 37 g and a 0.05 limiter range into 0.1.
+    void editorResolutionSurvivesRoundTrip() {
+        Profile p = Profile::fromJson(QJsonDocument(makeProfileJson()));
+        p.setTargetWeight(36.5);
+
+        QList<ProfileFrame> steps = p.steps();
+        QVERIFY(!steps.isEmpty());
+        steps[0].maxFlowOrPressure = 6.25;
+        steps[0].maxFlowOrPressureRange = 0.05;
+        p.setSteps(steps);
+
+        const Profile reloaded = Profile::fromJson(QJsonDocument(p.toJsonObject()));
+        QCOMPARE(reloaded.targetWeight(), 36.5);
+        QCOMPARE(reloaded.steps()[0].maxFlowOrPressure, 6.25);
+        QCOMPARE(reloaded.steps()[0].maxFlowOrPressureRange, 0.05);
+    }
+
+    // A profile carrying keys Decenza does not model must keep them, so a profile
+    // authored in de1app/reaprime survives a Decenza load->save round trip.
+    void unmodelledKeysSurviveRoundTrip() {
+        QJsonObject src = makeProfileJson();
+        src["flow_profile_minimum_pressure"] = QStringLiteral("4.0");
+        src["some_future_app_key"] = QStringLiteral("keep me");
+
+        const Profile p = Profile::fromJson(QJsonDocument(src));
+        const QJsonObject out = p.toJsonObject();
+        QCOMPARE(out.value("flow_profile_minimum_pressure").toString(), QStringLiteral("4.0"));
+        QCOMPARE(out.value("some_future_app_key").toString(), QStringLiteral("keep me"));
+        QVERIFY(Profile::jsonParityErrors(src, out).isEmpty());
+    }
+
+    // The parity checker must actually catch the two failure modes it exists for,
+    // or it is decoration. Guards the guard.
+    void parityCheckerDetectsLossAndDrift() {
+        QJsonObject before;
+        before["recipe"] = QJsonObject{{"dose", 18}};
+        before["espresso_pressure"] = QStringLiteral("9.0");
+        before["target_weight"] = QStringLiteral("36.5");
+        before["inert_zero"] = QStringLiteral("0.0");
+
+        // Dropped object + dropped non-zero scalar + drifted value.
+        QJsonObject after;
+        after["target_weight"] = QStringLiteral("37.0");
+
+        const QStringList errs = Profile::jsonParityErrors(before, after);
+        QVERIFY2(errs.size() == 3, qPrintable(errs.join("; ")));
+        QVERIFY(errs.filter("recipe").size() == 1);          // object lost
+        QVERIFY(errs.filter("espresso_pressure").size() == 1); // non-zero scalar lost
+        QVERIFY(errs.filter("target_weight").size() == 1);   // value drifted
+        // A dropped zero is inert and must NOT be reported.
+        QVERIFY(errs.filter("inert_zero").isEmpty());
+        // Encoding-only differences are not drift.
+        QVERIFY(Profile::jsonParityErrors(
+                    QJsonObject{{"p", 9.0}}, QJsonObject{{"p", QStringLiteral("9.00")}}).isEmpty());
     }
 
     // The Visualizer upload carries the SAME canonical serialization as the
