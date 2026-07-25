@@ -118,6 +118,38 @@ Each editor SHALL surface the parameters its plugin exposes, and changing one SH
 - **THEN** every parameter the plugin exposes is editable
 - **AND** changing one alters the same frame fields the plugin's `update_*` proc alters, and no others
 
+### Requirement: Identical frames reach the machine as identical bytes
+
+Given the same frames, Decenza's BLE encoders SHALL produce the bytes de1app's `de1_packed_shot` produces. The comparison SHALL be against de1app's real packer executed as an oracle, not against transcribed expectations, and SHALL cover the quantisation boundaries no stock profile reaches.
+
+#### Scenario: Stock profiles pack identically
+
+- **WHEN** any stock D-Flow or A-Flow profile is packed for upload
+- **THEN** the header and every frame is byte-identical to de1app's output
+- **AND** any byte that differs is recorded as a finding rather than accepted
+
+#### Scenario: Quantisation boundaries agree
+
+- **WHEN** values are packed that sit on an encoder's rounding boundary — the fixed-point ties, the split-format switchover, and the 10-bit wrap
+- **THEN** the encoded bytes match de1app's for every such value
+
+### Requirement: One edit produces the plugin's frames
+
+For every parameter a plugin exposes and every profile that plugin ships, changing that one parameter through the app's own save path SHALL produce the frames the plugin's `prep` + `update_*` produce from the same starting profile and the same edit.
+
+This is verified through the interface the editor and MCP both use, not through the generator in isolation — a generator that is correct in isolation can still be fed wrong parameters by the layer above it.
+
+#### Scenario: Every parameter × every stock profile
+
+- **WHEN** a single editable parameter is changed on a stock profile and the profile is saved
+- **THEN** every frame field matches the plugin's output for that same edit
+- **AND** a divergence is reported for every field that differs, not only the first
+
+#### Scenario: An unedited parameter is not silently reset
+
+- **WHEN** one parameter is edited
+- **THEN** no frame field belonging to a parameter that was not edited takes a value absent from the source profile
+
 ### Requirement: A confirmed defect is recorded, not hidden
 
 A parity failure the change does not repair SHALL remain expressed as a failing or expected-to-fail assertion identifying the finding. An assertion SHALL NOT be weakened to pass over a known defect.

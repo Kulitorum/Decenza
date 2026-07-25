@@ -67,3 +67,17 @@
 
 - [x] 10.1 Update `docs/CLAUDE_MD/RECIPE_PROFILES.md` with the reference relationship, the two plugin repos and their pinned commits, and the rule that the plugins are the oracle. — reference relationship, both repos + pinned commits, the three non-obvious plugin facts, and the #350 fixture rule.
 - [x] 10.2 Record the parity suite in `docs/CLAUDE_MD/TESTING.md` alongside the other corpus-driven gates, including the "fixtures come from the plugin, not `de1plus/profiles/`" rule and why. — parity gate documented incl. oracle discipline, the fixture table, and the XFAIL-not-relax rule.
+
+## 11. Differential wire and quantisation tests
+
+- [x] 11.1 Stand up a standalone oracle that runs de1app's **real** `de1_packed_shot` (`de1plus/binary.tcl`) outside the app, with inert shims for the UI-only helpers it calls, so BLE frame bytes can be compared rather than transcribed. — `tools/de1app_pack_oracle.tcl`; four shims (`ifexists`, `translate`, `msg`, rounding) plus `package provide` stubs, each listed in the file so a shim that ever grows teeth is visible.
+- [x] 11.2 Assert Decenza's encoders produce byte-identical frames to that oracle for all 8 stock profiles. — `tests/data/de1app_packed/`; header and every frame identical except one byte. **WIRE-1**: the tail's `MaxTotalVolume` marker byte is `0x04` where de1app sends `0x00`.
+- [x] 11.3 Property-test the encoders across the quantisation boundaries the stock profiles never reach — U8P4 and U8P1 ties, the F8_1_7 switchover at 12.75, the U10P0 1023/1024 wrap. — `tools/gen_pack_property_corpus.py` (seeded, 120 profiles) + `tests/data/pack_property/`; **zero** quantisation divergences. WIRE-1 is the only difference and it is positional, not numeric.
+
+## 12. Edit matrix — every parameter × every stock profile
+
+- [x] 12.1 Stand up an edit oracle that runs each plugin's **own** `prep` + `update_*` on a real profile with one parameter changed. Both plugin files are GUI code and cannot be sourced, so extract those procs by brace-matched text and eval them verbatim. — `tools/de1app_edit_oracle.tcl`. Two Tcl brace traps documented in-file (a lone `{` in a comment, a `}` inside a character class) — either swallows the rest of the file.
+- [x] 12.2 Generate a golden per (profile, parameter) pair for every parameter the plugins expose: 8 shared × 8 profiles plus 7 A-Flow-only × 5 profiles. — `tools/gen_edit_matrix.py` → 99 goldens in `tests/data/edit_matrix/`.
+- [x] 12.3 Drive the same edits through `ProfileManager`'s `Q_INVOKABLE`s — the path the editor and MCP both use — and diff every frame field, collecting all divergences rather than the first. — `editMatrixMatchesDe1app` in `tests/tst_recipeeditorapppath.cpp`.
+- [x] 12.4 Record the result and reconcile it against the per-layer findings. — **13 of 99 match, 86 diverge**; 69 of the 86 are the fill frame's temperature alone. Two corrections follow: **AF-7 is not A-Flow-specific — renamed REC-1** (D-Flow / La Pavoni writes fill 88 °C where the profile says 84 °C while editing pour flow), and the earlier "edited D-Flow is ~70% right" assessment is withdrawn — it rested on a test that asserts pressure fields and never reads temperature.
+- [x] 12.5 Adopt the matrix as the acceptance gate for the repair change: 13/99 now, near 99/99 after REC-1 and `prep`, with any residue a named defect rather than an unknown. — recorded in `findings.md` § "Revised repair order".
