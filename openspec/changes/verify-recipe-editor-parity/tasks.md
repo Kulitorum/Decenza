@@ -81,3 +81,13 @@
 - [x] 12.3 Drive the same edits through `ProfileManager`'s `Q_INVOKABLE`s — the path the editor and MCP both use — and diff every frame field, collecting all divergences rather than the first. — `editMatrixMatchesDe1app` in `tests/tst_recipeeditorapppath.cpp`.
 - [x] 12.4 Record the result and reconcile it against the per-layer findings. — **13 of 99 match, 86 diverge**; 69 of the 86 are the fill frame's temperature alone. Two corrections follow: **AF-7 is not A-Flow-specific — renamed REC-1** (D-Flow / La Pavoni writes fill 88 °C where the profile says 84 °C while editing pour flow), and the earlier "edited D-Flow is ~70% right" assessment is withdrawn — it rested on a test that asserts pressure fields and never reads temperature.
 - [x] 12.5 Adopt the matrix as the acceptance gate for the repair change: 13/99 now, near 99/99 after REC-1 and `prep`, with any residue a named defect rather than an unknown. — recorded in `findings.md` § "Revised repair order".
+
+## 13. Full-corpus regression guard
+
+Added in response to the risk the repairs create: the parity fixtures are eight
+recipe profiles, but the repairs touch load/save code every profile passes through.
+
+- [x] 13.1 Extend the pack oracle to run de1app's **real** load path for simple profiles — `pressure_to_advanced_list` / `flow_to_advanced_list` from `profile.tcl`, seeded with `machine.tcl`'s default `::settings` and `vars.tcl`'s `profile_vars`, all extracted verbatim rather than transcribed. A simple profile's stored `advanced_shot` is a stale by-product; de1app rebuilds the frames at load and packs those.
+- [x] 13.2 Pack all 89 stock de1app profiles with that oracle. — `tools/gen_de1app_pack_corpus.py` → `tests/data/de1app_packed/`.
+- [x] 13.3 Assert Decenza's encoders produce identical bytes for every one, with WIRE-1 filtered **positionally** so any other differing byte fails hard. — `everyDe1appProfilePacksIdentically`; **89/89 identical**, WIRE-1 aside, across 63 advanced + 17 pressure + 9 flow profiles. Two independent implementations agree byte-for-byte, including the simple-profile frame regeneration nothing had compared before.
+- [x] 13.4 Pin WIRE-1's universality (`wire1Profiles == compared`) so the filter cannot go blind and swallow a real divergence.

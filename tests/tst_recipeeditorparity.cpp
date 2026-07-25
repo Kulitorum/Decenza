@@ -1398,6 +1398,102 @@ private slots:
                             .arg(failures.mid(0, 25).join(QStringLiteral("\n  ")))));
     }
 
+    // ==================================================================
+    // 13c. THE WHOLE de1app CORPUS — the regression guard
+    //
+    // Everything above this point is about eight recipe profiles. de1app ships
+    // 89, and the other ~80 are advanced / pressure / flow profiles that no
+    // recipe-editor test touches. They are where a repair to the shared load and
+    // save path could break something that was working, with nothing to notice.
+    //
+    // So: every stock profile de1app ships, packed by de1app's own packer,
+    // compared byte for byte against Decenza's encoders. This is the strongest
+    // available statement of "the machine does the same thing on both apps",
+    // because it is the bytes and it is all of them.
+    //
+    // WIRE-1 is filtered POSITIONALLY rather than blanket-XFAIL'd — it is one
+    // known byte in the tail and it appears on every profile, so tolerating the
+    // whole comparison for it would hide exactly the regression this exists to
+    // catch. Any other differing byte fails, hard.
+    //
+    // Regenerate: python3 tools/gen_de1app_pack_corpus.py <de1plus-dir>
+    // ==================================================================
+
+    void everyDe1appProfilePacksIdentically() {
+        QDir src(QStringLiteral(DE1APP_PROFILES_PATH));
+        const QStringList profiles = src.entryList({QStringLiteral("*.tcl")}, QDir::Files, QDir::Name);
+        QVERIFY2(profiles.size() >= 80,
+                 qPrintable(QStringLiteral("de1app corpus unexpectedly small (%1)")
+                            .arg(profiles.size())));
+
+        QStringList failures;
+        QStringList missing;
+        int compared = 0;
+        int wire1Profiles = 0;
+
+        for (const QString& tcl : profiles) {
+            const QString base = tcl.left(tcl.size() - 4);
+            const QString expected =
+                readFile(QStringLiteral(DE1APP_PACKED_PATH) + "/" + base + ".txt");
+            if (expected.isEmpty()) { missing << base; continue; }
+
+            const Profile p = Profile::loadFromTclString(readFile(src.absoluteFilePath(tcl)));
+            if (p.steps().isEmpty()) {
+                failures << base + ": Decenza parsed no frames from a profile de1app packed";
+                continue;
+            }
+            ++compared;
+
+            QStringList got;
+            got << QStringLiteral("header %1").arg(QString::fromLatin1(p.toHeaderBytes().toHex()));
+            const QList<QByteArray> frames = p.toFrameBytes();
+            for (qsizetype i = 0; i < frames.size(); ++i)
+                got << QStringLiteral("%1 %2").arg(i).arg(QString::fromLatin1(frames[i].toHex()));
+
+            const QStringList want = expected.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+            bool sawWire1 = false;
+            for (qsizetype i = 0; i < qMax(got.size(), want.size()); ++i) {
+                const QString g = i < got.size()  ? got[i]  : QStringLiteral("<missing>");
+                const QString w = i < want.size() ? want[i] : QStringLiteral("<missing>");
+                if (g == w) continue;
+
+                // WIRE-1: last line, byte 1 is the U10P0 marker Decenza sets and
+                // de1app masks off. Everything else on the line must be equal.
+                const QString hg = g.section(QLatin1Char(' '), 1);
+                const QString hw = w.section(QLatin1Char(' '), 1);
+                const bool isWire1 = i == got.size() - 1 && i == want.size() - 1
+                                  && hg.size() == 16 && hw.size() == 16
+                                  && hg.mid(2, 2) == QStringLiteral("04")
+                                  && hw.mid(2, 2) == QStringLiteral("00")
+                                  && hg.left(2) == hw.left(2)
+                                  && hg.mid(4) == hw.mid(4);
+                if (isWire1) { sawWire1 = true; continue; }
+
+                failures << QStringLiteral("%1 line %2: decenza[%3] de1app[%4]")
+                            .arg(base).arg(i).arg(g, w);
+            }
+            if (sawWire1) ++wire1Profiles;
+        }
+
+        QVERIFY2(missing.isEmpty(),
+                 qPrintable(QStringLiteral("%1 profile(s) have no packed golden — rerun "
+                                           "tools/gen_de1app_pack_corpus.py:\n  %2")
+                            .arg(missing.size())
+                            .arg(missing.mid(0, 10).join(QStringLiteral("\n  ")))));
+        QVERIFY2(compared >= 80,
+                 qPrintable(QStringLiteral("only %1 profiles compared").arg(compared)));
+        QVERIFY2(failures.isEmpty(),
+                 qPrintable(QStringLiteral("%1 byte divergence(s) across %2 de1app profiles "
+                                           "(WIRE-1 excluded):\n  %3")
+                            .arg(failures.size()).arg(compared)
+                            .arg(failures.mid(0, 25).join(QStringLiteral("\n  ")))));
+
+        // WIRE-1 is universal, so pin that too. If it stops appearing everywhere,
+        // either it was fixed (remove this) or the filter above has gone blind and
+        // is silently swallowing something else.
+        QCOMPARE(wire1Profiles, compared);
+    }
+
     void editorSurfacesExactlyThePluginParameters() {
         // Task 8.1. RecipeEditorPage.qml binds:
         //
