@@ -53,5 +53,5 @@ Sequenced last per design D6. This is the only work in the change that touches a
 ## 6. Close out
 
 - [x] 6.1 Update the wiki manual if the conversion surfaces anything user-visible; note explicitly if it does not, so the omission is a decision rather than an oversight. **No manual change needed — recorded as a decision.** The wiki manual does not enumerate built-in profiles, so the seven additions need no entry there; they are covered in the release notes instead. The encoding upgrade is deliberately invisible (same profile, same shot, different bytes on disk) and has nothing a user acts on.
-- [ ] 6.2 Run the full suite through Qt Creator MCP (scope `all`) and confirm zero warnings — the pre-PR gate, since there is no PR CI.
-- [ ] 6.3 `openspec archive sync-builtin-profiles` as the last commit on the branch, before merge.
+- [x] 6.2 Run the full suite through Qt Creator MCP (scope `all`) and confirm zero warnings — the pre-PR gate, since there is no PR CI. Done — 98 passed, 0 failed, 0 skipped, and `tests_with_warnings` empty.
+- [x] 6.3 `openspec archive sync-builtin-profiles` as the last commit on the branch, before merge. Done — archived via `openspec archive` as the final commit on the branch.
