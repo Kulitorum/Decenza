@@ -261,11 +261,48 @@ the 1-second workaround for the DE1 "skip first step" bug — and the real Fill 
 So fill duration is read as 1 s instead of 15 s, and every one of the five profiles has its Fill
 frame rewritten **15 s → 1 s** on save. The fill step effectively disappears.
 
+## AF-6 — `filling(seconds)` written from `fillTimeout` · generation, not extraction
+
+Found only by testing generation **with prep-correct parameters**, which is why §4 had to be
+finished before the A-Flow picture could be called complete: with extraction broken, a round-trip
+failure could originate at either end, and this one was sitting masked behind AF-5.
+
+`prep` never reads `filling(seconds)` and `update_A-Flow` never writes it — A-Flow has no fill-time
+parameter at all. Decenza's generator writes `fill.seconds = recipe.fillTimeout`, an invented
+parameter, so all five profiles get **15 s → 25 s** (`RecipeParams`' default).
+
+Read alongside AF-5, the same field takes **two different wrong values**: 25 s from generation,
+1 s through the real app path where `RecipeAnalyzer` reads it off the Pre Fill frame. Both are
+wrong; they are separate defects at opposite ends of the pipeline.
+
+This is the §7 question arriving early: a Decenza-only parameter is not inert. `fillTimeout` exists
+with nothing to populate it from and nothing upstream that wants it written, and its only effect is
+to corrupt the Fill frame.
+
+## What A-Flow generation gets RIGHT
+
+Isolating generation showed its **rules are faithful**. All of these pass against the transcribed
+`update_A-Flow`, across all 8 toggle combinations:
+
+- the ramp split, including integer division and the odd remainder going to the **decline**
+- `ramp_up(exit_flow_over)` — pour flow, doubled only when the decline is enabled
+- `ramp_down(exit_flow_under)` — pour flow + 0.1
+- Flow Start activation keyed on the **post-split** ramp-up duration, with its `pour flow − 0.1`
+  threshold
+- extraction flow — doubled when flow-up is on, **zero** when off
+- the extraction limiter carrying pour pressure
+- the soak frame taking the **fill** temperature (A-Flow's divergence from D-Flow)
+- 2nd Fill / Pause at 15 s when enabled, 0 when not
+
+So A-Flow's generator was written carefully against the plugin. The damage is almost entirely on
+the **read** side, plus one invented parameter on the write side.
+
 ## Root cause
 
-One cause, five symptoms: **Decenza reuses a D-Flow analyzer for A-Flow.** It has no notion of
-`set_profile_index`, so every positional role is off by one or wrong outright, and it derives none
-of the three toggles.
+One cause, five symptoms on the read side: **Decenza reuses a D-Flow analyzer for A-Flow.** It has
+no notion of `set_profile_index`, so every positional role is off by one or wrong outright, and it
+derives none of the three toggles. AF-6 is separate and smaller — one invented parameter writing a
+field nothing upstream owns.
 
 Fixing the five symptoms individually would be a mistake — the correct repair is to implement
 `prep` for A-Flow: resolve roles by layout, read by index, derive the toggles from structure.

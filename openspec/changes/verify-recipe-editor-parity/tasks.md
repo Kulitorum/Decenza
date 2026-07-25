@@ -27,11 +27,11 @@
 
 ## 4. A-Flow parity — generation
 
-- [ ] 4.1 Assert generated frames match `update_A-Flow` across all 8 toggle combinations, field for field.
-- [ ] 4.2 Assert the ramp split matches: ramp-up and ramp-down durations, and the odd-value remainder going to the decline frame.
-- [ ] 4.3 Assert the derived exit thresholds: ramp-up `exit_flow_over` (pour flow, doubled when ramp-down is on), decline `exit_flow_under` (pour flow + 0.1), and `Flow Start` activation when ramp-up is under 1 s with its `exit_flow_over` of pour flow − 0.1.
-- [ ] 4.4 Assert extraction flow is doubled pour flow when flow-up is on and zero when off, and that the extraction limiter carries the pour pressure.
-- [ ] 4.5 Untouched fields: assert Decenza does not write frame fields `update_A-Flow` leaves alone — the in-place-mutation vs build-from-constants difference (design Context) makes this the highest-yield check in the change.
+- [x] 4.1 Assert generated frames match `update_A-Flow` across all 8 toggle combinations, field for field. — **passes** all 8 combinations; the rules are faithful.
+- [x] 4.2 Assert the ramp split matches: ramp-up and ramp-down durations, and the odd-value remainder going to the decline frame. — **passes**, including integer division and the odd remainder going to the decline.
+- [x] 4.3 Assert the derived exit thresholds: ramp-up `exit_flow_over` (pour flow, doubled when ramp-down is on), decline `exit_flow_under` (pour flow + 0.1), and `Flow Start` activation when ramp-up is under 1 s with its `exit_flow_over` of pour flow − 0.1. — **passes**: ramp-up exit, decline exit, and Flow Start activation on the post-split duration.
+- [x] 4.4 Assert extraction flow is doubled pour flow when flow-up is on and zero when off, and that the extraction limiter carries the pour pressure. — **passes**: doubled when flow-up, zero when off, limiter carries pour pressure.
+- [x] 4.5 Untouched fields: assert Decenza does not write frame fields `update_A-Flow` leaves alone — the in-place-mutation vs build-from-constants difference (design Context) makes this the highest-yield check in the change. — **AF-6**: `filling(seconds)` written from the invented `fillTimeout` (15 -> 25). Only this one field; found by isolating generation with prep-correct params.
 - [x] 4.6 Round-trip: assert load → save-unedited is a fixed point on all five stock A-Flow profiles. — not a fixed point on ANY of the five; AF-1's flow error compounds per save.
 
 ## 5. Frame layouts

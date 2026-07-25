@@ -134,6 +134,30 @@ struct AFlowExpected {
     }
 };
 
+// RecipeParams as prep would populate them — the CORRECT values, bypassing
+// RecipeAnalyzer entirely. Generation must be testable without extraction in the
+// path: a round-trip is extract-then-generate, so with extraction known broken
+// (AF-1..AF-5) any round-trip failure could originate at either end, and
+// generation defects would sit masked behind extraction ones.
+RecipeParams paramsFromPrep(const AFlowExpected& e) {
+    RecipeParams p;
+    p.editorType       = EditorType::AFlow;   // carried by the title, per design D2
+    p.fillTemperature  = e.fillTemperature;
+    p.fillFlow         = e.fillFlow;
+    p.infuseTime       = e.soakSeconds;
+    p.infusePressure   = e.soakPressure;
+    p.infuseVolume     = e.soakVolume;
+    p.infuseWeight     = e.soakWeight;
+    p.rampTime         = e.rampUpDownSeconds;
+    p.pourFlow         = e.pourFlow;
+    p.pourPressure     = e.pourPressure;
+    p.pourTemperature  = e.pourTemperature;
+    p.rampDownEnabled  = e.rampDownEnabled;
+    p.flowExtractionUp = e.flowExtractionUp;
+    p.secondFillEnabled = e.secondFillEnabled;
+    return p;
+}
+
 } // namespace
 
 class tst_RecipeEditorParity : public QObject {
@@ -619,6 +643,239 @@ private slots:
                                         .arg(divergences.join(QStringLiteral("; ")))), Continue);
         QVERIFY2(divergences.isEmpty(),
                  qPrintable(QStringLiteral("%1 is not a round-trip fixed point:\n  %2")
+                            .arg(file, divergences.join(QStringLiteral("\n  ")))));
+    }
+
+    // ==================================================================
+    // 8. A-Flow — generation, isolated from extraction (tasks 4.1-4.5)
+    //
+    // proc update_A-Flow, code.tcl:242-400. Params come from paramsFromPrep,
+    // never from RecipeAnalyzer, so a failure here is a GENERATION defect and
+    // cannot be a consequence of AF-1..AF-5.
+    // ==================================================================
+
+    void aflowGenerationRampSplit_data() {
+        QTest::addColumn<double>("rampSeconds");
+        QTest::addColumn<bool>("rampDownEnabled");
+        QTest::addColumn<double>("expectUpSeconds");
+        QTest::addColumn<double>("expectDownSeconds");
+        // code.tcl:262-270. Integer division; the ODD remainder goes to the
+        // DECLINE, not the ramp-up.
+        QTest::newRow("off, 10")        << 10.0 << false << 10.0 << 0.0;
+        QTest::newRow("off, 0")         <<  0.0 << false <<  0.0 << 0.0;
+        QTest::newRow("on, even 10")    << 10.0 << true  <<  5.0 << 5.0;
+        QTest::newRow("on, odd 5")      <<  5.0 << true  <<  2.0 << 3.0;
+        QTest::newRow("on, odd 7")      <<  7.0 << true  <<  3.0 << 4.0;
+        QTest::newRow("on, even 6")     <<  6.0 << true  <<  3.0 << 3.0;
+    }
+
+    void aflowGenerationRampSplit() {
+        QFETCH(double, rampSeconds);
+        QFETCH(bool, rampDownEnabled);
+        QFETCH(double, expectUpSeconds);
+        QFETCH(double, expectDownSeconds);
+
+        RecipeParams p;
+        p.editorType = EditorType::AFlow;
+        p.rampTime = rampSeconds;
+        p.rampDownEnabled = rampDownEnabled;
+
+        const QList<ProfileFrame> f = RecipeGenerator::generateFrames(p);
+        QCOMPARE(f.size(), qsizetype(9));
+        QCOMPARE(f[5].seconds, expectUpSeconds);    // Pressure Up
+        QCOMPARE(f[6].seconds, expectDownSeconds);  // Pressure Decline
+    }
+
+    void aflowGenerationExitThresholds_data() {
+        QTest::addColumn<double>("pourFlow");
+        QTest::addColumn<bool>("rampDownEnabled");
+        QTest::newRow("flow 2, ramp off") << 2.0 << false;
+        QTest::newRow("flow 2, ramp on")  << 2.0 << true;
+        QTest::newRow("flow 3, ramp on")  << 3.0 << true;
+        QTest::newRow("flow 1.8, off")    << 1.8 << false;
+    }
+
+    void aflowGenerationExitThresholds() {
+        QFETCH(double, pourFlow);
+        QFETCH(bool, rampDownEnabled);
+
+        RecipeParams p;
+        p.editorType = EditorType::AFlow;
+        p.pourFlow = pourFlow;
+        p.rampTime = 10.0;               // keeps ramp_up >= 1 so Flow Start stays off
+        p.rampDownEnabled = rampDownEnabled;
+
+        const QList<ProfileFrame> f = RecipeGenerator::generateFrames(p);
+
+        // code.tcl:265,269 — doubled only when the decline is doing the rest.
+        QCOMPARE(f[5].exitFlowOver, round1(rampDownEnabled ? pourFlow * 2 : pourFlow));
+        // code.tcl:261
+        QCOMPARE(f[6].exitFlowUnder, round1(pourFlow + 0.1));
+    }
+
+    void aflowGenerationFlowStartActivation_data() {
+        QTest::addColumn<double>("rampSeconds");
+        QTest::addColumn<bool>("expectActive");
+        // code.tcl:274 — keyed on the POST-SPLIT ramp_up(seconds), not rampTime.
+        QTest::newRow("ramp 10 -> up 10")   << 10.0 << false;
+        QTest::newRow("ramp 1 -> up 1")     <<  1.0 << false;
+        QTest::newRow("ramp 0 -> up 0")     <<  0.0 << true;
+    }
+
+    void aflowGenerationFlowStartActivation() {
+        QFETCH(double, rampSeconds);
+        QFETCH(bool, expectActive);
+
+        RecipeParams p;
+        p.editorType = EditorType::AFlow;
+        p.pourFlow = 2.0;
+        p.rampTime = rampSeconds;
+        p.rampDownEnabled = false;
+
+        const QList<ProfileFrame> f = RecipeGenerator::generateFrames(p);
+        const ProfileFrame& flowStart = f[7];
+
+        if (expectActive) {
+            QCOMPARE(flowStart.seconds, 10.0);
+            QCOMPARE(flowStart.exitFlowOver, round1(p.pourFlow - 0.1));
+            QVERIFY(flowStart.exitIf);
+            QCOMPARE(flowStart.exitType, QStringLiteral("flow_over"));
+        } else {
+            QCOMPARE(flowStart.seconds, 0.0);
+        }
+        // Written unconditionally (code.tcl:284-285).
+        QCOMPARE(flowStart.flow, p.pourFlow);
+    }
+
+    void aflowGenerationExtractionFlow_data() {
+        QTest::addColumn<double>("pourFlow");
+        QTest::addColumn<bool>("flowUp");
+        QTest::newRow("up, 2")   << 2.0 << true;
+        QTest::newRow("flat, 2") << 2.0 << false;
+        QTest::newRow("up, 1.8") << 1.8 << true;
+    }
+
+    void aflowGenerationExtractionFlow() {
+        QFETCH(double, pourFlow);
+        QFETCH(bool, flowUp);
+
+        RecipeParams p;
+        p.editorType = EditorType::AFlow;
+        p.pourFlow = pourFlow;
+        p.pourPressure = 9.5;
+        p.flowExtractionUp = flowUp;
+
+        const QList<ProfileFrame> f = RecipeGenerator::generateFrames(p);
+        // code.tcl:287-291 — doubled when on, ZERO when off (not left alone).
+        QCOMPARE(f[8].flow, flowUp ? round1(pourFlow * 2) : 0.0);
+        // code.tcl:293
+        QCOMPARE(f[8].maxFlowOrPressure, p.pourPressure);
+    }
+
+    void aflowGenerationToggleMatrix_data() {
+        QTest::addColumn<bool>("rampDown");
+        QTest::addColumn<bool>("flowUp");
+        QTest::addColumn<bool>("secondFill");
+        for (int i = 0; i < 8; ++i) {
+            const bool rd = i & 1, fu = i & 2, sf = i & 4;
+            QTest::newRow(qPrintable(QStringLiteral("rd=%1 fu=%2 sf=%3")
+                                     .arg(rd).arg(fu).arg(sf))) << rd << fu << sf;
+        }
+    }
+
+    void aflowGenerationToggleMatrix() {
+        // Task 4.1. All 8 combinations against the transcribed rules at once,
+        // so an interaction between toggles cannot hide behind a single-toggle
+        // test passing.
+        QFETCH(bool, rampDown);
+        QFETCH(bool, flowUp);
+        QFETCH(bool, secondFill);
+
+        RecipeParams p;
+        p.editorType = EditorType::AFlow;
+        p.fillTemperature = 93.0;
+        p.pourTemperature = 95.0;
+        p.pourPressure = 10.0;
+        p.pourFlow = 2.0;
+        p.rampTime = 10.0;
+        p.infusePressure = 3.0;
+        p.infuseTime = 60.0;
+        p.rampDownEnabled = rampDown;
+        p.flowExtractionUp = flowUp;
+        p.secondFillEnabled = secondFill;
+
+        const QList<ProfileFrame> f = RecipeGenerator::generateFrames(p);
+        QCOMPARE(f.size(), qsizetype(9));
+
+        QStringList wrong;
+        auto want = [&](const char* what, double got, double expect) {
+            if (qAbs(got - expect) >= 0.05)
+                wrong << QStringLiteral("%1: got %2, update_A-Flow gives %3")
+                         .arg(QString::fromLatin1(what), num(got), num(expect));
+        };
+
+        want("preFill.temperature", f[0].temperature, p.fillTemperature);  // code.tcl:382
+        want("fill.temperature",    f[1].temperature, p.fillTemperature);  // :250
+        want("soak.temperature",    f[2].temperature, p.fillTemperature);  // :251 FILL, not pour
+        want("soak.pressure",       f[2].pressure,    p.infusePressure);
+        want("soak.seconds",        f[2].seconds,     p.infuseTime);
+
+        // :372-380 — 15 s each when on, 0 when off.
+        want("2ndFill.seconds", f[3].seconds, secondFill ? 15.0 : 0.0);
+        want("pause.seconds",   f[4].seconds, secondFill ? 15.0 : 0.0);
+
+        want("rampUp.temperature",   f[5].temperature, p.pourTemperature);
+        want("rampUp.pressure",      f[5].pressure,    p.pourPressure);
+        want("rampDown.temperature", f[6].temperature, p.pourTemperature);
+        want("pourStart.temperature", f[7].temperature, p.pourTemperature);
+        want("pourStart.flow",        f[7].flow,        p.pourFlow);
+        want("pouring.temperature",   f[8].temperature, p.pourTemperature);
+        want("pouring.flow",          f[8].flow,        flowUp ? round1(p.pourFlow * 2) : 0.0);
+        want("pouring.limiter",       f[8].maxFlowOrPressure, p.pourPressure);
+
+        QVERIFY2(wrong.isEmpty(),
+                 qPrintable(QStringLiteral("rd=%1 fu=%2 sf=%3:\n  %4")
+                            .arg(rampDown).arg(flowUp).arg(secondFill)
+                            .arg(wrong.join(QStringLiteral("\n  ")))));
+    }
+
+    void aflowGenerationLeavesUnwrittenFieldsAlone_data() { aflowFixturesAreTheNineFrameOnes_data(); }
+
+    void aflowGenerationLeavesUnwrittenFieldsAlone() {
+        // Task 4.5, and the highest-yield check in the change: update_A-Flow
+        // mutates in place, so every field it does not name survives. Generation
+        // is fed prep's CORRECT parameters here, so anything that still differs
+        // is generation writing a field the plugin leaves alone — not a
+        // consequence of the extraction findings.
+        QFETCH(QString, file);
+        const Profile source = loadAFlow(file);
+        const AFlowRoles r(source.steps());
+        const RecipeParams p = paramsFromPrep(AFlowExpected::fromFrames(r, 9));
+
+        const QList<ProfileFrame> got = RecipeGenerator::generateFrames(p);
+        QCOMPARE(got.size(), source.steps().size());
+
+        const QStringList divergences = frameDivergences(source.steps(), got);
+
+        // FINDING AF-6 — filling(seconds) is written from `fillTimeout`, a
+        // parameter A-Flow does not have. prep never reads filling(seconds) and
+        // update_A-Flow never writes it, so the plugin preserves the profile's
+        // own 15 s. Decenza writes fillTimeout, which here is RecipeParams'
+        // default of 25.
+        //
+        // Worth reading alongside AF-5: through the real app path the same field
+        // instead becomes 1 s, because RecipeAnalyzer reads it off the Pre Fill
+        // frame. Two different wrong values for one field — 25 from generation,
+        // 1 from extraction — which is why they are separate findings and why
+        // testing generation with prep-correct params was necessary to see this
+        // one at all.
+        if (!divergences.isEmpty())
+            QEXPECT_FAIL("", qPrintable(QStringLiteral("AF-6: %1")
+                                        .arg(divergences.join(QStringLiteral("; ")))), Continue);
+        QVERIFY2(divergences.isEmpty(),
+                 qPrintable(QStringLiteral("%1: generation alters fields update_A-Flow "
+                                           "never writes (params are prep-correct, so this "
+                                           "is NOT an extraction artefact):\n  %2")
                             .arg(file, divergences.join(QStringLiteral("\n  ")))));
     }
 };
