@@ -24,3 +24,21 @@ updates:
     directory: "/.github/actions/setup-compiler-cache"
     schedule:
       interval: "daily"
+
+  # obsidian-plugin/ is the repo's only npm manifest, and nothing here watched
+  # it until an esbuild advisory (arbitrary file read via the dev server on
+  # Windows, low) surfaced as a Dependabot *alert* with no PR behind it. Alerts
+  # do not open pull requests — they sit in the Security tab until someone
+  # looks. Only an entry here, or the repo's separate security-updates toggle,
+  # produces one.
+  #
+  # Same rule as the composite actions above: `directory` names the folder
+  # holding the manifest, and there is no glob. A second npm package would need
+  # its own entry.
+  #
+  # Weekly rather than daily: this is build-only tooling for a plugin that
+  # changes rarely, so a daily cadence would be noise without being safer.
+  - package-ecosystem: "npm"
+    directory: "/obsidian-plugin"
+    schedule:
+      interval: "weekly"
