@@ -1134,24 +1134,7 @@ bool Profile::saveToFile(const QString& filePath) const {
     // reaprime hard-rejects a profile missing tank_temperature /
     // target_volume_count_start or carrying an empty steps array.
     //
-    // This warns and still saves, deliberately. A profile that fails here is OUR
-    // serializer's bug, not the user's mistake — refusing the write would destroy
-    // their work to punish our defect, and they would have no way to fix it. The
-    // warning names the exact failures so it is actionable from the debug log
-    // (which is how field reports reach us), while their profile stays safe.
-    //
-    // Contrast the import direction, which DOES refuse: there the input is
-    // someone else's file and we cannot promise the shot. Here the shot is
-    // already correct locally; only its portability is in question.
-    const QStringList contractErrors = reaprimeReadabilityErrors(canonical);
-    if (!contractErrors.isEmpty()) {
-        qWarning().noquote()
-            << "Profile::saveToFile: SAVED, but this profile is not readable by "
-               "other DE1 apps (reaprime) —" << contractErrors.join(QStringLiteral("; "))
-            << "| profile:" << m_title << "| file:" << filePath
-            << "| This is a Decenza serializer bug, not a problem with your profile. "
-               "Please report it; the profile itself is saved and usable here.";
-    }
+    warnIfNotPortable(canonical, m_title, QStringLiteral("saveToFile"), filePath);
 
     QByteArray data = QJsonDocument(canonical).toJson(QJsonDocument::Indented);
     qint64 bytesWritten = file.write(data);
@@ -1176,8 +1159,46 @@ Profile Profile::loadFromJsonString(const QString& jsonContent) {
     return fromJson(doc);
 }
 
+// The cross-app contract, checked on the real output rather than only in tests.
+// Every profile we write is one a user may hand to another app, and reaprime
+// hard-rejects a profile missing tank_temperature / target_volume_count_start or
+// carrying an empty steps array.
+//
+// This warns and still writes, deliberately. A profile that fails here is OUR
+// serializer's bug, not the user's mistake — refusing the write would destroy
+// their work to punish our defect, and they would have no way to fix it. The
+// warning names the exact failures so it is actionable from the debug log (which
+// is how field reports reach us), while their profile stays safe.
+//
+// Contrast the import direction, which DOES refuse: there the input is someone
+// else's file and we cannot promise the shot. Here the shot is already correct
+// locally; only its portability is in question.
+//
+// Shared by both write paths on purpose. It lived only in saveToFile(), so the
+// toJsonString() route — which is every write on Android, where ProfileStorage
+// writes through the SAF folder rather than QFile — produced no diagnostic at
+// all. Same serializer, same contract, same bug class; only the platform decided
+// whether anyone found out.
+void Profile::warnIfNotPortable(const QJsonObject& canonical, const QString& title,
+                                const QString& context, const QString& target)
+{
+    const QStringList contractErrors = reaprimeReadabilityErrors(canonical);
+    if (contractErrors.isEmpty())
+        return;
+    qWarning().noquote()
+        << QStringLiteral("Profile::%1: SAVED, but this profile is not readable by "
+                          "other DE1 apps (reaprime) —").arg(context)
+        << contractErrors.join(QStringLiteral("; "))
+        << "| profile:" << title
+        << (target.isEmpty() ? QString() : QStringLiteral("| file: %1").arg(target))
+        << "| This is a Decenza serializer bug, not a problem with your profile. "
+           "Please report it; the profile itself is saved and usable here.";
+}
+
 QString Profile::toJsonString() const {
-    return QString::fromUtf8(toJson().toJson(QJsonDocument::Indented));
+    const QJsonObject canonical = toJsonObject();
+    warnIfNotPortable(canonical, m_title, QStringLiteral("toJsonString"), QString());
+    return QString::fromUtf8(QJsonDocument(canonical).toJson(QJsonDocument::Indented));
 }
 
 Profile Profile::loadFromTclFile(const QString& filePath) {

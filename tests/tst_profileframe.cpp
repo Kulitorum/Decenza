@@ -583,6 +583,75 @@ private slots:
         ProfileFrame parsed = ProfileFrame::fromTclList(tcl);
         QCOMPARE(parsed.popup, QString("$weight"));
     }
+
+    // A key nested inside `exit` that we do not read is the one place a step could
+    // carry an unrecognised setting and pass in silence: knownJsonKeys() lists
+    // `exit` as a whole key, so unknownJsonKeys() never looks inside it.
+    //
+    // Asserting the WARNING, not a refusal, is the deliberate contract — we still
+    // load the profile. The test exists so the diagnostic cannot be dropped by
+    // someone widening the read-set without noticing they also removed the only
+    // signal we would ever get from the field.
+    void unmodelledNestedExitKeyWarns() {
+        QJsonObject exitObj{{"type", "pressure"}, {"value", 4.0},
+                            {"condition", "over"}, {"tolerance", 0.5}};
+        QJsonObject json{{"name", "preinfusion"}, {"pump", "flow"},
+                         {"temperature", 92.0}, {"seconds", 10.0},
+                         {"exit", exitObj}};
+
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression(QStringLiteral("'exit' object .* tolerance")));
+        ProfileFrame parsed = ProfileFrame::fromJson(json);
+
+        // Still parsed, and the parts we DO understand are intact.
+        QCOMPARE(parsed.name, QString("preinfusion"));
+        QVERIFY(parsed.exitIf);
+        QCOMPARE(parsed.exitType, QString("pressure_over"));
+        QCOMPARE(parsed.exitPressureOver, 4.0);
+    }
+
+    // Same guarantee for the limiter object, which has its own read-set.
+    void unmodelledNestedLimiterKeyWarns() {
+        QJsonObject limiterObj{{"value", 6.0}, {"range", 0.6}, {"curve", "linear"}};
+        QJsonObject json{{"name", "hold"}, {"seconds", 20.0}, {"limiter", limiterObj}};
+
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression(QStringLiteral("'limiter' object .* curve")));
+        ProfileFrame parsed = ProfileFrame::fromJson(json);
+
+        QCOMPARE(parsed.maxFlowOrPressure, 6.0);
+        QCOMPARE(parsed.maxFlowOrPressureRange, 0.6);
+    }
+
+    // The vocabulary cases already warned, but said only what happened, not what it
+    // costs. A dropped exit means the frame runs its full duration — the difference
+    // between a 25-second pour and one that should have cut at 4 bar. Pinning the
+    // behaviour (exit disabled, profile still loaded) keeps the substitution from
+    // quietly becoming something else.
+    void unrecognisedExitTypeDropsExitAndWarns() {
+        QJsonObject exitObj{{"type", "conductivity"}, {"value", 3.0}};
+        QJsonObject json{{"name", "pour"}, {"seconds", 25.0}, {"exit", exitObj}};
+
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression(QStringLiteral("exit type 'conductivity'")));
+        ProfileFrame parsed = ProfileFrame::fromJson(json);
+
+        QVERIFY(!parsed.exitIf);
+        QCOMPARE(parsed.seconds, 25.0);
+    }
+
+    void unrecognisedExitConditionFallsBackToOverAndWarns() {
+        QJsonObject exitObj{{"type", "flow"}, {"value", 2.0}, {"condition", "equals"}};
+        QJsonObject json{{"name", "pour"}, {"seconds", 25.0}, {"exit", exitObj}};
+
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression(QStringLiteral("exit condition 'equals'")));
+        ProfileFrame parsed = ProfileFrame::fromJson(json);
+
+        QVERIFY(parsed.exitIf);
+        QCOMPARE(parsed.exitType, QString("flow_over"));
+        QCOMPARE(parsed.exitFlowOver, 2.0);
+    }
 };
 
 QTEST_GUILESS_MAIN(tst_ProfileFrame)

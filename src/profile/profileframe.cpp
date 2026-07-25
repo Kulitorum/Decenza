@@ -116,6 +116,48 @@ QStringList ProfileFrame::unknownJsonKeys(const QJsonObject& json) {
     return unknown;
 }
 
+namespace {
+
+// Report a key nested inside `exit`/`limiter` that this build does not read.
+//
+// knownJsonKeys() lists `exit` and `limiter` as whole keys, so unknownJsonKeys()
+// sees them as understood and never looks inside. That made their contents the one
+// place a step could carry something unrecognised and pass silently — an
+// `exit: {type, value, condition, tolerance}` from a future app version would drop
+// `tolerance` with nothing said anywhere.
+//
+// Warns rather than invalidating, deliberately. Refusing would be the consistent
+// choice with an unknown top-level step key, but nothing in any profile we have
+// examined — 93 shipped, 93 golden, 96 reaprime, 371 exit objects — carries such a
+// key, so a refusal path here would be written blind and would first execute on a
+// user's machine. A warning turns the case from invisible into diagnosable in the
+// field, which is what decides whether it is worth building the refusal at all.
+//
+// Phrased for whoever reads the log — often a user's own AI over MCP — so it names
+// the consequence and the remedy rather than only the fact.
+void warnUnmodelledNestedKeys(const QJsonObject& nested, const char* which,
+                              const QSet<QString>& read)
+{
+    QStringList unmodelled;
+    for (auto it = nested.constBegin(); it != nested.constEnd(); ++it) {
+        if (!read.contains(it.key()))
+            unmodelled << it.key();
+    }
+    if (unmodelled.isEmpty())
+        return;
+    unmodelled.sort();
+    qWarning().noquote()
+        << QStringLiteral("ProfileFrame::fromJson: the '%1' object in this step carries "
+                          "setting(s) this build does not read: %2. They are being IGNORED, "
+                          "so this frame may brew differently than the profile describes. "
+                          "The profile was still loaded. Please report this with the profile "
+                          "attached — it means another app writes a frame setting Decenza "
+                          "does not implement yet.")
+               .arg(QLatin1String(which), unmodelled.join(QStringLiteral(", ")));
+}
+
+}  // namespace
+
 ProfileFrame ProfileFrame::fromJson(const QJsonObject& json) {
     ProfileFrame frame;
     frame.name = json["name"].toString();
@@ -131,6 +173,10 @@ ProfileFrame ProfileFrame::fromJson(const QJsonObject& json) {
     // Exit conditions: try de1app nested object first, fall back to flat fields
     QJsonObject exitObj = json["exit"].toObject();
     if (!exitObj.isEmpty()) {
+        static const QSet<QString> exitRead = {QStringLiteral("type"),
+                                               QStringLiteral("value"),
+                                               QStringLiteral("condition")};
+        warnUnmodelledNestedKeys(exitObj, "exit", exitRead);
         frame.exitIf = true;
         QString exitType = exitObj["type"].toString();
         double exitValue = jsonToDouble(exitObj["value"]);
@@ -144,8 +190,13 @@ ProfileFrame ProfileFrame::fromJson(const QJsonObject& json) {
                 frame.exitType = "pressure_under";
                 frame.exitPressureUnder = exitValue;
             } else {
-                qWarning() << "ProfileFrame::fromJson: unrecognized exit condition"
-                           << exitCondition << "for type" << exitType << "- defaulting to over";
+                qWarning().noquote()
+                    << QStringLiteral("ProfileFrame::fromJson: exit condition '%1' (type '%2') is "
+                                      "not one this build understands, so it is being treated as "
+                                      "'over'. If the profile meant 'under', this frame will exit "
+                                      "on the WRONG side of its threshold — ending early or not at "
+                                      "all. The profile was still loaded. Please report this.")
+                           .arg(exitCondition, exitType);
                 frame.exitType = "pressure_over";
                 frame.exitPressureOver = exitValue;
             }
@@ -157,8 +208,13 @@ ProfileFrame ProfileFrame::fromJson(const QJsonObject& json) {
                 frame.exitType = "flow_under";
                 frame.exitFlowUnder = exitValue;
             } else {
-                qWarning() << "ProfileFrame::fromJson: unrecognized exit condition"
-                           << exitCondition << "for type" << exitType << "- defaulting to over";
+                qWarning().noquote()
+                    << QStringLiteral("ProfileFrame::fromJson: exit condition '%1' (type '%2') is "
+                                      "not one this build understands, so it is being treated as "
+                                      "'over'. If the profile meant 'under', this frame will exit "
+                                      "on the WRONG side of its threshold — ending early or not at "
+                                      "all. The profile was still loaded. Please report this.")
+                           .arg(exitCondition, exitType);
                 frame.exitType = "flow_over";
                 frame.exitFlowOver = exitValue;
             }
@@ -166,7 +222,13 @@ ProfileFrame ProfileFrame::fromJson(const QJsonObject& json) {
             frame.exitType = "weight";
             frame.exitWeight = exitValue;
         } else {
-            qWarning() << "ProfileFrame::fromJson: unrecognized exit type" << exitType << "- ignoring exit condition";
+            qWarning().noquote()
+                << QStringLiteral("ProfileFrame::fromJson: exit type '%1' is not one this build "
+                                  "understands (expected pressure, flow or weight), so this "
+                                  "frame's exit condition is being DROPPED — it will run its full "
+                                  "duration instead of ending early. The profile was still loaded. "
+                                  "Please report this with the profile attached.")
+                       .arg(exitType);
             frame.exitIf = false;
         }
     } else {
@@ -177,8 +239,13 @@ ProfileFrame ProfileFrame::fromJson(const QJsonObject& json) {
             && frame.exitType != "pressure_over" && frame.exitType != "pressure_under"
             && frame.exitType != "flow_over" && frame.exitType != "flow_under"
             && frame.exitType != "weight") {
-            qWarning() << "ProfileFrame::fromJson: unrecognized legacy exit_type"
-                       << frame.exitType << "- disabling exit condition";
+            qWarning().noquote()
+                << QStringLiteral("ProfileFrame::fromJson: legacy exit_type '%1' is not one this "
+                                  "build understands, so this frame's exit condition is being "
+                                  "DROPPED — it will run its full duration instead of ending "
+                                  "early. The profile was still loaded. Please report this with "
+                                  "the profile attached.")
+                       .arg(frame.exitType);
             frame.exitIf = false;
             frame.exitType.clear();
         }
@@ -202,6 +269,9 @@ ProfileFrame ProfileFrame::fromJson(const QJsonObject& json) {
     // Limiter: try de1app nested object first, fall back to flat fields
     QJsonObject limiterObj = json["limiter"].toObject();
     if (!limiterObj.isEmpty()) {
+        static const QSet<QString> limiterRead = {QStringLiteral("value"),
+                                                  QStringLiteral("range")};
+        warnUnmodelledNestedKeys(limiterObj, "limiter", limiterRead);
         frame.maxFlowOrPressure = jsonToDouble(limiterObj["value"], 0.0);
         frame.maxFlowOrPressureRange = jsonToDouble(limiterObj["range"], 0.6);
     } else {

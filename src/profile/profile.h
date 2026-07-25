@@ -359,6 +359,14 @@ private:
     // that carry their frames implicitly. const-safe (no mutation of m_steps).
     QVector<ProfileFrame> materializedSteps() const;
 
+    // Log a portability failure without blocking the write. Called by BOTH write
+    // paths — saveToFile() and toJsonString() — because the latter is every write
+    // on Android and previously produced no diagnostic. `target` may be empty when
+    // the caller has no file path to name. See the definition for why this warns
+    // rather than refuses.
+    static void warnIfNotPortable(const QJsonObject& canonical, const QString& title,
+                                  const QString& context, const QString& target);
+
     // Metadata
     QString m_title = "Default";
     QString m_author;
