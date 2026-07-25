@@ -140,7 +140,14 @@ Pour is always flow-driven with a pressure limit (matching de1app D-Flow/A-Flow 
 
 **Metadata-only optimization**: When only non-frame-affecting params change (`targetWeight`, `targetVolume`, `dose`), frame regeneration is skipped entirely. This matches de1app where changing `final_desired_shot_weight` doesn't call `update_D-Flow` / `update_A-Flow`. Implemented in `MainController::uploadRecipeProfile()` via `RecipeParams::frameAffectingFieldsEqual()`.
 
-**Preinfuse frame count**: The BLE header's `NumberOfPreinfuseFrames` byte tells the DE1 firmware where preinfusion ends and extraction begins, affecting PID tuning. De1app stores this as `final_desired_shot_volume_advanced_count_start` in the profile TCL and never recomputes it — D-Flow and A-Flow templates both set it to 2. **D-Flow/A-Flow preinfuse frame count must NOT be recalculated** — it is always preserved from the loaded profile or from the editor defaults for new profiles. This is intentional: de1app's `update_D-Flow` and `update_A-Flow` never touch this value, and Decenza must match that behavior. The generic `countPreinfuseFrames()` algorithm (count consecutive leading `exitIf=true` frames) is only used as a fallback for simple Pressure/Flow profiles.
+**Preinfuse frame count**: The BLE header's `NumberOfPreinfuseFrames` byte tells the DE1 firmware where preinfusion ends and extraction begins, affecting PID tuning. De1app stores this as `final_desired_shot_volume_advanced_count_start` in the profile TCL.
+
+**Whether de1app recomputes it depends on the profile type** — the same split as the `_advanced` fields below:
+
+- **Advanced (`settings_2c`/`2c2`, which is what D-Flow and A-Flow emit)**: preserved as stored, never recomputed. Templates set it to 2. **D-Flow/A-Flow preinfuse frame count must NOT be recalculated** — it is always preserved from the loaded profile or from the editor defaults for new profiles. This is intentional: de1app's `update_D-Flow` and `update_A-Flow` never touch this value, and Decenza must match that behavior.
+- **Simple (`settings_2a`/`2b`)**: **recomputed from the generated frames.** `pressure_to_advanced_list` and `flow_to_advanced_list` reset it to 0 (`profile.tcl:17`, `:212`) and `incr` it once per preinfusion frame they append (`:56`, `:79`, `:251`, `:274`). The value stored in the file is discarded, exactly like the stored `advanced_shot`. Decenza's `countPreinfuseFrames()` (count consecutive leading `exitIf=true` frames) is the counterpart, and is the correct behaviour here rather than a fallback.
+
+A comparison that reads the file's `count_start` for a simple profile is reading a value de1app throws away, and will report drift on every such profile.
 
 ### D-Flow Frames
 
@@ -662,8 +669,8 @@ scalars for every simple profile, matching `pressure_to_advanced_list` /
 profiles — de1app resets it to 0 and `incr`s it per generated preinfusion frame
 (`:17/56/79`, `:212/251/274`) — and only read from the file for advanced profiles, where
 de1app does not recompute it and D-Flow/A-Flow depend on the authored number.
-de1app regenerates the frames from the simple scalars on load and never reads the stored
-array. A simple profile's `.tcl` can therefore carry frames that contradict its own
+
+A simple profile's `.tcl` can therefore carry frames that contradict its own
 scalars, and de1app will run the scalars. `Steam_only.tcl` is exactly this: it stores
 frames at 82/80/72 °C while `espresso_temperature` is `0`, and de1app brews the `0`.
 Anything that reads those stored frames — a comparison tool, or a sync that copies them
