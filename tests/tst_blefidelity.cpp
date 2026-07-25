@@ -321,9 +321,17 @@ private slots:
                  qPrintable(QString("Tail FrameToWrite=%1 expected=%2 in %3")
                             .arg(uint8_t(tail[0])).arg(p.steps().size()).arg(fileName)));
 
-        // Bytes 1-2: MaxTotalVol = U10P0(0) = 0x0400
+        // Bytes 1-2: MaxTotalVolume = 0x0000, NOT encodeU10P0(0) = 0x0400.
+        //
+        // This assertion used to expect 0x0400 and so pinned finding WIRE-1: the
+        // bit-10 marker encodeU10P0 ORs in belongs on the per-frame MaxVol, not
+        // on the tail. de1app sets `tail(MaxTotalVolume) 0` literally
+        // (binary.tcl:1001) and packs the low ten bits. Its comment on that field
+        // — "Unused. Use highest bit to enable / disable preinfusion tracking" —
+        // is why this is not cosmetic: Decenza was asserting a firmware flag on
+        // every profile that de1app never sets.
         uint16_t tailVol = (uint8_t(tail[1]) << 8) | uint8_t(tail[2]);
-        QCOMPARE(tailVol, BinaryCodec::encodeU10P0(0));
+        QCOMPARE(tailVol, uint16_t(0));
 
         // Bytes 3-7: padding (all zeros)
         for (int b = 3; b < 8; ++b) {

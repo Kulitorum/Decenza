@@ -383,8 +383,16 @@ private slots:
         QFETCH(QString, file);
         const Profile source = loadDFlow(file);
 
-        const RecipeParams params = RecipeAnalyzer::extractRecipeParams(source);
-        const QList<ProfileFrame> regenerated = RecipeGenerator::generateFrames(params);
+        // Through regenerateFromRecipe, not generateFrames. The plugins mutate
+        // frames in place; a generator that builds from constants cannot express
+        // that on its own, and restoreFieldsThePluginNeverWrites is the layer
+        // that does. Testing below it measures a component the app never calls
+        // alone — which is exactly how DF-1/DF-2/DF-5 read as generator bugs when
+        // what they actually were is a missing preservation step.
+        Profile regen = source;
+        regen.setRecipeParams(RecipeAnalyzer::extractRecipeParams(source));
+        regen.regenerateFromRecipe();
+        const QList<ProfileFrame> regenerated = regen.steps();
         QCOMPARE(regenerated.size(), source.steps().size());
 
         const QStringList divergences = frameDivergences(source.steps(), regenerated);
@@ -426,34 +434,38 @@ private slots:
         // shipped values are authored, and the derived rule is the fallback for
         // when the user changes soak pressure. de1app makes the same change on
         // first edit, and that is accepted upstream behaviour.
-        static const QList<QPair<int, QString>> knownDivergentFields = {
-            {0, QStringLiteral("volume")},            // DF-1
-            {0, QStringLiteral("exitWeight")},        // DF-2
-            {0, QStringLiteral("exitPressureOver")},  // DF-3 (upstream)
-            {1, QStringLiteral("exitPressureOver")},  // DF-4
-            {2, QStringLiteral("volume")},            // DF-5
-        };
+        // DF-1, DF-2, DF-4 and DF-5 are repaired: the fields they overwrote are
+        // ones update_D-Flow never assigns, so they now survive.
+        //
+        // DF-3 remains, and it is NOT a Decenza defect — which is why it is
+        // allowed here by name rather than fixed. update_D-Flow DOES write
+        // filling(exit_pressure_over), deriving it from the soak pressure, so
+        // preservation must not cover it. Two stock profiles ship an authored
+        // value that rule would not produce (default 1.5 vs 2.1, Q 3.0 vs 3.6);
+        // La Pavoni matches exactly, which is what shows the transcription right
+        // rather than wrong in three places. de1app makes the identical change on
+        // the user's first edit, so matching it IS parity.
+        static const QPair<int, QString> kDf3 = {0, QStringLiteral("exitPressureOver")};
 
         QStringList unexpected;
         for (const QString& d : divergences) {
             // `<index> <name> <field>: before -> after`
             const int idx = d.section(QLatin1Char(' '), 0, 0).toInt();
             const QString field = d.section(QLatin1Char(':'), 0, 0).section(QLatin1Char(' '), -1);
-            if (!knownDivergentFields.contains({idx, field})) unexpected << d;
+            if (QPair<int, QString>{idx, field} != kDf3) unexpected << d;
         }
 
         QVERIFY2(unexpected.isEmpty(),
-                 qPrintable(QStringLiteral("%1: unrecorded divergence(s):\n  %2")
+                 qPrintable(QStringLiteral("%1 is not a round-trip fixed point:\n  %2")
                             .arg(file, unexpected.join(QStringLiteral("\n  ")))));
 
-        // The known ones still have to fail, or the gate would quietly claim
-        // parity Decenza does not have (design D7).
-        if (!divergences.isEmpty())
-            QEXPECT_FAIL("", qPrintable(QStringLiteral("DF-1..DF-5: %1")
-                                        .arg(divergences.join(QStringLiteral("; ")))), Continue);
-        QVERIFY2(divergences.isEmpty(),
-                 qPrintable(QStringLiteral("%1 is not a round-trip fixed point:\n  %2")
-                            .arg(file, divergences.join(QStringLiteral("\n  ")))));
+        // La Pavoni's authored value already equals the derived one, so it must
+        // be a fixed point outright. If this ever starts diverging, the derived
+        // rule has drifted and the DF-3 allowance above would hide it.
+        if (file.contains(QStringLiteral("La_Pavoni")))
+            QVERIFY2(divergences.isEmpty(),
+                     qPrintable(QStringLiteral("La Pavoni must be an exact fixed point:\n  %1")
+                                .arg(divergences.join(QStringLiteral("\n  ")))));
     }
 
     // ==================================================================
@@ -472,8 +484,10 @@ private slots:
         const Profile source = loadDFlow("D-Flow____La_Pavoni.tcl");
         const ProfileFrame& sourceFill = source.steps()[0];
 
-        const RecipeParams params = RecipeAnalyzer::extractRecipeParams(source);
-        const ProfileFrame regenFill = RecipeGenerator::generateFrames(params)[0];
+        Profile regen = source;
+        regen.setRecipeParams(RecipeAnalyzer::extractRecipeParams(source));
+        regen.regenerateFromRecipe();
+        const ProfileFrame regenFill = regen.steps()[0];
 
         QVERIFY2(qAbs(sourceFill.seconds - regenFill.seconds) < 0.05,
                  qPrintable(QStringLiteral("filling(seconds) rewritten %1 -> %2; "
@@ -483,21 +497,20 @@ private slots:
                  qPrintable(QStringLiteral("filling(flow) rewritten %1 -> %2; "
                                            "update_D-Flow never writes this field")
                             .arg(sourceFill.flow).arg(regenFill.flow)));
-        // FINDING DF-1 — filling(volume) forced to a constant 100. The plugin
-        // preserves whatever the profile carried; Q and La Pavoni both ship 60.
-        QEXPECT_FAIL("", "DF-1: createFillFrame hardcodes volume = 100", Continue);
+        // DF-1, repaired. filling(volume) was forced to a constant 100 — which
+        // is not a wrong constant, it is `D-Flow / default`'s own value, correct
+        // for a profile created from scratch and wrong for every existing one.
+        // Q and La Pavoni both ship 60. It reaches the machine as MaxVol, and the
+        // firmware exits the frame on it, so this moved a real cap.
         QVERIFY2(qAbs(sourceFill.volume - regenFill.volume) < 0.05,
                  qPrintable(QStringLiteral("filling(volume) rewritten %1 -> %2")
                             .arg(sourceFill.volume).arg(regenFill.volume)));
 
-        // FINDING DF-2 — filling(weight) forced to 5 g, and this one is
-        // shot-affecting. createFillFrame hardcodes exitWeight = 5.0, commented
-        // "matches de1app default: weight 5.00" — which generalises a value that
-        // is only D-Flow / default's. Q and La Pavoni both ship weight 0.00,
-        // meaning NO weight exit, and update_D-Flow never writes the field. So
-        // Decenza imposes a 5 g app-side exit on a fill step whose author asked
-        // for none, cutting the fill short.
-        QEXPECT_FAIL("", "DF-2: createFillFrame hardcodes exitWeight = 5.0", Continue);
+        // DF-2, repaired — the shot-affecting one. exitWeight was hardcoded to
+        // 5.0, commented "matches de1app default: weight 5.00", generalising a
+        // value that is only `D-Flow / default`'s. Q and La Pavoni ship weight
+        // 0.00 — NO weight exit — so Decenza was imposing a 5 g app-side exit on
+        // a fill step whose author asked for none, cutting the fill short.
         QVERIFY2(qAbs(sourceFill.exitWeight - regenFill.exitWeight) < 0.05,
                  qPrintable(QStringLiteral("filling(weight) rewritten %1 -> %2")
                             .arg(sourceFill.exitWeight).arg(regenFill.exitWeight)));
@@ -626,21 +639,22 @@ private slots:
         QFETCH(QString, file);
         const Profile source = loadAFlow(file);
 
-        RecipeParams params = RecipeAnalyzer::extractRecipeParams(source);
-        params.editorType = EditorType::AFlow;   // carried by the title, per D2
-        const QList<ProfileFrame> regenerated = RecipeGenerator::generateFrames(params);
+        // The real save path — see the D-Flow round-trip above for why
+        // generateFrames alone cannot express the plugins' in-place semantics.
+        Profile regen = source;
+        regen.setRecipeParams(RecipeAnalyzer::extractRecipeParams(source));
+        regen.regenerateFromRecipe();
+        const QList<ProfileFrame> regenerated = regen.steps();
 
         QVERIFY2(regenerated.size() == source.steps().size(),
                  qPrintable(QStringLiteral("%1: frame count %2 -> %3")
                             .arg(file).arg(source.steps().size()).arg(regenerated.size())));
 
         const QStringList divergences = frameDivergences(source.steps(), regenerated);
-        // FINDINGS AF-1..AF-5. Not one profile survives a no-op save. The flow
-        // errors COMPOUND — pourFlow is read from the already-doubled extraction
-        // frame and written back doubled again, so each save doubles it afresh.
-        if (!divergences.isEmpty())
-            QEXPECT_FAIL("", qPrintable(QStringLiteral("AF-1..AF-5: %1")
-                                        .arg(divergences.join(QStringLiteral("; ")))), Continue);
+        // AF-1..AF-5, repaired. Not one of the five profiles used to survive a
+        // no-op save, and the flow error COMPOUNDED — pourFlow was read from the
+        // already-doubled extraction frame and written back doubled again, so
+        // every save doubled it afresh.
         QVERIFY2(divergences.isEmpty(),
                  qPrintable(QStringLiteral("%1 is not a round-trip fixed point:\n  %2")
                             .arg(file, divergences.join(QStringLiteral("\n  ")))));
@@ -950,14 +964,9 @@ private slots:
             wrong << QStringLiteral("secondFillEnabled: got true, prep gives false "
                                     "(no pause frame exists in a 6-frame layout)");
 
-        if (!wrong.isEmpty())
-            // AF-1 again, not a new finding: pourFlow still read from the
-            // extraction frame. Note what does NOT appear here — AF-5 is absent,
-            // because the legacy layout has no Pre Fill frame for fillIndex = 0
-            // to land on. Decenza is accidentally MORE correct on the old layout,
-            // which is what you would expect from a 3-frame analyzer.
-            QEXPECT_FAIL("", qPrintable(QStringLiteral("AF-1 (legacy path): %1")
-                                        .arg(wrong.join(QStringLiteral("; ")))), Continue);
+        // AF-1 on the legacy layout, repaired with the rest — set_profile_index
+        // resolves pouring_start to f[4] here rather than f[7], and prep reads
+        // the flow from it either way.
         QVERIFY2(wrong.isEmpty(),
                  qPrintable(QStringLiteral("legacy 6-frame extraction disagrees with prep:\n  %1")
                             .arg(wrong.join(QStringLiteral("\n  ")))));
@@ -1170,21 +1179,23 @@ private slots:
 
         const QStringList divergences = frameDivergences(before, p.steps());
 
-        // Only the fields regenerateFromRecipe does NOT restore can survive
-        // here. If volume/exitWeight appear, the #331 restore has regressed.
-        for (const QString& d : divergences) {
-            QVERIFY2(!d.contains(QStringLiteral(" volume:")) &&
-                     !d.contains(QStringLiteral(" exitWeight:")),
-                     qPrintable(QStringLiteral("%1: the #331 passthrough restore no longer "
-                                               "covers this: %2").arg(file, d)));
-        }
+        // The #331 passthrough restore that used to sit here covered volume and
+        // exitWeight by frame-name match, and nothing else — so DF-4's
+        // soaking(exit_pressure_over) went straight through it. It is now
+        // restoreFieldsThePluginNeverWrites, which restores by ROLE every field
+        // the matching update_* proc does not assign.
+        //
+        // filling(exit_pressure_over) is the one field that legitimately moves:
+        // update_D-Flow derives it from the soak pressure, de1app rewrites it on
+        // the user's first edit too, and two stock profiles ship an authored
+        // value the rule does not reproduce. See dflowRoundTripIsAFixedPoint.
+        QStringList unexpected;
+        for (const QString& d : divergences)
+            if (!d.contains(QStringLiteral("Filling exitPressureOver"))) unexpected << d;
 
-        if (!divergences.isEmpty())
-            QEXPECT_FAIL("", qPrintable(QStringLiteral("only DF-3/DF-4 survive the #331 restore: %1")
-                                        .arg(divergences.join(QStringLiteral("; ")))), Continue);
-        QVERIFY2(divergences.isEmpty(),
+        QVERIFY2(unexpected.isEmpty(),
                  qPrintable(QStringLiteral("%1 not a fixed point through the REAL save path:\n  %2")
-                            .arg(file, divergences.join(QStringLiteral("\n  ")))));
+                            .arg(file, unexpected.join(QStringLiteral("\n  ")))));
     }
 
     void realSavePathAFlow_data() { aflowFixturesAreTheNineFrameOnes_data(); }
@@ -1198,9 +1209,6 @@ private slots:
         p.regenerateFromRecipe();
 
         const QStringList divergences = frameDivergences(before, p.steps());
-        if (!divergences.isEmpty())
-            QEXPECT_FAIL("", qPrintable(QStringLiteral("ARTEFACT (editorType not fixed up) + AF-1..AF-6: %1")
-                                        .arg(divergences.join(QStringLiteral("; ")))), Continue);
         QVERIFY2(divergences.isEmpty(),
                  qPrintable(QStringLiteral("%1 not a fixed point through the REAL save path:\n  %2")
                             .arg(file, divergences.join(QStringLiteral("\n  ")))));
@@ -1270,20 +1278,16 @@ private slots:
                 diff << QStringLiteral("  line %1:  decenza[%2]  de1app[%3]").arg(i).arg(g, w);
         }
 
-        // FINDING WIRE-1 — the tail frame's MaxTotalVolume, and nothing else.
-        // Decenza encodes it with encodeU10P0(0), which ORs in the bit-10 marker
-        // (0x0400). de1app packs tail(MaxTotalVolume) through
-        // convert_bottom_10_of_U10P0, which MASKS to the low ten bits (0x0000).
-        // The asymmetry is de1app's own: it sets the marker on per-frame MaxVol
-        // (verified — frames carry 0x0464 for volume 100) and clears it on the
-        // tail. Decenza applies the frame rule to both.
+        // WIRE-1, repaired. The tail frame's MaxTotalVolume went through
+        // encodeU10P0(0), which ORs in the bit-10 marker (0x0400); de1app sets
+        // `tail(MaxTotalVolume) 0` literally and packs the low ten bits, sending
+        // 0x0000. The asymmetry is de1app's own — it keeps the marker on
+        // per-frame MaxVol (frames carry 0x0464 for volume 100) and clears it on
+        // the tail — and Decenza applied the frame rule to both.
         //
-        // Every other byte of every frame, every extension frame and the header
-        // is identical across all eight stock profiles.
-        if (!diff.isEmpty())
-            QEXPECT_FAIL("", qPrintable(QStringLiteral("WIRE-1 (%1 line): %2")
-                                        .arg(diff.size()).arg(diff.join(QStringLiteral(" | ")))),
-                         Continue);
+        // Not padding: de1app's comment on that field reads "Unused. Use highest
+        // bit to enable / disable preinfusion tracking", so bit 10 is a flag the
+        // firmware may act on and Decenza was asserting it on every profile.
         QVERIFY2(diff.isEmpty(),
                  qPrintable(QStringLiteral("%1: packed bytes differ from de1app:\n%2")
                             .arg(golden, diff.join(QStringLiteral("\n")))));
@@ -1334,19 +1338,8 @@ private slots:
             for (qsizetype i = 0; i < qMax(got.size(), want.size()); ++i) {
                 const QString g = i < got.size()  ? got[i]  : QStringLiteral("<missing>");
                 const QString w = i < want.size() ? want[i] : QStringLiteral("<missing>");
-                // WIRE-1 is the known tail difference — byte 1 carries 0x04
-                // (the U10P0 marker) where de1app masks it to 0x00. It appears
-                // on every profile, so filter it here rather than let one known
-                // one-liner bury any genuine quantisation divergence.
-                const QString hg = g.section(QLatin1Char(' '), 1);
-                const QString hw = w.section(QLatin1Char(' '), 1);
-                const bool isWire1 = i == got.size() - 1 && i == want.size() - 1
-                                  && hg.size() == 16 && hw.size() == 16
-                                  && hg.mid(2, 2) == QStringLiteral("04")
-                                  && hw.mid(2, 2) == QStringLiteral("00")
-                                  && hg.left(2) == hw.left(2)
-                                  && hg.mid(4) == hw.mid(4);
-                if (g != w && !isWire1)
+                // No WIRE-1 filter any more — it is fixed, so nothing is tolerated.
+                if (g != w)
                     failures << QStringLiteral("%1 line %2: decenza[%3] de1app[%4]")
                                 .arg(base).arg(i).arg(g, w);
             }
@@ -1372,10 +1365,8 @@ private slots:
     // available statement of "the machine does the same thing on both apps",
     // because it is the bytes and it is all of them.
     //
-    // WIRE-1 is filtered POSITIONALLY rather than blanket-XFAIL'd — it is one
-    // known byte in the tail and it appears on every profile, so tolerating the
-    // whole comparison for it would hide exactly the regression this exists to
-    // catch. Any other differing byte fails, hard.
+    // Nothing is tolerated. WIRE-1 was filtered positionally here while it
+    // stood; it is fixed, so every byte must match.
     //
     // Regenerate: python3 tools/gen_de1app_pack_corpus.py <de1plus-dir>
     // ==================================================================
@@ -1390,7 +1381,6 @@ private slots:
         QStringList failures;
         QStringList missing;
         int compared = 0;
-        int wire1Profiles = 0;
 
         for (const QString& tcl : profiles) {
             const QString base = tcl.left(tcl.size() - 4);
@@ -1412,28 +1402,13 @@ private slots:
                 got << QStringLiteral("%1 %2").arg(i).arg(QString::fromLatin1(frames[i].toHex()));
 
             const QStringList want = expected.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
-            bool sawWire1 = false;
             for (qsizetype i = 0; i < qMax(got.size(), want.size()); ++i) {
                 const QString g = i < got.size()  ? got[i]  : QStringLiteral("<missing>");
                 const QString w = i < want.size() ? want[i] : QStringLiteral("<missing>");
                 if (g == w) continue;
-
-                // WIRE-1: last line, byte 1 is the U10P0 marker Decenza sets and
-                // de1app masks off. Everything else on the line must be equal.
-                const QString hg = g.section(QLatin1Char(' '), 1);
-                const QString hw = w.section(QLatin1Char(' '), 1);
-                const bool isWire1 = i == got.size() - 1 && i == want.size() - 1
-                                  && hg.size() == 16 && hw.size() == 16
-                                  && hg.mid(2, 2) == QStringLiteral("04")
-                                  && hw.mid(2, 2) == QStringLiteral("00")
-                                  && hg.left(2) == hw.left(2)
-                                  && hg.mid(4) == hw.mid(4);
-                if (isWire1) { sawWire1 = true; continue; }
-
                 failures << QStringLiteral("%1 line %2: decenza[%3] de1app[%4]")
                             .arg(base).arg(i).arg(g, w);
             }
-            if (sawWire1) ++wire1Profiles;
         }
 
         QVERIFY2(missing.isEmpty(),
@@ -1443,16 +1418,13 @@ private slots:
                             .arg(missing.mid(0, 10).join(QStringLiteral("\n  ")))));
         QVERIFY2(compared >= 80,
                  qPrintable(QStringLiteral("only %1 profiles compared").arg(compared)));
+        // No tolerated difference. WIRE-1 used to be filtered out here; it is
+        // fixed, so every byte of every frame of all 89 profiles must match.
         QVERIFY2(failures.isEmpty(),
-                 qPrintable(QStringLiteral("%1 byte divergence(s) across %2 de1app profiles "
-                                           "(WIRE-1 excluded):\n  %3")
+                 qPrintable(QStringLiteral("%1 byte divergence(s) across %2 de1app profiles:"
+                                           "\n  %3")
                             .arg(failures.size()).arg(compared)
                             .arg(failures.mid(0, 25).join(QStringLiteral("\n  ")))));
-
-        // WIRE-1 is universal, so pin that too. If it stops appearing everywhere,
-        // either it was fixed (remove this) or the filter above has gone blind and
-        // is silently swallowing something else.
-        QCOMPARE(wire1Profiles, compared);
     }
 
     void editorSurfacesExactlyThePluginParameters() {

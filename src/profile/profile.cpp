@@ -1912,9 +1912,18 @@ QList<QByteArray> Profile::toFrameBytes() const {
     QByteArray tailFrame(8, 0);
     tailFrame[0] = static_cast<char>(m_steps.size());  // FrameToWrite = number of frames
 
-    uint16_t maxTotalVol = BinaryCodec::encodeU10P0(0);  // 0 = no limit
-    tailFrame[1] = static_cast<char>((maxTotalVol >> 8) & 0xFF);
-    tailFrame[2] = static_cast<char>(maxTotalVol & 0xFF);
+    // MaxTotalVolume, sent as a bare 16-bit 0 — NOT through encodeU10P0, which
+    // ORs in the bit-10 marker (0x0400). de1app sets `tail(MaxTotalVolume) 0`
+    // literally (binary.tcl:1001) and packs the low ten bits, so it sends
+    // 0x0000; Decenza sent 0x0400 on every profile (finding WIRE-1).
+    //
+    // Not cosmetic padding. de1app's own comment above that field reads "Unused.
+    // Use highest bit to enable / disable preinfusion tracking" — so bit 10 is a
+    // flag the firmware may act on, and Decenza was asserting it unconditionally
+    // while de1app never does. The per-frame MaxVol keeps the marker; only the
+    // tail differs, which is why it survived a field-level comparison.
+    tailFrame[1] = 0;
+    tailFrame[2] = 0;
     // Bytes 3-7 are padding (zeros)
 
     frames.append(tailFrame);
