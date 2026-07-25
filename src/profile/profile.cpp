@@ -1129,6 +1129,13 @@ bool Profile::saveToFile(const QString& filePath) const {
     // purely to reformat it. Losing a file that was fine, in order to tidy it,
     // is the one outcome that upgrade must not have.
     QSaveFile file(filePath);
+    // QSaveFile puts its temporary alongside the target, so open() fails outright
+    // when the DIRECTORY forbids creating files even though the target itself is
+    // writable — a regression the plain QFile write did not have. Qt recommends the
+    // fallback for exactly this case ("to save documents edited by the user"): it
+    // keeps the atomic temp+rename wherever that is possible and degrades to a
+    // direct write rather than refusing where it is not.
+    file.setDirectWriteFallback(true);
     if (!file.open(QIODevice::WriteOnly)) {
         qWarning() << "Profile::saveToFile: Failed to open file for writing:" << filePath
                    << "- Error:" << file.errorString();

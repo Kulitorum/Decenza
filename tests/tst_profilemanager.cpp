@@ -2271,9 +2271,11 @@ private slots:
             {"legacy_profile_type", "settings_2c"},
             {"beverage_type", "espresso"},
             {"version", "2"},
-            // Present and consistent with the frame, so the espresso_temperature
-            // heal in loadProfile does not fire. That heal has its own on-disk write
-            // and would otherwise be the thing these tests measure.
+            // Present and not the bare 93.0 default, so fromJson does not derive it
+            // and espressoTemperatureHealed() stays false. That matters twice over:
+            // the heal has its own on-disk write, and a healed profile is excluded
+            // from the encoding upgrade entirely — either would make these tests
+            // measure something other than what they claim.
             {"espresso_temperature", 92.0},
             {"target_weight", 36.0},        // number, not "36.0"
             {"target_volume", 0.0},
@@ -2347,11 +2349,11 @@ private slots:
         // as it is, and the skip must be audible. Silently altering a user's file to
         // tidy its formatting is the one outcome this pass must never produce.
         //
-        // The lossy ingredient is precision: the canonical writer emits target_weight
-        // with two decimals, so 36.1234 comes back as 36.12 — a drift of 0.0034,
-        // outside jsonParityErrors' 0.0005 tolerance. Realistic for a profile authored
-        // in another tool. (An unknown top-level key would NOT work: the serializer
-        // preserves those, which is worth knowing.)
+        // The lossy ingredient is precision: target_weight is written with
+        // ProfileJson::TargetMass, which is ONE decimal, so 36.1234 comes back as
+        // 36.1 — a drift of 0.0234, far outside jsonParityErrors' 0.0005 tolerance.
+        // Realistic for a profile authored in another tool. (An unknown top-level key
+        // would NOT work: the serializer preserves those, which is worth knowing.)
         McpTestFixture f;
         const QString path = writeLegacyEncodedProfile(f, "lossy_encoding_xyz");
 
@@ -2376,6 +2378,100 @@ private slots:
         QTest::ignoreMessage(QtWarningMsg,
                              QRegularExpression("leaving .*lossy_encoding_xyz.* in its stored encoding"));
         f.profileManager.loadProfile("lossy_encoding_xyz");
+
+        QFile after(path);
+        QVERIFY(after.open(QIODevice::ReadOnly));
+        QCOMPARE(after.readAll(), original);   // byte-for-byte untouched
+        after.close();
+
+        QFile::remove(path);
+    }
+
+    void loadDoesNotPersistBackfilledNotesIntoTheUsersFile() {
+        // The notes backfill injects the BUILT-IN's notes into the in-memory profile.
+        // No write in loadProfile may persist them: the user's file would gain text
+        // it never contained. This regressed once — the espresso_temperature repair
+        // ran after the backfill and serialized the whole profile.
+        //
+        // Uses a filename that matches a shipped built-in so a backfill source
+        // exists, and omits espresso_temperature so the repair fires.
+        McpTestFixture f;
+        const QString path = f.profileManager.userProfilesPath() + "/default.json";
+        QDir().mkpath(f.profileManager.userProfilesPath());
+
+        QJsonObject step{
+            {"name", "preinfusion"}, {"pump", "flow"},    {"transition", "fast"},
+            {"sensor", "coffee"},    {"temperature", 92.0}, {"seconds", 20.0},
+            {"volume", 100.0},       {"flow", 4.0},       {"pressure", 1.0},
+        };
+        QJsonObject obj{
+            {"title", "Default"},   {"author", "Decent"},
+            {"type", "advanced"},   {"legacy_profile_type", "settings_2c"},
+            {"beverage_type", "espresso"}, {"version", "2"},
+            {"notes", ""},          // empty, so the backfill has something to do
+            {"target_weight", 36.0},
+            {"steps", QJsonArray{step}},
+        };
+        {
+            QFile out(path);
+            QVERIFY(out.open(QIODevice::WriteOnly));
+            out.write(QJsonDocument(obj).toJson(QJsonDocument::Indented));
+        }
+
+        f.profileManager.loadProfile("default");
+
+        QFile after(path);
+        QVERIFY(after.open(QIODevice::ReadOnly));
+        const QJsonObject onDisk = QJsonDocument::fromJson(after.readAll()).object();
+        after.close();
+
+        // Non-vacuous: prove a write actually happened, otherwise "notes are empty"
+        // would pass simply because nothing touched the file. The repair persists the
+        // derived espresso_temperature, which the fixture deliberately omitted.
+        QVERIFY2(onDisk.contains("espresso_temperature"),
+                 "the espresso_temperature repair did not write, so this test would "
+                 "pass without proving anything about the notes");
+
+        // And in memory the backfill did run, so the ordering is what kept it off disk.
+        QVERIFY(!f.profileManager.currentProfile().profileNotes().isEmpty());
+
+        // On disk the notes must still be empty.
+        QVERIFY2(onDisk.value("notes").toString().isEmpty(),
+                 qPrintable("built-in notes leaked into the user's file: "
+                            + onDisk.value("notes").toString().left(60)));
+
+        QFile::remove(path);
+    }
+
+    void aHealedProfileIsLeftAloneWhenRewritingWouldLoseData() {
+        // A profile that needs the espresso_temperature repair AND carries a value
+        // the writer cannot round-trip must not be rewritten: the repair would carry
+        // the unrelated loss into the user's file. The temperature stays corrected in
+        // memory and the repair is retried on a later load.
+        McpTestFixture f;
+        const QString path = writeLegacyEncodedProfile(f, "healed_and_lossy_xyz");
+
+        QJsonObject obj;
+        {
+            QFile in(path);
+            QVERIFY(in.open(QIODevice::ReadOnly));
+            obj = QJsonDocument::fromJson(in.readAll()).object();
+        }
+        obj.remove("espresso_temperature");   // forces the heal
+        obj["target_weight"] = 36.1234;       // does not survive TargetMass precision
+        {
+            QFile out(path);
+            QVERIFY(out.open(QIODevice::WriteOnly));
+            out.write(QJsonDocument(obj).toJson(QJsonDocument::Indented));
+        }
+        QFile before(path);
+        QVERIFY(before.open(QIODevice::ReadOnly));
+        const QByteArray original = before.readAll();
+        before.close();
+
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression("NOT persisting the espresso_temperature repair"));
+        f.profileManager.loadProfile("healed_and_lossy_xyz");
 
         QFile after(path);
         QVERIFY(after.open(QIODevice::ReadOnly));

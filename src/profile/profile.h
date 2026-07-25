@@ -261,8 +261,18 @@ public:
     // A dropped object/array, or a dropped or changed non-zero scalar, is an error;
     // a dropped zero/empty scalar is inert (absent and 0 mean the same to every
     // reader in this format). Returns one message per violation, empty when parity
-    // holds. Shared by profile_sync's rewrite audit and the built-in parity tests —
-    // a format change that silently drops data fails both.
+    // holds.
+    //
+    // Because additions are allowed, this CANNOT detect content the reader derived
+    // rather than read — a key absent from `before` is never visited. A caller that
+    // needs "nothing changed", not merely "nothing was lost", has to exclude the
+    // deriving cases itself; ProfileManager::upgradeStoredEncoding does that with
+    // Profile::espressoTemperatureHealed().
+    //
+    // Callers: profile_sync's rewrite audit, the built-in parity tests,
+    // ProfileManager::upgradeStoredEncoding and ProfileManager::migrateProfileFormat
+    // — the last two run against real user profiles, so a format change that
+    // silently drops data fails all four.
     static QStringList jsonParityErrors(const QJsonObject& before, const QJsonObject& after);
 
     // === File I/O ===

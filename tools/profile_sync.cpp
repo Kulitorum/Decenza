@@ -344,6 +344,13 @@ int main(int argc, char* argv[])
             // report has to survive is the case where the surviving source is the
             // stale one, which a human reads off this diff.
             const Source& base = sources[outName];
+            // `base` is whatever was ingested first under this output name. Today
+            // that is always a base-directory profile, because base files are
+            // ingested before plugin files — but two plugin directories shipping the
+            // same title would land here too, and then the "base" label below is the
+            // wrong word for the discarded side. The paths are printed in full, so
+            // the report stays readable either way.
+            //
             // Argument order matters for the report: frameDiffReport labels its
             // operands A and B, so pass plugin first to match the order the paths
             // are printed in below. A=plugin, B=base throughout.
