@@ -28,10 +28,12 @@ Investigations informing this design:
 
 ## Decisions
 
-> ## ⛔ RESOLVED — this change is superseded. Do not build it.
+> ## ⏸ ON HOLD — decide after `derive-recipe-params-from-frames` lands
 >
-> The premise was tested and is false, and the problem it exists to solve has since been fixed a
-> different way, in `derive-recipe-params-from-frames`.
+> Do not build or archive this yet. The premise was tested and is false, and the problem it exists
+> to solve has been fixed a different way in `derive-recipe-params-from-frames` — but that work is
+> not merged, so the evidence below is recorded and the decision is deliberately left open until
+> it is. Revisit this section then.
 >
 > **What the Why section describes really happened.** Importing a D-Flow/A-Flow profile from
 > Visualizer did populate the editor with defaults, and saving from it did regenerate default
@@ -61,8 +63,9 @@ Investigations informing this design:
 > - Parameters no plugin has and no frame carries — `dose` is the clear case. If that matters for
 >   interchange it is a much smaller proposal than this one, and it should be argued on its own.
 >
-> **Recommendation: archive without implementing**, and raise the three items above separately if
-> they are still wanted. The WIP is in `stash@{0}`.
+> **When the parity change lands, the question to answer is whether anything here still justifies a
+> `recipe` interchange object** — on the evidence below, the round-trip case for one is gone and only
+> the three items above remain, each smaller argued on its own. The WIP is in `stash@{0}`.
 >
 > The original note follows.
 >
