@@ -173,6 +173,13 @@ private:
     static Profile loadAFlow(const QString& file) {
         return Profile::loadFromTclString(readFile(aflowDir() + "/" + file));
     }
+    // The legacy 6-frame layout. de1app's stale distribution copy — see that
+    // fixture dir's README: correct as the LEGACY case, never as the oracle.
+    static Profile loadLegacyAFlow() {
+        return Profile::loadFromTclString(
+            readFile(QStringLiteral(AFLOW_LEGACY_PROFILES_PATH)
+                     + "/A-Flow____default-medium.tcl"));
+    }
 
 private slots:
 
@@ -877,6 +884,342 @@ private slots:
                                            "never writes (params are prep-correct, so this "
                                            "is NOT an extraction artefact):\n  %2")
                             .arg(file, divergences.join(QStringLiteral("\n  ")))));
+    }
+
+    // ==================================================================
+    // 9. A-Flow — the legacy 6-frame layout (tasks 5.1, 5.2, 5.3)
+    //
+    // proc set_profile_index, code.tcl:171-190. Still in the field: de1app's
+    // distribution ships four A-Flow profiles at 6 frames and cannot
+    // self-correct (issue #350), so anyone who installed those still has them.
+    // ==================================================================
+
+    void aflowLegacyFixtureIsSixFrames() {
+        const Profile p = loadLegacyAFlow();
+        QVERIFY2(!p.title().isEmpty(), "legacy fixture missing");
+        QCOMPARE(p.steps().size(), qsizetype(6));
+        // Roles by position, legacy branch — no pattern matching.
+        QCOMPARE(p.steps()[0].name, QStringLiteral("Fill"));
+        QCOMPARE(p.steps()[1].name, QStringLiteral("Infuse"));
+        QCOMPARE(p.steps()[2].name, QStringLiteral("Pressure Up"));
+        QCOMPARE(p.steps()[3].name, QStringLiteral("Pressure Decline"));
+        QCOMPARE(p.steps()[4].name, QStringLiteral("Flow Start"));
+        QCOMPARE(p.steps()[5].name, QStringLiteral("Flow Extraction"));
+    }
+
+    void aflowLegacyRolesResolveByLayout() {
+        // Task 5.1. The whole point of set_profile_index: the SAME role sits at
+        // a different index depending on frame count. Reading a 6-frame profile
+        // with 9-frame indices lands `soaking` on 2nd Fill and shifts every
+        // other role — the same class of error AF-5 already is.
+        const Profile legacy = loadLegacyAFlow();
+        const AFlowRoles r(legacy.steps());
+        QVERIFY(!r.nine);
+        QCOMPARE(r.filling().name,      QStringLiteral("Fill"));
+        QCOMPARE(r.soaking().name,      QStringLiteral("Infuse"));
+        QCOMPARE(r.rampUp().name,       QStringLiteral("Pressure Up"));
+        QCOMPARE(r.rampDown().name,     QStringLiteral("Pressure Decline"));
+        QCOMPARE(r.pouringStart().name, QStringLiteral("Flow Start"));
+        QCOMPARE(r.pouring().name,      QStringLiteral("Flow Extraction"));
+
+        const Profile modern = loadAFlow("A-Flow____default-medium.tcl");
+        const AFlowRoles r9(modern.steps());
+        QVERIFY(r9.nine);
+        QCOMPARE(r9.filling().name, QStringLiteral("Fill"));
+        QCOMPARE(r9.soaking().name, QStringLiteral("Infuse"));
+    }
+
+    void aflowLegacyExtractionMatchesPrep() {
+        // Task 5.2. prep runs set_profile_index first, so it reads a 6-frame
+        // profile correctly. Decenza has no layout concept at all.
+        const Profile p = loadLegacyAFlow();
+        const AFlowRoles r(p.steps());
+        const AFlowExpected want = AFlowExpected::fromFrames(r, /*frameCount=*/6);
+
+        const RecipeParams got = RecipeAnalyzer::extractRecipeParams(p);
+
+        QStringList wrong;
+        auto check = [&](const char* what, double g, double w) {
+            if (qAbs(g - w) >= 0.05)
+                wrong << QStringLiteral("%1: got %2, prep gives %3")
+                         .arg(QString::fromLatin1(what), num(g), num(w));
+        };
+        check("fillTemperature", got.fillTemperature, want.fillTemperature);
+        check("infuseTime",      got.infuseTime,      want.soakSeconds);
+        check("infusePressure",  got.infusePressure,  want.soakPressure);
+        check("rampTime",        got.rampTime,        want.rampUpDownSeconds);
+        check("pourFlow",        got.pourFlow,        want.pourFlow);
+        check("pourPressure",    got.pourPressure,    want.pourPressure);
+        check("pourTemperature", got.pourTemperature, want.pourTemperature);
+
+        // secondFillEnabled must be FALSE on a 6-frame profile — there is no
+        // pause frame to consult (code.tcl:226 guards on llength > 8), and
+        // indexing f[4] here would read Flow Start instead.
+        if (got.secondFillEnabled)
+            wrong << QStringLiteral("secondFillEnabled: got true, prep gives false "
+                                    "(no pause frame exists in a 6-frame layout)");
+
+        if (!wrong.isEmpty())
+            // AF-1 again, not a new finding: pourFlow still read from the
+            // extraction frame. Note what does NOT appear here — AF-5 is absent,
+            // because the legacy layout has no Pre Fill frame for fillIndex = 0
+            // to land on. Decenza is accidentally MORE correct on the old layout,
+            // which is what you would expect from a 3-frame analyzer.
+            QEXPECT_FAIL("", qPrintable(QStringLiteral("AF-1 (legacy path): %1")
+                                        .arg(wrong.join(QStringLiteral("; ")))), Continue);
+        QVERIFY2(wrong.isEmpty(),
+                 qPrintable(QStringLiteral("legacy 6-frame extraction disagrees with prep:\n  %1")
+                            .arg(wrong.join(QStringLiteral("\n  ")))));
+    }
+
+    void aflowLegacyUpgradeInsertsPluginFrames() {
+        // Task 5.3. update_A-Flow synthesises pre_filling, 2nd_fill and pause
+        // from literals (code.tcl:295-370) and emits 9 frames, so an edited
+        // legacy profile comes back upgraded. Decenza always emits 9, so the
+        // COUNT matches — this checks the inserted frames carry the plugin's
+        // values rather than merely existing.
+        const Profile legacy = loadLegacyAFlow();
+        const AFlowRoles r(legacy.steps());
+        const RecipeParams p = paramsFromPrep(AFlowExpected::fromFrames(r, 6));
+
+        const QList<ProfileFrame> got = RecipeGenerator::generateFrames(p);
+        QCOMPARE(got.size(), qsizetype(9));
+
+        QStringList wrong;
+        auto want = [&](const char* what, double g, double w) {
+            if (qAbs(g - w) >= 0.05)
+                wrong << QStringLiteral("%1: got %2, plugin literal is %3")
+                         .arg(QString::fromLatin1(what), num(g), num(w));
+        };
+        auto wantStr = [&](const char* what, const QString& g, const QString& w) {
+            if (g != w)
+                wrong << QStringLiteral("%1: got %2, plugin literal is %3")
+                         .arg(QString::fromLatin1(what), g, w);
+        };
+
+        // Pre Fill — literals at code.tcl:300-318, then :382 overrides the
+        // temperature with the fill temperature.
+        wantStr("preFill.name",    got[0].name, QStringLiteral("Pre Fill"));
+        want("preFill.seconds",    got[0].seconds, 1.0);
+        want("preFill.flow",       got[0].flow, 8.0);
+        want("preFill.temperature", got[0].temperature, p.fillTemperature);
+        want("preFill.limiter",    got[0].maxFlowOrPressure, 8.0);
+
+        // 2nd Fill / Pause — literals at code.tcl:327-345 and :346-368.
+        wantStr("2ndFill.name", got[3].name, QStringLiteral("2nd Fill"));
+        want("2ndFill.flow",    got[3].flow, 8.0);
+        want("2ndFill.limiter", got[3].maxFlowOrPressure, 3.0);
+        wantStr("pause.name",   got[4].name, QStringLiteral("Pause"));
+        want("pause.flow",      got[4].flow, 6.0);
+        want("pause.pressure",  got[4].pressure, 1.0);
+        want("pause.limiter",   got[4].maxFlowOrPressure, 1.0);
+
+        // The legacy profile has no second fill, so both stay at zero seconds.
+        want("2ndFill.seconds", got[3].seconds, 0.0);
+        want("pause.seconds",   got[4].seconds, 0.0);
+
+        QVERIFY2(wrong.isEmpty(),
+                 qPrintable(QStringLiteral("legacy upgrade does not match the plugin's "
+                                           "inserted frames:\n  %1")
+                            .arg(wrong.join(QStringLiteral("\n  ")))));
+    }
+
+    // ==================================================================
+    // 10. Inheritance — A-Flow is derived from D-Flow (tasks 6.1, 6.2)
+    //
+    // A-Flow's readme: "Profile Editor based on D-Flow ... Infuse parameters
+    // are not changed compared to D-Flow. Only the fill step is different with
+    // 8 ml/s flow." The inheritance is by lineage, not code — neither plugin
+    // sources the other — so it has to be verified, never assumed.
+    // ==================================================================
+
+    void inheritedInfuseParametersBehaveIdentically() {
+        // Task 6.1. The soak parameters A-Flow inherits unchanged must move the
+        // same frame fields in both editors, so a regression in the shared half
+        // fails in both rather than being masked in one.
+        RecipeParams d;
+        d.editorType = EditorType::DFlow;
+        d.infusePressure = 4.0; d.infuseTime = 42.0; d.infuseVolume = 77.0; d.infuseWeight = 3.3;
+
+        RecipeParams a = d;
+        a.editorType = EditorType::AFlow;
+
+        const QList<ProfileFrame> df = RecipeGenerator::generateFrames(d);
+        const QList<ProfileFrame> af = RecipeGenerator::generateFrames(a);
+
+        const ProfileFrame& dSoak = df[1];              // D-Flow: index 1
+        const ProfileFrame& aSoak = af[2];              // A-Flow: index 2 (9-frame)
+
+        QCOMPARE(dSoak.pressure,   d.infusePressure);
+        QCOMPARE(aSoak.pressure,   a.infusePressure);
+        QCOMPARE(dSoak.seconds,    d.infuseTime);
+        QCOMPARE(aSoak.seconds,    a.infuseTime);
+        QCOMPARE(dSoak.volume,     d.infuseVolume);
+        QCOMPARE(aSoak.volume,     a.infuseVolume);
+        QCOMPARE(dSoak.exitWeight, d.infuseWeight);
+        QCOMPARE(aSoak.exitWeight, a.infuseWeight);
+    }
+
+    void documentedDivergencesHoldAndAreNotSwapped() {
+        // Task 6.2. The sharpest divergence inheritance does NOT cover: the soak
+        // frame's temperature. D-Flow takes it from the POUR temperature
+        // (plugin.tcl:345), A-Flow from the FILL temperature (code.tcl:251).
+        //
+        // A swap here survives every round-trip test, because both sides of a
+        // swap round-trip. It only shows against the plugins, which is the whole
+        // argument for this suite existing.
+        RecipeParams p;
+        p.fillTemperature = 84.0;
+        p.pourTemperature = 94.0;
+
+        RecipeParams d = p; d.editorType = EditorType::DFlow;
+        RecipeParams a = p; a.editorType = EditorType::AFlow;
+
+        QCOMPARE(RecipeGenerator::generateFrames(d)[1].temperature, 94.0);  // POUR
+        QCOMPARE(RecipeGenerator::generateFrames(a)[2].temperature, 84.0);  // FILL
+    }
+
+    // ==================================================================
+    // 11. Parameters Decenza exposes that the plugins do not (tasks 7.1-7.3)
+    //
+    // Each gets a recorded verdict. An undeclared divergence is a defect by
+    // the spec; a declared one has to state what it costs.
+    // ==================================================================
+
+    void decenzaOnlyParameter_fillTimeout() {
+        // VERDICT: DEFECT. Neither plugin has a fill-time parameter. prep never
+        // reads filling(seconds); update_* never writes it. Its only effect is
+        // to overwrite a field the plugin preserves — AF-6 (A-Flow, 15 -> 25)
+        // and, through the app path, AF-5 (15 -> 1).
+        //
+        // It round-trips by accident on D-Flow, because RecipeAnalyzer reads it
+        // back off the same frame it wrote. That accident is why it went
+        // unnoticed; it is not a justification.
+        RecipeParams p;
+        p.editorType = EditorType::AFlow;
+        p.fillTimeout = 25.0;
+        const double a = RecipeGenerator::generateFrames(p)[1].seconds;
+        p.fillTimeout = 5.0;
+        const double b = RecipeGenerator::generateFrames(p)[1].seconds;
+
+        QVERIFY2(!qFuzzyCompare(a, b),
+                 "fillTimeout no longer writes filling(seconds) — if it became "
+                 "inert, retire the parameter and update this verdict");
+        QCOMPARE(a, 25.0);
+        QCOMPARE(b, 5.0);
+    }
+
+    void decenzaOnlyParameter_fillPressure() {
+        // VERDICT: DEFECT for A-Flow, DEAD for D-Flow.
+        //
+        // D-Flow: createFillFrame writes filling(pressure) from infusePressure,
+        // matching the plugin's derived rule — so fillPressure is never read on
+        // this path at all. Dead weight, and misleading in the editor.
+        //
+        // A-Flow: update_A-Flow never writes filling(pressure); Decenza does.
+        RecipeParams d;
+        d.editorType = EditorType::DFlow;
+        d.infusePressure = 3.0;
+        d.fillPressure = 9.9;                       // deliberately absurd
+        QCOMPARE(RecipeGenerator::generateFrames(d)[0].pressure, 3.0);  // ignored
+
+        RecipeParams a;
+        a.editorType = EditorType::AFlow;
+        a.fillPressure = 7.0;
+        QCOMPARE(RecipeGenerator::generateFrames(a)[1].pressure, 7.0);  // written
+    }
+
+    void decenzaOnlyParameter_fillFlow() {
+        // VERDICT: PARTIAL — A-Flow reads it, neither writes it.
+        //
+        // prep DOES read Aflow_filling_flow (code.tcl:201), so it is a genuine
+        // A-Flow parameter on the read side. But update_A-Flow never writes it
+        // back — it is a round-trip carrier, not an editable value. Decenza
+        // writes it, so an edit reaches a field the plugin leaves alone.
+        // D-Flow has no fill-flow concept whatsoever.
+        RecipeParams a;
+        a.editorType = EditorType::AFlow;
+        a.fillFlow = 6.0;
+        QCOMPARE(RecipeGenerator::generateFrames(a)[1].flow, 6.0);
+    }
+
+    void decenzaOnlyParameter_infuseEnabled() {
+        // VERDICT: EXTENSION, and a defensible one.
+        //
+        // Neither plugin has an infuse toggle — soaking(seconds) is always
+        // written. Decenza's toggle collapses the frame to 0 s, which is exactly
+        // how the plugins express "skip this step" elsewhere (2nd_fill, pause,
+        // ramp_down all use seconds 0). So it produces a profile the plugins
+        // read correctly and round-trip: a 0 s soak reads back as infuseTime 0.
+        //
+        // Cost: a user who disables infuse loses the stored soak duration,
+        // because the frame no longer carries it. Worth stating in the UI.
+        RecipeParams p;
+        p.editorType = EditorType::DFlow;
+        p.infuseTime = 60.0;
+        p.infuseEnabled = false;
+        QCOMPARE(RecipeGenerator::generateFrames(p)[1].seconds, 0.0);
+        p.infuseEnabled = true;
+        QCOMPARE(RecipeGenerator::generateFrames(p)[1].seconds, 60.0);
+    }
+
+    // ==================================================================
+    // 12. Editor coverage (tasks 8.1, 8.2)
+    // ==================================================================
+
+    void editorSurfacesExactlyThePluginParameters() {
+        // Task 8.1. RecipeEditorPage.qml binds:
+        //
+        //   fillTemperature                                     -> both plugins
+        //   infusePressure, infuseTime, infuseVolume, infuseWeight -> both
+        //   pourFlow, pourPressure, pourTemperature             -> both
+        //   rampTime                                            -> A-Flow
+        //   rampDownEnabled, flowExtractionUp, secondFillEnabled -> A-Flow
+        //   targetWeight, targetVolume, dose                    -> profile level
+        //
+        // That is exactly the plugins' parameter set. The editor is CORRECT —
+        // it exposes what the plugins expose and nothing more.
+        //
+        // Which makes the four Decenza-only parameters worse than "extensions":
+        // fillFlow, fillPressure, fillTimeout and infuseEnabled appear NOWHERE
+        // in the QML. No user can set them, no user chose them, and they still
+        // reach the frames carrying RecipeParams' struct defaults. They are
+        // vestigial fields with a live write path — see AF-6 / AF-5, where
+        // fillTimeout rewrites filling(seconds) to 25 s or 1 s on every save of
+        // every A-Flow profile without anyone touching a control.
+        //
+        // Practical consequence for repair: removing them costs no UI. That is
+        // asserted here so the claim is checked rather than remembered.
+        const QString qml = readFile(QStringLiteral(DECENZA_SOURCE_DIR)
+                                     + "/qml/pages/RecipeEditorPage.qml");
+        QVERIFY2(!qml.isEmpty(), "RecipeEditorPage.qml not found");
+
+        for (const QString& bound : {QStringLiteral("recipe.fillTemperature"),
+                                     QStringLiteral("recipe.infusePressure"),
+                                     QStringLiteral("recipe.infuseTime"),
+                                     QStringLiteral("recipe.infuseWeight"),
+                                     QStringLiteral("recipe.pourFlow"),
+                                     QStringLiteral("recipe.pourPressure"),
+                                     QStringLiteral("recipe.pourTemperature"),
+                                     QStringLiteral("recipe.rampTime"),
+                                     QStringLiteral("recipe.rampDownEnabled"),
+                                     QStringLiteral("recipe.flowExtractionUp"),
+                                     QStringLiteral("recipe.secondFillEnabled")}) {
+            QVERIFY2(qml.contains(bound),
+                     qPrintable(bound + " is a plugin parameter but the editor "
+                                        "no longer binds it"));
+        }
+
+        for (const QString& unbound : {QStringLiteral("recipe.fillFlow"),
+                                       QStringLiteral("recipe.fillPressure"),
+                                       QStringLiteral("recipe.fillTimeout"),
+                                       QStringLiteral("recipe.infuseEnabled")}) {
+            QVERIFY2(!qml.contains(unbound),
+                     qPrintable(unbound + " is now bound in the editor. It has no "
+                                          "plugin counterpart — either it became a "
+                                          "deliberate extension (update the verdict "
+                                          "in findings.md) or it is a mistake."));
+        }
     }
 };
 

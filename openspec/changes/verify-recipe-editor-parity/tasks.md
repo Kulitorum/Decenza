@@ -36,34 +36,34 @@
 
 ## 5. Frame layouts
 
-- [ ] 5.1 Assert frame roles resolve by `set_profile_index`'s rule for both the 9-frame and legacy 6-frame layouts.
-- [ ] 5.2 Assert a 6-frame profile extracts the parameters the plugin extracts from it.
-- [ ] 5.3 Assert editing and saving a 6-frame profile upgrades it the way `update_A-Flow` does, inserting `Pre Fill` and `2nd Fill`/`Pause` with the plugin's values.
+- [x] 5.1 Assert frame roles resolve by `set_profile_index`'s rule for both the 9-frame and legacy 6-frame layouts. — passes; both layouts resolve by position.
+- [x] 5.2 Assert a 6-frame profile extracts the parameters the plugin extracts from it. — one error only, AF-1 again. Notably AF-5 does NOT occur: no Pre Fill frame to land on.
+- [x] 5.3 Assert editing and saving a 6-frame profile upgrades it the way `update_A-Flow` does, inserting `Pre Fill` and `2nd Fill`/`Pause` with the plugin's values. — passes; inserted Pre Fill / 2nd Fill / Pause carry the plugin's literals.
 
 ## 6. Inheritance
 
-- [ ] 6.1 Assert the parameters A-Flow inherits unchanged from D-Flow behave identically in both editors, so a shared-half regression fails in both rather than being masked in one.
-- [ ] 6.2 Assert the documented divergences hold and are not swapped: A-Flow's soak temperature from fill temperature vs D-Flow's from pour temperature; A-Flow's fill flow of 8 ml/s.
+- [x] 6.1 Assert the parameters A-Flow inherits unchanged from D-Flow behave identically in both editors, so a shared-half regression fails in both rather than being masked in one. — passes.
+- [x] 6.2 Assert the documented divergences hold and are not swapped: A-Flow's soak temperature from fill temperature vs D-Flow's from pour temperature; A-Flow's fill flow of 8 ml/s. — passes; the soak-temperature divergence holds and is not swapped.
 
 ## 7. Decenza-only parameters
 
-- [ ] 7.1 For each of `fillTimeout`, `fillPressure`, `fillFlow`, `infuseEnabled`, determine which plugin field it writes and whether the plugin ever writes that field. Record a verdict: deliberate extension or defect.
-- [ ] 7.2 For each declared extension, add a test pinning what it does to a profile the plugin would round-trip untouched, so the cost is visible rather than incidental.
-- [ ] 7.3 Assert no editor parameter exists with neither a plugin counterpart nor a recorded verdict.
+- [x] 7.1 For each of `fillTimeout`, `fillPressure`, `fillFlow`, `infuseEnabled`, determine which plugin field it writes and whether the plugin ever writes that field. Record a verdict: deliberate extension or defect. — all four are **defects, not extensions** (see 8.1: none is user-facing).
+- [x] 7.2 For each declared extension, add a test pinning what it does to a profile the plugin would round-trip untouched, so the cost is visible rather than incidental. — pinned for each.
+- [x] 7.3 Assert no editor parameter exists with neither a plugin counterpart nor a recorded verdict. — asserted.
 
 ## 8. Editor coverage
 
-- [ ] 8.1 Assert each editor surfaces every parameter its plugin exposes (D-Flow: fill temperature, soak seconds/pressure/volume/weight, pour flow/pressure/temperature. A-Flow: those plus fill flow, ramp seconds, and the three toggles).
-- [ ] 8.2 Assert changing one parameter moves the frame fields the plugin moves and no others.
+- [x] 8.1 Assert each editor surfaces every parameter its plugin exposes (D-Flow: fill temperature, soak seconds/pressure/volume/weight, pour flow/pressure/temperature. A-Flow: those plus fill flow, ramp seconds, and the three toggles). — editor binds exactly the plugins' parameter set; the four Decenza-only params appear nowhere in QML.
+- [x] 8.2 Assert changing one parameter moves the frame fields the plugin moves and no others. — covered by the generation tests in section 4.
 
 ## 9. Findings and gate
 
-- [ ] 9.1 Write `findings.md`: every divergence with its plugin citation, its effect on a real profile, and a severity. State plainly which expectations are transcription-only (no shipped profile exercises them).
-- [ ] 9.2 Commit confirmed-defect assertions as expected failures carrying finding ids — do not weaken an assertion to make the suite green.
-- [ ] 9.3 Feed the reconstruction verdict back into `preserve-recipe-visualizer-roundtrip`: if frame-derived extraction is faithful, its D1/D3 and the whole `recipe`-block/three-app rollout need re-deciding.
-- [ ] 9.4 Run the full suite via `mcp__qtcreator__run_tests` (scope `all`) before PR.
+- [x] 9.1 Write `findings.md`: every divergence with its plugin citation, its effect on a real profile, and a severity. State plainly which expectations are transcription-only (no shipped profile exercises them). — `findings.md`.
+- [x] 9.2 Commit confirmed-defect assertions as expected failures carrying finding ids — do not weaken an assertion to make the suite green. — 11 findings live as XFAILs with ids.
+- [x] 9.3 Feed the reconstruction verdict back into `preserve-recipe-visualizer-roundtrip`: if frame-derived extraction is faithful, its D1/D3 and the whole `recipe`-block/three-app rollout need re-deciding. — banner added at the head of that change's D1; premise refuted, change parked pending re-decision.
+- [x] 9.4 Run the full suite via `mcp__qtcreator__run_tests` (scope `all`) before PR. — **99/99 green, no warnings**; nothing had pinned RecipeAnalyzer's behaviour.
 
 ## 10. Documentation
 
-- [ ] 10.1 Update `docs/CLAUDE_MD/RECIPE_PROFILES.md` with the reference relationship, the two plugin repos and their pinned commits, and the rule that the plugins are the oracle.
-- [ ] 10.2 Record the parity suite in `docs/CLAUDE_MD/TESTING.md` alongside the other corpus-driven gates, including the "fixtures come from the plugin, not `de1plus/profiles/`" rule and why.
+- [x] 10.1 Update `docs/CLAUDE_MD/RECIPE_PROFILES.md` with the reference relationship, the two plugin repos and their pinned commits, and the rule that the plugins are the oracle. — reference relationship, both repos + pinned commits, the three non-obvious plugin facts, and the #350 fixture rule.
+- [x] 10.2 Record the parity suite in `docs/CLAUDE_MD/TESTING.md` alongside the other corpus-driven gates, including the "fixtures come from the plugin, not `de1plus/profiles/`" rule and why. — parity gate documented incl. oracle discipline, the fixture table, and the XFAIL-not-relax rule.

@@ -23,6 +23,48 @@ The Recipe Editor supports four editor types, each generating a different frame 
 
 Profiles that don't match any of the above open in `ProfileEditorPage.qml`, the advanced frame-by-frame editor.
 
+### The plugins are the reference — Decenza is verified against them
+
+D-Flow and A-Flow are **de1app plugins**, each in its own repository, and each is the source of
+truth for its editor's behaviour. Decenza re-implements them; where the two disagree the plugin is
+right by definition.
+
+| Editor | Upstream | Local checkout | Pinned |
+|---|---|---|---|
+| D-Flow | `github.com/Damian-AU/D_Flow_Espresso_Profile` | `de1app/de1plus/plugins/D_Flow_Espresso_Profile` | `7f3c9726` (v3.1) |
+| A-Flow | `github.com/Jan3kJ/A_Flow` | `de1app/de1plus/plugins/A_Flow` | `e1a4d871` (v2.0-beta.2-2) |
+
+Both are git submodules of the de1app clone. **A-Flow's submodule pointer in de1app lags the
+plugin's own HEAD** — "latest de1app" is not "latest A-Flow" (see de1app issue #350 below).
+
+**Three facts about these plugins that are not obvious and that shape everything else:**
+
+1. **They store no high-level state.** Each has a `proc prep`, run on profile load, that rebuilds
+   its entire editor from the frames. The frames *are* the storage — which is why no `.tcl` profile
+   carries a recipe block. A-Flow's three structural toggles are derived from frame structure
+   (`ramp_down(seconds) > 0`; `pouring(flow) > pouring_start(flow)`; a 9-frame layout with a
+   non-zero pause), not stored anywhere.
+2. **They mutate frames in place.** `update_D-Flow` / `update_A-Flow` read the current
+   `advanced_shot`, overwrite a named list of fields, and write it back — so every field outside
+   that list survives untouched. This is the mechanism that lets one editor drive several profiles
+   with different machine personalities. **An editor that rebuilds frames from constants breaks
+   that contract**, and is the root cause of most findings recorded against Decenza.
+3. **Roles are positional, never pattern-matched.** `prep` indexes. A-Flow's `set_profile_index`
+   picks a 9-frame or legacy 6-frame mapping; D-Flow always uses 0/1/2.
+
+**A-Flow profile provenance (de1app issue #350).** The plugin's `profiles/` directory ships all
+five stock profiles at 9 frames. de1app's `de1plus/profiles/` holds a stale snapshot: four profiles
+at 6 frames, `default-light` missing entirely, added in de1app commit `80eb34cc` (2025-09-03) and
+never refreshed — `check_profiles_exist` only copies a file when it is absent, so the stale copy
+wins forever. **Always take A-Flow fixtures from the plugin, never from `de1plus/profiles/`.**
+
+**D-Flow ships no `.tcl` files at all.** Its three stock profiles are embedded in `plugin.tcl` and
+written out at plugin start. `tools/extract_dflow_profiles.py` extracts them for testing.
+
+The transcribed rules — every parameter, every write, every derived value, with line citations —
+live in `openspec/changes/verify-recipe-editor-parity/reference.md`, and the parity suite is
+`tests/tst_recipeeditorparity.cpp`. Read the reference before changing either generator.
+
 ## Editor Selection
 
 `MainController::currentEditorType()` determines which editor page opens. Selection is **title-first**:

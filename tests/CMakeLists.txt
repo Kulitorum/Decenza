@@ -513,6 +513,7 @@ add_decenza_test(tst_recipeeditorparity
 target_compile_definitions(tst_recipeeditorparity PRIVATE
     DE1APP_PROFILES_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/de1app_profiles"
     DFLOW_PLUGIN_PROFILES_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/dflow_plugin_profiles"
+    AFLOW_LEGACY_PROFILES_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/aflow_legacy_profiles"
 )
 
 # --- tst_shotanalysis: ShotAnalysis quality heuristics ---

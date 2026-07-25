@@ -336,9 +336,75 @@ you get from an analyzer that recovers almost nothing and falls back to defaults
 
 ---
 
-## Not yet assessed
+---
 
-§3–5 (A-Flow extraction, generation, frame layouts), §6 (inheritance), §7 (Decenza-only
-parameters — `fillTimeout` / `fillPressure` / `fillFlow` / `infuseEnabled`), §8 (editor coverage).
-A-Flow has three structural toggles and a 9-vs-6-frame layout split, so it has more surface than
-D-Flow, and the in-place-vs-constants gap above predicts more of the same class there.
+# Legacy 6-frame layout (§5)
+
+Mostly good news, and one instructive detail.
+
+- **The upgrade path is correct.** Editing a 6-frame profile produces 9 frames with the plugin's
+  own literals for the inserted `Pre Fill`, `2nd Fill` and `Pause` — verified field by field
+  against `code.tcl:295-370`, including `Pre Fill`'s temperature override at `:382`.
+- **Extraction on the legacy layout has exactly one error**, and it is AF-1 again (pour flow read
+  from the extraction frame). Nothing new.
+- **AF-5 does not occur here.** The legacy layout has no `Pre Fill` frame for `fillIndex = 0` to
+  land on, so `fillTimeout` reads the real Fill. **Decenza is accidentally more correct on the old
+  layout than the new one** — exactly what you would expect from a three-frame analyzer meeting a
+  six-frame profile that happens to start with Fill.
+
+That last point is the useful one: it confirms AF-5 is specifically a 9-frame role-offset bug, not
+a general misread, which narrows the fix.
+
+# Inheritance (§6)
+
+Verified, both directions:
+
+- The soak parameters A-Flow inherits unchanged from D-Flow move the same frame fields in both
+  editors, so a shared-half regression fails in both rather than hiding in one.
+- **The documented divergence holds and is not swapped**: D-Flow's soak frame takes the **pour**
+  temperature, A-Flow's takes the **fill** temperature. This is the case that motivated verifying
+  both editors together — a swap round-trips cleanly on both sides and is invisible except against
+  the plugins.
+
+# Decenza-only parameters (§7) — and why §8 changes the verdict
+
+Four parameters exist in `RecipeParams` with no plugin counterpart. Their individual behaviour:
+
+| parameter | what it writes | plugin |
+|---|---|---|
+| `fillTimeout` | `filling(seconds)` | never read, never written |
+| `fillPressure` | `filling(pressure)` on A-Flow; **ignored** on D-Flow (derived rule wins) | never written |
+| `fillFlow` | `filling(flow)` | A-Flow's `prep` **reads** it, but `update` never writes it back |
+| `infuseEnabled` | collapses `soaking(seconds)` to 0 | no such toggle |
+
+I was going to record `infuseEnabled` as a defensible extension — collapsing a frame to 0 s is how
+the plugins express "skip this step" everywhere else, so it produces a profile they read correctly.
+
+**§8 makes that generosity moot.** `RecipeEditorPage.qml` binds exactly the plugins' parameter set
+— `fillTemperature`, the four `infuse*` values, the three `pour*` values, `rampTime`, the three
+A-Flow toggles, plus profile-level target weight/volume/dose. **None of the four Decenza-only
+parameters appears in the QML at all.**
+
+So they are not extensions a user opted into. They are **vestigial struct fields with a live write
+path**: no control sets them, nothing reads them back meaningfully, and they still reach the frames
+carrying `RecipeParams`' defaults. `fillTimeout` rewrites `filling(seconds)` to 25 s (or 1 s via
+AF-5) on every save of every A-Flow profile without anyone touching anything.
+
+**Verdict: all four are defects, not extensions.** And the repair is cheap — removing them costs no
+UI, which the suite now asserts rather than assumes.
+
+# Editor coverage (§8)
+
+The editor itself is **correct**. It surfaces every parameter each plugin exposes and nothing more.
+Combined with §4's result that generation's rules are faithful, the picture is:
+
+> Decenza's A-Flow **editor** and **generator** are both right. The **analyzer** was never written
+> for A-Flow, and four vestigial parameters leak into the frames.
+
+# Status
+
+All verification sections complete (§1–§8). Full suite: **99/99 green, no warnings** — worth
+noting because it rules out the risk that other tests had pinned `RecipeAnalyzer`'s current
+behaviour and would resist a fix.
+
+Eleven findings, all live as expected-failures carrying their ids.

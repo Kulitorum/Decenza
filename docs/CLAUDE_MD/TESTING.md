@@ -343,6 +343,47 @@ When in doubt, fix it rather than suppress it. The goal of a passing test run is
 - **Do not suppress by substring-matching `"failed"` or `"error"`** — that's too broad and will hide genuine regressions.
 - **Do not amend an existing `ScopedWarningFilter` regex to make a new warning go away without adding a comment explaining the scenario.**
 
+## Recipe-editor parity gate — `tst_recipeeditorparity`
+
+Checks Decenza's D-Flow and A-Flow implementations against the **upstream de1app plugins that
+define them** (`Damian-AU/D_Flow_Espresso_Profile`, `Jan3kJ/A_Flow`), across frame generation,
+parameter extraction from frames, round-trip stability, both A-Flow frame layouts, and editor
+coverage.
+
+**Oracle discipline — the rule that makes this suite worth anything.** Every expected value traces
+to a plugin proc or to a profile the plugin itself ships. **Nothing** is derived from Decenza's own
+code or from its built-in JSONs; those are the subject, not the reference. Where the two disagree,
+the plugin is right by definition. The transcribed rules with line citations live in
+`openspec/changes/verify-recipe-editor-parity/reference.md`.
+
+The suite cannot run Tcl, so rules are transcribed — which is its weak point, since a transcription
+error yields a test that passes against the wrong oracle. It is checked two ways: against the
+plugin source, and against the plugin's own stock profiles, which are those rules already executed.
+A rule that disagrees with the shipped profiles is suspect regardless of how it reads.
+
+**Fixtures — where they come from matters.**
+
+| dir | contents | role |
+|---|---|---|
+| `tests/data/de1app_profiles/A-Flow____*.tcl` | the plugin's five stock profiles, 9 frames | **the oracle** |
+| `tests/data/dflow_plugin_profiles/` | D-Flow's three, extracted from `plugin.tcl` | the oracle |
+| `tests/data/aflow_legacy_profiles/` | one 6-frame profile from de1app's stale snapshot | **legacy case only** |
+
+de1app's `de1plus/profiles/` carries four A-Flow profiles at **6** frames and is missing
+`default-light`; the plugin ships all five at **9** (de1app issue #350). Verifying against the
+stale copy would produce a suite that passes against the wrong source, so the suite asserts a
+9-frame count at load. The 6-frame layout is still covered — as the *legacy* branch of
+`set_profile_index`, never as the reference.
+
+D-Flow ships no `.tcl` at all; regenerate its fixtures with
+`python3 tools/extract_dflow_profiles.py` after any plugin bump, and re-check the pinned commits
+recorded in the suite header — a transcribed rule goes stale silently.
+
+**Known findings are `QEXPECT_FAIL`, never relaxed assertions.** Confirmed defects stay expressed
+as failing checks carrying their finding id (`DF-1`, `AF-6`, …) so the gate records reality rather
+than the behaviour of the day. If you fix one, delete its `QEXPECT_FAIL` — do not weaken the check.
+Findings are described in `openspec/changes/verify-recipe-editor-parity/findings.md`.
+
 ## Shot Analysis Regression Tool (shot_eval)
 
 `tools/shot_eval/` is a CLI harness for exercising the real `ShotAnalysis` heuristics (channeling, grind direction, pour truncation) against a corpus of shot data. Links the production `src/ai/shotanalysis.cpp` and `src/ai/conductance.cpp` directly — changes to the live detector automatically flow through. Use it whenever you touch a detection heuristic to see how verdicts shift across a known set of shots.
