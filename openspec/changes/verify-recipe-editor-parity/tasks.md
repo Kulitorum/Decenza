@@ -12,11 +12,11 @@
 
 ## 2. D-Flow parity
 
-- [ ] 2.1 Extraction: for each stock D-Flow profile, assert Decenza recovers the parameters `prep` recovers — including pour pressure from the pour frame's `max_flow_or_pressure` (not its `pressure`), and soak temperature semantics.
-- [ ] 2.2 Generation: assert Decenza's generated frames match `update_D-Flow`'s output field for field, including `espresso_temperature` being set from the **fill** temperature.
-- [ ] 2.3 Derived fill pressure: assert fill pressure equals soak pressure, and the pressure-over exit follows `soak < 2.8 ? soak : soak/2 + 0.6`, floored at 1.2. Cover all three branches including the floor.
-- [ ] 2.4 Untouched fields: assert no frame field that `update_D-Flow` never writes (notably `filling(seconds)` and `filling(flow)`) is altered by a Decenza generate.
-- [ ] 2.5 Round-trip: assert load → save-unedited is a fixed point on every stock D-Flow profile.
+- [x] 2.1 Extraction: for each stock D-Flow profile, assert Decenza recovers the parameters `prep` recovers — including pour pressure from the pour frame's `max_flow_or_pressure` (not its `pressure`), and soak temperature semantics. — passes on all three stock profiles, including pour pressure from the limiter.
+- [x] 2.2 Generation: assert Decenza's generated frames match `update_D-Flow`'s output field for field, including `espresso_temperature` being set from the **fill** temperature. — passes.
+- [x] 2.3 Derived fill pressure: assert fill pressure equals soak pressure, and the pressure-over exit follows `soak < 2.8 ? soak : soak/2 + 0.6`, floored at 1.2. Cover all three branches including the floor. — passes on all six branches (threshold, formula, floor).
+- [x] 2.4 Untouched fields: assert no frame field that `update_D-Flow` never writes (notably `filling(seconds)` and `filling(flow)`) is altered by a Decenza generate. — **DF-1/DF-2/DF-4/DF-5**: `filling(volume)`, `filling(weight)`, `soaking(exit_pressure_over)` and `pouring(volume)` are all rewritten. See findings.md.
+- [x] 2.5 Round-trip: assert load → save-unedited is a fixed point on every stock D-Flow profile. — fixed point on no stock profile; **DF-3** is upstream (plugin data contradicts its own rule), the rest are ours.
 
 ## 3. A-Flow parity — extraction
 

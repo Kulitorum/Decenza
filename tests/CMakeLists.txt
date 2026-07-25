@@ -502,6 +502,19 @@ add_decenza_test(tst_recipegenerator
     tst_recipegenerator.cpp
 )
 
+# --- tst_recipeeditorparity: D-Flow / A-Flow against their upstream plugins ---
+# The plugins are the oracle (Damian-AU/D_Flow_Espresso_Profile @ 7f3c9726,
+# Jan3kJ/A_Flow @ e1a4d871). A-Flow fixtures come from the de1app corpus, which
+# holds the plugin's own 9-frame profiles; D-Flow ships no .tcl, so its three are
+# extracted by tools/extract_dflow_profiles.py into their own fixture dir.
+add_decenza_test(tst_recipeeditorparity
+    tst_recipeeditorparity.cpp
+)
+target_compile_definitions(tst_recipeeditorparity PRIVATE
+    DE1APP_PROFILES_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/de1app_profiles"
+    DFLOW_PLUGIN_PROFILES_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/dflow_plugin_profiles"
+)
+
 # --- tst_shotanalysis: ShotAnalysis quality heuristics ---
 add_decenza_test(tst_shotanalysis
     tst_shotanalysis.cpp

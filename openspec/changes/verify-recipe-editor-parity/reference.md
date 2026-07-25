@@ -7,6 +7,15 @@ disagree, the plugin is right by definition and the difference is a finding (des
 Pinned at: `A_Flow` `e1a4d871`, `D_Flow_Espresso_Profile` `7f3c9726`, `de1app` `fe5cf40c`.
 Re-verify on any submodule bump — a transcribed rule goes stale silently.
 
+**Currency verified 2026-07-25.** All three fetched and compared against their upstream default
+branches: 0 commits behind in every case. A-Flow is at `v2.0-beta.2-2-ge1a4d87`, D-Flow at `v3.1`.
+
+One wrinkle worth knowing: `git submodule status` reports A_Flow with a `+` prefix, meaning the
+commit checked out locally is **not** the one de1app's index pins — de1app pins an older A-Flow
+than the plugin's own HEAD. Our checkout is the newer, which is what we want (and is consistent
+with de1app #350, where the distribution lags the plugin). D-Flow matches de1app's pin exactly.
+So "latest de1app" and "latest A-Flow" are not the same thing, and this suite tracks the plugin.
+
 ---
 
 ## D-Flow — `D_Flow_Espresso_Profile/plugin.tcl`
