@@ -80,6 +80,8 @@ private:
     void setState(DE1::State state, DE1::SubState subState);
     void startOperation(DE1::State state);
     void stopOperation();
+    // Zero the shared yield accumulator and publish the new zero to the scale.
+    void resetYield();
 
     // Profile execution
     void executeFrame();

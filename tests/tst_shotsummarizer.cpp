@@ -1502,6 +1502,351 @@ private slots:
                  QStringLiteral("volume"));
     }
 
+    // ---------------------------------------------------------------------
+    // Canonical string-encoded profile numerics
+    // (openspec change align-profile-json-with-reaprime).
+    //
+    // A stored profile snapshot writes its scalars as STRINGS ("93.00",
+    // "18.0") in the canonical DE1 v2 format, so every reader has to go
+    // through the dual-tolerant profileJsonToDouble(). A raw
+    // QJsonValue::toDouble() on a string returns 0.0 *silently*, and
+    // buildCurrentProfileBlock() gates both fields on `> 0` — so the
+    // failure mode is not a wrong number, it is the brew temperature and
+    // the recommended dose vanishing from the advisor payload entirely
+    // with nothing logged. These tests are the regression guard: revert
+    // either read in summarizeFromHistory() to `.toDouble()` and the
+    // string-encoded rows below fail on 0.0 / a missing key.
+    // ---------------------------------------------------------------------
+
+    // `tempLiteral` / `doseLiteral` are spliced in as raw JSON text, so a
+    // caller passes `93.0` for the numeric encoding and `"93.00"` (quotes
+    // included) for the canonical string encoding.
+    static QString makeProfileJson(const QString& tempLiteral,
+                                   const QString& doseLiteral,
+                                   bool hasRecommendedDose = true)
+    {
+        return QStringLiteral(R"({
+            "title": "Test Profile",
+            "type": "advanced",
+            "version": 2,
+            "espresso_temperature": %1,
+            "has_recommended_dose": %2,
+            "recommended_dose": %3,
+            "steps": [
+                {"name":"preinfusion","temperature":93,"seconds":8,"flow":4.0,"transition":"fast","exit":{"type":"pressure","condition":"over","value":4.0}},
+                {"name":"pour","temperature":93,"seconds":22,"pressure":9.0,"transition":"smooth"}
+            ]
+        })")
+            .arg(tempLiteral,
+                 hasRecommendedDose ? QStringLiteral("true") : QStringLiteral("false"),
+                 doseLiteral);
+    }
+
+    void summarizeFromHistory_profileNumericsTolerateStringEncoding_data()
+    {
+        QTest::addColumn<QString>("tempLiteral");
+        QTest::addColumn<QString>("doseLiteral");
+        // The pre-change encoding: bare JSON numbers. Still has to work —
+        // every shot saved before this change carries this shape.
+        QTest::newRow("numeric")        << QStringLiteral("93.0")
+                                        << QStringLiteral("18.0");
+        // The canonical encoding produced by Profile::toJsonObject().
+        QTest::newRow("string-decimal") << QStringLiteral("\"93.00\"")
+                                        << QStringLiteral("\"18.0\"");
+        // Integer-looking strings — de1app writes these for whole values.
+        QTest::newRow("string-integer") << QStringLiteral("\"93\"")
+                                        << QStringLiteral("\"18\"");
+    }
+
+    void summarizeFromHistory_profileNumericsTolerateStringEncoding()
+    {
+        QFETCH(QString, tempLiteral);
+        QFETCH(QString, doseLiteral);
+
+        QVariantMap shot = makeHealthyShotMap();
+        shot["profileJson"] = makeProfileJson(tempLiteral, doseLiteral);
+
+        // Pin the hazard this test exists to guard, so the guard's purpose
+        // survives without reading summarizeFromHistory(): on the string
+        // rows the raw QJsonValue::toDouble() the reads must NOT use yields
+        // 0.0, which is indistinguishable from "unset" downstream.
+        const QJsonObject rawProfile =
+            QJsonDocument::fromJson(shot["profileJson"].toString().toUtf8()).object();
+        if (rawProfile.value(QStringLiteral("espresso_temperature")).isString()) {
+            QCOMPARE(rawProfile.value(QStringLiteral("espresso_temperature")).toDouble(), 0.0);
+            QCOMPARE(rawProfile.value(QStringLiteral("recommended_dose")).toDouble(), 0.0);
+        }
+
+        ShotSummarizer summarizer;
+        const ShotSummary summary =
+            summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(shot));
+
+        QCOMPARE(summary.targetTemperatureC, 93.0);
+        QCOMPARE(summary.recommendedDoseG, 18.0);
+    }
+
+    // End-to-end counterpart: the two encodings must render a byte-identical
+    // `profile` block. Asserting key PRESENCE separately matters because the
+    // `> 0` gate turns a bad read into an absent field, and a test that only
+    // compared values would read `0 == 0` as agreement if both encodings
+    // regressed together.
+    void buildUserPrompt_profileBlockIdenticalAcrossNumericEncodings()
+    {
+        QVariantMap numericShot = makeHealthyShotMap();
+        numericShot["profileJson"] =
+            makeProfileJson(QStringLiteral("93.0"), QStringLiteral("18.0"));
+        QVariantMap stringShot = makeHealthyShotMap();
+        stringShot["profileJson"] =
+            makeProfileJson(QStringLiteral("\"93.00\""), QStringLiteral("\"18.0\""));
+
+        ShotSummarizer summarizer;
+        auto profileBlockFor = [&summarizer](const QVariantMap& shot) {
+            const ShotSummary s =
+                summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(shot));
+            return QJsonDocument::fromJson(summarizer.buildUserPrompt(s).toUtf8())
+                .object().value(QStringLiteral("profile")).toObject();
+        };
+
+        const QJsonObject numericProfile = profileBlockFor(numericShot);
+        const QJsonObject stringProfile  = profileBlockFor(stringShot);
+
+        QVERIFY2(stringProfile.contains(QStringLiteral("targetTemperatureC")),
+                 "string-encoded espresso_temperature must still reach the profile block");
+        QVERIFY2(stringProfile.contains(QStringLiteral("recommendedDoseG")),
+                 "string-encoded recommended_dose must still reach the profile block");
+        QCOMPARE(stringProfile.value(QStringLiteral("targetTemperatureC")).toDouble(), 93.0);
+        QCOMPARE(stringProfile.value(QStringLiteral("recommendedDoseG")).toDouble(), 18.0);
+        QCOMPARE(stringProfile, numericProfile);
+    }
+
+    // The per-pull temperature override wins over the profile's scalar, and
+    // the string encoding must not change that precedence — a reader that
+    // zeroed the profile value would make this test pass for the wrong
+    // reason, which is why the companion test above pins the non-override
+    // value too.
+    void summarizeFromHistory_temperatureOverrideBeatsProfileTemperature()
+    {
+        QVariantMap shot = makeHealthyShotMap();
+        shot["profileJson"] =
+            makeProfileJson(QStringLiteral("\"93.00\""), QStringLiteral("\"18.0\""));
+        shot["temperatureOverrideC"] = 95.5;
+
+        ShotSummarizer summarizer;
+        const ShotSummary summary =
+            summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(shot));
+
+        QCOMPARE(summary.targetTemperatureC, 95.5);
+        // The dose is not overridable, so it still comes from the profile.
+        QCOMPARE(summary.recommendedDoseG, 18.0);
+    }
+
+    // has_recommended_dose is the opt-in flag: a profile carrying a
+    // recommended_dose value with the flag off must NOT publish a dose, or
+    // the advisor would treat Profile::fromJson's 18 g default as an
+    // author's recommendation.
+    void summarizeFromHistory_recommendedDoseSkippedWhenFlagIsFalse()
+    {
+        QVariantMap shot = makeHealthyShotMap();
+        shot["profileJson"] = makeProfileJson(QStringLiteral("\"93.00\""),
+                                              QStringLiteral("\"18.0\""),
+                                              /*hasRecommendedDose=*/false);
+
+        ShotSummarizer summarizer;
+        const ShotSummary summary =
+            summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(shot));
+
+        QCOMPARE(summary.recommendedDoseG, 0.0);
+        // The temperature is unconditional and must still come through.
+        QCOMPARE(summary.targetTemperatureC, 93.0);
+
+        const QJsonObject profile =
+            QJsonDocument::fromJson(summarizer.buildUserPrompt(summary).toUtf8())
+                .object().value(QStringLiteral("profile")).toObject();
+        QVERIFY2(!profile.contains(QStringLiteral("recommendedDoseG")),
+                 "an unset recommended dose must not be emitted at all");
+    }
+
+    // A profile snapshot with no espresso_temperature key at all (older
+    // exports, and visualizer's /profile?format=json) leaves the target
+    // unset rather than defaulting to something plausible-looking.
+    void summarizeFromHistory_absentTemperatureLeavesTargetUnset()
+    {
+        QVariantMap shot = makeHealthyShotMap();
+        shot["profileJson"] = QStringLiteral(R"({
+            "title": "Test Profile",
+            "type": "advanced",
+            "version": 2,
+            "steps": [
+                {"name":"pour","temperature":93,"seconds":22,"pressure":9.0,"transition":"smooth"}
+            ]
+        })");
+
+        ShotSummarizer summarizer;
+        const ShotSummary summary =
+            summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(shot));
+
+        QCOMPARE(summary.targetTemperatureC, 0.0);
+        const QJsonObject profile =
+            QJsonDocument::fromJson(summarizer.buildUserPrompt(summary).toUtf8())
+                .object().value(QStringLiteral("profile")).toObject();
+        QVERIFY2(!profile.contains(QStringLiteral("targetTemperatureC")),
+                 "an absent brew temperature must not be emitted at all");
+    }
+
+    // ---------------------------------------------------------------------
+    // editorType derivation ladder (summarizeFromHistory → profileTypeDescription).
+    //
+    // Four independent sources are consulted in order — title prefix,
+    // legacy is_recipe_mode + recipe.editorType, legacy_profile_type,
+    // profile_type — and the result is a human-readable style sentence the
+    // advisor prompt leans on. None of the rungs had coverage, so a
+    // reordering or a dropped fallback was invisible.
+    // ---------------------------------------------------------------------
+    void summarizeFromHistory_editorTypeDerivation_data()
+    {
+        QTest::addColumn<QString>("profileJson");
+        QTest::addColumn<QString>("expectedFragment");
+
+        auto framed = [](const QString& extraFields) {
+            return QStringLiteral(R"({
+                %1
+                "version": 2,
+                "steps": [
+                    {"name":"pour","temperature":93,"seconds":22,"pressure":9.0,"transition":"smooth"}
+                ]
+            })").arg(extraFields);
+        };
+
+        QTest::newRow("title D-Flow")
+            << framed(QStringLiteral("\"title\": \"D-Flow / Q\","))
+            << QStringLiteral("D-Flow (lever-style");
+        // A leading '*' marks a modified profile; it must be stripped before
+        // the prefix test or every edited D-Flow loses its style description.
+        QTest::newRow("title starred D-Flow")
+            << framed(QStringLiteral("\"title\": \"*D-Flow / Q\","))
+            << QStringLiteral("D-Flow (lever-style");
+        QTest::newRow("title A-Flow")
+            << framed(QStringLiteral("\"title\": \"A-Flow / Default\","))
+            << QStringLiteral("A-Flow (pressure ramp");
+        // Legacy pre-PR#579 shape: is_recipe_mode + recipe.editorType.
+        QTest::newRow("legacy recipe editorType")
+            << framed(QStringLiteral(
+                   "\"title\": \"Custom Blend\", \"is_recipe_mode\": true,"
+                   " \"recipe\": {\"editorType\": \"pressure\"},"))
+            << QStringLiteral("Pressure profile");
+        QTest::newRow("legacy_profile_type 2a")
+            << framed(QStringLiteral(
+                   "\"title\": \"Custom Blend\", \"legacy_profile_type\": \"settings_2a\","))
+            << QStringLiteral("Pressure profile");
+        QTest::newRow("profile_type 2b")
+            << framed(QStringLiteral(
+                   "\"title\": \"Custom Blend\", \"profile_type\": \"settings_2b\","))
+            << QStringLiteral("Flow profile");
+        // Nothing resolves — no style sentence rather than a guessed one.
+        QTest::newRow("unresolvable")
+            << framed(QStringLiteral(
+                   "\"title\": \"Custom Blend\", \"profile_type\": \"settings_2c\","))
+            << QString();
+    }
+
+    void summarizeFromHistory_editorTypeDerivation()
+    {
+        QFETCH(QString, profileJson);
+        QFETCH(QString, expectedFragment);
+
+        QVariantMap shot = makeHealthyShotMap();
+        shot["profileJson"] = profileJson;
+
+        ShotSummarizer summarizer;
+        const ShotSummary summary =
+            summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(shot));
+
+        if (expectedFragment.isEmpty()) {
+            QVERIFY2(summary.profileType.isEmpty(),
+                     qPrintable(QStringLiteral("expected no style description, got: ")
+                                + summary.profileType));
+        } else {
+            QVERIFY2(summary.profileType.contains(expectedFragment),
+                     qPrintable(QStringLiteral("expected '%1' in '%2'")
+                                .arg(expectedFragment, summary.profileType)));
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Whole-shot phase fallback (makeWholeShotPhase).
+    //
+    // Legacy shots and shots aborted before frame 0 emitted carry no phase
+    // markers. Rather than hand callers an empty phase list to special-case,
+    // summarizeFromHistory synthesizes one "Extraction" phase spanning the
+    // shot. Untested until now, so a fallback that silently stopped firing
+    // would only show up as an empty ## Phase Data section in a prompt.
+    // ---------------------------------------------------------------------
+    void summarizeFromHistory_noPhaseMarkersSynthesizesWholeShotPhase()
+    {
+        QVariantMap shot;
+        shot["beverageType"] = QStringLiteral("espresso");
+        shot["durationSec"] = 30.0;
+        shot["doseWeightG"] = 18.0;
+        shot["finalWeightG"] = 36.0;
+        shot["targetWeightG"] = 36.0;
+
+        QVariantList pressure, flow, temperature, temperatureGoal, derivative, weight;
+        appendFlat(pressure, 0.0, 30.0, 9.0);
+        appendFlat(flow, 0.0, 30.0, 1.8);
+        appendFlat(temperature, 0.0, 30.0, 92.0);
+        appendFlat(temperatureGoal, 0.0, 30.0, 92.0);
+        appendFlat(derivative, 0.0, 30.0, 0.0);
+        for (double t = 0.0; t <= 30.0 + 1e-9; t += 0.1) {
+            QVariantMap p; p["x"] = t; p["y"] = 36.0 * (t / 30.0);
+            weight.append(p);
+        }
+
+        shot["pressure"] = pressure;
+        shot["flow"] = flow;
+        shot["temperature"] = temperature;
+        shot["temperatureGoal"] = temperatureGoal;
+        shot["conductanceDerivative"] = derivative;
+        shot["weight"] = weight;
+        shot["phases"] = QVariantList();   // no markers at all
+        shot["pressureGoal"] = QVariantList();
+        shot["flowGoal"] = QVariantList();
+
+        ShotSummarizer summarizer;
+        const ShotSummary summary =
+            summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(shot));
+
+        QCOMPARE(summary.phases.size(), 1);
+        const PhaseSummary& phase = summary.phases.first();
+        QCOMPARE(phase.name, QStringLiteral("Extraction"));
+        QCOMPARE(phase.startTime, 0.0);
+        QCOMPARE(phase.endTime, 30.0);
+        QCOMPARE(phase.duration, 30.0);
+        QCOMPARE(phase.avgPressure, 9.0);
+        QCOMPARE(phase.avgFlow, 1.8);
+        QCOMPARE(phase.avgTemperature, 92.0);
+        QVERIFY(qFuzzyCompare(phase.weightGained, 36.0));
+    }
+
+    // Ratio is the one derived overall metric, and its divide-by-zero guard
+    // matters: a dose-less shot (tea, or a shot saved before the dose was
+    // entered) must report 0 rather than an inf that renders as "inf" in the
+    // prompt. Debug builds run UBSan with float-divide-by-zero enabled, so an
+    // unguarded divide would abort here rather than just look wrong.
+    void summarizeFromHistory_ratioGuardsAgainstZeroDose()
+    {
+        QVariantMap withDose = makeHealthyShotMap();
+        ShotSummarizer summarizer;
+        const ShotSummary dosed =
+            summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(withDose));
+        QVERIFY(qFuzzyCompare(dosed.ratio, 2.0));   // 36 g / 18 g
+
+        QVariantMap noDose = makeHealthyShotMap();
+        noDose["doseWeightG"] = 0.0;
+        const ShotSummary undosed =
+            summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(noDose));
+        QCOMPARE(undosed.ratio, 0.0);
+    }
+
 };
 
 QTEST_GUILESS_MAIN(tst_ShotSummarizer)

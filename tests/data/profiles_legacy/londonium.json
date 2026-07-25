@@ -1,0 +1,151 @@
+{
+    "author": "Decent",
+    "beverage_type": "espresso",
+    "espresso_temperature": 89,
+    "has_recommended_dose": false,
+    "legacy_profile_type": "settings_2c",
+    "maximum_flow": 0,
+    "maximum_flow_range_advanced": 0.6,
+    "maximum_pressure": 0,
+    "maximum_pressure_range_advanced": 0.6,
+    "minimum_pressure": 4,
+    "mode": "frame_based",
+    "notes": "This profile simulates a Londinium R machines extraction style. This is an advanced profile with some added steps to assist with less than ideal puck prep. Christee-Lee described it as like having a milkshake with extra syrup. Great body and flavour range. 2nd edition.  This is identical to the LRv2 profile, but renamed to be easier to understand. By Damian Brakel",
+    "number_of_preinfuse_frames": 0,
+    "read_only": 1,
+    "recommended_dose": 18,
+    "steps": [
+        {
+            "flow": 8,
+            "limiter": {
+                "range": 0.6,
+                "value": 0
+            },
+            "name": "Fill start",
+            "pressure": 2,
+            "pump": "pressure",
+            "seconds": 2,
+            "sensor": "coffee",
+            "temperature": 89,
+            "transition": "fast",
+            "volume": 100
+        },
+        {
+            "exit": {
+                "condition": "over",
+                "type": "pressure",
+                "value": 1.5
+            },
+            "flow": 8,
+            "limiter": {
+                "range": 0.6,
+                "value": 0
+            },
+            "name": "Fill",
+            "pressure": 2,
+            "pump": "pressure",
+            "seconds": 25,
+            "sensor": "coffee",
+            "temperature": 89,
+            "transition": "fast",
+            "volume": 100
+        },
+        {
+            "flow": 8,
+            "limiter": {
+                "range": 0.6,
+                "value": 0
+            },
+            "name": "Infuse",
+            "pressure": 3,
+            "pump": "pressure",
+            "seconds": 12,
+            "sensor": "coffee",
+            "temperature": 88.5,
+            "transition": "fast",
+            "volume": 100
+        },
+        {
+            "flow": 2,
+            "limiter": {
+                "range": 0.6,
+                "value": 0
+            },
+            "name": "Pressure Up",
+            "popup": "$weight",
+            "pressure": 9,
+            "pump": "pressure",
+            "seconds": 8,
+            "sensor": "coffee",
+            "temperature": 88.5,
+            "transition": "fast",
+            "volume": 100
+        },
+        {
+            "exit": {
+                "condition": "over",
+                "type": "flow",
+                "value": 2.8
+            },
+            "flow": 2,
+            "limiter": {
+                "range": 0.6,
+                "value": 0
+            },
+            "name": "Pressure Decline",
+            "pressure": 3,
+            "pump": "pressure",
+            "seconds": 55,
+            "sensor": "coffee",
+            "temperature": 88,
+            "transition": "smooth",
+            "volume": 100
+        },
+        {
+            "exit": {
+                "condition": "over",
+                "type": "flow",
+                "value": 2.8
+            },
+            "flow": 2,
+            "limiter": {
+                "range": 0.6,
+                "value": 0
+            },
+            "name": "Pressure Hold",
+            "pressure": 3,
+            "pump": "pressure",
+            "seconds": 127,
+            "sensor": "coffee",
+            "temperature": 88,
+            "transition": "fast",
+            "volume": 100
+        },
+        {
+            "flow": 2.5,
+            "limiter": {
+                "range": 0.6,
+                "value": 0
+            },
+            "name": "Flow Limit",
+            "pressure": 3,
+            "pump": "flow",
+            "seconds": 127,
+            "sensor": "coffee",
+            "temperature": 88,
+            "transition": "fast",
+            "volume": 100
+        }
+    ],
+    "tank_desired_water_temperature": 0,
+    "target_volume": 0,
+    "target_weight": 42,
+    "temperature_presets": [
+        89,
+        89,
+        89,
+        89
+    ],
+    "title": "Londonium",
+    "version": "2"
+}

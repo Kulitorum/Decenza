@@ -70,7 +70,8 @@ private slots:
         QJsonObject exitObj = json["exit"].toObject();
         QCOMPARE(exitObj["type"].toString(), jsonType);
         QCOMPARE(exitObj["condition"].toString(), jsonCondition);
-        QCOMPARE(exitObj["value"].toDouble(), exitValue);
+        // Canonical format string-encodes numeric values.
+        QCOMPARE(exitObj["value"].toString().toDouble(), exitValue);
 
         // Deserialize back
         ProfileFrame parsed = ProfileFrame::fromJson(json);
@@ -87,7 +88,7 @@ private slots:
 
         QJsonObject json = original.toJson();
         QVERIFY(!json.contains("exit"));       // No exit object (exitIf=false)
-        QCOMPARE(json["weight"].toDouble(), 4.0);  // Weight is separate
+        QCOMPARE(json["weight"].toString().toDouble(), 4.0);  // Weight is separate
 
         ProfileFrame parsed = ProfileFrame::fromJson(json);
         QVERIFY(!parsed.exitIf);
@@ -104,7 +105,7 @@ private slots:
 
         QJsonObject json = original.toJson();
         QVERIFY(json.contains("exit"));
-        QCOMPARE(json["weight"].toDouble(), 5.0);
+        QCOMPARE(json["weight"].toString().toDouble(), 5.0);
 
         ProfileFrame parsed = ProfileFrame::fromJson(json);
         QVERIFY(parsed.exitIf);
@@ -162,8 +163,13 @@ private slots:
         QJsonObject json = pf.toJson();
         QVERIFY(json.contains("limiter"));
         QJsonObject lim = json["limiter"].toObject();
-        QCOMPARE(lim["value"].toDouble(), 0.0);
-        QCOMPARE(lim["range"].toDouble(), 0.2);
+        // isString() first: a numeric QJsonValue's toString() is "" and "".toDouble()
+        // is 0.0, so a bare toString().toDouble() == 0.0 check would pass vacuously
+        // if the serializer ever regressed to numeric encoding.
+        QVERIFY(lim["value"].isString());
+        QVERIFY(lim["range"].isString());
+        QCOMPARE(lim["value"].toString().toDouble(), 0.0);
+        QCOMPARE(lim["range"].toString().toDouble(), 0.2);
     }
 
     void jsonLimiterWithValue() {
@@ -242,6 +248,34 @@ private slots:
         QCOMPARE(pf.exitFlowOver, 6.0);
         QCOMPARE(pf.maxFlowOrPressure, 0.0);
         QCOMPARE(pf.maxFlowOrPressureRange, 0.6);
+    }
+
+    void tclOmittedAxisIsZeroNotTheEditorDefault() {
+        // de1app writes no `flow` on a pressure frame and no `pressure` on a
+        // flow frame. ProfileFrame's 9 bar / 2 mL/s member defaults are for the
+        // EDITOR; letting them stand in for an absent key writes a value de1app
+        // never had (19 of 93 built-ins shipped one).
+        //
+        // This needs its own test because the frame comparison cannot catch it:
+        // Profile::frameDiffReport() deliberately skips the inactive axis unless
+        // BOTH sides are non-zero, so it is structurally blind here.
+        const ProfileFrame pressureFrame = ProfileFrame::fromTclList(
+            "{name hold temperature 93.0 pump pressure pressure 9.0 seconds 10 "
+            "transition fast sensor coffee exit_if 0}");
+        QCOMPARE(pressureFrame.pressure, 9.0);
+        QCOMPARE(pressureFrame.flow, 0.0);
+
+        const ProfileFrame flowFrame = ProfileFrame::fromTclList(
+            "{name pour temperature 93.0 pump flow flow 2.2 seconds 30 "
+            "transition fast sensor coffee exit_if 0}");
+        QCOMPARE(flowFrame.flow, 2.2);
+        QCOMPARE(flowFrame.pressure, 0.0);
+
+        // An axis the source DOES specify still survives, including a zero.
+        const ProfileFrame explicitBoth = ProfileFrame::fromTclList(
+            "{name x temperature 93.0 pump flow flow 4.0 pressure 1.0 seconds 5 "
+            "transition fast sensor coffee exit_if 0}");
+        QCOMPARE(explicitBoth.pressure, 1.0);
     }
 
     void tclTransitionSlowMapsToSmooth() {
@@ -548,6 +582,75 @@ private slots:
         QString tcl = pf.toTclList();
         ProfileFrame parsed = ProfileFrame::fromTclList(tcl);
         QCOMPARE(parsed.popup, QString("$weight"));
+    }
+
+    // A key nested inside `exit` that we do not read is the one place a step could
+    // carry an unrecognised setting and pass in silence: knownJsonKeys() lists
+    // `exit` as a whole key, so unknownJsonKeys() never looks inside it.
+    //
+    // Asserting the WARNING, not a refusal, is the deliberate contract — we still
+    // load the profile. The test exists so the diagnostic cannot be dropped by
+    // someone widening the read-set without noticing they also removed the only
+    // signal we would ever get from the field.
+    void unmodelledNestedExitKeyWarns() {
+        QJsonObject exitObj{{"type", "pressure"}, {"value", 4.0},
+                            {"condition", "over"}, {"tolerance", 0.5}};
+        QJsonObject json{{"name", "preinfusion"}, {"pump", "flow"},
+                         {"temperature", 92.0}, {"seconds", 10.0},
+                         {"exit", exitObj}};
+
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression(QStringLiteral("'exit' object .* tolerance")));
+        ProfileFrame parsed = ProfileFrame::fromJson(json);
+
+        // Still parsed, and the parts we DO understand are intact.
+        QCOMPARE(parsed.name, QString("preinfusion"));
+        QVERIFY(parsed.exitIf);
+        QCOMPARE(parsed.exitType, QString("pressure_over"));
+        QCOMPARE(parsed.exitPressureOver, 4.0);
+    }
+
+    // Same guarantee for the limiter object, which has its own read-set.
+    void unmodelledNestedLimiterKeyWarns() {
+        QJsonObject limiterObj{{"value", 6.0}, {"range", 0.6}, {"curve", "linear"}};
+        QJsonObject json{{"name", "hold"}, {"seconds", 20.0}, {"limiter", limiterObj}};
+
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression(QStringLiteral("'limiter' object .* curve")));
+        ProfileFrame parsed = ProfileFrame::fromJson(json);
+
+        QCOMPARE(parsed.maxFlowOrPressure, 6.0);
+        QCOMPARE(parsed.maxFlowOrPressureRange, 0.6);
+    }
+
+    // The vocabulary cases already warned, but said only what happened, not what it
+    // costs. A dropped exit means the frame runs its full duration — the difference
+    // between a 25-second pour and one that should have cut at 4 bar. Pinning the
+    // behaviour (exit disabled, profile still loaded) keeps the substitution from
+    // quietly becoming something else.
+    void unrecognisedExitTypeDropsExitAndWarns() {
+        QJsonObject exitObj{{"type", "conductivity"}, {"value", 3.0}};
+        QJsonObject json{{"name", "pour"}, {"seconds", 25.0}, {"exit", exitObj}};
+
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression(QStringLiteral("exit type 'conductivity'")));
+        ProfileFrame parsed = ProfileFrame::fromJson(json);
+
+        QVERIFY(!parsed.exitIf);
+        QCOMPARE(parsed.seconds, 25.0);
+    }
+
+    void unrecognisedExitConditionFallsBackToOverAndWarns() {
+        QJsonObject exitObj{{"type", "flow"}, {"value", 2.0}, {"condition", "equals"}};
+        QJsonObject json{{"name", "pour"}, {"seconds", 25.0}, {"exit", exitObj}};
+
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression(QStringLiteral("exit condition 'equals'")));
+        ProfileFrame parsed = ProfileFrame::fromJson(json);
+
+        QVERIFY(parsed.exitIf);
+        QCOMPARE(parsed.exitType, QString("flow_over"));
+        QCOMPARE(parsed.exitFlowOver, 2.0);
     }
 };
 

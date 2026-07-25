@@ -17,35 +17,17 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QFileInfo>
 #include <QTextStream>
 #include <QRegularExpression>
 #include <QDebug>
 #include <QHash>
 
+#include "profile/de1apptclfields.h"
 #include "profile/profile.h"
 #include "profile/profileframe.h"
-
-// titleToFilename: matches ProfileManager::titleToFilename.
-// NFD decomposition handles accented chars (é→e, ñ→n, etc.)
-static QString titleToFilename(const QString& title)
-{
-    QString fn = title.normalized(QString::NormalizationForm_D);
-    fn.remove(QRegularExpression(QStringLiteral("[\\x{0300}-\\x{036f}]")));
-    QString sanitized;
-    for (const QChar& c : fn) {
-        if (c.isLetterOrNumber())
-            sanitized += c.toLower();
-        else
-            sanitized += QLatin1Char('_');
-    }
-    while (sanitized.contains(QLatin1String("__")))
-        sanitized.replace(QLatin1String("__"), QLatin1String("_"));
-    while (sanitized.startsWith(QLatin1Char('_'))) sanitized.remove(0, 1);
-    while (sanitized.endsWith(QLatin1Char('_')))   sanitized.chop(1);
-    if (sanitized.length() > 50) sanitized = sanitized.left(50);
-    return sanitized;
-}
 
 // Materialize frames for simple profiles (settings_2a/2b) loaded from JSON.
 // Built-in JSONs ship with `"steps": []` because the app regenerates frames at
@@ -72,64 +54,73 @@ static void normaliseSimpleProfile(Profile& p)
     p.setPreinfuseFrameCount(Profile::countPreinfuseFrames(p.steps()));
 }
 
-// Build a human-readable diff between a TCL-parsed profile and its built-in JSON.
-// Mirrors the logic of Profile::functionallyEqual() so the report reflects exactly
-// what would cause the import check to flag the profile as "different".
-static QString buildDiff(const Profile& tcl, const Profile& builtin)
+// Replace a built-in with its de1app source. The rewrite is deliberately a
+// REPLACEMENT, not a merge: a shipped built-in is supposed to be its de1app
+// profile, so keeping anything extra is how the two drift apart again. Any key
+// the rewrite would drop is reported first — the audit is the check on that
+// claim, and it is expected to stay silent.
+static bool syncOverBuiltin(const Profile& tcl, const QString& outPath, QTextStream& cerr)
 {
-    QString report;
-
-    // Header-level mismatches always print, even when one side has 0 frames —
-    // otherwise simple-profile diffs render with an empty body.
-    if (tcl.steps().size() != builtin.steps().size())
-        report += QString("  step count: TCL=%1 JSON=%2\n")
-                      .arg(tcl.steps().size()).arg(builtin.steps().size());
-    if (tcl.preinfuseFrameCount() != builtin.preinfuseFrameCount())
-        report += QString("  preinfuseFrameCount: TCL=%1 JSON=%2\n")
-                      .arg(tcl.preinfuseFrameCount()).arg(builtin.preinfuseFrameCount());
-
-    const qsizetype n = qMin(tcl.steps().size(), builtin.steps().size());
-    for (qsizetype i = 0; i < n; ++i) {
-        const ProfileFrame& a = tcl.steps()[i];
-        const ProfileFrame& b = builtin.steps()[i];
-        const QString p = QString("  FRAME[%1] ").arg(i);
-
-        if (a.pump       != b.pump)       report += p + "pump: TCL=" + a.pump + " JSON=" + b.pump + "\n";
-        if (a.sensor     != b.sensor)     report += p + "sensor: TCL=" + a.sensor + " JSON=" + b.sensor + "\n";
-        if (a.transition != b.transition) report += p + "transition: TCL=" + a.transition + " JSON=" + b.transition + "\n";
-        if (a.popup      != b.popup)      report += p + "popup: TCL='" + a.popup + "' JSON='" + b.popup + "'\n";
-        if (a.exitIf     != b.exitIf)     report += p + "exitIf: TCL=" + QString::number(a.exitIf) + " JSON=" + QString::number(b.exitIf) + "\n";
-        if (a.exitIf && a.exitType != b.exitType)
-            report += p + "exitType: TCL=" + a.exitType + " JSON=" + b.exitType + "\n";
-
-        auto chkF = [&](const QString& lbl, double va, double vb) {
-            if (qAbs(va - vb) > 0.1)
-                report += p + lbl + ": TCL=" + QString::number(va) + " JSON=" + QString::number(vb) + "\n";
-        };
-        chkF("temperature", a.temperature, b.temperature);
-        if (a.pump == "pressure") {
-            chkF("pressure", a.pressure, b.pressure);
-            if (a.flow > 0.1 && b.flow > 0.1) chkF("flow", a.flow, b.flow);
-        } else {
-            chkF("flow", a.flow, b.flow);
-            if (a.pressure > 0.1 && b.pressure > 0.1) chkF("pressure", a.pressure, b.pressure);
-        }
-        chkF("seconds",     a.seconds,     b.seconds);
-        chkF("volume",      a.volume,      b.volume);
-
-        // Only compare the active exit threshold (inactive ones are noise from de1app TCL)
-        if (a.exitIf) {
-            if      (a.exitType == "pressure_over")  chkF("exitPressureOver",  a.exitPressureOver,  b.exitPressureOver);
-            else if (a.exitType == "pressure_under") chkF("exitPressureUnder", a.exitPressureUnder, b.exitPressureUnder);
-            else if (a.exitType == "flow_over")      chkF("exitFlowOver",      a.exitFlowOver,      b.exitFlowOver);
-            else if (a.exitType == "flow_under")     chkF("exitFlowUnder",     a.exitFlowUnder,     b.exitFlowUnder);
-        }
-
-        chkF("exitWeight",             a.exitWeight,             b.exitWeight);
-        chkF("maxFlowOrPressure",      a.maxFlowOrPressure,      b.maxFlowOrPressure);
-        chkF("maxFlowOrPressureRange", a.maxFlowOrPressureRange, b.maxFlowOrPressureRange);
+    QFile f(outPath);
+    if (!f.open(QIODevice::ReadOnly)) {
+        // The audit cannot run blind. Defaulting `existing` to {} on a read
+        // failure made keysLostByRewrite() return empty and the check PASS
+        // vacuously — precisely on the file where you most want it.
+        cerr << "  → REFUSED: cannot read the existing built-in (" << f.errorString()
+             << "); the drop audit would pass vacuously\n";
+        return false;
+    }
+    QJsonParseError parseError;
+    const QJsonObject existing = QJsonDocument::fromJson(f.readAll(), &parseError).object();
+    if (parseError.error != QJsonParseError::NoError) {
+        cerr << "  → REFUSED: existing built-in is not valid JSON ("
+             << parseError.errorString() << " at offset " << parseError.offset << ")\n";
+        return false;
     }
 
+    const QStringList lost = De1AppTcl::keysLostByRewrite(existing, tcl.toJsonObject());
+    if (!lost.isEmpty()) {
+        // The header for keysLostByRewrite() says a non-empty result "is a stop,
+        // not something to merge around". This used to warn and write anyway,
+        // which made the contract advisory. --rewrite-format already gets this
+        // right, and its comment records why: an earlier revision wrote first
+        // and audited the file it had just clobbered, so by the time "DATA LOSS"
+        // appeared the original existed only in git.
+        cerr << "  → REFUSED (file left untouched), keys would be dropped: "
+             << lost.join(QLatin1String(", ")) << "\n"
+             << "     A built-in is supposed to BE its de1app profile. If these keys are\n"
+             << "     genuinely obsolete, teach the reader to carry them or remove them\n"
+             << "     deliberately — do not let a sync decide it silently.\n";
+        return false;
+    }
+
+    return tcl.saveToFile(outPath);
+}
+
+// Read a whole file as text, empty on failure.
+static QString readTextFile(const QString& path)
+{
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+        return QString();
+    return QTextStream(&f).readAll();
+}
+
+// Profile-level scalar drift between a raw de1app .tcl and the built-in JSON,
+// rendered for the report. Frames are covered separately by
+// Profile::frameDiffReport(); the two together are the comparison.
+static QString buildScalarDiff(const QString& tclContent, const QString& builtinPath)
+{
+    QFile f(builtinPath);
+    if (!f.open(QIODevice::ReadOnly))
+        return QStringLiteral("  (cannot read built-in JSON)\n");
+    const QJsonObject json = QJsonDocument::fromJson(f.readAll()).object();
+
+    QString report;
+    for (const De1AppTcl::ScalarDiff& d : De1AppTcl::compareScalars(tclContent, json)) {
+        report += QString("  %1 (tcl %2): TCL=%3 JSON=%4\n")
+                      .arg(d.canonical, d.tclKey, d.tclValue, d.jsonValue);
+    }
     return report;
 }
 
@@ -159,10 +150,17 @@ int main(int argc, char* argv[])
 
     const QStringList args = app.arguments();
     if (args.size() < 3) {
-        QTextStream(stderr) << "Usage: profile_sync <de1app_profiles_dir> <builtin_profiles_dir> [--sync]\n"
+        QTextStream(stderr) << "Usage: profile_sync <de1app_profiles_dir> <builtin_profiles_dir> [--sync|--rewrite-format]\n"
                             << "\n"
                             << "  Without --sync: report differences only (compare mode)\n"
                             << "  With    --sync: also overwrite stale JSONs and create missing ones\n"
+                            << "  --force:        with --sync, rewrite EVERY profile, including ones\n"
+                            << "                  that read as in-sync (the frame comparison ignores\n"
+                            << "                  the axis a frame's pump does not drive, so a stale\n"
+                            << "                  value can hide there)\n"
+                            << "  --rewrite-format: format-only pass — re-save the built-in JSONs through\n"
+                            << "                    the canonical serializer, leaving content untouched\n"
+                            << "                    (de1app dir is ignored; content sync is a separate task)\n"
                             << "\n"
                             << "  Plugin profiles under <de1app_profiles_dir>/../plugins/*/profiles/\n"
                             << "  are scanned automatically and override base profiles with the same\n"
@@ -173,6 +171,104 @@ int main(int argc, char* argv[])
     const QString de1appDir  = args[1];
     const QString builtinDir = args[2];
     const bool    doSync     = args.contains(QLatin1String("--sync"));
+    const bool    doRewrite  = args.contains(QLatin1String("--rewrite-format"));
+    // --force: rewrite every profile from its .tcl, not only those the
+    // comparison flags. Needed because the frame comparison deliberately
+    // ignores the axis a frame's pump does not drive (the DE1 ignores it too),
+    // so a built-in can hold a stale value there and still read as "in sync".
+    // That is exactly how built-ins kept an inactive-axis value de1app never
+    // wrote (19 of 93 carried the bare member default). Use after changing what
+    // the writer emits, not only when the comparison reports drift.
+    const bool    doForce    = args.contains(QLatin1String("--force"));
+
+    // --rewrite-format: FORMAT-ONLY pass over the built-in JSONs. Loads each file
+    // and re-saves it through the canonical serializer (Profile::toJsonObject), so
+    // the shipped set adopts the string-encoded, reaprime-readable format without
+    // touching profile CONTENT. Deliberately independent of the de1app comparison:
+    // reconciling content against de1app/reaprime is a separate concern (OpenSpec
+    // sync-builtin-profiles), and conflating the two would hide content changes
+    // inside a format diff.
+    if (doRewrite && doSync) {
+        QTextStream(stderr) << "Error: --sync and --rewrite-format are mutually exclusive.\n"
+                            << "  --sync           pulls de1app CONTENT into the built-ins\n"
+                            << "  --rewrite-format re-saves them in the canonical format, content untouched\n";
+        return 1;
+    }
+
+    if (doRewrite) {
+        QDir out(builtinDir);
+        if (!out.exists()) {
+            QTextStream(stderr) << "Error: built-in profiles directory not found: " << builtinDir << "\n";
+            return 1;
+        }
+        QTextStream cout(stdout);
+        QTextStream cerr(stderr);   // failures go to stderr so CI/greps can see them
+        int rewritten = 0, lost = 0, skipped = 0, writeFailed = 0;
+        const QStringList jsons = out.entryList({QLatin1String("*.json")}, QDir::Files, QDir::Name);
+        for (const QString& fileName : jsons) {
+            const QString path = out.absoluteFilePath(fileName);
+            // Snapshot the file EXACTLY as it sits on disk. The audit below compares
+            // against this, not against a re-serialization — comparing two outputs of
+            // the same serializer can only ever agree with itself.
+            QJsonObject original;
+            {
+                QFile f(path);
+                if (f.open(QIODevice::ReadOnly))
+                    original = QJsonDocument::fromJson(f.readAll()).object();
+            }
+
+            Profile before = Profile::loadFromFile(path);
+            if (!before.isValid() || original.isEmpty()) {
+                cerr << "SKIP (invalid): " << fileName << "\n";
+                ++skipped;
+                continue;
+            }
+
+            // AUDIT BEFORE WRITING. The serialization happens in memory and the file
+            // is only touched once parity is proven — an earlier revision wrote first
+            // and audited the file it had just clobbered, so by the time "DATA LOSS"
+            // appeared the original existed only in git.
+            //
+            // Parity is checked against the ORIGINAL BYTES ON DISK, never against a
+            // re-serialization: comparing two outputs of the same serializer can only
+            // ever agree with itself. functionallyEqual() is also NOT sufficient — it
+            // compares frames and the preinfuse count only, and reported
+            // "content-identical" while this pass was stripping recipe blocks and
+            // de1app's simple-editor keys from dozens of built-ins.
+            const QJsonObject candidate = before.toJsonObject();
+            const QStringList parity = Profile::jsonParityErrors(original, candidate);
+            if (!parity.isEmpty()) {
+                cerr << "DATA LOSS (file left untouched): " << fileName << "\n";
+                for (const QString& e : parity) cerr << "    " << e << "\n";
+                ++lost;
+                continue;
+            }
+            // Also refuse to write something a stricter reader in the ecosystem
+            // would reject outright — the whole point of the canonical format.
+            const QStringList readability = Profile::reaprimeReadabilityErrors(candidate);
+            if (!readability.isEmpty()) {
+                cerr << "NOT READABLE (file left untouched): " << fileName << "\n";
+                for (const QString& e : readability) cerr << "    " << e << "\n";
+                ++lost;
+                continue;
+            }
+
+            if (!before.saveToFile(path)) {
+                cerr << "ERROR (write failed): " << fileName << "\n";
+                ++writeFailed;
+                continue;
+            }
+            ++rewritten;
+        }
+        // Separate counters: an earlier revision folded data-loss, invalid and
+        // write-error into one "skipped" total while ALSO counting the lossy file as
+        // rewritten — so a destructive run read as "the tool skipped a few odd ones".
+        cout << "\nFormat rewrite complete: " << rewritten << " rewritten\n";
+        if (lost)        cerr << "  " << lost        << " REFUSED (data loss / unreadable) — left untouched\n";
+        if (skipped)     cerr << "  " << skipped     << " skipped (unparseable)\n";
+        if (writeFailed) cerr << "  " << writeFailed << " write errors\n";
+        return (lost || skipped || writeFailed) ? 1 : 0;
+    }
 
     QDir src(de1appDir);
     if (!src.exists()) {
@@ -186,13 +282,15 @@ int main(int argc, char* argv[])
     }
 
     QTextStream cout(stdout);
+    QTextStream cerr(stderr);   // failures go to stderr so CI/greps can see them
 
     // Build the unified TCL source list. Base files come first, then plugin files
     // override base entries when the resulting filename collides — that way a
     // canonical 9-frame plugin A-Flow profile beats the stale 6-frame base copy.
     struct Source {
         QString tclPath;       // absolute path to the TCL source
-        QString outFilename;   // titleToFilename(profile.title()) + ".json"
+        QString tclContent;    // raw text — the scalar comparison reads it directly
+        QString outFilename;   // Profile::titleToFilename(title) + ".json"
         Profile profile;       // already-parsed (avoid re-parsing later)
         bool fromPlugin = false;
     };
@@ -201,22 +299,34 @@ int main(int argc, char* argv[])
     int parseFailed = 0;
 
     auto ingest = [&](const QString& tclPath, bool fromPlugin) {
-        QFile f(tclPath);
-        if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
-            cout << "SKIP (cannot read): " << tclPath << "\n";
+        const QString content = readTextFile(tclPath);
+        if (content.isEmpty()) {
+            cerr << "SKIP (cannot read): " << tclPath << "\n";
             ++parseFailed;
             return;
         }
-        const Profile tcl = Profile::loadFromTclString(QTextStream(&f).readAll());
+        const Profile tcl = Profile::loadFromTclString(content);
         if (tcl.title().isEmpty() || tcl.steps().isEmpty()) {
-            cout << "SKIP (parse failed): " << tclPath << "\n";
+            cerr << "SKIP (parse failed): " << tclPath << "\n";
             ++parseFailed;
             return;
         }
-        const QString outName = titleToFilename(tcl.title()) + QLatin1String(".json");
+        // isValid() is the app's own import gate: it refuses a profile with an
+        // unrecognised step key or a value we cannot read. Without this check
+        // the tool that POPULATES the shipped corpus was the one path that
+        // bypassed it — saveToFile() would emit a JSON with the offending key
+        // simply absent, producing a built-in that looks pristine, imports
+        // cleanly, and is missing a setting de1app acts on.
+        if (!tcl.isValid()) {
+            cerr << "SKIP (invalid): " << tclPath << "\n"
+                 << "    " << tcl.validationErrors().join(QLatin1String("\n    ")) << "\n";
+            ++parseFailed;
+            return;
+        }
+        const QString outName = Profile::titleToFilename(tcl.title()) + QLatin1String(".json");
         if (fromPlugin && sources.contains(outName))
             overriddenBy.insert(outName, tclPath);
-        sources.insert(outName, Source{tclPath, outName, tcl, fromPlugin});
+        sources.insert(outName, Source{tclPath, content, outName, tcl, fromPlugin});
     };
 
     const QStringList baseFiles = src.entryList({QLatin1String("*.tcl")}, QDir::Files, QDir::Name);
@@ -234,7 +344,12 @@ int main(int argc, char* argv[])
         cout << "\n";
     }
 
-    int inSync = 0, different = 0, created = 0;
+    int inSync = 0, different = 0, created = 0, writeRefused = 0;
+
+    // de1app scalars the field map does not cover, aggregated across the corpus.
+    // Reported rather than skipped: an incomplete map silently NARROWS the
+    // comparison, which is exactly how a 338-row drift was once measured as 4.
+    QHash<QString, int> uncovered;
 
     // Process in a stable order so output is reproducible.
     QStringList outNames = sources.keys();
@@ -245,6 +360,9 @@ int main(int argc, char* argv[])
         const Profile& tcl = s.profile;
         const QString outPath = out.absoluteFilePath(outName);
 
+        for (const QString& key : De1AppTcl::uncoveredTclKeys(s.tclContent))
+            uncovered[key] += 1;
+
         if (QFile::exists(outPath)) {
             Profile existing = Profile::loadFromFile(outPath);
             normaliseSimpleProfile(existing);
@@ -253,21 +371,38 @@ int main(int argc, char* argv[])
             Profile tclNorm = tcl;
             normaliseSimpleProfile(tclNorm);
 
-            if (existing.isValid() && Profile::functionallyEqual(tclNorm, existing)) {
+            // Two independent comparisons. Frames come from the parsed profiles;
+            // scalars are read straight out of the .tcl, NOT through
+            // loadFromTclString — routing both sides through the reader would
+            // make the gate structurally blind to a reader bug, and a reader bug
+            // is what put 338 scalar mismatches into the shipped corpus.
+            const QString frameDiff = existing.isValid()
+                                          ? Profile::frameDiffReport(tclNorm, existing)
+                                          : QStringLiteral("  (built-in JSON is invalid)\n");
+            const QString scalarDiff = buildScalarDiff(s.tclContent, outPath);
+
+            if (frameDiff.isEmpty() && scalarDiff.isEmpty()) {
                 ++inSync;
+                if (!(doSync && doForce))
+                    continue;
+                cout << "FORCE: " << tcl.title() << " (" << outName << ")\n";
+                if (syncOverBuiltin(tcl, outPath, cerr))
+                    cout << "  → rewritten\n";
+                else
+                    ++writeRefused;
                 continue;
             }
 
-            const QString diff = buildDiff(tclNorm, existing);
             cout << "DIFF: " << tcl.title() << " (" << outName << ")"
-                 << (s.fromPlugin ? " [plugin]" : "") << "\n" << diff;
+                 << (s.fromPlugin ? " [plugin]" : "") << "\n"
+                 << scalarDiff << frameDiff;
             ++different;
 
             if (doSync) {
-                if (tcl.saveToFile(outPath))
+                if (syncOverBuiltin(tcl, outPath, cerr))
                     cout << "  → updated\n";
                 else
-                    cout << "  → ERROR: failed to write\n";
+                    ++writeRefused;
             }
         } else {
             cout << "NEW:  " << tcl.title() << " (" << outName << ")"
@@ -275,12 +410,24 @@ int main(int argc, char* argv[])
             ++created;
 
             if (doSync) {
-                if (tcl.saveToFile(outPath))
+                if (tcl.saveToFile(outPath)) {
                     cout << "  → created\n";
-                else
-                    cout << "  → ERROR: failed to write\n";
+                } else {
+                    cerr << "  → ERROR: failed to write " << outPath << "\n";
+                    ++writeRefused;
+                }
             }
         }
+    }
+
+    if (!uncovered.isEmpty()) {
+        QStringList keys = uncovered.keys();
+        std::sort(keys.begin(), keys.end());
+        cout << "\nUNCOMPARED de1app keys (present in the corpus, absent from the field map):\n";
+        for (const QString& k : keys)
+            cout << "  " << k << "  (" << uncovered.value(k) << " profiles)\n";
+        cout << "  → add to De1AppTcl::scalarFields() to compare, or to\n"
+             << "    De1AppTcl::nonScalarTclKeys() with a reason not to.\n";
     }
 
     cout << "\n";
@@ -293,6 +440,17 @@ int main(int argc, char* argv[])
         if (different > 0 || created > 0)
             cout << "Run with --sync to update built-in profiles.\n";
     }
+    if (parseFailed)   cerr << "  " << parseFailed   << " source profile(s) unreadable, unparseable or invalid\n";
+    if (writeRefused)  cerr << "  " << writeRefused  << " write(s) refused or failed — files left untouched\n";
 
-    return 0;
+    // A skipped source and an uncompared key both NARROW the comparison, and a
+    // narrowed comparison that reports success is how this drift was measured
+    // as 4 rows when it was 414. Exiting 0 regardless meant a run against a
+    // half-unreadable checkout — wrong path, bad permissions, an uninitialised
+    // submodule — compared a fraction of the corpus and still read as a pass.
+    //
+    // Drift itself does NOT gate: reporting differences is what compare mode is
+    // FOR, and tst_tclimport is the gate for those. What gates is the tool being
+    // unable to do the job it claims to have done.
+    return (parseFailed || writeRefused || !uncovered.isEmpty()) ? 1 : 0;
 }

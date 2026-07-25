@@ -8,8 +8,31 @@
 // Test RecipeGenerator frame generation against de1app behavior.
 // D-Flow/A-Flow profiles in de1app are EDITED in-place by update_D-Flow/update_A-Flow,
 // not regenerated from scratch. So tests compare generator output against the stored
-// recipe params + de1app formulas, not against saved frame values (which may have been
-// manually tweaked in de1app's UI).
+// recipe params + de1app formulas, NOT against the saved frame values.
+//
+// Not comparing against saved frames is right, but the reason once given here —
+// "may have been manually tweaked in de1app's UI" — is wrong, and it matters
+// because it made a stale array sound like a legitimate user preference worth
+// preserving. All 12 of the stock simple profiles that carry an advanced_shot
+// ship `read_only 1`, so no user edited any of them. The stored array is stale
+// for a structural reason: de1app's legacy save dumps a fixed key list out of
+// the GLOBAL ::settings array (vars.tcl:3305) and `advanced_shot` is in that
+// list, so a simple profile saved after another profile was loaded is written
+// with that other profile's frames.
+//
+// It is measurable, not theoretical. 10 of those 12 hold frames contradicting
+// their own espresso_temperature, and five — Traditional lever machine, Trendy
+// 6 bar low pressure shot, Two spring lever machine to 9 bar, Preinfuse then
+// 45ml of water, Test/temperature calibration — share one byte-identical
+// advanced_shot: a pour-over frame list (Prewet / Pause / Main water, on
+// `sensor water`) that belongs to none of them, and to no profile in the
+// corpus. It is not `Pour over.tcl`'s either — an earlier revision of this
+// comment said so, having matched on the first four frame temperatures alone.
+//
+// This is why Profile::loadFromTclString() discards a simple profile's stored
+// advanced_shot and regenerates, matching de1app's own dispatch. The formulas
+// below are therefore the only oracle for that generator; the saved frames
+// cannot serve as one.
 
 class tst_RecipeGenerator : public QObject {
     Q_OBJECT

@@ -108,6 +108,10 @@ protected:
 private:
     ScaleBleTransport* m_bleTransport = nullptr;  // Not owned (lives inside the concrete driver)
     bool m_connected = false;
+    // Set by ~ScaleDevice() before the transport teardown, so setConnected()
+    // knows the subclass is gone and must not log through the (now base-class)
+    // name() or emit signals into slots that assume a live scale.
+    bool m_destroying = false;
     bool m_simulationMode = false;
     double m_weight = 0.0;
     double m_flowRate = 0.0;

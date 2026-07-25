@@ -992,6 +992,21 @@ void DataMigrationClient::onProfileFileReply()
 
         // Save the cleaned profile (with "*" stripped and any other normalization)
         if (!shouldSkip) {
+            // A profile that failed to parse yields a default-constructed Profile
+            // (title "Default", zero frames). Writing that produced a `"steps": []`
+            // file — which stricter readers in the ecosystem reject outright — while
+            // incrementing the success counter and logging "Imported profile:
+            // Default", so a device-to-device migration reported success for a
+            // profile nobody can open. Refuse it loudly instead.
+            if (!incomingProfile.isValid()) {
+                qWarning() << "DataMigrationClient: Refusing to import invalid profile"
+                           << incomingProfile.title() << "->" << targetPath
+                           << "- no frames; source is malformed or unsupported";
+                reply->deleteLater();
+                m_currentReply = nullptr;
+                downloadNextProfile();
+                return;
+            }
             if (incomingProfile.saveToFile(targetPath)) {
                 m_profilesImported++;
                 qDebug() << "DataMigrationClient: Imported profile:" << incomingProfile.title();

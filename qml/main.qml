@@ -2391,6 +2391,25 @@ ApplicationWindow {
     De1CommunicationErrorDialog {
         id: de1CommunicationErrorDialog
     }
+
+    // A profile we refused to activate: unknown step setting or unreadable value.
+    // Lives here rather than on the profile pages because loadProfile() is also
+    // reached from MQTT, the MCP server and auto-load at startup, so the refusal
+    // has to be visible whichever surface asked for the switch.
+    ProfileRefusedDialog {
+        id: profileRefusedDialog
+    }
+    Connections {
+        target: ProfileManager
+        function onProfileRefusedUnreadable(filename, title, unsupportedStepKeys, malformedValues) {
+            profileRefusedDialog.profileFilename = filename
+            profileRefusedDialog.profileTitle = title
+            profileRefusedDialog.unsupportedKeys = unsupportedStepKeys
+            profileRefusedDialog.malformedValues = malformedValues
+            if (!profileRefusedDialog.visible)
+                profileRefusedDialog.open()
+        }
+    }
     Connections {
         target: ProfileManager
         function onDe1CommunicationFailureChanged() {

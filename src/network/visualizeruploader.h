@@ -182,6 +182,17 @@ public:
     // edit. Pure + public so the blob→API mapping is unit-tested.
     static void addBagDescriptiveFields(QJsonObject& body, const QVariantMap& bag);
 
+    // The profile object attached to a LIVE shot upload. Pure (no instance
+    // state, no network) and public so the canonicalization contract is
+    // unit-tested: this must be byte-identical to Profile::toJsonObject(), the
+    // same serialization used on disk, in exports and in share codes, so a
+    // profile pulled back off Visualizer makes the same coffee it made here.
+    //
+    // Note this is NOT the history path. buildHistoryShotJson() uploads the
+    // profile snapshot stored WITH the shot, verbatim — re-serializing an old
+    // shot through today's serializer would rewrite history.
+    static QJsonObject buildVisualizerProfileJson(const Profile* profile);
+
 signals:
     void uploadingChanged();
     void lastUploadStatusChanged();
@@ -235,7 +246,6 @@ private:
                              const QString& debugLog,
                              qint64 shotEpoch = 0);
 
-    QJsonObject buildVisualizerProfileJson(const Profile* profile);
     QByteArray buildMultipartData(const QByteArray& jsonData, const QString& boundary);
     QString authHeader() const;
 

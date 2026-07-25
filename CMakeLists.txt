@@ -654,6 +654,7 @@ set(SOURCES
     src/machine/weightprocessor.cpp
     src/machine/stepexitarbiter.cpp
     src/profile/profile.cpp
+    src/profile/de1apptclfields.cpp
     src/profile/profileframe.cpp
     src/profile/profileconverter.cpp
     src/profile/profileimporter.cpp
@@ -1245,6 +1246,7 @@ set(QML_FILES
     qml/components/CrashReportDialog.qml
     qml/components/McpConfirmDialog.qml
     qml/components/De1CommunicationErrorDialog.qml
+    qml/components/ProfileRefusedDialog.qml
     qml/components/ColoredIcon.qml
     qml/components/CrtOverlay.qml
     qml/components/CrtShaderEffect.qml
@@ -1614,6 +1616,7 @@ if(NOT ANDROID AND NOT IOS)
     add_executable(profile_sync
         tools/profile_sync.cpp
         src/profile/profile.cpp
+        src/profile/de1apptclfields.cpp
         src/profile/profileframe.cpp
         src/profile/recipegenerator.cpp
         src/profile/recipeanalyzer.cpp

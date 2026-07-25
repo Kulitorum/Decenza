@@ -326,6 +326,20 @@ signals:
     // The UI should show an error and prompt the user to select another profile.
     void profileLoadFailed(const QString& filename);
 
+    // Emitted when loadProfile() found the file but REFUSED it: this build
+    // cannot promise the profile brews what it describes, so activating it would
+    // pour a different shot silently. The previously active profile stays
+    // active — nothing is switched — and main.qml opens ProfileRefusedDialog.
+    //
+    // The two key lists are passed raw rather than pre-formatted because
+    // Profile::validationErrors() is untranslated English; QML composes the
+    // user-facing text so it follows the app language. Either list may be empty
+    // (a profile can also be refused for having no steps at all, or more than
+    // MAX_FRAMES), so the dialog must handle "refused with no keys to name".
+    void profileRefusedUnreadable(const QString& filename, const QString& title,
+                                  const QStringList& unsupportedStepKeys,
+                                  const QStringList& malformedValues);
+
     // See Q_PROPERTY documentation above.
     void de1CommunicationFailureChanged();
     void profileUploadRetryingChanged();

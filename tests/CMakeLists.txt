@@ -61,6 +61,7 @@ set(BLE_SOURCES
 
 set(PROFILE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/profile/profile.cpp
+    ${CMAKE_SOURCE_DIR}/src/profile/de1apptclfields.cpp
     ${CMAKE_SOURCE_DIR}/src/profile/profileframe.cpp
     ${CMAKE_SOURCE_DIR}/src/profile/recipegenerator.cpp
     ${CMAKE_SOURCE_DIR}/src/profile/recipeanalyzer.cpp
@@ -114,6 +115,7 @@ set(ANALYSIS_SOURCES
 
 set(SIMULATOR_SOURCES
     ${CMAKE_SOURCE_DIR}/src/simulator/de1simulator.cpp
+    ${CMAKE_SOURCE_DIR}/src/simulator/simulatedscale.cpp
 )
 
 # Standalone codec source (for lightweight tests that only need BLE encoding)
@@ -272,6 +274,19 @@ add_decenza_test(tst_profile
     tst_profile.cpp
 )
 
+# --- tst_builtinprofileformat: every shipped built-in must satisfy reaprime's
+# Profile.fromJson contract (required keys, non-empty steps, enum vocabulary), so
+# a profile makes the same coffee in every DE1 app. See OpenSpec
+# align-profile-json-with-reaprime.
+add_decenza_test(tst_builtinprofileformat
+    tst_builtinprofileformat.cpp
+    ${CMAKE_BINARY_DIR}/version_code.cpp
+)
+# decenza_shotlib: the upload-payload test asserts VisualizerUploader emits the
+# same canonical serialization as the on-disk format.
+target_link_libraries(tst_builtinprofileformat PRIVATE decenza_shotlib)
+target_include_directories(tst_builtinprofileformat PRIVATE ${CMAKE_BINARY_DIR})
+
 # --- tst_visualizershotparse: JSON->ShotRecord recovery parser (string-encoded
 # DYE scalars must not zero; hollow-shot guard; phantom-frame guard). ---
 add_decenza_test(tst_visualizershotparse
@@ -303,6 +318,11 @@ add_decenza_test(tst_autoflowcal
 add_decenza_test(tst_machinestate
     tst_machinestate.cpp
     mocks/MockScaleDevice.h
+)
+
+# --- tst_simulatedscale: simulator weight -> SimulatedScale -> MachineState ---
+add_decenza_test(tst_simulatedscale
+    tst_simulatedscale.cpp
 )
 
 # --- tst_livesteamcoach: during-steam coaching milestones, gating, completion ---

@@ -234,14 +234,9 @@ private slots:
         const int iterations = (ok && n > 0) ? n : 1;
         qInfo() << "[leak-probe] running" << iterations << "connect/teardown cycles";
         for (int i = 0; i < iterations; ++i) {
-            // Each teardown emits one "[Scale] ... DISCONNECTED" warning, and
-            // failOnWarning turns any unignored warning into a failure.
-            // QTest::ignoreMessage consumes exactly ONE message, and init()
-            // queues exactly one — enough for a single-cycle test, one short
-            // per extra cycle here. Queue the rest.
-            if (i > 0)
-                QTest::ignoreMessage(QtWarningMsg,
-                                     QRegularExpression(".*DISCONNECTED.*"));
+            // Any teardown warning is covered by init()'s m_disconnectNoise
+            // filter, which ALLOWS the message on every cycle rather than
+            // demanding it once — no per-iteration ignoreMessage needed.
             FakeHdsServer server;
             DecentScaleWifi driver;
             connectAndHandshake(driver, server);

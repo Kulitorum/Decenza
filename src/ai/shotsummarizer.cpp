@@ -198,9 +198,12 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const ShotProjection& shotData)
             if (shotData.temperatureOverrideC > 0)
                 summary.targetTemperatureC = shotData.temperatureOverrideC;
             else if (profileObj.contains("espresso_temperature"))
-                summary.targetTemperatureC = profileObj["espresso_temperature"].toDouble();
+                // profileJsonToDouble, not toDouble: the stored profile snapshot
+                // string-encodes numbers (canonical DE1 v2 format), and a raw
+                // toDouble() on a String returns 0 silently.
+                summary.targetTemperatureC = profileJsonToDouble(profileObj["espresso_temperature"], 0.0);
             if (profileObj["has_recommended_dose"].toBool(false))
-                summary.recommendedDoseG = profileObj["recommended_dose"].toDouble();
+                summary.recommendedDoseG = profileJsonToDouble(profileObj["recommended_dose"], 0.0);
             // Derive editorType from title + profileType (matching Profile::editorType()).
             // Legacy shots may also have is_recipe_mode + recipe.editorType as a fallback.
             QString editorType;

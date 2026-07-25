@@ -2013,6 +2013,31 @@ int main(int argc, char *argv[])
     QTimer refractometerReconnectTimer;
     refractometerReconnectTimer.setSingleShot(true);
 
+    // Lifetime guard for the signal handlers below that capture main()'s locals
+    // by reference.
+    //
+    // Stack objects destruct in reverse declaration order, so everything declared
+    // after `engine` (the reconnect state just above, `refractometer` further
+    // down) is destroyed BEFORE `engine` is. The senders those handlers hang off
+    // — app, bleManager, machineState, screensaverManager, the scale — are all
+    // declared above `engine` and so outlive the very locals their handlers write
+    // to. A signal emitted during teardown then runs a lambda over dead stack.
+    //
+    // Not theoretical: ~QQmlApplicationEngine drives QML context destruction,
+    // which re-enters C++ setters (BLEManager::setRefractometerHunt is one), and
+    // the resulting emission ran a handler that assigned to an already-destroyed
+    // stack int — an ASan use-after-scope abort on quit.
+    //
+    // Passing this as each connection's context object makes Qt sever them all
+    // when it dies. The explicit reset() after app.exec() is what does the work
+    // and must not be dropped: it runs ahead of every local's destructor, whereas
+    // this unique_ptr's own destructor fires at THIS declaration point and so
+    // would already be too late for anything declared below it (`refractometer`).
+    //
+    // Handlers whose sender IS one of these locals (the reconnect timers) need no
+    // guard — the connection already dies with the sender.
+    auto handlerScope = std::make_unique<QObject>();
+
     QObject::connect(&scaleReconnectTimer, &QTimer::timeout,
                      [&bleManager, &settings, &scaleReconnectAttempt, &scaleReconnectTimer, &reconnectDelays]() {
         if (settings.scaleAddress().isEmpty()) {
@@ -2064,7 +2089,7 @@ int main(int argc, char *argv[])
     // (until the scale connects or the user clears it — resetScaleConnectionState()
     // deliberately does not reset this guard); the retry loop above handles
     // subsequent timeout failures itself.
-    QObject::connect(&bleManager, &BLEManager::flowScaleFallback,
+    QObject::connect(&bleManager, &BLEManager::flowScaleFallback, handlerScope.get(),
                      [&settings, &bleManager, &scaleReconnectTimer, &scaleReconnectAttempt,
                       &reconnectDelays, &scaleAutoReconnectSuppressed]() {
         if (settings.scaleAddress().isEmpty()) {
@@ -2098,7 +2123,7 @@ int main(int argc, char *argv[])
     // stranded until an app restart or a manual rescan — with no user-visible
     // reason. Mirrors the R2 disabledChanged re-arm further down.
     QObject::connect(&bleManager, &BLEManager::scaleSimulatedChanged,
-                     &bleManager, [&bleManager, &settings, &scaleReconnectTimer,
+                     handlerScope.get(), [&bleManager, &settings, &scaleReconnectTimer,
                                    &scaleReconnectAttempt, &reconnectDelays,
                                    &scaleAutoReconnectSuppressed]() {
         if (bleManager.isScaleSimulated())
@@ -2130,7 +2155,7 @@ int main(int argc, char *argv[])
     // it once per failure cycle — the slot will keep it going. Uses the long-
     // tail delay (60 s) because the immediate failure has already happened;
     // hammering harder would just churn the WiFi radio.
-    QObject::connect(&bleManager, &BLEManager::scaleRetryNeeded,
+    QObject::connect(&bleManager, &BLEManager::scaleRetryNeeded, handlerScope.get(),
                      [&settings, &bleManager, &scaleReconnectTimer, &scaleReconnectAttempt,
                       &reconnectDelays, &scaleAutoReconnectSuppressed]() {
         if (!scaleAddressIsLadderDialable(settings.scaleAddress())) return;
@@ -2362,8 +2387,11 @@ int main(int argc, char *argv[])
     });
 
     // Connect to any supported scale when discovered
-    QObject::connect(&bleManager, &BLEManager::scaleDiscovered,
+    QObject::connect(&bleManager, &BLEManager::scaleDiscovered, handlerScope.get(),
                      [&physicalScale, &flowScale, &machineState, &mainController, &engine, &bleManager, &settings, &timingController, &de1Device, &weightProcessor, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &scaleAutoReconnectSuppressed, &scaleLcdRestorePending
+                     // By value: this lambda outlives nothing, but the scale
+                     // connection it makes below needs the same lifetime guard.
+                     , handlerScopePtr = handlerScope.get()
 #ifndef Q_OS_IOS
                      , &usbScaleManager
 #endif
@@ -2595,7 +2623,7 @@ int main(int argc, char *argv[])
         }
 
         // When physical scale connects/disconnects, switch between physical and FlowScale
-        QObject::connect(physicalScale.get(), &ScaleDevice::connectedChanged,
+        QObject::connect(physicalScale.get(), &ScaleDevice::connectedChanged, handlerScopePtr,
                          [&physicalScale, &flowScale, &machineState, &engine, &bleManager, &mainController, &timingController, &weightProcessor, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &settings, &scaleAutoReconnectSuppressed, &scaleLcdRestorePending]() {
             if (physicalScale && physicalScale->isConnected()) {
                 // Scale connected - stop any pending reconnect attempts
@@ -2755,7 +2783,7 @@ int main(int argc, char *argv[])
     });
 
     // Handle disconnect request when starting a new scan
-    QObject::connect(&bleManager, &BLEManager::disconnectScaleRequested,
+    QObject::connect(&bleManager, &BLEManager::disconnectScaleRequested, handlerScope.get(),
                      [&physicalScale, &flowScale, &machineState, &engine, &mainController, &bleManager, &timingController, &weightProcessor, &scaleReconnectTimer, &scaleReconnectAttempt, &scaleAutoReconnectSuppressed, &wasInSleep, &scaleLcdRestorePending]() {
         // Stop any pending auto-reconnect (user is deliberately scanning for a different scale)
         scaleReconnectTimer.stop();
@@ -2805,7 +2833,7 @@ int main(int argc, char *argv[])
                                                  settings.savedRefractometerName());
     }
 
-    QObject::connect(&bleManager, &BLEManager::refractometerDiscovered,
+    QObject::connect(&bleManager, &BLEManager::refractometerDiscovered, handlerScope.get(),
                      [&refractometer, &mainController, &engine, &bleManager, &settings](const QBluetoothDeviceInfo& device) {
         qDebug().noquote() << QString("[R2-diag] refractometerDiscovered dev=%1 existingInstance=%2 existingConnected=%3")
             .arg(getDeviceIdentifier(device),
@@ -2885,7 +2913,7 @@ int main(int argc, char *argv[])
     });
 
     // Handle Forget Refractometer — disconnect and clean up
-    QObject::connect(&bleManager, &BLEManager::disconnectRefractometerRequested,
+    QObject::connect(&bleManager, &BLEManager::disconnectRefractometerRequested, handlerScope.get(),
                      [&refractometer, &mainController, &engine, &bleManager,
                       &refractometerReconnectTimer, &refractometerReconnectAttempt]() {
         // Stop any pending/persistent reconnect — the user forgot this device.
@@ -2966,7 +2994,7 @@ int main(int argc, char *argv[])
     // while a fresh connection is still being set up and on Forget — the
     // saved-address guard and the !isActive() guard keep those from scrambling
     // the backoff.
-    QObject::connect(&bleManager, &BLEManager::refractometerConnectedChanged,
+    QObject::connect(&bleManager, &BLEManager::refractometerConnectedChanged, handlerScope.get(),
                      [&bleManager, &settings, &refractometerReconnectTimer,
                       &refractometerReconnectAttempt, &reconnectDelays]() {
         if (bleManager.isRefractometerConnected()) {
@@ -2991,7 +3019,7 @@ int main(int argc, char *argv[])
     // dependent solely on the scan-finished chain, unrecoverable if it breaks
     // until the page is reopened. Stopping on deactivation keeps no stray tick
     // running off-page. The scale reconnect is a separate timer, untouched.
-    QObject::connect(&bleManager, &BLEManager::refractometerHuntChanged,
+    QObject::connect(&bleManager, &BLEManager::refractometerHuntChanged, handlerScope.get(),
                      [&bleManager, &settings, &refractometerReconnectTimer,
                       &refractometerReconnectAttempt, &reconnectDelays](bool active) {
         if (!active) {
@@ -3013,7 +3041,7 @@ int main(int argc, char *argv[])
     // (rather than reschedules) while BLE is disabled. Without this, turning
     // simulator mode off would leave a saved R2 unreachable until the next app
     // start — the timer having quietly retired the last time it fired.
-    QObject::connect(&bleManager, &BLEManager::disabledChanged,
+    QObject::connect(&bleManager, &BLEManager::disabledChanged, handlerScope.get(),
                      [&bleManager, &settings, &refractometerReconnectTimer,
                       &refractometerReconnectAttempt, &reconnectDelays]() {
         if (bleManager.isDisabled())
@@ -3436,21 +3464,28 @@ int main(int argc, char *argv[])
 
         // Give it the current profile from ProfileManager
         auto* pm = mainController.profileManager();
-        QObject::connect(pm, &ProfileManager::currentProfileChanged, [&de1Simulator, pm]() {
+        // Guarded like the handlers further up: `de1Simulator` lives in a
+        // unique_ptr declared AFTER `engine`, while `pm`/`settings` are declared
+        // before it, so without a context object these outlive their own capture
+        // and fire into freed stack during QML teardown.
+        QObject::connect(pm, &ProfileManager::currentProfileChanged, handlerScope.get(),
+                         [&de1Simulator, pm]() {
             de1Simulator.setProfile(pm->currentProfileObject());
         });
         // Set initial profile
         de1Simulator.setProfile(pm->currentProfileObject());
 
         // Connect dose from settings (affects puck resistance simulation)
-        QObject::connect(settings.dye(), &SettingsDye::dyeBeanWeightChanged, [&de1Simulator, &settings]() {
+        QObject::connect(settings.dye(), &SettingsDye::dyeBeanWeightChanged, handlerScope.get(),
+                         [&de1Simulator, &settings]() {
             de1Simulator.setDose(settings.dye()->dyeBeanWeight());
         });
         // Set initial dose
         de1Simulator.setDose(settings.dye()->dyeBeanWeight());
 
         // Connect grind setting (finer grind = more resistance, can choke machine)
-        QObject::connect(settings.dye(), &SettingsDye::dyeGrinderSettingChanged, [&de1Simulator, &settings]() {
+        QObject::connect(settings.dye(), &SettingsDye::dyeGrinderSettingChanged, handlerScope.get(),
+                         [&de1Simulator, &settings]() {
             de1Simulator.setGrindSetting(settings.dye()->dyeGrinderSetting());
         });
         // Set initial grind
@@ -3737,7 +3772,7 @@ int main(int argc, char *argv[])
     // Cross-platform lifecycle handling: manage BLE connections and system state
     // when app is suspended/resumed. Neither DE1 nor scale are put to sleep when
     // backgrounded — users may switch apps while the machine heats up.
-    QObject::connect(&app, &QGuiApplication::applicationStateChanged,
+    QObject::connect(&app, &QGuiApplication::applicationStateChanged, handlerScope.get(),
                      [&physicalScale, &bleManager, &settings, &batteryManager, &de1Device, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &de1ReconnectTimer, &de1ReconnectAttempt, &scaleAutoReconnectSuppressed, &refractometerReconnectTimer, &refractometerReconnectAttempt](Qt::ApplicationState state) {
         static bool wasSuspended = false;
 
@@ -3871,7 +3906,7 @@ int main(int argc, char *argv[])
     // refractometer restart only does real work while the review-page hunt is
     // active — off that page its tick fires once and self-stops.
     QObject::connect(&screensaverManager, &ScreensaverVideoManager::screensaverActiveChanged,
-                     [&screensaverManager, &physicalScale, &bleManager, &settings,
+                     handlerScope.get(), [&screensaverManager, &physicalScale, &bleManager, &settings,
                       &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays,
                       &scaleAutoReconnectSuppressed,
                       &refractometerReconnectTimer, &refractometerReconnectAttempt]() {
@@ -3946,7 +3981,7 @@ int main(int argc, char *argv[])
     // de1EverAwake + wasInSleep are declared at the top of main() (see the
     // "DE1-phase tracking flags" block) so the disconnectScaleRequested
     // handler can clear them when the user swaps to a different scale.
-    QObject::connect(&machineState, &MachineState::phaseChanged,
+    QObject::connect(&machineState, &MachineState::phaseChanged, handlerScope.get(),
                      [&physicalScale, &machineState, &settings, &de1EverAwake,
                       &wasInSleep, &scaleLcdRestorePending,
                       &scaleAutoReconnectSuppressed, &scaleReconnectTimer,
@@ -4189,6 +4224,22 @@ int main(int argc, char *argv[])
     });
 
     int result = app.exec();
+
+    // Sever the main() signal handlers before any local they captured is
+    // destroyed — see the `handlerScope` comment where it is declared. This has
+    // to stay ahead of ~QQmlApplicationEngine, which runs at scope exit below and
+    // can still re-enter C++ setters that emit into those lambdas.
+    handlerScope.reset();
+
+    // Same lifetime problem, but NOT a signal connection, so handlerScope cannot
+    // reach it: de1SimulatorPtr is declared after `engine` and dies before
+    // de1Device (declared at the top), which holds a RAW DE1Simulator*. Clear it
+    // while both ends are still alive.
+    //
+    // The simulated scale needs no equivalent: MachineState::m_scale and
+    // ShotTimingController::m_scale are both QPointer, so they self-null when the
+    // scale is destroyed. Only this pointer is unguarded.
+    de1Device.setSimulator(nullptr);
 
     // DE1 signals already disconnected in aboutToQuit handler before BLE disconnect.
 

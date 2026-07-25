@@ -669,9 +669,6 @@ private slots:
 
         QVERIFY(scale.isConnected());
         QVERIFY(scale.m_watchdogTimer && scale.m_watchdogTimer->isActive());
-
-        // Teardown: ~ScaleDevice warn-logs DISCONNECTED for a still-connected scale
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*DISCONNECTED.*"));
     }
 
     void errorOnDeadLinkCleansUp() {
@@ -712,9 +709,6 @@ private slots:
         scale.onCharacteristicChanged(Scale::Decent::READ, pkt);
 
         QVERIFY(!scale.m_watchdogTimer || !scale.m_watchdogTimer->isActive());
-
-        // Teardown: ~ScaleDevice warn-logs DISCONNECTED for a still-connected scale
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*DISCONNECTED.*"));
     }
 
     void serviceNotFoundPropagatesDisconnect() {
@@ -765,9 +759,6 @@ private slots:
         scale.onCharacteristicsDiscoveryFinished(Scale::Decent::SERVICE);
 
         QVERIFY(scale.isConnected());
-
-        // Teardown: ~ScaleDevice warn-logs DISCONNECTED for a still-connected scale
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*DISCONNECTED.*"));
     }
 
     void wakeDoesNotReviveDeadLink() {
