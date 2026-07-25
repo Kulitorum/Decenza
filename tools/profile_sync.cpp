@@ -59,17 +59,40 @@ static void normaliseSimpleProfile(Profile& p)
 // profile, so keeping anything extra is how the two drift apart again. Any key
 // the rewrite would drop is reported first — the audit is the check on that
 // claim, and it is expected to stay silent.
-static bool syncOverBuiltin(const Profile& tcl, const QString& outPath, QTextStream& cout)
+static bool syncOverBuiltin(const Profile& tcl, const QString& outPath, QTextStream& cerr)
 {
-    QJsonObject existing;
-    {
-        QFile f(outPath);
-        if (f.open(QIODevice::ReadOnly))
-            existing = QJsonDocument::fromJson(f.readAll()).object();
+    QFile f(outPath);
+    if (!f.open(QIODevice::ReadOnly)) {
+        // The audit cannot run blind. Defaulting `existing` to {} on a read
+        // failure made keysLostByRewrite() return empty and the check PASS
+        // vacuously — precisely on the file where you most want it.
+        cerr << "  → REFUSED: cannot read the existing built-in (" << f.errorString()
+             << "); the drop audit would pass vacuously\n";
+        return false;
     }
+    QJsonParseError parseError;
+    const QJsonObject existing = QJsonDocument::fromJson(f.readAll(), &parseError).object();
+    if (parseError.error != QJsonParseError::NoError) {
+        cerr << "  → REFUSED: existing built-in is not valid JSON ("
+             << parseError.errorString() << " at offset " << parseError.offset << ")\n";
+        return false;
+    }
+
     const QStringList lost = De1AppTcl::keysLostByRewrite(existing, tcl.toJsonObject());
-    if (!lost.isEmpty())
-        cout << "  → WARNING, keys dropped: " << lost.join(QLatin1String(", ")) << "\n";
+    if (!lost.isEmpty()) {
+        // The header for keysLostByRewrite() says a non-empty result "is a stop,
+        // not something to merge around". This used to warn and write anyway,
+        // which made the contract advisory. --rewrite-format already gets this
+        // right, and its comment records why: an earlier revision wrote first
+        // and audited the file it had just clobbered, so by the time "DATA LOSS"
+        // appeared the original existed only in git.
+        cerr << "  → REFUSED (file left untouched), keys would be dropped: "
+             << lost.join(QLatin1String(", ")) << "\n"
+             << "     A built-in is supposed to BE its de1app profile. If these keys are\n"
+             << "     genuinely obsolete, teach the reader to carry them or remove them\n"
+             << "     deliberately — do not let a sync decide it silently.\n";
+        return false;
+    }
 
     return tcl.saveToFile(outPath);
 }
@@ -259,6 +282,7 @@ int main(int argc, char* argv[])
     }
 
     QTextStream cout(stdout);
+    QTextStream cerr(stderr);   // failures go to stderr so CI/greps can see them
 
     // Build the unified TCL source list. Base files come first, then plugin files
     // override base entries when the resulting filename collides — that way a
@@ -277,13 +301,25 @@ int main(int argc, char* argv[])
     auto ingest = [&](const QString& tclPath, bool fromPlugin) {
         const QString content = readTextFile(tclPath);
         if (content.isEmpty()) {
-            cout << "SKIP (cannot read): " << tclPath << "\n";
+            cerr << "SKIP (cannot read): " << tclPath << "\n";
             ++parseFailed;
             return;
         }
         const Profile tcl = Profile::loadFromTclString(content);
         if (tcl.title().isEmpty() || tcl.steps().isEmpty()) {
-            cout << "SKIP (parse failed): " << tclPath << "\n";
+            cerr << "SKIP (parse failed): " << tclPath << "\n";
+            ++parseFailed;
+            return;
+        }
+        // isValid() is the app's own import gate: it refuses a profile with an
+        // unrecognised step key or a value we cannot read. Without this check
+        // the tool that POPULATES the shipped corpus was the one path that
+        // bypassed it — saveToFile() would emit a JSON with the offending key
+        // simply absent, producing a built-in that looks pristine, imports
+        // cleanly, and is missing a setting de1app acts on.
+        if (!tcl.isValid()) {
+            cerr << "SKIP (invalid): " << tclPath << "\n"
+                 << "    " << tcl.validationErrors().join(QLatin1String("\n    ")) << "\n";
             ++parseFailed;
             return;
         }
@@ -308,7 +344,7 @@ int main(int argc, char* argv[])
         cout << "\n";
     }
 
-    int inSync = 0, different = 0, created = 0;
+    int inSync = 0, different = 0, created = 0, writeRefused = 0;
 
     // de1app scalars the field map does not cover, aggregated across the corpus.
     // Reported rather than skipped: an incomplete map silently NARROWS the
@@ -350,10 +386,10 @@ int main(int argc, char* argv[])
                 if (!(doSync && doForce))
                     continue;
                 cout << "FORCE: " << tcl.title() << " (" << outName << ")\n";
-                if (syncOverBuiltin(tcl, outPath, cout))
+                if (syncOverBuiltin(tcl, outPath, cerr))
                     cout << "  → rewritten\n";
                 else
-                    cout << "  → ERROR: failed to write\n";
+                    ++writeRefused;
                 continue;
             }
 
@@ -363,10 +399,10 @@ int main(int argc, char* argv[])
             ++different;
 
             if (doSync) {
-                if (syncOverBuiltin(tcl, outPath, cout))
+                if (syncOverBuiltin(tcl, outPath, cerr))
                     cout << "  → updated\n";
                 else
-                    cout << "  → ERROR: failed to write\n";
+                    ++writeRefused;
             }
         } else {
             cout << "NEW:  " << tcl.title() << " (" << outName << ")"
@@ -374,10 +410,12 @@ int main(int argc, char* argv[])
             ++created;
 
             if (doSync) {
-                if (tcl.saveToFile(outPath))
+                if (tcl.saveToFile(outPath)) {
                     cout << "  → created\n";
-                else
-                    cout << "  → ERROR: failed to write\n";
+                } else {
+                    cerr << "  → ERROR: failed to write " << outPath << "\n";
+                    ++writeRefused;
+                }
             }
         }
     }
@@ -402,6 +440,17 @@ int main(int argc, char* argv[])
         if (different > 0 || created > 0)
             cout << "Run with --sync to update built-in profiles.\n";
     }
+    if (parseFailed)   cerr << "  " << parseFailed   << " source profile(s) unreadable, unparseable or invalid\n";
+    if (writeRefused)  cerr << "  " << writeRefused  << " write(s) refused or failed — files left untouched\n";
 
-    return 0;
+    // A skipped source and an uncompared key both NARROW the comparison, and a
+    // narrowed comparison that reports success is how this drift was measured
+    // as 4 rows when it was 414. Exiting 0 regardless meant a run against a
+    // half-unreadable checkout — wrong path, bad permissions, an uninitialised
+    // submodule — compared a fraction of the corpus and still read as a pass.
+    //
+    // Drift itself does NOT gate: reporting differences is what compare mode is
+    // FOR, and tst_tclimport is the gate for those. What gates is the tool being
+    // unable to do the job it claims to have done.
+    return (parseFailed || writeRefused || !uncovered.isEmpty()) ? 1 : 0;
 }

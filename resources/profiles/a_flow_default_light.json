@@ -15,6 +15,7 @@
     "flow_profile_preinfusion_time": "5",
     "has_recommended_dose": false,
     "hidden": "0",
+    "insert_preinfusion_pause": "0",
     "lang": "en",
     "legacy_profile_type": "settings_2c",
     "maximum_flow": "0.00",

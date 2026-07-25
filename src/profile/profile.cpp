@@ -1311,6 +1311,11 @@ Profile Profile::loadFromTclString(const QString& content) {
         if (!v.isEmpty()) profile.m_unknownKeys.insert(jsonKey, v);
     };
     passThrough(QStringLiteral("profile_hide"),                  QStringLiteral("hidden"));
+    // Shot-affecting in de1app (binary.tcl:880 prepends a 2-second pause frame
+    // when set), so it must survive the round-trip even though Decenza does not
+    // implement the pause itself — dropping it would make de1app brew a
+    // different shot from our copy of the same profile.
+    passThrough(QStringLiteral("insert_preinfusion_pause"),      QStringLiteral("insert_preinfusion_pause"));
     passThrough(QStringLiteral("profile_language"),              QStringLiteral("lang"));
     passThrough(QStringLiteral("flow_profile_preinfusion"),      QStringLiteral("flow_profile_preinfusion"));
     passThrough(QStringLiteral("flow_profile_preinfusion_time"), QStringLiteral("flow_profile_preinfusion_time"));

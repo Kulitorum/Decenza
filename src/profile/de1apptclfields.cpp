@@ -114,6 +114,18 @@ const QVector<ScalarField>& scalarFields()
         // --- Metadata other DE1 apps act on ---
         { QStringLiteral("hidden"), QStringLiteral("profile_hide"),
           QStringLiteral("profile_hide"), Kind::Boolean },
+        // insert_preinfusion_pause CHANGES THE SHOT in de1app: binary.tcl:880
+        // prepends a 2-second pause frame when it is 1
+        // (`set this_profile [concat [list $pause] $this_profile]`, :891). It is
+        // compared, not waved through as unmodelled metadata — dropping it would
+        // make de1app pour one more frame than we do from the same file.
+        //
+        // Decenza carries the flag but does NOT yet implement the pause. All
+        // three stock profiles that have it set it to 0, so nothing diverges
+        // today; a profile that sets it to 1 would. Comparing it is what makes
+        // that visible rather than silent.
+        { QStringLiteral("insert_preinfusion_pause"), QStringLiteral("insert_preinfusion_pause"),
+          QStringLiteral("insert_preinfusion_pause"), Kind::Boolean },
     };
     // clang-format on
     return kFields;
@@ -201,6 +213,35 @@ const QStringList& nonScalarTclKeys()
         // literal against our derived count reports drift that is not there.
         // The frame comparison already covers what the DE1 actually receives.
         QStringLiteral("final_desired_shot_volume_advanced_count_start"),
+
+        // --- Not profile scalars. Each was traced in de1app before being
+        // listed here; "we don't model it" is not on its own a reason to stop
+        // comparing something, which is why this list carries evidence. ---
+
+        // de1app UI/authoring state, with no path into frame construction:
+        //   preinfusion_guarantee — set by the skin when creating a flow preset
+        //     (skins/default/de1_skin_settings.tcl:2024); absent from binary.tcl
+        //     and profile.tcl, so it reaches no frame.
+        //   read_only_backup — de1app's saved copy of read_only for restore
+        //     (vars.tcl:2944, :3325).
+        //   profile_editor — records which editor plugin authored the profile
+        //     (machine.tcl:495).
+        QStringLiteral("preinfusion_guarantee"),
+        QStringLiteral("read_only_backup"),
+        QStringLiteral("profile_editor"),
+
+        // de1app/DSx bean and grinder metadata. Decenza models these in its own
+        // bean and equipment records, not on the profile, so they are outside
+        // what a profile comparison can meaningfully say anything about.
+        QStringLiteral("bean_brand"),      QStringLiteral("bean_type"),
+        QStringLiteral("grinder_model"),   QStringLiteral("grinder_setting"),
+        QStringLiteral("grinder_dose_weight"),
+
+        // Legacy spellings, one profile each (flow_calibration.tcl), and NOT in
+        // de1app's own profile_vars list (vars.tcl:3305) — so de1app never
+        // writes them and its save would drop them too. Dead on both sides.
+        QStringLiteral("maximum_flow_range"),
+        QStringLiteral("maximum_pressure_range"),
     };
     return kKeys;
 }
