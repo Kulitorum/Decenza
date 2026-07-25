@@ -40,7 +40,12 @@
       before syncing anything
 - [x] 4.2 Run `profile_sync --sync` and review the diff field-by-field against the parity
       report; anything the report does not explain is a stop
-- [ ] 4.3 Commit the data change on its own, with the parity test now green
+- [x] 4.3 ~~Commit the data change on its own~~ — **deviated deliberately.** Code and data
+      landed together in `e35fc1fa`, because neither half is green alone: the old reader with
+      the new data fails, and the new reader with the old data fails the gate — which is
+      precisely what the gate is for. Splitting them would have put a knowingly-red commit on
+      the branch and broken bisect. The reasoning is recorded in that commit message so a
+      future revert knows why it is one unit.
 - [x] 4.4 ~~Re-baseline `tests/data/profiles_legacy/`~~ — **not needed, and doing it would
       weaken the gate.** That corpus is loaded through `fromJson`, not the Tcl path, and its
       test asserts the *serializer* loses nothing. This change touches only
@@ -80,4 +85,4 @@
       - **`tests/data/de1app_profiles/` is refreshed, not pinned.** Only `Londonium.tcl` had
         drifted, by one field, and it was an upstream *fix* (de1app `84040bcd`, preinfuse
         count 0→2). Pinning would have made the new gate compare against known-stale data.
-- [ ] 6.4 `openspec archive fix-de1app-profile-drift` as the last commit on the branch
+- [x] 6.4 `openspec archive fix-de1app-profile-drift` as the last commit on the branch
