@@ -1,17 +1,20 @@
 // Recipe editing through the path a USER actually takes.
 //
 // Companion to tst_recipeeditorparity, which tests RecipeGenerator and
-// RecipeAnalyzer directly. That is one layer below the app, and the difference
-// turned out to matter twice over:
+// RecipeAnalyzer directly. That is one layer below the app, and the gap between
+// the two is where several findings in this effort actually lived: a generator
+// that is provably correct in isolation can still be handed wrong parameters by
+// the layer above it, and only this file sees that.
 //
-//   * Profile::regenerateFromRecipe() restores volume/exitWeight from the old
-//     frames after generating (issue #331), so findings measured against the
-//     generator alone overstate what a user sees.
-//   * ProfileManager::getOrConvertRecipeParams() repairs editorType for an
-//     A-Flow title before the editor is populated, so calling RecipeAnalyzer
-//     directly produces a failure mode that cannot happen in the app.
+// (This header used to describe two specific mechanisms — the issue #331
+// volume/exitWeight restore, and an editorType repair in
+// getOrConvertRecipeParams. Both were replaced during this same change: the
+// restore is now Profile::restoreFieldsThePluginNeverWrites, which works by
+// frame ROLE across ten fields, and the editorType repair is gone entirely
+// because prepDFlow/prepAFlow set it themselves. Left as a note because the
+// stale version survived a review pass and a targeted instruction to check it.)
 //
-// Both corrections were only visible from here. This file therefore drives the
+// This file therefore drives the
 // two Q_INVOKABLEs QML actually binds and nothing else:
 //
 //   getOrConvertRecipeParams()   what the editor DISPLAYS
@@ -224,10 +227,13 @@ private slots:
     void aflowEditorReportsTheCorrectEditorType_data() { aflowEditorShowsTheProfilesRealParameters_data(); }
 
     void aflowEditorReportsTheCorrectEditorType() {
-        // getOrConvertRecipeParams repairs editorType from the title. Pinning it
-        // because tst_recipeeditorparity's direct-RecipeAnalyzer path does NOT,
-        // and that difference produced a 9-frame -> 3-frame artefact there. If
-        // this repair ever goes away, that artefact becomes real.
+        // editorType must survive the trip through the app path. This used to be
+        // pinning a REPAIR in getOrConvertRecipeParams that set it from the
+        // title; that repair no longer exists — prepDFlow/prepAFlow set
+        // editorType themselves — so the assertion still holds for a different
+        // reason than the one it was written for. Kept because the property is
+        // what matters: a 9-frame A-Flow profile read as D-Flow collapses to
+        // three frames.
         QFETCH(QString, name);
         McpTestFixture f;
         QVERIFY(installProfile(f, aflow(name)));

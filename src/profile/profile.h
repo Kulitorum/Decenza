@@ -233,8 +233,16 @@ public:
     }
 
     // Have this profile's recipe parameters been ESTABLISHED — derived from its
-    // frames, read from a stored recipe block, or set by a user edit — as opposed
-    // to being the member initialisers of a default-constructed RecipeParams?
+    // frames, read from a stored recipe block, or set by a D-Flow/A-Flow edit —
+    // as opposed to being the member initialisers of a default-constructed
+    // RecipeParams?
+    //
+    // NOT set by editing a pressure/flow (settings_2a/2b) profile:
+    // uploadRecipeProfile routes those through applyRecipeToScalarFields, which
+    // writes the profile's own scalar fields and never touches m_recipeParams.
+    // That is harmless — those parameters round-trip through the scalars
+    // independently of any recipe block — but it means this flag answers
+    // "does a recipe BLOCK belong on this profile", not "has anyone edited it".
     //
     // This is not a nicety. RecipeParams' defaults are live values, not sentinels
     // (targetWeight 36.0, fillTemperature 88.0), so "did anyone set these?" cannot

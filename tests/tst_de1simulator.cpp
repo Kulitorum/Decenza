@@ -97,6 +97,45 @@ class tst_De1Simulator : public QObject {
 private slots:
     void init() { QTest::failOnWarning(); }
 
+    void aFrameWithBothAnExitConditionAndZeroLengthAdvancesOnlyOnce() {
+        // The OTHER half of the fix, which the test below cannot reach.
+        //
+        // executeFrame had three independent `if`s — exit condition, frame
+        // length, volume — each calling advanceToNextFrame(). Safe only while
+        // they could not both hold. Removing the zero-length guard makes them
+        // hold together routinely: a disabled frame carrying an exit condition
+        // advances on the condition AND on its 0 s length, skipping the frame
+        // after it. Both later tests also read `frame`/`frameTime`, captured
+        // before the first advance, so they judge the frame already left.
+        //
+        // Every frame in the test below sets exitIf = false, and
+        // checkExitCondition returns immediately when that is false — so the
+        // exit-condition branch is dead there and reverting the `return`s would
+        // not change its result. This fixture gives frame 1 BOTH a satisfied
+        // exit condition and zero length, which is the case that double-advances.
+        ProfileFrame trap = frame(QStringLiteral("Pause"), 0.0);
+        trap.exitIf = true;
+        trap.exitType = QStringLiteral("flow_under");
+        trap.exitFlowUnder = 9.0;   // flow starts well below this, so it fires at once
+
+        const Profile p = profileOf({
+            frame(QStringLiteral("Fill"), 0.5),
+            trap,
+            frame(QStringLiteral("Pressure Up"), 0.5),
+            frame(QStringLiteral("Pour"), 0.5, 4.0),
+        });
+
+        const QList<int> visited = framesVisited(p);
+        QVERIFY2(visited.contains(2),
+                 qPrintable(QStringLiteral("frame 2 was skipped — frame 1 advanced twice in "
+                                           "one tick, once on its exit condition and once on "
+                                           "its zero length. Frames seen: %1")
+                            .arg(describe(visited))));
+        QVERIFY2(visited.contains(3),
+                 qPrintable(QStringLiteral("frame 3 never ran. Frames seen: %1")
+                            .arg(describe(visited))));
+    }
+
     void zeroLengthFramesExpireAndRealOnesDoNot() {
         // The shape of a real A-Flow profile with every optional step switched
         // off, which is how the bug reached a shot:

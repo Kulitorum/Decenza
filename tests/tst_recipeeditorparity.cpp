@@ -107,7 +107,7 @@ struct AFlowRoles {
     const ProfileFrame& pouring()      const { return f[nine ? 8 : 5]; }
 };
 
-// What proc prep (code.tcl:193-238) would set, computed from the frames alone.
+// What proc prep (code.tcl:194-240) would set, computed from the frames alone.
 struct AFlowExpected {
     double fillTemperature{};
     double soakSeconds{}, soakPressure{}, soakVolume{}, soakWeight{};
@@ -520,7 +520,7 @@ private slots:
     // ==================================================================
     // 6. A-Flow — extraction (tasks 3.1, 3.2, 3.3, 3.4)
     //
-    // proc prep, code.tcl:193-238, over set_profile_index's roles.
+    // proc prep, code.tcl:194-240, over set_profile_index's roles.
     // ==================================================================
 
     void aflowExtractionMatchesPrep_data() { aflowFixturesAreTheNineFrameOnes_data(); }
@@ -722,16 +722,16 @@ private slots:
 
         const QList<ProfileFrame> f = RecipeGenerator::generateFrames(p);
 
-        // code.tcl:265,269 — doubled only when the decline is doing the rest.
+        // code.tcl:266,270 — doubled only when the decline is doing the rest.
         QCOMPARE(f[5].exitFlowOver, round1(rampDownEnabled ? pourFlow * 2 : pourFlow));
-        // code.tcl:261
+        // code.tcl:262
         QCOMPARE(f[6].exitFlowUnder, round1(pourFlow + 0.1));
     }
 
     void aflowGenerationFlowStartActivation_data() {
         QTest::addColumn<double>("rampSeconds");
         QTest::addColumn<bool>("expectActive");
-        // code.tcl:274 — keyed on the POST-SPLIT ramp_up(seconds), not rampTime.
+        // code.tcl:276 — keyed on the POST-SPLIT ramp_up(seconds), not rampTime.
         QTest::newRow("ramp 10 -> up 10")   << 10.0 << false;
         QTest::newRow("ramp 1 -> up 1")     <<  1.0 << false;
         QTest::newRow("ramp 0 -> up 0")     <<  0.0 << true;
@@ -758,7 +758,7 @@ private slots:
         } else {
             QCOMPARE(flowStart.seconds, 0.0);
         }
-        // Written unconditionally (code.tcl:284-285).
+        // Written unconditionally (code.tcl:274 — it precedes the if/else).
         QCOMPARE(flowStart.flow, p.pourFlow);
     }
 
@@ -783,7 +783,7 @@ private slots:
         const QList<ProfileFrame> f = RecipeGenerator::generateFrames(p);
         // code.tcl:287-291 — doubled when on, ZERO when off (not left alone).
         QCOMPARE(f[8].flow, flowUp ? round1(pourFlow * 2) : 0.0);
-        // code.tcl:293
+        // code.tcl:294
         QCOMPARE(f[8].maxFlowOrPressure, p.pourPressure);
     }
 

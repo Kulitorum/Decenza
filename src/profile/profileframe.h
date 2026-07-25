@@ -21,6 +21,21 @@
  *   FrameToWrite (1), MaxFlowOrPressure (U8P4, 1), Range (U8P4, 1), [padding]
  */
 struct ProfileFrame {
+    // ADDING A FIELD HERE? Decide its fate in
+    // Profile::restoreFieldsThePluginNeverWrites() (profile.cpp) as well.
+    //
+    // That function reinstates the de1app plugins' in-place-mutation semantics
+    // for D-Flow/A-Flow profiles: a frame field the plugin's update_* proc never
+    // assigns must keep the value the profile's author gave it. It works from a
+    // hand-maintained list of fields — so a field added here and not mentioned
+    // there is silently never restored, for every frame role, permanently. That
+    // is exactly findings DF-1, DF-2, DF-5 and AF-6, which is what the function
+    // exists to close. Nothing will warn you; the compiler is happy either way.
+    //
+    // nonStockPreFillSecondFillAndPauseSurviveARegenerate and
+    // restoredFieldPartitionIsPinned (tst_recipeeditorparity) are the tests that
+    // will fail if you forget.
+
     // === Basic Frame Properties ===
     QString name;                   // Human-readable step name (e.g., "Preinfusion")
     double temperature = 93.0;      // Target temperature (Celsius, range 0-127.5)

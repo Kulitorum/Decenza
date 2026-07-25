@@ -3003,7 +3003,7 @@ private slots:
 
     void uploadRecipeProfileRegeneratesFramesOnParamChange() {
         McpTestFixture f;
-        loadDFlowProfile(f, "D-Flow / Test", 36.0, 93.0);
+        loadDFlowProfile(f, "D-Flow / Test", 36.0, 93.0, /*withInfuse=*/true);
 
         QVariantMap recipe;
         recipe["editorType"] = "dflow";
@@ -3035,9 +3035,16 @@ private slots:
         // flow-controlled Pouring frame.
         QCOMPARE(pouring["pump"].toString(), QStringLiteral("flow"));
         QCOMPARE(pouring["flow"].toDouble(), 2.5);
-        // The fill frame's flow is a field update_D-Flow never writes, so it
-        // must survive the regeneration untouched at the plugin's own value.
-        QCOMPARE(filling["flow"].toDouble(), 8.0);
+        // The fill frame's flow is a field update_D-Flow never writes, so it must
+        // survive the regeneration carrying the SOURCE profile's value.
+        //
+        // This asserted 8.0 until the review caught it. 8.0 is
+        // RecipeGenerator::createFillFrame's own hardcoded literal, and the
+        // fixture was two frames — for which roleIndex returns -1 for every role
+        // (n < 3), so the restore loop is skipped entirely. The assertion passed
+        // whether restoreFieldsThePluginNeverWrites worked, was broken, or was
+        // deleted. Three frames, and 4.0 from the fixture, makes it discriminate.
+        QCOMPARE(filling["flow"].toDouble(), 4.0);
         QCOMPARE(pouring["temperature"].toDouble(), 95.0);
 
         QCOMPARE(f.profileManager.profileTargetWeight(), 40.0);

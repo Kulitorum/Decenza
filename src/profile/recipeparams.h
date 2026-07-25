@@ -49,6 +49,13 @@ struct RecipeParams {
     double targetVolume = 0.0;          // Stop at volume (mL, 0 = disabled)
     double dose = 18.0;                 // Input dose for ratio display (grams)
 
+    // ADDING A FIELD HERE? Decide whether it affects frame GENERATION and update
+    // frameAffectingFieldsEqual() in recipeparams.cpp to match. That function is
+    // a hand-written field-by-field comparison with no structural link to this
+    // list; it decides whether a save regenerates frames at all. Miss a field and
+    // an edit to it silently short-circuits — the user changes a value, saves,
+    // and nothing happens.
+
     // === Fill Phase ===
     // Fill pressure, flow and duration are NOT here, deliberately. Neither plugin
     // exposes them: A-Flow's update_* writes only the fill frame's temperature,

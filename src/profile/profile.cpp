@@ -2027,7 +2027,7 @@ void Profile::restoreFieldsThePluginNeverWrites(const QList<ProfileFrame>& oldSt
         switch (r) {
         case PreFilling:
             // update_A-Flow writes the Pre Fill frame's TEMPERATURE and nothing
-            // else (code.tcl:381). On an existing 9-frame profile it otherwise
+            // else (code.tcl:382). On an existing 9-frame profile it otherwise
             // reads the frame and writes it straight back untouched.
             w.temperature = true;
             break;
