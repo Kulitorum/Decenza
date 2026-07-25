@@ -2608,9 +2608,16 @@ void ProfileManager::applyRecipeToScalarFields(const RecipeParams& recipe) {
 QVariantMap ProfileManager::getOrConvertRecipeParams() {
     const QString& et = m_currentProfile.editorType();
 
-    // D-Flow/A-Flow with stored recipe params: return them directly
+    // D-Flow/A-Flow with stored recipe params: return them directly.
+    //
+    // The guard is hasRecipeParams(), NOT a value test. It used to be
+    // `targetWeight > 0`, which a default-constructed RecipeParams satisfies
+    // (36.0) — so a profile that had merely been given a fabricated block by
+    // Profile::toJsonObject() took this branch and the frames below were never
+    // consulted. That is finding REC-1: the editor showed 88 °C for a profile
+    // whose fill frame says 84 °C, and saving wrote 88 °C into the frames.
     if ((et == QLatin1String("dflow") || et == QLatin1String("aflow"))
-        && m_currentProfile.recipeParams().targetWeight > 0) {
+        && m_currentProfile.hasRecipeParams()) {
         // Ensure editorType matches title (handles profiles saved with wrong type)
         RecipeParams params = m_currentProfile.recipeParams();
         if (isAFlowTitle(m_currentProfile.title()) && params.editorType != EditorType::AFlow) {
@@ -3347,8 +3354,12 @@ void ProfileManager::migrateRecipeFrames() {
         if (doc.isNull()) return;
 
         QJsonObject obj = doc.object();
-        // Identify recipe profiles: check is_recipe_mode (legacy) or recipe block (current)
-        if (!obj.value("is_recipe_mode").toBool() && !obj.contains("recipe")) return;
+        // A stored recipe block is the ONLY thing this migration can regenerate
+        // from. The legacy `is_recipe_mode` flag was accepted alongside it, but a
+        // profile carrying the flag and no block has no parameters to regenerate
+        // from — it would have been rebuilt from RecipeParams' defaults, silently
+        // replacing the user's frames with an 88 °C / 25 s / 4 g profile (REC-1).
+        if (!obj.contains("recipe")) return;
 
         Profile profile = Profile::fromJson(doc);
         if (profile.title().isEmpty()) return;
@@ -3390,7 +3401,7 @@ void ProfileManager::migrateRecipeFrames() {
             if (jsonContent.isEmpty()) continue;
             QJsonDocument doc = QJsonDocument::fromJson(jsonContent.toUtf8());
             QJsonObject sObj = doc.object();
-            if (doc.isNull() || (!sObj.value("is_recipe_mode").toBool() && !sObj.contains("recipe"))) continue;
+            if (doc.isNull() || !sObj.contains("recipe")) continue;  // see migrateFile above
 
             Profile profile = Profile::fromJson(doc);
             if (profile.title().isEmpty()) continue;

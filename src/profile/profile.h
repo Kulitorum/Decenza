@@ -227,7 +227,25 @@ public:
 
     // === Recipe Parameters ===
     RecipeParams recipeParams() const { return m_recipeParams; }
-    void setRecipeParams(const RecipeParams& params) { m_recipeParams = params; }
+    void setRecipeParams(const RecipeParams& params) {
+        m_recipeParams = params;
+        m_hasRecipeParams = true;
+    }
+
+    // Have this profile's recipe parameters been ESTABLISHED — derived from its
+    // frames, read from a stored recipe block, or set by a user edit — as opposed
+    // to being the member initialisers of a default-constructed RecipeParams?
+    //
+    // This is not a nicety. RecipeParams' defaults are live values, not sentinels
+    // (targetWeight 36.0, fillTemperature 88.0), so "did anyone set these?" cannot
+    // be answered by inspecting them: a fresh struct is indistinguishable from a
+    // deliberate 88 °C. Writing a recipe block for a profile that merely has a
+    // recipe-shaped TITLE is what fabricated the five identical blocks in the
+    // A-Flow built-ins, none of which matches its own frames — and what made
+    // editing any one parameter reset the fill temperature to 88 °C
+    // (finding REC-1). The plugins have no such notion: both reconstruct their
+    // editor state from the frames on every load. A stored block is a cache.
+    bool hasRecipeParams() const { return m_hasRecipeParams; }
 
     // Regenerate frames from stored recipe parameters
     void regenerateFromRecipe();
@@ -451,6 +469,7 @@ private:
     QStringList m_malformedValues;
 
     RecipeParams m_recipeParams;
+    bool m_hasRecipeParams = false;  // see hasRecipeParams()
 
     // Read-only flag (de1app compatibility: 0=editable, 1=read-only, 2=reset)
     int m_readOnly = 0;

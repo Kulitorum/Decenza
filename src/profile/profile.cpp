@@ -572,14 +572,20 @@ QJsonObject Profile::toJsonObject() const {
     // no recipe editor and its recipe params are meaningless. Dropping a stale
     // recipe block from an advanced profile is correct cleanup, not data loss —
     // several built-ins carried one purely as cruft. Do not "preserve" it here.
+    //
+    // A block is written only when the parameters were ESTABLISHED — see
+    // Profile::hasRecipeParams(). A recipe-shaped TITLE is not evidence that a
+    // profile has recipe parameters. Every `.tcl` import, every Visualizer
+    // download and every profile shared from another app arrives without a
+    // recipe block, by design: both upstream plugins reconstruct their editor
+    // state from the frames on load, so nothing persists it. Writing one anyway
+    // from a default-constructed struct is finding REC-1 — it put five identical
+    // 88 °C / 25 s / 4 g blocks into the A-Flow built-ins, matching none of their
+    // frames, and made editing one parameter silently reset the others.
     QString et = editorType();
-    if (et == QLatin1String("dflow") || et == QLatin1String("aflow")) {
-        obj["recipe"] = recipeJson();
-    } else if ((et == QLatin1String("pressure") || et == QLatin1String("flow"))
-               && m_recipeParams.targetWeight > 0
-               && m_recipeParams.editorType != EditorType::DFlow) {
-        // Only write recipe for simple profiles if params were explicitly set
-        // (not default DFlow params from a fresh RecipeParams())
+    if (m_hasRecipeParams
+        && (et == QLatin1String("dflow") || et == QLatin1String("aflow")
+            || et == QLatin1String("pressure") || et == QLatin1String("flow"))) {
         obj["recipe"] = recipeJson();
     }
 
@@ -1011,9 +1017,12 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
     // Read-only flag (de1app compatibility: integer 0/1/2)
     profile.m_readOnly = obj["read_only"].toInt(0);
 
-    // Load recipe params if present
+    // Load recipe params if present. A block that is present was established by
+    // whoever wrote it, so it round-trips; its ABSENCE is meaningful and must not
+    // be papered over with defaults (REC-1).
     if (obj.contains("recipe")) {
         profile.m_recipeParams = RecipeParams::fromJson(obj["recipe"].toObject());
+        profile.m_hasRecipeParams = true;
         // Infer RecipeParams.editorType from profileType/title when the recipe
         // block does not include an explicit editorType enum value
         if (!obj["recipe"].toObject().contains("editorType")) {
@@ -1937,6 +1946,17 @@ void Profile::regenerateSimpleFrames() {
 
 void Profile::regenerateFromRecipe() {
     if (editorType() == QLatin1String("advanced")) {
+        return;
+    }
+
+    // Never regenerate from parameters nobody established. RecipeParams' defaults
+    // are live values rather than sentinels, so a default-constructed struct
+    // generates a complete, plausible-looking profile that brews something else
+    // entirely — the expensive failure. Keeping the frames and saying so is the
+    // correct outcome (REC-1; design D7).
+    if (!m_hasRecipeParams) {
+        qWarning() << "regenerateFromRecipe: no established recipe parameters for" << m_title
+                   << "— keeping its frames rather than generating from defaults";
         return;
     }
 
