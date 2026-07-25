@@ -5,6 +5,7 @@
 #include "recipeanalyzer.h"
 #include "../ble/protocol/binarycodec.h"
 #include <QFile>
+#include <QSaveFile>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QTextStream>
@@ -1120,7 +1121,14 @@ Profile Profile::loadFromFile(const QString& filePath) {
 }
 
 bool Profile::saveToFile(const QString& filePath) const {
-    QFile file(filePath);
+    // QSaveFile, not QFile: it writes to a temporary alongside the target and
+    // renames on commit(), so an interrupted write leaves the previous file
+    // intact instead of a truncated one. A plain QIODevice::WriteOnly truncates
+    // the moment it opens — survivable for a git-tracked built-in, not for a
+    // user's own profile, which the encoding upgrade in ProfileManager rewrites
+    // purely to reformat it. Losing a file that was fine, in order to tidy it,
+    // is the one outcome that upgrade must not have.
+    QSaveFile file(filePath);
     if (!file.open(QIODevice::WriteOnly)) {
         qWarning() << "Profile::saveToFile: Failed to open file for writing:" << filePath
                    << "- Error:" << file.errorString();
@@ -1141,6 +1149,15 @@ bool Profile::saveToFile(const QString& filePath) const {
     if (bytesWritten != data.size()) {
         qWarning() << "Profile::saveToFile: Failed to write all data to:" << filePath
                    << "- Expected:" << data.size() << "bytes, wrote:" << bytesWritten
+                   << "- Error:" << file.errorString();
+        return false;   // ~QSaveFile discards the temporary; the original survives
+    }
+
+    // commit() is what makes the write visible. Without it QSaveFile destructs
+    // into cancelWriteFile() and the target is never touched — a silent no-op
+    // that would read as success.
+    if (!file.commit()) {
+        qWarning() << "Profile::saveToFile: Failed to commit:" << filePath
                    << "- Error:" << file.errorString();
         return false;
     }

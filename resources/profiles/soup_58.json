@@ -1,0 +1,106 @@
+{
+    "author": "Rohan",
+    "beverage_type": "espresso",
+    "changes_since_last_espresso": "",
+    "espresso_decline_time": "25.00",
+    "espresso_hold_time": "10.00",
+    "espresso_pressure": "9.20",
+    "espresso_temperature": "86.50",
+    "flow_profile_decline": "1.20",
+    "flow_profile_decline_time": "17.00",
+    "flow_profile_hold": "2.00",
+    "flow_profile_hold_time": "8.00",
+    "has_recommended_dose": false,
+    "hidden": "0",
+    "lang": "en",
+    "legacy_profile_type": "settings_2c",
+    "maximum_flow": "6.00",
+    "maximum_flow_range_advanced": "0.60",
+    "maximum_flow_range_default": "1.00",
+    "maximum_pressure": "12.00",
+    "maximum_pressure_range_advanced": "0.60",
+    "maximum_pressure_range_default": "0.90",
+    "minimum_pressure": "0.00",
+    "mode": "frame_based",
+    "notes": "A long, gentle, deliberately cool drink — about 90 g out, served warm rather than hot.\n\nTwo minutes of contact at low flow: a two-second temperature-compensation fill and then a full 60 seconds of puck wetting at 2 ml/s, both at 86.5 → 81.5 °C and both exiting early if pressure passes 5 bar. The final frame runs 60 seconds at 3 ml/s under a 2 bar ceiling.\n\nThat last frame is set to 10 °C, which looks like an error and is not. The DE1 cannot chill water, so a target below tank temperature simply means *no heating* — the machine delivers water as cool as it can. Applied across most of a 90 g yield it pulls the cup temperature well down, which is what the 58 in the name refers to. Leave it alone unless you want a hotter drink; raising it is the knob for that.\n\n(Bundled from the reaprime default set, author Rohan. It shipped without notes; the description above is read from the profile's own frames.)",
+    "number_of_preinfuse_frames": "2",
+    "preinfusion_flow_rate": "4.00",
+    "preinfusion_stop_pressure": "4.00",
+    "preinfusion_time": "5.00",
+    "pressure_end": "4.00",
+    "recommended_dose": "18.0",
+    "reference_file": "Soup_58",
+    "steps": [
+        {
+            "exit": {
+                "condition": "over",
+                "type": "pressure",
+                "value": "5.00"
+            },
+            "flow": "2.00",
+            "limiter": {
+                "range": "3.00",
+                "value": "0.00"
+            },
+            "name": "temp comp",
+            "pressure": "8.00",
+            "pump": "flow",
+            "seconds": "2.00",
+            "sensor": "coffee",
+            "temperature": "86.50",
+            "transition": "fast",
+            "volume": "100.0"
+        },
+        {
+            "exit": {
+                "condition": "over",
+                "type": "pressure",
+                "value": "5.00"
+            },
+            "flow": "2.00",
+            "limiter": {
+                "range": "3.00",
+                "value": "0.00"
+            },
+            "name": "puck wetting",
+            "pressure": "8.00",
+            "pump": "flow",
+            "seconds": "60.00",
+            "sensor": "water",
+            "temperature": "81.50",
+            "transition": "fast",
+            "volume": "200.0",
+            "weight": "20.0"
+        },
+        {
+            "flow": "3.00",
+            "limiter": {
+                "range": "5.00",
+                "value": "2.00"
+            },
+            "name": "4 mlps",
+            "pressure": "6.00",
+            "pump": "flow",
+            "seconds": "60.00",
+            "sensor": "coffee",
+            "temperature": "10.00",
+            "transition": "fast",
+            "volume": "500.0"
+        }
+    ],
+    "tank_desired_water_temperature": "0.0",
+    "tank_temperature": "0.0",
+    "target_volume": "0.0",
+    "target_volume_count_start": "2",
+    "target_weight": "90.0",
+    "temp_steps_enabled": false,
+    "temperature_presets": [
+        "93.00",
+        "93.00",
+        "93.00",
+        "93.00"
+    ],
+    "title": "Soup 58",
+    "type": "advanced",
+    "version": "2"
+}

@@ -2240,6 +2240,173 @@ private slots:
         QFile::remove(f.profileManager.userProfilesPath() + "/test_user_copy_xyz.json");
     }
 
+    // === Stored-encoding upgrade on load ===
+    //
+    // Change 1 made everything the app EMITS canonical, but a file already on disk
+    // keeps its old encoding until something re-saves it — and DatabaseBackupManager
+    // copies the profile directory verbatim, so a legacy-encoded file travels into a
+    // backup and onto another device, where a stricter reader rejects it. The upgrade
+    // runs on load rather than as a one-time pass because the user can drop a profile
+    // into the folder at any time.
+
+    // Write a profile whose numbers are JSON numbers rather than the canonical
+    // strings, and which omits the two keys reaprime hard-requires. This is the
+    // shape of a file written before Change 1.
+    static QString writeLegacyEncodedProfile(McpTestFixture& f, const QString& filename) {
+        const QString path = f.profileManager.userProfilesPath() + "/" + filename + ".json";
+        QDir().mkpath(f.profileManager.userProfilesPath());
+
+        QJsonObject step{
+            {"name", "preinfusion"}, {"pump", "flow"},   {"transition", "fast"},
+            {"sensor", "coffee"},    {"temperature", 92.0}, {"seconds", 20.0},
+            {"volume", 100.0},       {"flow", 4.0},      {"pressure", 1.0},
+        };
+        // Advanced, so the stored steps are authoritative. A simple type would have
+        // its frames regenerated from scalars this fixture does not carry, which
+        // makes the fixture — not the code under test — the thing being measured.
+        QJsonObject obj{
+            {"title", "Legacy Encoded Test"},
+            {"author", "Decent"},
+            {"type", "advanced"},
+            {"legacy_profile_type", "settings_2c"},
+            {"beverage_type", "espresso"},
+            {"version", "2"},
+            // Present and consistent with the frame, so the espresso_temperature
+            // heal in loadProfile does not fire. That heal has its own on-disk write
+            // and would otherwise be the thing these tests measure.
+            {"espresso_temperature", 92.0},
+            {"target_weight", 36.0},        // number, not "36.0"
+            {"target_volume", 0.0},
+            {"steps", QJsonArray{step}},
+        };
+        QFile file(path);
+        if (file.open(QIODevice::WriteOnly))
+            file.write(QJsonDocument(obj).toJson(QJsonDocument::Indented));
+        return path;
+    }
+
+    void loadUpgradesLegacyEncodedUserProfile() {
+        McpTestFixture f;
+        const QString path = writeLegacyEncodedProfile(f, "legacy_encoding_xyz");
+
+        f.profileManager.loadProfile("legacy_encoding_xyz");
+
+        QFile after(path);
+        QVERIFY(after.open(QIODevice::ReadOnly));
+        const QJsonObject obj = QJsonDocument::fromJson(after.readAll()).object();
+        after.close();
+
+        // Numbers are string-encoded, and the keys reaprime requires are present —
+        // the whole point of the conversion.
+        QVERIFY(obj["target_weight"].isString());
+        QVERIFY(obj.contains("tank_temperature"));
+        QVERIFY(obj.contains("target_volume_count_start"));
+        // Content is untouched: this converts encoding, never values.
+        QCOMPARE(obj["title"].toString(), QString("Legacy Encoded Test"));
+        QCOMPARE(obj["target_weight"].toString().toDouble(), 36.0);
+        QCOMPARE(obj["steps"].toArray().size(), 1);
+
+        QFile::remove(path);
+    }
+
+    void loadDoesNotRewriteAnAlreadyCanonicalProfile() {
+        // Without an "already canonical" check the file would be rewritten on every
+        // single activation, churning its mtime forever.
+        McpTestFixture f;
+        const QString path = writeLegacyEncodedProfile(f, "already_canonical_xyz");
+
+        f.profileManager.loadProfile("already_canonical_xyz");   // converts
+        QFile first(path);
+        QVERIFY(first.open(QIODevice::ReadOnly));
+        const QByteArray afterFirst = first.readAll();
+        first.close();
+
+        f.profileManager.loadProfile("already_canonical_xyz");   // must be a no-op
+        QFile second(path);
+        QVERIFY(second.open(QIODevice::ReadOnly));
+        const QByteArray afterSecond = second.readAll();
+        second.close();
+
+        QCOMPARE(afterSecond, afterFirst);
+        QFile::remove(path);
+    }
+
+    void loadLeavesBuiltInProfilesUntouched() {
+        // `:/profiles/` is a read-only Qt resource. Attempting a write there would
+        // fail rather than corrupt anything, but it must not be attempted at all —
+        // and it must not leave a stray copy in the user directory either.
+        McpTestFixture f;
+        f.profileManager.loadProfile("default");
+
+        QVERIFY(!QFile::exists(f.profileManager.userProfilesPath() + "/default.json"));
+        QVERIFY(!QFile::exists(f.profileManager.downloadedProfilesPath() + "/default.json"));
+    }
+
+    void loadLeavesAProfileAloneWhenConversionWouldLoseData() {
+        // A profile whose values do not survive the round trip must be left exactly
+        // as it is, and the skip must be audible. Silently altering a user's file to
+        // tidy its formatting is the one outcome this pass must never produce.
+        //
+        // The lossy ingredient is precision: the canonical writer emits target_weight
+        // with two decimals, so 36.1234 comes back as 36.12 — a drift of 0.0034,
+        // outside jsonParityErrors' 0.0005 tolerance. Realistic for a profile authored
+        // in another tool. (An unknown top-level key would NOT work: the serializer
+        // preserves those, which is worth knowing.)
+        McpTestFixture f;
+        const QString path = writeLegacyEncodedProfile(f, "lossy_encoding_xyz");
+
+        QJsonObject obj;
+        {
+            QFile in(path);
+            QVERIFY(in.open(QIODevice::ReadOnly));
+            obj = QJsonDocument::fromJson(in.readAll()).object();
+        }
+        obj["target_weight"] = 36.1234;
+        {
+            QFile out(path);
+            QVERIFY(out.open(QIODevice::WriteOnly));
+            out.write(QJsonDocument(obj).toJson(QJsonDocument::Indented));
+        }
+        QFile before(path);
+        QVERIFY(before.open(QIODevice::ReadOnly));
+        const QByteArray original = before.readAll();
+        before.close();
+
+        // qWarning() << quotes a QString, so the name appears as "lossy_encoding_xyz".
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression("leaving .*lossy_encoding_xyz.* in its stored encoding"));
+        f.profileManager.loadProfile("lossy_encoding_xyz");
+
+        QFile after(path);
+        QVERIFY(after.open(QIODevice::ReadOnly));
+        QCOMPARE(after.readAll(), original);   // byte-for-byte untouched
+        after.close();
+
+        QFile::remove(path);
+    }
+
+    void upgradedProfileSurvivesABackupRoundTrip() {
+        // The reason the conversion exists: DatabaseBackupManager copies the profile
+        // directory verbatim, so whatever encoding is on disk is what lands on the
+        // next device.
+        McpTestFixture f;
+        const QString path = writeLegacyEncodedProfile(f, "backup_roundtrip_xyz");
+        f.profileManager.loadProfile("backup_roundtrip_xyz");
+
+        QTemporaryDir backupDir;
+        QVERIFY(backupDir.isValid());
+        const QString copied = backupDir.filePath("backup_roundtrip_xyz.json");
+        QVERIFY(QFile::copy(path, copied));
+
+        const Profile restored = Profile::loadFromFile(copied);
+        QVERIFY(restored.isValid());
+        QCOMPARE(restored.title(), QString("Legacy Encoded Test"));
+        // And it satisfies the cross-app contract that a legacy-encoded copy would not.
+        QVERIFY(Profile::reaprimeReadabilityErrors(restored.toJsonObject()).isEmpty());
+
+        QFile::remove(path);
+    }
+
     // === renameProfile (in-place title rename) ===
 
     void renameProfileChangesTitleKeepsFilename() {

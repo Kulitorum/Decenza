@@ -9,6 +9,14 @@
 
 namespace De1AppTcl {
 
+// The prefix match covers `settings_2c2` as well as `settings_2c`, which is correct:
+// `::profile::fix_profile_type` treats `2c2` as a legacy alias and rewrites it to
+// `2c` on both load and save (de1app `de1plus/profile.tcl`, applied into `::settings`
+// in `vars.tcl` before anything reads the type). de1app's stop-target switches name
+// `settings_2c` alone and so *appear* to say otherwise — they cannot, because `2c2`
+// is normalised away before it reaches them. No profile in de1app, Decenza or reaprime
+// carries the type, so this is a note against re-reading those switches the wrong way,
+// not a live concern.
 bool isAdvancedType(const QString& profileType)
 {
     return profileType.startsWith(QLatin1String("settings_2c"));

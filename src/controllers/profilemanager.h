@@ -367,6 +367,17 @@ private:
     QList<ProfileFrame> framesShiftedToTemperature(double targetTemp) const;
 
     void loadDefaultProfile();
+
+    // Rewrite a just-loaded profile in the canonical encoding, but only where that
+    // is provably lossless. Runs on load rather than as a one-time migration: the
+    // user can drop a profile into the folder at any time, so a pass that completes
+    // would miss every later arrival. `filePath` empty means the ProfileStorage
+    // (SAF) tier, which is written through ProfileStorage rather than QFile.
+    // Built-in profiles are never passed here — `:/profiles/` is a read-only resource.
+    void upgradeStoredEncoding(const QString& resolvedName,
+                               const QString& filePath,
+                               const Profile& loaded);
+
     // Reset brew overrides for a freshly loaded profile. After startup this is
     // a genuine clear (flags go false — an override is relative to the profile
     // it was dialed against). During startup, persisted overrides survive

@@ -1231,9 +1231,89 @@ bool ProfileManager::kbProfileSuitsRoast(const QString& profileTitle, const QStr
 
 // === Profile loading ===
 
+// Rewrite a stored profile in the canonical encoding, but only when doing so
+// provably loses nothing.
+//
+// Why on load rather than in a one-time migration: the set of files is not fixed.
+// A user drops profiles into the folder whenever they like — sideloaded, restored
+// from a backup, synced from another device — so a pass that marks itself complete
+// converts whatever happened to be present that day and ignores every later
+// arrival, which is exactly the population most likely to be legacy-encoded.
+//
+// Why it matters at all: DatabaseBackupManager copies the profile directory
+// verbatim, so a legacy-encoded file travels byte-for-byte into a backup and onto
+// another device, where a stricter reader (reaprime) rejects it outright for the
+// missing tank_temperature / target_volume_count_start.
+//
+// `filePath` empty means the profile came from ProfileStorage, which on Android
+// may be a SAF tree with no usable filesystem path — those go back through
+// ProfileStorage::writeProfile, never QFile.
+void ProfileManager::upgradeStoredEncoding(const QString& resolvedName,
+                                           const QString& filePath,
+                                           const Profile& loaded) {
+    // Read the stored bytes back rather than trusting anything in memory. The
+    // parity check below is only meaningful against what is actually on disk.
+    QJsonObject original;
+    if (filePath.isEmpty()) {
+        if (!m_profileStorage)
+            return;
+        const QString content = m_profileStorage->readProfile(resolvedName);
+        if (content.isEmpty())
+            return;
+        original = QJsonDocument::fromJson(content.toUtf8()).object();
+    } else {
+        QFile f(filePath);
+        if (!f.open(QIODevice::ReadOnly))
+            return;
+        original = QJsonDocument::fromJson(f.readAll()).object();
+    }
+    if (original.isEmpty())
+        return;
+
+    const QJsonObject canonical = loaded.toJsonObject();
+
+    // Already canonical — the overwhelmingly common case once a profile has been
+    // converted. Compare the parsed objects, not the bytes: whitespace that
+    // survives a round trip would otherwise rewrite the file, and bump its mtime,
+    // on every single activation.
+    if (original == canonical)
+        return;
+
+    // Audit BEFORE writing, never after. profile_sync's --rewrite-format path
+    // records why in full: an earlier revision wrote first and audited the file it
+    // had just clobbered, so by the time "DATA LOSS" appeared the original existed
+    // only in git. Here there is no git — it is the user's profile.
+    const QStringList parity = Profile::jsonParityErrors(original, canonical);
+    if (!parity.isEmpty()) {
+        qWarning() << "ProfileManager: leaving" << resolvedName
+                   << "in its stored encoding — converting it would not be lossless:"
+                   << parity.join(QStringLiteral("; "));
+        return;
+    }
+
+    bool ok = false;
+    if (filePath.isEmpty()) {
+        ok = m_profileStorage->writeProfile(
+            resolvedName, QString::fromUtf8(QJsonDocument(canonical).toJson(QJsonDocument::Indented)));
+    } else {
+        ok = loaded.saveToFile(filePath);   // QSaveFile: temp + atomic rename
+    }
+
+    if (ok)
+        qDebug() << "ProfileManager: upgraded stored encoding for" << resolvedName;
+    else
+        qWarning() << "ProfileManager: failed to upgrade stored encoding for" << resolvedName
+                   << "- the profile loaded fine and is unchanged on disk";
+}
+
 void ProfileManager::loadProfile(const QString& profileName) {
     QString path;
     bool found = false;
+    // Which tier satisfied the load. Only the writable ones may have their
+    // encoding upgraded; `:/profiles/` is a Qt resource and cannot be written
+    // at all. Tracked explicitly rather than inferred from `path`, because the
+    // storage tier never sets `path` and an empty path would read as "resource".
+    enum class Origin { None, Storage, LocalFile, BuiltIn } origin = Origin::None;
 
     // Loaded into a candidate rather than straight into m_currentProfile so the
     // profile can be REFUSED without having already replaced the active one.
@@ -1280,6 +1360,7 @@ void ProfileManager::loadProfile(const QString& profileName) {
         if (!jsonContent.isEmpty()) {
             candidate = Profile::loadFromJsonString(jsonContent);
             found = true;
+            origin = Origin::Storage;
             qDebug() << "Loaded profile from ProfileStorage:" << resolvedName;
         }
     }
@@ -1290,6 +1371,7 @@ void ProfileManager::loadProfile(const QString& profileName) {
         if (QFile::exists(path)) {
             candidate = Profile::loadFromFile(path);
             found = true;
+            origin = Origin::LocalFile;
         }
     }
 
@@ -1299,6 +1381,7 @@ void ProfileManager::loadProfile(const QString& profileName) {
         if (QFile::exists(path)) {
             candidate = Profile::loadFromFile(path);
             found = true;
+            origin = Origin::LocalFile;
         }
     }
 
@@ -1308,6 +1391,7 @@ void ProfileManager::loadProfile(const QString& profileName) {
         if (QFile::exists(path)) {
             candidate = Profile::loadFromFile(path);
             found = true;
+            origin = Origin::BuiltIn;
         }
     }
 
@@ -1338,6 +1422,20 @@ void ProfileManager::loadProfile(const QString& profileName) {
                                       candidate.unsupportedStepKeys(),
                                       candidate.malformedValues());
         return;
+    }
+
+    // Upgrade the STORED encoding to canonical, if that is lossless.
+    //
+    // Deliberately here, on `candidate`, and deliberately BEFORE the notes
+    // backfill below: that backfill injects the built-in's notes into the
+    // in-memory profile, and writing the result back would put text into the
+    // user's file that the file never had. This pass converts ENCODING and must
+    // never change content — which is also what keeps it clear of the rule
+    // against retro-rewriting user-set data.
+    if (found && origin != Origin::BuiltIn && origin != Origin::None) {
+        upgradeStoredEncoding(resolvedName,
+                              origin == Origin::LocalFile ? path : QString(),
+                              candidate);
     }
 
     if (found)
