@@ -1,0 +1,57 @@
+# Tasks
+
+The edit matrix (`editMatrixMatchesDe1app`, 99 cases) is the gate throughout. Record its
+score after each numbered section — a step that does not move it did not do what it claimed.
+Starting point: **13/99**.
+
+Never adjust a golden to match Decenza. If a golden looks wrong, re-read the oracle; if the
+oracle is right, Decenza changes (design D6).
+
+## 1. REC-1 — stop fabricating recipe blocks
+
+- [ ] 1.1 Settle the D2 open question: gate the recipe-block write on `Profile` knowing its params were established, or on a `RecipeParams::isDefault()` predicate. Decide with the call sites in front of you and record which and why in `design.md`.
+- [ ] 1.2 Gate `Profile::toJsonObject()`'s recipe-block emission on that evidence rather than on `editorType()` matching the title. A default-constructed `RecipeParams` must produce no block.
+- [ ] 1.3 Make `ProfileManager::getOrConvertRecipeParams()` reach the frame-derived path whenever no genuine block exists. Its current guard (`targetWeight > 0`) is satisfied by the struct default of 36.0 and must not be the test.
+- [ ] 1.4 Check every other producer of a recipe block — importer, converter, `ProfileSaveHelper`, the MCP save/edit tools — for the same title-implies-block assumption.
+- [ ] 1.5 Flip the REC-1 expected-failures to real passes. Re-run the matrix; expect ~69 of the 86 divergences to clear, on **both** editors.
+
+## 2. AF-1…AF-5 — implement `prep`
+
+- [ ] 2.1 Transcribe `A_Flow/code.tcl`'s `prep` as A-Flow's extraction, replacing the D-Flow pattern analyzer for that editor. Cite the plugin line for each rule, as `reference.md` does. Keep D-Flow's extraction separate (design D3).
+- [ ] 2.2 Resolve frame roles through `set_profile_index`'s positional rule, covering the 9-frame and legacy 6-frame layouts. No name matching, no sequence pattern matching.
+- [ ] 2.3 AF-1: pour flow from the `Flow Start` frame. This is the error that compounds per save (2× each round-trip), so verify the round-trip fixed-point assertions go green with it.
+- [ ] 2.4 AF-3: ramp time as the **sum** of the ramp-up and ramp-down frame durations, including the odd-value remainder the plugin puts on the decline frame.
+- [ ] 2.5 AF-2 / AF-4: derive all three toggles from frame structure — `ramp_down(seconds) > 0`, `pouring(flow) > pouring_start(flow)`, and the pause frame's non-zero duration on a 9-frame layout. `A-Flow / default-very-dark` must extract ramp-down **enabled**, per its frames and the plugin readme.
+- [ ] 2.6 Flip the AF-1…AF-5 expected-failures. Re-run the matrix; expect most of the remaining divergences to clear.
+
+## 3. AF-6 and §7 — remove the vestigial parameters
+
+- [ ] 3.1 Remove `fillTimeout`, `fillPressure`, `fillFlow`, `infuseEnabled` from `RecipeParams` and every use. Confirm first that none has gained a QML or MCP surface since §8 established it had none.
+- [ ] 3.2 Stop writing `filling(seconds)` from the removed `fillTimeout` — neither plugin's `update_*` writes that field.
+- [ ] 3.3 Verify `RecipeParams::fromJson` still reads a stored profile carrying the removed keys, discarding them as it discards any unknown key. Add a test with such a profile.
+- [ ] 3.4 Check the MCP surface (`profiles_get_params`, `profiles_edit_params`) and its tests for references to the removed fields.
+- [ ] 3.5 Flip the AF-6 and §7 expected-failures. Re-run the matrix; expect the `Fill seconds` cluster to clear.
+
+## 4. DF-1 / DF-2 / DF-5 and WIRE-1 — the residue
+
+- [ ] 4.1 Preserve `filling(volume)`, `filling(weight)` and `pouring(volume)` from the source profile rather than generating them from constants. DF-5 is the one that changes a shot: forcing `pouring(volume)` to 0 removes a stop cap, because the firmware reads `MaxVol 0` as "ignore".
+- [ ] 4.2 Check whether the issue #331 passthrough restore in `regenerateFromRecipe` becomes redundant once generation stops overwriting these fields. If it does, remove it rather than leaving two mechanisms for one job; if it does not, record what it still covers.
+- [ ] 4.3 DF-4: stop rewriting `soaking(exit_pressure_over)`. Confirmed inert at runtime (`exit_if 0`), so this is tidiness, not a shot fix — do it with 4.1 or not at all.
+- [ ] 4.4 WIRE-1: send `0x00` for the tail's `MaxTotalVolume` marker byte, matching de1app. Re-run the wire test over the 8 stock profiles and the 120-profile boundary corpus; every byte must match.
+- [ ] 4.5 Flip the DF-1/2/5 and WIRE-1 expected-failures.
+
+## 5. Gate and regression
+
+- [ ] 5.1 Regenerate the edit matrix from `tools/gen_edit_matrix.py` against the pinned plugin commits and record the final score. Any remaining divergence is named and justified in `findings.md`, or it is a defect.
+- [ ] 5.2 Assert the round-trip fixed point holds for all five stock A-Flow profiles and all three stock D-Flow profiles — load, save unedited, no frame field changes.
+- [ ] 5.3 Assert a compound edit — two parameters changed in sequence — matches the plugin, so the matrix's single-edit coverage is not the only evidence.
+- [ ] 5.4 Assert no expected-failure was removed without its assertion becoming a real pass. A finding id that no longer appears anywhere in the suite is a hole in the gate.
+- [ ] 5.5 Run the full suite via `mcp__qtcreator__run_tests` (scope `all`). Green with no warnings, per the pre-PR rule.
+
+## 6. Documentation and follow-through
+
+- [ ] 6.1 Update `findings.md` in `verify-recipe-editor-parity` with the final disposition of each finding — repaired, or retained with its reason.
+- [ ] 6.2 Update `docs/CLAUDE_MD/RECIPE_PROFILES.md`: frames are the source of truth for recipe parameters, a stored block is a cache, and the four removed parameters are gone.
+- [ ] 6.3 Update the wiki manual if any user-visible number changes in the recipe editors — profiles will display their own values where they previously showed defaults.
+- [ ] 6.4 Re-decide `preserve-recipe-visualizer-roundtrip` now that `prep` exists: state plainly what, if anything, remains of it, and archive or rewrite it accordingly.
+- [ ] 6.5 Raise the design's second open question with the maintainer — whether to re-sync the five A-Flow built-ins from the plugin so their stale fabricated blocks disappear from the shipped files. That is a `resources/profiles/` edit and outside this change.
