@@ -61,8 +61,17 @@
 
 - [x] 6.1 Record in `docs/CLAUDE_MD/RECIPE_PROFILES.md` that `profile_sync` now compares
       profile-level scalars, and that frames remain uncompared
-- [ ] 6.2 Note the simple-profile frame-derivation change in the wiki manual if the built-in
-      profile behaviour is user-visible
+- [x] 6.2 ~~Note the simple-profile frame-derivation change in the wiki manual~~ — **not
+      applicable.** The task's own condition ("if the built-in profile behaviour is
+      user-visible") does not hold in the sense a manual entry would need. Nothing here is a
+      feature or a changed capability: these profiles were always supposed to be their de1app
+      originals, and 12 of them simply stop brewing values no profile ever specified — in two
+      cases frames belonging to an entirely different recipe. The manual documents what a
+      profile is for, not that it now finally matches its own settings.
+
+      A manual entry would also have to describe the *old* behaviour to be meaningful, and
+      that behaviour was never intended or documented. The change belongs in the release
+      notes as a fix, not in the manual as a feature.
 - [x] 6.3 Open questions resolved:
       - **A-Flow built-ins re-sync from the plugin submodule** — the tool already prefers the
         plugin copy, the 5 A-Flow built-ins synced with scalar-only changes, and their
