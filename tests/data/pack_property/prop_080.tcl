@@ -1,0 +1,11 @@
+advanced_shot {{name F0 temperature 43.062 sensor water pump pressure transition smooth pressure 6.5625 flow 7.125 seconds 1.2 volume 1022 weight 0 exit_if 0 exit_type flow_over exit_pressure_over 7.84365 exit_pressure_under 9.9857 exit_flow_over 1.0625 exit_flow_under 3.7941 max_flow_or_pressure 2.5899 max_flow_or_pressure_range 0.15625} {name F1 temperature 92.5 sensor water pump pressure transition smooth pressure 2.53125 flow 8.7737 seconds 6.11 volume 100 weight 8.5 exit_if 1 exit_type pressure_over exit_pressure_over 1.0 exit_pressure_under 10.25 exit_flow_over 7.46875 exit_flow_under 6.0009 max_flow_or_pressure 0 max_flow_or_pressure_range 0.96875} {name F2 temperature 89.9499 sensor coffee pump flow transition smooth pressure 2.15625 flow 1.625 seconds 2.6 volume 218 weight 5.2 exit_if 0 exit_type pressure_over exit_pressure_over 9.6875 exit_pressure_under 6.9375 exit_flow_over 2.5 exit_flow_under 8.59375 max_flow_or_pressure 0 max_flow_or_pressure_range 1.21865} {name F3 temperature 100.6927 sensor water pump flow transition fast pressure 5.4292 flow 5.53125 seconds 1.97 volume 1022 weight 0 exit_if 0 exit_type pressure_under exit_pressure_over 2.75 exit_pressure_under 4.5538 exit_flow_over 9.03125 exit_flow_under 7.3417 max_flow_or_pressure 0 max_flow_or_pressure_range 1.84365} {name F4 temperature 94.4479 sensor coffee pump flow transition fast pressure 0.15625 flow 3.0 seconds 12.8 volume 100 weight 9.4 exit_if 0 exit_type pressure_over exit_pressure_over 3.3125 exit_pressure_under 5.03115 exit_flow_over 2.3864 exit_flow_under 5.625 max_flow_or_pressure 0.90615 max_flow_or_pressure_range 1.1003} {name F5 temperature 34.5499 sensor coffee pump pressure transition fast pressure 0.1314 flow 3.5842 seconds 7.68 volume 71 weight 5.2 exit_if 1 exit_type flow_under exit_pressure_over 2.03125 exit_pressure_under 4.5625 exit_flow_over 4.6905 exit_flow_under 3.6033 max_flow_or_pressure 0.1395 max_flow_or_pressure_range 1.625}}
+profile_title {PropTest 080}
+settings_profile_type settings_2c
+author property-test
+beverage_type espresso
+espresso_temperature 43.062
+final_desired_shot_weight_advanced 36
+final_desired_shot_volume_advanced_count_start 4
+maximum_flow_range_advanced 0.6
+maximum_pressure_range_advanced 0.6
+tank_desired_water_temperature 0

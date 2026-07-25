@@ -1,0 +1,11 @@
+advanced_shot {{name F0 temperature 31.25 sensor water pump flow transition fast pressure 8.875 flow 5.28115 seconds 33.7 volume 1 weight 9.5 exit_if 0 exit_type pressure_under exit_pressure_over 6.46875 exit_pressure_under 0.34365 exit_flow_over 9.78115 exit_flow_under 5.71875 max_flow_or_pressure 0 max_flow_or_pressure_range 0.34375} {name F1 temperature 20.8499 sensor water pump pressure transition fast pressure 3.21865 flow 0.375 seconds 4.6 volume 0 weight 0 exit_if 1 exit_type pressure_over exit_pressure_over 7.78115 exit_pressure_under 1.4375 exit_flow_over 2.6213 exit_flow_under 3.03125 max_flow_or_pressure 0 max_flow_or_pressure_range 0.78125} {name F2 temperature 56.6296 sensor water pump flow transition smooth pressure 9.8644 flow 0.8581 seconds 127.4 volume 172 weight 0 exit_if 1 exit_type pressure_under exit_pressure_over 4.9375 exit_pressure_under 10.375 exit_flow_over 6.9375 exit_flow_under 0.78125 max_flow_or_pressure 0 max_flow_or_pressure_range 1.90615} {name F3 temperature 82.2613 sensor water pump flow transition smooth pressure 9.09375 flow 6.96875 seconds 0.8 volume 1022 weight 0 exit_if 0 exit_type pressure_over exit_pressure_over 8.5625 exit_pressure_under 1.34375 exit_flow_over 1.5 exit_flow_under 8.71875 max_flow_or_pressure 4.78115 max_flow_or_pressure_range 2.0} {name F4 temperature 78.55 sensor water pump pressure transition smooth pressure 11.15615 flow 2.4652 seconds 127.0 volume 100 weight 0 exit_if 1 exit_type pressure_over exit_pressure_over 1.4175 exit_pressure_under 4.2217 exit_flow_over 3.21865 exit_flow_under 1.46865 max_flow_or_pressure 0 max_flow_or_pressure_range 1.363} {name F5 temperature 71.2 sensor water pump flow transition fast pressure 6.5503 flow 7.375 seconds 10.6 volume 100 weight 0 exit_if 0 exit_type pressure_over exit_pressure_over 9.5625 exit_pressure_under 4.28115 exit_flow_over 2.1686 exit_flow_under 0.21865 max_flow_or_pressure 0 max_flow_or_pressure_range 0.87}}
+profile_title {PropTest 058}
+settings_profile_type settings_2c
+author property-test
+beverage_type espresso
+espresso_temperature 31.25
+final_desired_shot_weight_advanced 36
+final_desired_shot_volume_advanced_count_start 4
+maximum_flow_range_advanced 0.6
+maximum_pressure_range_advanced 0.6
+tank_desired_water_temperature 0

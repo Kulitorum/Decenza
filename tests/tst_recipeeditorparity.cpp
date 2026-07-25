@@ -29,6 +29,7 @@
 #include <QtTest>
 #include <QFile>
 #include <QTextStream>
+#include <QDir>
 
 #include "../src/profile/profile.h"
 #include "../src/profile/profileframe.h"
@@ -1325,6 +1326,76 @@ private slots:
         QVERIFY2(diff.isEmpty(),
                  qPrintable(QStringLiteral("%1: packed bytes differ from de1app:\n%2")
                             .arg(golden, diff.join(QStringLiteral("\n")))));
+    }
+
+    // ==================================================================
+    // 13b. PROPERTY TEST — the quantisation space, not eight data points
+    //
+    // The eight stock profiles exercise values their authors happened to
+    // choose: round numbers, clustered, and missing every encoder boundary.
+    // This corpus is generated to sit ON those boundaries — rounding ties for
+    // U8P4 and U8P1, the F8_1_7 switchover at 12.75, the U10P0 wrap at 1023 —
+    // and each profile is packed by de1app's real packer.
+    //
+    // Regenerate: python3 tools/gen_pack_property_corpus.py <de1plus-dir>
+    // Seeded, so a golden diff means de1app changed, not corpus churn.
+    // ==================================================================
+
+    void packedBytesMatchDe1appAcrossQuantisationSpace() {
+        QDir dir(QStringLiteral(PACK_PROPERTY_PATH));
+        const QStringList cases = dir.entryList({QStringLiteral("*.tcl")}, QDir::Files, QDir::Name);
+        QVERIFY2(cases.size() >= 100,
+                 qPrintable(QStringLiteral("property corpus too small (%1) — regenerate")
+                            .arg(cases.size())));
+
+        QStringList failures;
+        int compared = 0;
+
+        for (const QString& tcl : cases) {
+            const QString base = tcl.left(tcl.size() - 4);
+            const QString expected = readFile(dir.absoluteFilePath(base + ".txt"));
+            if (expected.isEmpty()) continue;
+
+            const Profile p = Profile::loadFromTclString(readFile(dir.absoluteFilePath(tcl)));
+            if (p.steps().isEmpty()) {
+                failures << base + ": Decenza parsed no frames from a profile de1app packed";
+                continue;
+            }
+            ++compared;
+
+            QStringList got;
+            got << QStringLiteral("header %1").arg(QString::fromLatin1(p.toHeaderBytes().toHex()));
+            const QList<QByteArray> frames = p.toFrameBytes();
+            for (qsizetype i = 0; i < frames.size(); ++i)
+                got << QStringLiteral("%1 %2").arg(i).arg(QString::fromLatin1(frames[i].toHex()));
+
+            const QStringList want = expected.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+            for (qsizetype i = 0; i < qMax(got.size(), want.size()); ++i) {
+                const QString g = i < got.size()  ? got[i]  : QStringLiteral("<missing>");
+                const QString w = i < want.size() ? want[i] : QStringLiteral("<missing>");
+                // WIRE-1 is the known tail difference — byte 1 carries 0x04
+                // (the U10P0 marker) where de1app masks it to 0x00. It appears
+                // on every profile, so filter it here rather than let one known
+                // one-liner bury any genuine quantisation divergence.
+                const QString hg = g.section(QLatin1Char(' '), 1);
+                const QString hw = w.section(QLatin1Char(' '), 1);
+                const bool isWire1 = i == got.size() - 1 && i == want.size() - 1
+                                  && hg.size() == 16 && hw.size() == 16
+                                  && hg.mid(2, 2) == QStringLiteral("04")
+                                  && hw.mid(2, 2) == QStringLiteral("00")
+                                  && hg.left(2) == hw.left(2)
+                                  && hg.mid(4) == hw.mid(4);
+                if (g != w && !isWire1)
+                    failures << QStringLiteral("%1 line %2: decenza[%3] de1app[%4]")
+                                .arg(base).arg(i).arg(g, w);
+            }
+        }
+
+        QVERIFY2(compared >= 100, "too few profiles actually compared");
+        QVERIFY2(failures.isEmpty(),
+                 qPrintable(QStringLiteral("%1 quantisation divergence(s) across %2 profiles:\n  %3")
+                            .arg(failures.size()).arg(compared)
+                            .arg(failures.mid(0, 25).join(QStringLiteral("\n  ")))));
     }
 
     void editorSurfacesExactlyThePluginParameters() {

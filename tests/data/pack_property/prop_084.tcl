@@ -1,0 +1,11 @@
+advanced_shot {{name F0 temperature 24.1 sensor water pump pressure transition fast pressure 2.15615 flow 7.78125 seconds 18.2 volume 1 weight 9.5 exit_if 1 exit_type pressure_under exit_pressure_over 2.28125 exit_pressure_under 2.0 exit_flow_over 4.46865 exit_flow_under 8.40625 max_flow_or_pressure 0 max_flow_or_pressure_range 0.4375} {name F1 temperature 94.3 sensor water pump pressure transition smooth pressure 7.4412 flow 8.96875 seconds 23.33 volume 1023 weight 8.4 exit_if 0 exit_type flow_under exit_pressure_over 2.46865 exit_pressure_under 8.0 exit_flow_over 9.3532 exit_flow_under 3.71875 max_flow_or_pressure 8.40625 max_flow_or_pressure_range 1.78125} {name F2 temperature 70.0078 sensor water pump pressure transition smooth pressure 9.65615 flow 5.9375 seconds 39.3 volume 100 weight 2.6 exit_if 0 exit_type flow_under exit_pressure_over 6.7047 exit_pressure_under 2.8577 exit_flow_over 2.5 exit_flow_under 0.0 max_flow_or_pressure 0 max_flow_or_pressure_range 0.40615} {name F3 temperature 27.1552 sensor coffee pump flow transition fast pressure 9.8717 flow 2.21875 seconds 28.3 volume 1 weight 9.2 exit_if 0 exit_type pressure_over exit_pressure_over 7.8585 exit_pressure_under 3.2593 exit_flow_over 1.09375 exit_flow_under 2.21865 max_flow_or_pressure 0 max_flow_or_pressure_range 0.4914} {name F4 temperature 78.2499 sensor water pump pressure transition fast pressure 1.78125 flow 9.3215 seconds 14.6 volume 837 weight 0 exit_if 0 exit_type flow_over exit_pressure_over 9.4186 exit_pressure_under 4.65615 exit_flow_over 6.78125 exit_flow_under 4.3873 max_flow_or_pressure 6.375 max_flow_or_pressure_range 1.59365} {name F5 temperature 81.15 sensor water pump flow transition smooth pressure 10.1875 flow 2.03125 seconds 12.8 volume 1 weight 0 exit_if 1 exit_type flow_over exit_pressure_over 5.96865 exit_pressure_under 9.2491 exit_flow_over 2.25 exit_flow_under 4.34365 max_flow_or_pressure 0.15615 max_flow_or_pressure_range 1.15625}}
+profile_title {PropTest 084}
+settings_profile_type settings_2c
+author property-test
+beverage_type espresso
+espresso_temperature 24.1
+final_desired_shot_weight_advanced 36
+final_desired_shot_volume_advanced_count_start 3
+maximum_flow_range_advanced 0.6
+maximum_pressure_range_advanced 0.6
+tank_desired_water_temperature 0

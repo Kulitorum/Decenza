@@ -514,6 +514,7 @@ target_compile_definitions(tst_recipeeditorparity PRIVATE
     DE1APP_PROFILES_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/de1app_profiles"
     DFLOW_PLUGIN_PROFILES_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/dflow_plugin_profiles"
     DE1APP_PACKED_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/de1app_packed"
+    PACK_PROPERTY_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/pack_property"
     AFLOW_LEGACY_PROFILES_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/aflow_legacy_profiles"
 )
 
