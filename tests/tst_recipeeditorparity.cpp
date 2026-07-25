@@ -1164,6 +1164,87 @@ private slots:
     }
 
     // ==================================================================
+    // 12b. THE REAL SAVE PATH — Profile::regenerateFromRecipe()
+    //
+    // Everything above calls RecipeGenerator::generateFrames() directly. The
+    // app does not: it goes through regenerateFromRecipe(), which afterwards
+    // RESTORES volume and exitWeight from the old frames by name match, for
+    // every frame except the infuse one (profile.cpp, citing issue #331).
+    //
+    // Those are exactly the fields DF-1, DF-2 and DF-5 are about. Testing the
+    // generator alone therefore overstates them: it measures a layer the user
+    // never reaches on its own.
+    //
+    // INCOMPLETE — READ BEFORE TRUSTING THESE RESULTS. This is one layer closer
+    // to the app than the generator tests, and still not the app. Two things
+    // sit between it and a real save, both discovered only after writing it:
+    //
+    //  1. ProfileManager::getOrConvertRecipeParams() FIXES editorType for an
+    //     A-Flow title before the editor ever sees the params. Calling
+    //     RecipeAnalyzer directly, as below, leaves editorType at DFlow — so
+    //     the A-Flow rows here regenerate a 9-frame profile as a 3-frame
+    //     D-Flow one. That is an ARTEFACT of this test, not a shipped bug.
+    //  2. The real save short-circuits: `needFrameRegen` is false when no
+    //     frame-affecting field changed, so a genuine no-op save does not
+    //     regenerate at all and cannot corrupt anything.
+    //
+    // What that means for severity: a no-op open-and-save is safe, and the
+    // findings bite only on a real edit — where the user is shown AF-1's
+    // doubled pour flow and writes it back. Quantifying that needs a
+    // ProfileManager-level test (getOrConvertRecipeParams -> edit -> save),
+    // which does not exist yet. Do not cite these rows as app behaviour.
+    // ==================================================================
+
+    void realSavePathDFlow_data() { dflowExtractionMatchesPrep_data(); }
+
+    void realSavePathDFlow() {
+        QFETCH(QString, file);
+        Profile p = loadDFlow(file);
+        const QList<ProfileFrame> before = p.steps();
+
+        // Exactly what a no-op edit-and-save does.
+        p.setRecipeParams(RecipeAnalyzer::extractRecipeParams(p));
+        p.regenerateFromRecipe();
+
+        const QStringList divergences = frameDivergences(before, p.steps());
+
+        // Only the fields regenerateFromRecipe does NOT restore can survive
+        // here. If volume/exitWeight appear, the #331 restore has regressed.
+        for (const QString& d : divergences) {
+            QVERIFY2(!d.contains(QStringLiteral(" volume:")) &&
+                     !d.contains(QStringLiteral(" exitWeight:")),
+                     qPrintable(QStringLiteral("%1: the #331 passthrough restore no longer "
+                                               "covers this: %2").arg(file, d)));
+        }
+
+        if (!divergences.isEmpty())
+            QEXPECT_FAIL("", qPrintable(QStringLiteral("only DF-3/DF-4 survive the #331 restore: %1")
+                                        .arg(divergences.join(QStringLiteral("; ")))), Continue);
+        QVERIFY2(divergences.isEmpty(),
+                 qPrintable(QStringLiteral("%1 not a fixed point through the REAL save path:\n  %2")
+                            .arg(file, divergences.join(QStringLiteral("\n  ")))));
+    }
+
+    void realSavePathAFlow_data() { aflowFixturesAreTheNineFrameOnes_data(); }
+
+    void realSavePathAFlow() {
+        QFETCH(QString, file);
+        Profile p = loadAFlow(file);
+        const QList<ProfileFrame> before = p.steps();
+
+        p.setRecipeParams(RecipeAnalyzer::extractRecipeParams(p));
+        p.regenerateFromRecipe();
+
+        const QStringList divergences = frameDivergences(before, p.steps());
+        if (!divergences.isEmpty())
+            QEXPECT_FAIL("", qPrintable(QStringLiteral("ARTEFACT (editorType not fixed up) + AF-1..AF-6: %1")
+                                        .arg(divergences.join(QStringLiteral("; ")))), Continue);
+        QVERIFY2(divergences.isEmpty(),
+                 qPrintable(QStringLiteral("%1 not a fixed point through the REAL save path:\n  %2")
+                            .arg(file, divergences.join(QStringLiteral("\n  ")))));
+    }
+
+    // ==================================================================
     // 12. Editor coverage (tasks 8.1, 8.2)
     // ==================================================================
 
