@@ -183,6 +183,122 @@ DF-5 (deletes the pour volume cap), DF-1 (relaxes the fill cap), DF-4 (stored on
 
 ---
 
+---
+
+# A-Flow
+
+Much worse than D-Flow, and for a different reason. D-Flow's implementation is faithful with four
+wrong constants. **A-Flow has no A-Flow extraction path at all** — `RecipeAnalyzer` is a
+D-Flow-shaped three-frame pattern detector, and it is being pointed at a nine-frame profile with
+fixed positional roles.
+
+`prep` never pattern-matches. It calls `set_profile_index` and reads by index. `RecipeAnalyzer`
+guesses: first frame is fill, last matching frame is pour, scan the middle for ramp/infuse. On a
+D-Flow profile that guess happens to land; on A-Flow it lands on the wrong frames.
+
+**Not one of the five stock profiles survives a no-op save.**
+
+## AF-1 — `pourFlow` read from the wrong frame · **compounds on every save**
+
+`prep` takes pour flow from **`pouring_start(flow)`** — the Flow Start frame, index 7.
+`RecipeAnalyzer` takes it from the last pour-like frame, which is **Flow Extraction**, index 8.
+And `update_A-Flow` writes `pouring(flow) = pouring_flow * 2` when flow-up is on — so the
+extraction frame already holds double.
+
+Result is exactly 2× on every profile where flow-up is on:
+
+| profile | prep | Decenza |
+|---|---|---|
+| default-light | 3 | 6 |
+| default-medium | 2 | 4 |
+| default-like-dflow | 2 | 4 |
+| default-very-dark | 1.8 | 3.6 |
+
+**This compounds.** The doubled value is written back through the same doubling rule, so the
+extraction frame goes 4 → 8 on the first save, and would go 8 → 16 on the next. Two saves and the
+profile is at 4× its authored flow. This is the most serious finding in the change.
+
+## AF-2 — `flowExtractionUp` mis-derived · follows from AF-1
+
+`prep` derives it as `pouring(flow) > Aflow_pouring_flow` — extraction flow greater than Flow
+Start's. Reading both from the wrong place breaks the comparison. `default-dark` has the two
+equal, so `prep` gives **false**; Decenza gives **true**, and the round-trip writes a
+0 → 4 extraction flow, switching the profile from flat to ramped extraction.
+
+## AF-3 — `rampTime` not summed across both ramp frames
+
+`prep`: `Aflow_ramp_updown_seconds = round_to_integer(ramp_up(seconds) + ramp_down(seconds))`.
+`RecipeAnalyzer` takes a single detected ramp frame's `seconds`.
+
+| profile | ramp up + down | prep | Decenza |
+|---|---|---|---|
+| default-like-dflow | 0 + 0 | 0 | 5 |
+| default-very-dark | 3 + 3 | 6 | 3 |
+
+For `like-dflow` this inverts the Flow Start activation rule (`ramp_up(seconds) < 1`), so its
+Flow Start frame goes from 10 s active to 0 s disabled while Pressure Up goes 0 → 5 s. The
+profile's whole transition structure changes.
+
+## AF-4 — `rampDownEnabled` is never derived · **structural loss**
+
+`prep`: `ramp_down_enabled = ramp_down(seconds) > 0`. `RecipeAnalyzer` never sets the field at
+all, so it keeps `RecipeParams`' default of `false`.
+
+`A-Flow / default-very-dark` is *documented in the plugin readme* as "a profile with `Ramp down`
+enabled", and its Pressure Decline frame carries 3 seconds. Decenza extracts `false`, and the
+round-trip collapses Pressure Decline 3 s → 0 s — **deleting the phase that defines that
+profile**.
+
+This is also the finding that most directly refutes `preserve-recipe-visualizer-roundtrip`'s
+premise. That change asserts the toggles "cannot be recovered from the frames". `prep` recovers
+them in three lines. What cannot recover them is `RecipeAnalyzer`.
+
+## AF-5 — `fillTimeout` read from the Pre Fill frame
+
+`RecipeAnalyzer` hardcodes `fillIndex = 0`. In A-Flow's 9-frame layout index 0 is **Pre Fill** —
+the 1-second workaround for the DE1 "skip first step" bug — and the real Fill is index 1.
+
+So fill duration is read as 1 s instead of 15 s, and every one of the five profiles has its Fill
+frame rewritten **15 s → 1 s** on save. The fill step effectively disappears.
+
+## Root cause
+
+One cause, five symptoms: **Decenza reuses a D-Flow analyzer for A-Flow.** It has no notion of
+`set_profile_index`, so every positional role is off by one or wrong outright, and it derives none
+of the three toggles.
+
+Fixing the five symptoms individually would be a mistake — the correct repair is to implement
+`prep` for A-Flow: resolve roles by layout, read by index, derive the toggles from structure.
+That is ~20 lines and is fully specified in `reference.md`.
+
+## Consequence for `preserve-recipe-visualizer-roundtrip`
+
+That change's decision D1 states the recipe parameters are "not losslessly derivable from the
+frames" and that frame→recipe reconstruction "cannot recover A-Flow structural toggles or the
+editor type", concluding that a `recipe` block carried through Visualizer is "the only faithful
+mechanism".
+
+The evidence here says otherwise:
+
+- **Both plugins reconstruct their full editor state from frames on every load.** That is the
+  storage mechanism, not a fallback.
+- **All three A-Flow toggles are recoverable** — `prep` does it from frame structure in three
+  lines.
+- **The editor type comes from the title prefix**, which Decenza already derives.
+
+What was actually observed when D1 was written was `RecipeAnalyzer`'s output, which is wrong for
+the reasons above. The conclusion "frames are insufficient" does not follow from "our analyzer is
+wrong".
+
+Implementing `prep` would close the Visualizer round-trip with **no schema change, no `recipe`
+block, no Visualizer PR, no de1app PR and no reaprime PR** — the frames already survive Visualizer
+intact. That change should be re-decided on this evidence before any more of it is built.
+
+It also explains the fabricated built-in blocks: five identical A-Flow `recipe` blocks are what
+you get from an analyzer that recovers almost nothing and falls back to defaults.
+
+---
+
 ## Not yet assessed
 
 §3–5 (A-Flow extraction, generation, frame layouts), §6 (inheritance), §7 (Decenza-only

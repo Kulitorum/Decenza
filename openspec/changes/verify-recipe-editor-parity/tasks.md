@@ -20,10 +20,10 @@
 
 ## 3. A-Flow parity — extraction
 
-- [ ] 3.1 Assert Decenza recovers each `Aflow_*` parameter as `prep` does, including `ramp_updown_seconds` as the **sum** of the ramp-up and ramp-down frame durations, and pour flow from the `Flow Start` frame.
-- [ ] 3.2 Assert the three toggles are derived from frame structure, not read from stored data: ramp-down from a non-zero decline duration, flow-up from extraction flow exceeding pour flow, second-fill from a 9-frame layout with a non-zero pause duration.
-- [ ] 3.3 Assert extraction works with no recipe block present at all — the frames alone must be sufficient, which is the property the plugins rely on.
-- [ ] 3.4 Assert `A-Flow / default-very-dark` extracts `rampDownEnabled == true`, per the plugin readme and its frames. (Decenza's shipped `recipe` block claims `false` for all five profiles — this task is expected to surface that as a finding.)
+- [x] 3.1 Assert Decenza recovers each `Aflow_*` parameter as `prep` does, including `ramp_updown_seconds` as the **sum** of the ramp-up and ramp-down frame durations, and pour flow from the `Flow Start` frame. — **AF-1** (pourFlow from Flow Extraction, not Flow Start: 2x) and **AF-3** (rampTime not summed) and **AF-5** (fillTimeout from Pre Fill).
+- [x] 3.2 Assert the three toggles are derived from frame structure, not read from stored data: ramp-down from a non-zero decline duration, flow-up from extraction flow exceeding pour flow, second-fill from a 9-frame layout with a non-zero pause duration. — **AF-2**/**AF-4**: flowExtractionUp mis-derived, rampDownEnabled never derived at all.
+- [x] 3.3 Assert extraction works with no recipe block present at all — the frames alone must be sufficient, which is the property the plugins rely on. — passes: the .tcl fixtures carry no recipe and extraction still yields real values.
+- [x] 3.4 Assert `A-Flow / default-very-dark` extracts `rampDownEnabled == true`, per the plugin readme and its frames. (Decenza's shipped `recipe` block claims `false` for all five profiles — this task is expected to surface that as a finding.) — **AF-4 confirmed**: extracts false; readme and frames both say true.
 
 ## 4. A-Flow parity — generation
 
@@ -32,7 +32,7 @@
 - [ ] 4.3 Assert the derived exit thresholds: ramp-up `exit_flow_over` (pour flow, doubled when ramp-down is on), decline `exit_flow_under` (pour flow + 0.1), and `Flow Start` activation when ramp-up is under 1 s with its `exit_flow_over` of pour flow − 0.1.
 - [ ] 4.4 Assert extraction flow is doubled pour flow when flow-up is on and zero when off, and that the extraction limiter carries the pour pressure.
 - [ ] 4.5 Untouched fields: assert Decenza does not write frame fields `update_A-Flow` leaves alone — the in-place-mutation vs build-from-constants difference (design Context) makes this the highest-yield check in the change.
-- [ ] 4.6 Round-trip: assert load → save-unedited is a fixed point on all five stock A-Flow profiles.
+- [x] 4.6 Round-trip: assert load → save-unedited is a fixed point on all five stock A-Flow profiles. — not a fixed point on ANY of the five; AF-1's flow error compounds per save.
 
 ## 5. Frame layouts
 

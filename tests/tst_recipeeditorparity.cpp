@@ -86,6 +86,54 @@ QStringList frameDivergences(const QList<ProfileFrame>& before, const QList<Prof
     return out;
 }
 
+// A-Flow frame roles, exactly as proc set_profile_index assigns them
+// (code.tcl:171-190): the 9-frame layout when the list is longer than 8, the
+// legacy 6-frame one otherwise. Roles are positional — prep indexes, it never
+// pattern-matches — so this must not "find" a frame by name.
+struct AFlowRoles {
+    const QList<ProfileFrame>& f;
+    bool nine;
+    explicit AFlowRoles(const QList<ProfileFrame>& frames)
+        : f(frames), nine(frames.size() > 8) {}
+
+    const ProfileFrame& filling()      const { return f[nine ? 1 : 0]; }
+    const ProfileFrame& soaking()      const { return f[nine ? 2 : 1]; }
+    const ProfileFrame& pause()        const { return f[4]; }   // 9-frame only
+    const ProfileFrame& rampUp()       const { return f[nine ? 5 : 2]; }
+    const ProfileFrame& rampDown()     const { return f[nine ? 6 : 3]; }
+    const ProfileFrame& pouringStart() const { return f[nine ? 7 : 4]; }
+    const ProfileFrame& pouring()      const { return f[nine ? 8 : 5]; }
+};
+
+// What proc prep (code.tcl:193-238) would set, computed from the frames alone.
+struct AFlowExpected {
+    double fillTemperature{}, fillFlow{};
+    double soakSeconds{}, soakPressure{}, soakVolume{}, soakWeight{};
+    double rampUpDownSeconds{};
+    double pourFlow{}, pourPressure{}, pourTemperature{};
+    bool rampDownEnabled{}, flowExtractionUp{}, secondFillEnabled{};
+
+    static AFlowExpected fromFrames(const AFlowRoles& r, qsizetype frameCount) {
+        AFlowExpected e;
+        e.fillTemperature = r.filling().temperature;
+        e.fillFlow        = r.filling().flow;
+        e.soakSeconds     = round1(r.soaking().seconds);
+        e.soakPressure    = r.soaking().pressure;
+        e.soakVolume      = r.soaking().volume;
+        e.soakWeight      = r.soaking().exitWeight;
+        // the SUM of both ramp frames, rounded to an integer
+        e.rampUpDownSeconds = std::round(r.rampUp().seconds + r.rampDown().seconds);
+        e.pourFlow        = round1(r.pouringStart().flow);   // Flow Start, not extraction
+        e.pourPressure    = r.rampUp().pressure;
+        e.pourTemperature = r.rampUp().temperature;
+        // Toggles, stored nowhere — derived from structure every load.
+        e.rampDownEnabled   = r.rampDown().seconds > 0;
+        e.flowExtractionUp  = r.pouring().flow > e.pourFlow;
+        e.secondFillEnabled = frameCount > 8 && r.pause().seconds > 0;
+        return e;
+    }
+};
+
 } // namespace
 
 class tst_RecipeEditorParity : public QObject {
@@ -423,6 +471,155 @@ private slots:
         QVERIFY2(qAbs(sourceFill.exitWeight - regenFill.exitWeight) < 0.05,
                  qPrintable(QStringLiteral("filling(weight) rewritten %1 -> %2")
                             .arg(sourceFill.exitWeight).arg(regenFill.exitWeight)));
+    }
+
+    // ==================================================================
+    // 6. A-Flow — extraction (tasks 3.1, 3.2, 3.3, 3.4)
+    //
+    // proc prep, code.tcl:193-238, over set_profile_index's roles.
+    // ==================================================================
+
+    void aflowExtractionMatchesPrep_data() { aflowFixturesAreTheNineFrameOnes_data(); }
+
+    void aflowExtractionMatchesPrep() {
+        QFETCH(QString, file);
+        const Profile p = loadAFlow(file);
+        QCOMPARE(p.steps().size(), qsizetype(9));
+
+        // 9-frame roles, straight from set_profile_index. prep indexes; it does
+        // not pattern-match, so neither does the expectation.
+        const AFlowRoles r(p.steps());
+        const AFlowExpected want = AFlowExpected::fromFrames(r, /*frameCount=*/9);
+
+        const RecipeParams got = RecipeAnalyzer::extractRecipeParams(p);
+
+        QStringList wrong;
+        auto check = [&](const char* what, double g, double w) {
+            if (qAbs(g - w) >= 0.05)
+                wrong << QStringLiteral("%1: got %2, prep gives %3")
+                         .arg(QString::fromLatin1(what), num(g), num(w));
+        };
+        check("fillTemperature", got.fillTemperature, want.fillTemperature);
+        check("fillFlow",        got.fillFlow,        want.fillFlow);
+        check("infuseTime",      got.infuseTime,      want.soakSeconds);
+        check("infusePressure",  got.infusePressure,  want.soakPressure);
+        check("infuseVolume",    got.infuseVolume,    want.soakVolume);
+        check("infuseWeight",    got.infuseWeight,    want.soakWeight);
+        check("rampTime",        got.rampTime,        want.rampUpDownSeconds);
+        check("pourFlow",        got.pourFlow,        want.pourFlow);
+        check("pourPressure",    got.pourPressure,    want.pourPressure);
+        check("pourTemperature", got.pourTemperature, want.pourTemperature);
+
+        // FINDINGS AF-1 (pourFlow off by 2x) and AF-3 (rampTime not summed).
+        if (!wrong.isEmpty())
+            QEXPECT_FAIL("", qPrintable(QStringLiteral("AF-1/AF-3/AF-5: %1")
+                                        .arg(wrong.join(QStringLiteral("; ")))), Continue);
+        QVERIFY2(wrong.isEmpty(),
+                 qPrintable(QStringLiteral("%1: extraction disagrees with prep:\n  %2")
+                            .arg(file, wrong.join(QStringLiteral("\n  ")))));
+    }
+
+    void aflowTogglesAreDerivedFromFrameStructure_data() { aflowFixturesAreTheNineFrameOnes_data(); }
+
+    void aflowTogglesAreDerivedFromFrameStructure() {
+        // The three toggles are stored NOWHERE — prep computes them from the
+        // frames every load (code.tcl:214-232). This is the property that makes
+        // "recipe parameters cannot be recovered from frames" false for A-Flow,
+        // so it is asserted directly rather than inferred from a round-trip.
+        QFETCH(QString, file);
+        const Profile p = loadAFlow(file);
+        const AFlowRoles r(p.steps());
+        const AFlowExpected want = AFlowExpected::fromFrames(r, 9);
+
+        const RecipeParams got = RecipeAnalyzer::extractRecipeParams(p);
+
+        QStringList wrong;
+        auto checkBool = [&](const char* what, bool g, bool w) {
+            if (g != w)
+                wrong << QStringLiteral("%1: got %2, prep gives %3")
+                         .arg(QString::fromLatin1(what),
+                              g ? QStringLiteral("true") : QStringLiteral("false"),
+                              w ? QStringLiteral("true") : QStringLiteral("false"));
+        };
+        checkBool("rampDownEnabled",   got.rampDownEnabled,   want.rampDownEnabled);
+        checkBool("flowExtractionUp",  got.flowExtractionUp,  want.flowExtractionUp);
+        checkBool("secondFillEnabled", got.secondFillEnabled, want.secondFillEnabled);
+
+        // FINDINGS AF-2 (flowExtractionUp) and AF-4 (rampDownEnabled).
+        if (!wrong.isEmpty())
+            QEXPECT_FAIL("", qPrintable(QStringLiteral("AF-2/AF-4: %1")
+                                        .arg(wrong.join(QStringLiteral("; ")))), Continue);
+        QVERIFY2(wrong.isEmpty(),
+                 qPrintable(QStringLiteral("%1: toggles disagree with prep:\n  %2")
+                            .arg(file, wrong.join(QStringLiteral("\n  ")))));
+    }
+
+    void aflowVeryDarkHasRampDownEnabled() {
+        // Task 3.4. Singled out because it is independently documented: the
+        // plugin readme describes default-very-dark as "a profile with `Ramp
+        // down` enabled". Its Pressure Decline frame carries a non-zero
+        // duration, so prep derives true.
+        //
+        // Decenza's shipped a_flow_default_very_dark.json claims
+        // rampDownEnabled: false — as do all five, from one identical block.
+        // This asserts the frames, which is where the truth is.
+        const Profile p = loadAFlow("A-Flow____default-very-dark.tcl");
+        const AFlowRoles r(p.steps());
+        QVERIFY2(r.rampDown().seconds > 0,
+                 "fixture no longer has a non-zero decline — check the plugin");
+
+        const RecipeParams got = RecipeAnalyzer::extractRecipeParams(p);
+        QEXPECT_FAIL("", "AF-4: rampDownEnabled is never derived from the frames", Continue);
+        QVERIFY2(got.rampDownEnabled,
+                 "default-very-dark must extract rampDownEnabled = true "
+                 "(plugin readme, and its Pressure Decline frame is non-zero)");
+    }
+
+    void aflowExtractionNeedsNoStoredRecipe_data() { aflowFixturesAreTheNineFrameOnes_data(); }
+
+    void aflowExtractionNeedsNoStoredRecipe() {
+        // Task 3.3. The .tcl fixtures carry no recipe block of any kind — no
+        // de1app profile does. If extraction works from these, the frames alone
+        // are sufficient, which is precisely what the plugins rely on.
+        QFETCH(QString, file);
+        const Profile p = loadAFlow(file);
+        QVERIFY2(!readFile(aflowDir() + "/" + file).contains(QStringLiteral("recipe")),
+                 "fixture unexpectedly carries a recipe key");
+
+        const RecipeParams got = RecipeAnalyzer::extractRecipeParams(p);
+        // Not defaults: a real profile's numbers came out.
+        QVERIFY(got.pourPressure > 0.0);
+        QVERIFY(got.infuseTime > 0.0);
+    }
+
+    // ==================================================================
+    // 7. A-Flow — round-trip (task 4.6)
+    // ==================================================================
+
+    void aflowRoundTripIsAFixedPoint_data() { aflowFixturesAreTheNineFrameOnes_data(); }
+
+    void aflowRoundTripIsAFixedPoint() {
+        QFETCH(QString, file);
+        const Profile source = loadAFlow(file);
+
+        RecipeParams params = RecipeAnalyzer::extractRecipeParams(source);
+        params.editorType = EditorType::AFlow;   // carried by the title, per D2
+        const QList<ProfileFrame> regenerated = RecipeGenerator::generateFrames(params);
+
+        QVERIFY2(regenerated.size() == source.steps().size(),
+                 qPrintable(QStringLiteral("%1: frame count %2 -> %3")
+                            .arg(file).arg(source.steps().size()).arg(regenerated.size())));
+
+        const QStringList divergences = frameDivergences(source.steps(), regenerated);
+        // FINDINGS AF-1..AF-5. Not one profile survives a no-op save. The flow
+        // errors COMPOUND — pourFlow is read from the already-doubled extraction
+        // frame and written back doubled again, so each save doubles it afresh.
+        if (!divergences.isEmpty())
+            QEXPECT_FAIL("", qPrintable(QStringLiteral("AF-1..AF-5: %1")
+                                        .arg(divergences.join(QStringLiteral("; ")))), Continue);
+        QVERIFY2(divergences.isEmpty(),
+                 qPrintable(QStringLiteral("%1 is not a round-trip fixed point:\n  %2")
+                            .arg(file, divergences.join(QStringLiteral("\n  ")))));
     }
 };
 
