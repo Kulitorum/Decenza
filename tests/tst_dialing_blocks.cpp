@@ -2866,14 +2866,19 @@ private slots:
         f.close();
         QVERIFY(!kb.isEmpty());
         // Structural-stability pin (restructure-kb-as-validated-json): exactly
-        // 43 entries. Parsed (not a raw "id": substring count, which a future
+        // 47 entries. Parsed (not a raw "id": substring count, which a future
         // prose/rationale string containing `"id":` would falsely break). If a
         // KB entry is intentionally added/removed, update this count AND
         // re-verify #1160 resolution.
+        //
+        // 43 -> 47 (sync-builtin-profiles): the seven profiles reaprime shipped and
+        // Decenza did not are now built-ins, and every built-in needs a KB entry —
+        // baseline-contact-series covers all four Baseline levels through
+        // alsoMatches, plus icbinf, psph and soup-58.
         const QJsonArray kbProfiles =
             QJsonDocument::fromJson(kb.toUtf8()).object()
                 .value(QStringLiteral("profiles")).toArray();
-        QCOMPARE(kbProfiles.size(), 43);
+        QCOMPARE(kbProfiles.size(), 47);
 
         // LLM-facing scope: the (a)/(c) framing checks target what the model
         // ingests — `prose` + identity. `rationale` (and `src`) are

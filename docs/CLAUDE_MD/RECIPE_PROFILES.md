@@ -676,6 +676,29 @@ frames at 82/80/72 °C while `espresso_temperature` is `0`, and de1app brews the
 Anything that reads those stored frames — a comparison tool, or a sync that copies them
 into a built-in — adopts values de1app discards.
 
+**This is also the default explanation for a difference against reaprime, not a reason
+to suspect Decenza.** reaprime's bundled set was harvested from de1app copy-exports with a
+converter that read `advanced_shot` verbatim, so it inherited exactly the bleed described
+above. A 2026-07-25 audit of the 63 profiles common to both apps found 11 brew-affecting
+divergences and **all 11 resolved in Decenza's favour** — five from this stale-`advanced_shot`
+mechanism, four from de1app issue #350 shadowing the A-Flow profiles, one profile occupying
+another's name, one stale harvest. The tell is physical implausibility: reaprime's `Default`
+ran frames at 75 °C and 54 °C against a declared `espresso_temperature` of 90.0.
+
+So when a simple profile differs from reaprime, check *their* provenance before auditing ours.
+The same mechanism extends to the stop targets — de1app picks between `final_desired_shot_weight`
+and `..._weight_advanced` by profile type (`device_scale.tcl:1322`, `de1_de1.tcl:862`, both
+`settings_2c { advanced } default { plain }`), which is the rule encoded in
+`src/profile/de1apptclfields.h`; reading the `_advanced` spelling unconditionally made one
+profile stop at 60 g instead of 36 g.
+
+Both sides are now reconciled — reaprime fixed their converter, and the comparison returns
+64 of 64 equivalent. The audit, and the script that reproduces it, are in
+`openspec/changes/sync-builtin-profiles/`. **Two caveats that outlive it:** de1app's own users
+still brew 6-frame A-Flow until #350 is resolved, and encoding differences (omitted zero
+`weight`, zero-value `limiter`, inactive-axis `""` vs `0.00`) persist by design in the
+hundreds of rows — a structural diff of the two corpora is not a useful signal.
+
 ## Profile Comparison / Sync Tools
 
 - **Profile comparison/sync**: Use the `profile_sync` C++ tool (built with the main project, no extra flags). `profile_sync <de1app_profiles_dir> <builtin_profiles_dir>` compares TCL sources against built-in JSONs. Pass `de1plus/profiles/` as the first arg — the tool also scans `de1plus/plugins/*/profiles/` and a plugin copy overrides a base copy with the same output filename (canonical source wins, e.g. the 9-frame `A_Flow` plugin profiles beat the stale 6-frame copies in `de1plus/profiles/`). **The base copies really are stale, and this is settled**: de1app added them on 2025-09-03 in commit `80eb34cc`, "Added A-Flow default profiles to distribution, so they can be translated" — a snapshot taken so the string extractor could see them — and has never refreshed them, while the source repo `Jan3kJ/A_Flow` updated its profiles twice since (`9ca39813` 2025-09-25, `7784922b` 2025-11-07). The plugin submodule is the source; `de1plus/profiles/` is a translation artefact. Don't "fix" the override by preferring the base copy. Simple profiles (`settings_2a`/`settings_2b`) ship with `"steps": []` and have their frames regenerated in-memory before comparison so the equality check is like-for-like. Add `--sync` to overwrite stale JSONs and create missing ones (**modifies `resources/profiles/` in-place** — review changes before committing).

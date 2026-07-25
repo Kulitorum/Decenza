@@ -1,0 +1,106 @@
+{
+    "author": "longpvo",
+    "beverage_type": "espresso",
+    "changes_since_last_espresso": "",
+    "espresso_decline_time": "25.00",
+    "espresso_hold_time": "10.00",
+    "espresso_pressure": "9.20",
+    "espresso_temperature": "83.50",
+    "flow_profile_decline": "1.20",
+    "flow_profile_decline_time": "17.00",
+    "flow_profile_hold": "2.00",
+    "flow_profile_hold_time": "8.00",
+    "has_recommended_dose": false,
+    "hidden": "0",
+    "lang": "en",
+    "legacy_profile_type": "settings_2c",
+    "maximum_flow": "6.00",
+    "maximum_flow_range_advanced": "0.60",
+    "maximum_flow_range_default": "1.00",
+    "maximum_pressure": "12.00",
+    "maximum_pressure_range_advanced": "0.60",
+    "maximum_pressure_range_default": "0.90",
+    "minimum_pressure": "0.00",
+    "mode": "frame_based",
+    "notes": "Baseline • Medium Contact • 6 Bar\n4–6 bar range, bloom exit is 2 bar pressure-drop or 4 seconds max, 4 mlps flow max, 20g:40g–45g (1:2–2.25)\nalmost identical to ExDos\n\nRecommended temperature targets for different roast and solubility level:\nExtremely Light–Light: 86°C→66°C to 82°C→62°C\nMedium Light–Medium Dark: 82°C→62°C to 78°C→58°C\nDark–Extremely Dark: 78°C→58°C to 74°C→54°C\nonly make changes to global temperature (the initial shot temperature) in your DE1 skin, it should apply the declining delta automatically, there's no need to manually change the temperature in each of the profile step\nthe profiles are defaulted to 83.5ºC just to be generous, increase/decrease it by 1 or 2ºC until you find it not over-extracts the aftertaste\n\nDialing-in tips:\nif there isn't enough resistance, flow will oscillate (or pressure in HC)\nhone in your resistance so flow does not oscillate by the end of step #3, from here adjust ratio to taste or if desired you can explore increasing resistance with artificial resistance aid such as resistive bottom paper filter or grinding finer to increase concentration\nif there is excessive resistance, it will sustain peak pressure until resistance falls\nin the event you have way too much resistance (the tell-tale sign is upon step #3, pressure pulses lightly), just anticipate to cut the shot a little shorter using the GHC than what you set weight-out to (as the puck would have already been dwelling and extracted for quite a bit already, successfully hitting the set weight-out would probably taste overly extracted)\nif you're at the ideal resistance and concentration to liking and you desire more or less perceivable brightness/acidity, decrease or increase the time-out in step #2 by 2s, this shortens or extends the bloom contact time\nstep #2 has both pressure-drop exit and time-out exit, whichever comes first depends on your overall resistance and grind characteristics, I would suggest leave pressure-exit value alone and only make adjustment to time-out\nfor LC you can only decrease the time-out to 1s\ntemperature and dose:output ratio are defaulted to my setup, it's recommended you revert to what you comfortable with previously.\nit's not necessary but the fill in step #1 of the profile leverages how the DE1 circulates its water loop to thermal stability, to have the profile consistently behaves as designed, head to Machine > Calibrate > page 2 and set:\nHeater test time-out = 30s\nHeater test flow rate = 8 mlps",
+    "number_of_preinfuse_frames": "2",
+    "preinfusion_flow_rate": "4.00",
+    "preinfusion_stop_pressure": "4.00",
+    "preinfusion_time": "5.00",
+    "pressure_end": "4.00",
+    "recommended_dose": "18.0",
+    "reference_file": "Baseline_MC",
+    "steps": [
+        {
+            "exit": {
+                "condition": "over",
+                "type": "pressure",
+                "value": "4.00"
+            },
+            "flow": "12.00",
+            "limiter": {
+                "range": "0.00",
+                "value": "0.00"
+            },
+            "name": "Fill (fast)",
+            "pressure": "0.00",
+            "pump": "flow",
+            "seconds": "15.00",
+            "sensor": "water",
+            "temperature": "83.50",
+            "transition": "fast",
+            "volume": "0.0"
+        },
+        {
+            "exit": {
+                "condition": "under",
+                "type": "pressure",
+                "value": "2.00"
+            },
+            "flow": "0.00",
+            "limiter": {
+                "range": "0.00",
+                "value": "0.00"
+            },
+            "name": "Soak (zero flow)",
+            "pressure": "0.00",
+            "pump": "flow",
+            "seconds": "4.00",
+            "sensor": "coffee",
+            "temperature": "63.50",
+            "transition": "fast",
+            "volume": "0.0",
+            "weight": "20.0"
+        },
+        {
+            "flow": "0.00",
+            "limiter": {
+                "range": "2.50",
+                "value": "1.50"
+            },
+            "name": "Percolation (flat)",
+            "pressure": "6.00",
+            "pump": "pressure",
+            "seconds": "90.00",
+            "sensor": "coffee",
+            "temperature": "63.50",
+            "transition": "fast",
+            "volume": "0.0"
+        }
+    ],
+    "tank_desired_water_temperature": "0.0",
+    "tank_temperature": "0.0",
+    "target_volume": "0.0",
+    "target_volume_count_start": "2",
+    "target_weight": "40.0",
+    "temp_steps_enabled": false,
+    "temperature_presets": [
+        "93.00",
+        "93.00",
+        "93.00",
+        "93.00"
+    ],
+    "title": "Baseline • Medium Contact • 6 Bar",
+    "type": "advanced",
+    "version": "2"
+}

@@ -9,6 +9,10 @@
         <file>profiles/a_flow_default_very_dark.json</file>
         <file>profiles/adaptive_v2.json</file>
         <file>profiles/advanced_spring_lever.json</file>
+        <file>profiles/baseline_high_contact_8_bar.json</file>
+        <file>profiles/baseline_low_contact_4_bar.json</file>
+        <file>profiles/baseline_medium_contact_6_bar.json</file>
+        <file>profiles/baseline_ultra_low_contact.json</file>
         <file>profiles/best_overall_pressure_profile.json</file>
         <file>profiles/best_practice_light_roast.json</file>
         <file>profiles/blooming_allonge.json</file>
@@ -48,6 +52,7 @@
         <file>profiles/ghc_manual_flow_control.json</file>
         <file>profiles/ghc_manual_pressure_control.json</file>
         <file>profiles/hybrid_pour_over_espresso.json</file>
+        <file>profiles/i_can_t_believe_it_s_not_filter.json</file>
         <file>profiles/i_got_your_back.json</file>
         <file>profiles/innovative_long_preinfusion.json</file>
         <file>profiles/italian_australian_espresso.json</file>
@@ -60,7 +65,9 @@
         <file>profiles/pour_over_basket_v60_20g_in_340g_out.json</file>
         <file>profiles/pour_over_basket_v60_22g_in_375g_out.json</file>
         <file>profiles/preinfuse_then_45ml_of_water.json</file>
+        <file>profiles/psph.json</file>
         <file>profiles/rao_allonge.json</file>
+        <file>profiles/soup_58.json</file>
         <file>profiles/steam_only.json</file>
         <file>profiles/tea_in_a_basket.json</file>
         <file>profiles/tea_portafilter_black_tea.json</file>

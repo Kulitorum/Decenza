@@ -1231,9 +1231,113 @@ bool ProfileManager::kbProfileSuitsRoast(const QString& profileTitle, const QStr
 
 // === Profile loading ===
 
+// Rewrite a stored profile in the canonical encoding, but only when doing so
+// provably loses nothing.
+//
+// Why on load rather than in a one-time migration: the set of files is not fixed.
+// A user drops profiles into the folder whenever they like — sideloaded, restored
+// from a backup, synced from another device — so a pass that marks itself complete
+// converts whatever happened to be present that day and ignores every later
+// arrival, which is exactly the population most likely to be legacy-encoded.
+//
+// Why it matters at all: DatabaseBackupManager copies the profile directory
+// verbatim, so a legacy-encoded file travels byte-for-byte into a backup and onto
+// another device, where a stricter reader (reaprime) rejects it outright for the
+// missing tank_temperature / target_volume_count_start.
+//
+// `filePath` empty means the profile came from ProfileStorage; the concrete file
+// is resolved below.
+//
+// The I/O here is synchronous on the main thread, against the project rule that
+// disk I/O belongs on a worker. Deliberate, and narrow: it is one read and at most
+// one write of a single profile (a few KB), in a function that already does
+// synchronous QFile::exists and Profile::loadFromFile on the same thread, and
+// saveProfile() likewise writes synchronously straight from QML. Moving only this
+// write to a worker would add a race between two loads of the same profile for no
+// measurable gain. If this ever needs to change, move the whole resolve off-thread
+// rather than this write alone.
+void ProfileManager::upgradeStoredEncoding(const QString& resolvedName,
+                                           const QString& filePath,
+                                           const Profile& loaded) {
+    // Resolve ONE concrete file and both read and write it.
+    //
+    // ProfileStorage cannot be used as a read/write pair here: readProfile() tries
+    // external then falls back to app-internal, while writeProfile() tries external
+    // FIRST and creates the directory if absent. So a profile living only in the
+    // fallback would be read from the fallback and written to the user's shared
+    // de1plus/profiles folder — a file that was never there — leaving the copy we
+    // actually examined untouched and now divergent. Both of ProfileStorage's tiers
+    // are ordinary filesystem paths (readProfile opens them with QFile), so the
+    // resolution is done here instead.
+    QString target = filePath;
+    if (target.isEmpty()) {
+        if (!m_profileStorage)
+            return;
+        const QString ext = m_profileStorage->externalProfilesPath();
+        if (!ext.isEmpty() && QFile::exists(ext + "/" + resolvedName + ".json"))
+            target = ext + "/" + resolvedName + ".json";
+        else if (QFile::exists(m_profileStorage->fallbackPath() + "/" + resolvedName + ".json"))
+            target = m_profileStorage->fallbackPath() + "/" + resolvedName + ".json";
+        else
+            return;
+    }
+
+    // Read the stored bytes back rather than trusting anything in memory. The
+    // parity check below is only meaningful against what is actually on disk.
+    QJsonObject original;
+    {
+        QFile f(target);
+        if (!f.open(QIODevice::ReadOnly))
+            return;
+        original = QJsonDocument::fromJson(f.readAll()).object();
+    }
+    if (original.isEmpty())
+        return;
+
+    const QJsonObject canonical = loaded.toJsonObject();
+
+    // Already canonical — the overwhelmingly common case once a profile has been
+    // converted. Compare the parsed objects, not the bytes: whitespace that
+    // survives a round trip would otherwise rewrite the file, and bump its mtime,
+    // on every single activation.
+    if (original == canonical)
+        return;
+
+    // Audit BEFORE writing, never after. profile_sync's --rewrite-format path
+    // records why in full: an earlier revision wrote first and audited the file it
+    // had just clobbered, so by the time "DATA LOSS" appeared the original existed
+    // only in git. Here there is no git — it is the user's profile.
+    //
+    // This check is ONE-DIRECTIONAL by design: it walks the keys of `original` and
+    // reports what was lost or altered. It says nothing about keys the canonical
+    // form ADDS, and it must not — canonicalising a legacy file legitimately adds
+    // tank_temperature, target_volume_count_start and the simple-editor scalars, so
+    // a symmetric check would refuse every conversion. Content ADDED by the reader
+    // is therefore not caught here and has to be excluded by the caller instead;
+    // see the espressoTemperatureHealed() guard at the call site.
+    const QStringList parity = Profile::jsonParityErrors(original, canonical);
+    if (!parity.isEmpty()) {
+        qWarning() << "ProfileManager: leaving" << resolvedName
+                   << "in its stored encoding — converting it would not be lossless:"
+                   << parity.join(QStringLiteral("; "));
+        return;
+    }
+
+    if (loaded.saveToFile(target))   // QSaveFile: temp + atomic rename
+        qDebug() << "ProfileManager: upgraded stored encoding for" << resolvedName;
+    else
+        qWarning() << "ProfileManager: failed to upgrade stored encoding for" << resolvedName
+                   << "- the profile loaded fine and is unchanged on disk";
+}
+
 void ProfileManager::loadProfile(const QString& profileName) {
     QString path;
     bool found = false;
+    // Which tier satisfied the load. Only the writable ones may have their
+    // encoding upgraded; `:/profiles/` is a Qt resource and cannot be written
+    // at all. Tracked explicitly rather than inferred from `path`, because the
+    // storage tier never sets `path` and an empty path would read as "resource".
+    enum class Origin { None, Storage, LocalFile, BuiltIn } origin = Origin::None;
 
     // Loaded into a candidate rather than straight into m_currentProfile so the
     // profile can be REFUSED without having already replaced the active one.
@@ -1280,6 +1384,7 @@ void ProfileManager::loadProfile(const QString& profileName) {
         if (!jsonContent.isEmpty()) {
             candidate = Profile::loadFromJsonString(jsonContent);
             found = true;
+            origin = Origin::Storage;
             qDebug() << "Loaded profile from ProfileStorage:" << resolvedName;
         }
     }
@@ -1290,6 +1395,7 @@ void ProfileManager::loadProfile(const QString& profileName) {
         if (QFile::exists(path)) {
             candidate = Profile::loadFromFile(path);
             found = true;
+            origin = Origin::LocalFile;
         }
     }
 
@@ -1299,6 +1405,7 @@ void ProfileManager::loadProfile(const QString& profileName) {
         if (QFile::exists(path)) {
             candidate = Profile::loadFromFile(path);
             found = true;
+            origin = Origin::LocalFile;
         }
     }
 
@@ -1308,6 +1415,7 @@ void ProfileManager::loadProfile(const QString& profileName) {
         if (QFile::exists(path)) {
             candidate = Profile::loadFromFile(path);
             found = true;
+            origin = Origin::BuiltIn;
         }
     }
 
@@ -1340,19 +1448,31 @@ void ProfileManager::loadProfile(const QString& profileName) {
         return;
     }
 
+    // Upgrade the STORED encoding to canonical, if that is lossless.
+    //
+    // Deliberately on `candidate`, before any of the mutations below, and with two
+    // exclusions that the parity check inside cannot make for itself:
+    //
+    //  - `espressoTemperatureHealed()`: fromJson DERIVES a missing or stale-default
+    //    espresso_temperature from the frames, and jsonParityErrors only walks keys
+    //    present in the ORIGINAL, so an added key is invisible to it. Without this
+    //    guard the upgrade would write derived content under an "encoding" label —
+    //    exactly what this pass must never do. The repair below owns that case and
+    //    logs it as a repair.
+    //  - `isReadOnly()`: the repair below skips read-only profiles and so does this,
+    //    rather than one honouring the flag and the other quietly ignoring it.
+    //
+    // This pass converts ENCODING and must never change content, which is also what
+    // keeps it clear of the rule against retro-rewriting user-set data.
+    if (found && origin != Origin::BuiltIn && origin != Origin::None
+        && !candidate.isReadOnly() && !candidate.espressoTemperatureHealed()) {
+        upgradeStoredEncoding(resolvedName,
+                              origin == Origin::LocalFile ? path : QString(),
+                              candidate);
+    }
+
     if (found)
         m_currentProfile = candidate;
-
-    // Backfill empty notes from built-in profile (handles imported copies from before notes were added)
-    if (found && m_currentProfile.profileNotes().isEmpty()) {
-        QString builtInPath = ":/profiles/" + resolvedName + ".json";
-        if (QFile::exists(builtInPath)) {
-            Profile builtIn = Profile::loadFromFile(builtInPath);
-            if (!builtIn.profileNotes().isEmpty()) {
-                m_currentProfile.setProfileNotes(builtIn.profileNotes());
-            }
-        }
-    }
 
     // One-time on-disk repair: if fromJson had to re-derive a missing or
     // stale-default espresso_temperature from the frames (e.g. the 93.0 default
@@ -1363,7 +1483,39 @@ void ProfileManager::loadProfile(const QString& profileName) {
     if (found && m_currentProfile.espressoTemperatureHealed() && !m_currentProfile.isReadOnly()) {
         bool writable = false;
         bool repaired = false;
-        if (m_profileStorage && m_profileStorage->isConfigured()
+        bool refused = false;
+
+        // Gate this write too. It re-serializes the WHOLE profile, so it can carry
+        // unrelated losses — a value that does not survive the writer's precision,
+        // say — into the user's file under the banner of a temperature repair.
+        //
+        // espresso_temperature is excluded from the comparison because changing it
+        // is the entire point here; everything else must be unchanged. That works
+        // precisely because jsonParityErrors ignores ADDED keys, so the derived
+        // temperature would be invisible to it anyway, while a genuine loss
+        // elsewhere is still caught.
+        if (!path.isEmpty() && !path.startsWith(QLatin1Char(':'))) {
+            QFile before(path);
+            if (before.open(QIODevice::ReadOnly)) {
+                QJsonObject wasOnDisk = QJsonDocument::fromJson(before.readAll()).object();
+                QJsonObject willWrite = m_currentProfile.toJsonObject();
+                wasOnDisk.remove(QStringLiteral("espresso_temperature"));
+                willWrite.remove(QStringLiteral("espresso_temperature"));
+                const QStringList parity = Profile::jsonParityErrors(wasOnDisk, willWrite);
+                if (!parity.isEmpty()) {
+                    qWarning() << "ProfileManager::loadProfile: NOT persisting the"
+                               << "espresso_temperature repair for" << resolvedName
+                               << "- rewriting it would not be lossless:"
+                               << parity.join(QStringLiteral("; "))
+                               << "- corrected in memory only";
+                    refused = true;
+                }
+            }
+        }
+
+        if (refused) {
+            // fall through; nothing is written
+        } else if (m_profileStorage && m_profileStorage->isConfigured()
             && m_profileStorage->profileExists(resolvedName)) {
             writable = true;
             repaired = m_profileStorage->writeProfile(resolvedName, m_currentProfile.toJsonString());
@@ -1379,6 +1531,23 @@ void ProfileManager::loadProfile(const QString& profileName) {
             // FS, permissions, full disk) isn't invisible.
             qWarning() << "ProfileManager::loadProfile: failed to persist espresso_temperature repair for"
                        << resolvedName << "- corrected in memory only, will retry on next load";
+        }
+    }
+
+    // Backfill empty notes from the built-in (handles imported copies from before
+    // notes were added).
+    //
+    // LAST, after every on-disk write above, and in memory only. This injects text
+    // the user's file does not contain; when it ran before the repair above, that
+    // repair serialized the whole profile and persisted the injected notes into the
+    // user's file. Any future write added to this function belongs ABOVE this block.
+    if (found && m_currentProfile.profileNotes().isEmpty()) {
+        QString builtInPath = ":/profiles/" + resolvedName + ".json";
+        if (QFile::exists(builtInPath)) {
+            Profile builtIn = Profile::loadFromFile(builtInPath);
+            if (!builtIn.profileNotes().isEmpty()) {
+                m_currentProfile.setProfileNotes(builtIn.profileNotes());
+            }
         }
     }
 
@@ -3069,6 +3238,22 @@ void ProfileManager::migrateProfileFormat() {
         Profile profile = Profile::fromJson(doc);
         if (profile.title().isEmpty() || profile.steps().isEmpty()) {
             qWarning() << "migrateProfileFormat: Profile has empty title or steps:" << filePath;
+            failed++;
+            return;
+        }
+
+        // Same parity gate as upgradeStoredEncoding, and for the same reason: this
+        // rewrites a user's file, and a title/steps sanity check does not prove the
+        // rewrite is lossless. This pass runs from the constructor, BEFORE any
+        // loadProfile(), so without the gate it would reach the legacy population
+        // first and rewrite unaudited exactly the files the on-load upgrade exists
+        // to protect. A profile that cannot be converted losslessly is left in its
+        // stored format — it still loads.
+        const QStringList parity = Profile::jsonParityErrors(obj, profile.toJsonObject());
+        if (!parity.isEmpty()) {
+            qWarning() << "migrateProfileFormat: leaving" << filePath
+                       << "in its stored format — converting it would not be lossless:"
+                       << parity.join(QStringLiteral("; "));
             failed++;
             return;
         }

@@ -1,0 +1,106 @@
+{
+    "author": "Decent",
+    "beverage_type": "espresso",
+    "changes_since_last_espresso": "",
+    "espresso_decline_time": "25.00",
+    "espresso_hold_time": "10.00",
+    "espresso_pressure": "9.20",
+    "espresso_temperature": "86.50",
+    "flow_profile_decline": "1.20",
+    "flow_profile_decline_time": "17.00",
+    "flow_profile_hold": "2.00",
+    "flow_profile_hold_time": "8.00",
+    "has_recommended_dose": false,
+    "hidden": "0",
+    "lang": "en",
+    "legacy_profile_type": "settings_2c",
+    "maximum_flow": "6.00",
+    "maximum_flow_range_advanced": "0.60",
+    "maximum_flow_range_default": "1.00",
+    "maximum_pressure": "12.00",
+    "maximum_pressure_range_advanced": "0.60",
+    "maximum_pressure_range_default": "0.90",
+    "minimum_pressure": "0.00",
+    "mode": "frame_based",
+    "notes": "A flow-controlled shot on a steeply declining temperature: 86.5 °C for a two-second temperature-compensation fill, 81.5 °C through puck wetting, then 61.5 °C for the pour.\n\nFrames 1 and 2 run at 4 ml/s and hand over as soon as pressure passes 5 bar, so the preinfusion length follows the puck rather than a fixed time. The pour then opens up to 7 ml/s but is held to a 2 bar ceiling, so flow is limited by resistance rather than by the pump. Default target is 45 g.\n\nThe declining temperature is the point of the profile — the puck sees progressively cooler water as extraction proceeds. Dial with grind first; the pressure ceiling means a too-fine puck shows up as a slow pour rather than a pressure spike.\n\n(Bundled from the reaprime default set, author Decent. It shipped without notes; the description above is read from the profile's own frames. What PSPH stands for is not recorded in de1app, reaprime or Visualizer.)",
+    "number_of_preinfuse_frames": "2",
+    "preinfusion_flow_rate": "4.00",
+    "preinfusion_stop_pressure": "4.00",
+    "preinfusion_time": "5.00",
+    "pressure_end": "4.00",
+    "recommended_dose": "18.0",
+    "reference_file": "PSPH",
+    "steps": [
+        {
+            "exit": {
+                "condition": "over",
+                "type": "pressure",
+                "value": "5.00"
+            },
+            "flow": "4.00",
+            "limiter": {
+                "range": "3.00",
+                "value": "0.00"
+            },
+            "name": "temp comp",
+            "pressure": "8.00",
+            "pump": "flow",
+            "seconds": "2.00",
+            "sensor": "coffee",
+            "temperature": "86.50",
+            "transition": "fast",
+            "volume": "100.0"
+        },
+        {
+            "exit": {
+                "condition": "over",
+                "type": "pressure",
+                "value": "5.00"
+            },
+            "flow": "4.00",
+            "limiter": {
+                "range": "3.00",
+                "value": "0.00"
+            },
+            "name": "puck wetting",
+            "pressure": "8.00",
+            "pump": "flow",
+            "seconds": "20.00",
+            "sensor": "water",
+            "temperature": "81.50",
+            "transition": "fast",
+            "volume": "100.0",
+            "weight": "4.0"
+        },
+        {
+            "flow": "7.00",
+            "limiter": {
+                "range": "5.00",
+                "value": "2.00"
+            },
+            "name": "6 mlps",
+            "pressure": "6.00",
+            "pump": "flow",
+            "seconds": "60.00",
+            "sensor": "coffee",
+            "temperature": "61.50",
+            "transition": "fast",
+            "volume": "120.0"
+        }
+    ],
+    "tank_desired_water_temperature": "0.0",
+    "tank_temperature": "0.0",
+    "target_volume": "0.0",
+    "target_volume_count_start": "2",
+    "target_weight": "45.0",
+    "temp_steps_enabled": false,
+    "temperature_presets": [
+        "93.00",
+        "93.00",
+        "93.00",
+        "93.00"
+    ],
+    "title": "PSPH",
+    "type": "advanced",
+    "version": "2"
+}

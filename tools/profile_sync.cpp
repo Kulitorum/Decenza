@@ -12,7 +12,9 @@
 // The first argument should be de1app's `de1plus/profiles/` directory. Plugin profile
 // directories under `<first-arg>/../plugins/*/profiles/` are scanned automatically if a
 // `plugins/` sibling exists; when a plugin profile shares the same output filename as a
-// base profile, the plugin copy wins (canonical source).
+// base profile, the plugin copy wins (canonical source). If the two copies DISAGREE the
+// tool prints a SOURCE CONFLICT to stderr naming both paths and what differs — the
+// precedence is still applied, but never silently (see de1app issue #350).
 
 #include <QCoreApplication>
 #include <QDir>
@@ -297,6 +299,7 @@ int main(int argc, char* argv[])
     QHash<QString, Source> sources;          // key: outFilename
     QHash<QString, QString> overriddenBy;    // outFilename -> plugin path (for reporting)
     int parseFailed = 0;
+    int sourceConflicts = 0;                 // plugin and base copies that disagree
 
     auto ingest = [&](const QString& tclPath, bool fromPlugin) {
         const QString content = readTextFile(tclPath);
@@ -324,8 +327,55 @@ int main(int argc, char* argv[])
             return;
         }
         const QString outName = Profile::titleToFilename(tcl.title()) + QLatin1String(".json");
-        if (fromPlugin && sources.contains(outName))
+        if (fromPlugin && sources.contains(outName)) {
+            // Two SOURCES for one output file. The plugin copy still wins — that is
+            // the documented rule and it is right today — but it must not win
+            // SILENTLY. Before this, the tool reported "plugin overriding base"
+            // whether the two agreed or contradicted each other, so a de1app
+            // checkout carrying four A-Flow profiles at 6 frames alongside the
+            // plugin's 9 read as a clean run. That is de1app issue #350, and our
+            // own tooling could not see it: the comparison it ran was
+            // plugin-vs-built-in, and the discarded base copy was never examined.
+            //
+            // Deliberately non-gating. The precedence is a decision, not a guess,
+            // so a conflict is not the tool failing to do its job — and #350
+            // resolving EITHER way removes the conflict entirely (whichever
+            // directory stops shipping the profile leaves one source). What the
+            // report has to survive is the case where the surviving source is the
+            // stale one, which a human reads off this diff.
+            const Source& base = sources[outName];
+            // `base` is whatever was ingested first under this output name. Today
+            // that is always a base-directory profile, because base files are
+            // ingested before plugin files — but two plugin directories shipping the
+            // same title would land here too, and then the "base" label below is the
+            // wrong word for the discarded side. The paths are printed in full, so
+            // the report stays readable either way.
+            //
+            // Argument order matters for the report: frameDiffReport labels its
+            // operands A and B, so pass plugin first to match the order the paths
+            // are printed in below. A=plugin, B=base throughout.
+            const QString frameDiff = Profile::frameDiffReport(tcl, base.profile);
+            // Scalars: raw .tcl text on one side, the parsed profile on the other —
+            // the same shape the built-in gate uses, and for the same reason. Routing
+            // both sides through the reader would make the check blind to a reader
+            // bug affecting both copies equally.
+            QString scalarDiff;
+            for (const De1AppTcl::ScalarDiff& d :
+                 De1AppTcl::compareScalars(content, base.profile.toJsonObject())) {
+                scalarDiff += QString("    %1 (tcl %2): A=%3 B=%4\n")
+                                  .arg(d.canonical, d.tclKey, d.tclValue, d.jsonValue);
+            }
+            if (!frameDiff.isEmpty() || !scalarDiff.isEmpty()) {
+                cerr << "SOURCE CONFLICT: " << tcl.title() << " (" << outName << ")\n"
+                     << "  A = plugin (used):      " << tclPath << "\n"
+                     << "  B = base (discarded):   " << base.tclPath << "\n"
+                     << scalarDiff << frameDiff
+                     << "  → the plugin copy wins. Confirm that is still correct before\n"
+                        "    trusting this run; see de1app issue #350.\n";
+                ++sourceConflicts;
+            }
             overriddenBy.insert(outName, tclPath);
+        }
         sources.insert(outName, Source{tclPath, content, outName, tcl, fromPlugin});
     };
 
@@ -341,6 +391,9 @@ int main(int argc, char* argv[])
         cout << "Plugin profiles overriding base copies (canonical wins):\n";
         for (auto it = overriddenBy.cbegin(); it != overriddenBy.cend(); ++it)
             cout << "  " << it.key() << "  ←  " << it.value() << "\n";
+        if (sourceConflicts)
+            cout << "  " << sourceConflicts
+                 << " of these DISAGREE with the base copy — see SOURCE CONFLICT on stderr.\n";
         cout << "\n";
     }
 
@@ -442,6 +495,8 @@ int main(int argc, char* argv[])
     }
     if (parseFailed)   cerr << "  " << parseFailed   << " source profile(s) unreadable, unparseable or invalid\n";
     if (writeRefused)  cerr << "  " << writeRefused  << " write(s) refused or failed — files left untouched\n";
+    if (sourceConflicts) cerr << "  " << sourceConflicts
+                              << " plugin/base source conflict(s) — plugin copy used, verify that is right\n";
 
     // A skipped source and an uncompared key both NARROW the comparison, and a
     // narrowed comparison that reports success is how this drift was measured
