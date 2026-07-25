@@ -497,25 +497,25 @@ QJsonObject Profile::toJsonObject() const {
     // reads them unconditionally. Gating this on settings_2a/2b destroyed these
     // keys on 58+ advanced built-ins the first time they were re-serialized.
     {
-        obj["preinfusion_time"] = num(m_preinfusionTime, 2);
-        obj["preinfusion_flow_rate"] = num(m_preinfusionFlowRate, 2);
-        obj["preinfusion_stop_pressure"] = num(m_preinfusionStopPressure, 2);
-        obj["espresso_pressure"] = num(m_espressoPressure, 2);
-        obj["espresso_hold_time"] = num(m_espressoHoldTime, 2);
-        obj["espresso_decline_time"] = num(m_espressoDeclineTime, 2);
-        obj["pressure_end"] = num(m_pressureEnd, 2);
-        obj["flow_profile_hold"] = num(m_flowProfileHold, 2);
-        obj["flow_profile_hold_time"] = num(m_flowProfileHoldTime, 2);
-        obj["flow_profile_decline"] = num(m_flowProfileDecline, 2);
-        obj["flow_profile_decline_time"] = num(m_flowProfileDeclineTime, 2);
-        obj["maximum_flow_range_default"] = num(m_maximumFlowRangeDefault, 2);
-        obj["maximum_pressure_range_default"] = num(m_maximumPressureRangeDefault, 2);
+        obj["preinfusion_time"] = num(m_preinfusionTime, ProfileJson::Seconds);
+        obj["preinfusion_flow_rate"] = num(m_preinfusionFlowRate, ProfileJson::Flow);
+        obj["preinfusion_stop_pressure"] = num(m_preinfusionStopPressure, ProfileJson::Pressure);
+        obj["espresso_pressure"] = num(m_espressoPressure, ProfileJson::Pressure);
+        obj["espresso_hold_time"] = num(m_espressoHoldTime, ProfileJson::Seconds);
+        obj["espresso_decline_time"] = num(m_espressoDeclineTime, ProfileJson::Seconds);
+        obj["pressure_end"] = num(m_pressureEnd, ProfileJson::Pressure);
+        obj["flow_profile_hold"] = num(m_flowProfileHold, ProfileJson::Flow);
+        obj["flow_profile_hold_time"] = num(m_flowProfileHoldTime, ProfileJson::Seconds);
+        obj["flow_profile_decline"] = num(m_flowProfileDecline, ProfileJson::Flow);
+        obj["flow_profile_decline_time"] = num(m_flowProfileDeclineTime, ProfileJson::Seconds);
+        obj["maximum_flow_range_default"] = num(m_maximumFlowRangeDefault, ProfileJson::Limiter);
+        obj["maximum_pressure_range_default"] = num(m_maximumPressureRangeDefault, ProfileJson::Limiter);
         obj["temp_steps_enabled"] = m_tempStepsEnabled;
     }
 
     QJsonArray tempsArray;
     for (double temp : m_temperaturePresets) {
-        tempsArray.append(num(temp, 2));
+        tempsArray.append(num(temp, ProfileJson::Temperature));
     }
     obj["temperature_presets"] = tempsArray;
 

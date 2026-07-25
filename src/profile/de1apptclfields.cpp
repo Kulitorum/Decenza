@@ -142,26 +142,86 @@ QString tclKeyFor(const QString& canonical, const QString& profileType)
     return QString();
 }
 
+QList<QPair<QString, QString>> topLevelAssignments(const QString& content)
+{
+    // ONE definition of "a top-level assignment", used by extractValue() and
+    // assignedTclKeys() alike. They used to disagree: assignedTclKeys tracked
+    // brace depth so prose inside profile_notes was not mistaken for a key,
+    // while extractValue searched the raw string and took the first hit in FORM
+    // order (braced, then quoted, then bare) rather than position order. A note
+    // reading "I tested this at maximum_flow 6" therefore beat the profile's own
+    // `maximum_flow 2.5`, and the machine got 6.
+    static const QRegularExpression reAssign(
+        QStringLiteral("^[ \t]*([A-Za-z_][A-Za-z0-9_]*)[ \t]+(.*)$"));
+
+    QList<QPair<QString, QString>> out;
+    int depth = 0;
+    const QStringList lines = content.split(QLatin1Char('\n'));
+
+    for (qsizetype i = 0; i < lines.size(); ++i) {
+        const QString& line = lines.at(i);
+
+        if (depth == 0) {
+            const QRegularExpressionMatch m = reAssign.match(line);
+            if (m.hasMatch()) {
+                const QString key = m.captured(1);
+                QString rest = m.captured(2).trimmed();
+
+                if (rest.startsWith(QLatin1Char('{'))) {
+                    // A braced value may run past this line (profile_notes,
+                    // advanced_shot). Accumulate until the braces balance.
+                    QString buf;
+                    int d = 0;
+                    qsizetype j = i;
+                    bool closed = false;
+                    for (; j < lines.size() && !closed; ++j) {
+                        const QString& seg = (j == i) ? rest : lines.at(j);
+                        if (j != i) buf += QLatin1Char('\n');
+                        for (const QChar c : seg) {
+                            if (c == QLatin1Char('{')) {
+                                ++d;
+                                if (d == 1) continue;   // drop the outermost brace
+                            } else if (c == QLatin1Char('}')) {
+                                --d;
+                                if (d == 0) { closed = true; break; }
+                            }
+                            if (d >= 1) buf += c;
+                        }
+                    }
+                    out.append({key, buf});
+                    i = j - 1;   // resume after the braced value
+                    continue;
+                }
+
+                if (rest.startsWith(QLatin1Char('"'))) {
+                    const qsizetype end = rest.indexOf(QLatin1Char('"'), 1);
+                    out.append({key, end > 0 ? rest.mid(1, end - 1) : rest.mid(1)});
+                    continue;
+                }
+
+                out.append({key, rest.section(QRegularExpression(QStringLiteral("[ \t]")), 0, 0)});
+                continue;
+            }
+        }
+
+        for (const QChar c : line) {
+            if (c == QLatin1Char('{')) ++depth;
+            else if (c == QLatin1Char('}')) --depth;
+        }
+        if (depth < 0) depth = 0;   // tolerate a stray closing brace
+    }
+    return out;
+}
+
 QString extractValue(const QString& content, const QString& varName)
 {
-    // Use \b so e.g. "preinfusion_time" does not match the tail of
-    // "flow_profile_preinfusion_time" (substring false-positive).
-    const QString pattern = QLatin1String("\\b") + varName;
-
-    QRegularExpression reBraced(pattern + QLatin1String("\\s+\\{([^}]*)\\}"));
-    QRegularExpressionMatch match = reBraced.match(content);
-    if (match.hasMatch())
-        return match.captured(1);
-
-    QRegularExpression reQuoted(pattern + QLatin1String("\\s+\"([^\"]*)\""));
-    match = reQuoted.match(content);
-    if (match.hasMatch())
-        return match.captured(1);
-
-    QRegularExpression reSimple(pattern + QLatin1String("\\s+(\\S+)"));
-    match = reSimple.match(content);
-    return match.hasMatch() ? match.captured(1) : QString();
+    for (const auto& kv : topLevelAssignments(content)) {
+        if (kv.first == varName)
+            return kv.second;
+    }
+    return QString();
 }
+
 
 ScalarRead readScalar(const QString& content, const QString& canonical,
                       const QString& profileType, double fallback)
@@ -248,25 +308,10 @@ const QStringList& nonScalarTclKeys()
 
 QStringList assignedTclKeys(const QString& content)
 {
-    static const QRegularExpression reKey(QStringLiteral("^([A-Za-z_][A-Za-z0-9_]*)[ \t]"));
-
     QStringList keys;
-    int depth = 0;
-    const QStringList lines = content.split(QLatin1Char('\n'));
-    for (const QString& line : lines) {
-        // Only a line starting at brace depth 0 can begin a top-level
-        // assignment; everything else is inside advanced_shot or a multi-line
-        // profile_notes and would otherwise be mistaken for a profile key.
-        if (depth == 0) {
-            const QRegularExpressionMatch m = reKey.match(line);
-            if (m.hasMatch() && !keys.contains(m.captured(1)))
-                keys << m.captured(1);
-        }
-        for (const QChar c : line) {
-            if (c == QLatin1Char('{')) ++depth;
-            else if (c == QLatin1Char('}')) --depth;
-        }
-        if (depth < 0) depth = 0;  // tolerate a stray closing brace
+    for (const auto& kv : topLevelAssignments(content)) {
+        if (!keys.contains(kv.first))
+            keys << kv.first;
     }
     return keys;
 }

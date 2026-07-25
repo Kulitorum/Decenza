@@ -341,6 +341,26 @@ private slots:
         QVERIFY(!uncovered.contains("profile_title"));         // declared non-scalar
     }
 
+    void profileNotesProseIsNotReadAsAScalar() {
+        // extractValue() used to search the whole file and take the first hit in
+        // FORM order (braced, then quoted, then bare) rather than position
+        // order, so prose in profile_notes beat the real assignment. This exact
+        // file imported with maximum_flow 6 — the machine got the note, not the
+        // profile. profile_notes is free text and profiles arrive from
+        // Visualizer and shared files, so it is reachable input.
+        const QString tcl = QStringLiteral(
+            "profile_title {Notes probe}\n"
+            "settings_profile_type settings_2c\n"
+            "profile_notes {I tested this at maximum_flow 6 and it was great}\n"
+            "maximum_flow 2.5\n"
+            "espresso_temperature 93.0\n"
+            "advanced_shot {{exit_if 0 flow 2.0 temperature 93.0 name x pressure 6.0 "
+            "sensor coffee pump flow seconds 25 volume 0}}\n");
+
+        QCOMPARE(De1AppTcl::extractValue(tcl, "maximum_flow"), QStringLiteral("2.5"));
+        QCOMPARE(Profile::loadFromTclString(tcl).maximumFlow(), 2.5);
+    }
+
     void keysInsideBracedValuesAreNotProfileKeys() {
         // advanced_shot and a multi-line profile_notes both contain words that
         // would read as top-level assignments if the scan ignored brace depth.

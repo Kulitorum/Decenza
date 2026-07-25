@@ -62,9 +62,20 @@ const QVector<ScalarField>& scalarFields();
 // field map does not cover `canonical`.
 QString tclKeyFor(const QString& canonical, const QString& profileType);
 
-// Read one Tcl scalar. Handles `name {braced}`, `name "quoted"` and `name bare`.
-// The \b guard stops preinfusion_time matching flow_profile_preinfusion_time —
-// those are two different de1app editor settings, not aliases.
+// Every top-level `key value` assignment in a .tcl, in file order, at brace
+// depth 0 — so prose inside profile_notes or a frame inside advanced_shot is
+// never mistaken for a profile key. THE definition of "an assignment": both
+// extractValue() and assignedTclKeys() are thin wrappers over it, because when
+// they had separate definitions they disagreed and the machine got the note
+// instead of the profile.
+QList<QPair<QString, QString>> topLevelAssignments(const QString& content);
+
+// The value of one top-level Tcl key, or empty if the file does not assign it.
+// Handles `name {braced}` (including multi-line), `name "quoted"` and
+// `name bare`. Matching whole keys at depth 0 also removes the need for the old
+// \b guard that stopped preinfusion_time matching the tail of
+// flow_profile_preinfusion_time — those are two different de1app editor
+// settings, not aliases, and are now simply different keys.
 QString extractValue(const QString& content, const QString& varName);
 
 enum class ReadStatus {
