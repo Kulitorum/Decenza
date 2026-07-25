@@ -242,22 +242,60 @@ inline constexpr const char* WEB_REMOTE_PAGE = R"HTML(
             </div>
         </div>
 
-        <h2>Step 2: Connect to the tablet</h2>
+        <h2>Step 2: Prepare the tablet</h2>
+
+        <p>Android does not accept debugging connections over WiFi until you turn that on and authorise your computer. Until you do, <code>adb connect</code> fails with <em>"connection refused"</em> &mdash; port 5555 simply is not open. This is a one-time setup per computer.</p>
 
         <div class="step">
             <span class="step-number">2</span>
+            <span class="step-title">Enable wireless debugging (one time)</span>
+            <div class="step-content">
+                <p><strong>a. Turn on Developer options</strong></p>
+                <p>On the tablet, open <strong>Settings</strong> &rarr; <strong>About tablet</strong>, find <strong>Build number</strong> and tap it seven times. Enter your PIN if asked &mdash; you will see "You are now a developer!".</p>
+
+                <p><strong>b. Turn on debugging</strong></p>
+                <p>Go to <strong>Settings</strong> &rarr; <strong>System</strong> &rarr; <strong>Developer options</strong> and turn on <strong>USB debugging</strong>. On Android 11 and newer, also turn on <strong>Wireless debugging</strong>.</p>
+
+                <p><strong>c. Authorise your computer</strong> &mdash; either method works:</p>
+
+                <p><em>With a USB cable (any Android version)</em></p>
+                <p>Plug the tablet into the computer and unlock its screen. An <strong>"Allow USB debugging?"</strong> prompt appears with a key fingerprint &mdash; tick <strong>Always allow from this computer</strong> and tap <strong>Allow</strong>. Then run:</p>
+                <pre><code id="tcpipCmd">adb tcpip 5555</code></pre>
+                <button class="copy-btn" onclick="copyCommand('tcpipCmd')">Copy</button>
+                <p style="margin-top: 1rem;">Unplug the cable &mdash; the tablet is now listening on port 5555.</p>
+
+                <p style="margin-top: 1rem;"><em>Wireless pairing (Android 11 and newer)</em></p>
+                <p>Tap the words <strong>Wireless debugging</strong> (not the toggle) to open its screen, then <strong>Pair device with pairing code</strong>. It shows a six-digit code and an address with its own port number. On the computer run <code>adb pair</code> with that address, and type the code when prompted:</p>
+                <pre><code>adb pair 192.168.x.x:37123</code></pre>
+                <p>Use the exact port shown on the tablet &mdash; it is not 5555, and it is different every time.</p>
+            </div>
+        </div>
+
+        <div class="note">
+            <strong>If the prompt never appeared:</strong> the tablet screen must be unlocked to show it. If it flashed past and timed out, unplug and replug the cable to get it back.
+        </div>
+
+        <h2>Step 3: Connect to the tablet</h2>
+
+        <div class="step">
+            <span class="step-number">3</span>
             <span class="step-title">Connect via WiFi</span>
             <div class="step-content">
                 <p>Make sure your computer is on the same WiFi network as the tablet, then run:</p>
                 <pre><code id="connectCmd">adb connect <span id="connectIp">192.168.x.x</span>:5555</code></pre>
                 <button class="copy-btn" onclick="copyCommand('connectCmd')">Copy</button>
+                <p style="margin-top: 1rem;">If you paired wirelessly instead of using a cable, use the port from the tablet's <strong>Wireless debugging</strong> screen in place of 5555 &mdash; the pairing port and the connect port are two different numbers.</p>
             </div>
         </div>
 
-        <h2>Step 3: Start remote control</h2>
+        <div class="note">
+            <strong>After a tablet reboot:</strong> <code>adb tcpip 5555</code> does not survive a restart, so repeat the cable step if the connection stops working. Wireless pairing does survive, but the port changes &mdash; check the <strong>Wireless debugging</strong> screen for the current one.
+        </div>
+
+        <h2>Step 4: Start remote control</h2>
 
         <div class="step">
-            <span class="step-number">3</span>
+            <span class="step-number">4</span>
             <span class="step-title">Launch scrcpy</span>
             <div class="step-content">
                 <p>Once connected, start the remote view:</p>
