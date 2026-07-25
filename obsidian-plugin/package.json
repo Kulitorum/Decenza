@@ -11,7 +11,7 @@
         "@types/node": "^20.0.0",
         "esbuild": "^0.28.1",
         "obsidian": "latest",
-        "typescript": "^5.4.0"
+        "typescript": "^7.0.2"
     },
     "dependencies": {
         "chart.js": "^4.4.1"
