@@ -29,15 +29,78 @@ writes that the plugin does not.
 
 ---
 
-## DF-1 — `filling(volume)` forced to 100 · Decenza defect · low severity
+## Does it all make a whole? Yes — and that is what makes the findings findings
+
+Read against de1app's shot-execution path, the plugin and its profiles are one coherent design,
+not code plus stale data. Three facts settle it:
+
+| frame field | where it goes | source |
+|---|---|---|
+| `weight` | app-side: `profile_target`, and exceeding it calls `start_next_step` | `device_scale.tcl:1210,1254` |
+| `volume` | **to the machine**, packed unconditionally as `MaxVol` | `binary.tcl:967` |
+| `exit_pressure_over` | to the machine **only when `exit_if 1`**; otherwise `TriggerVal 0` | `binary.tcl:933,955` |
+
+And the firmware's own contract for `MaxVol`, quoted from de1app:
+
+> `U10P0  MaxVol;  // Exit current frame if the volume/weight exceeds this value. 0 means ignore`
+
+So the division of labour is clean:
+
+1. **The editor owns exactly eight parameters** — fill temperature; soak seconds/pressure/volume/
+   weight; pour flow/pressure/temperature. That is the whole of `prep`, and the whole of what
+   `update_D-Flow` writes back.
+2. **Everything else is per-profile character**, baked in by the author: the fill volume cap, the
+   fill weight-skip, the pour volume cap, the fill exit pressure.
+3. **`update_D-Flow` mutates in place precisely so editing the eight never disturbs the rest.**
+   That is not an implementation detail — it is the mechanism that lets one editor drive three
+   profiles with different machine personalities.
+
+The three stock profiles then differ in exactly the non-editor fields, deliberately:
+
+| | fill vol | fill wt | pour vol |
+|---|---|---|---|
+| D-Flow / default | 100 | 5.00 (skip at 5 g) | 0 (uncapped) |
+| D-Flow / Q | 60 | 0.00 (no skip) | 100 |
+| D-Flow / La Pavoni | 60 | 0.00 (no skip) | 100 |
+
+Q and La Pavoni are lever simulations: a 60 mL fill cap, a 100 mL pour cap, no weight-skip.
+Default is the everyday profile: uncapped pour, 5 g fill skip. Coherent, and each choice is
+visible in what reaches the machine.
+
+**The whole holds provided the editor preserves what it does not own.** That is the contract
+Decenza breaks — and the shape of the break is specific:
+
+> **Every constant Decenza hardcodes is `D-Flow / default`'s value.**
+> fill volume 100, fill weight 5.0, pour volume 0 — default's, all three.
+
+The D-Flow generator was written by reading one profile and promoting its literals to universal
+constants. Q and La Pavoni are the two that differ, and they are exactly the two that get
+overwritten. That is one root cause with three symptoms, not three bugs.
+
+### Two corrections to the first pass of this document
+
+- **DF-3 is not "stale upstream data".** I called it that before reading the execution path. Under
+  the intentional reading it is the opposite: the shipped exit pressures are authored values, and
+  `update_D-Flow`'s derived rule is the *fallback* for when the user changes soak pressure — it
+  recomputes because it must emit something, not because the authored value was wrong. de1app
+  moving default's 1.5 → 2.1 on first edit is an accepted consequence of editing. Nothing to
+  report upstream; **DF-3 is retired as a defect**, and Decenza's behaviour is correct.
+- **DF-1 and DF-5 are not "low severity, inert".** `volume` is packed into `MaxVol` and sent to
+  the DE1 unconditionally. They change what the machine does. DF-5 in particular removes a cap
+  rather than shifting one — see below.
+
+---
+
+## DF-1 — `filling(volume)` forced to 100 · Decenza defect · reaches the machine
 
 `RecipeGenerator::createFillFrame` hardcodes `frame.volume = 100.0`. `update_D-Flow` never writes
 `filling(volume)`, so the plugin preserves whatever the profile carried. **D-Flow / Q** and
 **D-Flow / La Pavoni** both ship `60`.
 
-Effect: opening either in Decenza and saving changes the fill frame's volumetric limit 60 → 100.
-Low severity because the fill step exits on pressure long before either limit is reached — but it
-is a silent, unrequested edit to a profile the plugin would have left alone.
+Effect: opening either in Decenza and saving relaxes the fill frame's `MaxVol` from 60 mL to
+100 mL. Both values are non-zero, so the cap stays armed — it just moves. In practice the fill
+exits on pressure well before either, so the practical impact is small; but this is a value sent
+to the DE1, not stored metadata, and it is a silent edit to a profile the plugin leaves alone.
 
 ## DF-2 — `filling(weight)` forced to 5 g · Decenza defect · **shot-affecting**
 
@@ -51,10 +114,10 @@ of the three shipped profiles, without the user touching anything but Save.
 
 The comment is the tell — a value observed in one profile was generalised into a constant.
 
-## DF-3 — `filling(exit_pressure_over)` recomputed · **UPSTREAM, not a Decenza defect**
+## DF-3 — `filling(exit_pressure_over)` recomputed · **RETIRED — not a defect**
 
-Decenza applies `update_D-Flow`'s derived rule faithfully. Two of the plugin's own three stock
-profiles carry values that rule would not produce:
+Decenza applies `update_D-Flow`'s derived rule faithfully. Two of the three stock profiles carry
+values that rule would not produce:
 
 | Profile | soak pressure | shipped exit | rule gives | |
 |---|---|---|---|---|
@@ -62,42 +125,61 @@ profiles carry values that rule would not produce:
 | D-Flow / Q | 6.0 | 3.0 | 3.6 | differs |
 | D-Flow / La Pavoni | 1.2 | 1.2 | 1.2 | **matches** |
 
-La Pavoni matching is what makes this diagnosable: if the rule were mis-transcribed it would be
-wrong in all three, not two. The stock blobs are written literally by `write_*_profile` /
-`set_Dflow_default` and are only recomputed when a user edits — so **de1app itself is not a
-round-trip fixed point on these two profiles either** and would make the same change on first
-edit.
+La Pavoni matching is what makes this diagnosable: a mis-transcribed rule would be wrong in all
+three, not two.
 
-No action for Decenza. Worth reporting upstream: the shipped data contradicts the plugin's own
-recompute rule.
+Treating the profiles as intentional resolves it: the shipped exit pressures are **authored**, and
+the derived rule is the fallback the editor applies when the user changes soak pressure — it has
+to emit something, and half-the-soak-plus-0.6 is a reasonable something. de1app moving default's
+1.5 → 2.1 on first edit is an accepted consequence of editing, not a bug in either place.
 
-## DF-4 — `soaking(exit_pressure_over)` rewritten · Decenza defect · low severity
+**No action, either side.** Decenza's behaviour here is correct. Kept in the suite's
+known-divergent list so it does not read as an unexplained gap.
+
+## DF-4 — `soaking(exit_pressure_over)` rewritten · Decenza defect · inert at runtime
 
 `createInfuseFrame` sets `frame.exitPressureOver = recipe.infusePressure`. `update_D-Flow` never
-writes `soaking(exit_pressure_over)`; all three stock profiles ship `3.0` regardless of their soak
-pressure. Decenza rewrites it to the soak pressure — 6.0 on Q, 1.2 on La Pavoni.
+writes `soaking(exit_pressure_over)`; all three stock profiles ship `3.0` regardless of soak
+pressure. Decenza rewrites it — 6.0 on Q, 1.2 on La Pavoni.
 
-Low severity: the frame has `exit_if 0`, so the field is inert (Decenza's own code calls these
-"dead exit fields stored for de1app compatibility"). But it is stored, it round-trips into files
-other apps read, and "inert today" is not "inert".
+**Confirmed inert at runtime**, and now for a cited reason rather than an assumption: the soak
+frame carries `exit_if 0`, and `binary.tcl:955` sets `TriggerVal 0` whenever `exit_if != 1`. The
+value never reaches the machine. It is still a stored difference that round-trips into files other
+apps read, and "inert in today's firmware path" is not "inert".
 
-## DF-5 — `pouring(volume)` forced to 0 · Decenza defect · low severity
+## DF-5 — `pouring(volume)` forced to 0 · Decenza defect · **removes a cap**
 
-`createPourFrame` sets `frame.volume = 0.0`. `update_D-Flow` never writes `pouring(volume)`; Q and
-La Pavoni ship `100`. Same class as DF-1.
+`createPourFrame` sets `frame.volume = 0.0` — again `D-Flow / default`'s value. `update_D-Flow`
+never writes `pouring(volume)`; Q and La Pavoni ship `100`.
+
+This is not the same as DF-1's "cap moves". Per the firmware contract, **`0` means ignore**. So
+Q and La Pavoni intend the pour frame to end at 100 mL, and Decenza sends 0 — deleting the limit
+outright. On a lever-simulation profile with a 127-second pour frame, the volume cap is the
+backstop; the shot is otherwise ended by weight, and a user brewing without a scale has nothing
+left holding it.
+
+Ranking this second only to DF-2 among the D-Flow findings.
 
 ---
 
-## Root cause, common to DF-1/2/4/5
+## Root cause, common to DF-1/2/5 (and DF-4)
 
-The plugins **mutate frames in place** — read the current `advanced_shot`, overwrite a named list
-of fields, write it back — so every field outside that list survives untouched. Decenza
-**constructs frames from constants**, so every field outside the recipe's own parameters gets a
-literal, and any literal that does not match what the profile carried is a silent edit.
+The plugin **mutates frames in place** — read the current `advanced_shot`, overwrite a named list
+of fields, write it back — so every field outside that list survives untouched. That is the
+mechanism letting one editor drive three profiles with different machine personalities.
 
-This is architectural, not four typos. Fixing the four constants closes today's cases; adopting
-the plugins' mutate-in-place shape would close the class. That is a design decision, deliberately
+Decenza **constructs frames from constants**, so every field outside the eight editor parameters
+gets a literal. And the literals are not arbitrary: **all three are `D-Flow / default`'s values.**
+The generator was written by reading one profile and generalising it. Q and La Pavoni are the two
+that differ from default, and they are exactly the two that get overwritten.
+
+One root cause, three runtime symptoms. Fixing the constants closes today's cases; adopting the
+plugin's mutate-in-place shape closes the class — and is what keeps a fourth profile from
+arriving with a fourth field nobody thought to preserve. That is a design decision, deliberately
 left to a follow-up (design D7) rather than made inside a verification change.
+
+**Severity order for repair:** DF-2 (imposes a 5 g fill skip that ends the fill early),
+DF-5 (deletes the pour volume cap), DF-1 (relaxes the fill cap), DF-4 (stored only).
 
 ---
 

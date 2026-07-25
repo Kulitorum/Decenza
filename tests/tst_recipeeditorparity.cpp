@@ -317,21 +317,37 @@ private slots:
         // them would make the list a transcription of current behaviour rather
         // than a statement about which fields are known-wrong.
         //
-        //   DF-1  filling(volume)            forced to 100
-        //   DF-2  filling(weight)            forced to 5 g   [shot-affecting]
-        //   DF-3  filling(exit_pressure_over) recomputed      [UPSTREAM, not ours]
-        //   DF-4  soaking(exit_pressure_over) rewritten
-        //   DF-5  pouring(volume)            forced to 0
+        //   DF-1  filling(volume)             forced to 100   -> MaxVol, cap moves
+        //   DF-2  filling(weight)             forced to 5 g   -> app-side step skip
+        //   DF-3  filling(exit_pressure_over) recomputed      -> RETIRED, not a defect
+        //   DF-4  soaking(exit_pressure_over) rewritten       -> inert (exit_if 0)
+        //   DF-5  pouring(volume)             forced to 0     -> MaxVol, cap DELETED
         //
-        // DF-3 is not a Decenza defect. Decenza applies update_D-Flow's derived
-        // rule faithfully; two of the plugin's three stock profiles were authored
-        // with values that rule would not produce (default ships 1.5 where the
-        // rule gives 2.1, Q ships 3.0 where it gives 3.6). La Pavoni matches
-        // exactly, which is what proves the rule is transcribed right rather than
-        // the transcription being wrong in three places. Those blobs are written
-        // literally by write_*_profile / set_Dflow_default and only recomputed
-        // when a user edits — so de1app itself makes the same change on first
-        // edit, and de1app is not a round-trip fixed point on those two either.
+        // All of DF-1/2/5 write `D-Flow / default`'s literal value. The generator
+        // was written by reading one profile and generalising it; Q and La Pavoni
+        // are the two that differ, and the two that get overwritten.
+        //
+        // What each field actually does, from de1app's own execution path:
+        //   volume            -> packed unconditionally as MaxVol (binary.tcl:967).
+        //                        Firmware contract, binary.tcl:1077: "Exit current
+        //                        frame if the volume/weight exceeds this value.
+        //                        0 means ignore." So DF-5 does not move a cap, it
+        //                        removes one.
+        //   weight            -> app-side profile_target; exceeding it calls
+        //                        start_next_step (device_scale.tcl:1210,1254).
+        //   exit_pressure_over-> reaches the machine only when exit_if == 1;
+        //                        otherwise TriggerVal is 0 (binary.tcl:933,955).
+        //                        The soak frame is exit_if 0, so DF-4 is inert.
+        //
+        // DF-3 is not a Decenza defect and is kept here only so it does not read
+        // as an unexplained gap. Decenza applies update_D-Flow's derived rule
+        // faithfully; two stock profiles carry authored values that rule would not
+        // produce (default 1.5 vs 2.1, Q 3.0 vs 3.6) while La Pavoni matches
+        // exactly — which is what proves the transcription right rather than wrong
+        // in three places. Reading the profiles as intentional resolves it: the
+        // shipped values are authored, and the derived rule is the fallback for
+        // when the user changes soak pressure. de1app makes the same change on
+        // first edit, and that is accepted upstream behaviour.
         static const QList<QPair<int, QString>> knownDivergentFields = {
             {0, QStringLiteral("volume")},            // DF-1
             {0, QStringLiteral("exitWeight")},        // DF-2
