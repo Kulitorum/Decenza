@@ -315,6 +315,15 @@ public:
     // offending key in a message the user can turn into a bug report.
     QStringList unsupportedStepKeys() const { return m_unsupportedStepKeys; }
 
+    // Values encountered at load that this build cannot interpret, as
+    // "key=raw". The value-level twin of unsupportedStepKeys(), and invalidating
+    // for the same reason: a number we cannot read becomes 0.0, and 0 is legal
+    // for every field it can happen to, so substituting it silently pours
+    // something the file did not describe. `maximum_pressure 9,5` would read as
+    // "no pressure limit"; `final_desired_shot_weight n/a` would switch
+    // stop-at-weight on at the 36 g default.
+    QStringList malformedValues() const { return m_malformedValues; }
+
     // Count consecutive leading frames with exit conditions (preinfusion frames)
     static int countPreinfuseFrames(const QList<ProfileFrame>& steps);
 
@@ -421,6 +430,7 @@ private:
     // profile invalid — see ProfileFrame::knownJsonKeys() for why an unknown
     // key inside a step is refused rather than carried along.
     QStringList m_unsupportedStepKeys;
+    QStringList m_malformedValues;
 
     RecipeParams m_recipeParams;
 

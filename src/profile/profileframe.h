@@ -94,6 +94,13 @@ struct ProfileFrame {
     // Keys in a de1app Tcl frame that knownTclKeys() does not cover, sorted.
     static QStringList unknownTclKeys(const QString& tclList);
 
+    // Numeric frame values that cannot be interpreted, as "key=raw", sorted.
+    // The value-level twin of unknownTclKeys(): that one catches a key we do
+    // not understand, this one a known key whose value we cannot read. Both
+    // make the profile invalid, because toDouble() yields 0.0 on failure and 0
+    // is legal for all of these — so a garbled value is otherwise undetectable.
+    static QStringList malformedTclValues(const QString& tclList);
+
     // Parse from de1app Tcl list format: {key value key value ...}
     static ProfileFrame fromTclList(const QString& tclList);
 

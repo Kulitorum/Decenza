@@ -1215,12 +1215,6 @@ Profile Profile::loadFromTclString(const QString& content) {
         profile.m_beverageType = "espresso";
     }
 
-    // Read-only flag (de1app: read_only 0/1/2)
-    {
-        QString roVal = extractValue("read_only");
-        if (!roVal.isEmpty()) profile.m_readOnly = roVal.toInt();
-    }
-
     // Determine if this is an advanced profile (settings_2c or settings_2c2)
     bool isAdvancedProfile = De1AppTcl::isAdvancedType(profile.m_profileType);
 
@@ -1228,9 +1222,44 @@ Profile Profile::loadFromTclString(const QString& content) {
     // one call resolves the dual-spelled fields by profile type and applies
     // de1app's absent-key values, so neither rule has a second copy here.
     QString val;
-    auto readNum = [&](const QString& canonical, double& target) {
-        target = De1AppTcl::valueFor(content, canonical, profile.m_profileType, target);
+
+    // A value we cannot interpret is recorded and the profile refused, never
+    // substituted. toDouble() yields 0.0 on failure and the member default
+    // otherwise, and both are legal values here — so a substitution is
+    // undetectable downstream and pours something the file never described.
+    auto recordMalformed = [&profile](const QString& key, const QString& raw) {
+        const QString entry = key + QStringLiteral("=") + raw;
+        if (!profile.m_malformedValues.contains(entry))
+            profile.m_malformedValues << entry;
+        qWarning() << "Profile::loadFromTclString: cannot interpret" << key << "value" << raw
+                   << "in profile" << profile.m_title << "— refusing rather than substituting";
     };
+
+    auto readNum = [&](const QString& canonical, double& target) {
+        const De1AppTcl::ScalarRead r =
+            De1AppTcl::readScalar(content, canonical, profile.m_profileType, target);
+        if (r.status == De1AppTcl::ReadStatus::Malformed) {
+            recordMalformed(r.tclKey, r.raw);
+            return;   // leave the member alone; the profile is invalid anyway
+        }
+        target = r.value;
+    };
+
+    // The integer/boolean scalars need the same treatment — each one silently
+    // becomes 0 on a garbled value, and 0 means something valid for all of them
+    // (read_only 0 = editable, stepping off, no preinfuse frames).
+    auto readIntLike = [&](const QString& tclKey, auto&& apply) {
+        const QString raw = extractValue(tclKey);
+        if (raw.isEmpty()) return;
+        bool ok = false;
+        const int v = raw.toInt(&ok);
+        if (!ok) { recordMalformed(tclKey, raw); return; }
+        apply(v);
+    };
+
+    // Read-only flag (de1app: read_only 0/1/2). A garbled value would read as 0
+    // — "editable" — quietly unlocking a profile its author marked protected.
+    readIntLike(QStringLiteral("read_only"), [&](int v) { profile.m_readOnly = v; });
 
     readNum(QStringLiteral("target_weight"),                   profile.m_targetWeight);
     readNum(QStringLiteral("target_volume"),                   profile.m_targetVolume);
@@ -1262,8 +1291,8 @@ Profile Profile::loadFromTclString(const QString& content) {
     readNum(QStringLiteral("maximum_flow_range_default"),     profile.m_maximumFlowRangeDefault);
     readNum(QStringLiteral("maximum_pressure_range_default"), profile.m_maximumPressureRangeDefault);
 
-    val = extractValue(QStringLiteral("espresso_temperature_steps_enabled"));
-    if (!val.isEmpty()) profile.m_tempStepsEnabled = (val.toInt() == 1);
+    readIntLike(QStringLiteral("espresso_temperature_steps_enabled"),
+                [&](int v) { profile.m_tempStepsEnabled = (v == 1); });
 
     // de1app scalars Profile does not model, kept verbatim under de1app's own
     // spelling so a Decenza-written file still means the same thing to de1app.
@@ -1287,13 +1316,22 @@ Profile Profile::loadFromTclString(const QString& content) {
     passThrough(QStringLiteral("flow_profile_preinfusion_time"), QStringLiteral("flow_profile_preinfusion_time"));
     passThrough(QStringLiteral("flow_profile_minimum_pressure"), QStringLiteral("flow_profile_minimum_pressure"));
 
-    // Extract temperature presets
+    // Extract temperature presets.
+    //
+    // This one FABRICATES rather than falling back: an unparseable value would
+    // append a 0 °C preset into the ladder regenerateSimpleFrames() builds
+    // frames from, and because the list is then non-empty the
+    // espresso_temperature backfill below never runs to correct it.
     profile.m_temperaturePresets.clear();
     for (int i = 0; i <= 3; i++) {
-        val = extractValue(QString("espresso_temperature_%1").arg(i));
-        if (!val.isEmpty()) {
-            profile.m_temperaturePresets.append(val.toDouble());
-        }
+        const QString key = QString("espresso_temperature_%1").arg(i);
+        val = extractValue(key);
+        if (val.isEmpty())
+            continue;
+        bool ok = false;
+        const double preset = val.toDouble(&ok);
+        if (!ok) { recordMalformed(key, val); continue; }
+        profile.m_temperaturePresets.append(preset);
     }
     if (profile.m_temperaturePresets.isEmpty()) {
         // de1app's value for a profile with no espresso_temperature_0..3 is
@@ -1306,6 +1344,12 @@ Profile Profile::loadFromTclString(const QString& content) {
 
     // Extract advanced_shot steps
     // Format: advanced_shot {{step1 props} {step2 props} ...}
+    // A simple profile discards its stored advanced_shot below, so its frames
+    // decide nothing and are not inspected at all. Scanning them would refuse a
+    // profile — or log a warning about it — over an array de1app never reads.
+    const bool simpleType = profile.m_profileType == QLatin1String("settings_2a")
+                         || profile.m_profileType == QLatin1String("settings_2b");
+
     QRegularExpression shotRe("advanced_shot\\s+\\{(.*?)\\}\\s*$",
         QRegularExpression::MultilineOption | QRegularExpression::DotMatchesEverythingOption);
     QRegularExpressionMatch shotMatch = shotRe.match(content);
@@ -1329,9 +1373,20 @@ Profile Profile::loadFromTclString(const QString& content) {
                     // Same rule as the JSON path: a frame setting we do not
                     // model would be dropped here and never brewed, so refuse
                     // the profile rather than pour something else silently.
-                    for (const QString& key : ProfileFrame::unknownTclKeys(stepStr)) {
-                        if (!profile.m_unsupportedStepKeys.contains(key))
-                            profile.m_unsupportedStepKeys << key;
+                    if (!simpleType) {
+                        for (const QString& key : ProfileFrame::unknownTclKeys(stepStr)) {
+                            if (!profile.m_unsupportedStepKeys.contains(key))
+                                profile.m_unsupportedStepKeys << key;
+                        }
+                        // Same rule one level down: a known key whose VALUE we
+                        // cannot read would become 0.0, and 0 is legal for every
+                        // frame number, so the frame would run silently wrong.
+                        for (const QString& bad : ProfileFrame::malformedTclValues(stepStr)) {
+                            if (!profile.m_malformedValues.contains(bad))
+                                profile.m_malformedValues << bad;
+                            qWarning() << "Profile::loadFromTclString: cannot interpret frame value"
+                                       << bad << "in profile" << profile.m_title;
+                        }
                     }
                     ProfileFrame frame = ProfileFrame::fromTclList(stepStr);
                     if (!frame.name.isEmpty() || frame.seconds > 0) {
@@ -1358,10 +1413,6 @@ Profile Profile::loadFromTclString(const QString& content) {
     // most de1app scalars unreadable on any profile carrying a stored array.
     if (profile.m_profileType == QLatin1String("settings_2a")
         || profile.m_profileType == QLatin1String("settings_2b")) {
-        // The discarded frames' unknown keys go with them. Refusing the profile
-        // over a key in an array de1app never reads would reject a profile that
-        // brews exactly as specified.
-        profile.m_unsupportedStepKeys.clear();
         // Same generator the app runs at activation time — an imported profile
         // and a re-activated one must not produce different frames.
         profile.regenerateSimpleFrames();
@@ -1397,8 +1448,12 @@ Profile Profile::loadFromTclString(const QString& content) {
     // Advanced profiles keep the stored value: de1app does not recompute it
     // there, and D-Flow/A-Flow depend on the authored number surviving.
     if (isAdvancedProfile) {
-        val = extractValue("final_desired_shot_volume_advanced_count_start");
-        profile.m_preinfuseFrameCount = val.isEmpty() ? 0 : val.toInt();
+        // Garbled would read as 0, and 0 is a legal preinfuse count — so the
+        // DE1 would get a wrong NumberOfPreinfuseFrames in its BLE header with
+        // nothing to show for it.
+        profile.m_preinfuseFrameCount = 0;
+        readIntLike(QStringLiteral("final_desired_shot_volume_advanced_count_start"),
+                    [&](int v) { profile.m_preinfuseFrameCount = v; });
     } else {
         // Derived from the frames, whether they were generated here or read
         // from a stored advanced_shot — de1app's count always describes the
@@ -1426,7 +1481,7 @@ bool Profile::isValid() const {
     // check. We would execute such a frame without whatever the key asked for —
     // a different shot than the file describes, with nothing to show for it.
     return !m_steps.isEmpty() && m_steps.size() <= MAX_FRAMES
-           && m_unsupportedStepKeys.isEmpty();
+           && m_unsupportedStepKeys.isEmpty() && m_malformedValues.isEmpty();
 }
 
 bool Profile::functionallyEqual(const Profile& a, const Profile& b)
@@ -1592,6 +1647,15 @@ QStringList Profile::validationErrors() const {
                       "(%1). It was not imported, because ignoring them would brew "
                       "a different shot than the profile describes. Please report this.")
                       .arg(m_unsupportedStepKeys.join(QStringLiteral(", ")));
+    }
+
+    if (!m_malformedValues.isEmpty()) {
+        errors << QStringLiteral(
+                      "Profile contains values this version cannot read (%1). It was not "
+                      "imported, because guessing a number would brew a different shot "
+                      "than the profile describes. A decimal comma (\"9,5\") is the "
+                      "usual cause. Please report this.")
+                      .arg(m_malformedValues.join(QStringLiteral(", ")));
     }
 
     if (m_steps.size() > MAX_FRAMES) {

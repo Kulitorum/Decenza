@@ -280,6 +280,44 @@ const QSet<QString>& ProfileFrame::knownTclKeys() {
     return k;
 }
 
+QStringList ProfileFrame::malformedTclValues(const QString& tclList) {
+    // The value-level twin of unknownTclKeys(). That one refuses a frame whose
+    // KEY we do not understand; this refuses one whose known key carries a value
+    // we cannot interpret.
+    //
+    // Without it the strict-import story has a hole precisely where it matters:
+    // `value.toDouble()` returns 0.0 for anything unparseable, and 0 is a legal
+    // value for every one of these fields, so nothing downstream can tell the
+    // difference. `pressure ninebar` becomes a 0-bar frame and `seconds 10s`
+    // becomes a 0-second one, both silently. The likeliest real source is a
+    // locale decimal comma ("9,5") from a European-authored profile.
+    static const QSet<QString> numericKeys = {
+        QStringLiteral("temperature"),         QStringLiteral("pressure"),
+        QStringLiteral("flow"),                QStringLiteral("seconds"),
+        QStringLiteral("volume"),              QStringLiteral("weight"),
+        QStringLiteral("exit_pressure_over"),  QStringLiteral("exit_pressure_under"),
+        QStringLiteral("exit_flow_over"),      QStringLiteral("exit_flow_under"),
+        QStringLiteral("max_flow_or_pressure"),
+        QStringLiteral("max_flow_or_pressure_range"),
+    };
+
+    QStringList bad;
+    for (const auto& kv : tclKeyValues(tclList)) {
+        if (!numericKeys.contains(kv.first))
+            continue;
+        // An empty value is ABSENT, not malformed — de1app omits the axis a
+        // frame's pump does not drive, and `ifexists` yields "" for it.
+        if (kv.second.trimmed().isEmpty())
+            continue;
+        bool ok = false;
+        kv.second.toDouble(&ok);
+        if (!ok)
+            bad << kv.first + QStringLiteral("=") + kv.second;
+    }
+    bad.sort();
+    return bad;
+}
+
 QStringList ProfileFrame::unknownTclKeys(const QString& tclList) {
     QStringList unknown;
     const QSet<QString>& known = knownTclKeys();

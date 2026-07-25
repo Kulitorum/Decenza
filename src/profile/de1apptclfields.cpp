@@ -151,22 +151,36 @@ QString extractValue(const QString& content, const QString& varName)
     return match.hasMatch() ? match.captured(1) : QString();
 }
 
-double valueFor(const QString& content, const QString& canonical,
-                const QString& profileType, double fallback)
+ScalarRead readScalar(const QString& content, const QString& canonical,
+                      const QString& profileType, double fallback)
 {
     const bool advanced = isAdvancedType(profileType);
     for (const ScalarField& f : scalarFields()) {
         if (f.canonical != canonical || f.presetIndex >= 0)
             continue;
-        const QString raw = extractValue(content, advanced ? f.tclAdvanced : f.tclSimple);
-        if (!raw.isEmpty()) {
-            bool ok = false;
-            const double v = raw.toDouble(&ok);
-            if (ok) return v;
-        }
-        return f.whenAbsent.value_or(fallback);
+
+        const QString tclKey = advanced ? f.tclAdvanced : f.tclSimple;
+        const QString raw = extractValue(content, tclKey);
+        if (raw.isEmpty())
+            return {f.whenAbsent.value_or(fallback), ReadStatus::Absent, raw, tclKey};
+
+        bool ok = false;
+        const double v = raw.toDouble(&ok);
+        if (!ok)
+            return {fallback, ReadStatus::Malformed, raw, tclKey};
+        return {v, ReadStatus::Parsed, raw, tclKey};
     }
-    return fallback;
+
+    // No table entry for this canonical name. Every caller passes a string
+    // literal, so this is a typo in the reader, not bad input — and it would
+    // otherwise be a silent no-op leaving the member at its constructor
+    // default, which is the exact signature of the drift this file exists to
+    // prevent (espresso_pressure read 9.2 on 23 profiles because 9.2 is the
+    // default, not because any file said so).
+    Q_ASSERT_X(false, "De1AppTcl::readScalar", qPrintable(canonical));
+    qWarning() << "De1AppTcl::readScalar: no table entry for canonical key" << canonical
+               << "— value left at the caller's default" << fallback;
+    return {fallback, ReadStatus::Absent, QString(), QString()};
 }
 
 const QStringList& nonScalarTclKeys()

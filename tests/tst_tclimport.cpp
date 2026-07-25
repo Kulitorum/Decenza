@@ -525,6 +525,121 @@ private slots:
         QCOMPARE(p.steps().at(2).temperature, 90.0);
     }
 
+    void malformedScalarRefusesRatherThanSubstitutes_data() {
+        QTest::addColumn<QString>("line");
+        QTest::addColumn<QString>("expectedKey");
+        // Each of these silently became a number that changes the shot. The
+        // likeliest real source is a locale decimal comma from a
+        // European-authored profile.
+        QTest::newRow("maximum_pressure comma")
+            << "maximum_pressure 9,5" << "maximum_pressure";          // was 0 = limiter OFF
+        QTest::newRow("maximum_flow expr")
+            << "maximum_flow [expr {$x}]" << "maximum_flow";          // was 0 = limiter OFF
+        QTest::newRow("tank temperature comma")
+            << "tank_desired_water_temperature 88,5" << "tank_desired_water_temperature";
+        // settings_2c reads the _advanced spelling — the type rule decides which
+        // key is even consulted, so the plain one would not be read at all.
+        QTest::newRow("target weight n/a")
+            << "final_desired_shot_weight_advanced n/a" << "final_desired_shot_weight_advanced";
+        QTest::newRow("preset garbage")
+            << "espresso_temperature_1 ninetythree" << "espresso_temperature_1"; // fabricated 0 °C
+        QTest::newRow("read_only garbage")
+            << "read_only yes" << "read_only";                        // was 0 = editable
+    }
+
+    void malformedScalarRefusesRatherThanSubstitutes() {
+        QFETCH(QString, line);
+        QFETCH(QString, expectedKey);
+
+        // qWarning is the intended diagnostic here, so init()'s failOnWarning
+        // would otherwise fail the test for doing its job.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*"));
+
+        const QString tcl = QStringLiteral(
+                                "profile_title {Malformed probe}\n"
+                                "settings_profile_type settings_2c\n"
+                                "espresso_temperature 93.0\n"
+                                "advanced_shot {{exit_if 0 flow 2.0 temperature 93.0 name pour "
+                                "pressure 6.0 sensor coffee pump flow seconds 25 volume 0}}\n")
+                            + line + QLatin1Char('\n');
+
+        const Profile p = Profile::loadFromTclString(tcl);
+
+        QVERIFY2(p.malformedValues().filter(expectedKey).size() > 0,
+                 qPrintable("not recorded; malformedValues = " + p.malformedValues().join(", ")));
+        // Invalid means every existing import path refuses it, without each one
+        // needing its own check — the same contract as an unknown step key.
+        QVERIFY2(!p.isValid(), "profile with an uninterpretable value must not be valid");
+        QVERIFY2(!p.validationErrors().filter(expectedKey).isEmpty(),
+                 "the user-facing error must name the offending key");
+    }
+
+    void malformedFrameValueRefusesRatherThanSubstitutes() {
+        // The frame-level twin. `pressure ninebar` would become a 0-bar frame,
+        // and 0 bar is a legal frame, so nothing downstream could notice.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*"));
+        const Profile p = Profile::loadFromTclString(QStringLiteral(
+            "profile_title {Bad frame}\n"
+            "settings_profile_type settings_2c\n"
+            "espresso_temperature 93.0\n"
+            "advanced_shot {{exit_if 0 flow 2.0 temperature 93.0 name pour "
+            "pressure ninebar sensor coffee pump pressure seconds 25 volume 0}}\n"));
+
+        QVERIFY2(!p.malformedValues().filter("pressure").isEmpty(),
+                 qPrintable("malformedValues = " + p.malformedValues().join(", ")));
+        QVERIFY(!p.isValid());
+    }
+
+    void absentValueIsNotMalformed() {
+        // The distinction the whole change rests on: de1app omits the axis a
+        // frame's pump does not drive, and omits scalars it has no opinion on.
+        // Absent must stay ordinary, or every stock profile becomes invalid.
+        const Profile p = Profile::loadFromTclString(QStringLiteral(
+            "profile_title {Sparse but valid}\n"
+            "settings_profile_type settings_2c\n"
+            "espresso_temperature 93.0\n"
+            "advanced_shot {{exit_if 0 temperature 93.0 name pour pressure 6.0 "
+            "sensor coffee pump pressure seconds 25 volume 0}}\n"));
+
+        QVERIFY2(p.malformedValues().isEmpty(),
+                 qPrintable("absent keys flagged as malformed: " + p.malformedValues().join(", ")));
+        QVERIFY(p.isValid());
+    }
+
+    void simpleProfileIgnoresBadValuesInDiscardedFrames() {
+        // A settings_2a profile throws its stored advanced_shot away, so a bad
+        // value inside it cannot affect the shot and must not refuse the
+        // profile. The scalars, which DO decide the shot, still count.
+        const Profile p = Profile::loadFromTclString(QStringLiteral(
+            "profile_title {Simple with junk frames}\n"
+            "settings_profile_type settings_2a\n"
+            "espresso_temperature 92.0\n"
+            "preinfusion_time 10\n"
+            "espresso_hold_time 20\n"
+            "espresso_pressure 9.0\n"
+            "advanced_shot {{exit_if 0 flow 2.0 temperature 93.0 name pour "
+            "pressure ninebar sensor coffee pump pressure seconds 25 volume 0}}\n"));
+
+        QVERIFY2(p.malformedValues().isEmpty(),
+                 qPrintable("discarded frames still flagged: " + p.malformedValues().join(", ")));
+        QVERIFY(p.isValid());
+    }
+
+    void everyStockProfileParsesCleanly() {
+        // The guard on the guard: if the strictness above were wrong, the whole
+        // shipped corpus would go invalid. Data-driven rows can vanish silently;
+        // this one cannot.
+        QDir dir(DE1APP_PROFILES_DIR);
+        if (!dir.exists()) QSKIP("de1app profiles dir not found");
+        const QStringList files = dir.entryList({"*.tcl"}, QDir::Files, QDir::Name);
+        QVERIFY2(files.size() >= 80, "corpus unexpectedly small");
+        for (const QString& f : files) {
+            const Profile p = Profile::loadFromTclString(readFile(dir.absoluteFilePath(f)));
+            QVERIFY2(p.malformedValues().isEmpty(),
+                     qPrintable(f + ": " + p.malformedValues().join(", ")));
+        }
+    }
+
     void rewritingABuiltinFromItsSourceDropsNothing_data() {
         QTest::addColumn<QString>("tclPath");
         QDir dir(DE1APP_PROFILES_DIR);

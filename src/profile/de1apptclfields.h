@@ -67,15 +67,35 @@ QString tclKeyFor(const QString& canonical, const QString& profileType);
 // those are two different de1app editor settings, not aliases.
 QString extractValue(const QString& content, const QString& varName);
 
-// The value a canonical numeric field takes for this `.tcl`: the file's own if
-// it carries the authoritative spelling, else de1app's documented absent-key
-// value, else `fallback` (the caller's existing/default value).
+enum class ReadStatus {
+    Absent,     // the .tcl does not carry the key; `value` is the fallback
+    Parsed,     // the .tcl carries it and it read as a number
+    Malformed,  // the .tcl carries it and it does NOT read as a number
+};
+
+struct ScalarRead {
+    double     value = 0.0;
+    ReadStatus status = ReadStatus::Absent;
+    QString    raw;      // the .tcl text, for a diagnostic
+    QString    tclKey;   // the key actually consulted, after the type rule
+};
+
+// Read a canonical numeric field from a `.tcl`: the file's own value if it
+// carries the authoritative spelling, else de1app's documented absent-key
+// value, else `fallback`.
 //
 // Reading a scalar means resolving a key AND deciding what absence means, and
 // both answers live in the table above — so the reader gets them from here
 // rather than restating them.
-double valueFor(const QString& content, const QString& canonical,
-                const QString& profileType, double fallback);
+//
+// `status` distinguishes ABSENT from MALFORMED, and callers must act on the
+// difference. Absent is ordinary: de1app falls back and so do we. Malformed is
+// not, and collapsing the two substitutes a number that changes the shot with
+// no diagnostic — `maximum_pressure 9,5` (a locale decimal comma) would read as
+// "no pressure limit", and `final_desired_shot_weight n/a` would switch
+// stop-at-weight on at the 36 g default.
+ScalarRead readScalar(const QString& content, const QString& canonical,
+                      const QString& profileType, double fallback);
 
 // Top-level .tcl keys that are deliberately NOT part of the scalar comparison,
 // each for a stated reason (handled elsewhere, or derived). Kept explicit so an
