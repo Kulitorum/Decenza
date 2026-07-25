@@ -1235,6 +1235,13 @@ void ProfileManager::loadProfile(const QString& profileName) {
     QString path;
     bool found = false;
 
+    // Loaded into a candidate rather than straight into m_currentProfile so the
+    // profile can be REFUSED without having already replaced the active one.
+    // Assigning first and validating after would leave a profile we just decided
+    // must not brew sitting in m_currentProfile, which is the whole failure this
+    // guards against.
+    Profile candidate;
+
     // Normalize: strip .json extension if present (legacy settings entries may include it)
     QString resolvedName = profileName;
     if (resolvedName.endsWith(QLatin1String(".json"), Qt::CaseInsensitive))
@@ -1271,7 +1278,7 @@ void ProfileManager::loadProfile(const QString& profileName) {
             jsonContent = m_profileStorage->readProfile(resolvedName);
         }
         if (!jsonContent.isEmpty()) {
-            m_currentProfile = Profile::loadFromJsonString(jsonContent);
+            candidate = Profile::loadFromJsonString(jsonContent);
             found = true;
             qDebug() << "Loaded profile from ProfileStorage:" << resolvedName;
         }
@@ -1281,7 +1288,7 @@ void ProfileManager::loadProfile(const QString& profileName) {
     if (!found) {
         path = userProfilesPath() + "/" + resolvedName + ".json";
         if (QFile::exists(path)) {
-            m_currentProfile = Profile::loadFromFile(path);
+            candidate = Profile::loadFromFile(path);
             found = true;
         }
     }
@@ -1290,7 +1297,7 @@ void ProfileManager::loadProfile(const QString& profileName) {
     if (!found) {
         path = downloadedProfilesPath() + "/" + resolvedName + ".json";
         if (QFile::exists(path)) {
-            m_currentProfile = Profile::loadFromFile(path);
+            candidate = Profile::loadFromFile(path);
             found = true;
         }
     }
@@ -1299,7 +1306,7 @@ void ProfileManager::loadProfile(const QString& profileName) {
     if (!found) {
         path = ":/profiles/" + resolvedName + ".json";
         if (QFile::exists(path)) {
-            m_currentProfile = Profile::loadFromFile(path);
+            candidate = Profile::loadFromFile(path);
             found = true;
         }
     }
@@ -1313,6 +1320,28 @@ void ProfileManager::loadProfile(const QString& profileName) {
         loadDefaultProfile();
         resolvedName = QStringLiteral("default");  // Track real default, not stale name
     }
+
+    // Every path that brings a profile INTO the app already refuses an invalid
+    // one (ProfileImporter, DataMigrationClient). This is the path that loads one
+    // already on disk, and it did not check — so a profile stored before the
+    // strict-import rule shipped, or dropped into the profile folder by another
+    // app or a file sync, reached the DE1 unchecked.
+    //
+    // Refusing means keeping the CURRENTLY active profile rather than falling back
+    // to default: the user asked to switch to this one, and silently brewing a
+    // different profile is the same class of surprise as brewing the bad one. The
+    // dialog names what we could not read so it can become a bug report.
+    if (found && !candidate.isValid()) {
+        qWarning() << "ProfileManager::loadProfile: refusing" << resolvedName
+                   << "-" << candidate.validationErrors().join(QStringLiteral("; "));
+        emit profileRefusedUnreadable(resolvedName, candidate.title(),
+                                      candidate.unsupportedStepKeys(),
+                                      candidate.malformedValues());
+        return;
+    }
+
+    if (found)
+        m_currentProfile = candidate;
 
     // Backfill empty notes from built-in profile (handles imported copies from before notes were added)
     if (found && m_currentProfile.profileNotes().isEmpty()) {

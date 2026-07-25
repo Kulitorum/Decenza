@@ -1246,6 +1246,7 @@ set(QML_FILES
     qml/components/CrashReportDialog.qml
     qml/components/McpConfirmDialog.qml
     qml/components/De1CommunicationErrorDialog.qml
+    qml/components/ProfileRefusedDialog.qml
     qml/components/ColoredIcon.qml
     qml/components/CrtOverlay.qml
     qml/components/CrtShaderEffect.qml

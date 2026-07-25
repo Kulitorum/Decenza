@@ -16,6 +16,30 @@
 #import <Foundation/Foundation.h>
 #endif
 
+namespace {
+
+// Why a profile was refused, for the status line the user actually reads.
+//
+// Profile::validationErrors() already names the offending step key or unreadable
+// value and is phrased for pasting into a bug report. The previous
+// "Failed to load profile" told the user nothing they could report and gave them
+// no reason to believe the refusal was earned rather than a Decenza bug.
+//
+// Untranslated, like every other message on this path. Worth knowing: the key
+// names inside it are de1app/JSON identifiers and stay English regardless, so a
+// translated wrapper would still hand over an English key — which is the part
+// that matters for the report.
+QString refusalMessage(const Profile& profile, const QString& sourcePath)
+{
+    const QString name = QFileInfo(sourcePath).fileName();
+    const QStringList reasons = profile.validationErrors();
+    if (reasons.isEmpty())
+        return QStringLiteral("Failed to load profile from %1").arg(name);
+    return QStringLiteral("%1: %2").arg(name, reasons.join(QStringLiteral(" ")));
+}
+
+}  // namespace
+
 ProfileImporter::ProfileImporter(MainController* controller, Settings* settings, QObject* parent)
     : QObject(parent)
     , m_controller(controller)
@@ -237,7 +261,11 @@ void ProfileImporter::onProcessNextScan()
         }
 
         if (!profile.isValid() || profile.title().isEmpty()) {
-            qWarning() << "ProfileImporter: Skipping invalid profile" << filename;
+            // Log the reason, not just the verdict. A field AI reading this log is
+            // often the only thing that will connect "my profile vanished from the
+            // import list" to the one key we could not parse.
+            qWarning() << "ProfileImporter: Skipping invalid profile" << filename
+                       << "-" << profile.validationErrors().join(QStringLiteral("; "));
             m_processedProfiles++;
             continue;
         }
@@ -301,10 +329,11 @@ void ProfileImporter::importProfile(const QString& sourcePath)
     }
 
     if (!profile.isValid() || profile.title().isEmpty()) {
-        setStatus("Failed to load profile");
+        const QString message = refusalMessage(profile, sourcePath);
+        setStatus(message);
         m_importing = false;
         emit isImportingChanged();
-        emit importFailed("Failed to load profile from " + QFileInfo(sourcePath).fileName());
+        emit importFailed(message);
         return;
     }
 
@@ -388,10 +417,11 @@ void ProfileImporter::forceImportProfile(const QString& sourcePath)
     }
 
     if (!profile.isValid() || profile.title().isEmpty()) {
-        setStatus("Failed to load profile");
+        const QString message = refusalMessage(profile, sourcePath);
+        setStatus(message);
         m_importing = false;
         emit isImportingChanged();
-        emit importFailed("Failed to load profile from " + QFileInfo(sourcePath).fileName());
+        emit importFailed(message);
         return;
     }
 
@@ -434,10 +464,11 @@ void ProfileImporter::importProfileWithName(const QString& sourcePath, const QSt
     }
 
     if (!profile.isValid()) {
-        setStatus("Failed to load profile");
+        const QString message = refusalMessage(profile, sourcePath);
+        setStatus(message);
         m_importing = false;
         emit isImportingChanged();
-        emit importFailed("Failed to load profile from " + QFileInfo(sourcePath).fileName());
+        emit importFailed(message);
         return;
     }
 
