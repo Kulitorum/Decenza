@@ -148,10 +148,10 @@
     "target_weight": "0.0",
     "temp_steps_enabled": false,
     "temperature_presets": [
-        "88.00",
-        "90.00",
-        "93.00",
-        "96.00"
+        "99.00",
+        "99.00",
+        "99.00",
+        "99.00"
     ],
     "title": "Pour over basket/Decent pour over",
     "type": "advanced",

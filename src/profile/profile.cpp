@@ -104,77 +104,66 @@ static QVector<ProfileFrame> generatePressureProfileFrames(
 {
     QVector<ProfileFrame> frames;
 
-    // Use same temperature for all frames if stepping not enabled
-    if (!tempStepsEnabled) {
-        temp1 = temp0;
-        temp2 = temp0;
-        temp3 = temp0;
+    // Caller supplies the four temperatures already resolved — including
+    // de1app's rule that temp stepping OFF means all four equal
+    // espresso_temperature. See regenerateSimpleFrames(), which is the one place
+    // that rule lives.
+
+    // Preinfusion frame(s) (flow pump, exit on pressure_over).
+    //
+    // de1app computes both frame lengths BEFORE testing anything, and emits each
+    // frame on its own `> 0` check (profile.tcl:19-56). With temp stepping on it
+    // sets first_frame_len to temp_bump_time_seconds UNCONDITIONALLY, so a
+    // profile with preinfusion_time 0 still gets a 2-second boost frame.
+    //
+    // Gating the whole block on `preinfusionTime > 0` therefore dropped that
+    // frame: Steam_only and "e61 classic at 9 bar" both carry preinfusion_time 0
+    // with stepping on, and de1app brews 3 frames there where we brewed 2 —
+    // skipping a 2-second flow phase entirely.
+    double firstFrameLen = 0.0;
+    double secondFrameLen = preinfusionTime;
+    if (tempStepsEnabled) {
+        firstFrameLen = 2.0;  // de1app: temp_bump_time_seconds
+        secondFrameLen = preinfusionTime - firstFrameLen;
+        if (secondFrameLen < 0) secondFrameLen = 0;
     }
 
-    // Preinfusion frame(s) (flow pump, exit on pressure_over)
-    // When temp stepping is enabled, split into a 2-second temp boost at temp0
-    // followed by remaining time at temp1 (matches de1app's temp_bump_time_seconds)
-    if (preinfusionTime > 0) {
-        double tempBoostDuration = 2.0;  // de1app: temp_bump_time_seconds
+    // Temp boost frame at temp0 (no flow exit)
+    if (firstFrameLen > 0) {
+        ProfileFrame boost;
+        boost.name = "preinfusion temp boost";
+        boost.temperature = temp0;
+        boost.sensor = "coffee";
+        boost.pump = "flow";
+        boost.transition = "fast";
+        boost.pressure = 1.0;
+        boost.flow = preinfusionFlowRate;
+        boost.seconds = firstFrameLen;
+        boost.volume = 0;
+        boost.exitIf = true;
+        boost.exitType = "pressure_over";
+        boost.exitPressureOver = preinfusionStopPressure;
+        // exitFlowOver = 0 (default) - no flow exit during temp boost
+        frames.append(boost);
+    }
 
-        if (tempStepsEnabled) {
-            double boostLen = qMin(tempBoostDuration, preinfusionTime);
-            double remainLen = preinfusionTime - tempBoostDuration;
-            if (remainLen < 0) remainLen = 0;
-
-            // Temp boost frame at temp0 (no flow exit)
-            ProfileFrame boost;
-            boost.name = "preinfusion temp boost";
-            boost.temperature = temp0;
-            boost.sensor = "coffee";
-            boost.pump = "flow";
-            boost.transition = "fast";
-            boost.pressure = 1.0;
-            boost.flow = preinfusionFlowRate;
-            boost.seconds = boostLen;
-            boost.volume = 0;
-            boost.exitIf = true;
-            boost.exitType = "pressure_over";
-            boost.exitPressureOver = preinfusionStopPressure;
-            // exitFlowOver = 0 (default) - no flow exit during temp boost
-            frames.append(boost);
-
-            // Preinfusion frame at temp1 (with flow exit)
-            if (remainLen > 0) {
-                ProfileFrame preinfusion;
-                preinfusion.name = "preinfusion";
-                preinfusion.temperature = temp1;
-                preinfusion.sensor = "coffee";
-                preinfusion.pump = "flow";
-                preinfusion.transition = "fast";
-                preinfusion.pressure = 1.0;
-                preinfusion.flow = preinfusionFlowRate;
-                preinfusion.seconds = remainLen;
-                preinfusion.volume = 0;
-                preinfusion.exitIf = true;
-                preinfusion.exitType = "pressure_over";
-                preinfusion.exitPressureOver = preinfusionStopPressure;
-                preinfusion.exitFlowOver = 6.0;
-                frames.append(preinfusion);
-            }
-        } else {
-            // Single preinfusion frame (no temp stepping)
-            ProfileFrame preinfusion;
-            preinfusion.name = "preinfusion";
-            preinfusion.temperature = temp1;
-            preinfusion.sensor = "coffee";
-            preinfusion.pump = "flow";
-            preinfusion.transition = "fast";
-            preinfusion.pressure = 1.0;
-            preinfusion.flow = preinfusionFlowRate;
-            preinfusion.seconds = preinfusionTime;
-            preinfusion.volume = 0;
-            preinfusion.exitIf = true;
-            preinfusion.exitType = "pressure_over";
-            preinfusion.exitPressureOver = preinfusionStopPressure;
-            preinfusion.exitFlowOver = 6.0;
-            frames.append(preinfusion);
-        }
+    // Preinfusion frame at temp1 (with flow exit)
+    if (secondFrameLen > 0) {
+        ProfileFrame preinfusion;
+        preinfusion.name = "preinfusion";
+        preinfusion.temperature = temp1;
+        preinfusion.sensor = "coffee";
+        preinfusion.pump = "flow";
+        preinfusion.transition = "fast";
+        preinfusion.pressure = 1.0;
+        preinfusion.flow = preinfusionFlowRate;
+        preinfusion.seconds = secondFrameLen;
+        preinfusion.volume = 0;
+        preinfusion.exitIf = true;
+        preinfusion.exitType = "pressure_over";
+        preinfusion.exitPressureOver = preinfusionStopPressure;
+        preinfusion.exitFlowOver = 6.0;
+        frames.append(preinfusion);
     }
 
     // Rise and hold frame (pressure pump)
@@ -186,6 +175,7 @@ static QVector<ProfileFrame> generatePressureProfileFrames(
             riseNoLimit.temperature = temp2;
             riseNoLimit.sensor = "coffee";
             riseNoLimit.pump = "pressure";
+            riseNoLimit.flow = 0.0;  // de1app writes no flow on a pressure frame
             riseNoLimit.transition = "fast";
             riseNoLimit.pressure = espressoPressure;
             riseNoLimit.seconds = 3.0;
@@ -200,6 +190,7 @@ static QVector<ProfileFrame> generatePressureProfileFrames(
         hold.temperature = temp2;
         hold.sensor = "coffee";
         hold.pump = "pressure";
+        hold.flow = 0.0;  // de1app writes no flow on a pressure frame
         hold.transition = "fast";
         hold.pressure = espressoPressure;
         hold.seconds = holdTime;
@@ -222,6 +213,7 @@ static QVector<ProfileFrame> generatePressureProfileFrames(
             riseNoLimit.temperature = temp3;
             riseNoLimit.sensor = "coffee";
             riseNoLimit.pump = "pressure";
+            riseNoLimit.flow = 0.0;  // de1app writes no flow on a pressure frame
             riseNoLimit.transition = "fast";
             riseNoLimit.pressure = espressoPressure;
             riseNoLimit.seconds = 3.0;
@@ -236,6 +228,7 @@ static QVector<ProfileFrame> generatePressureProfileFrames(
         decline.temperature = temp3;
         decline.sensor = "coffee";
         decline.pump = "pressure";
+        decline.flow = 0.0;  // de1app writes no flow on a pressure frame
         decline.transition = "smooth";
         decline.pressure = pressureEnd;
         decline.seconds = declineTime;
@@ -280,76 +273,58 @@ static QVector<ProfileFrame> generateFlowProfileFrames(
 {
     QVector<ProfileFrame> frames;
 
-    // Use same temperature for all frames if stepping not enabled
-    if (!tempStepsEnabled) {
-        temp1 = temp0;
-        temp2 = temp0;
-        temp3 = temp0;
+    // Temperatures arrive already resolved — see the note in
+    // generatePressureProfileFrames() and regenerateSimpleFrames().
+
+    // Preinfusion frame(s). Identical structure to the pressure builder, and
+    // identical de1app source (flow_to_advanced_list, profile.tcl:212-275):
+    // both lengths are computed before any test, and each frame has its own
+    // `> 0` check, so temp stepping produces a boost frame even at
+    // preinfusion_time 0.
+    double firstFrameLen = 0.0;
+    double secondFrameLen = preinfusionTime;
+    if (tempStepsEnabled) {
+        firstFrameLen = 2.0;  // de1app: temp_bump_time_seconds
+        secondFrameLen = preinfusionTime - firstFrameLen;
+        if (secondFrameLen < 0) secondFrameLen = 0;
     }
 
-    // Preinfusion frame(s) (flow pump, exit on pressure_over)
-    // When temp stepping is enabled, split into a 2-second temp boost at temp0
-    // followed by remaining time at temp1 (matches de1app's temp_bump_time_seconds)
-    if (preinfusionTime > 0) {
-        double tempBoostDuration = 2.0;  // de1app: temp_bump_time_seconds
+    // Temp boost frame at temp0 (no flow exit)
+    if (firstFrameLen > 0) {
+        ProfileFrame boost;
+        boost.name = "preinfusion temp boost";
+        boost.temperature = temp0;
+        boost.sensor = "coffee";
+        boost.pump = "flow";
+        boost.transition = "fast";
+        boost.pressure = 1.0;
+        boost.flow = preinfusionFlowRate;
+        boost.seconds = firstFrameLen;
+        boost.volume = 0;
+        boost.exitIf = true;
+        boost.exitType = "pressure_over";
+        boost.exitPressureOver = preinfusionStopPressure;
+        // exitFlowOver = 0 (default) - no flow exit during temp boost
+        frames.append(boost);
+    }
 
-        if (tempStepsEnabled) {
-            double boostLen = qMin(tempBoostDuration, preinfusionTime);
-            double remainLen = preinfusionTime - tempBoostDuration;
-            if (remainLen < 0) remainLen = 0;
-
-            // Temp boost frame at temp0 (no flow exit)
-            ProfileFrame boost;
-            boost.name = "preinfusion boost";
-            boost.temperature = temp0;
-            boost.sensor = "coffee";
-            boost.pump = "flow";
-            boost.transition = "fast";
-            boost.pressure = 1.0;
-            boost.flow = preinfusionFlowRate;
-            boost.seconds = boostLen;
-            boost.volume = 0;
-            boost.exitIf = true;
-            boost.exitType = "pressure_over";
-            boost.exitPressureOver = preinfusionStopPressure;
-            // exitFlowOver = 0 (default) - no flow exit during temp boost
-            frames.append(boost);
-
-            // Preinfusion frame at temp1 (no flow exit for flow profiles)
-            if (remainLen > 0) {
-                ProfileFrame preinfusion;
-                preinfusion.name = "preinfusion";
-                preinfusion.temperature = temp1;
-                preinfusion.sensor = "coffee";
-                preinfusion.pump = "flow";
-                preinfusion.transition = "fast";
-                preinfusion.pressure = 1.0;
-                preinfusion.flow = preinfusionFlowRate;
-                preinfusion.seconds = remainLen;
-                preinfusion.volume = 0;
-                preinfusion.exitIf = true;
-                preinfusion.exitType = "pressure_over";
-                preinfusion.exitPressureOver = preinfusionStopPressure;
-                // exitFlowOver = 0 (default) - flow profiles don't use flow exit
-                frames.append(preinfusion);
-            }
-        } else {
-            // Single preinfusion frame (no temp stepping)
-            ProfileFrame preinfusion;
-            preinfusion.name = "preinfusion";
-            preinfusion.temperature = temp1;
-            preinfusion.sensor = "coffee";
-            preinfusion.pump = "flow";
-            preinfusion.transition = "fast";
-            preinfusion.pressure = 1.0;
-            preinfusion.flow = preinfusionFlowRate;
-            preinfusion.seconds = preinfusionTime;
-            preinfusion.volume = 0;
-            preinfusion.exitIf = true;
-            preinfusion.exitType = "pressure_over";
-            preinfusion.exitPressureOver = preinfusionStopPressure;
-            frames.append(preinfusion);
-        }
+    // Preinfusion frame at temp1 (no flow exit for flow profiles)
+    if (secondFrameLen > 0) {
+        ProfileFrame preinfusion;
+        preinfusion.name = "preinfusion";
+        preinfusion.temperature = temp1;
+        preinfusion.sensor = "coffee";
+        preinfusion.pump = "flow";
+        preinfusion.transition = "fast";
+        preinfusion.pressure = 1.0;
+        preinfusion.flow = preinfusionFlowRate;
+        preinfusion.seconds = secondFrameLen;
+        preinfusion.volume = 0;
+        preinfusion.exitIf = true;
+        preinfusion.exitType = "pressure_over";
+        preinfusion.exitPressureOver = preinfusionStopPressure;
+        // exitFlowOver = 0 (default) - flow profiles don't use flow exit
+        frames.append(preinfusion);
     }
 
     // Hold frame (flow pump)
@@ -359,6 +334,7 @@ static QVector<ProfileFrame> generateFlowProfileFrames(
         hold.temperature = temp2;
         hold.sensor = "coffee";
         hold.pump = "flow";
+        hold.pressure = 0.0;  // de1app writes no pressure on a flow frame
         hold.transition = "fast";
         hold.flow = flowHold;
         hold.seconds = holdTime;
@@ -380,6 +356,7 @@ static QVector<ProfileFrame> generateFlowProfileFrames(
         decline.temperature = temp3;
         decline.sensor = "coffee";
         decline.pump = "flow";
+        decline.pressure = 0.0;  // de1app writes no pressure on a flow frame
         decline.transition = "smooth";
         decline.flow = flowDecline;
         decline.seconds = declineTime;
@@ -978,7 +955,12 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
         profile.m_temperaturePresets.append(jsonToDouble(temp));
     }
     if (profile.m_temperaturePresets.isEmpty()) {
-        profile.m_temperaturePresets = {88.0, 90.0, 93.0, 96.0};
+        // Same rule as the Tcl path: absent presets mean espresso_temperature,
+        // not a house ladder. A foreign DE1 profile carries no
+        // temperature_presets at all (it is a Decenza extension), so inventing
+        // one here would change what a simple profile regenerates to.
+        profile.m_temperaturePresets = {profile.m_espressoTemperature, profile.m_espressoTemperature,
+                                        profile.m_espressoTemperature, profile.m_espressoTemperature};
     }
 
     QJsonArray stepsArray = obj["steps"].toArray();
@@ -1316,7 +1298,12 @@ Profile Profile::loadFromTclString(const QString& content) {
         }
     }
     if (profile.m_temperaturePresets.isEmpty()) {
-        profile.m_temperaturePresets = {88.0, 90.0, 93.0, 96.0};
+        // de1app's value for a profile with no espresso_temperature_0..3 is
+        // espresso_temperature, in all four slots — NOT a house preset ladder.
+        // 29 stock profiles omit these keys, and a hardcoded {88, 90, 93, 96}
+        // brewed two of them 4-6 °C off de1app.
+        profile.m_temperaturePresets = {profile.m_espressoTemperature, profile.m_espressoTemperature,
+                                        profile.m_espressoTemperature, profile.m_espressoTemperature};
     }
 
     // Extract advanced_shot steps
@@ -1819,6 +1806,18 @@ void Profile::regenerateSimpleFrames() {
     double temp1 = m_temperaturePresets.value(1, m_espressoTemperature);
     double temp2 = m_temperaturePresets.value(2, m_espressoTemperature);
     double temp3 = m_temperaturePresets.value(3, m_espressoTemperature);
+
+    // Temp stepping off means EVERY frame runs at espresso_temperature — de1app
+    // overwrites all four presets with it before building
+    // (profile.tcl:28-33, the `else` arm of the stepping test). This is the one
+    // place that rule lives; the generators take the four temperatures as given.
+    //
+    // Collapsing onto temp0 instead is not the same thing, and it is what made
+    // "Hybrid pour over espresso" and "Low pressure lever machine at 6 bar" brew
+    // at 88 °C: neither .tcl carries espresso_temperature_0..3, so temp0 came
+    // from a hardcoded preset list while de1app used their 92 °C and 94 °C.
+    if (!m_tempStepsEnabled)
+        temp0 = temp1 = temp2 = temp3 = m_espressoTemperature;
 
     if (m_profileType == QLatin1String("settings_2a")) {
         m_steps = generatePressureProfileFrames(

@@ -56,7 +56,7 @@
             "volume": "100.0"
         },
         {
-            "flow": "2.00",
+            "flow": "0.00",
             "limiter": {
                 "range": "0.60",
                 "value": "0.00"
@@ -76,7 +76,7 @@
                 "type": "pressure",
                 "value": "10.00"
             },
-            "flow": "2.00",
+            "flow": "0.00",
             "limiter": {
                 "range": "0.60",
                 "value": "0.00"
@@ -91,7 +91,7 @@
             "volume": "100.0"
         },
         {
-            "flow": "2.00",
+            "flow": "0.00",
             "limiter": {
                 "range": "0.60",
                 "value": "0.00"
@@ -128,9 +128,9 @@
     "target_weight": "42.0",
     "temp_steps_enabled": false,
     "temperature_presets": [
-        "88.00",
-        "90.00",
-        "93.00",
+        "96.00",
+        "96.00",
+        "96.00",
         "96.00"
     ],
     "title": "Espresso Forge Light",

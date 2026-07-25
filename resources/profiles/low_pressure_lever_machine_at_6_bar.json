@@ -51,12 +51,12 @@
             "pump": "flow",
             "seconds": "20.00",
             "sensor": "coffee",
-            "temperature": "88.00",
+            "temperature": "94.00",
             "transition": "fast",
             "volume": "0.0"
         },
         {
-            "flow": "2.00",
+            "flow": "0.00",
             "limiter": {
                 "range": "0.60",
                 "value": "0.00"
@@ -66,12 +66,12 @@
             "pump": "pressure",
             "seconds": "3.00",
             "sensor": "coffee",
-            "temperature": "88.00",
+            "temperature": "94.00",
             "transition": "fast",
             "volume": "0.0"
         },
         {
-            "flow": "2.00",
+            "flow": "0.00",
             "limiter": {
                 "range": "0.60",
                 "value": "0.00"
@@ -81,12 +81,12 @@
             "pump": "pressure",
             "seconds": "5.00",
             "sensor": "coffee",
-            "temperature": "88.00",
+            "temperature": "94.00",
             "transition": "fast",
             "volume": "0.0"
         },
         {
-            "flow": "2.00",
+            "flow": "0.00",
             "limiter": {
                 "range": "0.60",
                 "value": "0.00"
@@ -96,7 +96,7 @@
             "pump": "pressure",
             "seconds": "27.00",
             "sensor": "coffee",
-            "temperature": "88.00",
+            "temperature": "94.00",
             "transition": "smooth",
             "volume": "0.0"
         }
@@ -108,10 +108,10 @@
     "target_weight": "36.0",
     "temp_steps_enabled": false,
     "temperature_presets": [
-        "88.00",
-        "90.00",
-        "93.00",
-        "96.00"
+        "94.00",
+        "94.00",
+        "94.00",
+        "94.00"
     ],
     "title": "Low pressure lever machine at 6 bar",
     "type": "pressure",

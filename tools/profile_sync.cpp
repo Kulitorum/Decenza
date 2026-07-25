@@ -131,6 +131,10 @@ int main(int argc, char* argv[])
                             << "\n"
                             << "  Without --sync: report differences only (compare mode)\n"
                             << "  With    --sync: also overwrite stale JSONs and create missing ones\n"
+                            << "  --force:        with --sync, rewrite EVERY profile, including ones\n"
+                            << "                  that read as in-sync (the frame comparison ignores\n"
+                            << "                  the axis a frame's pump does not drive, so a stale\n"
+                            << "                  value can hide there)\n"
                             << "  --rewrite-format: format-only pass — re-save the built-in JSONs through\n"
                             << "                    the canonical serializer, leaving content untouched\n"
                             << "                    (de1app dir is ignored; content sync is a separate task)\n"
@@ -145,6 +149,13 @@ int main(int argc, char* argv[])
     const QString builtinDir = args[2];
     const bool    doSync     = args.contains(QLatin1String("--sync"));
     const bool    doRewrite  = args.contains(QLatin1String("--rewrite-format"));
+    // --force: rewrite every profile from its .tcl, not only those the
+    // comparison flags. Needed because the frame comparison deliberately
+    // ignores the axis a frame's pump does not drive (the DE1 ignores it too),
+    // so a built-in can hold a stale value there and still read as "in sync".
+    // That is exactly how 38 built-ins kept a flow of 2.00 on pressure frames
+    // that de1app never wrote. Use after changing what the writer emits.
+    const bool    doForce    = args.contains(QLatin1String("--force"));
 
     // --rewrite-format: FORMAT-ONLY pass over the built-in JSONs. Loads each file
     // and re-saves it through the canonical serializer (Profile::toJsonObject), so
@@ -335,6 +346,13 @@ int main(int argc, char* argv[])
 
             if (frameDiff.isEmpty() && scalarDiff.isEmpty()) {
                 ++inSync;
+                if (!(doSync && doForce))
+                    continue;
+                cout << "FORCE: " << tcl.title() << " (" << outName << ")\n";
+                if (syncOverBuiltin(tcl, outPath, cout))
+                    cout << "  → rewritten\n";
+                else
+                    cout << "  → ERROR: failed to write\n";
                 continue;
             }
 

@@ -5,7 +5,7 @@
     "espresso_decline_time": "25.00",
     "espresso_hold_time": "10.00",
     "espresso_pressure": "9.20",
-    "espresso_temperature": "84.00",
+    "espresso_temperature": "93.00",
     "flow_profile_decline": "1.20",
     "flow_profile_decline_time": "17.00",
     "flow_profile_hold": "2.00",
@@ -87,13 +87,13 @@
     "tank_temperature": "0.0",
     "target_volume": "0.0",
     "target_volume_count_start": "0",
-    "target_weight": "0.0",
+    "target_weight": "36.0",
     "temp_steps_enabled": false,
     "temperature_presets": [
-        "88.00",
-        "90.00",
         "93.00",
-        "96.00"
+        "93.00",
+        "93.00",
+        "93.00"
     ],
     "title": "Test/profile_editor_demo",
     "type": "advanced",

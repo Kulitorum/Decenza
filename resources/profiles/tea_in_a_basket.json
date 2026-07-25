@@ -57,7 +57,7 @@
                 "value": "0.00"
             },
             "name": "flow",
-            "pressure": "9.00",
+            "pressure": "0.00",
             "pump": "flow",
             "seconds": "5.00",
             "sensor": "water",
@@ -72,7 +72,7 @@
                 "value": "0.00"
             },
             "name": "hold",
-            "pressure": "9.00",
+            "pressure": "0.00",
             "pump": "flow",
             "seconds": "10.00",
             "sensor": "water",
@@ -87,7 +87,7 @@
                 "value": "0.00"
             },
             "name": "flow",
-            "pressure": "9.00",
+            "pressure": "0.00",
             "pump": "flow",
             "seconds": "12.00",
             "sensor": "water",
@@ -102,7 +102,7 @@
                 "value": "0.00"
             },
             "name": "hold",
-            "pressure": "9.00",
+            "pressure": "0.00",
             "pump": "flow",
             "seconds": "12.00",
             "sensor": "water",
@@ -117,7 +117,7 @@
                 "value": "0.00"
             },
             "name": "flow",
-            "pressure": "9.00",
+            "pressure": "0.00",
             "pump": "flow",
             "seconds": "12.00",
             "sensor": "water",
@@ -132,7 +132,7 @@
                 "value": "0.00"
             },
             "name": "hold",
-            "pressure": "9.00",
+            "pressure": "0.00",
             "pump": "flow",
             "seconds": "12.00",
             "sensor": "water",
@@ -147,7 +147,7 @@
                 "value": "0.00"
             },
             "name": "flow",
-            "pressure": "9.00",
+            "pressure": "0.00",
             "pump": "flow",
             "seconds": "12.00",
             "sensor": "water",
@@ -162,7 +162,7 @@
                 "value": "0.00"
             },
             "name": "hold",
-            "pressure": "9.00",
+            "pressure": "0.00",
             "pump": "flow",
             "seconds": "12.00",
             "sensor": "water",
@@ -177,7 +177,7 @@
                 "value": "0.00"
             },
             "name": "flow",
-            "pressure": "9.00",
+            "pressure": "0.00",
             "pump": "flow",
             "seconds": "12.00",
             "sensor": "water",
@@ -192,7 +192,7 @@
                 "value": "0.00"
             },
             "name": "hold",
-            "pressure": "9.00",
+            "pressure": "0.00",
             "pump": "flow",
             "seconds": "12.00",
             "sensor": "water",
@@ -207,7 +207,7 @@
                 "value": "0.00"
             },
             "name": "flow",
-            "pressure": "9.00",
+            "pressure": "0.00",
             "pump": "flow",
             "seconds": "12.00",
             "sensor": "water",
@@ -222,7 +222,7 @@
                 "value": "0.00"
             },
             "name": "hold",
-            "pressure": "9.00",
+            "pressure": "0.00",
             "pump": "flow",
             "seconds": "10.00",
             "sensor": "water",
@@ -237,7 +237,7 @@
                 "value": "0.00"
             },
             "name": "flow",
-            "pressure": "9.00",
+            "pressure": "0.00",
             "pump": "flow",
             "seconds": "10.00",
             "sensor": "water",
@@ -252,7 +252,7 @@
                 "value": "0.00"
             },
             "name": "flow",
-            "pressure": "9.00",
+            "pressure": "0.00",
             "pump": "flow",
             "seconds": "10.00",
             "sensor": "water",
@@ -267,7 +267,7 @@
                 "value": "0.00"
             },
             "name": "flow",
-            "pressure": "9.00",
+            "pressure": "0.00",
             "pump": "flow",
             "seconds": "10.00",
             "sensor": "water",

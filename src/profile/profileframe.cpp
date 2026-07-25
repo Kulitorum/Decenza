@@ -296,6 +296,15 @@ ProfileFrame ProfileFrame::fromTclList(const QString& tclList) {
 
     ProfileFrame frame;
 
+    // A de1app frame omits the axis its pump does not drive — a pressure frame
+    // carries no `flow` key at all. ProfileFrame's member defaults exist for the
+    // EDITOR (a new frame starts at 9 bar / 2 mL/s), and letting them stand in
+    // for an absent key writes a value de1app never had into the profile. The
+    // DE1 ignores the inactive axis so no shot changed, but every byte-level
+    // reader of our JSON saw an invented number, on 38 of 89 stock profiles.
+    frame.pressure = 0.0;
+    frame.flow = 0.0;
+
     for (const auto& kv : tclKeyValues(tclList)) {
         const QString& key = kv.first;
         const QString& value = kv.second;

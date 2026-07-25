@@ -76,7 +76,7 @@
             "volume": "0.0"
         },
         {
-            "flow": "2.00",
+            "flow": "0.00",
             "limiter": {
                 "range": "0.60",
                 "value": "0.00"
@@ -91,7 +91,7 @@
             "volume": "0.0"
         },
         {
-            "flow": "2.00",
+            "flow": "0.00",
             "limiter": {
                 "range": "1.00",
                 "value": "6.00"
@@ -106,7 +106,7 @@
             "volume": "0.0"
         },
         {
-            "flow": "2.00",
+            "flow": "0.00",
             "limiter": {
                 "range": "1.00",
                 "value": "6.00"

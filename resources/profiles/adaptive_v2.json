@@ -111,7 +111,7 @@
                 "type": "pressure",
                 "value": "8.80"
             },
-            "flow": "2.00",
+            "flow": "0.00",
             "limiter": {
                 "range": "0.60",
                 "value": "3.50"

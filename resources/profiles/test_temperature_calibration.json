@@ -42,7 +42,7 @@
                 "value": "0.00"
             },
             "name": "hold",
-            "pressure": "9.00",
+            "pressure": "0.00",
             "pump": "flow",
             "seconds": "60.00",
             "sensor": "coffee",
@@ -57,7 +57,7 @@
                 "value": "0.00"
             },
             "name": "decline",
-            "pressure": "9.00",
+            "pressure": "0.00",
             "pump": "flow",
             "seconds": "0.00",
             "sensor": "coffee",

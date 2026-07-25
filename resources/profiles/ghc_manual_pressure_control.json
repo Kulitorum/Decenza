@@ -36,7 +36,7 @@
     "reference_file": "GHC/manual pressure control",
     "steps": [
         {
-            "flow": "2.00",
+            "flow": "0.00",
             "limiter": {
                 "range": "0.60",
                 "value": "0.00"
@@ -51,7 +51,7 @@
             "volume": "0.0"
         },
         {
-            "flow": "2.00",
+            "flow": "0.00",
             "limiter": {
                 "range": "0.60",
                 "value": "0.00"
@@ -66,7 +66,7 @@
             "volume": "0.0"
         },
         {
-            "flow": "2.00",
+            "flow": "0.00",
             "limiter": {
                 "range": "0.60",
                 "value": "0.00"
@@ -89,9 +89,9 @@
     "temp_steps_enabled": false,
     "temperature_presets": [
         "88.00",
-        "90.00",
-        "93.00",
-        "96.00"
+        "88.00",
+        "88.00",
+        "88.00"
     ],
     "title": "GHC/manual pressure control",
     "type": "pressure",

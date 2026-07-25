@@ -26,7 +26,7 @@
     "minimum_pressure": "6.00",
     "mode": "frame_based",
     "notes": "The E61 machine was invented by Faema in 1961 and is still the most classic and most copied espresso machine design.  It is likely what most people mean when they say Professional Italian Espresso Machine",
-    "number_of_preinfuse_frames": "0",
+    "number_of_preinfuse_frames": "1",
     "preinfusion_flow_rate": "4.00",
     "preinfusion_stop_pressure": "4.00",
     "preinfusion_time": "0.00",
@@ -36,7 +36,27 @@
     "reference_file": "E61 espresso machine",
     "steps": [
         {
-            "flow": "2.00",
+            "exit": {
+                "condition": "over",
+                "type": "pressure",
+                "value": "4.00"
+            },
+            "flow": "4.00",
+            "limiter": {
+                "range": "0.60",
+                "value": "0.00"
+            },
+            "name": "preinfusion temp boost",
+            "pressure": "1.00",
+            "pump": "flow",
+            "seconds": "2.00",
+            "sensor": "coffee",
+            "temperature": "92.00",
+            "transition": "fast",
+            "volume": "0.0"
+        },
+        {
+            "flow": "0.00",
             "limiter": {
                 "range": "0.60",
                 "value": "0.00"
@@ -51,7 +71,7 @@
             "volume": "0.0"
         },
         {
-            "flow": "2.00",
+            "flow": "0.00",
             "limiter": {
                 "range": "0.60",
                 "value": "0.00"
@@ -69,7 +89,7 @@
     "tank_desired_water_temperature": "0.0",
     "tank_temperature": "0.0",
     "target_volume": "0.0",
-    "target_volume_count_start": "0",
+    "target_volume_count_start": "1",
     "target_weight": "36.0",
     "temp_steps_enabled": true,
     "temperature_presets": [

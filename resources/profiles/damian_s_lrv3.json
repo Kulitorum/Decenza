@@ -86,7 +86,7 @@
             "volume": "100.0"
         },
         {
-            "flow": "2.00",
+            "flow": "0.00",
             "limiter": {
                 "range": "0.60",
                 "value": "0.00"
@@ -106,7 +106,7 @@
                 "type": "flow",
                 "value": "1.90"
             },
-            "flow": "2.00",
+            "flow": "0.00",
             "limiter": {
                 "range": "0.60",
                 "value": "0.00"
@@ -126,7 +126,7 @@
                 "type": "flow",
                 "value": "2.80"
             },
-            "flow": "2.00",
+            "flow": "0.00",
             "limiter": {
                 "range": "0.60",
                 "value": "0.00"
@@ -146,7 +146,7 @@
                 "type": "flow",
                 "value": "2.80"
             },
-            "flow": "2.00",
+            "flow": "0.00",
             "limiter": {
                 "range": "0.60",
                 "value": "0.00"

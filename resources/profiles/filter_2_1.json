@@ -42,7 +42,7 @@
                 "value": "0.00"
             },
             "name": "preinfusion",
-            "pressure": "9.00",
+            "pressure": "0.00",
             "pump": "flow",
             "seconds": "4.00",
             "sensor": "coffee",
@@ -57,7 +57,7 @@
                 "value": "0.00"
             },
             "name": "preinfusion",
-            "pressure": "9.00",
+            "pressure": "0.00",
             "pump": "flow",
             "seconds": "8.00",
             "sensor": "coffee",
@@ -77,7 +77,7 @@
                 "value": "0.00"
             },
             "name": "preinfusion",
-            "pressure": "9.00",
+            "pressure": "0.00",
             "pump": "flow",
             "seconds": "10.00",
             "sensor": "coffee",
@@ -92,7 +92,7 @@
                 "value": "0.00"
             },
             "name": "0.1 mL/s bloom",
-            "pressure": "9.00",
+            "pressure": "0.00",
             "pump": "flow",
             "seconds": "90.00",
             "sensor": "coffee",
