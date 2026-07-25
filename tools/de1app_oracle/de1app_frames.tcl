@@ -67,10 +67,20 @@ eval $profile_vars_src
 
 source [file join $de1app de1plus profile.tcl]
 
-# convert_all_legacy_to_v2 (profile.tcl, "Disable limits by default") presets
-# these BEFORE overlaying the profile file, so a profile that omits them
-# converts with its limits OFF. Without this de1app's own builder aborts on its
-# own shipped profiles, which is how we learned the presets are load-bearing.
+# Presets that must be in place BEFORE the profile file is overlaid, so a
+# profile omitting them converts the way de1app converts it.
+#
+# The first five are convert_all_legacy_to_v2's own ("Disable limits by
+# default", profile.tcl:513-519). The two *_range_default values are NOT from
+# there — they are de1app's global settings defaults (machine.tcl:481,483),
+# which convert_all_legacy_to_v2 relies on already being set. They are equally
+# load-bearing: profile.tcl writes them into max_flow_or_pressure_range on every
+# generated hold/decline frame, so a wrong value here silently changes what this
+# tool reports de1app builds.
+#
+# Without the block de1app's own builder aborts on de1app's own shipped
+# profiles, which is how we learned it is load-bearing — and that failure is
+# loud (tclsh exits non-zero and compare_builtins counts it), not silent.
 set ::settings(preinfusion_flow_rate) 4
 set ::settings(maximum_flow) 0
 set ::settings(maximum_pressure) 0

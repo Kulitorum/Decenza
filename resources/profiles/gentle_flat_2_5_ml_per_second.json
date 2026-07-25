@@ -46,7 +46,7 @@
                 "range": "0.60",
                 "value": "0.00"
             },
-            "name": "preinfusion temp boost",
+            "name": "preinfusion boost",
             "pressure": "1.00",
             "pump": "flow",
             "seconds": "2.00",

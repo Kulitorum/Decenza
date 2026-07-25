@@ -1123,6 +1123,118 @@ private slots:
         QCOMPARE(p.steps()[2].maxFlowOrPressure, 9.0);  // Pressure limiter
     }
 
+    // Builds the minimum simple-profile JSON these de1app-parity tests need.
+    static QJsonObject simpleProfileJson(const QString& type, bool tempSteps,
+                                         double preinfusionTime, double espressoTemperature) {
+        QJsonObject obj;
+        obj["title"] = "de1app parity";
+        obj["legacy_profile_type"] = type;
+        obj["temp_steps_enabled"] = tempSteps;
+        obj["preinfusion_time"] = preinfusionTime;
+        obj["preinfusion_flow_rate"] = 7.5;
+        obj["preinfusion_stop_pressure"] = 3.8;
+        obj["espresso_hold_time"] = 12.0;
+        obj["espresso_pressure"] = 7.8;
+        obj["espresso_decline_time"] = 0.0;
+        obj["pressure_end"] = 5.0;
+        obj["flow_profile_hold"] = 2.2;
+        obj["flow_profile_decline"] = 1.4;
+        obj["espresso_temperature"] = espressoTemperature;
+        return obj;
+    }
+
+    void tempSteppingEmitsBoostFrameEvenAtZeroPreinfusion_data() {
+        QTest::addColumn<QString>("type");
+        QTest::addColumn<QString>("boostName");
+        // de1app names this frame DIFFERENTLY in its two builders.
+        QTest::newRow("settings_2a") << "settings_2a" << "preinfusion temp boost";
+        QTest::newRow("settings_2b") << "settings_2b" << "preinfusion boost";
+    }
+
+    void tempSteppingEmitsBoostFrameEvenAtZeroPreinfusion() {
+        // de1app sets first_frame_len to temp_bump_time_seconds UNCONDITIONALLY
+        // when stepping is on, and emits each preinfusion frame on its own `> 0`
+        // test (profile.tcl:19-56 and :212-275). So preinfusion_time 0 still
+        // yields a 2-second boost frame and no second preinfusion frame.
+        //
+        // Gating the block on `preinfusionTime > 0` dropped it: de1app brews 3
+        // frames for Steam_only and "e61 classic at 9 bar", we brewed 2.
+        QFETCH(QString, type);
+        QFETCH(QString, boostName);
+
+        const Profile p = Profile::fromJson(QJsonDocument(
+            simpleProfileJson(type, /*tempSteps=*/true, /*preinfusionTime=*/0.0, 91.0)));
+
+        QVERIFY(!p.steps().isEmpty());
+        QCOMPARE(p.steps().first().name, boostName);
+        QCOMPARE(p.steps().first().seconds, 2.0);
+        QCOMPARE(p.steps().first().pump, QStringLiteral("flow"));
+        QCOMPARE(p.steps().first().flow, 7.5);
+        QVERIFY(p.steps().first().exitIf);
+        // preinfusion_time 0 means second_frame_len is 0, so there is no
+        // follow-on "preinfusion" frame — only the boost.
+        for (qsizetype i = 1; i < p.steps().size(); ++i)
+            QVERIFY2(p.steps().at(i).name != QStringLiteral("preinfusion"),
+                     "a second preinfusion frame was emitted at preinfusion_time 0");
+        QCOMPARE(p.preinfuseFrameCount(), 1);
+    }
+
+    void tempSteppingOffRunsEveryFrameAtEspressoTemperature() {
+        // de1app overwrites all four presets with espresso_temperature when
+        // stepping is off (profile.tcl:28-33). Collapsing onto preset[0] instead
+        // is what made two built-ins brew at 88 °C where de1app brews 92/94.
+        QJsonObject obj = simpleProfileJson("settings_2a", /*tempSteps=*/false, 10.0, 94.0);
+        QJsonArray temps;                     // deliberately non-uniform AND wrong
+        temps.append(85.0); temps.append(88.0); temps.append(93.0); temps.append(90.0);
+        obj["temperature_presets"] = temps;
+
+        const Profile p = Profile::fromJson(QJsonDocument(obj));
+        QVERIFY(!p.steps().isEmpty());
+        for (const ProfileFrame& f : p.steps())
+            QVERIFY2(qFuzzyCompare(f.temperature, 94.0),
+                     qPrintable(QString("frame '%1' at %2 °C, expected espresso_temperature 94")
+                                    .arg(f.name).arg(f.temperature)));
+    }
+
+    void loadAndReactivateProduceTheSameFrames() {
+        // fromJson() and regenerateSimpleFrames() must agree: the first builds
+        // the frames a profile loads with, the second the ones it re-activates
+        // with, and a difference between them is a difference in what the DE1 is
+        // handed for the same profile. They were separate copies of the
+        // generator dispatch, and when de1app's stepping-off rule moved out of
+        // the generators only one copy got it.
+        QJsonObject obj = simpleProfileJson("settings_2a", /*tempSteps=*/false, 10.0, 94.0);
+        QJsonArray temps;
+        temps.append(85.0); temps.append(88.0); temps.append(93.0); temps.append(90.0);
+        obj["temperature_presets"] = temps;
+
+        Profile loaded = Profile::fromJson(QJsonDocument(obj));
+        const QVector<ProfileFrame> onLoad = loaded.steps();
+        QVERIFY(!onLoad.isEmpty());
+
+        loaded.regenerateSimpleFrames();
+        QCOMPARE(loaded.steps().size(), onLoad.size());
+        for (qsizetype i = 0; i < onLoad.size(); ++i) {
+            QCOMPARE(loaded.steps().at(i).name, onLoad.at(i).name);
+            QCOMPARE(loaded.steps().at(i).temperature, onLoad.at(i).temperature);
+            QCOMPARE(loaded.steps().at(i).seconds, onLoad.at(i).seconds);
+        }
+    }
+
+    void absentTemperaturePresetsMeanEspressoTemperature() {
+        // 7 of the 89 stock .tcl files carry no espresso_temperature_0..3.
+        // de1app's value there is espresso_temperature in all four slots, not a
+        // house ladder. Covers the JSON fallback, which no shipped or legacy
+        // file exercises (they all carry the array).
+        QJsonObject obj = simpleProfileJson("settings_2a", /*tempSteps=*/true, 10.0, 92.0);
+        obj.remove("temperature_presets");
+
+        const Profile p = Profile::fromJson(QJsonDocument(obj));
+        QCOMPARE(p.temperaturePresets(), QVector<double>({92.0, 92.0, 92.0, 92.0}));
+        for (const ProfileFrame& f : p.steps())
+            QCOMPARE(f.temperature, 92.0);
+    }
+
     void tempSteppingPressure() {
         // Temp stepping: preinfusion splits into boost(2s,temp0) + main(remaining,temp1)
         // de1app: espresso_temperature_steps_list / temp_bump_time_seconds=2

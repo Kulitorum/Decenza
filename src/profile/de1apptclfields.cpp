@@ -281,15 +281,24 @@ QVector<ScalarDiff> compareScalars(const QString& tclContent, const QJsonObject&
         }
 
         if (f.kind == Kind::Boolean) {
-            const bool tclOn = raw.trimmed() != QLatin1String("0")
-                               && !raw.trimmed().isEmpty()
-                               && raw.trimmed().compare(QLatin1String("false"), Qt::CaseInsensitive) != 0;
-            const bool jsonOn = profileJsonToBool(jv);
-            if (tclOn != jsonOn) {
-                diffs.append({f.canonical, tclKey,
-                              tclOn ? QStringLiteral("true") : QStringLiteral("false"),
-                              jsonOn ? QStringLiteral("true") : QStringLiteral("false")});
-            }
+            // Both sides go through profileJsonToBool, and both check `ok`.
+            // Its own contract (profile.h) says a caller COMPARING two values
+            // must check it — "letting an uninterpretable value fall back to a
+            // default is precisely how the parity audit compared "1" against
+            // false and certified them equal". This function IS the parity
+            // audit, and it previously ignored `ok` on the JSON side and used a
+            // second, string-based truthiness rule on the Tcl side. Those two
+            // rules disagreed on real values: "0.0" is true to one, false to
+            // the other.
+            bool tclOk = false, jsonOk = false;
+            const bool tclOn  = profileJsonToBool(QJsonValue(raw.trimmed()), false, &tclOk);
+            const bool jsonOn = profileJsonToBool(jv, false, &jsonOk);
+            auto render = [](bool ok, bool on) {
+                return ok ? (on ? QStringLiteral("true") : QStringLiteral("false"))
+                          : QStringLiteral("<uninterpretable>");
+            };
+            if (!tclOk || !jsonOk || tclOn != jsonOn)
+                diffs.append({f.canonical, tclKey, render(tclOk, tclOn), render(jsonOk, jsonOn)});
             continue;
         }
 

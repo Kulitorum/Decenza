@@ -95,21 +95,43 @@ def compare(theirs, ours, src):
         pump = a.get("pump", "")
         if pump != b.get("pump"):
             shot.append("f%d pump: de1app=%s ours=%s" % (i, pump, b.get("pump")))
-        for f in ("sensor", "transition"):
+        # `name` is not sent over BLE, so it cannot change the shot — but it is
+        # user-visible in shot history and in exported/Visualizer JSON, and this
+        # comparison exists to prove byte-identical output, not merely
+        # equivalent brewing. Omitting it hid a real regression: de1app's two
+        # builders use DIFFERENT names for the boost frame ("preinfusion temp
+        # boost" in pressure_to_advanced_list, "preinfusion boost" in
+        # flow_to_advanced_list), and unifying them slipped past this gate.
+        for f in ("name", "sensor", "transition"):
             if a.get(f, "") != b.get(f, ""):
                 shot.append("f%d %s: de1app=%s ours=%s" % (i, f, a.get(f), b.get(f)))
+        # One-sided presence is a REAL difference, not agreement. Requiring both
+        # sides to parse before comparing is how 210 weight comparisons silently
+        # never ran: our writer omits `weight` when it is zero while de1app's
+        # builder always emits the key, so a dropped weight exit — the exact bug
+        # ProfileFrame::knownTclKeys() exists to prevent — would read as
+        # identical. An absent value is treated as 0.0, which is what both
+        # formats mean by it; anything else present on one side only is drift.
+        def cmp_num(raw_a, raw_b, label, bucket):
+            x, y = num(raw_a), num(raw_b)
+            if x is None and y is None:
+                return
+            if x is None or y is None:
+                # Absent means zero in both formats; a non-zero value opposite
+                # an absent one is a genuine difference.
+                present = y if x is None else x
+                if abs(present) > EPS:
+                    bucket.append("f%d %s: de1app=%r ours=%r (one side absent)"
+                                  % (i, label, raw_a, raw_b))
+                return
+            if abs(x - y) > EPS:
+                bucket.append("f%d %s: de1app=%s ours=%s" % (i, label, x, y))
+
         for f in ("temperature", "seconds", "volume", "weight"):
-            x, y = num(a.get(f)), num(b.get(f))
-            if x is not None and y is not None and abs(x - y) > EPS:
-                shot.append("f%d %s: de1app=%s ours=%s" % (i, f, x, y))
+            cmp_num(a.get(f), b.get(f), f, shot)
 
         for axis in ("pressure", "flow"):
-            x, y = num(a.get(axis)), num(b.get(axis))
-            bucket = shot if pump == axis else inactive
-            if x is None and y is not None and abs(y) > EPS:
-                bucket.append("f%d %s: de1app unset, ours=%s" % (i, axis, y))
-            elif x is not None and y is not None and abs(x - y) > EPS:
-                bucket.append("f%d %s: de1app=%s ours=%s" % (i, axis, x, y))
+            cmp_num(a.get(axis), b.get(axis), axis, shot if pump == axis else inactive)
 
         ex = b.get("exit") or {}
         if a.get("exit_if") == "1":
@@ -125,10 +147,19 @@ def compare(theirs, ours, src):
         elif ex:
             shot.append("f%d exit: de1app has none, ours=%s" % (i, ex))
 
+        # Same one-sided rule for the limiter value: de1app setting a limiter we
+        # drop entirely (no `limiter` object at all) is a shot difference.
         lim = b.get("limiter") or {}
-        x = num(a.get("max_flow_or_pressure"))
-        if x is not None and lim and abs(x - (num(lim.get("value")) or 0)) > EPS:
-            shot.append("f%d limiter: de1app=%s ours=%s" % (i, x, lim.get("value")))
+        cmp_num(a.get("max_flow_or_pressure"), lim.get("value"), "limiter value", shot)
+        # The RANGE only means anything while the limiter is on. de1app emits no
+        # limiter object at all unless the frame carries both keys, whereas we
+        # always emit one — reaprime's parser wants it, and a `value: 0` limiter
+        # is how this format spells "off". Comparing the range of an off limiter
+        # would report drift on nearly every profile that has no limits at all.
+        limiter_on = max(abs(num(a.get("max_flow_or_pressure")) or 0.0),
+                         abs(num(lim.get("value")) or 0.0)) > EPS
+        if limiter_on:
+            cmp_num(a.get("max_flow_or_pressure_range"), lim.get("range"), "limiter range", shot)
 
     return shot, inactive
 

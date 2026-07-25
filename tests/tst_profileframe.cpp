@@ -250,6 +250,34 @@ private slots:
         QCOMPARE(pf.maxFlowOrPressureRange, 0.6);
     }
 
+    void tclOmittedAxisIsZeroNotTheEditorDefault() {
+        // de1app writes no `flow` on a pressure frame and no `pressure` on a
+        // flow frame. ProfileFrame's 9 bar / 2 mL/s member defaults are for the
+        // EDITOR; letting them stand in for an absent key writes a value de1app
+        // never had (19 of 93 built-ins shipped one).
+        //
+        // This needs its own test because the frame comparison cannot catch it:
+        // Profile::frameDiffReport() deliberately skips the inactive axis unless
+        // BOTH sides are non-zero, so it is structurally blind here.
+        const ProfileFrame pressureFrame = ProfileFrame::fromTclList(
+            "{name hold temperature 93.0 pump pressure pressure 9.0 seconds 10 "
+            "transition fast sensor coffee exit_if 0}");
+        QCOMPARE(pressureFrame.pressure, 9.0);
+        QCOMPARE(pressureFrame.flow, 0.0);
+
+        const ProfileFrame flowFrame = ProfileFrame::fromTclList(
+            "{name pour temperature 93.0 pump flow flow 2.2 seconds 30 "
+            "transition fast sensor coffee exit_if 0}");
+        QCOMPARE(flowFrame.flow, 2.2);
+        QCOMPARE(flowFrame.pressure, 0.0);
+
+        // An axis the source DOES specify still survives, including a zero.
+        const ProfileFrame explicitBoth = ProfileFrame::fromTclList(
+            "{name x temperature 93.0 pump flow flow 4.0 pressure 1.0 seconds 5 "
+            "transition fast sensor coffee exit_if 0}");
+        QCOMPARE(explicitBoth.pressure, 1.0);
+    }
+
     void tclTransitionSlowMapsToSmooth() {
         // de1app uses "slow", Decenza normalizes to "smooth"
         QString tcl = "{name decline temperature 93.0 pump pressure "

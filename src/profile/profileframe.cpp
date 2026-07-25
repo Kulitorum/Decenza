@@ -15,8 +15,11 @@ QJsonObject ProfileFrame::toJson() const {
     // Canonical DE1 v2 serialization: numeric fields are string-encoded, matching
     // de1app / the tablet / Visualizer / reaprime. Decenza's own import stays
     // dual-tolerant via jsonToDouble(), so string output round-trips losslessly.
-    // Precisions match the historical Visualizer upload builder so the unified
-    // serializer produces byte-identical step objects.
+    // Precisions come from profilejson.h, and two of them deliberately DIFFER
+    // from the historical Visualizer upload builder this replaced: `volume`
+    // widened 0→1 dp so it agrees with toTclList(), and the limiter 1→2 dp to
+    // match the editor's 0.01 step. So the step objects are equivalent, not
+    // byte-identical — the earlier wording here claimed the latter.
     QJsonObject obj;
     obj["name"] = name;
     obj["temperature"] = ProfileJson::enc(temperature, ProfileJson::Temperature);
@@ -299,9 +302,13 @@ ProfileFrame ProfileFrame::fromTclList(const QString& tclList) {
     // A de1app frame omits the axis its pump does not drive — a pressure frame
     // carries no `flow` key at all. ProfileFrame's member defaults exist for the
     // EDITOR (a new frame starts at 9 bar / 2 mL/s), and letting them stand in
-    // for an absent key writes a value de1app never had into the profile. The
-    // DE1 ignores the inactive axis so no shot changed, but every byte-level
-    // reader of our JSON saw an invented number, on 38 of 89 stock profiles.
+    // for an absent key writes a value de1app never had into the profile.
+    //
+    // Measured on the corpus: 23 of the 89 stock .tcl files have at least one
+    // frame that omits its inactive axis, and 19 of the 93 built-ins shipped
+    // the exact member default there as a result. The DE1 ignores the inactive
+    // axis so no shot changed, but every byte-level reader of our JSON saw an
+    // invented number.
     frame.pressure = 0.0;
     frame.flow = 0.0;
 

@@ -20,13 +20,19 @@ this profile make the same coffee in both apps?*
 
 `de1app_frames.tcl` answers it by `source`ing de1app's real `profile.tcl` and
 calling `pressure_to_advanced_list` / `flow_to_advanced_list` /
-`settings_to_advanced_list` through de1app's own `sync_from_legacy` dispatch.
-Nothing is reimplemented. A reimplementation would just be one more thing that
-can drift from de1app, which is the bug class this is here to catch.
+`settings_to_advanced_list` on it.
 
-It earned its place immediately: on first run it found three divergences the
-entire C++ suite had missed, including two profiles Decenza brewed at 88 °C that
-de1app brews at 92 °C and 94 °C.
+**The builders are de1app's own; the three-way dispatch is mirrored.** The script
+does not call `::profile::sync_from_legacy`, because that also runs the huddle/
+JSON converter this tool has no use for — so the `switch` at the bottom of
+`de1app_frames.tcl` is a copy of `profile.tcl:465-472` and can drift from it.
+That is the one piece to re-check when de1app changes. Everything that computes
+a frame is theirs.
+
+It earned its place immediately: on first run it found three classes of
+divergence the entire C++ suite had missed, across four profiles — two Decenza
+brewed at 88 °C that de1app brews at 92 °C and 94 °C, and two where we omitted a
+whole preinfusion frame — plus an inactive-axis value we invented on 19 built-ins.
 
 ## When to run it
 

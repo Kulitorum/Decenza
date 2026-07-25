@@ -385,14 +385,20 @@ private:
     double m_preinfusionTime = 5.0;
     double m_preinfusionFlowRate = 4.0;
     double m_preinfusionStopPressure = 4.0;
-    double m_espressoPressure = 9.2;        // settings_2a only
+    // "used BY the settings_2a editor" — NOT "only present on settings_2a
+    // profiles". de1app writes this whole block on every profile of every type,
+    // and reading it only on the matching type is what lost the flow-editor
+    // values on 2a/2c profiles and the pressure-editor ones on 2b. The
+    // annotations below used to read "settings_2a only", which is how that
+    // mistake reads as correct.
+    double m_espressoPressure = 9.2;        // settings_2a editor
     double m_espressoHoldTime = 10.0;
     double m_espressoDeclineTime = 25.0;
-    double m_pressureEnd = 4.0;             // settings_2a only
-    double m_flowProfileHold = 2.0;         // settings_2b only
-    double m_flowProfileHoldTime = 8.0;     // settings_2b only
-    double m_flowProfileDecline = 1.2;      // settings_2b only
-    double m_flowProfileDeclineTime = 17.0; // settings_2b only
+    double m_pressureEnd = 4.0;             // settings_2a editor
+    double m_flowProfileHold = 2.0;         // settings_2b editor
+    double m_flowProfileHoldTime = 8.0;     // settings_2b editor
+    double m_flowProfileDecline = 1.2;      // settings_2b editor
+    double m_flowProfileDeclineTime = 17.0; // settings_2b editor
     double m_maximumFlowRangeDefault = 1.0; // settings_2a limiter range
     double m_maximumPressureRangeDefault = 0.9; // settings_2b limiter range
     bool m_tempStepsEnabled = false;

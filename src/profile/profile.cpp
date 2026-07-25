@@ -292,7 +292,11 @@ static QVector<ProfileFrame> generateFlowProfileFrames(
     // Temp boost frame at temp0 (no flow exit)
     if (firstFrameLen > 0) {
         ProfileFrame boost;
-        boost.name = "preinfusion temp boost";
+        // "preinfusion boost", NOT the pressure builder's "preinfusion temp
+        // boost" — de1app really does name this frame differently in its two
+        // builders (profile.tcl:38 vs :233). Unifying them looks like tidying
+        // and silently renamed the frame on 5 shipped flow built-ins.
+        boost.name = "preinfusion boost";
         boost.temperature = temp0;
         boost.sensor = "coffee";
         boost.pump = "flow";
@@ -438,24 +442,26 @@ QJsonObject Profile::toJsonObject() const {
     obj["maximum_pressure"] = num(m_maximumPressure, ProfileJson::Pressure);
     obj["maximum_flow"] = num(m_maximumFlow, ProfileJson::Flow);
     obj["minimum_pressure"] = num(m_minimumPressure, ProfileJson::Pressure);
-    // de1app's spelling of the SAME field — our Tcl loader assigns it straight to
-    // m_minimumPressure. It is not in kKnownProfileKeys, so the m_unknownKeys
-    // passthrough would echo the value the file arrived with while the canonical
-    // key above carries the user's edit. de1app reads the alias, so it would show
-    // the old pressure forever. Re-derive it, but only when the source actually
-    // had it — writing it unconditionally would invent a de1app field on profiles
-    // that never carried one.
+    // flow_profile_minimum_pressure is de1app's spelling of the SAME field, and
+    // it is NOT re-derived from m_minimumPressure here. Writing the canonical
+    // value over the alias destroyed de1app's real setting in 3 shipped
+    // built-ins (6 bar overwritten with 0), because in those the ALIAS is the
+    // populated side. It rides through as a passthrough key instead.
     //
-    // Deliberately NOT done for flow_profile_preinfusion / _preinfusion_time.
-    // Those LOOK like aliases of preinfusion_flow_rate / preinfusion_time and are
-    // not: they are de1app's flow-editor (settings_2b) values versus the
-    // pressure-editor (settings_2a) ones, which is why the Tcl reader's regex
-    // carries an explicit \b guard to stop one matching the other. They disagree
-    // in 61 of 62 shipped built-ins, correctly. Re-deriving them would overwrite
-    // the flow editor's settings with the pressure editor's across the corpus.
-    // NOT re-derived — see the load-side note. Writing the canonical value over
-    // the alias destroyed de1app's real setting in 3 shipped built-ins (6 bar
-    // overwritten with 0), because there the ALIAS is the populated one. Left as
+    // (An earlier revision of this comment also described re-deriving it "only
+    // when the source actually had it". No code ever did that, and the sentence
+    // read as a prescription to restore — hence this note.)
+    //
+    // flow_profile_preinfusion / _preinfusion_time get the same treatment for a
+    // different reason. They LOOK like aliases of preinfusion_flow_rate /
+    // preinfusion_time and are not: they are de1app's flow-editor (settings_2b)
+    // values versus the pressure-editor (settings_2a) ones, which is why the Tcl
+    // reader's regex carries an explicit \b guard to stop one matching the
+    // other. Of the 62 built-ins carrying both pairs, flow_profile_preinfusion_time
+    // differs from preinfusion_time in 61 and flow_profile_preinfusion differs
+    // from preinfusion_flow_rate in 19 — so at least one of the pair differs
+    // almost everywhere, correctly. Re-deriving them would overwrite the flow
+    // editor's settings with the pressure editor's across the corpus. Left as
     // passthrough until the direction is settled.
     obj["tank_desired_water_temperature"] = num(m_tankDesiredWaterTemperature, ProfileJson::TankTemp);
     // tank_temperature: ecosystem-standard alias required by reaprime.
@@ -597,10 +603,22 @@ QVector<ProfileFrame> Profile::materializedSteps() const {
     if (m_profileType != "settings_2a" && m_profileType != "settings_2b")
         return m_steps;
 
-    const double temp0 = m_temperaturePresets.value(0, m_espressoTemperature);
-    const double temp1 = m_temperaturePresets.value(1, m_espressoTemperature);
-    const double temp2 = m_temperaturePresets.value(2, m_espressoTemperature);
-    const double temp3 = m_temperaturePresets.value(3, m_espressoTemperature);
+    double temp0 = m_temperaturePresets.value(0, m_espressoTemperature);
+    double temp1 = m_temperaturePresets.value(1, m_espressoTemperature);
+    double temp2 = m_temperaturePresets.value(2, m_espressoTemperature);
+    double temp3 = m_temperaturePresets.value(3, m_espressoTemperature);
+
+    // Temp stepping off means EVERY frame runs at espresso_temperature — de1app
+    // overwrites all four presets with it before building (profile.tcl:28-33).
+    //
+    // This function is THE simple-profile generator: regenerateSimpleFrames()
+    // and fromJson() both route through it. They used to carry their own copies
+    // of this dispatch, and when the rule moved out of the generators only one
+    // copy got it — so the same profile produced stepped frames on load and
+    // flat frames on re-activation, which is a difference in what the DE1 is
+    // handed. One implementation is the fix; adding the rule three times is not.
+    if (!m_tempStepsEnabled)
+        temp0 = temp1 = temp2 = temp3 = m_espressoTemperature;
 
     if (m_profileType == "settings_2a") {
         return generatePressureProfileFrames(
@@ -975,38 +993,18 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
         profile.m_steps.append(ProfileFrame::fromJson(stepObj));
     }
 
-    // Generate frames for simple profiles when steps are empty
-    // This handles built-in profiles that store scalar parameters instead of pre-generated frames
+    // Generate frames for simple profiles when steps are empty — built-in and
+    // legacy profiles store scalar parameters instead of pre-generated frames.
+    //
+    // Goes through regenerateSimpleFrames() so this path cannot drift from the
+    // one the app runs at activation. It used to be a third copy of the
+    // generator dispatch, and a rule added to only one copy meant the same
+    // profile loaded with different frames than it re-activated with.
     if (profile.m_steps.isEmpty() &&
         (profile.m_profileType == "settings_2a" || profile.m_profileType == "settings_2b")) {
-
-        double temp0 = profile.m_temperaturePresets.value(0, profile.m_espressoTemperature);
-        double temp1 = profile.m_temperaturePresets.value(1, profile.m_espressoTemperature);
-        double temp2 = profile.m_temperaturePresets.value(2, profile.m_espressoTemperature);
-        double temp3 = profile.m_temperaturePresets.value(3, profile.m_espressoTemperature);
-
-        if (profile.m_profileType == "settings_2a") {
-            profile.m_steps = generatePressureProfileFrames(
-                profile.m_preinfusionTime, profile.m_preinfusionFlowRate, profile.m_preinfusionStopPressure,
-                profile.m_espressoHoldTime, profile.m_espressoPressure,
-                profile.m_espressoDeclineTime, profile.m_pressureEnd,
-                profile.m_maximumFlow, profile.m_maximumFlowRangeDefault,
-                temp0, temp1, temp2, temp3,
-                profile.m_tempStepsEnabled);
-            qDebug() << "Generated" << profile.m_steps.size() << "frames from simple pressure profile (JSON)";
-        } else {
-            profile.m_steps = generateFlowProfileFrames(
-                profile.m_preinfusionTime, profile.m_preinfusionFlowRate, profile.m_preinfusionStopPressure,
-                profile.m_espressoHoldTime, profile.m_flowProfileHold,
-                profile.m_espressoDeclineTime, profile.m_flowProfileDecline,
-                profile.m_maximumPressure, profile.m_maximumPressureRangeDefault,
-                temp0, temp1, temp2, temp3,
-                profile.m_tempStepsEnabled);
-            qDebug() << "Generated" << profile.m_steps.size() << "frames from simple flow profile (JSON)";
-        }
-
-        // Set preinfuse frame count based on generated preinfusion frames
-        profile.m_preinfuseFrameCount = countPreinfuseFrames(profile.m_steps);
+        profile.regenerateSimpleFrames();
+        qDebug() << "Generated" << profile.m_steps.size() << "frames from simple"
+                 << profile.m_profileType << "profile (JSON)";
     }
 
     // Read-only flag (de1app compatibility: integer 0/1/2)
@@ -1300,8 +1298,8 @@ Profile Profile::loadFromTclString(const QString& content) {
     if (profile.m_temperaturePresets.isEmpty()) {
         // de1app's value for a profile with no espresso_temperature_0..3 is
         // espresso_temperature, in all four slots — NOT a house preset ladder.
-        // 29 stock profiles omit these keys, and a hardcoded {88, 90, 93, 96}
-        // brewed two of them 4-6 °C off de1app.
+        // 7 of the 89 stock .tcl files omit these keys, and a hardcoded
+        // {88, 90, 93, 96} brewed two of them 4-6 °C off de1app.
         profile.m_temperaturePresets = {profile.m_espressoTemperature, profile.m_espressoTemperature,
                                         profile.m_espressoTemperature, profile.m_espressoTemperature};
     }
@@ -1802,43 +1800,17 @@ QList<QByteArray> Profile::toFrameBytes() const {
 }
 
 void Profile::regenerateSimpleFrames() {
-    double temp0 = m_temperaturePresets.value(0, m_espressoTemperature);
-    double temp1 = m_temperaturePresets.value(1, m_espressoTemperature);
-    double temp2 = m_temperaturePresets.value(2, m_espressoTemperature);
-    double temp3 = m_temperaturePresets.value(3, m_espressoTemperature);
-
-    // Temp stepping off means EVERY frame runs at espresso_temperature — de1app
-    // overwrites all four presets with it before building
-    // (profile.tcl:28-33, the `else` arm of the stepping test). This is the one
-    // place that rule lives; the generators take the four temperatures as given.
-    //
-    // Collapsing onto temp0 instead is not the same thing, and it is what made
-    // "Hybrid pour over espresso" and "Low pressure lever machine at 6 bar" brew
-    // at 88 °C: neither .tcl carries espresso_temperature_0..3, so temp0 came
-    // from a hardcoded preset list while de1app used their 92 °C and 94 °C.
-    if (!m_tempStepsEnabled)
-        temp0 = temp1 = temp2 = temp3 = m_espressoTemperature;
-
-    if (m_profileType == QLatin1String("settings_2a")) {
-        m_steps = generatePressureProfileFrames(
-            m_preinfusionTime, m_preinfusionFlowRate, m_preinfusionStopPressure,
-            m_espressoHoldTime, m_espressoPressure,
-            m_espressoDeclineTime, m_pressureEnd,
-            m_maximumFlow, m_maximumFlowRangeDefault,
-            temp0, temp1, temp2, temp3,
-            m_tempStepsEnabled);
-    } else if (m_profileType == QLatin1String("settings_2b")) {
-        m_steps = generateFlowProfileFrames(
-            m_preinfusionTime, m_preinfusionFlowRate, m_preinfusionStopPressure,
-            m_espressoHoldTime, m_flowProfileHold,
-            m_espressoDeclineTime, m_flowProfileDecline,
-            m_maximumPressure, m_maximumPressureRangeDefault,
-            temp0, temp1, temp2, temp3,
-            m_tempStepsEnabled);
-    } else {
+    if (m_profileType != QLatin1String("settings_2a")
+        && m_profileType != QLatin1String("settings_2b")) {
         qWarning() << "regenerateSimpleFrames called on non-simple profile type:" << m_profileType;
         return;
     }
+
+    // Delegate to materializedSteps(), which owns the generation — including
+    // de1app's temp-stepping rule. Clearing first is what makes it regenerate
+    // rather than hand back what is already there.
+    m_steps.clear();
+    m_steps = materializedSteps();
 
     m_preinfuseFrameCount = countPreinfuseFrames(m_steps);
 

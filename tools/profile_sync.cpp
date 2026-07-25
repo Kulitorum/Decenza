@@ -153,8 +153,9 @@ int main(int argc, char* argv[])
     // comparison flags. Needed because the frame comparison deliberately
     // ignores the axis a frame's pump does not drive (the DE1 ignores it too),
     // so a built-in can hold a stale value there and still read as "in sync".
-    // That is exactly how 38 built-ins kept a flow of 2.00 on pressure frames
-    // that de1app never wrote. Use after changing what the writer emits.
+    // That is exactly how built-ins kept an inactive-axis value de1app never
+    // wrote (19 of 93 carried the bare member default). Use after changing what
+    // the writer emits, not only when the comparison reports drift.
     const bool    doForce    = args.contains(QLatin1String("--force"));
 
     // --rewrite-format: FORMAT-ONLY pass over the built-in JSONs. Loads each file

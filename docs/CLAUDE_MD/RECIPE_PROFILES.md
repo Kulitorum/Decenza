@@ -644,17 +644,18 @@ de1app does when the key is missing before assuming `Profile`'s constructor defa
 **Corollary: for `settings_2a`/`2b`, the `advanced_shot` stored in the `.tcl` is dead data —
 and Decenza now discards it too.**
 
-Not "possibly stale" — provably another profile's data. de1app's legacy save writes a fixed
-key list out of the **global** `::settings` array (`vars.tcl:3305`), and `advanced_shot` is on
-that list, so a simple profile saved after an advanced one was loaded is written carrying the
-advanced profile's frames. **10 of the 12 stock simple profiles that ship an `advanced_shot`
-hold frames that contradict their own `espresso_temperature`**, and five of them —
-`Traditional lever machine`, `Trendy 6 bar low pressure shot`, `Two spring lever machine to
-9 bar`, `Preinfuse then 45ml of water`, `Test/temperature calibration` — carry byte-identical
-frames belonging to `Pour over.tcl`, a `settings_2c` profile. Every one is `read_only 1`, so
-no user edit is involved; this is authoring-time global-state bleed in de1app itself. Before
-this was fixed, Decenza brewed those frames: two unrelated lever profiles poured the same
-curve, and neither matched its own settings. `loadFromTclString()` regenerates the frames from the
+Not "possibly stale" — provably not the profile's own data. de1app's legacy save writes a
+fixed key list out of the **global** `::settings` array (`vars.tcl:3305`), and `advanced_shot`
+is on that list, so a simple profile saved after another profile was loaded is written
+carrying that other profile's frames. **10 of the 12 stock simple profiles that ship an
+`advanced_shot` hold frames that contradict their own `espresso_temperature`**, and five of
+them — `Traditional lever machine`, `Trendy 6 bar low pressure shot`, `Two spring lever
+machine to 9 bar`, `Preinfuse then 45ml of water`, `Test/temperature calibration` — share one
+byte-identical `advanced_shot`: a pour-over frame list (Prewet / Pause / Main water, on
+`sensor water`) belonging to none of them and to no profile in the corpus. All 12 are
+`read_only 1`, so no user edit is involved; this is authoring-time global-state bleed in
+de1app itself. Before this was fixed, Decenza brewed those frames: two unrelated lever
+profiles poured the same curve, and neither matched its own settings. `loadFromTclString()` regenerates the frames from the
 scalars for every simple profile, matching `pressure_to_advanced_list` /
 `flow_to_advanced_list`, which open with `set temp_advanced(advanced_shot) {}`
 (`profile.tcl:16`, `:212`). `NumberOfPreinfuseFrames` is likewise **derived** for simple
