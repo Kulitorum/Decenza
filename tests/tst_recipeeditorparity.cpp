@@ -1248,6 +1248,85 @@ private slots:
     // 12. Editor coverage (tasks 8.1, 8.2)
     // ==================================================================
 
+    // ==================================================================
+    // 13. BYTES ON THE WIRE — Decenza vs de1app's own packer
+    //
+    // Everything else in this suite compares Decenza's frame MODEL against a
+    // transcription of the plugins. This compares the bytes that actually
+    // reach the DE1, against output produced by running de1app's real
+    // `de1_packed_shot` (binary.tcl) — no re-implementation in the loop.
+    //
+    // It is the only check here that can substantiate "the machine does the
+    // same thing", because everything above stops at Decenza's own model:
+    // equal fields do not prove equal encoding. Quantisation (U8P4, U8P1,
+    // F8_1_7, U10P0), flag composition and frame ordering all live below the
+    // model and are invisible to a field comparison.
+    //
+    // Goldens: tests/data/de1app_packed/*.txt, regenerate with
+    //   tclsh tools/de1app_pack_oracle.tcl <de1plus-dir> <profile.tcl>
+    // They are committed so this runs without a Tcl interpreter, and must be
+    // regenerated on any plugin or de1app bump.
+    // ==================================================================
+
+    void packedBytesMatchDe1app_data() {
+        QTest::addColumn<QString>("golden");
+        QTest::addColumn<QString>("profile");
+        for (const char* n : {"dark", "light", "like-dflow", "medium", "very-dark"})
+            QTest::newRow(qPrintable(QStringLiteral("A-Flow %1").arg(n)))
+                << QStringLiteral("A-Flow____default-%1").arg(n)
+                << (aflowDir() + QStringLiteral("/A-Flow____default-%1.tcl").arg(n));
+        for (const char* n : {"default", "Q", "La_Pavoni"})
+            QTest::newRow(qPrintable(QStringLiteral("D-Flow %1").arg(n)))
+                << QStringLiteral("D-Flow____%1").arg(n)
+                << (dflowDir() + QStringLiteral("/D-Flow____%1.tcl").arg(n));
+    }
+
+    void packedBytesMatchDe1app() {
+        QFETCH(QString, golden);
+        QFETCH(QString, profile);
+
+        const QString expected = readFile(QStringLiteral(DE1APP_PACKED_PATH) + "/" + golden + ".txt");
+        QVERIFY2(!expected.isEmpty(), qPrintable("missing golden for " + golden));
+
+        const Profile p = Profile::loadFromTclString(readFile(profile));
+        QVERIFY(!p.steps().isEmpty());
+
+        // Same shape as the oracle emits: "header <hex>", then "<i> <hex>".
+        QStringList got;
+        got << QStringLiteral("header %1").arg(QString::fromLatin1(p.toHeaderBytes().toHex()));
+        const QList<QByteArray> frames = p.toFrameBytes();
+        for (qsizetype i = 0; i < frames.size(); ++i)
+            got << QStringLiteral("%1 %2").arg(i).arg(QString::fromLatin1(frames[i].toHex()));
+
+        const QStringList want = expected.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+
+        QStringList diff;
+        for (qsizetype i = 0; i < qMax(got.size(), want.size()); ++i) {
+            const QString g = i < got.size()  ? got[i]  : QStringLiteral("<missing>");
+            const QString w = i < want.size() ? want[i] : QStringLiteral("<missing>");
+            if (g != w)
+                diff << QStringLiteral("  line %1:  decenza[%2]  de1app[%3]").arg(i).arg(g, w);
+        }
+
+        // FINDING WIRE-1 — the tail frame's MaxTotalVolume, and nothing else.
+        // Decenza encodes it with encodeU10P0(0), which ORs in the bit-10 marker
+        // (0x0400). de1app packs tail(MaxTotalVolume) through
+        // convert_bottom_10_of_U10P0, which MASKS to the low ten bits (0x0000).
+        // The asymmetry is de1app's own: it sets the marker on per-frame MaxVol
+        // (verified — frames carry 0x0464 for volume 100) and clears it on the
+        // tail. Decenza applies the frame rule to both.
+        //
+        // Every other byte of every frame, every extension frame and the header
+        // is identical across all eight stock profiles.
+        if (!diff.isEmpty())
+            QEXPECT_FAIL("", qPrintable(QStringLiteral("WIRE-1 (%1 line): %2")
+                                        .arg(diff.size()).arg(diff.join(QStringLiteral(" | ")))),
+                         Continue);
+        QVERIFY2(diff.isEmpty(),
+                 qPrintable(QStringLiteral("%1: packed bytes differ from de1app:\n%2")
+                            .arg(golden, diff.join(QStringLiteral("\n")))));
+    }
+
     void editorSurfacesExactlyThePluginParameters() {
         // Task 8.1. RecipeEditorPage.qml binds:
         //

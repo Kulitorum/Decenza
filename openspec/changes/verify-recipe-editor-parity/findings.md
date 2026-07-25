@@ -462,6 +462,54 @@ Measured, not assumed — and these correct earlier estimates in this document:
 3. **AF-6 / §7** — delete the four vestigial parameters.
 4. **DF-1/2/5** — absorbed by the #331 restore today; fix with (2) for correctness, not urgency.
 
+---
+
+# WIRE-1 — bytes on the wire, against de1app's real packer
+
+The check that can actually speak to "does the machine do the same thing". Everything else in this
+document compares Decenza's frame *model* against a transcription; this runs de1app's own
+`de1_packed_shot` (`binary.tcl`) via `tools/de1app_pack_oracle.tcl` and diffs the resulting BLE
+payload byte for byte. No re-implementation in the loop.
+
+**Result across all eight stock profiles — five A-Flow, three D-Flow:**
+
+> **Every byte is identical, except one field in the tail frame.**
+
+Header, all nine (or three) frames, and every extension frame match exactly. That covers the whole
+of the quantisation the model comparison could not see: `U8P4` setpoints, `U8P1` temperatures,
+`F8_1_7` durations, `U10P0` volumes, the composed frame flags, and frame ordering.
+
+**The one difference:**
+
+```
+line 16:  decenza[15 0904000000000000]   de1app[15 0900000000000000]
+                       ^^^^                          ^^^^
+```
+
+The tail frame's `MaxTotalVolume`. Decenza encodes it with `encodeU10P0(0)`, which ORs in the
+bit-10 marker → `0x0400`. de1app packs `tail(MaxTotalVolume)` through `convert_bottom_10_of_U10P0`,
+which **masks** to the low ten bits → `0x0000`.
+
+The asymmetry is de1app's own: it sets the marker on per-frame `MaxVol` — verified, frames carry
+`0x0464` for a volume of 100 — and clears it on the tail. Decenza applies the frame rule to both.
+
+**Impact: low, and bounded.** `MaxTotalVolume` is the whole-shot volume limit. de1app sends 0
+("ignore"); Decenza sends 1024 with the marker bit set. If the firmware masks the low ten bits, as
+its own readback helper does, the two are identical. If it does not, Decenza imposes a 1024 mL
+whole-shot cap that no espresso approaches. Either way it is not a brew difference — but it is a
+real byte difference, it is one line to fix, and it is exactly the class of thing that a
+field-level comparison is structurally unable to find.
+
+**What this does and does not license.** It substantiates that for these eight profiles, given
+identical frames, Decenza and de1app put the same bytes on the wire. It says nothing about
+profiles whose values quantise differently, and nothing about the paths that produce wrong frames
+in the first place — AF-7 and AF-1..AF-6 are upstream of this and unaffected. A profile corrupted
+before packing is packed faithfully wrong.
+
+**Regenerating:** `tclsh tools/de1app_pack_oracle.tcl <de1plus-dir> <profile.tcl>`. The goldens in
+`tests/data/de1app_packed/` are committed so the test runs without Tcl, and must be regenerated on
+any de1app or plugin bump.
+
 # Status
 
 All verification sections complete (§1–§8). Full suite: **99/99 green, no warnings** — worth
