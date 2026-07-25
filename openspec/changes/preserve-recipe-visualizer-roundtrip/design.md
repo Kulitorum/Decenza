@@ -28,7 +28,45 @@ Investigations informing this design:
 
 ## Decisions
 
-> ## ⚠ D1's premise was tested and is false — re-decide before building more
+> ## ⛔ RESOLVED — this change is superseded. Do not build it.
+>
+> The premise was tested and is false, and the problem it exists to solve has since been fixed a
+> different way, in `derive-recipe-params-from-frames`.
+>
+> **What the Why section describes really happened.** Importing a D-Flow/A-Flow profile from
+> Visualizer did populate the editor with defaults, and saving from it did regenerate default
+> frames. That is finding **REC-1**, and it was worse than described: it was not confined to
+> Visualizer imports. Any profile arriving without a stored recipe block — a `.tcl` import, a
+> profile shared from another app, one of Decenza's own A-Flow built-ins — got a block fabricated
+> from `RecipeParams`' member initialisers, because `editorType()` derives from the title. The
+> editor then showed 88 °C for a profile whose fill frame says 84 °C.
+>
+> **The fix was frame→recipe reconstruction — the one thing this change lists as a Non-Goal and
+> "explicitly rejected".** Transcribing each plugin's own `prep` recovers every parameter,
+> including all three A-Flow toggles, from the frames alone. Verified against the plugins' real
+> procs: the edit matrix stands at 0 divergences across 99 cases, and 0 across a compound
+> two-save case.
+>
+> **So a `recipe` block on the wire is not needed for this.** A profile downloaded from Visualizer
+> now loads with its own parameters, because they come from its frames — which Visualizer already
+> round-trips faithfully. No schema, no interchange object, no upstream PRs to Visualizer, de1app
+> or reaprime.
+>
+> **What is NOT covered, and is the only thing left worth salvaging here:**
+>
+> - `target_volume_count_start` → preinfuse-frame-count loss. A real bug, unrelated to recipe
+>   reconstruction, and small. Worth its own change.
+> - The Visualizer download-button TCL/JSON choice (task 8.1b). A genuinely useful, view-only
+>   upstream change that stands on its own merits.
+> - Parameters no plugin has and no frame carries — `dose` is the clear case. If that matters for
+>   interchange it is a much smaller proposal than this one, and it should be argued on its own.
+>
+> **Recommendation: archive without implementing**, and raise the three items above separately if
+> they are still wanted. The WIP is in `stash@{0}`.
+>
+> The original note follows.
+>
+> ## ⚠ D1's premise was tested and is false
 >
 > `verify-recipe-editor-parity` checked this against the plugins. Findings:
 >

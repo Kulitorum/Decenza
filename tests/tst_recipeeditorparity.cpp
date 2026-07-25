@@ -30,6 +30,7 @@
 #include <QFile>
 #include <QTextStream>
 #include <QDir>
+#include <QJsonDocument>
 
 #include "../src/profile/profile.h"
 #include "../src/profile/profileframe.h"
@@ -1454,6 +1455,66 @@ private slots:
                                            "the parity suites — a repair that removed the "
                                            "assertion rather than satisfying it: %1")
                             .arg(missing.join(QStringLiteral(", ")))));
+    }
+
+    void everyDe1appProfileSurvivesASaveCycle() {
+        // The companion to everyDe1appProfilePacksIdentically, and the one that
+        // covers what these repairs could actually break outside the two recipe
+        // editors.
+        //
+        // That test loads a .tcl and packs it — it never SAVES. But the change
+        // with the widest blast radius is in Profile::toJsonObject()'s recipe-block
+        // gate, which every profile passes through on save, recipe or not. A
+        // regression there would be invisible to a load-and-pack comparison and
+        // would corrupt profiles on the next write.
+        //
+        // So: load, serialize, reload, pack, and require the SAME de1app golden.
+        // A profile that loses or gains anything shot-affecting across a save
+        // fails here.
+        QDir src(QStringLiteral(DE1APP_PROFILES_PATH));
+        const QStringList profiles = src.entryList({QStringLiteral("*.tcl")}, QDir::Files, QDir::Name);
+        QVERIFY2(profiles.size() >= 80, "de1app corpus unexpectedly small");
+
+        QStringList failures;
+        int compared = 0;
+
+        for (const QString& tcl : profiles) {
+            const QString base = tcl.left(tcl.size() - 4);
+            const QString expected =
+                readFile(QStringLiteral(DE1APP_PACKED_PATH) + "/" + base + ".txt");
+            if (expected.isEmpty()) continue;
+
+            const Profile loaded = Profile::loadFromTclString(readFile(src.absoluteFilePath(tcl)));
+            if (loaded.steps().isEmpty()) { failures << base + ": parsed no frames"; continue; }
+
+            // The save cycle: serialize exactly as the app writes to disk, then
+            // read it back exactly as the app loads it.
+            const Profile reloaded =
+                Profile::fromJson(QJsonDocument(loaded.toJsonObject()));
+            ++compared;
+
+            QStringList got;
+            got << QStringLiteral("header %1")
+                       .arg(QString::fromLatin1(reloaded.toHeaderBytes().toHex()));
+            const QList<QByteArray> frames = reloaded.toFrameBytes();
+            for (qsizetype i = 0; i < frames.size(); ++i)
+                got << QStringLiteral("%1 %2").arg(i).arg(QString::fromLatin1(frames[i].toHex()));
+
+            const QStringList want = expected.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+            for (qsizetype i = 0; i < qMax(got.size(), want.size()); ++i) {
+                const QString g = i < got.size()  ? got[i]  : QStringLiteral("<missing>");
+                const QString w = i < want.size() ? want[i] : QStringLiteral("<missing>");
+                if (g != w)
+                    failures << QStringLiteral("%1 line %2 after save: decenza[%3] de1app[%4]")
+                                .arg(base).arg(i).arg(g, w);
+            }
+        }
+
+        QVERIFY2(compared >= 80, qPrintable(QStringLiteral("only %1 compared").arg(compared)));
+        QVERIFY2(failures.isEmpty(),
+                 qPrintable(QStringLiteral("%1 profile(s) changed across a save cycle:\n  %2")
+                            .arg(failures.size())
+                            .arg(failures.mid(0, 25).join(QStringLiteral("\n  ")))));
     }
 
     void editorSurfacesExactlyThePluginParameters() {

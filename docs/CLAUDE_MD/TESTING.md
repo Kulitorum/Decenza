@@ -381,8 +381,40 @@ recorded in the suite header — a transcribed rule goes stale silently.
 
 **Known findings are `QEXPECT_FAIL`, never relaxed assertions.** Confirmed defects stay expressed
 as failing checks carrying their finding id (`DF-1`, `AF-6`, …) so the gate records reality rather
-than the behaviour of the day. If you fix one, delete its `QEXPECT_FAIL` — do not weaken the check.
-Findings are described in `openspec/changes/verify-recipe-editor-parity/findings.md`.
+than the behaviour of the day. If you fix one, delete its `QEXPECT_FAIL` — do not weaken the check,
+and **do not delete the assertion with it**: `everyFindingIdIsStillAccountedFor` requires every id
+to remain referenced, because removing the check retires a finding by making the gate stop looking.
+All thirteen are now repaired (DF-3 excepted — see below); their dispositions are in
+`openspec/changes/verify-recipe-editor-parity/findings.md`.
+
+DF-3 is the one allowed divergence, and it is not a defect: `update_D-Flow` genuinely derives
+`filling(exit_pressure_over)` from the soak pressure, and de1app rewrites it on the user's first
+edit too. It is allowed **by name**, with `D-Flow / La Pavoni` — whose authored value already equals
+the derived one — asserted as an exact fixed point, so the allowance cannot mask a drifting rule.
+
+### The three gates, and what each one is for
+
+| Gate | Question | Oracle | Regenerate |
+|---|---|---|---|
+| **Edit matrix** — `editMatrixMatchesDe1app` (99 cases) | every plugin parameter × every stock profile, one edit, through `ProfileManager`'s `Q_INVOKABLE`s | the plugins' own `prep` + `update_*`, extracted verbatim and evaluated | `python3 tools/gen_edit_matrix.py <de1plus-dir>` |
+| **Compound edit** — `compoundEditMatchesDe1app` (8) | two successive saves, so the second `prep` re-derives from the frames the first wrote | same, one `prep`→`update` cycle per pair | same script |
+| **Byte parity** — `everyDe1appProfilePacksIdentically`, `everyDe1appProfileSurvivesASaveCycle` (89 each) | do all de1app stock profiles reach the machine as identical bytes, on load and after a save cycle | de1app's real `de1_packed_shot` | `python3 tools/gen_de1app_pack_corpus.py <de1plus-dir>` |
+
+The byte gates are the **regression guard for everything outside the two recipe editors.** About 80
+of those 89 profiles are advanced, pressure or flow profiles that no recipe-editor test touches, yet
+they pass through the same load and save code — so a change to `Profile::toJsonObject()` or the
+frame encoders shows up there and nowhere else. The save-cycle variant exists because the plain one
+loads and packs without ever writing, which would miss a serialization regression entirely.
+
+The pack oracle runs de1app's **real load path** for simple profiles: a `settings_2a`/`2b` profile's
+stored `advanced_shot` is a stale by-product, and de1app rebuilds the frames from the scalars via
+`pressure_to_advanced_list` / `flow_to_advanced_list` before packing. `profile_vars` and
+`machine.tcl`'s default `::settings` block are extracted verbatim rather than transcribed, because a
+copied field list drifts on a de1app bump and the drift is invisible.
+
+**A golden is never hand-adjusted to match Decenza.** If one looks wrong, re-read the oracle; if the
+oracle is right, Decenza changes. Regenerating after a plugin bump must leave every data row
+unchanged unless the plugin itself changed.
 
 ## Shot Analysis Regression Tool (shot_eval)
 

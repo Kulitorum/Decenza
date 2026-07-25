@@ -581,8 +581,57 @@ any residue is a real remaining defect rather than an unknown.
 
 # Status
 
-All verification sections complete (§1–§8). Full suite: **99/99 green, no warnings** — worth
-noting because it rules out the risk that other tests had pinned `RecipeAnalyzer`'s current
-behaviour and would resist a fix.
+All verification sections complete (§1–§13). Full suite green throughout.
 
-Eleven findings, all live as expected-failures carrying their ids.
+**Every finding is now repaired**, in `derive-recipe-params-from-frames`. Dispositions below;
+the analysis above is left exactly as it was written, including the predictions that turned out
+wrong, because how the picture changed is part of the record.
+
+# Disposition
+
+| Finding | Outcome | Where |
+|---|---|---|
+| **REC-1** | Repaired | `Profile::hasRecipeParams()` gates the recipe-block write on evidence, not on the title. `getOrConvertRecipeParams` reaches the frame-derived path whenever no genuine block exists. |
+| **AF-1** pourFlow from the wrong frame | Repaired | `RecipeAnalyzer::prepAFlow` — pour flow from `Flow Start`, per `code.tcl:210`. |
+| **AF-2** flowExtractionUp mis-derived | Repaired | derived from `pouring(flow) > pourFlow`, against the *rounded* value as the plugin does. |
+| **AF-3** rampTime not summed | Repaired | sum of both ramp frames, rounded to an integer. |
+| **AF-4** rampDownEnabled never derived | Repaired | `rampDown.seconds > 0`. `default-very-dark` now extracts `true`, matching the plugin readme. |
+| **AF-5** fillTimeout from Pre Fill | Repaired | the parameter is gone (see AF-6). |
+| **AF-6** filling(seconds) from fillTimeout | Repaired | the four vestigial parameters removed; `Profile::restoreFieldsThePluginNeverWrites` preserves the frame fields they used to trample. |
+| **DF-1** filling(volume) forced to 100 | Repaired | same role-based restore. |
+| **DF-2** filling(weight) forced to 5 g | Repaired | same. This was the shot-affecting one — a 5 g app-side exit imposed on a fill step whose author asked for none. |
+| **DF-3** filling(exit_pressure_over) recomputed | **Not a defect — retained** | `update_D-Flow` genuinely derives this field, and de1app rewrites it identically on the user's first edit. Matching it *is* parity. Allowed by name in the round-trip assertions, with La Pavoni pinned as an exact fixed point so the allowance cannot mask a drifting rule. |
+| **DF-4** soaking(exit_pressure_over) rewritten | Repaired | same role-based restore. Was inert at runtime (`exit_if 0`); fixed for consistency, not for the shot. |
+| **DF-5** pouring(volume) forced to 0 | Repaired | same. Removed a stop cap rather than moving one, since the firmware reads `MaxVol 0` as "ignore". |
+| **WIRE-1** tail MaxTotalVolume marker | Repaired | the tail sends a bare `0x0000`. **Reassessed as non-cosmetic**: de1app's own comment on that field is "Unused. Use highest bit to enable / disable preinfusion tracking", so Decenza was asserting a firmware flag on every profile that de1app never sets. |
+
+## Corrections this effort forced on its own analysis
+
+Recorded because the pattern — a narrower test giving a rosier answer — recurred at every layer.
+
+1. **"Edited D-Flow is ~70% right"** — withdrawn. It rested on a test that asserts pressure
+   fields and never reads temperature, which is what was wrong. The matrix put D-Flow in the same
+   condition as A-Flow.
+2. **AF-7 renamed REC-1** — it was never A-Flow-specific. `D-Flow / La Pavoni` writes fill 88 °C
+   where the profile says 84 °C while editing an unrelated parameter.
+3. **"REC-1 should clear ~69 of 86 rows"** — it cleared 11. Fill temperature was merely *first* in
+   each row, not the only divergence in it. This is why the gate now counts differing *fields* as
+   well as rows.
+4. **"The four vestigial parameters have no surface"** — §8 checked QML only. All four were
+   exposed by `profiles_get_params` and `profiles_edit_params`, so an AI could set them.
+5. **DF-1/DF-2/DF-5 as generator bugs** — they were a missing preservation step. The constants
+   (100 / 5.0 / 0) are `D-Flow / default`'s own values: right for a profile created from scratch,
+   wrong for every existing one. Testing `generateFrames` in isolation measured a component the
+   app never calls alone.
+6. **WIRE-1 as "a one-liner, no urgency"** — it was reading the byte as padding. It is a flag.
+
+## Final gate
+
+| Measure | Result |
+|---|---|
+| Edit matrix, single edit | 0 divergences / 0 differing fields, 99 cases |
+| Edit matrix, two successive saves | 8 / 8 profiles match |
+| Packed bytes vs de1app's real packer | 89 / 89 stock profiles, nothing excluded |
+| Packed bytes, quantisation-boundary corpus | 120 / 120, nothing excluded |
+| Round-trip fixed point | all 8 stock profiles (DF-3 excepted by name) |
+| Expected-failures remaining | none |

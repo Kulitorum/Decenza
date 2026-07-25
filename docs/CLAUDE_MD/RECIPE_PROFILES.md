@@ -65,6 +65,54 @@ The transcribed rules — every parameter, every write, every derived value, wit
 live in `openspec/changes/verify-recipe-editor-parity/reference.md`, and the parity suite is
 `tests/tst_recipeeditorparity.cpp`. Read the reference before changing either generator.
 
+### How Decenza honours those three facts
+
+Each of the three has a counterpart in the code. Changing one without the other reopens a whole
+class of bug, so they are named here together.
+
+1. **Frames are the source of truth; a stored `recipe` block is a cache.**
+   `RecipeAnalyzer::prepDFlow` / `prepAFlow` are direct transcriptions of the plugins' `prep`, and
+   they are what `getOrConvertRecipeParams` uses. A block is written only when parameters were
+   actually established — `Profile::hasRecipeParams()`, set by `setRecipeParams()` or by reading a
+   block. **Never write one because the title looks like a recipe profile.** `RecipeParams`'
+   defaults are live values (`targetWeight` 36.0, `fillTemperature` 88.0), not sentinels, so a
+   default-constructed struct is indistinguishable from deliberate settings — that is what put five
+   byte-identical 88 °C blocks into the A-Flow built-ins, matching none of their own frames.
+
+2. **`Profile::restoreFieldsThePluginNeverWrites()` reinstates in-place mutation.** After
+   generating, it restores by frame ROLE every field the corresponding `update_*` proc does not
+   assign. **If you add a field to a generator, check the plugin actually writes it** — if not, add
+   it to the restore's write-set instead, or the first save silently overwrites what the profile's
+   author chose.
+
+3. **Roles resolve positionally**, through the same rule as `set_profile_index`, for both the
+   9-frame and legacy 6-frame layouts. No name matching, no sequence pattern matching.
+
+**Do not reintroduce a fill-pressure, fill-flow, fill-duration or infuse-enable parameter.**
+`update_A-Flow` writes the fill frame's temperature and nothing else; D-Flow additionally derives
+its pressure and pressure-over exit from the soak pressure. Decenza carried all four, wrote them
+into the frames, and overwrote fields the plugins preserve. "No soak" is `infuseTime` 0 — which is
+how the plugins express a disabled step everywhere else.
+
+### The gates
+
+Three, and they answer different questions. All are in `tests/tst_recipeeditorparity.cpp` and
+`tests/tst_recipeeditorapppath.cpp`; see `docs/CLAUDE_MD/TESTING.md` for how to regenerate the
+fixtures.
+
+| Gate | Question | Standing |
+|---|---|---|
+| **Edit matrix** (`editMatrixMatchesDe1app`) | every plugin parameter × every stock profile, one edit, through `ProfileManager` | 0 divergences / 99 |
+| **Compound edit** (`compoundEditMatchesDe1app`) | two successive saves, so the second `prep` re-derives from what the first wrote | 8 / 8 |
+| **Byte parity** (`everyDe1appProfilePacksIdentically`, `everyDe1appProfileSurvivesASaveCycle`) | do all 89 de1app stock profiles reach the machine as identical bytes, on load and after a save | 89 / 89, nothing excluded |
+
+The last one is the regression guard for everything **outside** the two recipe editors: ~80 of
+those profiles are advanced, pressure or flow profiles that no recipe-editor test touches, but they
+pass through the same load and save code.
+
+A golden is never hand-adjusted to match Decenza. If one looks wrong, re-read the oracle; if the
+oracle is right, Decenza changes.
+
 ## Editor Selection
 
 `MainController::currentEditorType()` determines which editor page opens. Selection is **title-first**:

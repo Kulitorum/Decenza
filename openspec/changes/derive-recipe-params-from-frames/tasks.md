@@ -63,8 +63,8 @@ What remains here is the generator-level assertions and WIRE-1.
 
 ## 6. Documentation and follow-through
 
-- [ ] 6.1 Update `findings.md` in `verify-recipe-editor-parity` with the final disposition of each finding — repaired, or retained with its reason.
-- [ ] 6.2 Update `docs/CLAUDE_MD/RECIPE_PROFILES.md`: frames are the source of truth for recipe parameters, a stored block is a cache, and the four removed parameters are gone.
-- [ ] 6.3 Update the wiki manual if any user-visible number changes in the recipe editors — profiles will display their own values where they previously showed defaults.
-- [ ] 6.4 Re-decide `preserve-recipe-visualizer-roundtrip` now that `prep` exists: state plainly what, if anything, remains of it, and archive or rewrite it accordingly.
-- [ ] 6.5 Raise the design's second open question with the maintainer — whether to re-sync the five A-Flow built-ins from the plugin so their stale fabricated blocks disappear from the shipped files. That is a `resources/profiles/` edit and outside this change.
+- [x] 6.1 Update `findings.md` in `verify-recipe-editor-parity` with the final disposition of each finding — repaired, or retained with its reason.
+- [x] 6.2 Update `docs/CLAUDE_MD/RECIPE_PROFILES.md`: frames are the source of truth for recipe parameters, a stored block is a cache, and the four removed parameters are gone.
+- [x] 6.3 ~~Update the wiki manual~~ — **not needed** (maintainer's call). The manual does not document per-profile numbers, so nothing in it becomes wrong: profiles now display their own values where they previously showed struct defaults, which is the manual's implied behaviour already.
+- [x] 6.4 Re-decide `preserve-recipe-visualizer-roundtrip` now that `prep` exists: state plainly what, if anything, remains of it, and archive or rewrite it accordingly. — **superseded; recommend archiving without implementing.** Its Why was real (REC-1, and broader than Visualizer), but the fix was frame→recipe reconstruction, which that change lists as an explicitly rejected Non-Goal. No `recipe` block on the wire, no schema, no upstream PRs. Three items survive and each is smaller on its own: the `target_volume_count_start` loss, the Visualizer TCL/JSON download choice, and `dose` (a parameter no plugin has and no frame carries). Banner written at the head of its Decisions section.
+- [x] 6.5 Raise the design's second open question with the maintainer — whether to re-sync the five A-Flow built-ins from the plugin so their stale fabricated blocks disappear from the shipped files. That is a `resources/profiles/` edit and outside this change.
