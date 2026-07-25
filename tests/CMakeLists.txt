@@ -938,6 +938,7 @@ target_include_directories(tst_recipeeditorapppath PRIVATE ${CMAKE_BINARY_DIR})
 target_compile_definitions(tst_recipeeditorapppath PRIVATE
     DE1APP_PROFILES_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/de1app_profiles"
     DFLOW_PLUGIN_PROFILES_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/dflow_plugin_profiles"
+    EDIT_MATRIX_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/edit_matrix"
 )
 
 target_include_directories(tst_profilemanager PRIVATE ${CMAKE_BINARY_DIR})

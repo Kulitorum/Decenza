@@ -510,6 +510,75 @@ before packing is packed faithfully wrong.
 `tests/data/de1app_packed/` are committed so the test runs without Tcl, and must be regenerated on
 any de1app or plugin bump.
 
+---
+
+# EDIT MATRIX — 99 cases, and AF-7 is bigger than its name
+
+Every parameter the plugins expose × every stock profile, driven through
+`ProfileManager`'s `Q_INVOKABLE`s and diffed against the frames de1app's **own** `prep` +
+`update_*` produce for the same edit (`tools/de1app_edit_oracle.tcl` extracts those procs
+verbatim; `tools/gen_edit_matrix.py` generates the 99 goldens).
+
+**Result: 13 of 99 match. 86 diverge.**
+
+Clustered by first divergence:
+
+| count | field |
+|---|---|
+| **55** | frame 0 (Pre Fill) temperature — A-Flow |
+| **14** | frame 0 (Filling) temperature — D-Flow |
+| 7 | frame 1 (Infusing) temperature |
+| 5 | frame 1 (Fill) seconds |
+| 5 | scattered (pressure, ramp seconds, extraction flow) |
+
+**69 of 86 are one field: the fill frame's temperature.**
+
+## Correction: AF-7 is not A-Flow-specific — rename it REC-1
+
+I scoped AF-7 to A-Flow because that is where I found it. The matrix shows D-Flow is affected
+identically:
+
+> `D-Flow / La Pavoni`, editing **pour flow**:
+> `frame 0 (Filling) temperature: decenza 88, de1app 84`
+
+La Pavoni's fill is 84 °C. Decenza writes 88 — the `RecipeParams` struct default — while editing
+an unrelated parameter. The mechanism is not A-Flow's: it is **any** recipe-titled profile that
+arrives without a stored recipe. `toJsonObject()` fabricates a default `recipe` block because the
+title says D-Flow/A-Flow; `getOrConvertRecipeParams` then returns that stored block and never
+consults the frames.
+
+So the finding is **REC-1**, covering both editors. Every A-Flow profile *and* every D-Flow
+profile misreports its fill temperature, and any edit writes the wrong value into the frames.
+
+## This also corrects my earlier D-Flow assessment
+
+I put "edited D-Flow" at ~70% on the strength of one test —
+`dflowEditingSoakPressureAppliesTheDerivedFillRule` — which passes. It passes because it asserts
+only pressure fields. It never looked at temperature, and temperature is exactly what is wrong.
+**Edited D-Flow is not ~70%; it is broken in the same way A-Flow is**, just less visibly, because
+D-Flow's other parameters do round-trip.
+
+That is the third time a narrower test produced a rosier answer than the wider one. The matrix is
+the wide one.
+
+## What the 13 passing cases tell us
+
+They are the edits whose target field happens to be one the fabricated recipe block got right, on
+profiles whose fill temperature happens to match the default. The pass is coincidence, not
+correctness — which is why a matrix rather than a sample was necessary.
+
+## Revised repair order
+
+1. **REC-1** — stop fabricating a recipe block; derive from frames when none is stored. Alone this
+   should collapse ~69 of the 86 divergences, across both editors.
+2. **AF-1..AF-5** — implement `prep` so that derivation is right, not just present. Expect this to
+   take most of the remainder.
+3. **AF-6 / §7** — delete the four vestigial parameters (fixes the `Fill seconds` cluster).
+4. **WIRE-1**, **DF-1/2/5** — one-liners, no urgency.
+
+The matrix is the acceptance gate: after (1) and (2), it should go from 13/99 to near 99/99, and
+any residue is a real remaining defect rather than an unknown.
+
 # Status
 
 All verification sections complete (§1–§8). Full suite: **99/99 green, no warnings** — worth

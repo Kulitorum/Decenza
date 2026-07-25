@@ -1,0 +1,11 @@
+# fields: idx	name	temperature	pressure	flow	seconds	volume	weight	max_flow_or_pressure	max_flow_or_pressure_range	exit_if	exit_type	exit_pressure_over	exit_pressure_under	exit_flow_over	exit_flow_under	pump	transition	sensor
+# edit: pourFlow = 2.6 (de1app global Aflow_pouring_flow)
+0	Pre Fill	93	3.0	8.0	1.00	100	0.0	8.0	0.6	0	pressure_over	3.00	0	6	0	flow	fast	coffee
+1	Fill	93	3.0	8.0	15	100	0.0	8.0	0.6	1	pressure_over	3.00	0	6	0	flow	fast	coffee
+2	Infuse	93	3.0	0.0	6.0	100	2.0	1.0	0.6	0	pressure_over	3.0	0	6	0	pressure	fast	coffee
+3	2nd Fill	95	0	8.0	0	100	0	3.0	0.6	1	pressure_over	2.50	0	6	0	flow	fast	coffee
+4	Pause	95	1.0	6.0	0	100	0	1.0	0.6	1	flow_under	0.0	0	6	1.00	pressure	fast	coffee
+5	Pressure Up	88	10.0	8	3	100	0.0	0	0.6	1	flow_over	8.5	0	5.2	0	pressure	smooth	coffee
+6	Pressure Decline	88	1.0	8	3	100	0.0	0	0.6	1	flow_under	11	1	3.00	2.7	pressure	smooth	coffee
+7	Flow Start	88	3.0	2.6	0	100	0.0	0	0.6	0	pressure_under	11	0	6	0	flow	fast	coffee
+8	Flow Extraction	88	3.0	5.2	60	100	0.0	10.0	0.6	0	pressure_under	11	0	6	0	flow	smooth	coffee
