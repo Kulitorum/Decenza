@@ -1428,6 +1428,63 @@ private slots:
                             .arg(failures.mid(0, 25).join(QStringLiteral("\n  ")))));
     }
 
+    void nonStockPreFillSecondFillAndPauseSurviveARegenerate() {
+        // The test that was missing, and whose absence hid a real defect.
+        //
+        // On an EXISTING 9-frame profile, update_A-Flow reads Pre Fill, 2nd Fill
+        // and Pause and writes them straight back (code.tcl:296-302, 385-393).
+        // The only fields it assigns are Pre Fill's temperature and the two
+        // seconds/temperature pairs the 2nd-fill toggle drives. Everything else
+        // in those three frames is the profile author's.
+        //
+        // Decenza rebuilds all three from constants. The role-based restore
+        // originally had no entry for them, so they were silently reset — three
+        // whole frames, the largest instance of the very bug class this change
+        // exists to fix.
+        //
+        // It passed anyway, because every stock A-Flow fixture carries exactly
+        // the generator's literals in those frames: before == after whether the
+        // restore works or not. So this fixture is deliberately NON-stock.
+        Profile source = loadAFlow("A-Flow____default-medium.tcl");
+        QCOMPARE(source.steps().size(), qsizetype(9));
+
+        QList<ProfileFrame> steps = source.steps();
+        // Distinctive values in fields update_A-Flow never assigns.
+        steps[0].pressure = 7.7;  steps[0].flow = 5.5;  steps[0].volume = 66.0;
+        steps[0].maxFlowOrPressure = 4.4;
+        steps[3].pressure = 8.8;  steps[3].flow = 6.6;  steps[3].exitPressureOver = 2.2;
+        steps[4].pressure = 1.1;  steps[4].flow = 3.3;  steps[4].exitFlowUnder = 0.9;
+        source.setSteps(steps);
+
+        Profile edited = source;
+        edited.setRecipeParams(RecipeAnalyzer::extractRecipeParams(source));
+        edited.regenerateFromRecipe();
+        QCOMPARE(edited.steps().size(), qsizetype(9));
+
+        auto same = [&](qsizetype i, const char* what, double got, double want) {
+            QVERIFY2(qAbs(got - want) < 0.05,
+                     qPrintable(QStringLiteral("frame %1 (%2) %3: %4 -> %5 — update_A-Flow "
+                                               "never writes this field")
+                                .arg(i).arg(edited.steps()[i].name,
+                                            QString::fromLatin1(what))
+                                .arg(want).arg(got)));
+        };
+        same(0, "pressure", edited.steps()[0].pressure, 7.7);
+        same(0, "flow",     edited.steps()[0].flow,     5.5);
+        same(0, "volume",   edited.steps()[0].volume,   66.0);
+        same(0, "limiter",  edited.steps()[0].maxFlowOrPressure, 4.4);
+        same(3, "pressure", edited.steps()[3].pressure, 8.8);
+        same(3, "flow",     edited.steps()[3].flow,     6.6);
+        same(3, "exitPressureOver", edited.steps()[3].exitPressureOver, 2.2);
+        same(4, "pressure", edited.steps()[4].pressure, 1.1);
+        same(4, "flow",     edited.steps()[4].flow,     3.3);
+        same(4, "exitFlowUnder", edited.steps()[4].exitFlowUnder, 0.9);
+
+        // And the one field the plugin DOES write there still tracks the
+        // parameter, so the restore has not gone too far the other way.
+        QCOMPARE(edited.steps()[0].temperature, source.steps()[1].temperature);
+    }
+
     void everyFindingIdIsStillAccountedFor() {
         // Task 5.4. Each finding was pinned by an assertion carrying its id. As
         // each was repaired the expected-failure came off — and the risk in that

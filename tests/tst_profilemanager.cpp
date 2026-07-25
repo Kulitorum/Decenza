@@ -57,8 +57,14 @@ class tst_ProfileManager : public QObject {
 
 private:
     // Load a minimal D-Flow profile into the fixture's ProfileManager
+    // withInfuse: a real D-Flow profile is ALWAYS three frames — Filling /
+    // Infusing / Pouring — because that is what the plugin's `prep` indexes
+    // (0/1/2, no pattern matching). Most tests here only need *a* profile to
+    // manipulate frames on and hardcode a count of two, so the third frame is
+    // opt-in; any test that reads recipe PARAMETERS needs it.
     static void loadDFlowProfile(McpTestFixture& f, const QString& title = "D-Flow / Test",
-                                 double targetWeight = 36.0, double temp = 93.0) {
+                                 double targetWeight = 36.0, double temp = 93.0,
+                                 bool withInfuse = false) {
         QJsonObject json;
         json["title"] = title;
         json["author"] = "test";
@@ -94,6 +100,23 @@ private:
         frame1["exit"] = QJsonObject{{"type", "pressure"}, {"condition", "over"}, {"value", 4.0}};
         frame1["limiter"] = QJsonObject{{"value", 0.0}, {"range", 0.6}};
         steps.append(frame1);
+
+        if (withInfuse) {
+        QJsonObject frameSoak;
+        frameSoak["name"] = "infuse";
+        frameSoak["temperature"] = temp;
+        frameSoak["sensor"] = "coffee";
+        frameSoak["pump"] = "pressure";
+        frameSoak["transition"] = "fast";
+        frameSoak["pressure"] = 3.0;
+        frameSoak["flow"] = 8.0;
+        frameSoak["seconds"] = 20.0;
+        frameSoak["volume"] = 100.0;
+        frameSoak["weight"] = 4.0;
+        frameSoak["exit"] = QJsonObject{{"type", "pressure"}, {"condition", "over"}, {"value", 3.0}};
+        frameSoak["limiter"] = QJsonObject{{"value", 0.0}, {"range", 0.6}};
+        steps.append(frameSoak);
+        }
 
         QJsonObject frame2;
         frame2["name"] = "pour";
@@ -1089,7 +1112,9 @@ private slots:
 
     void qmlMethodsCallable() {
         McpTestFixture f;
-        loadDFlowProfile(f, "D-Flow / Methods Test");
+        // Three-frame: this smoke test calls getOrConvertRecipeParams below, and
+        // parameters are derived from the frames.
+        loadDFlowProfile(f, "D-Flow / Methods Test", 36.0, 93.0, /*withInfuse=*/true);
 
         QQmlEngine engine;
         engine.rootContext()->setContextProperty("ProfileManager", &f.profileManager);
@@ -1109,7 +1134,7 @@ private slots:
 
         result = evaluate("ProfileManager.frameCount()");
         QVERIFY2(!result.isNull(), "ProfileManager.frameCount() must be callable from QML");
-        QCOMPARE(result.toInt(), 2);
+        QCOMPARE(result.toInt(), 3);
 
         result = evaluate("ProfileManager.previousProfileName()");
         // May return empty string but must not be undefined
@@ -2807,14 +2832,52 @@ private slots:
 
     // === getOrConvertRecipeParams for different editor types ===
 
-    void getOrConvertRecipeParamsDFlowReturnsStoredParams() {
+    void getOrConvertRecipeParamsDFlowDerivesFromFrames() {
+        // Renamed from ...ReturnsStoredParams. It no longer does, deliberately:
+        // a stored recipe block is a cache, and the frames win. The old
+        // short-circuit left finding REC-1 half-fixed — every profile that
+        // already carried a fabricated block, including the five shipped A-Flow
+        // built-ins, kept showing the stale numbers because `prep` never ran.
         McpTestFixture f;
-        loadDFlowProfile(f, "D-Flow / Test", 36.0, 93.0);
+        loadDFlowProfile(f, "D-Flow / Test", 36.0, 93.0, /*withInfuse=*/true);
 
         QVariantMap params = f.profileManager.getOrConvertRecipeParams();
 
         QCOMPARE(params["editorType"].toString(), "dflow");
+        // Profile-level, so it comes through either way.
         QCOMPARE(params["targetWeight"].toDouble(), 36.0);
+        // Frame-derived: the fixture's Infusing frame, not the stored block
+        // (which carries none of these).
+        QCOMPARE(params["infusePressure"].toDouble(), 3.0);
+        QCOMPARE(params["infuseTime"].toDouble(), 20.0);
+        QCOMPARE(params["infuseWeight"].toDouble(), 4.0);
+    }
+
+    void storedRecipeBlockNeverOverridesTheFrames() {
+        // The spec requirement, asserted directly: "WHEN a profile carries a
+        // recipe block whose values contradict its frames, THEN the parameters
+        // used are those derived from the frames."
+        //
+        // This is the shape of the five shipped A-Flow built-ins, whose
+        // byte-identical blocks claim 88 C / 20 s / 9 bar against frames saying
+        // 93 / 60 / 10.
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / Contradictory", 36.0, 93.0, /*withInfuse=*/true);
+
+        Profile p = f.profileManager.currentProfile();
+        RecipeParams stale;                 // deliberately disagrees with the frames
+        stale.editorType = EditorType::DFlow;
+        stale.infusePressure = 9.9;
+        stale.infuseTime = 1.0;
+        stale.fillTemperature = 60.0;
+        p.setRecipeParams(stale);
+        QVERIFY(f.profileManager.loadProfileFromJson(
+            QString::fromUtf8(QJsonDocument(p.toJsonObject()).toJson(QJsonDocument::Compact))));
+
+        const QVariantMap params = f.profileManager.getOrConvertRecipeParams();
+        QCOMPARE(params["infusePressure"].toDouble(), 3.0);    // frame, not 9.9
+        QCOMPARE(params["infuseTime"].toDouble(), 20.0);       // frame, not 1.0
+        QCOMPARE(params["fillTemperature"].toDouble(), 93.0);  // frame, not 60.0
     }
 
     void getOrConvertRecipeParamsDFlowNoStoredExtractsFromFrames() {

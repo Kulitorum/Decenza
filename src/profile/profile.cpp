@@ -1972,7 +1972,8 @@ void Profile::regenerateSimpleFrames() {
 void Profile::restoreFieldsThePluginNeverWrites(const QList<ProfileFrame>& oldSteps) {
     if (oldSteps.isEmpty() || m_steps.isEmpty()) return;
 
-    enum Role { Filling, Soaking, RampUp, RampDown, PouringStart, Pouring, RoleCount };
+    enum Role { PreFilling, Filling, Soaking, SecondFill, Pause,
+                RampUp, RampDown, PouringStart, Pouring, RoleCount };
 
     // set_profile_index (A_Flow/code.tcl:171-190) for A-Flow; D-Flow is always
     // the three frames its `prep` indexes directly. Returns -1 for a role the
@@ -1985,14 +1986,20 @@ void Profile::restoreFieldsThePluginNeverWrites(const QList<ProfileFrame>& oldSt
             case Filling: return 0;
             case Soaking: return 1;
             case Pouring: return 2;
-            default:      return -1;   // D-Flow has no ramp or pouring-start frames
+            default:      return -1;   // D-Flow has only these three frames
             }
         }
         const bool nine = n > 8;
         if (n < (nine ? 9 : 6)) return -1;
         switch (r) {
+        // Pre Fill / 2nd Fill / Pause exist ONLY in the 9-frame layout. The
+        // legacy 6-frame one has no counterpart, so an upgrade leaves them at
+        // the generator's literals — which are the plugin's own.
+        case PreFilling:   return nine ? 0 : -1;
         case Filling:      return nine ? 1 : 0;
         case Soaking:      return nine ? 2 : 1;
+        case SecondFill:   return nine ? 3 : -1;
+        case Pause:        return nine ? 4 : -1;
         case RampUp:       return nine ? 5 : 2;
         case RampDown:     return nine ? 6 : 3;
         case PouringStart: return nine ? 7 : 4;
@@ -2010,9 +2017,25 @@ void Profile::restoreFieldsThePluginNeverWrites(const QList<ProfileFrame>& oldSt
         bool volume = false, weight = false, limiter = false;
         bool exitPressureOver = false, exitFlowOver = false, exitFlowUnder = false;
     };
-    auto written = [aflow](Role r) {
+    // The 2nd Fill / Pause write-set is CONDITIONAL on the toggle, so this takes
+    // the flag rather than being a pure function of the role (code.tcl:372-380):
+    //   on  -> seconds AND temperature are written
+    //   off -> only seconds is zeroed; the temperature is left alone
+    const bool secondFill = m_recipeParams.secondFillEnabled;
+    auto written = [aflow, secondFill](Role r) {
         Written w;
         switch (r) {
+        case PreFilling:
+            // update_A-Flow writes the Pre Fill frame's TEMPERATURE and nothing
+            // else (code.tcl:381). On an existing 9-frame profile it otherwise
+            // reads the frame and writes it straight back untouched.
+            w.temperature = true;
+            break;
+        case SecondFill:
+        case Pause:
+            w.seconds = true;
+            w.temperature = secondFill;
+            break;
         case Filling:
             w.temperature = true;
             // D-Flow also DERIVES the fill pressure and its pressure-over exit
@@ -2092,7 +2115,14 @@ void Profile::regenerateFromRecipe() {
                    << "- check recipe parameters for" << m_title;
     }
 
-    restoreFieldsThePluginNeverWrites(oldSteps);
+    // ONLY the two plugin editors. `regenerateFromRecipe` also runs for
+    // settings_2a/2b profiles, whose frames are preinfusion / rise-and-hold /
+    // decline — imposing D-Flow's 0/1/2 role map on those would restore the
+    // wrong frames onto each other. There is no plugin preserving anything for
+    // a simple profile, so there is nothing to reinstate.
+    const QString et = editorType();
+    if (et == QLatin1String("dflow") || et == QLatin1String("aflow"))
+        restoreFieldsThePluginNeverWrites(oldSteps);
 
     // Update profile metadata from recipe
     m_targetWeight = m_recipeParams.targetWeight;

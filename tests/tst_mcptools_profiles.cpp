@@ -62,6 +62,26 @@ private:
         frame1["limiter"] = QJsonObject{{"value", 0.0}, {"range", 0.6}};
         steps.append(frame1);
 
+        // A D-Flow profile is ALWAYS three frames — Filling / Infusing / Pouring —
+        // because that is what the plugin's `prep` indexes (0/1/2, no pattern
+        // matching). A two-frame fixture is not a D-Flow profile, and since
+        // parameters are now derived from the frames it has no pour frame to
+        // read from.
+        QJsonObject frameSoak;
+        frameSoak["name"] = "infuse";
+        frameSoak["temperature"] = 93.0;
+        frameSoak["sensor"] = "coffee";
+        frameSoak["pump"] = "pressure";
+        frameSoak["transition"] = "fast";
+        frameSoak["pressure"] = 3.0;
+        frameSoak["flow"] = 8.0;
+        frameSoak["seconds"] = 20.0;
+        frameSoak["volume"] = 100.0;
+        frameSoak["weight"] = 4.0;
+        frameSoak["exit"] = QJsonObject{{"type", "pressure"}, {"condition", "over"}, {"value", 3.0}};
+        frameSoak["limiter"] = QJsonObject{{"value", 0.0}, {"range", 0.6}};
+        steps.append(frameSoak);
+
         QJsonObject frame2;
         frame2["name"] = "pour";
         frame2["temperature"] = 93.0;

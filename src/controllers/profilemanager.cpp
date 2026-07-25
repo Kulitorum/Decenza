@@ -2608,33 +2608,27 @@ void ProfileManager::applyRecipeToScalarFields(const RecipeParams& recipe) {
 QVariantMap ProfileManager::getOrConvertRecipeParams() {
     const QString& et = m_currentProfile.editorType();
 
-    // D-Flow/A-Flow with stored recipe params: return them directly.
+    // D-Flow/A-Flow: ALWAYS derive from the frames. A stored recipe block is a
+    // cache, never an oracle — the frames are what the machine executes and what
+    // both plugins reconstruct their editor from on every load.
     //
-    // The guard is hasRecipeParams(), NOT a value test. It used to be
-    // `targetWeight > 0`, which a default-constructed RecipeParams satisfies
-    // (36.0) — so a profile that had merely been given a fabricated block by
-    // Profile::toJsonObject() took this branch and the frames below were never
-    // consulted. That is finding REC-1: the editor showed 88 °C for a profile
-    // whose fill frame says 84 °C, and saving wrote 88 °C into the frames.
-    if ((et == QLatin1String("dflow") || et == QLatin1String("aflow"))
-        && m_currentProfile.hasRecipeParams()) {
-        // Ensure editorType matches title (handles profiles saved with wrong type)
-        RecipeParams params = m_currentProfile.recipeParams();
-        if (isAFlowTitle(m_currentProfile.title()) && params.editorType != EditorType::AFlow) {
-            params.editorType = EditorType::AFlow;
-            m_currentProfile.setRecipeParams(params);
-        }
-        return m_currentProfile.recipeParams().toVariantMap();
-    }
-
-    // D-Flow/A-Flow profiles from de1app (no stored recipe): extract from frames on-the-fly
+    // There used to be a branch above this one that returned a stored block
+    // directly whenever the profile had one. That left finding REC-1 half-fixed:
+    // gating the WRITE stopped new fabricated blocks appearing, but every
+    // profile that already carried one — including the five shipped A-Flow
+    // built-ins, whose identical blocks claim 88 °C / 20 s / 9 bar against
+    // frames that say 93 / 60 / 10 — still took the short-circuit, so `prep`
+    // never ran and the editor still showed the stale numbers. Deriving
+    // unconditionally is also what this change's own spec requires: "WHEN a
+    // profile carries a recipe block whose values contradict its frames, THEN
+    // the parameters used are those derived from the frames."
+    //
+    // Nothing is lost by ignoring the block: prepDFlow/prepAFlow start FROM the
+    // stored params and overwrite only what the frames determine, so fields no
+    // frame carries (dose) still come through.
     if (isDFlowTitle(m_currentProfile.title()) || isAFlowTitle(m_currentProfile.title())
         || et == QLatin1String("dflow") || et == QLatin1String("aflow")) {
-        RecipeParams params = RecipeAnalyzer::extractRecipeParams(m_currentProfile);
-        if (isAFlowTitle(m_currentProfile.title())) {
-            params.editorType = EditorType::AFlow;
-        }
-        return params.toVariantMap();
+        return RecipeAnalyzer::extractRecipeParams(m_currentProfile).toVariantMap();
     }
 
     // Simple profiles (settings_2a/2b): populate RecipeParams from scalar fields
