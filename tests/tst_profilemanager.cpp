@@ -77,8 +77,6 @@ private:
         recipe.targetWeight = targetWeight;
         recipe.fillTemperature = temp;
         recipe.pourTemperature = temp;
-        recipe.fillPressure = 6.0;
-        recipe.fillFlow = 4.0;
         recipe.pourFlow = 2.0;
         json["recipe"] = recipe.toJson();
 
@@ -527,8 +525,6 @@ private slots:
         recipe["targetWeight"] = 40.0;
         recipe["fillTemperature"] = 95.0;
         recipe["pourTemperature"] = 95.0;
-        recipe["fillPressure"] = 6.0;
-        recipe["fillFlow"] = 4.0;
         recipe["pourFlow"] = 2.5;
         f.profileManager.uploadRecipeProfile(recipe);
 
@@ -1905,8 +1901,6 @@ private slots:
         recipe["targetWeight"] = 40.0;
         recipe["fillTemperature"] = 95.0;
         recipe["pourTemperature"] = 95.0;
-        recipe["fillPressure"] = 6.0;
-        recipe["fillFlow"] = 4.0;
         recipe["pourFlow"] = 2.5;
         f.profileManager.uploadRecipeProfile(recipe);
 
@@ -2953,8 +2947,7 @@ private slots:
         recipe["targetWeight"] = 40.0;
         recipe["fillTemperature"] = 95.0;
         recipe["pourTemperature"] = 95.0;
-        recipe["fillPressure"] = 8.0;  // Changed from 6.0
-        recipe["fillFlow"] = 4.0;
+        recipe["infusePressure"] = 8.0;  // Changed from 6.0
         recipe["pourFlow"] = 2.5;     // Changed from 2.0
         f.profileManager.uploadRecipeProfile(recipe);
 
@@ -2979,8 +2972,9 @@ private slots:
         // flow-controlled Pouring frame.
         QCOMPARE(pouring["pump"].toString(), QStringLiteral("flow"));
         QCOMPARE(pouring["flow"].toDouble(), 2.5);
-        // fillFlow and pourTemperature must survive the same regeneration.
-        QCOMPARE(filling["flow"].toDouble(), 4.0);
+        // The fill frame's flow is a field update_D-Flow never writes, so it
+        // must survive the regeneration untouched at the plugin's own value.
+        QCOMPARE(filling["flow"].toDouble(), 8.0);
         QCOMPARE(pouring["temperature"].toDouble(), 95.0);
 
         QCOMPARE(f.profileManager.profileTargetWeight(), 40.0);

@@ -50,13 +50,18 @@ struct RecipeParams {
     double dose = 18.0;                 // Input dose for ratio display (grams)
 
     // === Fill Phase ===
+    // Fill pressure, flow and duration are NOT here, deliberately. Neither plugin
+    // exposes them: A-Flow's update_* writes only the fill frame's temperature,
+    // D-Flow additionally DERIVES its pressure and pressure-over exit from the
+    // soak pressure. Decenza used to carry fillPressure/fillFlow/fillTimeout and
+    // write them into the frames, which rewrote fields the plugins preserve — the
+    // AF-6 half of the parity findings. Whatever those frame fields hold is
+    // preserved across a regenerate (Profile::restoreFieldsThePluginNeverWrites).
     double fillTemperature = 88.0;      // Fill water temperature (Celsius)
-    double fillPressure = 3.0;          // Fill pressure (bar)
-    double fillFlow = 8.0;              // Fill flow rate (mL/s)
-    double fillTimeout = 25.0;          // Max fill duration (seconds)
 
     // === Infuse Phase (Preinfusion/Soak) ===
-    bool infuseEnabled = true;          // Enable infuse phase
+    // No infuseEnabled toggle: the plugins express "no soak" as infuseTime 0,
+    // and a second way to say the same thing is a second thing to keep in sync.
     double infusePressure = 3.0;        // Soak pressure (bar)
     double infuseTime = 20.0;           // Soak duration (seconds)
     double infuseWeight = 4.0;          // Weight to exit infuse (grams, 0 = disabled)

@@ -128,7 +128,9 @@ RecipeParams RecipeAnalyzer::prepAFlow(const Profile& profile) {
     const ProfileFrame& pouring      = steps[iPouring];
 
     params.fillTemperature = filling.temperature;
-    params.fillFlow        = filling.flow;   // Aflow_filling_flow — read, never written back
+    // prep also reads filling(flow) into ::Aflow_filling_flow, but only the demo
+    // graph consumes it (code.tcl:570) — update_A-Flow never writes that field, so
+    // Decenza has no parameter for it either.
     params.infuseTime      = roundToOneDigit(soaking.seconds);
     params.infusePressure  = soaking.pressure;
     params.infuseVolume    = soaking.volume;
@@ -204,9 +206,6 @@ RecipeParams RecipeAnalyzer::extractRecipeParams(const Profile& profile) {
     // Extract fill parameters
     if (fillIndex >= 0 && fillIndex < steps.size()) {
         const auto& fillFrame = steps[fillIndex];
-        params.fillPressure = extractFillPressure(fillFrame);
-        params.fillTimeout = fillFrame.seconds;
-        params.fillFlow = fillFrame.flow > 0 ? fillFrame.flow : 8.0;
         // Use fill frame temperature
         if (fillFrame.temperature > 0) {
             params.fillTemperature = fillFrame.temperature;
@@ -301,9 +300,6 @@ void RecipeAnalyzer::forceConvertToRecipe(Profile& profile) {
         // Look for fill-like frame (first frame with exit condition, or explicitly named)
         if (!foundFill && (isFillFrame(frame) || i == 0)) {
             foundFill = true;
-            params.fillPressure = extractFillPressure(frame);
-            params.fillTimeout = frame.seconds > 0 ? frame.seconds : 25.0;
-            params.fillFlow = frame.flow > 0 ? frame.flow : 8.0;
             if (frame.temperature > 0) {
                 params.fillTemperature = frame.temperature;
             }
@@ -443,18 +439,6 @@ bool RecipeAnalyzer::isPourFrame(const ProfileFrame& frame) {
 }
 
 // === Parameter Extraction ===
-
-double RecipeAnalyzer::extractFillPressure(const ProfileFrame& frame) {
-    // For fill frame, use the setpoint pressure
-    if (frame.pump == "pressure") {
-        return frame.pressure;
-    }
-    // For flow mode fill, use exit pressure as approximation
-    if (frame.exitPressureOver > 0) {
-        return frame.exitPressureOver;
-    }
-    return 2.0;  // Default
-}
 
 double RecipeAnalyzer::extractInfusePressure(const ProfileFrame& frame) {
     return frame.pressure > 0 ? frame.pressure : 3.0;

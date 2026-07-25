@@ -250,6 +250,15 @@ public:
     // Regenerate frames from stored recipe parameters
     void regenerateFromRecipe();
 
+private:
+    // Reinstate the in-place-mutation semantics the plugins have and Decenza's
+    // build-from-constants generator does not: every frame field the plugin's
+    // update_* proc never assigns keeps the value it had. Called by
+    // regenerateFromRecipe with the pre-regeneration frames.
+    void restoreFieldsThePluginNeverWrites(const QList<ProfileFrame>& oldSteps);
+
+public:
+
     // Regenerate frames from scalar fields for simple profiles (settings_2a/2b)
     void regenerateSimpleFrames();
 

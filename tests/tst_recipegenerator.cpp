@@ -123,10 +123,12 @@ private slots:
     }
 
     void dflowInfuseDisabledZeroSeconds() {
-        // de1app: when infuse disabled, seconds=0 causes machine to skip frame
+        // "No soak" is infuseTime 0 — the machine skips a zero-length frame, and
+        // it is how the plugins express a disabled step everywhere (2nd_fill,
+        // pause, ramp_down). The separate infuseEnabled boolean is gone.
         RecipeParams recipe;
         recipe.editorType = EditorType::DFlow;
-        recipe.infuseEnabled = false;
+        recipe.infuseTime = 0.0;
 
         QList<ProfileFrame> frames = RecipeGenerator::generateFrames(recipe);
         QCOMPARE(frames.size(), 3);  // Still 3 frames
@@ -137,11 +139,11 @@ private slots:
     void dflowInfuseDisabledNoWeightExit() {
         RecipeParams recipe;
         recipe.editorType = EditorType::DFlow;
-        recipe.infuseEnabled = false;
-        recipe.infuseWeight = 4.0;
+        recipe.infuseTime = 0.0;
+        recipe.infuseWeight = 0.0;
 
         QList<ProfileFrame> frames = RecipeGenerator::generateFrames(recipe);
-        QCOMPARE(frames[1].exitWeight, 0.0);  // No weight exit when disabled
+        QCOMPARE(frames[1].exitWeight, 0.0);  // No weight exit without a target
     }
 
     // ==========================================

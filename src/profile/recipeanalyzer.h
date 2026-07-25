@@ -81,7 +81,6 @@ private:
     static bool isPourFrame(const ProfileFrame& frame);
 
     // Parameter extraction from frames
-    static double extractFillPressure(const ProfileFrame& frame);
     static double extractInfusePressure(const ProfileFrame& frame);
     static double extractInfuseTime(const ProfileFrame& frame);
     static double extractPourPressure(const ProfileFrame& frame);

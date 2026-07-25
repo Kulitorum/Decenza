@@ -108,7 +108,7 @@ struct AFlowRoles {
 
 // What proc prep (code.tcl:193-238) would set, computed from the frames alone.
 struct AFlowExpected {
-    double fillTemperature{}, fillFlow{};
+    double fillTemperature{};
     double soakSeconds{}, soakPressure{}, soakVolume{}, soakWeight{};
     double rampUpDownSeconds{};
     double pourFlow{}, pourPressure{}, pourTemperature{};
@@ -117,7 +117,6 @@ struct AFlowExpected {
     static AFlowExpected fromFrames(const AFlowRoles& r, qsizetype frameCount) {
         AFlowExpected e;
         e.fillTemperature = r.filling().temperature;
-        e.fillFlow        = r.filling().flow;
         e.soakSeconds     = round1(r.soaking().seconds);
         e.soakPressure    = r.soaking().pressure;
         e.soakVolume      = r.soaking().volume;
@@ -144,7 +143,6 @@ RecipeParams paramsFromPrep(const AFlowExpected& e) {
     RecipeParams p;
     p.editorType       = EditorType::AFlow;   // carried by the title, per design D2
     p.fillTemperature  = e.fillTemperature;
-    p.fillFlow         = e.fillFlow;
     p.infuseTime       = e.soakSeconds;
     p.infusePressure   = e.soakPressure;
     p.infuseVolume     = e.soakVolume;
@@ -532,7 +530,6 @@ private slots:
                          .arg(QString::fromLatin1(what), num(g), num(w));
         };
         check("fillTemperature", got.fillTemperature, want.fillTemperature);
-        check("fillFlow",        got.fillFlow,        want.fillFlow);
         check("infuseTime",      got.infuseTime,      want.soakSeconds);
         check("infusePressure",  got.infusePressure,  want.soakPressure);
         check("infuseVolume",    got.infuseVolume,    want.soakVolume);
@@ -846,35 +843,33 @@ private slots:
 
     void aflowGenerationLeavesUnwrittenFieldsAlone() {
         // Task 4.5, and the highest-yield check in the change: update_A-Flow
-        // mutates in place, so every field it does not name survives. Generation
-        // is fed prep's CORRECT parameters here, so anything that still differs
-        // is generation writing a field the plugin leaves alone — not a
-        // consequence of the extraction findings.
+        // mutates in place, so every field it does not name survives. Parameters
+        // come from prep, NOT from RecipeAnalyzer, so anything that still differs
+        // is the write side — not a consequence of an extraction finding.
+        //
+        // Driven through regenerateFromRecipe rather than generateFrames because
+        // that is where the in-place semantics live. A generator that builds
+        // frames from constants has no source frames to preserve and could not
+        // satisfy this at all; restoreFieldsThePluginNeverWrites is what makes it
+        // possible, and testing below that layer would be testing the wrong thing.
         QFETCH(QString, file);
         const Profile source = loadAFlow(file);
         const AFlowRoles r(source.steps());
-        const RecipeParams p = paramsFromPrep(AFlowExpected::fromFrames(r, 9));
 
-        const QList<ProfileFrame> got = RecipeGenerator::generateFrames(p);
+        Profile edited = source;
+        edited.setRecipeParams(paramsFromPrep(AFlowExpected::fromFrames(r, 9)));
+        edited.regenerateFromRecipe();
+
+        const QList<ProfileFrame> got = edited.steps();
         QCOMPARE(got.size(), source.steps().size());
 
         const QStringList divergences = frameDivergences(source.steps(), got);
 
-        // FINDING AF-6 — filling(seconds) is written from `fillTimeout`, a
-        // parameter A-Flow does not have. prep never reads filling(seconds) and
-        // update_A-Flow never writes it, so the plugin preserves the profile's
-        // own 15 s. Decenza writes fillTimeout, which here is RecipeParams'
-        // default of 25.
-        //
-        // Worth reading alongside AF-5: through the real app path the same field
-        // instead becomes 1 s, because RecipeAnalyzer reads it off the Pre Fill
-        // frame. Two different wrong values for one field — 25 from generation,
-        // 1 from extraction — which is why they are separate findings and why
-        // testing generation with prep-correct params was necessary to see this
-        // one at all.
-        if (!divergences.isEmpty())
-            QEXPECT_FAIL("", qPrintable(QStringLiteral("AF-6: %1")
-                                        .arg(divergences.join(QStringLiteral("; ")))), Continue);
+        // FINDING AF-6, repaired. filling(seconds) used to be written from
+        // `fillTimeout`, a parameter A-Flow does not have — 25 s here from the
+        // struct default, and 1 s through the app path, where RecipeAnalyzer read
+        // it off the Pre Fill frame (AF-5). Two different wrong values for one
+        // field the plugin simply preserves.
         QVERIFY2(divergences.isEmpty(),
                  qPrintable(QStringLiteral("%1: generation alters fields update_A-Flow "
                                            "never writes (params are prep-correct, so this "
@@ -1082,81 +1077,52 @@ private slots:
     // the spec; a declared one has to state what it costs.
     // ==================================================================
 
-    void decenzaOnlyParameter_fillTimeout() {
-        // VERDICT: DEFECT. Neither plugin has a fill-time parameter. prep never
-        // reads filling(seconds); update_* never writes it. Its only effect is
-        // to overwrite a field the plugin preserves — AF-6 (A-Flow, 15 -> 25)
-        // and, through the app path, AF-5 (15 -> 1).
+    void theFourVestigialParametersAreGone() {
+        // §7's four Decenza-only parameters — fillTimeout, fillPressure,
+        // fillFlow, infuseEnabled — are removed, not merely made inert. Each one
+        // wrote a frame field its plugin preserves, which is the whole of AF-6
+        // and half of the app-path damage.
         //
-        // It round-trips by accident on D-Flow, because RecipeAnalyzer reads it
-        // back off the same frame it wrote. That accident is why it went
-        // unnoticed; it is not a justification.
-        RecipeParams p;
-        p.editorType = EditorType::AFlow;
-        p.fillTimeout = 25.0;
-        const double a = RecipeGenerator::generateFrames(p)[1].seconds;
-        p.fillTimeout = 5.0;
-        const double b = RecipeGenerator::generateFrames(p)[1].seconds;
+        // This is asserted through BEHAVIOUR rather than by their absence from
+        // the struct: they are gone at compile time, so a stale reference cannot
+        // build, and what needs pinning is that the fields they used to trample
+        // now survive a regenerate.
+        //
+        // The mechanism is Profile::restoreFieldsThePluginNeverWrites, which
+        // reinstates the plugins' in-place-mutation semantics: a field no
+        // update_* proc assigns keeps the value it had.
+        const Profile source = loadAFlow("A-Flow____default-medium.tcl");
+        QCOMPARE(source.steps().size(), qsizetype(9));
 
-        QVERIFY2(!qFuzzyCompare(a, b),
-                 "fillTimeout no longer writes filling(seconds) — if it became "
-                 "inert, retire the parameter and update this verdict");
-        QCOMPARE(a, 25.0);
-        QCOMPARE(b, 5.0);
+        Profile p = source;
+        p.setRecipeParams(RecipeAnalyzer::extractRecipeParams(p));
+        p.regenerateFromRecipe();
+
+        // update_A-Flow writes the fill frame's temperature and NOTHING else
+        // (code.tcl:251). Everything the four used to overwrite must be intact.
+        const ProfileFrame& before = source.steps()[1];
+        const ProfileFrame& after  = p.steps()[1];
+        QCOMPARE(after.name, before.name);
+        QCOMPARE(after.seconds,          before.seconds);           // was fillTimeout
+        QCOMPARE(after.pressure,         before.pressure);          // was fillPressure
+        QCOMPARE(after.flow,             before.flow);              // was fillFlow
+        QCOMPARE(after.exitPressureOver, before.exitPressureOver);  // was fillPressure
     }
 
-    void decenzaOnlyParameter_fillPressure() {
-        // VERDICT: DEFECT for A-Flow, DEAD for D-Flow.
+    void aZeroLengthSoakIsHowTheseProfilesSayNoSoak() {
+        // infuseEnabled is gone, and this is what replaced it: infuseTime 0.
+        // That is how the plugins express "skip this step" everywhere else —
+        // 2nd_fill, pause and ramp_down all use seconds 0 — and it round-trips,
+        // because prep reads the duration straight back off the frame.
         //
-        // D-Flow: createFillFrame writes filling(pressure) from infusePressure,
-        // matching the plugin's derived rule — so fillPressure is never read on
-        // this path at all. Dead weight, and misleading in the editor.
-        //
-        // A-Flow: update_A-Flow never writes filling(pressure); Decenza does.
-        RecipeParams d;
-        d.editorType = EditorType::DFlow;
-        d.infusePressure = 3.0;
-        d.fillPressure = 9.9;                       // deliberately absurd
-        QCOMPARE(RecipeGenerator::generateFrames(d)[0].pressure, 3.0);  // ignored
-
-        RecipeParams a;
-        a.editorType = EditorType::AFlow;
-        a.fillPressure = 7.0;
-        QCOMPARE(RecipeGenerator::generateFrames(a)[1].pressure, 7.0);  // written
-    }
-
-    void decenzaOnlyParameter_fillFlow() {
-        // VERDICT: PARTIAL — A-Flow reads it, neither writes it.
-        //
-        // prep DOES read Aflow_filling_flow (code.tcl:201), so it is a genuine
-        // A-Flow parameter on the read side. But update_A-Flow never writes it
-        // back — it is a round-trip carrier, not an editable value. Decenza
-        // writes it, so an edit reaches a field the plugin leaves alone.
-        // D-Flow has no fill-flow concept whatsoever.
-        RecipeParams a;
-        a.editorType = EditorType::AFlow;
-        a.fillFlow = 6.0;
-        QCOMPARE(RecipeGenerator::generateFrames(a)[1].flow, 6.0);
-    }
-
-    void decenzaOnlyParameter_infuseEnabled() {
-        // VERDICT: EXTENSION, and a defensible one.
-        //
-        // Neither plugin has an infuse toggle — soaking(seconds) is always
-        // written. Decenza's toggle collapses the frame to 0 s, which is exactly
-        // how the plugins express "skip this step" elsewhere (2nd_fill, pause,
-        // ramp_down all use seconds 0). So it produces a profile the plugins
-        // read correctly and round-trip: a 0 s soak reads back as infuseTime 0.
-        //
-        // Cost: a user who disables infuse loses the stored soak duration,
-        // because the frame no longer carries it. Worth stating in the UI.
+        // A separate boolean was a second way to say the same thing, so it could
+        // disagree with the duration it shadowed.
         RecipeParams p;
         p.editorType = EditorType::DFlow;
         p.infuseTime = 60.0;
-        p.infuseEnabled = false;
-        QCOMPARE(RecipeGenerator::generateFrames(p)[1].seconds, 0.0);
-        p.infuseEnabled = true;
         QCOMPARE(RecipeGenerator::generateFrames(p)[1].seconds, 60.0);
+        p.infuseTime = 0.0;
+        QCOMPARE(RecipeGenerator::generateFrames(p)[1].seconds, 0.0);
     }
 
     // ==================================================================
@@ -1502,16 +1468,15 @@ private slots:
         // That is exactly the plugins' parameter set. The editor is CORRECT —
         // it exposes what the plugins expose and nothing more.
         //
-        // Which makes the four Decenza-only parameters worse than "extensions":
-        // fillFlow, fillPressure, fillTimeout and infuseEnabled appear NOWHERE
-        // in the QML. No user can set them, no user chose them, and they still
-        // reach the frames carrying RecipeParams' struct defaults. They are
-        // vestigial fields with a live write path — see AF-6 / AF-5, where
-        // fillTimeout rewrites filling(seconds) to 25 s or 1 s on every save of
-        // every A-Flow profile without anyone touching a control.
+        // Which is what made the four Decenza-only parameters worse than
+        // "extensions": fillFlow, fillPressure, fillTimeout and infuseEnabled
+        // appeared NOWHERE in the QML. No user could set them, no user chose
+        // them, and they still reached the frames carrying RecipeParams' struct
+        // defaults — fillTimeout rewriting filling(seconds) to 25 s or 1 s on
+        // every save of every A-Flow profile without anyone touching a control.
         //
-        // Practical consequence for repair: removing them costs no UI. That is
-        // asserted here so the claim is checked rather than remembered.
+        // They are removed. The second loop below stays as a guard against
+        // reintroducing one: it is the check that would have caught them.
         const QString qml = readFile(QStringLiteral(DECENZA_SOURCE_DIR)
                                      + "/qml/pages/RecipeEditorPage.qml");
         QVERIFY2(!qml.isEmpty(), "RecipeEditorPage.qml not found");

@@ -8,11 +8,7 @@ bool RecipeParams::frameAffectingFieldsEqual(const RecipeParams& other) const {
     return editorType == other.editorType
         // Fill
         && eq(fillTemperature, other.fillTemperature)
-        && eq(fillPressure, other.fillPressure)
-        && eq(fillFlow, other.fillFlow)
-        && eq(fillTimeout, other.fillTimeout)
         // Infuse
-        && infuseEnabled == other.infuseEnabled
         && eq(infusePressure, other.infusePressure)
         && eq(infuseTime, other.infuseTime)
         && eq(infuseWeight, other.infuseWeight)
@@ -72,8 +68,6 @@ void RecipeParams::applyEditorDefaults() {
     case EditorType::DFlow:
         // From D-Flow____default.tcl stock profile (de1app)
         fillTemperature = 88.0;
-        fillPressure = 3.0;
-        fillTimeout = 25.0;
         infuseTime = 60.0;
         infusePressure = 3.0;
         infuseWeight = 4.0;
@@ -86,8 +80,6 @@ void RecipeParams::applyEditorDefaults() {
     case EditorType::AFlow:
         // From A-Flow____default-medium.tcl stock profile (de1app)
         fillTemperature = 95.0;
-        fillPressure = 3.0;
-        fillTimeout = 15.0;
         infuseTime = 60.0;
         infusePressure = 3.0;
         infuseWeight = 3.6;
@@ -133,7 +125,6 @@ QStringList RecipeParams::validate() const {
         if (p < 0 || p > 12)
             issues << QString("%1 out of range [0, 12]: %2").arg(name).arg(p);
     };
-    checkPressure(fillPressure, "fillPressure");
     checkPressure(infusePressure, "infusePressure");
     checkPressure(pourPressure, "pourPressure");
     checkPressure(espressoPressure, "espressoPressure");
@@ -144,14 +135,12 @@ QStringList RecipeParams::validate() const {
         if (f < 0 || f > 10)
             issues << QString("%1 out of range [0, 10]: %2").arg(name).arg(f);
     };
-    checkFlow(fillFlow, "fillFlow");
     checkFlow(pourFlow, "pourFlow");
     checkFlow(holdFlow, "holdFlow");
     checkFlow(flowEnd, "flowEnd");
     checkFlow(preinfusionFlowRate, "preinfusionFlowRate");
 
     // Time bounds (non-negative)
-    if (fillTimeout < 0) issues << "fillTimeout is negative";
     if (infuseTime < 0) issues << "infuseTime is negative";
     if (rampTime < 0) issues << "rampTime is negative";
     if (preinfusionTime < 0) issues << "preinfusionTime is negative";
@@ -186,15 +175,15 @@ void RecipeParams::clamp() {
         clampVal(*t, 0.0, 110.0);
 
     // Pressures (0-12)
-    for (double* p : {&fillPressure, &infusePressure, &pourPressure, &espressoPressure, &pressureEnd})
+    for (double* p : {&infusePressure, &pourPressure, &espressoPressure, &pressureEnd})
         clampVal(*p, 0.0, 12.0);
 
     // Flows (0-10)
-    for (double* f : {&fillFlow, &pourFlow, &holdFlow, &flowEnd, &preinfusionFlowRate})
+    for (double* f : {&pourFlow, &holdFlow, &flowEnd, &preinfusionFlowRate})
         clampVal(*f, 0.0, 10.0);
 
     // Times (non-negative)
-    for (double* t : {&fillTimeout, &infuseTime, &rampTime, &preinfusionTime, &holdTime, &simpleDeclineTime})
+    for (double* t : {&infuseTime, &rampTime, &preinfusionTime, &holdTime, &simpleDeclineTime})
         if (*t < 0) *t = 0;
 
     if (infuseWeight < 0) infuseWeight = 0;
@@ -212,12 +201,8 @@ QJsonObject RecipeParams::toJson() const {
 
     // Fill
     obj["fillTemperature"] = fillTemperature;
-    obj["fillPressure"] = fillPressure;
-    obj["fillFlow"] = fillFlow;
-    obj["fillTimeout"] = fillTimeout;
 
     // Infuse
-    obj["infuseEnabled"] = infuseEnabled;
     obj["infusePressure"] = infusePressure;
     obj["infuseTime"] = infuseTime;
     obj["infuseWeight"] = infuseWeight;
@@ -274,12 +259,8 @@ RecipeParams RecipeParams::fromJson(const QJsonObject& json) {
     if (!json.contains("fillTemperature") && json.contains("temperature")) {
         params.fillTemperature = json["temperature"].toDouble(88.0);
     }
-    params.fillPressure = json["fillPressure"].toDouble(3.0);
-    params.fillFlow = json["fillFlow"].toDouble(8.0);
-    params.fillTimeout = json["fillTimeout"].toDouble(25.0);
 
     // Infuse
-    params.infuseEnabled = json["infuseEnabled"].toBool(true);  // Default true for legacy
     params.infusePressure = json["infusePressure"].toDouble(3.0);
     params.infuseTime = json["infuseTime"].toDouble(20.0);
     params.infuseWeight = json["infuseWeight"].toDouble(4.0);
@@ -348,12 +329,8 @@ QVariantMap RecipeParams::toVariantMap() const {
 
     // Fill
     map["fillTemperature"] = fillTemperature;
-    map["fillPressure"] = fillPressure;
-    map["fillFlow"] = fillFlow;
-    map["fillTimeout"] = fillTimeout;
 
     // Infuse
-    map["infuseEnabled"] = infuseEnabled;
     map["infusePressure"] = infusePressure;
     map["infuseTime"] = infuseTime;
     map["infuseWeight"] = infuseWeight;
@@ -413,12 +390,8 @@ RecipeParams RecipeParams::fromVariantMap(const QVariantMap& map) {
     if (!map.contains("fillTemperature") && map.contains("temperature")) {
         params.fillTemperature = map.value("temperature", 88.0).toDouble();
     }
-    params.fillPressure = map.value("fillPressure", 3.0).toDouble();
-    params.fillFlow = map.value("fillFlow", 8.0).toDouble();
-    params.fillTimeout = map.value("fillTimeout", 25.0).toDouble();
 
     // Infuse
-    params.infuseEnabled = map.value("infuseEnabled", true).toBool();  // Default true for legacy
     params.infusePressure = map.value("infusePressure", 3.0).toDouble();
     params.infuseTime = map.value("infuseTime", 20.0).toDouble();
     params.infuseWeight = map.value("infuseWeight", 4.0).toDouble();

@@ -173,9 +173,6 @@ private slots:
                      .arg(shown.value("rampDownEnabled").toBool())
                      .arg(wantRampDown);
 
-        if (!wrong.isEmpty())
-            QEXPECT_FAIL("", qPrintable(QStringLiteral("AF-1/AF-3/AF-4 in the UI: %1")
-                                        .arg(wrong.join(QStringLiteral("; ")))), Continue);
         QVERIFY2(wrong.isEmpty(),
                  qPrintable(QStringLiteral("A-Flow / default-%1: the editor misreports the "
                                            "profile:\n  %2")
@@ -226,9 +223,6 @@ private slots:
         f.profileManager.uploadRecipeProfile(f.profileManager.getOrConvertRecipeParams());
 
         const QStringList d = frameDivergences(before, f.profileManager.currentProfile().steps());
-        if (!d.isEmpty())
-            QEXPECT_FAIL("", qPrintable(QStringLiteral("AF-1 / AF-6: %1").arg(d.first())),
-                         Continue);
         QVERIFY2(d.isEmpty(),
                  qPrintable(QStringLiteral("A-Flow / default-%1: a no-op save changed the "
                                            "profile:\n  %2")
@@ -292,9 +286,6 @@ private slots:
                          .arg(i).arg(after[i].name, num(before[i].temperature),
                                      num(after[i].temperature));
 
-        if (!wrong.isEmpty())
-            QEXPECT_FAIL("", qPrintable(QStringLiteral("edit misplaced: %1")
-                                        .arg(wrong.join(QStringLiteral("; ")))), Continue);
         QVERIFY2(wrong.isEmpty(),
                  qPrintable(QStringLiteral("editing pour temperature:\n  %1")
                             .arg(wrong.join(QStringLiteral("\n  ")))));
@@ -322,9 +313,6 @@ private slots:
         // the fabricated block kept the frames out of the loop entirely. Now the
         // parameters really do come from the frames, so AF-1's doubling really does
         // compound. Comes off with AF-1.
-        if (qAbs(endFlow - startFlow) >= 0.05)
-            QEXPECT_FAIL("", "AF-1: pour flow read from the extraction frame, doubling per save",
-                         Continue);
         QVERIFY2(qAbs(endFlow - startFlow) < 0.05,
                  qPrintable(QStringLiteral("extraction flow drifted across 3 saves: "
                                            "%1 -> %2 (AF-1 compounding)")
@@ -493,7 +481,9 @@ private slots:
         //
         // Lower it when a repair improves it; that edit IS the record of the
         // improvement. Never raise it to accommodate a regression.
-        constexpr int kMatrixDivergingBaseline = 75;
+        //
+        //   86 -> 75 (§1, all D-Flow rows clear) -> 75 (§2) -> 0 (§3)
+        constexpr int kMatrixDivergingBaseline = 0;
 
         // The row count alone hides partial progress: a row keeps counting as one
         // divergence whether five fields differ or one, so a repair that fixes
@@ -502,7 +492,14 @@ private slots:
         //   317  after §1
         //    75  after §2 (prep transcribed): exactly ONE differing field per
         //         diverging row — Fill pressure, which §3 removes
-        constexpr int kMatrixFieldDiffBaseline = 75;
+        //     0  after §3 (vestigial parameters removed, and the plugins'
+        //         in-place-mutation semantics reinstated in
+        //         Profile::restoreFieldsThePluginNeverWrites)
+        //
+        // ZERO IS THE TARGET, AND IT IS MET. Every parameter either plugin
+        // exposes, edited on every profile either plugin ships, now produces the
+        // frames the plugin's own prep + update_* produce. Do not raise this.
+        constexpr int kMatrixFieldDiffBaseline = 0;
 
         QCOMPARE(s_matrixRows, 99);
         QVERIFY2(s_matrixFieldDiffs == kMatrixFieldDiffBaseline,

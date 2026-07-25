@@ -76,8 +76,6 @@ private:
         recipe.targetWeight = 36.0;
         recipe.fillTemperature = 93.0;
         recipe.pourTemperature = 93.0;
-        recipe.fillPressure = 6.0;
-        recipe.fillFlow = 4.0;
         recipe.pourFlow = 2.0;
         json["recipe"] = recipe.toJson();
 

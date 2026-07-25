@@ -1944,6 +1944,118 @@ void Profile::regenerateSimpleFrames() {
     // temp2, not temp0.
 }
 
+// The plugins mutate frames IN PLACE — `array set filling [lindex ... 0]`,
+// overwrite a named handful of fields, write the array back — so every field
+// they do not name survives untouched. Decenza builds frames from constants, so
+// each unnamed field is a candidate divergence: findings DF-1, DF-2, DF-5 and
+// AF-6 are all one shape, "a field the plugin never writes, rewritten".
+//
+// This restores that semantics rather than patching the fields we happened to
+// notice. It was previously a name-matched restore of volume and exitWeight only
+// (issue #331), which fixed two of the four and left `filling(seconds)`,
+// `filling(pressure)` and the rest to keep drifting.
+//
+// Roles are POSITIONAL, matching the plugins. Old and new frames are matched by
+// role, not by index, so a legacy 6-frame profile being upgraded to 9 restores
+// its Filling fields onto the new Filling frame rather than onto Pre Fill. A role
+// with no old counterpart (the frames an upgrade inserts) keeps the generator's
+// values, which are the plugin's own template literals.
+void Profile::restoreFieldsThePluginNeverWrites(const QList<ProfileFrame>& oldSteps) {
+    if (oldSteps.isEmpty() || m_steps.isEmpty()) return;
+
+    enum Role { Filling, Soaking, RampUp, RampDown, PouringStart, Pouring, RoleCount };
+
+    // set_profile_index (A_Flow/code.tcl:171-190) for A-Flow; D-Flow is always
+    // the three frames its `prep` indexes directly. Returns -1 for a role the
+    // layout does not have.
+    const bool aflow = editorType() == QLatin1String("aflow");
+    auto roleIndex = [aflow](qsizetype n, Role r) -> qsizetype {
+        if (!aflow) {
+            if (n < 3) return -1;
+            switch (r) {
+            case Filling: return 0;
+            case Soaking: return 1;
+            case Pouring: return 2;
+            default:      return -1;   // D-Flow has no ramp or pouring-start frames
+            }
+        }
+        const bool nine = n > 8;
+        if (n < (nine ? 9 : 6)) return -1;
+        switch (r) {
+        case Filling:      return nine ? 1 : 0;
+        case Soaking:      return nine ? 2 : 1;
+        case RampUp:       return nine ? 5 : 2;
+        case RampDown:     return nine ? 6 : 3;
+        case PouringStart: return nine ? 7 : 4;
+        case Pouring:      return nine ? 8 : 5;
+        default:           return -1;
+        }
+    };
+
+    // Exactly what each plugin's update_* proc assigns. Everything absent here is
+    // restored from the old frame.
+    //   D-Flow — plugin.tcl:338-353
+    //   A-Flow — code.tcl:251-296
+    struct Written {
+        bool temperature = false, pressure = false, flow = false, seconds = false;
+        bool volume = false, weight = false, limiter = false;
+        bool exitPressureOver = false, exitFlowOver = false, exitFlowUnder = false;
+    };
+    auto written = [aflow](Role r) {
+        Written w;
+        switch (r) {
+        case Filling:
+            w.temperature = true;
+            // D-Flow also DERIVES the fill pressure and its pressure-over exit
+            // from the soak pressure; A-Flow writes neither.
+            w.pressure = w.exitPressureOver = !aflow;
+            break;
+        case Soaking:
+            w.temperature = w.pressure = w.seconds = w.volume = w.weight = true;
+            break;
+        case RampUp:
+            w.temperature = w.pressure = w.seconds = w.exitFlowOver = true;
+            break;
+        case RampDown:
+            w.temperature = w.seconds = w.exitFlowUnder = true;
+            break;
+        case PouringStart:
+            // exit_type/exit_if are written too, but only on the short-ramp
+            // branch; the generator sets them consistently with seconds, so they
+            // travel with it.
+            w.temperature = w.flow = w.seconds = w.exitFlowOver = true;
+            break;
+        case Pouring:
+            w.temperature = w.flow = w.limiter = true;
+            break;
+        default:
+            break;
+        }
+        return w;
+    };
+
+    for (int r = 0; r < RoleCount; ++r) {
+        const qsizetype oldIdx = roleIndex(oldSteps.size(), Role(r));
+        const qsizetype newIdx = roleIndex(m_steps.size(), Role(r));
+        if (oldIdx < 0 || newIdx < 0) continue;
+
+        const ProfileFrame& o = oldSteps[oldIdx];
+        ProfileFrame& n = m_steps[newIdx];
+        const Written w = written(Role(r));
+
+        if (!w.temperature)      n.temperature = o.temperature;
+        if (!w.pressure)         n.pressure = o.pressure;
+        if (!w.flow)             n.flow = o.flow;
+        if (!w.seconds)          n.seconds = o.seconds;
+        if (!w.volume)           n.volume = o.volume;
+        if (!w.weight)           n.exitWeight = o.exitWeight;
+        if (!w.limiter)          n.maxFlowOrPressure = o.maxFlowOrPressure;
+        if (!w.exitPressureOver) n.exitPressureOver = o.exitPressureOver;
+        if (!w.exitFlowOver)     n.exitFlowOver = o.exitFlowOver;
+        if (!w.exitFlowUnder)    n.exitFlowUnder = o.exitFlowUnder;
+    }
+}
+
 void Profile::regenerateFromRecipe() {
     if (editorType() == QLatin1String("advanced")) {
         return;
@@ -1971,24 +2083,7 @@ void Profile::regenerateFromRecipe() {
                    << "- check recipe parameters for" << m_title;
     }
 
-    // Preserve passthrough fields (volume cap, fill weight safety exit) from old frames.
-    // RecipeParams controls volume/exitWeight only on infuse frames ("Infusing"/"Infuse");
-    // for all other frames these fields are hardcoded defaults in RecipeGenerator, so we
-    // restore the stored values to avoid silently dropping them on each save (issue #331).
-    if (!oldSteps.isEmpty()) {
-        for (ProfileFrame& newFrame : m_steps) {
-            // Skip infuse frames — RecipeParams is authoritative for their volume/exitWeight
-            if (newFrame.name == "Infusing" || newFrame.name == "Infuse")
-                continue;
-            for (const ProfileFrame& oldFrame : oldSteps) {
-                if (oldFrame.name == newFrame.name) {
-                    newFrame.volume = oldFrame.volume;
-                    newFrame.exitWeight = oldFrame.exitWeight;
-                    break;
-                }
-            }
-        }
-    }
+    restoreFieldsThePluginNeverWrites(oldSteps);
 
     // Update profile metadata from recipe
     m_targetWeight = m_recipeParams.targetWeight;

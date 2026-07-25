@@ -268,8 +268,12 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
                     // than only the ones present. GCC's -Wall flags it
                     // (-Wrange-loop-construct); clang's does not, which is why
                     // the macOS warning measurement never saw these five.
-                    for (const char* key : {"fillTemperature", "fillPressure", "fillFlow", "fillTimeout",
-                                                "infuseEnabled", "infusePressure", "infuseTime", "infuseWeight", "infuseVolume",
+                    // fillPressure / fillFlow / fillTimeout / infuseEnabled are
+                    // deliberately absent: neither plugin exposes them, and writing
+                    // them rewrote frame fields the plugins preserve. See
+                    // RecipeParams.
+                    for (const char* key : {"fillTemperature",
+                                                "infusePressure", "infuseTime", "infuseWeight", "infuseVolume",
                                                 "pourTemperature", "pourPressure", "pourFlow"}) {
                         if (recipeJson.contains(key))
                             result[key] = recipeJson[key];
@@ -318,20 +322,17 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
                 {"fillTemperature", "fillTemperatureC"},
                 {"pourTemperature", "pourTemperatureC"},
                 // bar
-                {"fillPressure", "fillPressureBar"},
                 {"infusePressure", "infusePressureBar"},
                 {"pourPressure", "pourPressureBar"},
                 {"espressoPressure", "espressoPressureBar"},
                 {"pressureEnd", "pressureEndBar"},
                 {"preinfusionStopPressure", "preinfusionStopPressureBar"},
                 // mL/s
-                {"fillFlow", "fillFlowMlPerSec"},
                 {"pourFlow", "pourFlowMlPerSec"},
                 {"holdFlow", "holdFlowMlPerSec"},
                 {"flowEnd", "flowEndMlPerSec"},
                 {"preinfusionFlowRate", "preinfusionFlowRateMlPerSec"},
                 // s
-                {"fillTimeout", "fillTimeoutSec"},
                 {"infuseTime", "infuseTimeSec"},
                 {"preinfusionTime", "preinfusionTimeSec"},
                 {"holdTime", "holdTimeSec"},
@@ -371,12 +372,8 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
                 {"targetVolume", QJsonObject{{"type", "number"}, {"description", "Stop at volume (mL, 0=disabled)"}}},
                 {"dose", QJsonObject{{"type", "number"}, {"description", "Input dose for ratio display (grams)"}}},
                 {"fillTemperature", QJsonObject{{"type", "number"}, {"description", "Fill water temperature (Celsius)"}}},
-                {"fillPressure", QJsonObject{{"type", "number"}, {"description", "Fill pressure (bar)"}}},
-                {"fillFlow", QJsonObject{{"type", "number"}, {"description", "Fill flow rate (mL/s)"}}},
-                {"fillTimeout", QJsonObject{{"type", "number"}, {"description", "Max fill duration (seconds)"}}},
-                {"infuseEnabled", QJsonObject{{"type", "boolean"}, {"description", "Enable infuse/soak phase"}}},
                 {"infusePressure", QJsonObject{{"type", "number"}, {"description", "Soak pressure (bar)"}}},
-                {"infuseTime", QJsonObject{{"type", "number"}, {"description", "Soak duration (seconds)"}}},
+                {"infuseTime", QJsonObject{{"type", "number"}, {"description", "Soak duration (seconds, 0=no soak)"}}},
                 {"infuseWeight", QJsonObject{{"type", "number"}, {"description", "Weight to exit infuse (grams, 0=disabled)"}}},
                 {"infuseVolume", QJsonObject{{"type", "number"}, {"description", "Max volume during infuse (mL)"}}},
                 {"pourTemperature", QJsonObject{{"type", "number"}, {"description", "Pour water temperature (Celsius)"}}},

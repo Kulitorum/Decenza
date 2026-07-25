@@ -7,6 +7,7 @@ count hides partial progress, since a row counts once whether one field differs 
 
   after §1 (REC-1)      75 rows / 317 fields — all 24 D-Flow rows clear
   after §2 (prep)       75 rows /  75 fields — exactly one field left per row
+  after §3 (vestigial)   0 rows /   0 fields — TARGET MET
 
 Never adjust a golden to match Decenza. If a golden looks wrong, re-read the oracle; if the
 oracle is right, Decenza changes (design D6).
@@ -30,13 +31,19 @@ oracle is right, Decenza changes (design D6).
 
 ## 3. AF-6 and §7 — remove the vestigial parameters
 
-- [ ] 3.1 Remove `fillTimeout`, `fillPressure`, `fillFlow`, `infuseEnabled` from `RecipeParams` and every use. Confirm first that none has gained a QML or MCP surface since §8 established it had none.
-- [ ] 3.2 Stop writing `filling(seconds)` from the removed `fillTimeout` — neither plugin's `update_*` writes that field.
-- [ ] 3.3 Verify `RecipeParams::fromJson` still reads a stored profile carrying the removed keys, discarding them as it discards any unknown key. Add a test with such a profile.
-- [ ] 3.4 Check the MCP surface (`profiles_get_params`, `profiles_edit_params`) and its tests for references to the removed fields.
-- [ ] 3.5 Flip the AF-6 and §7 expected-failures. Re-run the matrix; expect the `Fill seconds` cluster to clear.
+- [x] 3.1 Remove `fillTimeout`, `fillPressure`, `fillFlow`, `infuseEnabled` from `RecipeParams` and every use. Confirm first that none has gained a QML or MCP surface since §8 established it had none. — **§8's verdict was QML-only: all four DO have an MCP surface**, in `profiles_get_params`' output and `profiles_edit_params`' schema. So they were reachable by an AI, not invisible. Removed anyway — a knob that writes a frame field the plugin preserves breaks parity whoever turns it. Recorded as a correction to §7's evidence.
+- [x] 3.2 Stop writing `filling(seconds)` from the removed `fillTimeout` — neither plugin's `update_*` writes that field.
+- [x] 3.3 Verify `RecipeParams::fromJson` still reads a stored profile carrying the removed keys, discarding them as it discards any unknown key. Add a test with such a profile.
+- [x] 3.4 Check the MCP surface (`profiles_get_params`, `profiles_edit_params`) and its tests for references to the removed fields.
+- [x] 3.5 Flip the AF-6 and §7 expected-failures. Re-run the matrix; expect the `Fill seconds` cluster to clear. — **matrix is at 0/99: zero divergences, zero differing fields.** Removing the four was not sufficient on its own; the generator still had to stop inventing the fields they used to carry. That is `Profile::restoreFieldsThePluginNeverWrites` (4.1's mechanism, pulled forward — see §4).
 
 ## 4. DF-1 / DF-2 / DF-5 and WIRE-1 — the residue
+
+4.1's mechanism landed early, in §3: removing the four vestigial parameters left the
+generator inventing the frame fields they used to carry, so the plugins' in-place-mutation
+semantics had to be reinstated for the matrix to clear. `restoreFieldsThePluginNeverWrites`
+restores, by frame ROLE, every field the corresponding `update_*` proc never assigns.
+What remains here is the generator-level assertions and WIRE-1.
 
 - [ ] 4.1 Preserve `filling(volume)`, `filling(weight)` and `pouring(volume)` from the source profile rather than generating them from constants. DF-5 is the one that changes a shot: forcing `pouring(volume)` to 0 removes a stop cap, because the firmware reads `MaxVol 0` as "ignore".
 - [ ] 4.2 Check whether the issue #331 passthrough restore in `regenerateFromRecipe` becomes redundant once generation stops overwriting these fields. If it does, remove it rather than leaving two mechanisms for one job; if it does not, record what it still covers.
