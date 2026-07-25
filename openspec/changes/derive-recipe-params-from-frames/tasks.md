@@ -8,6 +8,8 @@ count hides partial progress, since a row counts once whether one field differs 
   after §1 (REC-1)      75 rows / 317 fields — all 24 D-Flow rows clear
   after §2 (prep)       75 rows /  75 fields — exactly one field left per row
   after §3 (vestigial)   0 rows /   0 fields — TARGET MET
+  §5 re-verified        regenerated from the pinned plugin commits, data rows
+                        byte-identical; compound (two successive saves) also 8/8
 
 Never adjust a golden to match Decenza. If a golden looks wrong, re-read the oracle; if the
 oracle is right, Decenza changes (design D6).
@@ -53,11 +55,11 @@ What remains here is the generator-level assertions and WIRE-1.
 
 ## 5. Gate and regression
 
-- [ ] 5.1 Regenerate the edit matrix from `tools/gen_edit_matrix.py` against the pinned plugin commits and record the final score. Any remaining divergence is named and justified in `findings.md`, or it is a defect.
-- [ ] 5.2 Assert the round-trip fixed point holds for all five stock A-Flow profiles and all three stock D-Flow profiles — load, save unedited, no frame field changes.
-- [ ] 5.3 Assert a compound edit — two parameters changed in sequence — matches the plugin, so the matrix's single-edit coverage is not the only evidence.
-- [ ] 5.4 Assert no expected-failure was removed without its assertion becoming a real pass. A finding id that no longer appears anywhere in the suite is a hole in the gate.
-- [ ] 5.5 Run the full suite via `mcp__qtcreator__run_tests` (scope `all`). Green with no warnings, per the pre-PR rule.
+- [x] 5.1 Regenerate the edit matrix from `tools/gen_edit_matrix.py` against the pinned plugin commits and record the final score. Any remaining divergence is named and justified in `findings.md`, or it is a defect. — regenerated against A_Flow `e1a4d871` / D_Flow `7f3c9726`; **every data row came back byte-identical**, so no golden was ever hand-adjusted. **0 divergences, 0 differing fields, 99 cases.**
+- [x] 5.2 Assert the round-trip fixed point holds for all five stock A-Flow profiles and all three stock D-Flow profiles — load, save unedited, no frame field changes. — holds for all eight, through both `regenerateFromRecipe` and the `ProfileManager` path. The one moving field is D-Flow's `filling(exit_pressure_over)`, which `update_D-Flow` genuinely derives (DF-3) and de1app rewrites identically on first edit; La Pavoni is asserted as an exact fixed point so that allowance cannot mask a drifting rule.
+- [x] 5.3 Assert a compound edit — two parameters changed in sequence — matches the plugin, so the matrix's single-edit coverage is not the only evidence. — `compoundEditMatchesDe1app`, 8 profiles. The oracle now takes N `<global> <value>` pairs and runs a full `prep` → `update` cycle per pair, so de1app re-derives from the frames the previous save wrote — the exact shape in which AF-1 compounded. A-Flow edits pourFlow then rampDownEnabled; D-Flow edits infusePressure then pourTemperature. All 8 match.
+- [x] 5.4 Assert no expected-failure was removed without its assertion becoming a real pass. A finding id that no longer appears anywhere in the suite is a hole in the gate. — `everyFindingIdIsStillAccountedFor` checks all 13 ids are still referenced in the two suites, so a repair cannot retire a finding by deleting the assertion that watched it.
+- [x] 5.5 Run the full suite via `mcp__qtcreator__run_tests` (scope `all`). Green with no warnings, per the pre-PR rule. — 100/100, no warnings.
 
 ## 6. Documentation and follow-through
 

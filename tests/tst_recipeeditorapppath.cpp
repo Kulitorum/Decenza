@@ -114,6 +114,48 @@ private:
             QString::fromUtf8(QJsonDocument(p.toJsonObject()).toJson(QJsonDocument::Compact)));
     }
 
+    // Compare frames against an edit-matrix golden. Shared by the single-edit
+    // matrix and the compound-edit test so the two cannot drift apart in what
+    // they consider a match.
+    static QStringList goldenDivergences(const QString& goldenText,
+                                         const QList<ProfileFrame>& after) {
+        // Golden layout: two '#' header lines, then idx + tab-separated FIELDS.
+        QStringList wantRows;
+        for (const QString& ln : goldenText.split(QLatin1Char('\n'), Qt::SkipEmptyParts))
+            if (!ln.startsWith(QLatin1Char('#'))) wantRows << ln;
+
+        QStringList diff;
+        if (after.size() != wantRows.size()) {
+            diff << QStringLiteral("frame count: decenza %1, de1app %2")
+                    .arg(after.size()).arg(wantRows.size());
+            return diff;
+        }
+        for (qsizetype i = 0; i < after.size(); ++i) {
+            const QStringList w = wantRows[i].split(QLatin1Char('\t'));
+            if (w.size() < 8) continue;
+            const ProfileFrame& g = after[i];
+            // Columns per gen_edit_matrix.py FIELDS, offset by the idx column.
+            auto col = [&](int c) { return w[c].toDouble(); };
+            auto cmp = [&](const char* what, double got, double want) {
+                if (qAbs(got - want) >= 0.05)
+                    diff << QStringLiteral("frame %1 (%2) %3: decenza %4, de1app %5")
+                            .arg(i).arg(g.name, QString::fromLatin1(what))
+                            .arg(got).arg(want);
+            };
+            if (g.name != w[1])
+                diff << QStringLiteral("frame %1 name: decenza %2, de1app %3")
+                        .arg(i).arg(g.name, w[1]);
+            cmp("temperature", g.temperature, col(2));
+            cmp("pressure",    g.pressure,    col(3));
+            cmp("flow",        g.flow,        col(4));
+            cmp("seconds",     g.seconds,     col(5));
+            cmp("volume",      g.volume,      col(6));
+            cmp("weight",      g.exitWeight,  col(7));
+            cmp("limiter",     g.maxFlowOrPressure, col(8));
+        }
+        return diff;
+    }
+
     static QString aflow(const QString& name) {
         return QStringLiteral(DE1APP_PROFILES_PATH) + "/A-Flow____default-" + name + ".tcl";
     }
@@ -415,42 +457,8 @@ private slots:
         params[param] = value;
         f.profileManager.uploadRecipeProfile(params);
 
-        const QList<ProfileFrame> after = f.profileManager.currentProfile().steps();
-
-        // Golden layout: two '#' header lines, then idx + tab-separated FIELDS.
-        QStringList wantRows;
-        for (const QString& ln : goldenText.split(QLatin1Char('\n'), Qt::SkipEmptyParts))
-            if (!ln.startsWith(QLatin1Char('#'))) wantRows << ln;
-
-        QStringList diff;
-        if (after.size() != wantRows.size()) {
-            diff << QStringLiteral("frame count: decenza %1, de1app %2")
-                    .arg(after.size()).arg(wantRows.size());
-        } else {
-            for (qsizetype i = 0; i < after.size(); ++i) {
-                const QStringList w = wantRows[i].split(QLatin1Char('\t'));
-                if (w.size() < 8) continue;
-                const ProfileFrame& g = after[i];
-                // Columns per gen_edit_matrix.py FIELDS, offset by the idx column.
-                auto num = [&](int col) { return w[col].toDouble(); };
-                auto cmp = [&](const char* what, double got, double want) {
-                    if (qAbs(got - want) >= 0.05)
-                        diff << QStringLiteral("frame %1 (%2) %3: decenza %4, de1app %5")
-                                .arg(i).arg(g.name, QString::fromLatin1(what))
-                                .arg(got).arg(want);
-                };
-                if (g.name != w[1])
-                    diff << QStringLiteral("frame %1 name: decenza %2, de1app %3")
-                            .arg(i).arg(g.name, w[1]);
-                cmp("temperature", g.temperature, num(2));
-                cmp("pressure",    g.pressure,    num(3));
-                cmp("flow",        g.flow,        num(4));
-                cmp("seconds",     g.seconds,     num(5));
-                cmp("volume",      g.volume,      num(6));
-                cmp("weight",      g.exitWeight,  num(7));
-                cmp("limiter",     g.maxFlowOrPressure, num(8));
-            }
-        }
+        const QStringList diff =
+            goldenDivergences(goldenText, f.profileManager.currentProfile().steps());
 
         ++s_matrixRows;
         s_matrixFieldDiffs += int(diff.size());
@@ -463,6 +471,67 @@ private slots:
         QVERIFY2(diff.isEmpty(),
                  qPrintable(QStringLiteral("%1 — editing %2:\n  %3")
                             .arg(golden, param, diff.mid(0, 12).join(QStringLiteral("\n  ")))));
+    }
+
+    void compoundEditMatchesDe1app_data() {
+        QTest::addColumn<QString>("golden");
+        QTest::addColumn<QString>("profile");
+        for (const char* n : {"dark", "light", "like-dflow", "medium", "very-dark"})
+            QTest::newRow(qPrintable(QStringLiteral("A %1").arg(n)))
+                << QStringLiteral("A-Flow____default-%1__compound").arg(n)
+                << aflow(QString::fromLatin1(n));
+        for (const char* n : {"default", "Q", "La_Pavoni"})
+            QTest::newRow(qPrintable(QStringLiteral("D %1").arg(n)))
+                << QStringLiteral("D-Flow____%1__compound").arg(n)
+                << dflow(QString::fromLatin1(n));
+    }
+
+    void compoundEditMatchesDe1app() {
+        // Task 5.3. Two edits in SUCCESSION, each its own save.
+        //
+        // The single-edit matrix always starts from a pristine profile, so it
+        // cannot see an error that only appears once a second edit re-derives its
+        // parameters from the frames the first one wrote. That is precisely how
+        // AF-1 behaved: one save looked survivable, three could not be argued
+        // with. A matrix at 0/99 is necessary but not sufficient evidence, and
+        // this is the check that makes it sufficient.
+        //
+        // The oracle runs prep -> set -> update once per pair, so de1app's side
+        // does the same re-derivation.
+        //   A-Flow: pourFlow, then rampDownEnabled — flow feeds the ramp exit
+        //           thresholds, and ramp-down changes how the ramp time splits.
+        //   D-Flow: infusePressure, then pourTemperature — soak pressure drives
+        //           the derived fill pressure and its pressure-over exit.
+        QFETCH(QString, golden);
+        QFETCH(QString, profile);
+
+        const QString goldenText =
+            readFile(QStringLiteral(EDIT_MATRIX_PATH) + "/" + golden + ".txt");
+        QVERIFY2(!goldenText.isEmpty(), qPrintable("missing golden " + golden));
+
+        const bool isAFlow = golden.startsWith(QLatin1String("A-Flow"));
+
+        McpTestFixture f;
+        QVERIFY(installProfile(f, profile));
+
+        auto save = [&](const QString& key, const QVariant& value) {
+            QVariantMap params = f.profileManager.getOrConvertRecipeParams();
+            params[key] = value;
+            f.profileManager.uploadRecipeProfile(params);
+        };
+        if (isAFlow) {
+            save(QStringLiteral("pourFlow"), 2.6);
+            save(QStringLiteral("rampDownEnabled"), true);
+        } else {
+            save(QStringLiteral("infusePressure"), 5.5);
+            save(QStringLiteral("pourTemperature"), 91.5);
+        }
+
+        const QStringList diff =
+            goldenDivergences(goldenText, f.profileManager.currentProfile().steps());
+        QVERIFY2(diff.isEmpty(),
+                 qPrintable(QStringLiteral("%1 — two successive saves:\n  %2")
+                            .arg(golden, diff.mid(0, 12).join(QStringLiteral("\n  ")))));
     }
 
     void editMatrixScoreIsTheRecordedBaseline() {

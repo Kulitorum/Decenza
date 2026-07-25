@@ -1427,6 +1427,35 @@ private slots:
                             .arg(failures.mid(0, 25).join(QStringLiteral("\n  ")))));
     }
 
+    void everyFindingIdIsStillAccountedFor() {
+        // Task 5.4. Each finding was pinned by an assertion carrying its id. As
+        // each was repaired the expected-failure came off — and the risk in that
+        // step is deleting the assertion along with it, which retires the finding
+        // by making the gate stop looking rather than by fixing anything.
+        //
+        // So: every id must still appear somewhere in these two suites. Cheap,
+        // and it fails loudly the one time it matters.
+        const QString parity = readFile(QStringLiteral(DECENZA_SOURCE_DIR)
+                                        + "/tests/tst_recipeeditorparity.cpp");
+        const QString appPath = readFile(QStringLiteral(DECENZA_SOURCE_DIR)
+                                         + "/tests/tst_recipeeditorapppath.cpp");
+        QVERIFY2(!parity.isEmpty() && !appPath.isEmpty(), "suite sources not found");
+
+        QStringList missing;
+        for (const char* id : {"REC-1",
+                               "AF-1", "AF-2", "AF-3", "AF-4", "AF-5", "AF-6",
+                               "DF-1", "DF-2", "DF-3", "DF-4", "DF-5",
+                               "WIRE-1"}) {
+            const QString s = QString::fromLatin1(id);
+            if (!parity.contains(s) && !appPath.contains(s)) missing << s;
+        }
+        QVERIFY2(missing.isEmpty(),
+                 qPrintable(QStringLiteral("finding id(s) no longer referenced anywhere in "
+                                           "the parity suites — a repair that removed the "
+                                           "assertion rather than satisfying it: %1")
+                            .arg(missing.join(QStringLiteral(", ")))));
+    }
+
     void editorSurfacesExactlyThePluginParameters() {
         // Task 8.1. RecipeEditorPage.qml binds:
         //

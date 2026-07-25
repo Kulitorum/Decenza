@@ -6,12 +6,19 @@
 # plugin produces?
 #
 # Usage:
-#   tclsh de1app_edit_oracle.tcl <plugin-src> <profile.tcl> <proc-suffix> <global> <value>
+#   tclsh de1app_edit_oracle.tcl <plugin-src> <profile.tcl> <proc-suffix> \
+#         <global> <value> [<global> <value> ...]
 #
 #   <plugin-src>   A_Flow/code.tcl or D_Flow_Espresso_Profile/plugin.tcl
 #   <proc-suffix>  A-Flow | D-Flow   (selects update_A-Flow / update_D-Flow)
 #   <global>       e.g. Aflow_pouring_temperature, ramp_down_enabled
 #   <value>        the new value
+#
+# Extra pairs model SUCCESSIVE SAVES, not one save with two fields changed: each
+# pair gets its own prep -> set -> update cycle, exactly as a user editing twice
+# would get. That distinction is the point of the compound case — the second prep
+# re-derives its parameters from the frames the first update wrote, so an
+# extraction error that survives one save compounds across two.
 #
 # Output: one line per resulting frame, "<index> <key> <value> <key> <value> ...".
 #
@@ -77,8 +84,10 @@ proc update_ramp_down {args} {}
 set plugin_src [lindex $argv 0]
 set profile    [lindex $argv 1]
 set suffix     [lindex $argv 2]
-set globalname [lindex $argv 3]
-set newvalue   [lindex $argv 4]
+set edits      [lrange $argv 3 end]
+if {[llength $edits] == 0 || [llength $edits] % 2 != 0} {
+    error "expected one or more <global> <value> pairs"
+}
 
 set fh [open $plugin_src r]; fconfigure $fh -encoding utf-8
 set src [read $fh]; close $fh
@@ -109,15 +118,14 @@ set title "Edited"
 regexp -line {^profile_title\s+\{(.*)\}$} $content -> title
 set ::settings(profile_title) $title
 
-# prep populates the plugin's globals from the frames — exactly as a profile
-# load does in the app.
-prep
-
-# the edit
-set ::$globalname $newvalue
-
-# regenerate
-update_${suffix}
+# One prep -> edit -> update cycle per pair. prep populates the plugin's globals
+# from the frames, exactly as a profile load does in the app, so a second cycle
+# reads back whatever the first one wrote.
+foreach {globalname newvalue} $edits {
+    prep
+    set ::$globalname $newvalue
+    update_${suffix}
+}
 
 set i 0
 foreach f $::settings(advanced_shot) {

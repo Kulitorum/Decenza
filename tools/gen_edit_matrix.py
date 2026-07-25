@@ -11,9 +11,15 @@ tools/de1app_edit_oracle.tcl and records the resulting frames. The C++ side
 (tst_recipeeditorapppath) drives the same edit through ProfileManager's
 Q_INVOKABLEs and diffs.
 
-Only parameters the plugins actually expose are edited. Decenza's four extra
-ones (fillTimeout / fillPressure / fillFlow / infuseEnabled) have no counterpart
-to compare against — they are covered as findings, not here.
+Only parameters the plugins actually expose are edited. Decenza's four extra ones
+(fillTimeout / fillPressure / fillFlow / infuseEnabled) had no counterpart to
+compare against; they have since been removed.
+
+It also emits one COMPOUND case per profile: two parameters changed in
+succession, each with its own prep -> update cycle. The single-edit matrix always
+starts from a pristine profile, so it cannot see an error that only appears when
+a second edit re-derives its parameters from the frames the first one wrote —
+which is exactly how AF-1 compounded.
 
 Usage:  python3 tools/gen_edit_matrix.py <de1plus-dir>
 """
@@ -41,6 +47,13 @@ SHARED = [
     ("pourFlow",        "{p}flow_pouring_flow",        "2.6"),
     ("pourPressure",    "{p}flow_pouring_pressure",    "7.5"),
 ]
+
+# (key, [(global, value), ...]) — applied in order, one save each.
+COMPOUND = {
+    "aflow": ("compound", [("Aflow_pouring_flow", "2.6"), ("ramp_down_enabled", "1")]),
+    "dflow": ("compound", [("Dflow_soaking_pressure", "5.5"),
+                           ("Dflow_pouring_temperature", "91.5")]),
+}
 
 AFLOW_ONLY = [
     ("rampTime",          "Aflow_ramp_updown_seconds", "7"),
@@ -128,8 +141,12 @@ def main():
         if kind == "aflow":
             edits += AFLOW_ONLY
 
-        for key, glob, val in edits:
-            res = subprocess.run(["tclsh", ORACLE, src, profile, suffix, glob, val],
+        runs = [(key, [glob, val]) for key, glob, val in edits]
+        ckey, cpairs = COMPOUND[kind]
+        runs.append((ckey, [x for pair in cpairs for x in pair]))
+
+        for key, argv in runs:
+            res = subprocess.run(["tclsh", ORACLE, src, profile, suffix] + argv,
                                  capture_output=True, text=True)
             if res.returncode != 0 or not res.stdout.strip():
                 print("  FAIL %-28s %-18s %s" % (base, key,
@@ -143,7 +160,7 @@ def main():
                 lines.append("%s\t%s" % (idx, "\t".join(f.get(k, "") for k in FIELDS)))
             with open(os.path.join(OUT, "%s__%s.txt" % (base, key)), "w") as fh:
                 fh.write("# fields: idx\t" + "\t".join(FIELDS) + "\n")
-                fh.write("# edit: %s = %s (de1app global %s)\n" % (key, val, glob))
+                fh.write("# edit: %s -> %s\n" % (key, " ".join(argv)))
                 fh.write("\n".join(lines) + "\n")
             written += 1
 
