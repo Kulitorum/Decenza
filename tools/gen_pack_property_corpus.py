@@ -19,6 +19,13 @@ Encoders under stress, and why each boundary matters:
           no stock profile sits near it.
   U10P0   volume. Integer with a bit-10 marker; 1023/1024 is the wrap point.
 
+The first two profiles are PINNED: their frames carry the critical boundary
+values explicitly, one per frame, so coverage of the switchover and the rounding
+ties is guaranteed by construction rather than by the seed happening to draw
+them. The rest are random. That distinction matters at this corpus size — with a
+hundred-odd profiles you can trust the dice, with two dozen you cannot, and the
+whole point is the boundaries.
+
 Deterministic: fixed seed, so re-running reproduces the corpus exactly and a
 diff in the goldens means a real change in de1app, not churn.
 
@@ -104,6 +111,60 @@ def frame_to_tcl(f):
     return "{" + " ".join(parts) + "}"
 
 
+# --- pinned boundary frames -------------------------------------------------
+# One boundary per frame, so a divergence names itself. A DE1 profile takes at
+# most 20 frames; ten each keeps both well inside that.
+
+def _frame(idx, **over):
+    """A neutral frame with every field at a safe value, overridden per case."""
+    f = {
+        "name": "P%d" % idx, "temperature": 90.0, "sensor": "coffee",
+        "pump": "flow", "transition": "fast", "pressure": 6.0, "flow": 2.0,
+        "seconds": 10.0, "volume": 0, "weight": 0, "exit_if": 0,
+        "exit_type": "pressure_over", "exit_pressure_over": 0,
+        "exit_pressure_under": 0, "exit_flow_over": 0, "exit_flow_under": 0,
+        "max_flow_or_pressure": 0, "max_flow_or_pressure_range": 0.6,
+    }
+    f.update(over)
+    return f
+
+
+def pinned_profiles():
+    """Two profiles whose frames sit exactly on the encoder boundaries."""
+    # F8_1_7 duration: the split format's switchover at 12.75, plus the ends.
+    durations = [0, 0.05, 0.1, 12.7, 12.74, 12.75, 12.76, 12.8, 126.9, 127.0]
+    a = [_frame(i, seconds=d) for i, d in enumerate(durations)]
+
+    # U8P4 (1/16 steps) ties at +1/32; U8P1 (1/10) ties at .x5; U10P0 wrap.
+    u8p4_ties = [0.03125, 0.09375, 1.03125, 6.03125, 9.03125, 12.03125,
+                 15.90625, 0.5, 2.53125, 7.96875]
+    u8p1_ties = [20.05, 32.45, 55.55, 78.85, 90.05, 93.05, 96.55, 99.95,
+                 104.95, 105.0]
+    volumes   = [0, 1, 99, 100, 512, 1021, 1022, 1023, 777, 256]
+    b = [_frame(i, pressure=p, temperature=t, volume=v,
+                max_flow_or_pressure=p, exit_pressure_over=p, exit_flow_over=p,
+                pump="pressure")
+         for i, (p, t, v) in enumerate(zip(u8p4_ties, u8p1_ties, volumes))]
+    return [a, b]
+
+
+def profile_text(frames, i):
+    lines = [
+        "advanced_shot {%s}" % " ".join(frame_to_tcl(f) for f in frames),
+        "profile_title {PropTest %03d}" % i,
+        "settings_profile_type settings_2c",
+        "author property-test",
+        "beverage_type espresso",
+        "espresso_temperature %s" % frames[0]["temperature"],
+        "final_desired_shot_weight_advanced 36",
+        "final_desired_shot_volume_advanced_count_start 0",
+        "maximum_flow_range_advanced 0.6",
+        "maximum_pressure_range_advanced 0.6",
+        "tank_desired_water_temperature 0",
+    ]
+    return "\n".join(lines) + "\n"
+
+
 def make_profile(rng, i):
     nframes = rng.randrange(1, 11)          # DE1 accepts up to 20; 1..10 is plenty
     frames = [make_frame(rng, n) for n in range(nframes)]
@@ -127,7 +188,7 @@ def main():
     if len(sys.argv) < 2:
         raise SystemExit(__doc__)
     de1plus = os.path.expanduser(sys.argv[1])
-    count = int(sys.argv[2]) if len(sys.argv) > 2 else 120
+    count = int(sys.argv[2]) if len(sys.argv) > 2 else 24
 
     os.makedirs(OUT, exist_ok=True)
     for stale in os.listdir(OUT):
@@ -135,12 +196,15 @@ def main():
             os.remove(os.path.join(OUT, stale))
 
     rng = random.Random(SEED)
+    pinned = pinned_profiles()
     ok = 0
     for i in range(count):
         name = "prop_%03d" % i
         tcl_path = os.path.join(OUT, name + ".tcl")
         with open(tcl_path, "w") as fh:
-            fh.write(make_profile(rng, i))
+            # The first two are the explicit boundary profiles; see above.
+            fh.write(profile_text(pinned[i], i) if i < len(pinned)
+                     else make_profile(rng, i))
 
         res = subprocess.run(["tclsh", ORACLE, de1plus, tcl_path],
                              capture_output=True, text=True)

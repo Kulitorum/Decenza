@@ -1310,7 +1310,14 @@ private slots:
     void packedBytesMatchDe1appAcrossQuantisationSpace() {
         QDir dir(QStringLiteral(PACK_PROPERTY_PATH));
         const QStringList cases = dir.entryList({QStringLiteral("*.tcl")}, QDir::Files, QDir::Name);
-        QVERIFY2(cases.size() >= 100,
+        // 24, of which the first TWO are pinned: their frames carry the boundary
+        // values explicitly, one per frame, so coverage of the F8_1_7 switchover
+        // and the U8P4/U8P1/U10P0 ties is guaranteed by construction rather than
+        // by the seed happening to draw them. That is what lets the corpus be
+        // this small — it was 120 random profiles, which re-proved through a
+        // heavy mechanism what tst_binarycodec already asserts directly, at the
+        // cost of 240 committed files.
+        QVERIFY2(cases.size() >= 20,
                  qPrintable(QStringLiteral("property corpus too small (%1) — regenerate")
                             .arg(cases.size())));
 
@@ -1346,7 +1353,7 @@ private slots:
             }
         }
 
-        QVERIFY2(compared >= 100, "too few profiles actually compared");
+        QVERIFY2(compared >= 20, "too few profiles actually compared");
         QVERIFY2(failures.isEmpty(),
                  qPrintable(QStringLiteral("%1 quantisation divergence(s) across %2 profiles:\n  %3")
                             .arg(failures.size()).arg(compared)

@@ -560,6 +560,14 @@ void VisualizerImporter::onProfileFetchFinished(QNetworkReply* reply) {
     }
 
     if (!profile.isValid() || profile.steps().isEmpty()) {
+        // Every other skip and failure in this loop names the profile; this one
+        // used to increment a counter and say nothing, so a batch that quietly
+        // dropped items gave the user an aggregate number and no way to find out
+        // which or why.
+        qWarning() << "VisualizerImporter: skipping" << profile.title()
+                   << "-" << (profile.steps().isEmpty()
+                                  ? QStringLiteral("no frames")
+                                  : profile.validationErrors().join(QStringLiteral(", ")));
         m_batchSkipped++;
     } else {
         QString filename = m_saveHelper->titleToFilename(profile.title());
@@ -631,7 +639,18 @@ Profile VisualizerImporter::parseVisualizerProfile(const QJsonObject& json) {
         profile.setTitle(json["title"].toString("Imported Profile"));
     }
 
-    // Safety net: if profile has recipe params with no steps, generate frames
+    // Safety net: if profile has recipe params with no steps, generate frames.
+    //
+    // regenerateFromRecipe() now refuses when the parameters were never
+    // established, and that is deliberate here rather than a gap. A Visualizer
+    // download carries no recipe block — both plugins rebuild their editor from
+    // the frames, so nothing persists one — which means "no steps AND no recipe"
+    // is a broken payload, and the old behaviour was to fabricate a complete
+    // default profile from it. That is REC-1. It now stays empty and is rejected
+    // by the isValid()/steps().isEmpty() checks in both callers.
+    //
+    // The net still fires for its actual case: a profile that DOES carry a
+    // recipe block but lost its steps.
     if (profile.steps().isEmpty() && profile.editorType() != QLatin1String("advanced")) {
         profile.regenerateFromRecipe();
     }
