@@ -401,6 +401,67 @@ Combined with §4's result that generation's rules are faithful, the picture is:
 > Decenza's A-Flow **editor** and **generator** are both right. The **analyzer** was never written
 > for A-Flow, and four vestigial parameters leak into the frames.
 
+---
+
+# AF-7 — the app shows struct defaults, not the profile · **the finding that matters**
+
+`tests/tst_recipeeditorapppath.cpp` drives the two `Q_INVOKABLE`s QML binds
+(`getOrConvertRecipeParams` / `uploadRecipeProfile`). It contradicts the layers below it, in both
+directions, and supersedes their severity estimates.
+
+**What the editor displays for every stock A-Flow profile:**
+
+| | fill °C | infuse s | pour °C | pour bar | pour flow | ramp s | ramp-down |
+|---|---|---|---|---|---|---|---|
+| editor shows (all five) | **88** | **20** | **93** | **9** | **2** | **5** | **off** |
+| default-medium really is | 93 | 60 | 95 | 10 | 2 | 10 | off |
+| default-light really is | 95 | 60 | 95 | 9.5 | 3 | 10 | off |
+| default-very-dark really is | 93 | 6 | 88 | 10 | 1.8 | 6 | **on** |
+
+Those are not analyzer misreads. **They are bare `RecipeParams` struct defaults** — 88 / 20 / 93 /
+9 / 2 / 5, identical for all five.
+
+**Mechanism, and it is not AF-1..AF-6.** `getOrConvertRecipeParams` returns the *stored* recipe
+whenever `targetWeight > 0`, and never reaches `RecipeAnalyzer` at all. A `.tcl` has no recipe, so
+loading one leaves `m_recipeParams` default-constructed — and `toJsonObject()` then *writes those
+defaults out* as a `recipe` block, because the title says A-Flow. From then on the profile carries
+a fabricated recipe that looks authoritative.
+
+**This is the proven origin of the five identical built-in blocks** that started this whole
+investigation. Previously inferred; now demonstrated end to end.
+
+**Severity: high, and it is a display bug before it is a data bug.** A user dialling in from the
+A-Flow editor is reading numbers that belong to no profile. They are misled whether or not they
+ever press Save.
+
+## What the app path clears
+
+Measured, not assumed — and these correct earlier estimates in this document:
+
+- **A no-op save is safe.** All five A-Flow and all three D-Flow profiles survive open-and-save
+  untouched. `needFrameRegen` short-circuits when no frame-affecting field changed.
+- **AF-1 does not compound through the app.** Three consecutive real edits leave extraction flow
+  unchanged. The compounding shown against `RecipeGenerator` alone does not reach users.
+- **D-Flow's derived fill rule works end to end.** Editing soak pressure to 6.0 correctly yields
+  fill pressure 6.0 and exit-pressure-over 3.6.
+- **`editorType` is repaired** from the title before the editor is populated, so the 9→3 frame
+  collapse seen in the parity suite cannot happen in the app.
+
+## What the app path confirms as real
+
+- **Editing corrupts.** Changing pour temperature also rewrites frames 0-2 from 93 °C to 88 °C —
+  because the editor's fill temperature was a default, and Save writes it. Any edit propagates the
+  phantom defaults into the frames.
+
+## Revised repair order
+
+1. **AF-7** — stop `toJsonObject()` fabricating a recipe block for a profile that has none, and
+   make `getOrConvertRecipeParams` derive from frames when no *real* recipe is stored. This is the
+   one users feel, and it subsumes most of AF-1..AF-6's user-visible impact.
+2. **AF-1..AF-5** — implement `prep` so the derivation in (1) is correct rather than merely present.
+3. **AF-6 / §7** — delete the four vestigial parameters.
+4. **DF-1/2/5** — absorbed by the #331 restore today; fix with (2) for correctness, not urgency.
+
 # Status
 
 All verification sections complete (§1–§8). Full suite: **99/99 green, no warnings** — worth

@@ -918,6 +918,26 @@ add_decenza_test(tst_profilemanager
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
 target_link_libraries(tst_profilemanager PRIVATE decenza_shotlib Qt6::Qml paho-mqtt3a-static)
+
+# --- tst_recipeeditorapppath: recipe editing through the path a USER takes ---
+# Companion to tst_recipeeditorparity, which exercises RecipeGenerator and
+# RecipeAnalyzer directly — one layer below the app. This drives the two
+# Q_INVOKABLEs QML binds (getOrConvertRecipeParams / uploadRecipeProfile), which
+# is the only place ProfileManager's editorType repair and regenerateFromRecipe's
+# #331 passthrough restore are both in the path.
+add_decenza_test(tst_recipeeditorapppath
+    tst_recipeeditorapppath.cpp
+    ${MCP_MOC_HEADERS}
+    ${PROFILEMANAGER_SOURCES}
+    ${CMAKE_BINARY_DIR}/version_code.cpp
+)
+target_link_libraries(tst_recipeeditorapppath PRIVATE Qt6::Graphs Qt6::Quick paho-mqtt3a-static)
+target_include_directories(tst_recipeeditorapppath PRIVATE ${CMAKE_BINARY_DIR})
+target_compile_definitions(tst_recipeeditorapppath PRIVATE
+    DE1APP_PROFILES_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/de1app_profiles"
+    DFLOW_PLUGIN_PROFILES_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/dflow_plugin_profiles"
+)
+
 target_include_directories(tst_profilemanager PRIVATE ${CMAKE_BINARY_DIR})
 target_compile_definitions(tst_profilemanager PRIVATE SRCDIR="${CMAKE_SOURCE_DIR}/tests")
 # Add built-in profiles QRC so isBuiltInFilename() works in tests
@@ -925,6 +945,10 @@ qt_add_resources(PROFILES_QRC ${CMAKE_SOURCE_DIR}/resources/profiles.qrc)
 target_sources(tst_profilemanager PRIVATE ${PROFILES_QRC})
 # Also needed for compareWithBuiltin test (QFile::exists(":/profiles/..."))
 target_sources(tst_tclimport PRIVATE ${PROFILES_QRC})
+# ProfileManager falls back to :/profiles/default.json on construction; without
+# the built-in resource it warns, and QTest::failOnWarning turns that into a
+# failure unrelated to anything under test.
+target_sources(tst_recipeeditorapppath PRIVATE ${PROFILES_QRC})
 
 # --- MCP tool tests (ProfileManager + MockTransport) ---
 
