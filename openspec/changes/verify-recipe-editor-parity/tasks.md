@@ -4,11 +4,11 @@
 
 ## 1. Reference capture
 
-- [ ] 1.1 Record the pinned submodule commits for both plugins (`A_Flow` at `e1a4d87` at time of writing; capture D-Flow's) in the parity suite, so a plugin bump is visible rather than silent.
-- [ ] 1.2 Transcribe D-Flow's `proc prep` and `proc update_D-Flow` (`D_Flow_Espresso_Profile/plugin.tcl`) into a commented reference table: which parameter reads which frame field, which frame fields each write touches, and the derived fill-pressure rule. Cite line numbers.
-- [ ] 1.3 Transcribe A-Flow's `proc prep`, `proc update_A-Flow`, and `proc set_profile_index` (`A_Flow/code.tcl`) the same way, including both frame layouts, the three toggle derivations, and the ramp-time split with its rounding.
-- [ ] 1.4 Extract D-Flow's stock profiles from the `write_*_profile` procs into test data with provenance recorded — they are embedded in Tcl, not shipped as files. Confirm whether those are the complete set Decenza ships as `d_flow_*.json`.
-- [ ] 1.5 Wire A-Flow's five stock `.tcl` files from the plugin's `profiles/` directory in as fixtures. Assert at load that each has 9 frames, so a stale 6-frame copy cannot silently become the oracle.
+- [x] 1.1 Record the pinned submodule commits for both plugins (`A_Flow` at `e1a4d87` at time of writing; capture D-Flow's) in the parity suite, so a plugin bump is visible rather than silent. — A_Flow `e1a4d871`, D_Flow `7f3c9726`, de1app `fe5cf40c`.
+- [x] 1.2 Transcribe D-Flow's `proc prep` and `proc update_D-Flow` (`D_Flow_Espresso_Profile/plugin.tcl`) into a commented reference table: which parameter reads which frame field, which frame fields each write touches, and the derived fill-pressure rule. Cite line numbers. — `reference.md`.
+- [x] 1.3 Transcribe A-Flow's `proc prep`, `proc update_A-Flow`, and `proc set_profile_index` (`A_Flow/code.tcl`) the same way, including both frame layouts, the three toggle derivations, and the ramp-time split with its rounding. — `reference.md`.
+- [x] 1.4 Extract D-Flow's stock profiles from the `write_*_profile` procs into test data with provenance recorded — they are embedded in Tcl, not shipped as files. Confirm whether those are the complete set Decenza ships as `d_flow_*.json`. — `tools/extract_dflow_profiles.py` → `tests/data/dflow_plugin_profiles/` (default, Q, La Pavoni; all 3 frames), provenance + the reconstructed-`default` caveat in that dir's README. Matches the three `d_flow_*.json` built-ins.
+- [x] 1.5 Wire A-Flow's five stock `.tcl` files from the plugin's `profiles/` directory in as fixtures. Assert at load that each has 9 frames, so a stale 6-frame copy cannot silently become the oracle. — `tests/data/de1app_profiles/A-Flow____*.tcl` verified byte-identical to the plugin copies and all 9 frames; `de1plus/profiles/` confirmed stale (4 files at 6 frames, `default-light` missing entirely).
 
 ## 2. D-Flow parity
 
