@@ -2,27 +2,31 @@
 
 The edit matrix (`editMatrixMatchesDe1app`, 99 cases) is the gate throughout. Record its
 score after each numbered section — a step that does not move it did not do what it claimed.
-Starting point: **13/99**.
+Starting point: **13/99 rows, 317 differing fields**. Both numbers matter — the row
+count hides partial progress, since a row counts once whether one field differs or five.
+
+  after §1 (REC-1)      75 rows / 317 fields — all 24 D-Flow rows clear
+  after §2 (prep)       75 rows /  75 fields — exactly one field left per row
 
 Never adjust a golden to match Decenza. If a golden looks wrong, re-read the oracle; if the
 oracle is right, Decenza changes (design D6).
 
 ## 1. REC-1 — stop fabricating recipe blocks
 
-- [ ] 1.1 Settle the D2 open question: gate the recipe-block write on `Profile` knowing its params were established, or on a `RecipeParams::isDefault()` predicate. Decide with the call sites in front of you and record which and why in `design.md`.
-- [ ] 1.2 Gate `Profile::toJsonObject()`'s recipe-block emission on that evidence rather than on `editorType()` matching the title. A default-constructed `RecipeParams` must produce no block.
-- [ ] 1.3 Make `ProfileManager::getOrConvertRecipeParams()` reach the frame-derived path whenever no genuine block exists. Its current guard (`targetWeight > 0`) is satisfied by the struct default of 36.0 and must not be the test.
-- [ ] 1.4 Check every other producer of a recipe block — importer, converter, `ProfileSaveHelper`, the MCP save/edit tools — for the same title-implies-block assumption.
-- [ ] 1.5 Flip the REC-1 expected-failures to real passes. Re-run the matrix; expect ~69 of the 86 divergences to clear, on **both** editors.
+- [x] 1.1 Settle the D2 open question: gate the recipe-block write on `Profile` knowing its params were established, or on a `RecipeParams::isDefault()` predicate. Decide with the call sites in front of you and record which and why in `design.md`.
+- [x] 1.2 Gate `Profile::toJsonObject()`'s recipe-block emission on that evidence rather than on `editorType()` matching the title. A default-constructed `RecipeParams` must produce no block.
+- [x] 1.3 Make `ProfileManager::getOrConvertRecipeParams()` reach the frame-derived path whenever no genuine block exists. Its current guard (`targetWeight > 0`) is satisfied by the struct default of 36.0 and must not be the test.
+- [x] 1.4 Check every other producer of a recipe block — importer, converter, `ProfileSaveHelper`, the MCP save/edit tools — for the same title-implies-block assumption.
+- [x] 1.5 Flip the REC-1 expected-failures to real passes. Re-run the matrix; expect ~69 of the 86 divergences to clear, on **both** editors.
 
 ## 2. AF-1…AF-5 — implement `prep`
 
-- [ ] 2.1 Transcribe `A_Flow/code.tcl`'s `prep` as A-Flow's extraction, replacing the D-Flow pattern analyzer for that editor. Cite the plugin line for each rule, as `reference.md` does. Keep D-Flow's extraction separate (design D3).
-- [ ] 2.2 Resolve frame roles through `set_profile_index`'s positional rule, covering the 9-frame and legacy 6-frame layouts. No name matching, no sequence pattern matching.
-- [ ] 2.3 AF-1: pour flow from the `Flow Start` frame. This is the error that compounds per save (2× each round-trip), so verify the round-trip fixed-point assertions go green with it.
-- [ ] 2.4 AF-3: ramp time as the **sum** of the ramp-up and ramp-down frame durations, including the odd-value remainder the plugin puts on the decline frame.
-- [ ] 2.5 AF-2 / AF-4: derive all three toggles from frame structure — `ramp_down(seconds) > 0`, `pouring(flow) > pouring_start(flow)`, and the pause frame's non-zero duration on a 9-frame layout. `A-Flow / default-very-dark` must extract ramp-down **enabled**, per its frames and the plugin readme.
-- [ ] 2.6 Flip the AF-1…AF-5 expected-failures. Re-run the matrix; expect most of the remaining divergences to clear.
+- [x] 2.1 Transcribe `A_Flow/code.tcl`'s `prep` as A-Flow's extraction, replacing the D-Flow pattern analyzer for that editor. Cite the plugin line for each rule, as `reference.md` does. Keep D-Flow's extraction separate (design D3).
+- [x] 2.2 Resolve frame roles through `set_profile_index`'s positional rule, covering the 9-frame and legacy 6-frame layouts. No name matching, no sequence pattern matching.
+- [x] 2.3 AF-1: pour flow from the `Flow Start` frame. This is the error that compounds per save (2× each round-trip), so verify the round-trip fixed-point assertions go green with it.
+- [x] 2.4 AF-3: ramp time as the **sum** of the ramp-up and ramp-down frame durations, including the odd-value remainder the plugin puts on the decline frame.
+- [x] 2.5 AF-2 / AF-4: derive all three toggles from frame structure — `ramp_down(seconds) > 0`, `pouring(flow) > pouring_start(flow)`, and the pause frame's non-zero duration on a 9-frame layout. `A-Flow / default-very-dark` must extract ramp-down **enabled**, per its frames and the plugin readme.
+- [x] 2.6 Flip the AF-1…AF-5 expected-failures. Re-run the matrix; expect most of the remaining divergences to clear.
 
 ## 3. AF-6 and §7 — remove the vestigial parameters
 

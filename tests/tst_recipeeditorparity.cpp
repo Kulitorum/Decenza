@@ -542,10 +542,8 @@ private slots:
         check("pourPressure",    got.pourPressure,    want.pourPressure);
         check("pourTemperature", got.pourTemperature, want.pourTemperature);
 
-        // FINDINGS AF-1 (pourFlow off by 2x) and AF-3 (rampTime not summed).
-        if (!wrong.isEmpty())
-            QEXPECT_FAIL("", qPrintable(QStringLiteral("AF-1/AF-3/AF-5: %1")
-                                        .arg(wrong.join(QStringLiteral("; ")))), Continue);
+        // AF-1 (pourFlow off by 2x), AF-3 (rampTime not summed) and AF-5
+        // (fillTimeout from Pre Fill) — repaired by transcribing prep.
         QVERIFY2(wrong.isEmpty(),
                  qPrintable(QStringLiteral("%1: extraction disagrees with prep:\n  %2")
                             .arg(file, wrong.join(QStringLiteral("\n  ")))));
@@ -577,10 +575,8 @@ private slots:
         checkBool("flowExtractionUp",  got.flowExtractionUp,  want.flowExtractionUp);
         checkBool("secondFillEnabled", got.secondFillEnabled, want.secondFillEnabled);
 
-        // FINDINGS AF-2 (flowExtractionUp) and AF-4 (rampDownEnabled).
-        if (!wrong.isEmpty())
-            QEXPECT_FAIL("", qPrintable(QStringLiteral("AF-2/AF-4: %1")
-                                        .arg(wrong.join(QStringLiteral("; ")))), Continue);
+        // AF-2 (flowExtractionUp mis-derived) and AF-4 (rampDownEnabled never
+        // derived) — repaired; all three toggles now come from the frames.
         QVERIFY2(wrong.isEmpty(),
                  qPrintable(QStringLiteral("%1: toggles disagree with prep:\n  %2")
                             .arg(file, wrong.join(QStringLiteral("\n  ")))));
@@ -601,7 +597,6 @@ private slots:
                  "fixture no longer has a non-zero decline — check the plugin");
 
         const RecipeParams got = RecipeAnalyzer::extractRecipeParams(p);
-        QEXPECT_FAIL("", "AF-4: rampDownEnabled is never derived from the frames", Continue);
         QVERIFY2(got.rampDownEnabled,
                  "default-very-dark must extract rampDownEnabled = true "
                  "(plugin readme, and its Pressure Decline frame is non-zero)");

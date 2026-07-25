@@ -101,6 +101,7 @@ private:
     // editMatrixScoreIsTheRecordedBaseline. Qt Test runs slots in declaration
     // order, so the score slot must stay declared after the matrix.
     static inline int s_matrixRows = 0;
+    static inline int s_matrixFieldDiffs = 0;   // total differing fields, all rows
     static inline QStringList s_matrixDiverging;
 
     // Load a plugin .tcl through Decenza's own reader, then install it via the
@@ -464,6 +465,7 @@ private slots:
         }
 
         ++s_matrixRows;
+        s_matrixFieldDiffs += int(diff.size());
         if (!diff.isEmpty())
             s_matrixDiverging << QStringLiteral("%1 [%2] %3").arg(golden, param, diff.first());
 
@@ -493,7 +495,23 @@ private slots:
         // improvement. Never raise it to accommodate a regression.
         constexpr int kMatrixDivergingBaseline = 75;
 
+        // The row count alone hides partial progress: a row keeps counting as one
+        // divergence whether five fields differ or one, so a repair that fixes
+        // four of five fields moves nothing. The field total is what shows a
+        // section landing. Same rule — lower it, never raise it.
+        //   317  after §1
+        //    75  after §2 (prep transcribed): exactly ONE differing field per
+        //         diverging row — Fill pressure, which §3 removes
+        constexpr int kMatrixFieldDiffBaseline = 75;
+
         QCOMPARE(s_matrixRows, 99);
+        QVERIFY2(s_matrixFieldDiffs == kMatrixFieldDiffBaseline,
+                 qPrintable(QStringLiteral(
+                     "edit matrix: %1 differing fields across %2 rows, baseline says %3. %4")
+                     .arg(s_matrixFieldDiffs).arg(s_matrixRows).arg(kMatrixFieldDiffBaseline)
+                     .arg(s_matrixFieldDiffs < kMatrixFieldDiffBaseline
+                              ? QStringLiteral("An improvement — lower the baseline.")
+                              : QStringLiteral("A REGRESSION — do not raise it."))));
         QVERIFY2(s_matrixDiverging.size() == kMatrixDivergingBaseline,
                  qPrintable(QStringLiteral(
                      "edit matrix: %1 of %2 rows diverge, baseline says %3.\n"

@@ -113,5 +113,5 @@ Carried forward from the parity change, because it is what made these findings f
 
 ## Open Questions
 
-- Does the D2 gate belong on `Profile` (does this profile have established params?) or as an explicit `RecipeParams::isDefault()` comparison against a static default instance? The latter needs no new state and is a two-line predicate; decide when the call sites are in front of us.
+- ~~Does the D2 gate belong on `Profile` or as a `RecipeParams::isDefault()` predicate?~~ **Settled: on `Profile`,** as `hasRecipeParams()`, set by `setRecipeParams()` and by `fromJson` when a block is present. `isDefault()` was rejected on a concrete failure mode — a user who deliberately sets values equal to the defaults would have their block silently dropped. "Did anyone establish these?" is a fact about the profile's history, and no amount of inspecting the values can recover it. The flag also gave `regenerateFromRecipe()` the guard it needed to stop generating a whole plausible profile out of member initialisers.
 - Should the five A-Flow built-ins be re-synced from the plugin once the fabrication stops, so their stale blocks disappear from the shipped files? That is a `resources/profiles/` edit and therefore outside this change's Non-Goals — raise it as a separate decision with the maintainer.

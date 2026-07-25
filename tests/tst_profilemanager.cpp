@@ -2825,7 +2825,15 @@ private slots:
 
     void getOrConvertRecipeParamsDFlowNoStoredExtractsFromFrames() {
         // D-Flow profile without stored recipe params (de1app import)
-        // Should extract params from frames on-the-fly
+        // Should extract params from frames on-the-fly.
+        //
+        // The fixture is three frames — Filling / Infusing / Pouring — because
+        // that is what a D-Flow profile IS. The plugin's `prep` reads indices
+        // 0/1/2 with no pattern matching, so a two-frame profile has no pour
+        // frame to read and the extraction has nothing to do. This used to be a
+        // two-frame fixture asserting `pourFlow > 0`, which the struct default
+        // of 2.0 satisfied on its own: it would have passed with extraction
+        // deleted entirely. Assert the frames' own values instead.
         QJsonObject json;
         json["title"] = "D-Flow / Import";
         json["author"] = "test";
@@ -2855,18 +2863,32 @@ private slots:
         frame1["exit"] = QJsonObject{{"type", "pressure"}, {"condition", "over"}, {"value", 4.0}};
         frame1["limiter"] = QJsonObject{{"value", 0.0}, {"range", 0.6}};
         steps.append(frame1);
+        QJsonObject frameSoak;
+        frameSoak["name"] = "infuse";
+        frameSoak["temperature"] = 90.5;
+        frameSoak["sensor"] = "coffee";
+        frameSoak["pump"] = "pressure";
+        frameSoak["transition"] = "fast";
+        frameSoak["pressure"] = 3.5;
+        frameSoak["flow"] = 8.0;
+        frameSoak["seconds"] = 22.0;
+        frameSoak["volume"] = 70.0;
+        frameSoak["weight"] = 1.5;
+        frameSoak["exit"] = QJsonObject{{"type", "pressure"}, {"condition", "over"}, {"value", 4.0}};
+        frameSoak["limiter"] = QJsonObject{{"value", 0.0}, {"range", 0.6}};
+        steps.append(frameSoak);
         QJsonObject frame2;
         frame2["name"] = "pour";
-        frame2["temperature"] = 93.0;
+        frame2["temperature"] = 91.5;
         frame2["sensor"] = "coffee";
         frame2["pump"] = "flow";
         frame2["transition"] = "smooth";
         frame2["pressure"] = 6.0;
-        frame2["flow"] = 2.0;
+        frame2["flow"] = 2.4;
         frame2["seconds"] = 60.0;
         frame2["volume"] = 0.0;
         frame2["exit"] = QJsonObject{{"type", "pressure"}, {"condition", "over"}, {"value", 11.0}};
-        frame2["limiter"] = QJsonObject{{"value", 0.0}, {"range", 0.6}};
+        frame2["limiter"] = QJsonObject{{"value", 8.5}, {"range", 0.6}};
         steps.append(frame2);
         json["steps"] = steps;
 
@@ -2875,7 +2897,17 @@ private slots:
 
         QVariantMap params = f.profileManager.getOrConvertRecipeParams();
         QCOMPARE(params["editorType"].toString(), "dflow");
-        QVERIFY(params["pourFlow"].toDouble() > 0);  // Extracted from frames
+
+        // plugin.tcl:195-210 — filling(0), soaking(1), pouring(2), by index.
+        QCOMPARE(params["fillTemperature"].toDouble(), 93.0);
+        QCOMPARE(params["infusePressure"].toDouble(), 3.5);
+        QCOMPARE(params["infuseTime"].toDouble(), 22.0);
+        QCOMPARE(params["infuseVolume"].toDouble(), 70.0);
+        QCOMPARE(params["infuseWeight"].toDouble(), 1.5);
+        QCOMPARE(params["pourFlow"].toDouble(), 2.4);
+        QCOMPARE(params["pourTemperature"].toDouble(), 91.5);
+        // Pour pressure is the LIMITER, not the frame's pressure setpoint.
+        QCOMPARE(params["pourPressure"].toDouble(), 8.5);
     }
 
     void getOrConvertRecipeParamsPressureReturnsScalarFields() {
