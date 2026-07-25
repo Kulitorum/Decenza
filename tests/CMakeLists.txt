@@ -325,6 +325,14 @@ add_decenza_test(tst_simulatedscale
     tst_simulatedscale.cpp
 )
 
+# --- tst_de1simulator: simulator frame stepping ---
+# The simulator drives every shot pulled without a machine, so a fault here reads
+# as a fault in the profile — which is exactly how the zero-length-frame bug was
+# found (an A-Flow shot that never reached its extraction frame).
+add_decenza_test(tst_de1simulator
+    tst_de1simulator.cpp
+)
+
 # --- tst_livesteamcoach: during-steam coaching milestones, gating, completion ---
 add_decenza_test(tst_livesteamcoach
     tst_livesteamcoach.cpp
