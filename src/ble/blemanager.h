@@ -863,13 +863,18 @@ private:
     // die. Same reason MachineState::m_scale and ShotTimingController::m_scale
     // are QPointer (noted at the end of main()) — house style, not a one-off.
     //
-    // What made it necessary: main() declares its `refractometer` unique_ptr
-    // AFTER the QML engine, breaking the convention stated at the engine's own
-    // declaration in main.cpp ("declared before the engine ... so it outlives
-    // the engine at scope unwind"). Treat that as a defect that has not been
-    // fixed yet, not as a fact of life. At scope unwind the device therefore
-    // dies while the engine and every binding reading
-    // `BLEManager.refractometerConnected` are still live: ~QObject emits
+    // What made it necessary: main() used to declare its `refractometer`
+    // unique_ptr AFTER the QML engine, breaking the convention stated at the
+    // engine's own declaration ("declared before the engine ... so it outlives
+    // the engine at scope unwind"). That has since been fixed — the declaration
+    // now sits above the engine — so the specific crash below is no longer
+    // reachable at app exit. This stays because it is the second line of
+    // defence, and because it still covers the runtime recreate path (a new
+    // device discovered while one is live) that ordering does nothing for.
+    //
+    // What the ordering bug looked like, so nobody reintroduces it: the device
+    // died while the engine and every binding reading
+    // `BLEManager.refractometerConnected` were still live: ~QObject emits
     // destroyed(), QML drops the `Refractometer` context property, and the
     // resulting binding re-evaluation lands in isRefractometerConnected() on an
     // object whose derived part is already gone. Through a raw pointer, that

@@ -1933,6 +1933,16 @@ int main(int argc, char *argv[])
     // so it outlives the engine at scope unwind.
     TemperatureDisplayBridge temperatureDisplayBridge;
 
+    // Same rule, and this one was learned the hard way. The refractometer is
+    // wired up ~950 lines below, next to the rest of its BLE handling, but the
+    // unique_ptr lives HERE so the device outlives the engine. Declared down
+    // there it was destroyed first, and ~QObject's destroyed() reached a live
+    // QML binding on BLEManager.refractometerConnected, which dispatched a pure
+    // virtual on the half-destroyed object — a SIGBUS on quit. Keep the
+    // declaration above `engine`; the QPointer in BLEManager is the second
+    // line of defence, not a licence to move this back down.
+    std::unique_ptr<RefractometerDevice> refractometer;
+
     // Set up QML engine
     QQmlApplicationEngine engine;
     checkpoint("QML engine created");
@@ -2066,8 +2076,8 @@ int main(int argc, char *argv[])
     // by reference.
     //
     // Stack objects destruct in reverse declaration order, so everything declared
-    // after `engine` (the reconnect state just above, `refractometer` further
-    // down) is destroyed BEFORE `engine` is. The senders those handlers hang off
+    // after `engine` (the reconnect state just above) is destroyed BEFORE
+    // `engine` is. The senders those handlers hang off
     // — app, bleManager, machineState, screensaverManager, the scale — are all
     // declared above `engine` and so outlive the very locals their handlers write
     // to. A signal emitted during teardown then runs a lambda over dead stack.
@@ -2081,7 +2091,7 @@ int main(int argc, char *argv[])
     // when it dies. The explicit reset() after app.exec() is what does the work
     // and must not be dropped: it runs ahead of every local's destructor, whereas
     // this unique_ptr's own destructor fires at THIS declaration point and so
-    // would already be too late for anything declared below it (`refractometer`).
+    // would already be too late for anything declared below it.
     //
     // Handlers whose sender IS one of these locals (the reconnect timers) need no
     // guard — the connection already dies with the sender.
@@ -2873,14 +2883,8 @@ int main(int argc, char *argv[])
     });
 
     // === Refractometer (DiFluid R1 / R2) ===
-    // NOTE: declared AFTER `engine`, unlike the other context-property backing
-    // objects (see the convention stated at the engine's declaration). It is
-    // therefore destroyed while the engine and its bindings are still live, and
-    // BLEManager/MainController hold it via QPointer for exactly that reason —
-    // see BLEManager::m_refractometerDevice. Moving this above `engine` would
-    // remove the hazard at the source; until then, do not add a raw-pointer
-    // holder for this device.
-    std::unique_ptr<RefractometerDevice> refractometer;
+    // The `refractometer` unique_ptr itself is declared up with the engine —
+    // see the note there for why the order matters.
     engine.rootContext()->setContextProperty("Refractometer", nullptr);
 
     // Restore saved refractometer address for auto-reconnect
@@ -4261,18 +4265,21 @@ int main(int argc, char *argv[])
             physicalScale->disconnectFromScale();
         }
 
-        // Note: no need to null context properties here — but NOT because every
-        // C++ object outlives the engine. Most are declared before it and do;
-        // the exceptions (`refractometer` below, `de1SimulatorPtr` — see the
-        // note after app.exec()) are declared after it and die FIRST, while
-        // bindings that read them are still live. This comment used to claim
-        // the blanket guarantee, and a refractometer teardown crash proved it
-        // wrong. What makes nulling unnecessary is narrower: QML drops a
-        // context property itself when its object emits destroyed(), and the
-        // C++ side holds those objects via QPointer (see
-        // BLEManager::m_refractometerDevice) so it self-nulls at the same
-        // moment. A new context-property object held by a raw pointer would
-        // need one of those two, not this comment's blessing.
+        // Note: no need to null context properties here — but NOT because of a
+        // blanket "everything is declared before the engine" guarantee. This
+        // comment used to claim exactly that, and a refractometer teardown
+        // crash proved it wrong: the device was declared AFTER the engine, so
+        // it died first, while bindings reading it were still live.
+        //
+        // What actually holds: most context-property backing objects are
+        // declared above `engine` and so outlive it (`refractometer` now among
+        // them). Where that is not true — `de1SimulatorPtr`, see the note after
+        // app.exec(); also GHCSimulator and FlowCalibrationModel further down —
+        // safety comes from QML dropping a context property itself when its
+        // object emits destroyed(), plus the C++ side holding it via QPointer
+        // so it self-nulls at the same moment (BLEManager::m_refractometerDevice
+        // is the worked example). A new context-property object declared after
+        // the engine and held by a raw pointer has neither, and would need one.
 
         // Disable Qt's accessibility bridge before window destruction
         // This prevents iOS crash (SIGBUS) where the accessibility system tries to
