@@ -1841,6 +1841,81 @@ private slots:
         { QSettings s; s.remove(QStringLiteral("dye")); s.sync(); }
     }
 
+    // The dose ladder (dose-source-precedence): recipe → bag → profile, resolved
+    // by SettingsDye::doseOwner(). Drives the real async bag apply, so the bag
+    // rung is armed the way a bag selection actually arms it.
+    void settingsDyeDoseLadder() {
+        { QSettings s; s.remove(QStringLiteral("dye")); s.sync(); }
+
+        const QString path = freshDb();
+        CoffeeBagStorage storage;
+        storage.initialize(path);
+
+        qint64 bagWithDose = -1, bagNoDose = -1;
+        withRawDb(path, "dose_ladder_seed", [&](QSqlDatabase& db) {
+            CoffeeBag a; a.roasterName = "R"; a.coffeeName = "Dosed";
+            a.doseWeightG = 20.0;
+            bagWithDose = CoffeeBagStorage::insertBagStatic(db, a);
+            CoffeeBag b; b.roasterName = "R"; b.coffeeName = "Never dialed";
+            bagNoDose = CoffeeBagStorage::insertBagStatic(db, b);   // doseWeightG 0
+        });
+        QVERIFY(bagWithDose > 0 && bagNoDose > 0);
+
+        SettingsDye dye;
+        dye.setBagStorage(&storage);
+
+        // Nothing active: the profile is the owner.
+        QCOMPARE(dye.doseOwner(), SettingsDye::DoseOwner::Profile);
+
+        // A bag WITH a dose takes the rung, and applies its dose.
+        dye.setActiveBagId(static_cast<int>(bagWithDose));
+        QTRY_COMPARE(dye.dyeBeanWeight(), 20.0);
+        QCOMPARE(dye.doseOwner(), SettingsDye::DoseOwner::Bag);
+
+        // A bag WITHOUT one is SKIPPED, not read as zero — the ladder falls
+        // through to the profile, and the live dose is left alone (the bag
+        // adopts it on the first edit; coffee-bag-model).
+        dye.setActiveBagId(static_cast<int>(bagNoDose));
+        QTRY_COMPARE(dye.activeBagId(), static_cast<int>(bagNoDose));
+        QTRY_COMPARE(dye.doseOwner(), SettingsDye::DoseOwner::Profile);
+        QCOMPARE(dye.dyeBeanWeight(), 20.0);
+
+        // Dialing a dose onto that bag makes it the owner: the write-through
+        // gives the bag a dose, so the rung must stop reading empty. Without
+        // this the next profile load would overwrite what was just dialed.
+        dye.setDyeBeanWeight(21.5);
+        QCOMPARE(dye.doseOwner(), SettingsDye::DoseOwner::Bag);
+
+        // A recipe outranks the bag — but only one that supplies a dose.
+        dye.setActiveRecipeId(7);
+        dye.setActiveRecipeDose(0.0);            // grind-only recipe
+        QCOMPARE(dye.doseOwner(), SettingsDye::DoseOwner::Bag);
+        dye.setActiveRecipeDose(19.0);
+        QCOMPARE(dye.doseOwner(), SettingsDye::DoseOwner::Recipe);
+
+        // With the recipe on the top rung, re-applying the bag must NOT write
+        // its dose over the recipe's. This is the path an external bag edit
+        // takes (bag dialog / Next Portion / post-shot stamp → bagReady →
+        // applyActiveBag) — and since dyeBeanWeightChanged stamps the active
+        // recipe, an unguarded write would overwrite the recipe's stored dose,
+        // not merely the session value.
+        dye.setDyeBeanWeight(19.0);              // the recipe's dose is live
+        dye.setActiveBagId(static_cast<int>(bagWithDose));
+        QTRY_COMPARE(dye.activeBagId(), static_cast<int>(bagWithDose));
+        QTest::qWait(50);                        // let any queued apply land
+        QCOMPARE(dye.dyeBeanWeight(), 19.0);     // NOT the bag's 20.0
+        QCOMPARE(dye.doseOwner(), SettingsDye::DoseOwner::Recipe);
+
+        // Deactivating the recipe clears its rung, so the bag takes over.
+        dye.setActiveRecipeId(-1);
+        QCOMPARE(dye.doseOwner(), SettingsDye::DoseOwner::Bag);
+        // And clearing the bag drops to the profile.
+        dye.setActiveBagId(-1);
+        QCOMPARE(dye.doseOwner(), SettingsDye::DoseOwner::Profile);
+
+        { QSettings s; s.remove(QStringLiteral("dye")); s.sync(); }
+    }
+
     // SettingsDye is the equipment switch + dual-write-through orchestrator
     // (add-equipment-packages). Drives the real async chain via the public API:
     // switchToEquipment applies the package's identity + last dial and points the

@@ -85,6 +85,12 @@ void SettingsDye::setBagStorage(CoffeeBagStorage* storage)
                     if (m_activeBagYieldValue <= 0)
                         m_activeBagYieldMode = YieldSpec::modeNone();
                     emit activeBagYieldSpecChanged();
+                    // Same reasoning for the dose ladder's cache: keep-fields
+                    // means we do not APPLY the bag's dose, but doseOwner()
+                    // must still know whether this bag has one
+                    // (dose-source-precedence).
+                    const double keptDose = bag.value("doseWeightG", 0.0).toDouble();
+                    m_activeBagDoseG = keptDose > 0 ? keptDose : 0;
                     return;
                 }
                 applyActiveBag(bag);
@@ -476,6 +482,13 @@ void SettingsDye::setDyeBeanWeight(double value) {
         m_dyeBeanWeightCache = value;
         m_settings.setValue("dye/beanWeight", value);
         writeThroughToBag("doseWeightG", value);
+        // The write-through makes this the bag's dose, so the ladder's cache
+        // has to follow it (dose-source-precedence). Without this a bag that
+        // started with no dose would keep reading as an empty rung after the
+        // user dialed one, and a later profile load would overwrite it.
+        // Skipped while applying a bag — there the cache is set from the row.
+        if (!m_applyingBag && bagIdIsSet(activeBagId()))
+            m_activeBagDoseG = value > 0 ? value : 0;
         emit dyeBeanWeightChanged();
     }
 }
@@ -604,7 +617,24 @@ void SettingsDye::setActiveRecipeId(int recipeId) {
     if (activeRecipeId() == recipeId)
         return;
     m_settings.setValue("dye/activeRecipeId", recipeId);
+    if (recipeId <= 0)
+        m_activeRecipeDoseG = 0;   // no recipe → no rung on the dose ladder
     emit activeRecipeIdChanged();
+}
+
+void SettingsDye::setActiveRecipeDose(double doseG) {
+    m_activeRecipeDoseG = doseG > 0 ? doseG : 0;
+}
+
+SettingsDye::DoseOwner SettingsDye::doseOwner() const {
+    // recipe → bag → profile. A source holding no dose is SKIPPED, not read as
+    // zero: a grind-only recipe or a never-dialed bag must not strand the dose
+    // on a rung that has nothing to supply.
+    if (activeRecipeId() > 0 && m_activeRecipeDoseG > 0)
+        return DoseOwner::Recipe;
+    if (bagIdIsSet(activeBagId()) && m_activeBagDoseG > 0)
+        return DoseOwner::Bag;
+    return DoseOwner::Profile;
 }
 
 // Auto-load recipe (recipe-auto-load). Mutual exclusion with
@@ -648,6 +678,7 @@ void SettingsDye::setActiveBagId(int bagId) {
         m_activeBagOpenedDate.clear();
         m_activeBagYieldValue = 0;      // no bag → no yield spec
         m_activeBagYieldMode = QStringLiteral("none");
+        m_activeBagDoseG = 0;           // no bag → no rung on the dose ladder
         emit activeBagYieldSpecChanged();
         emit activeBagChanged();
         return;
@@ -673,6 +704,7 @@ void SettingsDye::setActiveBagKeepFields(int bagId)
         m_activeBagOpenedDate.clear();
         m_activeBagYieldValue = 0;      // no bag → no yield spec
         m_activeBagYieldMode = QStringLiteral("none");
+        m_activeBagDoseG = 0;           // no bag → no rung on the dose ladder
         emit activeBagYieldSpecChanged();
         emit activeBagIdChanged();
         emit activeBagChanged();
@@ -714,8 +746,20 @@ void SettingsDye::applyActiveBag(const QVariantMap& bag)
     const int bagRpm = bag.value("rpm", 0).toInt();
     if (bagRpm > 0)
         setDyeGrinderRpm(bagRpm);
+    // Cache the bag's dose for the ladder BEFORE deciding whether to apply it:
+    // the cache must be truthful even on the branch that declines to write, or
+    // doseOwner() keeps naming the previous bag.
     const double dose = bag.value("doseWeightG", 0.0).toDouble();
-    if (dose > 0)
+    m_activeBagDoseG = dose > 0 ? dose : 0;
+    // Applying the bag's dose is gated on no recipe supplying one — the
+    // dose-source-precedence ladder, the same gate coffee-bag-model already
+    // put on the bag's yield spec. Without it, an external edit to the active
+    // bag (the bag dialog, Next Portion, a post-shot stamp) re-enters here via
+    // bagReady and writes the bag's dose over the active recipe's — and since
+    // dyeBeanWeightChanged stamps the recipe, that overwrites the recipe's
+    // stored doseG too. m_applyingBag suppresses the write-through to the bag,
+    // not the stamp.
+    if (dose > 0 && doseOwner() != DoseOwner::Recipe)
         setDyeBeanWeight(dose);
 
     m_applyingBag = false;

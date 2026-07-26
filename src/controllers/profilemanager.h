@@ -396,6 +396,12 @@ private:
     // defaults: pre-fix sessions latched a same-as-default "override" on every
     // load, so a matching persisted value is noise, not intent.
     void resetBrewOverridesForLoadedProfile();
+    // Apply the loaded profile's recommended dose to the live dose — but only
+    // when the dose ladder names the profile as the owner, i.e. no active
+    // recipe or bag supplies one (dose-source-precedence). Also a no-op during
+    // the startup load, where the ladder cannot yet be answered and the live
+    // dose is already persisted.
+    void applyRecommendedDoseIfProfileOwnsIt();
     void migrateProfileFolders();
     void migrateProfileFormat();
     // One-time upgrade: remove the `recipe` block from already-saved profiles,

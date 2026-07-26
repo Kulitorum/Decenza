@@ -2121,6 +2121,117 @@ private slots:
         QCOMPARE(f.profileManager.targetWeight(), 38.0);
     }
 
+    // === The dose ladder on profile load (dose-source-precedence) ===
+
+    // Writes a D-Flow profile carrying an ENABLED recommended dose, then loads
+    // it through loadProfile — the path that applies the dose, and the one
+    // loadProfileFromJson (used by loadDFlowProfile above) never takes.
+    static void loadDFlowWithRecommendedDose(McpTestFixture& f, const QString& fileName,
+                                             double doseG) {
+        QJsonObject p = makeDFlowJson(QStringLiteral("D-Flow / ") + fileName);
+        p["recommended_dose"] = doseG;
+        p["has_recommended_dose"] = true;
+        const QString path = f.profileManager.userProfilesPath() + "/" + fileName + ".json";
+        QFile out(path);
+        QVERIFY(out.open(QIODevice::WriteOnly));
+        out.write(QJsonDocument(p).toJson());
+        out.close();
+        f.profileManager.refreshProfiles();
+        f.profileManager.loadProfile(fileName);
+        // The write is deferred to the next event-loop turn.
+        QCoreApplication::processEvents();
+    }
+
+    // The profile is the LAST rung. With nothing else active it supplies the
+    // dose, which is the behaviour that must survive the gate.
+    void profileDoseAppliesWhenNothingElseIsActive() {
+        clearTestProfileStore();
+        McpTestFixture f;
+        f.settings.dye()->setActiveRecipeId(-1);
+        f.settings.dye()->setActiveBagId(-1);
+        f.settings.dye()->setDyeBeanWeight(15.0);
+
+        loadDFlowWithRecommendedDose(f, "dose_profile_only", 21.0);
+
+        QCOMPARE(f.settings.dye()->doseOwner(), SettingsDye::DoseOwner::Profile);
+        QCOMPARE(f.settings.dye()->dyeBeanWeight(), 21.0);
+    }
+
+    // The inversion this change fixes. A recipe supplying a dose outranks the
+    // profile, so switching profiles while it is active must not touch the
+    // dose — and because dyeBeanWeightChanged stamps the recipe and writes
+    // through to the bag, a write here would not merely show the wrong number,
+    // it would overwrite the recipe's stored doseG.
+    void loadingAProfileDoesNotOverwriteAnActiveRecipesDose() {
+        clearTestProfileStore();
+        McpTestFixture f;
+        f.settings.dye()->setActiveBagId(-1);
+        f.settings.dye()->setDyeBeanWeight(19.0);
+        f.settings.dye()->setActiveRecipeId(7);
+        f.settings.dye()->setActiveRecipeDose(19.0);
+
+        loadDFlowWithRecommendedDose(f, "dose_recipe_wins", 21.0);
+
+        QCOMPARE(f.settings.dye()->doseOwner(), SettingsDye::DoseOwner::Recipe);
+        QCOMPARE(f.settings.dye()->dyeBeanWeight(), 19.0);
+
+        f.settings.dye()->setActiveRecipeId(-1);
+    }
+
+    // Same rule one rung down. The bag's dose is armed the way a real bag
+    // selection arms it — through the write-through — so no bag storage is
+    // needed here (tst_coffeebags drives the full async apply).
+    void loadingAProfileDoesNotOverwriteAnActiveBagsDose() {
+        clearTestProfileStore();
+        McpTestFixture f;
+        f.settings.dye()->setActiveRecipeId(-1);
+        f.settings.dye()->setActiveBagId(12);
+        f.settings.dye()->setDyeBeanWeight(20.0);   // write-through arms the rung
+        QCOMPARE(f.settings.dye()->doseOwner(), SettingsDye::DoseOwner::Bag);
+
+        loadDFlowWithRecommendedDose(f, "dose_bag_wins", 21.0);
+
+        QCOMPARE(f.settings.dye()->dyeBeanWeight(), 20.0);
+
+        f.settings.dye()->setActiveBagId(-1);
+    }
+
+    // A profile whose recommendation is not enabled changes nothing, whoever
+    // owns the dose. makeDFlowJson writes no dose keys, so the loaded profile
+    // holds the 18 g read-default with the flag off — exactly the shape every
+    // built-in ships in, and the reason the flag is checked before the value.
+    void aProfileWithNoRecommendationLeavesTheDoseAlone() {
+        clearTestProfileStore();
+        McpTestFixture f;
+        f.settings.dye()->setActiveRecipeId(-1);
+        f.settings.dye()->setActiveBagId(-1);
+        f.settings.dye()->setDyeBeanWeight(15.0);
+
+        loadThreeFrameDFlow(f, "dose_no_recommendation", "D-Flow / No Dose");
+        QCoreApplication::processEvents();
+
+        QVERIFY(!f.profileManager.currentProfile().hasRecommendedDose());
+        QCOMPARE(f.settings.dye()->dyeBeanWeight(), 15.0);
+    }
+
+    // Startup is not a resolution point: the bag and recipe rows are still
+    // loading, so the ladder cannot be answered, and the live dose is already
+    // persisted from whichever source won last session. Writing the profile's
+    // dose here would overwrite it on every launch.
+    void theStartupLoadDoesNotApplyTheProfilesDose() {
+        clearTestProfileStore();
+        McpTestFixture f;
+        f.settings.dye()->setActiveRecipeId(-1);
+        f.settings.dye()->setActiveBagId(-1);
+        f.settings.dye()->setDyeBeanWeight(19.5);   // persisted from last session
+
+        f.profileManager.m_startupLoadDone = false;
+        loadDFlowWithRecommendedDose(f, "dose_startup", 21.0);
+        f.profileManager.m_startupLoadDone = true;
+
+        QCOMPARE(f.settings.dye()->dyeBeanWeight(), 19.5);
+    }
+
     // === activateBrewWithOverrides ===
 
     void activateBrewWithOverridesSetsSettings() {

@@ -825,9 +825,15 @@ void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& sh
 
         // Restore dose (input parameter, not a result). When loading an auto-favorite,
         // `doseOverride` holds the bucketed dose shown on the card — apply that instead
-        // of the shot's raw saved dose so what-you-see is what-gets-loaded. The override
-        // is queued to run after ProfileManager::loadProfile's own deferred
-        // setDyeBeanWeight(recommendedDose) (also a QueuedConnection), so ours wins.
+        // of the shot's raw saved dose so what-you-see is what-gets-loaded.
+        //
+        // A shot replay is NOT one of the three standing dose sources, so it
+        // does not consult the ladder (dose-source-precedence) — it restores
+        // what that shot was actually pulled with. It stays queued for the same
+        // reason recipe activation does: ProfileManager::loadProfile may have
+        // already armed its own deferred setDyeBeanWeight(recommendedDose)
+        // before the ladder could name anything else, and ours is queued second
+        // so it lands second.
         double doseToLoad = doseOverride > 0 ? doseOverride : shotRecord.summary.doseWeight;
         if (doseToLoad > 0) {
             QPointer<Settings> settings(m_settings);
@@ -1203,7 +1209,17 @@ void MainController::setupRecipeConnections() {
     // recipe (bag-style, no dirty state). All gated inside stampActiveRecipe
     // on active-recipe presence and the m_applyingRecipe guard.
     connect(m_settings->dye(), &SettingsDye::dyeBeanWeightChanged, this, [this]() {
-        stampActiveRecipe(QStringLiteral("doseG"), m_settings->dye()->dyeBeanWeight());
+        const double dose = m_settings->dye()->dyeBeanWeight();
+        stampActiveRecipe(QStringLiteral("doseG"), dose);
+        // Keep the dose ladder's cache in step with the stamp: a dose dialed
+        // while a recipe is active BECOMES that recipe's dose, so the recipe
+        // now occupies the top rung even if it began with none. Without this,
+        // dialing a dose onto a grind-only recipe would leave the rung reading
+        // empty and the next profile load would overwrite the dialed value
+        // (dose-source-precedence).
+        if (!m_applyingRecipe && !m_activeRecipe.isEmpty()
+            && m_settings->dye()->activeRecipeId() > 0)
+            m_settings->dye()->setActiveRecipeDose(dose);
     });
     // Yield/temp are per-brew OVERRIDES, not tweaks: they live in Settings.brew
     // only and are never auto-stamped onto the recipe from the live dial
@@ -1536,11 +1552,28 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
                 dye->setDyeGrinderRpm(static_cast<int>(rpm));
         }
 
-        // Dose — queued so it wins over loadProfile's own deferred
-        // setDyeBeanWeight(recommendedDose) (same trick as shot load).
-        // Profile-less recipes skip it: dyeBeanWeight is espresso-shot
-        // metadata, and a hot-water tea's leaf dose is not a shot dose.
+        // Dose — the recipe is the top rung of the dose ladder
+        // (dose-source-precedence). Profile-less recipes skip it: dyeBeanWeight
+        // is espresso-shot metadata, and a hot-water tea's leaf dose is not a
+        // shot dose.
+        //
+        // Two mechanisms, covering two different collisions, and BOTH are
+        // needed:
+        //   * The cache below is what SettingsDye::doseOwner() reads, so every
+        //     LATER profile load or bag apply sees the recipe outranking it.
+        //     That is the case queue ordering could never cover — a profile
+        //     switch while this recipe stays active gets no second write.
+        //   * The write stays QUEUED because of the profile load THIS function
+        //     performed a few dozen lines up: at that moment activeRecipeId was
+        //     still the previous recipe's (or -1 on a first activation), so the
+        //     ladder named the profile and its deferred write is already armed.
+        //     Ours is queued second and therefore lands second. De-queuing this
+        //     would let that armed write clobber the recipe's dose.
         const double doseG = recipe.value("doseG").toDouble();
+        // Unconditional, including the profile-less 0 — leaving the previous
+        // recipe's dose in the cache would strand the ladder on a rung this
+        // recipe does not occupy.
+        dye->setActiveRecipeDose(profileLess ? 0.0 : doseG);
         if (doseG > 0 && !profileLess) {
             QPointer<Settings> settings(m_settings);
             QMetaObject::invokeMethod(this, [settings, doseG]() {
