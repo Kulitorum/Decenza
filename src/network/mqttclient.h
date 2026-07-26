@@ -61,6 +61,16 @@ signals:
     void internalConnectionFailed(const QString& error);
     void internalMessageReceived(const QString& topic, const QString& payload);
 
+#ifdef DECENZA_TESTING
+    // The reconnect state machine is pure logic over a QTimer and a handful of flags,
+    // and every one of its inputs is a private slot. Exposing it to the test is what
+    // lets tst_mqttclient assert on timer state directly, with no broker and no waiting.
+    // Added after a latched m_userRequestedDisconnect shipped in a change whose entire
+    // purpose was to stop reconnection from dying — this file was in no test target at
+    // all, so nothing could have caught it.
+    friend class tst_MqttClient;
+#endif
+
 private slots:
     void onInternalConnected();
     void onInternalDisconnected();
@@ -94,6 +104,9 @@ private:
     void publish(const QString& topic, const QString& payload, bool retain = true);
     void publishAvailability(bool online);
     QString generateClientId();
+    void onNetworkReachabilityChanged(bool reachable);
+    QString reconnectStatusText() const;
+    void scheduleReconnect(const QString& reason);
 
     // Paho callbacks (static, call instance methods via context)
     static void onConnectSuccess(void* context, MQTTAsync_successData* response);
@@ -115,11 +128,52 @@ private:
     QTimer m_reconnectTimer;
     int m_reconnectAttempts = 0;
     bool m_isReconnecting = false;
-    static constexpr int MAX_RECONNECT_ATTEMPTS = 10;
+    // True only while QNetworkInformation positively reports Disconnected (Unknown is
+    // NOT offline — see the constructor). Reconnect attempts are not spent while it
+    // holds, and the transition back to reachable is what resumes them.
+    bool m_networkDown = false;
+    // Attempts spent at the FAST cadence before dropping to the slow one. Not a
+    // stopping point: retries continue indefinitely, just rarely. It used to be
+    // terminal, which meant a broker outage longer than the budget (~7 min) killed
+    // MQTT until someone intervened — a Home Assistant restart or a broker redeploy
+    // was enough, and nothing about that is the user's fault or their job to notice.
+    static constexpr int MAX_FAST_RECONNECT_ATTEMPTS = 10;
     static constexpr int INITIAL_RECONNECT_DELAY_MS = 5000;
     static constexpr int MAX_RECONNECT_DELAY_MS = 60000;
-    // Exponential backoff: 5s, 10s, 20s, 40s, 60s, 60s, ... (capped at 60s)
-    int reconnectDelayMs() const { return std::min(INITIAL_RECONNECT_DELAY_MS * (1 << std::min(m_reconnectAttempts, 20)), MAX_RECONNECT_DELAY_MS); }
+    // Slow cadence once the fast budget is spent. A TCP connect to a LAN broker is
+    // negligible, so this is about log noise and not looking frantic, not cost —
+    // 15 min recovers an unattended broker restart well within the time it takes
+    // anyone to notice Home Assistant went quiet.
+    static constexpr int IDLE_RECONNECT_DELAY_MS = 15 * 60 * 1000;
+    // Exponential backoff: 5s, 10s, 20s, 40s, 60s, 60s… then every 15 min forever.
+    int reconnectDelayMs() const {
+        if (m_reconnectAttempts >= MAX_FAST_RECONNECT_ATTEMPTS)
+            return IDLE_RECONNECT_DELAY_MS;
+        return std::min(INITIAL_RECONNECT_DELAY_MS * (1 << std::min(m_reconnectAttempts, 20)),
+                        MAX_RECONNECT_DELAY_MS);
+    }
+    // Latches when the slow cadence is announced, so the transition is logged once
+    // rather than every 15 minutes for as long as the broker stays away.
+    bool m_slowRetryAnnounced = false;
+    // A stop the user asked for is not a fault, so it must not re-arm the retry loop.
+    //
+    // INVARIANT: this may only be true while a disconnect callback is actually pending.
+    // It is set in the ONE branch of disconnectFromBroker() that triggers that callback,
+    // consumed by onInternalDisconnected(), and cleared again in connectToBroker() so a
+    // callback lost to MQTTAsync_destroy() cannot strand it. A latched true is not a
+    // cosmetic bug: the next genuine broker drop reads as user-requested, stops the
+    // timer, and leaves MQTT dead until the app restarts — the exact terminal death the
+    // slow-retry cadence was written to end.
+    bool m_userRequestedDisconnect = false;
+    // One definition for a string that is both WRITTEN and COMPARED. It had three
+    // copies; editing any one of them would have silently stopped the clear-on-resume
+    // from matching, re-creating the permanently-latched status it exists to prevent,
+    // with no compiler help.
+    static constexpr auto kWaitingForNetwork = "Waiting for network...";
+    // Same reasoning, same trap: the down-edge WRITES this and the up-edge COMPARES it.
+    // Two copies of the literal is how the connected case came to be left latched on
+    // screen forever while kWaitingForNetwork was handled correctly beside it.
+    static constexpr auto kConnectedNetworkUnreachable = "Connected - network unreachable";
 
     QString m_status;
     bool m_connected = false;

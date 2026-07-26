@@ -22,6 +22,16 @@ class MachineState : public QObject {
     Q_PROPERTY(double shotTime READ shotTime NOTIFY shotTimeChanged)
     Q_PROPERTY(double targetWeight READ targetWeight WRITE setTargetWeight NOTIFY targetWeightChanged)
     Q_PROPERTY(double targetVolume READ targetVolume WRITE setTargetVolume NOTIFY targetVolumeChanged)
+    // The type-id of the scale ACTUALLY serving, which is not always the saved primary:
+    // the WiFi→BLE fallback preserves the WiFi primary on purpose, and a USB scale never
+    // occupies main()'s physicalScale at all. Everything that keys persistent per-scale
+    // state on "which scale is this?" — SAW learning, the Calibration tab's model/reset —
+    // must read THIS, so the pool being written is the pool being shown and reset.
+    // See SettingsCalibration and docs/CLAUDE_MD/SAW_LEARNING.md.
+    Q_PROPERTY(QString activeScaleType READ activeScaleType NOTIFY activeScaleTypeChanged)
+    // Display label matching activeScaleType, so a UI showing the two together cannot
+    // name one scale while reporting the other's learned model.
+    Q_PROPERTY(QString activeScaleName READ activeScaleName NOTIFY activeScaleTypeChanged)
     Q_PROPERTY(double scaleWeight READ scaleWeight NOTIFY scaleWeightChanged)
     Q_PROPERTY(double scaleFlowRate READ scaleFlowRate NOTIFY scaleFlowRateChanged)
     Q_PROPERTY(double smoothedScaleFlowRate READ smoothedScaleFlowRate NOTIFY scaleFlowRateChanged)
@@ -50,6 +60,9 @@ public:
     Q_ENUM(Phase)
 
     explicit MachineState(DE1Device* device, QObject* parent = nullptr);
+    // Clears the SAW scale-type provider it installed on SettingsCalibration, which
+    // captures `this` — see syncServingScale().
+    ~MachineState() override;
 
     Phase phase() const { return m_phase; }
     QString phaseString() const;
@@ -64,6 +77,8 @@ public:
     double pourVolume() const { return m_pourVolume; }
     ScaleDevice* scale() const;
     void setScale(ScaleDevice* scale);
+    QString activeScaleType() const;
+    QString activeScaleName() const;
     void setSettings(Settings* settings);
     void setTimingController(ShotTimingController* controller);
     void setTargetWeight(double weight);
@@ -100,6 +115,7 @@ signals:
     void preinfusionVolumeChanged();
     void pourVolumeChanged();
     void scaleWeightChanged();
+    void activeScaleTypeChanged();
     void scaleFlowRateChanged();
     void espressoCycleStarted();  // When entering espresso preheating (clear graph here)
     // The PAIR of espressoCycleStarted: fires when the espresso cycle is left,
@@ -139,6 +155,14 @@ private slots:
     void onTimingControllerTareComplete();
 
 private:
+    // Install the serving-scale provider on SettingsCalibration, which resolves the SAW
+    // pool key for every consumer. Called from setSettings() ONLY, and once is enough:
+    // the provider is a closure over m_scale, so it follows every later setScale() and
+    // every connectedChanged without being reinstalled. (An earlier revision called it
+    // from setScale() too, which was the right shape for a pushed VALUE and pointless
+    // for a pull provider.)
+    void syncServingScale();
+
     void updatePhase();
     void startShotTimer();
     void stopShotTimer();

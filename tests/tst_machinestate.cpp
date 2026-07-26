@@ -470,6 +470,105 @@ private slots:
         f.setDE1State(DE1::State::Idle, DE1::SubState::Ready);
         QCOMPARE(spy.count(), 0);
     }
+
+    // ==========================================
+    // activeScaleType / activeScaleName
+    //
+    // The authority for "which scale is serving", used to key SAW learning, the
+    // Calibration tab's model display, and the reset_saw_learning_for_profile MCP
+    // default. Its failure mode is a corrupted persisted learning pool that no
+    // screen reveals, so it is asserted here rather than trusted to on-device use:
+    // the WiFi→BLE fallback that triggers it is rare and its symptom is a slightly
+    // wrong SAW stop weeks later.
+    // ==========================================
+
+    void activeScaleTypePrefersConnectedScaleOverSavedPrimary() {
+        // The bug this exists to fix: WiFi primary preserved on purpose by the
+        // WiFi→BLE fallback, BLE actually delivering every weight sample. Four
+        // consecutive shots on-device logged scale="decent-wifi" while served by BLE.
+        TestFixture f;
+        f.settings.setScaleType("decent-wifi");
+        f.settings.setScaleName("Half Decent Scale (WiFi)");
+        f.scale.setType("decent");
+        f.scale.mockSetConnected(true);
+
+        QCOMPARE(f.state.activeScaleType(), QStringLiteral("decent"));
+        // Canonical name of the scale actually serving — NOT the stale saved label,
+        // which would name one scale beside another's learned model.
+        QCOMPARE(f.state.activeScaleName(), QStringLiteral("Decent Scale"));
+    }
+
+    void activeScaleNameKeepsUserLabelWhenServingScaleIsThePrimary() {
+        TestFixture f;
+        f.settings.setScaleType("decent");
+        f.settings.setScaleName("Kitchen scale");  // user's own label
+        f.scale.setType("decent");
+        f.scale.mockSetConnected(true);
+
+        QCOMPARE(f.state.activeScaleType(), QStringLiteral("decent"));
+        QCOMPARE(f.state.activeScaleName(), QStringLiteral("Kitchen scale"));
+    }
+
+    void activeScaleTypeFallsBackForNonCanonicalScale() {
+        // FlowScale reports "flow" and is permanently isConnected(). Keying on it
+        // would open a "flow" pool and make SettingsCalibration::sensorLag() warn
+        // about an unknown type on every espresso cycle — which, under
+        // QTest::failOnWarning(), would surface as failures elsewhere in the suite.
+        TestFixture f;
+        f.settings.setScaleType("decent");
+        f.scale.setType("flow");
+        f.scale.mockSetConnected(true);
+        QCOMPARE(f.state.activeScaleType(), QStringLiteral("decent"));
+
+        // Base ScaleDevice::type() returns "" — an empty key would write learning
+        // entries into a pool nothing ever reads.
+        f.scale.setType(QString());
+        QCOMPARE(f.state.activeScaleType(), QStringLiteral("decent"));
+    }
+
+    void activeScaleTypeFallsBackWhenNotConnectedOrAbsent() {
+        TestFixture f;
+        f.settings.setScaleType("decent-wifi");
+        f.scale.setType("decent");
+
+        f.scale.mockSetConnected(false);
+        QCOMPARE(f.state.activeScaleType(), QStringLiteral("decent-wifi"));
+
+        f.state.setScale(nullptr);
+        QCOMPARE(f.state.activeScaleType(), QStringLiteral("decent-wifi"));
+    }
+
+    void activeScaleTypeNotifiesOnEverySourceThatCanChangeIt() {
+        // Each of these is a one-line wiring that, if dropped, leaves the Calibration
+        // tab bound to a stale value while its reset button — an imperative read, not
+        // a binding — clears a different pool. Silent, and exactly the read/write
+        // divergence activeScaleType exists to prevent.
+        TestFixture f;
+        f.settings.setScaleType("decent-wifi");
+        QSignalSpy spy(&f.state, &MachineState::activeScaleTypeChanged);
+
+        f.scale.setType("decent");
+        f.scale.mockSetConnected(true);           // ScaleDevice::connectedChanged
+        QVERIFY2(spy.count() >= 1, "connect/disconnect must notify");
+
+        spy.clear();
+        MockScaleDevice other;
+        other.setType("bookoo");
+        f.state.setScale(&other);                  // setScale()
+        QVERIFY2(spy.count() >= 1, "swapping the serving scale must notify");
+
+        spy.clear();
+        f.state.setScale(nullptr);                 // now on the saved-primary fallback
+        spy.clear();
+        f.settings.setScaleType("acaia");          // Settings::scaleTypeChanged
+        QVERIFY2(spy.count() >= 1,
+                 "changing the saved primary must notify while on the fallback path");
+        QCOMPARE(f.state.activeScaleType(), QStringLiteral("acaia"));
+
+        spy.clear();
+        f.settings.setScaleName("Renamed");        // Settings::scaleNameChanged
+        QVERIFY2(spy.count() >= 1, "renaming the saved scale must notify activeScaleName");
+    }
 };
 
 QTEST_GUILESS_MAIN(tst_MachineState)

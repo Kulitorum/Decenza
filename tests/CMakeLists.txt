@@ -903,6 +903,19 @@ add_decenza_test(tst_sampleblobseries
 target_link_libraries(tst_sampleblobseries PRIVATE decenza_shotlib)
 target_include_directories(tst_sampleblobseries PRIVATE ${CMAKE_BINARY_DIR})
 
+# --- tst_mqttclient: reconnect state machine (backoff cadence, reachability, user-disconnect) ---
+# mqttclient.cpp was in no test target at all until a latched m_userRequestedDisconnect
+# shipped in the change meant to STOP reconnection dying permanently. Drives the private
+# slots via the DECENZA_TESTING friend and asserts on timer state — no broker, no waiting.
+add_decenza_test(tst_mqttclient
+    tst_mqttclient.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/mqttclient.cpp
+    ${CMAKE_BINARY_DIR}/version_code.cpp
+)
+target_link_libraries(tst_mqttclient PRIVATE paho-mqtt3a-static)
+# mqttclient.cpp includes the generated version.h (sw_version in the HA discovery payload).
+target_include_directories(tst_mqttclient PRIVATE ${CMAKE_BINARY_DIR})
+
 # --- tst_settling: SAW settling trimSettlingData(), m_sawSettling flag, shot save ordering ---
 find_package(Qt6 REQUIRED COMPONENTS Graphs Quick)
 add_decenza_test(tst_settling

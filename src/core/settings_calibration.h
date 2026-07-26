@@ -9,6 +9,7 @@
 #include <QPair>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <functional>
 
 class Settings;
 
@@ -18,6 +19,38 @@ class Settings;
 // current scaleType() without a public-API change. The owner pointer is used
 // ONLY for that single lookup — no other Settings surface is reached through
 // it.
+//
+// SCALE KEY RESOLUTION — read this before adding a SAW call site.
+//
+// The per-(profile, scale) reads take an OPTIONAL scaleType: sawLearnedLagFor,
+// getExpectedDripFor, sawLearningEntriesFor, sawModelSource, perProfileSawHistory and
+// sawPendingBatch. Leave it empty and the class resolves it via currentScaleType();
+// that is the correct answer and the one every other consumer gets.
+//
+// Pass a value when you genuinely mean a SPECIFIC pool rather than the current one.
+// The case that must never be converted to resolution is the learning path: main.cpp
+// latches the key at shot start and passes it back ~40 s later, so a scale swapped
+// mid-shot still trains the pool that made the prediction. (Other callers pass an
+// explicit key today simply because they already hold the resolved value — that is
+// harmless, not a second rule. Deliberately not enumerated: an exhaustive list of call
+// sites in a comment is falsified by the next commit, and this file has already had
+// three such lists go stale.)
+//
+// The rule is NOT applied to the per-scale-only entry points — globalSawBootstrapLag,
+// setGlobalSawBootstrapLag, sensorLag, isSawConverged, sawLearningEntries. They keep a
+// required key, so `isSawConverged("")` still silently means the empty pool while
+// `sawLearnedLagFor(p)` resolves. That asymmetry is a wart, stated here rather than
+// papered over: those five are internal/bootstrap paths whose callers always have a
+// concrete key in hand, and sensorLag is static so it has no instance to resolve from.
+// If you add a NEW caller of one of them, pass currentScaleType() explicitly.
+//
+// This is deliberately the inverse of the older design, where the key was a
+// required parameter every caller derived for itself. Four consumers derived it
+// three different ways: the learner wrote one pool while the Calibration tab
+// displayed another and the AI advisor reported a third, each invisible from the
+// others. Making the resolved answer the DEFAULT means a new call site is right
+// by omission, and an explicit key now reads as a deliberate choice rather than
+// as boilerplate.
 class SettingsCalibration : public QObject {
     Q_OBJECT
 
@@ -60,14 +93,23 @@ public:
 
     // Per-(profile, scale) variant of sawLearnedLag — falls back to global bootstrap /
     // per-scale data when the pair has not yet graduated. Pass empty profile for the
-    // legacy global-pool path.
-    Q_INVOKABLE double sawLearnedLagFor(const QString& profileFilename, const QString& scaleType) const;
-    double getExpectedDripFor(const QString& profileFilename, const QString& scaleType, double currentFlowRate) const;
-    QList<QPair<double, double>> sawLearningEntriesFor(const QString& profileFilename, const QString& scaleType, int maxEntries) const;
+    // legacy global-pool path. Empty scaleType = resolve it (see class comment).
+    Q_INVOKABLE double sawLearnedLagFor(const QString& profileFilename,
+                                        const QString& scaleType = QString()) const;
+    double getExpectedDripFor(const QString& profileFilename, const QString& scaleType,
+                              double currentFlowRate) const;
+    QList<QPair<double, double>> sawLearningEntriesFor(const QString& profileFilename,
+                                                       const QString& scaleType,
+                                                       int maxEntries) const;
 
     // Reports which model the read path uses for (profile, scale).
-    Q_INVOKABLE QString sawModelSource(const QString& profileFilename, QString scaleType) const;
+    Q_INVOKABLE QString sawModelSource(const QString& profileFilename,
+                                       QString scaleType = QString()) const;
 
+    // Learning is the one path that must NOT resolve: main.cpp latches the key at
+    // shot start and passes it here ~40 s later, so that a scale swapped mid-shot
+    // still trains the pool that made the prediction. Resolving live here would
+    // reintroduce exactly that bug, so scaleType stays required.
     void addSawLearningPoint(double drip, double flowRate, QString scaleType, double overshoot,
                              const QString& profileFilename = QString());
     Q_INVOKABLE void resetSawLearning();
@@ -81,11 +123,13 @@ public:
     void sawLearningImport(const QJsonObject& o);
 
     // Per-pair committed history (storage helpers; mostly for tests + bootstrap recompute).
-    QJsonArray perProfileSawHistory(const QString& profileFilename, const QString& scaleType) const;
+    QJsonArray perProfileSawHistory(const QString& profileFilename,
+                                    const QString& scaleType = QString()) const;
     QJsonObject allPerProfileSawHistory() const;
 
     // Per-pair pending batch accumulator (5 entries before committing the batch median).
-    QJsonArray sawPendingBatch(const QString& profileFilename, const QString& scaleType) const;
+    QJsonArray sawPendingBatch(const QString& profileFilename,
+                               const QString& scaleType = QString()) const;
 
     // Global bootstrap lag for new (profile, scale) pairs without graduated history.
     double globalSawBootstrapLag(const QString& scaleType) const;
@@ -110,6 +154,30 @@ public:
     // Returns SAW learning entries filtered by scale type (most recent first).
     // Used by WeightProcessor to snapshot learning data at shot start.
     QList<QPair<double, double>> sawLearningEntries(QString scaleType, int maxEntries) const;
+
+    // Reports the type-id of the scale currently wired into the shot path, or an
+    // empty string when none is connected. Installed once by MachineState, which is
+    // the only object that tracks the serving scale.
+    //
+    // A PULL provider rather than a pushed value on purpose: the serving scale
+    // changes on device events at a dozen call sites and its connected state changes
+    // independently of that, so anything pushed would need re-pushing from both and
+    // would go stale the first time one was missed. A closure reading live state
+    // cannot be stale. It returns raw device identity only — the canonical-vocabulary
+    // test and the saved-scale fallback are POLICY and stay here, so there is exactly
+    // one implementation of the SAW key rule.
+    //
+    // The provider must not outlive its captured object; MachineState clears it in
+    // its destructor.
+    void setServingScaleTypeProvider(std::function<QString()> provider);
+
+    // The SAW pool key for right now: the serving scale when it is real (connected
+    // AND in the canonical ScaleTypeIds vocabulary), otherwise the saved primary,
+    // normalized. FlowScale reports "flow" and is permanently isConnected(), so the
+    // vocabulary check is what stops every scale-less shot opening a "flow" pool and
+    // making sensorLag() warn about an unknown type on every cycle. Public because
+    // MachineState::activeScaleType() forwards here for the QML property.
+    QString currentScaleType() const;
 
 signals:
     void flowCalibrationMultiplierChanged();
@@ -137,9 +205,17 @@ private:
                             double overshoot, const QString& profileFilename);
     void recomputeGlobalSawBootstrap(const QString& scaleType);
 
-    QString currentScaleType() const;
+    // Every optional-scaleType entry point funnels through here: an explicit key is
+    // normalized and used as given, an empty one resolves. One helper so "empty means
+    // resolve" cannot be implemented three subtly different ways.
+    QString resolveScaleKey(const QString& explicitKey) const;
 
     Settings* m_owner = nullptr;  // Non-owning; used ONLY for currentScaleType() lookup.
+    std::function<QString()> m_servingScaleType;  // See setServingScaleTypeProvider().
+    // Last non-canonical serving id already reported, so the diagnostic in
+    // currentScaleType() logs once per distinct scale rather than on every SAW read.
+    // mutable: currentScaleType() is const and this is pure log-throttling state.
+    mutable QString m_warnedNonCanonicalScale;
     mutable AppSettings m_settings;
 
     // SAW learning history cache (avoids re-parsing JSON from QSettings on every weight sample)

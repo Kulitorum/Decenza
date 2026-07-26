@@ -1,7 +1,10 @@
 #include "machinestate.h"
 #include "../ble/de1device.h"
 #include "../ble/scaledevice.h"
+#include "../ble/scales/scaletypeids.h"
 #include "../core/settings.h"
+#include "../core/settings_calibration.h"  // currentScaleType()/setServingScale() — settings.h
+                                           // only forward-declares the domain sub-objects
 #include "../core/settings_brew.h"
 #include "../controllers/shottimingcontroller.h"
 #include <QDateTime>
@@ -47,6 +50,15 @@ MachineState::MachineState(DE1Device* device, QObject* parent)
         // connected before MachineState was constructed, e.g. simulator mode)
         updatePhase();
     }
+}
+
+MachineState::~MachineState() {
+    // The provider installed in syncServingScale() captures `this`. Settings is not
+    // owned by MachineState and outlives it in the tests that build both on the stack,
+    // so leaving a dangling closure behind would turn any later currentScaleType()
+    // into a use-after-free.
+    if (m_settings && m_settings->calibration())
+        m_settings->calibration()->setServingScaleTypeProvider(nullptr);
 }
 
 bool MachineState::isFlowing() const {
@@ -144,15 +156,95 @@ void MachineState::setScale(ScaleDevice* scale) {
                 m_weightTrailingTimer->start();
             }
         });
+        // activeScaleType() answers differently once the link comes up or drops, and
+        // nothing else would tell QML. Same connection lifetime as the weight relays
+        // above (disconnected wholesale on the next swap).
+        connect(m_scale, &ScaleDevice::connectedChanged,
+                this, &MachineState::activeScaleTypeChanged);
         // Emit immediately so QML picks up current weight
         emit scaleWeightChanged();
         emit scaleFlowRateChanged();
     }
+
+    emit activeScaleTypeChanged();
+}
+
+void MachineState::syncServingScale() {
+    // SettingsCalibration resolves the SAW pool key for every consumer, so it needs to
+    // know which scale is serving. Hand it a closure over m_scale rather than the value:
+    // main.cpp swaps the serving scale at a dozen device-event sites and connectedChanged
+    // fires independently of those, so a pushed value would need re-pushing from both
+    // and would be wrong the first time one was missed. Reading live state cannot go
+    // stale, so this only has to be installed once.
+    //
+    // Raw identity only — empty when nothing real is connected. The canonical-vocabulary
+    // test and the saved-scale fallback belong to SettingsCalibration, and duplicating
+    // either here would recreate the second implementation this refactor removed.
+    if (!m_settings || !m_settings->calibration())
+        return;
+    m_settings->calibration()->setServingScaleTypeProvider([this]() -> QString {
+        return m_scale && m_scale->isConnected() ? m_scale->type() : QString();
+    });
+}
+
+QString MachineState::activeScaleType() const {
+    // Forwarder. The resolution itself lives on SettingsCalibration, which owns the
+    // SAW pools and which every consumer already holds a pointer to — so a call site
+    // that needs the key does NOT need a MachineState. This property exists purely to
+    // expose it to QML (the Calibration tab) with a notify signal; it is not a second
+    // implementation, and must never become one.
+    //
+    // The fallback to the saved type when the serving scale is virtual is only safe
+    // for the PREDICTION read: flow-derived shots must not feed SAW learning at all,
+    // which is enforced upstream by the isFlowScale() guard in
+    // ShotTimingController::onSettlingComplete() — see the reasoning there. Were that
+    // guard removed, this fallback is the exact mechanism by which a scale-less shot
+    // would write into a physical scale's pool.
+    return m_settings && m_settings->calibration()
+               ? m_settings->calibration()->currentScaleType() : QString();
+}
+
+QString MachineState::activeScaleName() const {
+    const QString saved = m_settings ? m_settings->scaleType() : QString();
+    const QString active = activeScaleType();
+
+    // Normal case: the serving scale IS the saved primary, so the user's own label
+    // (which may be a custom name) is both correct and the friendlier answer.
+    if (active == saved)
+        return m_settings ? m_settings->scaleName() : QString();
+
+    // Diverged — the saved label names a scale that is not serving. Report the
+    // canonical name of the one that is; a stale label next to a live model is
+    // exactly the confusion activeScaleType exists to remove.
+    const QString name = ScaleTypeIds::scaleTypeNameForId(active);
+    return name.isEmpty() ? (m_settings ? m_settings->scaleName() : QString()) : name;
 }
 
 
 void MachineState::setSettings(Settings* settings) {
+    if (m_settings == settings) return;
+    if (m_settings) disconnect(m_settings, nullptr, this, nullptr);
+
     m_settings = settings;
+
+    // activeScaleType()/activeScaleName() fall back to the SAVED scale whenever the
+    // serving one is virtual or disconnected — which is the common case, since the app
+    // starts on FlowScale. Without these, changing the primary scale (Connections tab,
+    // removing a known scale, a settings restore) would move the answer while every
+    // QML binding on it kept the old value. The Calibration tab would then show one
+    // pool's lag and model tier while its reset button — an imperative read, not a
+    // binding — cleared a different pool. That read/write divergence is precisely what
+    // activeScaleType exists to prevent, so leaving it unwired would have reintroduced
+    // the bug one layer up.
+    if (m_settings) {
+        connect(m_settings, &Settings::scaleTypeChanged,
+                this, &MachineState::activeScaleTypeChanged);
+        connect(m_settings, &Settings::scaleNameChanged,
+                this, &MachineState::activeScaleTypeChanged);
+    }
+
+    syncServingScale();
+    emit activeScaleTypeChanged();
 }
 
 void MachineState::setTimingController(ShotTimingController* controller) {

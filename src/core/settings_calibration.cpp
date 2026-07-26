@@ -45,10 +45,55 @@ SettingsCalibration::SettingsCalibration(Settings* owner, QObject* parent)
 {
 }
 
+void SettingsCalibration::setServingScaleTypeProvider(std::function<QString()> provider) {
+    m_servingScaleType = std::move(provider);
+}
+
 QString SettingsCalibration::currentScaleType() const {
+    // Prefer the scale actually serving the shot path. Keying on the SAVED type
+    // instead is how BLE-served shots came to be written into the "decent-wifi"
+    // pool: the WiFi scale stays the saved primary while every weight sample
+    // arrives over BLE. Four consecutive BLE shots logged scale="decent-wifi"
+    // on-device before this was resolved centrally.
+    const QString serving = m_servingScaleType ? m_servingScaleType() : QString();
+    if (!serving.isEmpty() && ScaleTypeIds::isCanonicalScaleTypeId(serving))
+        return serving;
+
+    // A non-canonical id here is EXPECTED for the virtual scale ("flow") and for test
+    // doubles. For a real scale driver whose id was never added to ScaleTypeIds::kAll it
+    // is a silent correctness bug: nothing downstream rejects it — the isFlowScale()
+    // guard in onSettlingComplete() only catches the virtual scale — so a genuine scale
+    // trains the SAVED primary's pool with its own transport latency, undetectably.
+    // Logged once per distinct id: this runs on every SAW read, and the compile-time
+    // guard is the test over the enum (everyScaleTypeIsInTheCanonicalVocabulary); this
+    // is only so a field log can show it. qDebug not qWarning because serving a
+    // non-canonical type is legitimate in tests running under failOnWarning().
+    if (!serving.isEmpty() && serving != QLatin1String("flow")
+        && serving != m_warnedNonCanonicalScale) {
+        m_warnedNonCanonicalScale = serving;
+        qDebug() << "SettingsCalibration: serving scale reports non-canonical type-id"
+                 << serving << "- SAW will key on the saved primary instead."
+                 << "If this is a real scale, add it to ScaleTypeIds::kAll.";
+    }
     // Normalize defensively — scaleType is stored as a canonical id, but this keeps
     // SAW keying correct even if a legacy display name slips through pre-migration.
     return ScaleTypeIds::normalizeScaleTypeId(m_owner ? m_owner->scaleType() : QStringLiteral("decent"));
+}
+
+QString SettingsCalibration::resolveScaleKey(const QString& explicitKey) const {
+    if (explicitKey.isEmpty())
+        return currentScaleType();
+    // Load-bearing, and specifically for sawModelSource(): it compares the key RAW
+    // against the stored "scale" field of each global-pool entry, so an un-normalized
+    // legacy display name there returns "scaleDefault" where the truth is "globalPool"
+    // — a wrong model tier shown in the Calibration tab and reported to the AI advisor.
+    //
+    // The key-derived paths (sawPairKey, globalSawBootstrapLag, sensorLag,
+    // sawLearningEntries) each normalize again, so for those it is belt-and-braces.
+    // Do NOT reason from that subset that the line can go: this comment previously
+    // claimed exactly that, having enumerated the normalizing consumers and missed the
+    // one comparing consumer.
+    return ScaleTypeIds::normalizeScaleTypeId(explicitKey);
 }
 
 void SettingsCalibration::invalidateCache() {
@@ -428,7 +473,27 @@ double SettingsCalibration::sensorLag(const QString& scaleType)
     if (id == "skale")            return 0.38;
     if (id == "decent-wifi")      return 0.38;  // WiFi transport of the Half Decent Scale
     if (id == "decent-usb")       return 0.38;  // USB transport of the Half Decent Scale
-    qWarning() << "[SAW] Unknown scale type for sensorLag:" << scaleType << "- using default 0.38s";
+    // Two different situations reach here and they are not equally interesting.
+    //
+    // A CANONICAL id with no entry above is simply a supported scale whose BLE latency
+    // nobody has measured yet — six of the sixteen are in that position (difluid,
+    // eureka_precisa, smartchef, solo_barista, timemore, varia_aku). The de1app default
+    // is the correct answer for them and adaptive learning replaces it within a few
+    // shots. Warning here fired on EVERY SAW read for those users, naming their
+    // perfectly-supported scale as "unknown" — a log full of alarming lines describing
+    // normal operation, which is how genuinely alarming lines get ignored.
+    //
+    // A non-canonical string is the one worth flagging: it means a type-id reached SAW
+    // that ScaleTypeIds does not know, so it is also missing from kAll and keys its own
+    // orphan pool.
+    if (ScaleTypeIds::isCanonicalScaleTypeId(id)) {
+        qDebug() << "[SAW] No measured sensor lag for" << id
+                 << "- using the 0.38s default until learning has data";
+    } else {
+        qWarning() << "[SAW] Unknown scale type for sensorLag:" << scaleType
+                   << "- using default 0.38s. If this is a real scale, add it to"
+                   << "ScaleTypeIds::kAll.";
+    }
     return 0.38;  // de1app default for unknown/unlisted scales
 }
 
@@ -675,7 +740,8 @@ void SettingsCalibration::savePerProfileSawBatchMap(const QJsonObject& map) {
 }
 
 QJsonArray SettingsCalibration::perProfileSawHistory(const QString& profileFilename, const QString& scaleType) const {
-    return loadPerProfileSawHistoryMap().value(sawPairKey(profileFilename, scaleType)).toArray();
+    return loadPerProfileSawHistoryMap()
+        .value(sawPairKey(profileFilename, resolveScaleKey(scaleType))).toArray();
 }
 
 QJsonObject SettingsCalibration::allPerProfileSawHistory() const {
@@ -683,7 +749,8 @@ QJsonObject SettingsCalibration::allPerProfileSawHistory() const {
 }
 
 QJsonArray SettingsCalibration::sawPendingBatch(const QString& profileFilename, const QString& scaleType) const {
-    return loadPerProfileSawBatchMap().value(sawPairKey(profileFilename, scaleType)).toArray();
+    return loadPerProfileSawBatchMap()
+        .value(sawPairKey(profileFilename, resolveScaleKey(scaleType))).toArray();
 }
 
 double SettingsCalibration::globalSawBootstrapLag(const QString& scaleType) const {
@@ -699,7 +766,7 @@ void SettingsCalibration::setGlobalSawBootstrapLag(const QString& scaleType, dou
 // ---- per-(profile, scale) read path ----
 
 QString SettingsCalibration::sawModelSource(const QString& profileFilename, QString scaleType) const {
-    scaleType = ScaleTypeIds::normalizeScaleTypeId(scaleType);
+    scaleType = resolveScaleKey(scaleType);
     if (!profileFilename.isEmpty()) {
         QJsonArray pairHistory = perProfileSawHistory(profileFilename, scaleType);
         if (pairHistory.size() >= kSawMinMediansForGraduation) return QStringLiteral("perProfile");
@@ -715,9 +782,10 @@ QString SettingsCalibration::sawModelSource(const QString& profileFilename, QStr
 QList<QPair<double, double>> SettingsCalibration::sawLearningEntriesFor(const QString& profileFilename,
                                                                        const QString& scaleType,
                                                                        int maxEntries) const {
+    const QString scale = resolveScaleKey(scaleType);
     QList<QPair<double, double>> result;
     if (!profileFilename.isEmpty()) {
-        QJsonArray pairHistory = perProfileSawHistory(profileFilename, scaleType);
+        QJsonArray pairHistory = perProfileSawHistory(profileFilename, scale);
         if (pairHistory.size() >= kSawMinMediansForGraduation) {
             for (qsizetype i = pairHistory.size() - 1; i >= 0 && result.size() < maxEntries; --i) {
                 QJsonObject obj = pairHistory[i].toObject();
@@ -728,12 +796,13 @@ QList<QPair<double, double>> SettingsCalibration::sawLearningEntriesFor(const QS
             if (!result.isEmpty()) return result;
         }
     }
-    return sawLearningEntries(scaleType, maxEntries);
+    return sawLearningEntries(scale, maxEntries);
 }
 
 double SettingsCalibration::sawLearnedLagFor(const QString& profileFilename, const QString& scaleType) const {
+    const QString scale = resolveScaleKey(scaleType);
     if (!profileFilename.isEmpty()) {
-        QJsonArray pairHistory = perProfileSawHistory(profileFilename, scaleType);
+        QJsonArray pairHistory = perProfileSawHistory(profileFilename, scale);
         if (pairHistory.size() >= kSawMinMediansForGraduation) {
             double sumLag = 0;
             qsizetype count = 0;
@@ -749,7 +818,7 @@ double SettingsCalibration::sawLearnedLagFor(const QString& profileFilename, con
             if (count > 0) return sumLag / count;
         }
     }
-    double bootstrap = globalSawBootstrapLag(scaleType);
+    double bootstrap = globalSawBootstrapLag(scale);
     if (bootstrap > 0.0) return bootstrap;
     return sawLearnedLag();
 }
@@ -757,8 +826,9 @@ double SettingsCalibration::sawLearnedLagFor(const QString& profileFilename, con
 double SettingsCalibration::getExpectedDripFor(const QString& profileFilename,
                                                const QString& scaleType,
                                                double currentFlowRate) const {
+    const QString scale = resolveScaleKey(scaleType);
     if (!profileFilename.isEmpty()) {
-        QJsonArray pairHistory = perProfileSawHistory(profileFilename, scaleType);
+        QJsonArray pairHistory = perProfileSawHistory(profileFilename, scale);
         if (pairHistory.size() >= kSawMinMediansForGraduation) {
             // Same flow-similarity kernel as the global getExpectedDrip(), but
             // recencyMin is fixed at 3.0 — per-pair history only kicks in after
@@ -787,11 +857,11 @@ double SettingsCalibration::getExpectedDripFor(const QString& profileFilename,
             }
         }
     }
-    double bootstrap = globalSawBootstrapLag(scaleType);
+    double bootstrap = globalSawBootstrapLag(scale);
     if (bootstrap > 0.0) {
         return qMin(currentFlowRate * bootstrap, 8.0);
     }
-    return qMin(currentFlowRate * (sensorLag(scaleType) + 0.1), 8.0);
+    return qMin(currentFlowRate * (sensorLag(scale) + 0.1), 8.0);
 }
 
 // ---- per-pair batch accumulator + commit ----

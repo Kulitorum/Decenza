@@ -152,7 +152,10 @@ Item {
                                 // makes the binding depend on sawLearnedLagChanged so that
                                 // commits/rejects/resets trigger a re-evaluation.
                                 property string _profile: ProfileManager.baseProfileName
-                                property string _scale: Settings.scaleType
+                                // The scale SERVING, not the saved primary — this must match the
+                                // key the shot engine learns under, or the tab shows one pool
+                                // while shots train another (WiFi primary, BLE actually serving).
+                                property string _scale: MachineState.activeScaleType
                                 property double _lagDep: Settings.calibration.sawLearnedLag
                                 text: { void(_lagDep);
                                     return Settings.calibration.sawLearnedLagFor(_profile, _scale).toFixed(2)
@@ -168,7 +171,7 @@ Item {
                             Layout.fillWidth: true
                             property double _modelDep: Settings.calibration.sawLearnedLag  // dep tracker for rebind
                             property string _modelSource: { void(_modelDep);
-                                return Settings.calibration.sawModelSource(ProfileManager.baseProfileName, Settings.scaleType); }
+                                return Settings.calibration.sawModelSource(ProfileManager.baseProfileName, MachineState.activeScaleType); }
                             property string _sourceSuffix: {
                                 if (_modelSource === "perProfile")
                                     return " " + TranslationManager.translate("settings.preferences.sawPerProfile", "(per-profile)");
@@ -182,7 +185,7 @@ Item {
                             Text {
                                 // Show the human-readable scale name, not scaleType — the latter
                                 // is now a canonical id ("decent", "bookoo"), not a display label.
-                                text: (Settings.scaleName || TranslationManager.translate("settings.options.none", "none"))
+                                text: (MachineState.activeScaleName || TranslationManager.translate("settings.options.none", "none"))
                                       + sawSourceRow._sourceSuffix
                                       + " · "
                                       + TranslationManager.translate("settings.options.autoLearns", "learns when to stop so your cup hits target weight")
@@ -206,7 +209,7 @@ Item {
                                     anchors.margins: -Theme.scaled(4)
                                     accessibleName: TranslationManager.translate("settings.calibration.resetWeightStopTimingProfile", "Reset weight stop timing for current profile")
                                     accessibleItem: resetThisProfileText
-                                    onAccessibleClicked: Settings.calibration.resetSawLearningForProfile(ProfileManager.baseProfileName, Settings.scaleType)
+                                    onAccessibleClicked: Settings.calibration.resetSawLearningForProfile(ProfileManager.baseProfileName, MachineState.activeScaleType)
                                 }
                             }
 

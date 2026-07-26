@@ -16,7 +16,7 @@ public:
     // Configurable behavior
     bool isFlowScale() const override { return m_isFlowScale; }
     QString name() const override { return QStringLiteral("MockScale"); }
-    QString type() const override { return QStringLiteral("mock"); }
+    QString type() const override { return m_type; }
 
     // Test helpers — expose protected setters
     void mockSetConnected(bool connected) { setConnected(connected); }
@@ -24,7 +24,12 @@ public:
 
     // Test configuration
     void setIsFlowScale(bool flow) { m_isFlowScale = flow; }
+    // Default stays "mock" — deliberately NOT a canonical ScaleTypeIds id, so the
+    // existing tests keep exercising the non-canonical path. Set a real id (e.g.
+    // "decent") to test callers that distinguish real scales from virtual ones.
+    void setType(const QString& type) { m_type = type; }
 
 private:
     bool m_isFlowScale = false;
+    QString m_type = QStringLiteral("mock");
 };

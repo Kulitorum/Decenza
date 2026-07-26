@@ -505,7 +505,12 @@ QJsonObject buildSawPredictionBlock(Settings* settings,
 
     if (!settings || !profileManager) return QJsonObject();
 
-    const QString scaleType = settings->scaleType();
+    // Deliberately NOT settings->scaleType(). That is the saved primary, which is not
+    // necessarily the scale serving the shot path, and reading it here made the advisor
+    // report drip/tier/sample-count for a pool the learner was not training — invisible
+    // from the advisor's own output. Empty asks SettingsCalibration to resolve, which is
+    // the same answer the learner, the Calibration tab and the MCP reset tool all get.
+    const QString scaleType = settings->calibration()->currentScaleType();
     const QString profileFilename = profileManager->baseProfileName();
     if (scaleType.isEmpty() || profileFilename.isEmpty()) return QJsonObject();
 

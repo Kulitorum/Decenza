@@ -25,7 +25,15 @@ enum class ScaleType {
     SoloBarista,
     AtomheartEclair,
     VariaAku,
-    Timemore
+    // ADDING A TYPE? Three places, and only the first two are compiler-checked:
+    //   1. scaleTypeId() / scaleTypeName() switches — enforced by -Wswitch (no default:).
+    //   2. kAll in scaletypeids.cpp — NOT enforced by anything. Miss it and
+    //      isCanonicalScaleTypeId() rejects the new scale, so SAW silently keys its
+    //      shots on the saved primary and corrupts another scale's learned pool.
+    //   3. If you add AFTER Timemore, move the loop bound in
+    //      tst_saw_settings::everyScaleTypeIsInTheCanonicalVocabulary, which is what
+    //      catches (2). It iterates Unknown+1 .. Timemore and cannot see past the end.
+    Timemore  // keep last, or update the test bound above
 };
 
 // Canonical scale type-id / display-name mapping and normalization.
@@ -49,5 +57,24 @@ QString scaleTypeName(ScaleType type);
 // strings (e.g. a future custom value with no ScaleType enum) are returned
 // unchanged so no data is ever destroyed.
 QString normalizeScaleTypeId(const QString& typeOrName);
+
+// True only for a CANONICAL ID that maps to a real ScaleType — i.e. a physical
+// scale whose per-transport state is worth keying on. A legacy display name is
+// NOT accepted ("Decent Scale" -> false, "decent" -> true); normalize first if the
+// caller might hold one.
+//
+// Deliberately FALSE for the virtual scales: FlowScale reports "flow" (a raw
+// string, not a scaleTypeId), and ScaleDevice's base type() returns "". Callers
+// that key persistent per-scale state — SAW learning above all — use this to
+// decide whether the serving scale is one they should key on at all, rather than
+// inventing a pool for a scale that has no transport latency to learn.
+// normalizeScaleTypeId() deliberately passes unknown strings through unchanged,
+// so it cannot answer this question on its own.
+bool isCanonicalScaleTypeId(const QString& typeId);
+
+// Canonical id -> display name, without the caller needing the enum. Returns an
+// empty string for anything isCanonicalScaleTypeId() rejects, so a caller cannot
+// accidentally render "Unknown" for a virtual scale.
+QString scaleTypeNameForId(const QString& typeId);
 
 }  // namespace ScaleTypeIds

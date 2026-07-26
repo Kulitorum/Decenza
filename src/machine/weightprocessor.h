@@ -131,6 +131,20 @@ private:
     double m_lastRawWeight = 0;
     bool m_hasLastWeight = false;
     int m_consecutiveRejections = 0;
+    // Held from startExtraction()/resetForRetare() until the tare is observed to
+    // have landed at the scale. The step from a loaded portafilter to zero is the
+    // app's own doing, not corruption — see processWeight(). Cleared by a near-zero
+    // sample or, at the latest, by markExtractionStart().
+    bool m_awaitingTare = false;
+    // A tared scale reads within a gram or two of zero; 5 g leaves room for drift
+    // and a wet basket without being wide enough to swallow a real cup.
+    static constexpr double kTareLandedThresholdG = 5.0;
+    // Consecutive near-zero samples required before the tare is believed. Single-packet
+    // corruption is the documented failure mode this filter exists for (#610), and we
+    // support sixteen scale types whose behaviour around a tare is unmeasured — so one
+    // packet must not be able to consume the exemption. Costs ~200 ms during preheat.
+    static constexpr int kTareLandedConfirmations = 2;
+    int m_tareLandedSamples = 0;
 
     // Scale-feed liveness (in-shot backstop). Evaluated on the DE1 tick so a
     // fully-silent scale is still detected. 2000ms mirrors the de-jitter
