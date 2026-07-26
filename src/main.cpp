@@ -1227,14 +1227,33 @@ int main(int argc, char *argv[])
     // WeightProcessor signals (stopNow, skipFrame) wired below.
     // ShotTimingController::stopAtWeightReached and perFrameWeightReached are no longer emitted.
 
+    // SAW learning is keyed per (profile, scale) — and "scale" has to mean the scale that
+    // actually served the shot, not the one nominated as primary in Settings. The two
+    // diverge whenever the WiFi-primary Half Decent Scale is unreachable and the app falls
+    // back to its BLE transport: that path deliberately preserves the saved WiFi primary
+    // ("Scale connected via WiFi-to-BLE fallback — preserving saved WiFi primary"), so
+    // settings.scaleType() keeps answering "decent-wifi" while every weight sample arrives
+    // over BLE. Reading and writing the WiFi bucket from BLE shots trains one transport's
+    // lag model on the other's timing — the two transports are separate keys precisely
+    // because their latency differs. Observed on-device: four consecutive BLE-served shots
+    // logged scale="decent-wifi" and committed into that pool.
+    //
+    // Falls back to the saved type only when nothing is connected, which no live shot can
+    // observe — it exists so the expression is total, not as a real code path.
+    auto sawScaleType = [&physicalScale, &settings]() -> QString {
+        if (physicalScale && physicalScale->isConnected())
+            return physicalScale->type();
+        return settings.scaleType();
+    };
+
     // Connect SAW learning signal to settings persistence.
     // Logs the predicted-vs-actual drip ("accuracy" line) before persisting, so any single
     // shot's debug log records whether SAW hit its target. addSawLearningPoint then routes
     // the entry through the per-(profile, scale) batch accumulator and emits the
     // "accumulated"/"committed"/"batch rejected" qDebug line that ShotDebugLogger captures.
     QObject::connect(&timingController, &ShotTimingController::sawLearningComplete,
-                     [&settings, &mainController](double drip, double flowAtStop, double overshoot) {
-                         const QString scaleType = settings.scaleType();
+                     [&settings, &mainController, sawScaleType](double drip, double flowAtStop, double overshoot) {
+                         const QString scaleType = sawScaleType();
                          const QString profileFilename = mainController.profileManager()->baseProfileName();
                          const double predictedDrip = settings.calibration()->getExpectedDripFor(profileFilename, scaleType, flowAtStop);
                          qDebug() << "[SAW] accuracy: predictedDrip=" << predictedDrip
@@ -1348,7 +1367,8 @@ int main(int argc, char *argv[])
     // connection would race: its queued setTareComplete(true) arrives on the worker BEFORE
     // startExtraction() (which resets m_tareComplete=false), causing tare to be lost.
     QObject::connect(&machineState, &MachineState::espressoCycleStarted,
-                     [&weightProcessor, &machineState, &settings, &mainController, &timingController]() {
+                     [&weightProcessor, &machineState, &settings, &mainController, &timingController,
+                      sawScaleType]() {
                          // Freeze the resolved target + dose for the duration
                          // of the shot (add-yield-ratio-anchor Decision 9),
                          // alongside the SAW model snapshot below so the two
@@ -1368,7 +1388,7 @@ int main(int argc, char *argv[])
                          // committed batches). The "model:" log line records which source
                          // is driving this shot's predictions for later accuracy analysis.
                          double targetWeight = machineState.targetWeight();
-                         QString scaleType = settings.scaleType();
+                         QString scaleType = sawScaleType();
                          QString profileFilename = mainController.profileManager()->baseProfileName();
                          bool converged = settings.calibration()->isSawConverged(scaleType);
                          int maxEntries = converged ? 12 : 8;

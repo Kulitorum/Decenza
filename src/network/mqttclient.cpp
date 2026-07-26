@@ -11,6 +11,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QHostInfo>
+#include <QNetworkInformation>
 #include <QUuid>
 #include <QMutexLocker>
 #ifdef Q_OS_ANDROID
@@ -66,6 +67,32 @@ MqttClient::MqttClient(DE1Device* device, MachineState* machineState,
     // Reconnect timer
     m_reconnectTimer.setSingleShot(true);
     connect(&m_reconnectTimer, &QTimer::timeout, this, &MqttClient::onReconnectTimerTick);
+
+    // The reconnect budget is for "the broker is not answering us", not for "this
+    // device has no network" — a connect attempt against a down interface tells us
+    // nothing about the broker, and MAX_RECONNECT_ATTEMPTS is terminal: once it is
+    // reached neither failure handler re-arms the timer, so MQTT stays dead until
+    // the app restarts. Observed on-device 2026-07-25: a ~7 min Wi-Fi drop consumed
+    // 9 of the 10 attempts and the 10th happened to land 12 s after the network came
+    // back. A slightly longer outage would have killed Home Assistant for the day.
+    //
+    // So: watch reachability, don't spend attempts while it is positively down, and
+    // treat the return of the network as a fresh budget. Only "Disconnected" counts
+    // as down — Unknown is what a backend reports when it cannot tell (macOS does
+    // exactly this at startup), and treating it as offline would stall a client that
+    // can in fact reach its broker. Same rule as scheduleLanguageUpdateCheck().
+    if (QNetworkInformation::loadDefaultBackend()) {
+        if (auto* info = QNetworkInformation::instance()) {
+            m_networkDown = (info->reachability() == QNetworkInformation::Reachability::Disconnected);
+            connect(info, &QNetworkInformation::reachabilityChanged, this,
+                    [this](QNetworkInformation::Reachability reachability) {
+                        onNetworkReachabilityChanged(
+                            reachability != QNetworkInformation::Reachability::Disconnected);
+                    });
+        }
+    }
+    // No backend on this platform leaves m_networkDown false forever, which is
+    // exactly the pre-existing behaviour: every tick spends an attempt.
 
     m_status = "Disconnected";
 }
@@ -540,6 +567,18 @@ void MqttClient::onReconnectTimerTick()
         return;
     }
 
+    // No network: the attempt would fail on the interface, not at the broker, so
+    // don't charge it to the budget. Deliberately does NOT re-arm the timer —
+    // onNetworkReachabilityChanged() resumes on the event, rather than polling a
+    // condition we are already told about.
+    if (m_networkDown) {
+        qDebug() << "MqttClient: reconnect deferred - no network (attempt"
+                 << (m_reconnectAttempts + 1) << "not spent)";
+        m_status = "Waiting for network...";
+        emit statusChanged();
+        return;
+    }
+
     m_reconnectAttempts++;
     emit reconnectAttemptsChanged();
 
@@ -547,6 +586,40 @@ void MqttClient::onReconnectTimerTick()
 
     // Flag preserved until connectWithHost() checks it (may be async on Android)
     m_isReconnecting = true;
+    connectToBroker();
+}
+
+void MqttClient::onNetworkReachabilityChanged(bool reachable)
+{
+    const bool nowDown = !reachable;
+    if (m_networkDown == nowDown)
+        return;
+    m_networkDown = nowDown;
+
+    if (m_networkDown) {
+        qDebug() << "MqttClient: network down - reconnect attempts suspended";
+        // Cancel a pending tick rather than let it fire and log a deferral. The
+        // flag is cleared by the reachable event below, not by waiting this out.
+        m_reconnectTimer.stop();
+        if (!isConnected()) {
+            m_status = "Waiting for network...";
+            emit statusChanged();
+        }
+        return;
+    }
+
+    qDebug() << "MqttClient: network back - resuming reconnect";
+
+    if (!m_settingsMqtt || !m_settingsMqtt->mqttEnabled() || isConnected())
+        return;
+
+    // A network we just regained is a different proposition from the one we lost:
+    // give it a full budget. This is also the only path that clears a latched
+    // "max retries reached", which nothing else in the class can undo.
+    m_reconnectAttempts = 0;
+    emit reconnectAttemptsChanged();
+    m_reconnectTimer.stop();
+    m_isReconnecting = false;
     connectToBroker();
 }
 

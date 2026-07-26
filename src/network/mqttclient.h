@@ -94,6 +94,7 @@ private:
     void publish(const QString& topic, const QString& payload, bool retain = true);
     void publishAvailability(bool online);
     QString generateClientId();
+    void onNetworkReachabilityChanged(bool reachable);
 
     // Paho callbacks (static, call instance methods via context)
     static void onConnectSuccess(void* context, MQTTAsync_successData* response);
@@ -115,6 +116,10 @@ private:
     QTimer m_reconnectTimer;
     int m_reconnectAttempts = 0;
     bool m_isReconnecting = false;
+    // True only while QNetworkInformation positively reports Disconnected (Unknown is
+    // NOT offline — see the constructor). Reconnect attempts are not spent while it
+    // holds, and the transition back to reachable is what resumes them.
+    bool m_networkDown = false;
     static constexpr int MAX_RECONNECT_ATTEMPTS = 10;
     static constexpr int INITIAL_RECONNECT_DELAY_MS = 5000;
     static constexpr int MAX_RECONNECT_DELAY_MS = 60000;

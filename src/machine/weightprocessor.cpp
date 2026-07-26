@@ -32,7 +32,24 @@ void WeightProcessor::processWeight(double weight)
     // 100g+ swings that the filter would reject, freezing the flow rate display
     // and polluting the debug log. The filter is reset by startExtraction()
     // before each shot and by resetForRetare() on mid-preheat retare.
-    if (m_active && m_hasLastWeight && qAbs(weight - m_lastRawWeight) > 100.0) {
+    //
+    // Held off until the tare lands. startExtraction() clears the baseline, but
+    // the tare is asynchronous AT THE SCALE: the first samples after it arrive
+    // still carrying the loaded portafilter's weight, one of which becomes the
+    // new baseline — so the drop to zero that follows reads as a >100g spike and
+    // the filter rejects the app's own tare. Observed every shot on-device:
+    // "Spike rejected: weight= 0 last= 364.6" twice, then the 3-rejection escape
+    // hatch accepting the baseline it should never have questioned. Nothing broke,
+    // because this all happens during EspressoPreheating, but the filter spent the
+    // window blind and each shot's log carried two warnings for normal operation.
+    if (m_awaitingTare) {
+        // A near-zero reading is the tare landing. Until then every sample simply
+        // re-baselines below, which is the correct treatment for a signal whose
+        // zero point we have just deliberately moved.
+        if (qAbs(weight) <= kTareLandedThresholdG) {
+            m_awaitingTare = false;
+        }
+    } else if (m_active && m_hasLastWeight && qAbs(weight - m_lastRawWeight) > 100.0) {
         if (++m_consecutiveRejections < 3) {
             m_lastWallClockMs = wallClock;  // Keep de-jitter timing accurate
             qWarning() << "[SAW-Worker] Spike rejected: weight=" << weight
@@ -482,6 +499,7 @@ void WeightProcessor::startExtraction()
     m_lastRawWeight = 0;
     m_hasLastWeight = false;
     m_consecutiveRejections = 0;
+    m_awaitingTare = true;  // Cleared when the scale is seen to reach zero
     m_currentFrame = -1;
     m_tareComplete = false;
     m_oscillationDetected = false;
@@ -502,6 +520,12 @@ void WeightProcessor::markExtractionStart()
 {
     if (!m_active || m_extractionStartTime != 0) return;
     m_extractionStartTime = m_wallClock();
+    // Flow has begun, so whatever the scale reads now is its post-tare zero even if
+    // it never passed through the near-zero window (an untared cup left on the
+    // platter, say). Arm the spike filter unconditionally: the pour is the only
+    // window where a corrupt packet can cause the false SAW stop of #610, and it
+    // starts here.
+    m_awaitingTare = false;
 }
 
 void WeightProcessor::endShotCycle()
@@ -548,6 +572,7 @@ void WeightProcessor::resetForRetare()
     m_lastRawWeight = 0;
     m_hasLastWeight = false;
     m_consecutiveRejections = 0;
+    m_awaitingTare = true;  // Retare moves the zero point again — same reasoning
     m_extractionStartTime = 0;  // Will be set when extraction actually starts
     m_stopTriggered = false;
     m_frameWeightSkipSent.clear();

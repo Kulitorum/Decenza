@@ -622,7 +622,11 @@ private slots:
         WeightProcessor wp;
         installFakeClock(wp);
         QSignalSpy flowSpy(&wp, &WeightProcessor::flowRatesReady);
-        wp.startExtraction();  // Spike filter only active during extraction
+        wp.startExtraction();      // Spike filter only active during extraction
+        wp.markExtractionStart();  // ...and only once the tare has landed / flow began.
+                                   // This test's baseline starts at 8 g and never passes
+                                   // through zero, so without this the filter would still
+                                   // be holding off for the tare — see tareStepIsNotASpike.
 
         // Establish baseline at ~10g
         feedRising(wp, 8.0, 2.0, 5);
@@ -669,6 +673,94 @@ private slots:
         QVERIFY2(qAbs(flowAfter - flowBefore) < 1.5,
                  qPrintable(QString("Flow should be stable after spike rejection: before=%1 after=%2")
                             .arg(flowBefore).arg(flowAfter)));
+    }
+
+    void tareStepIsNotASpike() {
+        // The drop from a loaded portafilter to zero is the app's own tare, not BLE
+        // corruption. startExtraction() clears the baseline, but the tare is async at
+        // the scale: pre-tare samples keep arriving and one of them re-establishes the
+        // baseline, so the step to zero used to read as a >100 g spike. Observed every
+        // shot on-device: "Spike rejected: weight= 0 last= 364.6", twice.
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy flowSpy(&wp, &WeightProcessor::flowRatesReady);
+
+        wp.startExtraction();  // Preheat begins; tare command sent by the caller
+
+        // Scale is still reporting the loaded portafilter — these land AFTER
+        // startExtraction() cleared the baseline, which is what made the old filter
+        // latch onto a pre-tare value.
+        wp.processWeight(364.6); m_fakeClock += 200;
+        wp.processWeight(364.6); m_fakeClock += 200;
+        const qsizetype countBeforeTare = flowSpy.count();
+
+        // Tare lands. No warning may be emitted — a stray qWarning here fails the
+        // suite under the project's warning policy, so absence is enforced, not assumed.
+        wp.processWeight(0.0); m_fakeClock += 200;
+
+        QCOMPARE(flowSpy.count(), countBeforeTare + 1);  // accepted, not rejected
+    }
+
+    void spikeFilterArmsAfterTareLands() {
+        // The hold-off must not disable #610 protection for the rest of the shot:
+        // once a near-zero sample proves the tare landed, corruption is rejected again.
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy flowSpy(&wp, &WeightProcessor::flowRatesReady);
+
+        wp.startExtraction();
+        wp.processWeight(364.6); m_fakeClock += 200;  // pre-tare
+        wp.processWeight(0.0);   m_fakeClock += 200;  // tare lands → filter arms
+
+        feedRising(wp, 0.0, 2.0, 5);
+        const qsizetype countBefore = flowSpy.count();
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Spike rejected.*1649"));
+        wp.processWeight(1649.0); m_fakeClock += 200;
+
+        QCOMPARE(flowSpy.count(), countBefore);  // rejected — no signal
+    }
+
+    void spikeFilterArmsAtFlowStartWithoutNearZeroSample() {
+        // Backstop for a scale that never reads near zero (untared cup left on the
+        // platter): flow starting is the point past which the pour — the only window
+        // where a corrupt packet can cause a false SAW stop — must be protected.
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy flowSpy(&wp, &WeightProcessor::flowRatesReady);
+
+        wp.startExtraction();
+        wp.processWeight(120.0); m_fakeClock += 200;  // never passes through zero
+        wp.markExtractionStart();                     // flow begins → arm regardless
+
+        feedRising(wp, 120.0, 2.0, 4);
+        const qsizetype countBefore = flowSpy.count();
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Spike rejected.*1649"));
+        wp.processWeight(1649.0); m_fakeClock += 200;
+
+        QCOMPARE(flowSpy.count(), countBefore);
+    }
+
+    void retareStepIsNotASpike() {
+        // resetForRetare() moves the zero point mid-preheat for exactly the same
+        // reason, so it re-enters the same hold-off.
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy flowSpy(&wp, &WeightProcessor::flowRatesReady);
+
+        wp.startExtraction();
+        wp.processWeight(0.0);   m_fakeClock += 200;  // first tare landed
+        feedRising(wp, 0.0, 2.0, 3);
+
+        QTest::ignoreMessage(QtDebugMsg, QRegularExpression("Reset for auto-retare"));
+        wp.resetForRetare();
+
+        wp.processWeight(364.6); m_fakeClock += 200;  // scale still pre-retare
+        const qsizetype countBefore = flowSpy.count();
+        wp.processWeight(0.0);   m_fakeClock += 200;  // retare lands
+
+        QCOMPARE(flowSpy.count(), countBefore + 1);
     }
 
     void spikeBypassedWhenInactive() {
