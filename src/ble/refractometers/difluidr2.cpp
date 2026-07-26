@@ -308,6 +308,36 @@ void DiFluidR2::setAutoTest(bool enabled) {
     sendCommand(cmd);
 }
 
+void DiFluidR2::setDeviceTestCount(int count) {
+    if (!m_connected || !m_characteristicsReady) {
+        R2_WARN("Cannot set the device test count — not connected");
+        return;
+    }
+
+    const int clamped = qBound(MIN_TEST_COUNT, count, MAX_TEST_COUNT);
+
+    // Func=1 (Device Settings), Cmd=3 (Number of Tests), DataLen=1, Data0 = count.
+    // Per protocolR2.md this "only takes effect on offline test" — a measurement the
+    // device starts itself. Above 1 it also converts the loop test the R2 falls back
+    // to on an unsettled prism into a real average test, which is what makes a
+    // button-press or Auto Test reading averaged rather than single.
+    R2_LOG(QString("Setting device-initiated test count to %1").arg(clamped));
+    QByteArray cmd;
+    cmd.append(static_cast<char>(0xDF));
+    cmd.append(static_cast<char>(0xDF));
+    cmd.append(static_cast<char>(0x01));  // Func: Device Settings
+    cmd.append(static_cast<char>(0x03));  // Cmd: Number of Tests
+    cmd.append(static_cast<char>(0x01));  // DataLen: 1
+    cmd.append(static_cast<char>(clamped));
+
+    uint8_t checksum = 0;
+    for (qsizetype i = 0; i < cmd.size(); ++i)
+        checksum += static_cast<uint8_t>(cmd[i]);
+    cmd.append(static_cast<char>(checksum));
+
+    sendCommand(cmd);
+}
+
 void DiFluidR2::requestAveragedMeasurement(int testCount) {
     if (!m_connected || !m_characteristicsReady) {
         R2_WARN("Cannot read — not connected");
@@ -495,6 +525,17 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
         return;
     }
 
+    // Number-of-Tests echo. Governs device-initiated runs only; logging it makes it
+    // possible to tell from a log whether a button-press reading was averaged.
+    if (func == 1 && cmd == 3) {
+        const int count = dataLen >= 1 ? static_cast<uint8_t>(packet[5]) : 0;
+        R2_LOG(QString("Device-initiated test count is now %1%2")
+                   .arg(count)
+                   .arg(count > 1 ? QStringLiteral(" (device-started reads are averaged)")
+                                  : QStringLiteral(" (device-started reads are single)")));
+        return;
+    }
+
     // Auto Test Status echo — the device's answer to both our query and our write, and
     // the only thing that moves m_autoTest. Reading it back rather than assuming means
     // the UI shows what the device is actually doing.
@@ -675,7 +716,20 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
             if (dataLen < 3) return;
             quint16 tdsRaw = static_cast<quint16>(
                 (static_cast<uint8_t>(packet[6]) << 8) | static_cast<uint8_t>(packet[7]));
-            logRefractiveIndex(packet, dataLen);
+            // Data3-6 is NOT the refractive index here, despite occupying the same
+            // offsets as in pack 2. Observed on hardware: a run whose per-test RI read
+            // 1.34689 reported 782332 in this field alongside a 7.83% average — i.e. the
+            // averaged concentration at higher precision, not an RI (which is ~1.3).
+            // Logging it as "refractive index" would put a wrong number in the record
+            // someone later reasons from.
+            if (dataLen >= 7) {
+                const quint32 extra = (static_cast<quint32>(static_cast<uint8_t>(packet[8])) << 24)
+                                    | (static_cast<quint32>(static_cast<uint8_t>(packet[9])) << 16)
+                                    | (static_cast<quint32>(static_cast<uint8_t>(packet[10])) << 8)
+                                    | static_cast<quint32>(static_cast<uint8_t>(packet[11]));
+                R2_LOG(QString("Average high-precision concentration: %1%% (raw=%2)")
+                           .arg(extra / 100000.0, 0, 'f', 5).arg(extra));
+            }
             emitTdsResult(tdsRaw, /*isAverage=*/true, /*terminal=*/!averagedRun);
             break;
         }

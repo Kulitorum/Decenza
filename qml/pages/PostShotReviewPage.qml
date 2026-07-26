@@ -1176,6 +1176,10 @@ Page {
                                     ? TranslationManager.translate("postshotreview.refractometer.r1off", "R1 Off")
                                     : TranslationManager.translate("postshotreview.refractometer.r2off", "R2 Off")
                             }
+                            // A ×3 run takes ~22s on hardware, so "..." for that long
+                            // reads as hung — show which test of how many instead.
+                            if (postShotReviewPage.avgTotal > 0)
+                                return postShotReviewPage.avgDone + "/" + postShotReviewPage.avgTotal
                             if (readTdsButton.refMeasuring) return TranslationManager.translate("postshotreview.refractometer.measuring", "...")
                             return TranslationManager.translate("postshotreview.refractometer.readTds", "Read TDS")
                         }
@@ -1192,63 +1196,28 @@ Page {
                         accessibleItem: readTdsButton
                         enabled: !readTdsButton.refMeasuring
                         onAccessibleClicked: {
-                            if (readTdsButton.refConnected) {
-                                if (typeof Refractometer !== "undefined" && Refractometer)
-                                    Refractometer.requestMeasurement()
-                            } else {
+                            if (!readTdsButton.refConnected) {
                                 BLEManager.scanForDevices()
+                                return
                             }
-                        }
-                    }
-                }
-
-                // Averaged read. A single refractometer reading carries real run-to-run
-                // scatter — two back-to-back reads on one sample differed by 0.02% on
-                // hardware — so the R2 can take several and average them in firmware.
-                // Fixed at three: it captures most of the benefit, and a count the user
-                // has no basis to choose is not worth a setting.
-                Rectangle {
-                    id: avgTdsButton
-                    property bool refConnected: BLEManager.refractometerConnected
-                    property bool refReady: refConnected && typeof Refractometer !== "undefined" && Refractometer
-                    property bool refMeasuring: refReady && Refractometer.measuring
-
-                    visible: Settings.savedRefractometerAddress !== ""
-                             && refReady && Refractometer.supportsAveraging()
-                    Layout.preferredWidth: Theme.scaled(64)
-                    Layout.preferredHeight: Theme.scaled(36)
-                    Layout.alignment: Qt.AlignVCenter
-                    radius: Theme.scaled(12)
-                    color: Theme.cardBackgroundColor
-                    border.width: 1
-                    border.color: Theme.textSecondaryColor
-                    opacity: refMeasuring ? 0.5 : 1.0
-                    Accessible.ignored: true
-
-                    Text {
-                        anchors.centerIn: parent
-                        // While a run is in flight, show which test of how many — the R2
-                        // takes seconds per test and a static label reads as hung.
-                        text: postShotReviewPage.avgTotal > 0
-                            ? postShotReviewPage.avgDone + "/" + postShotReviewPage.avgTotal
-                            : TranslationManager.translate("postshotreview.refractometer.avgTds", "Avg ×3")
-                        color: Theme.textColor
-                        font.pixelSize: Theme.scaled(13)
-                        Accessible.ignored: true
-                    }
-
-                    AccessibleMouseArea {
-                        anchors.fill: parent
-                        accessibleName: TranslationManager.translate(
-                            "postshotreview.readAveragedTds",
-                            "Read averaged TDS — takes three measurements and averages them")
-                        accessibleItem: avgTdsButton
-                        enabled: !avgTdsButton.refMeasuring
-                        onAccessibleClicked: {
-                            if (!avgTdsButton.refReady) return
+                            if (typeof Refractometer === "undefined" || !Refractometer) return
                             postShotReviewPage.avgDone = 0
                             postShotReviewPage.avgTotal = 0
-                            Refractometer.requestAveragedMeasurement(postShotReviewPage.averageTestCount)
+                            // A single test, deliberately — a judgement about magnitude,
+                            // not about whether averaging works. Three runs on hardware
+                            // (7.82/7.83/7.85, 8.04/8.05/8.05, 8.10/8.08/8.08) show
+                            // genuine random scatter, sigma about 0.011% TDS, which
+                            // averaging over three does reduce — to about 0.007%.
+                            //
+                            // But that 0.005% improvement is smaller than the 0.01% step
+                            // the device reports in, so it cannot even be represented in
+                            // the answer, and it is an order of magnitude under
+                            // sample-prep variance. The cost is 12-22s against ~3.5s.
+                            //
+                            // Averaging is used where nobody is waiting instead: Auto Test
+                            // sets the device's own test count (see main.cpp), so an
+                            // unattended reading is the careful one and costs nothing.
+                            Refractometer.requestMeasurement()
                         }
                     }
                 }

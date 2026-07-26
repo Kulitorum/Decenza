@@ -43,6 +43,7 @@ public:
     void setAutoTest(bool enabled) override;
     bool supportsAutoTest() const override { return true; }
     bool supportsAveraging() const override { return true; }
+    void setDeviceTestCount(int count) override;
 
     void connectToDevice(const QBluetoothDeviceInfo& device) override;
     void disconnectFromDevice() override;

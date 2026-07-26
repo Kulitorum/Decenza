@@ -2973,18 +2973,21 @@ int main(int argc, char *argv[])
         // step when the setting was changed with the R2 away.
         if (refractometer->supportsAutoTest()) {
             RefractometerDevice* refPtr = refractometer.get();
-            QObject::connect(refPtr, &RefractometerDevice::connectedChanged, refPtr,
-                             [refPtr, &settings]() {
-                if (refPtr->isConnected())
-                    refPtr->setAutoTest(settings.app()->refractometerAutoTest());
-            });
+            // Auto Test only. Making it also raise the device's test count so unattended
+            // readings were averaged was tried and dropped: three runs on hardware put
+            // the single-reading scatter at about 0.011% TDS, so averaging three buys
+            // roughly 0.005% — less than the 0.01% step the device reports in, and so
+            // not representable in the answer at all. The driver keeps setDeviceTestCount
+            // as protocol coverage; nothing sets it, and the device default of 1 stands.
+            const auto applyAutoTest = [refPtr, &settings]() {
+                if (!refPtr->isConnected()) return;
+                refPtr->setAutoTest(settings.app()->refractometerAutoTest());
+            };
+            QObject::connect(refPtr, &RefractometerDevice::connectedChanged, refPtr, applyAutoTest);
             // Changing the setting while the device happens to be connected applies
             // straight away rather than waiting for the next connect.
-            QObject::connect(settings.app(), &SettingsApp::refractometerAutoTestChanged, refPtr,
-                             [refPtr, &settings]() {
-                if (refPtr->isConnected())
-                    refPtr->setAutoTest(settings.app()->refractometerAutoTest());
-            });
+            QObject::connect(settings.app(), &SettingsApp::refractometerAutoTestChanged,
+                             refPtr, applyAutoTest);
         }
 
         qDebug() << "[Refractometer] Created and connecting to" << device.name();

@@ -58,6 +58,12 @@ public:
     // "average" that silently takes one reading would be a lie, so it asks first.
     Q_INVOKABLE virtual bool supportsAveraging() const { return false; }
 
+    // How many tests a DEVICE-INITIATED measurement takes. Distinct from
+    // requestAveragedMeasurement(), which averages a run we asked for: this governs
+    // runs the device starts on its own — the physical button and Auto Test — and so
+    // is the only way to make those averaged. Devices without the notion ignore it.
+    Q_INVOKABLE virtual void setDeviceTestCount(int count) { Q_UNUSED(count); }
+
     virtual void connectToDevice(const QBluetoothDeviceInfo& device) = 0;
     Q_INVOKABLE virtual void disconnectFromDevice() = 0;
     Q_INVOKABLE virtual void requestMeasurement() = 0;

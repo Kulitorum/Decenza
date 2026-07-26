@@ -544,6 +544,51 @@ private slots:
         QVERIFY(!r2.autoTest());
     }
 
+    void deviceTestCountEchoDistinguishesAveragedFromSingle() {
+        // This setting governs runs the DEVICE starts (physical button, Auto Test).
+        // A log reader needs to be able to tell which mode a reading came from.
+        DiFluidR2 r2(nullptr);
+        QSignalSpy logSpy(&r2, &DiFluidR2::logMessage);
+
+        QByteArray three;
+        three.append(static_cast<char>(0x03));
+        r2.handlePacket(buildR2Packet(0x01, 0x03, three));
+
+        QByteArray one;
+        one.append(static_cast<char>(0x01));
+        r2.handlePacket(buildR2Packet(0x01, 0x03, one));
+
+        bool sawAveraged = false, sawSingle = false;
+        for (const auto& e : logSpy) {
+            const QString s = e.at(0).toString();
+            if (s.contains(QLatin1String("count is now 3")) && s.contains(QLatin1String("averaged")))
+                sawAveraged = true;
+            if (s.contains(QLatin1String("count is now 1")) && s.contains(QLatin1String("single")))
+                sawSingle = true;
+        }
+        QVERIFY2(sawAveraged, "a device test count above 1 was not reported as averaged");
+        QVERIFY2(sawSingle, "a device test count of 1 was not reported as single");
+    }
+
+    void deviceTestCountEchoIsNotTreatedAsMeasurement() {
+        DiFluidR2 r2(nullptr);
+        QSignalSpy tdsSpy(&r2, &DiFluidR2::tdsChanged);
+        QSignalSpy tempSpy(&r2, &DiFluidR2::temperatureChanged);
+
+        QByteArray three;
+        three.append(static_cast<char>(0x03));
+        r2.handlePacket(buildR2Packet(0x01, 0x03, three));
+
+        QCOMPARE(tdsSpy.count(), 0);
+        QCOMPARE(tempSpy.count(), 0);
+    }
+
+    void deviceTestCountWriteRequiresAConnectedDevice() {
+        DiFluidR2 r2(nullptr);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Cannot set the device test count"));
+        r2.setDeviceTestCount(3);
+    }
+
     void autoTestWriteRequiresAConnectedDevice() {
         // The setting is written to the device, so there is nothing to do without one.
         // Silently no-oping would leave the user believing they had changed it.
