@@ -276,6 +276,61 @@ SKIP_INTERACTIVE=1 bash scripts/test_mcp.sh localhost:8888
 
 Run this after any changes to `src/mcp/`, `src/controllers/profilemanager.cpp`, or `src/network/shotserver*.cpp`.
 
+## What actually finds bugs here
+
+Written after the recipe-editor parity effort, because the yield was measured
+rather than assumed and the answer was not what was expected going in.
+
+That effort produced ~440 committed fixture files and eleven findings, then a
+code review found **six more defects while the suite sat at 101/101 green**.
+Attributing every bug to what caught it:
+
+| Found by | Bugs |
+|---|---|
+| **Differential oracle** — running de1app's real Tcl and diffing | the edit matrix's findings, WIRE-1 |
+| **Transcribing the upstream source** and asserting against real fixtures | AF-1…AF-6, DF-1…DF-5 |
+| **Pulling one actual shot** | the DE1Simulator zero-length-frame bug |
+| **Reading code, history, comments and fixtures** (review) | every defect in the second round |
+| **A 120-profile randomised corpus** | none |
+| **Extending a byte-parity corpus from 8 profiles to 89** | none |
+
+Three lessons, in descending order of how much they cost to learn:
+
+**1. A test you invent asserts what you already believe. A differential test
+asserts what the other system does.** Everything of value here came from
+executing de1app's own procs — `prep`, `update_*`, `de1_packed_shot` — and
+diffing. Hand-written expectations found nothing and were wrong seven times.
+
+**2. Scale is not coverage.** The byte-diff *method* found WIRE-1 with eight
+profiles. Going to 89, and generating 120 more, found nothing further. Before
+adding a corpus, ask what shape of defect it catches that a handful of cases
+does not — and if the answer is "more of the same", it is insurance, not
+detection. Insurance is legitimate; just argue it on risk and say so.
+
+**3. The failure mode to fear is a test that cannot fail.** Seven appeared in one
+effort. Every one passed because the FIXTURE could not distinguish:
+
+- asserting `pourFlow > 0` when the struct default is 2.0
+- a two-frame fixture for an editor that indexes frames 0/1/2
+- asserting a value that is also the generator's own hardcoded literal
+- a no-op-save test that passed only because a fabricated recipe block made the
+  save short-circuit before touching the frames
+- stock fixtures whose values already equal the constants under test, so
+  `before == after` either way
+- asserting pressure fields when the broken field was temperature
+- calling a one-shot migration whose "already ran" flag was set, so the call did
+  nothing
+
+**So: verify the test fails.** Revert the fix, watch it go red, restore. It takes
+two minutes, it is the only evidence that a green test means anything, and it
+caught the seventh case above *after* the first six had already taught the
+lesson. If reverting the fix leaves the test green, the test is decoration.
+
+Corollary: when a test needs a fixture, prefer a real artefact — a stock `.tcl`,
+a recorded shot — over one you construct. A constructed fixture tends to be built
+from the same assumptions as the code, which is precisely what stops it
+discriminating.
+
 ## Adding New Tests
 
 1. Create `tests/tst_yourtest.cpp` with `QTEST_GUILESS_MAIN(tst_YourTest)` and `#include "tst_yourtest.moc"`
@@ -415,6 +470,10 @@ copied field list drifts on a de1app bump and the drift is invisible.
 **A golden is never hand-adjusted to match Decenza.** If one looks wrong, re-read the oracle; if the
 oracle is right, Decenza changes. Regenerating after a plugin bump must leave every data row
 unchanged unless the plugin itself changed.
+
+These gates are the worked example behind [What actually finds bugs
+here](#what-actually-finds-bugs-here) — read that before adding a corpus of your own. The short
+version: the differential oracle earned its keep; the fixture volume did not.
 
 ## Shot Analysis Regression Tool (shot_eval)
 
