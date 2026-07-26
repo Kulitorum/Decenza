@@ -1295,7 +1295,7 @@ private slots:
     }
 
     // ==================================================================
-    // 13b. PROPERTY TEST — the quantisation space, not eight data points
+    // 13b. THE ENCODER BOUNDARIES — the values no real profile contains
     //
     // The eight stock profiles exercise values their authors happened to
     // choose: round numbers, clustered, and missing every encoder boundary.
@@ -1303,21 +1303,27 @@ private slots:
     // U8P4 and U8P1, the F8_1_7 switchover at 12.75, the U10P0 wrap at 1023 —
     // and each profile is packed by de1app's real packer.
     //
-    // Regenerate: python3 tools/gen_pack_property_corpus.py <de1plus-dir>
-    // Seeded, so a golden diff means de1app changed, not corpus churn.
+    // Regenerate: python3 tools/gen_de1app_pack_corpus.py <de1plus-dir>
+    // Deterministic, so a golden diff means de1app changed, not fixture churn.
     // ==================================================================
 
-    void packedBytesMatchDe1appAcrossQuantisationSpace() {
+    void packedBytesMatchDe1appAtTheEncoderBoundaries() {
         QDir dir(QStringLiteral(PACK_PROPERTY_PATH));
         const QStringList cases = dir.entryList({QStringLiteral("*.tcl")}, QDir::Files, QDir::Name);
-        // 24, of which the first TWO are pinned: their frames carry the boundary
-        // values explicitly, one per frame, so coverage of the F8_1_7 switchover
-        // and the U8P4/U8P1/U10P0 ties is guaranteed by construction rather than
-        // by the seed happening to draw them. That is what lets the corpus be
-        // this small — it was 120 random profiles, which re-proved through a
-        // heavy mechanism what tst_binarycodec already asserts directly, at the
-        // cost of 240 committed files.
-        QVERIFY2(cases.size() >= 20,
+        // TWO profiles, each frame carrying one boundary explicitly: the F8_1_7
+        // switchover at 12.75, the U8P4 ties at +1/32, the U8P1 ties at .x5, the
+        // U10P0 wrap. That is the whole of what this checks that nothing else
+        // does — the encoders at values no real profile contains, through the
+        // FULL pack rather than the codec alone.
+        //
+        // It was 120 randomly generated profiles, 240 committed files. That
+        // corpus found nothing in its lifetime; tst_binarycodec's 41 test
+        // functions already assert the same rounding at the codec level, and the
+        // 89 stock goldens already cover whole-profile assembly on real values.
+        // The random draws were re-proving both through a heavier mechanism.
+        // Scale was never what caught anything here — the differential oracle
+        // was, and it found WIRE-1 with eight profiles.
+        QVERIFY2(cases.size() >= 2,
                  qPrintable(QStringLiteral("property corpus too small (%1) — regenerate")
                             .arg(cases.size())));
 
@@ -1353,7 +1359,7 @@ private slots:
             }
         }
 
-        QVERIFY2(compared >= 20, "too few profiles actually compared");
+        QVERIFY2(compared >= 2, "too few boundary profiles actually compared");
         QVERIFY2(failures.isEmpty(),
                  qPrintable(QStringLiteral("%1 quantisation divergence(s) across %2 profiles:\n  %3")
                             .arg(failures.size()).arg(compared)
