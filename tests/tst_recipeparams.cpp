@@ -22,7 +22,6 @@ private slots:
         RecipeParams original;
         original.targetWeight = 42.0;
         original.targetVolume = 100.0;
-        original.dose = 20.0;
         original.fillTemperature = 85.0;
         original.infusePressure = 2.5;
         original.infuseTime = 15.0;
@@ -43,7 +42,6 @@ private slots:
 
         QCOMPARE(parsed.targetWeight, 42.0);
         QCOMPARE(parsed.targetVolume, 100.0);
-        QCOMPARE(parsed.dose, 20.0);
         QCOMPARE(parsed.fillTemperature, 85.0);
         QCOMPARE(parsed.infusePressure, 2.5);
         QCOMPARE(parsed.pourTemperature, 90.0);
@@ -77,7 +75,6 @@ private slots:
 
         // Verify key defaults
         QCOMPARE(parsed.targetWeight, 36.0);
-        QCOMPARE(parsed.dose, 18.0);
         QCOMPARE(parsed.fillTemperature, 88.0);
         QCOMPARE(parsed.editorType, EditorType::DFlow);
         QCOMPARE(parsed.preinfuseFrameCount, -1);  // Sentinel: use countPreinfuseFrames()
@@ -240,11 +237,9 @@ private slots:
         QVERIFY(a.frameAffectingFieldsEqual(b));
     }
 
-    void frameFieldsEqualWhenOnlyDoseDiffers() {
-        RecipeParams a, b;
-        b.dose = a.dose + 5.0;
-        QVERIFY(a.frameAffectingFieldsEqual(b));
-    }
+    // No dose case here any more: RecipeParams has no `dose`. The per-profile dose
+    // is Profile::recommendedDose, which is not part of this comparison at all —
+    // see tst_profile's promotion cases.
 
     void frameFieldsEqualWhenOnlyVolumeDiffers() {
         RecipeParams a, b;

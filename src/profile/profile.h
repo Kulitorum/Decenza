@@ -105,6 +105,11 @@ public:
     void setTemperaturePresets(const QList<double>& presets) { m_temperaturePresets = presets; }
 
     // === Recommended Dose ===
+    // The read default, shared by the member initialiser, fromJson's fallback and the
+    // recipe-block promotion — which needs it to tell "the user set 18" (indistinguishable,
+    // and harmless) from "this is just the default" (must not enable a recommendation).
+    static constexpr double kDefaultRecommendedDose = 18.0;
+
     bool hasRecommendedDose() const { return m_hasRecommendedDose; }
     void setHasRecommendedDose(bool enabled) { m_hasRecommendedDose = enabled; }
 
@@ -253,6 +258,11 @@ public:
     // editing any one parameter reset the fill temperature to 88 °C
     // (finding REC-1). The plugins have no such notion: both reconstruct their
     // editor state from the frames on every load. A stored block is a cache.
+    // True when the profile was loaded from a source that still carried a `recipe`
+    // block. See ProfileManager::loadProfile, which persists the stripped form once.
+    bool recipeBlockStripped() const { return m_recipeBlockStripped; }
+    void clearRecipeBlockStripped() { m_recipeBlockStripped = false; }
+
     bool hasRecipeParams() const { return m_hasRecipeParams; }
 
     // Regenerate frames from stored recipe parameters
@@ -430,7 +440,13 @@ private:
 
     // Recommended dose
     bool m_hasRecommendedDose = false;
-    double m_recommendedDose = 18.0;
+    double m_recommendedDose = kDefaultRecommendedDose;
+
+    // Transient; set by fromJson() when the source carried a `recipe` block, so
+    // ProfileManager::loadProfile can write the stripped profile back once. Not
+    // serialized — the block is gone from the output either way, and this only
+    // says whether the copy ON DISK still has one.
+    bool m_recipeBlockStripped = false;
 
     // Limits
     double m_maximumPressure = 12.0;

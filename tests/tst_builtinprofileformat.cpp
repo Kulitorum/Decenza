@@ -229,8 +229,27 @@ private slots:
             && !produced.contains(QStringLiteral("recipe"))) {
             const QJsonObject recipe = legacy.value(QStringLiteral("recipe")).toObject();
             if (recipe.contains(QStringLiteral("dose"))) {
-                QCOMPARE(profileJsonToDouble(produced.value(QStringLiteral("recommended_dose"))),
-                         profileJsonToDouble(recipe.value(QStringLiteral("dose"))));
+                // Three-way rule, not an unconditional copy. Asserting equality
+                // outright happens to hold across this corpus only because every
+                // block in it carries the default 18 — it would be wrong the moment
+                // a fixture had a real dose alongside an explicit recommendation.
+                const double blockDose = profileJsonToDouble(recipe.value(QStringLiteral("dose")));
+                const double producedDose =
+                    profileJsonToDouble(produced.value(QStringLiteral("recommended_dose")));
+                const bool hadExplicit =
+                    profileJsonToBool(legacy.value(QStringLiteral("has_recommended_dose")), false);
+                if (hadExplicit) {
+                    // The editor's value wins; the block must not overwrite it.
+                    QCOMPARE(producedDose,
+                             profileJsonToDouble(legacy.value(QStringLiteral("recommended_dose"))));
+                } else if (qFuzzyCompare(blockDose, Profile::kDefaultRecommendedDose)) {
+                    // A default dose promotes nothing, so no recommendation appears.
+                    QVERIFY2(!profileJsonToBool(produced.value(QStringLiteral("has_recommended_dose")), false),
+                             "a default dose of 18 was promoted into a real recommendation");
+                } else {
+                    QCOMPARE(producedDose, blockDose);
+                    QVERIFY(profileJsonToBool(produced.value(QStringLiteral("has_recommended_dose")), false));
+                }
             }
             legacyCmp.remove(QStringLiteral("recipe"));
         }
@@ -307,7 +326,9 @@ private slots:
     // or it is decoration. Guards the guard.
     void parityCheckerDetectsLossAndDrift() {
         QJsonObject before;
-        before["recipe"] = QJsonObject{{"dose", 18}};
+        // NOT `recipe` — that key is deliberately excused (see the case below).
+        // Any other object must still count as a loss.
+        before["some_future_app_object"] = QJsonObject{{"a", 1}};
         before["espresso_pressure"] = QStringLiteral("9.0");
         before["target_weight"] = QStringLiteral("36.5");
         before["inert_zero"] = QStringLiteral("0.0");
@@ -318,7 +339,7 @@ private slots:
 
         const QStringList errs = Profile::jsonParityErrors(before, after);
         QVERIFY2(errs.size() == 3, qPrintable(errs.join("; ")));
-        QVERIFY(errs.filter("recipe").size() == 1);          // object lost
+        QVERIFY(errs.filter("some_future_app_object").size() == 1);  // object lost
         QVERIFY(errs.filter("espresso_pressure").size() == 1); // non-zero scalar lost
         QVERIFY(errs.filter("target_weight").size() == 1);   // value drifted
         // A dropped zero is inert and must NOT be reported.
@@ -326,6 +347,43 @@ private slots:
         // Encoding-only differences are not drift.
         QVERIFY(Profile::jsonParityErrors(
                     QJsonObject{{"p", 9.0}}, QJsonObject{{"p", QStringLiteral("9.00")}}).isEmpty());
+    }
+
+    // The one key whose removal is deliberate. Without this excusal a dropped
+    // recipe block reads as a loss, and the four consumers of jsonParityErrors —
+    // stored-encoding upgrade, the espresso_temperature repair, legacy format
+    // migration and profile_sync --rewrite-format — all refuse to touch any
+    // profile that still carries one, including the strip that removes it.
+    // Nothing writes a recipe block any more, and profile_sync --rewrite-format has
+    // regenerated the ones that had one. `--sync` cannot police this: compare mode
+    // asks "does this built-in still match its de1app source?", and `recipe` was
+    // never a de1app key, so a block is invisible to it. This is the guard.
+    void noShippedProfileCarriesARecipeBlock() {
+        QDir dir(BUILTIN_PROFILES_DIR);
+        const QStringList files = dir.entryList({QStringLiteral("*.json")}, QDir::Files, QDir::Name);
+        QVERIFY(files.size() >= 90);
+        QStringList offenders;
+        for (const QString& f : files) {
+            QFile file(dir.absoluteFilePath(f));
+            QVERIFY(file.open(QIODevice::ReadOnly));
+            if (QJsonDocument::fromJson(file.readAll()).object().contains(QStringLiteral("recipe")))
+                offenders << f;
+        }
+        QVERIFY2(offenders.isEmpty(),
+                 qPrintable(QStringLiteral("shipped profile(s) carry a recipe block: ")
+                            + offenders.join(QStringLiteral(", "))));
+    }
+
+    void parityCheckerExcusesTheRecipeBlock() {
+        QJsonObject before;
+        before["recipe"] = QJsonObject{{"dose", 18}, {"fillTemperature", 88}};
+        before["target_weight"] = QStringLiteral("36.0");
+
+        QJsonObject after;
+        after["target_weight"] = QStringLiteral("36.0");
+
+        const QStringList errs = Profile::jsonParityErrors(before, after);
+        QVERIFY2(errs.isEmpty(), qPrintable(errs.join("; ")));
     }
 
     // A value the source left empty, replaced by a non-zero number, is drift and

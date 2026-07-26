@@ -124,6 +124,12 @@ public:
     bool profileHasRecommendedDose() const { return m_currentProfile.hasRecommendedDose(); }
     double profileRecommendedDose() const { return m_currentProfile.recommendedDose(); }
 
+    // Sets the per-profile dose and enables it in one step, for callers that have a
+    // value rather than a value plus a toggle — the MCP `dose` parameter. Setting a
+    // dose without enabling it would store a number nothing reads, which is what the
+    // retired recipe-block `dose` did.
+    void setCurrentProfileRecommendedDose(double doseG);
+
     // === Target weight / brew-by-ratio ===
     // The yield ladder's single evaluation point (add-yield-ratio-anchor):
     // resolves the session anchor {value, mode} against the effective dose,
@@ -387,7 +393,9 @@ private:
     void resetBrewOverridesForLoadedProfile();
     void migrateProfileFolders();
     void migrateProfileFormat();
-    void migrateRecipeFrames();
+    // One-time upgrade: remove the `recipe` block from already-saved profiles,
+    // promoting a set dose to recommended_dose. Replaces migrateRecipeFrames().
+    void stripStoredRecipeBlocks();
     void migrateReadOnlyProfiles();
     void applyRecipeToScalarFields(const RecipeParams& recipe);
     void createNewProfileWithEditorType(EditorType type, const QString& title);

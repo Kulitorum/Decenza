@@ -446,6 +446,52 @@ private slots:
         QVERIFY2(checked >= 50, qPrintable(QString("Only %1 profiles checked").arg(checked)));
     }
 
+    // A stored recipe block must not reach the machine, in either direction: its
+    // presence must not change a byte, and neither must its removal. The block was a
+    // cache of values re-derived from the frames on every read, so this is the
+    // property that made removing it safe — asserted rather than assumed.
+    void storedRecipeBlockDoesNotChangeWhatTheMachineGets_data() {
+        QTest::addColumn<QString>("fileName");
+        QTest::newRow("dflow") << QStringLiteral("d_flow_q.json");
+        QTest::newRow("aflow") << QStringLiteral("a_flow_default_medium.json");
+    }
+
+    void storedRecipeBlockDoesNotChangeWhatTheMachineGets() {
+        QFETCH(QString, fileName);
+        const QString path = QDir(kProfilesDir).absoluteFilePath(fileName);
+
+        QFile f(path);
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        const QJsonObject clean = QJsonDocument::fromJson(f.readAll()).object();
+        f.close();
+        QVERIFY2(!clean.contains(QStringLiteral("recipe")),
+                 "fixture already carries a block — this test would prove nothing");
+
+        // A block that CONTRADICTS the frames, which is the real-world shape: the
+        // five shipped A-Flow built-ins carried exactly this until it was removed.
+        QJsonObject withBlock = clean;
+        withBlock[QStringLiteral("recipe")] = QJsonObject{
+            {QStringLiteral("editorType"), QStringLiteral("aflow")},
+            {QStringLiteral("dose"), 18},
+            {QStringLiteral("fillTemperature"), 88},
+            {QStringLiteral("infuseTime"), 20},
+            {QStringLiteral("pourPressure"), 9},
+            {QStringLiteral("pourTemperature"), 93}};
+
+        const Profile a = Profile::fromJson(QJsonDocument(clean));
+        const Profile b = Profile::fromJson(QJsonDocument(withBlock));
+
+        QCOMPARE(b.toHeaderBytes().toHex(), a.toHeaderBytes().toHex());
+        QCOMPARE(b.toFrameBytes().size(), a.toFrameBytes().size());
+        const auto fa = a.toFrameBytes(), fb = b.toFrameBytes();
+        for (qsizetype i = 0; i < fa.size(); ++i)
+            QCOMPARE(fb[i].toHex(), fa[i].toHex());
+
+        // And the block does not survive serialization.
+        QVERIFY2(!b.toJsonObject().contains(QStringLiteral("recipe")),
+                 "the block survived a round-trip");
+    }
+
     void allProfilesEncodeWithoutCrash() {
         // Smoke test: every profile encodes header + frames without crashing
         QDir dir(kProfilesDir);

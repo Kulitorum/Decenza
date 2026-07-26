@@ -1602,9 +1602,12 @@ private slots:
         }
 
         // And the converse: the display-only fields must NOT force a regenerate.
-        for (const auto& pair : {std::make_pair("targetWeight", 1), std::make_pair("dose", 2)}) {
+        // `dose` used to be in this list and is gone — RecipeParams no longer carries
+        // one, because the recipe block that stored it is no longer written and
+        // nothing read it. The per-profile dose is Profile::recommendedDose.
+        for (const auto& pair : {std::make_pair("targetWeight", 1), std::make_pair("targetVolume", 2)}) {
             RecipeParams other = base;
-            if (pair.second == 1) other.targetWeight += 1.0; else other.dose += 1.0;
+            if (pair.second == 1) other.targetWeight += 1.0; else other.targetVolume += 1.0;
             QVERIFY2(base.frameAffectingFieldsEqual(other),
                      qPrintable(QStringLiteral("%1 is display-only and must not trigger a "
                                                "frame regeneration")

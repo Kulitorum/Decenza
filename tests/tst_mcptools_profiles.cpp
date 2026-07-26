@@ -141,6 +141,45 @@ private:
     }
 
 private slots:
+    // `dose` has always been an accepted edit_params field. It used to write
+    // RecipeParams::dose, which lived in the recipe block and was read by nothing.
+    // With that field gone it must not fall through to the unrecognised-key path —
+    // reporting IGNORED is the one outcome the redirect exists to prevent.
+    void editParamsDoseWritesTheRecommendedDose() {
+        McpTestFixture f;
+        registerProfileTools(&f.registry, &f.profileManager, nullptr);
+        loadDFlowProfile(f, "D-Flow / Dose");
+
+        const QJsonObject r = f.callTool("profiles_edit_params",
+                                         QJsonObject{{"dose", 20.5}, {"confirmed", true}});
+        QVERIFY2(!r.contains("ignoredFields"),
+                 qPrintable(QStringLiteral("dose was reported ignored: ")
+                            + QJsonDocument(r).toJson(QJsonDocument::Compact)));
+        QVERIFY(r.value("success").toBool());
+        QCOMPARE(f.profileManager.profileRecommendedDose(), 20.5);
+        QVERIFY2(f.profileManager.profileHasRecommendedDose(),
+                 "a dose was stored without enabling it, so nothing would read it");
+    }
+
+    void getParamsReportsTheDoseWithItsFlag() {
+        // Every profile holds 18 g whether one was set or not, so a bare figure
+        // would tell an AI there is a recommendation when there is not.
+        McpTestFixture f;
+        registerProfileTools(&f.registry, &f.profileManager, nullptr);
+        loadDFlowProfile(f, "D-Flow / Dose Read");
+
+        QJsonObject r = f.callTool("profiles_get_params", QJsonObject{});
+        QVERIFY(r.contains("recommendedDoseG"));
+        QVERIFY2(r.contains("hasRecommendedDose"),
+                 "the dose was reported without the flag saying whether it is real");
+        QCOMPARE(r.value("hasRecommendedDose").toBool(), false);
+
+        f.callTool("profiles_edit_params", QJsonObject{{"dose", 21.0}, {"confirmed", true}});
+        r = f.callTool("profiles_get_params", QJsonObject{});
+        QCOMPARE(r.value("hasRecommendedDose").toBool(), true);
+        QCOMPARE(r.value("recommendedDoseG").toDouble(), 21.0);
+    }
+
     void init() { QTest::failOnWarning(); }
 
     // ===== profiles_list =====

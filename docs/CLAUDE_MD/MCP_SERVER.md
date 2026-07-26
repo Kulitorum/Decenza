@@ -295,9 +295,9 @@ A recipe is the whole drink: profile + bean link + equipment + dose/yield/temp +
 | `profiles_list` | List all available profiles | read |
 | `profiles_get_active` | Get current profile name + details | read |
 | `profiles_get_detail` | Full profile JSON by filename | read |
-| `profiles_get_params` | Get the current profile's editable recipe parameters, tailored to its editor type (dflow, aflow, pressure, flow). Returns all parameters that can be passed to `profiles_edit_params`. | read |
+| `profiles_get_params` | Get the current profile's editable recipe parameters, tailored to its editor type (dflow, aflow, pressure, flow). Returns all parameters that can be passed to `profiles_edit_params`. Always reports `recommendedDoseG` **together with** `hasRecommendedDose` — every profile holds a dose whether one was set or not (the default is 18 g), so a bare figure would read as a recommendation that does not exist. | read |
 | `profiles_set_active` | Load and activate a profile | settings |
-| `profiles_edit_params` | Edit the current profile's recipe parameters and regenerate frames. Only provide fields you want to change — unspecified fields keep their current values. Triggers frame regeneration and uploads to machine. Profile is marked modified but not saved to disk — call `profiles_save` to persist. | settings |
+| `profiles_edit_params` | Edit the current profile's recipe parameters and regenerate frames. Only provide fields you want to change — unspecified fields keep their current values. Triggers frame regeneration and uploads to machine. Profile is marked modified but not saved to disk — call `profiles_save` to persist. `dose` writes the profile's `recommended_dose` and enables it (clamped 0–100 g); it is handled for every editor type, advanced included, before the unrecognised-key check. | settings |
 | `profiles_save` | Save the current (modified) profile to disk. Without this, edits are active on the machine but lost if another profile is loaded. Optionally provide filename + title for Save As. | settings |
 | `profiles_delete` | Delete a user/downloaded profile. For built-in profiles, removes local overrides and reverts to the original built-in version. | settings |
 | `profiles_create` | Create a new blank profile with a given editor type (dflow, aflow, pressure, flow, advanced) and title. Uses the same creation functions as the QML UI. | settings |
@@ -406,6 +406,26 @@ The later `dialing_get_grinder_calibration` split (#1164) does **not** reverse t
 | Water level | `DE1Device::waterLevelMl()` / `waterLevelMm()` | `machine_get_state` |
 
 The MCP AI still has advantages over the in-app AI: it's not limited by token budgets or cloud API costs, and it can maintain a long conversation across multiple shots without context trimming. However, as of PR #635/#647, both paths share the same system prompt (including reference tables, profile catalog with cross-profile recommendation guidance, and burr-swappable grinder enrichment), grinder context logic, and profile knowledge — changes to shared components benefit both equally.
+
+
+### `dose` on `profiles_edit_params`
+
+`dose` used to write `RecipeParams::dose`, which lived in the profile's `recipe` block and was read
+by nothing — not by either frame generator, not by any QML binding, and explicitly excluded from
+`frameAffectingFieldsEqual`. Both the block and the field are gone.
+
+The parameter is still accepted, and now writes `recommended_dose` + `has_recommended_dose`, which
+are consumed by `dialing_get_context`, `profiles_get_detail` and the AI advisor. Two details matter
+for anyone changing this:
+
+- The handler runs **before** the loop that checks incoming keys against the editor's current
+  parameter map. Left after it, `dose` would land in `ignoredFields` and the response would report
+  it IGNORED — the exact outcome keeping the parameter exists to avoid.
+- It clamps to `[0, 100]`, replacing the bound that `RecipeParams::clamp()` used to provide.
+  `Profile::setRecommendedDose` is a bare assignment.
+
+`recommended_dose` / `has_recommended_dose` also remain directly settable on the advanced branch, so
+the same field has two spellings depending on editor type. `dose` is the portable one.
 
 ## AI-Friendly Data Conventions
 

@@ -47,7 +47,13 @@ struct RecipeParams {
     // === Core Parameters ===
     double targetWeight = 36.0;         // Stop at weight (grams)
     double targetVolume = 0.0;          // Stop at volume (mL, 0 = disabled)
-    double dose = 18.0;                 // Input dose for ratio display (grams)
+
+    // No `dose` here, deliberately. It was carried in the persisted recipe block and
+    // consumed by nothing — not by either frame generator, not by any QML binding,
+    // and explicitly excluded from frameAffectingFieldsEqual as "metadata only". The
+    // per-profile dose that IS consumed is Profile's recommended_dose /
+    // has_recommended_dose pair (the advanced editor's control, dialing_get_context,
+    // the AI advisor), and the MCP `dose` parameter now writes that.
 
     // ADDING A FIELD HERE? Decide whether it affects frame GENERATION and update
     // frameAffectingFieldsEqual() in recipeparams.cpp to match. That function is
@@ -119,9 +125,18 @@ struct RecipeParams {
 
     // === Comparison ===
     // Returns true if all frame-affecting fields are equal (excludes metadata-only
-    // fields: targetWeight, targetVolume, dose). Used to skip frame regeneration
+    // fields: targetWeight, targetVolume). Used to skip frame regeneration
     // when only metadata changed — matches de1app behavior where changing weight
     // doesn't recompute frames.
+    //
+    // WHAT IT IS COMPARED AGAINST matters as much as what it compares, and differs
+    // by editor type — see ProfileManager::uploadRecipeProfile. For D-Flow/A-Flow the
+    // baseline is now RecipeAnalyzer::extractRecipeParams(profile), i.e. the frames,
+    // because no recipe block is stored any more and profile.recipeParams() is a
+    // default-constructed struct. For ADVANCED profiles, which share that code path,
+    // the baseline must stay profile.recipeParams(): frame-derived params would never
+    // compare equal to the advanced editor's defaults, and the resulting permanent
+    // "changed" verdict silently skips the branch that applies target weight/volume.
     bool frameAffectingFieldsEqual(const RecipeParams& other) const;
 
     // === Validation ===
