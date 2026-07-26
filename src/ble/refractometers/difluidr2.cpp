@@ -603,6 +603,13 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
         // measurement carries — the driver only ever observed that it "streams pack 2" —
         // so an unrecognised code must degrade to today's behaviour rather than to silence.
         const bool averagedRun = (cmd == 1);
+        // Cmd 3 is a loop test: undocumented by DiFluid and absent from Beanconqueror's
+        // enum, but observed on hardware as what Auto Test escalates to when the prism
+        // is not thermally settled. It re-measures every ~3s until the reading stops
+        // moving, then ends with status 9 — one settling measurement, not N finished
+        // ones. Treating each reading as terminal fired measurementComplete five times
+        // in a 16s run and let a mid-loop save persist a superseded value.
+        const bool loopRun = (cmd == 3);
         if (dataLen < 1) return;
         uint8_t packNo = static_cast<uint8_t>(packet[5]);
 
@@ -627,11 +634,12 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
             // The device is telling us it is still working — keep the run alive.
             if (m_measuring && r2StatusIsProgress(status))
                 m_measurementTimer.start();
-            // Status 6 (Average Test Finished) is the device's terminal signal for an
-            // averaged run. The value itself already arrived via pack 3 — this only ends
-            // the run, which is why a dropped status 6 costs the spinner and not the
-            // reading. The liveness watchdog covers the case where it never comes.
-            if (status == 6)
+            // Status 6 (Average Test Finished) and 9 (Loop Test Finished) are the
+            // device's terminal signals for the two multi-reading run types. The value
+            // itself already arrived — these only end the run, which is why a dropped
+            // terminal status costs the spinner and not the reading. The liveness
+            // watchdog covers the case where one never comes.
+            if (status == 6 || status == 9)
                 finishMeasurement(/*complete=*/true);
             break;
         }
@@ -705,7 +713,10 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
                 if (m_measuring) m_measurementTimer.start();
                 break;
             }
-            emitTdsResult(tdsRaw, /*isAverage=*/false, /*terminal=*/true);
+            // In a loop run the reading is real and must reach consumers — latest wins,
+            // so the settled value is the one that survives — but the run continues
+            // until status 9.
+            emitTdsResult(tdsRaw, /*isAverage=*/false, /*terminal=*/!loopRun);
             break;
         }
         case 3: {

@@ -808,6 +808,57 @@ private slots:
         QVERIFY(!r2.isMeasuring());
     }
 
+    // === Loop test (Cmd 3) ===
+    //
+    // Undocumented by DiFluid and absent from Beanconqueror's enum; observed on hardware
+    // as what Auto Test escalates to on an unsettled prism. It re-measures until the
+    // reading stops moving, then ends with status 9. Byte sequence below is a real run:
+    // 7.65 then 7.64 four times, converging and stopping.
+
+    static QByteArray buildLoopRunPacket(uint8_t packNo, const QByteArray& payload) {
+        QByteArray data;
+        data.append(static_cast<char>(packNo));
+        data.append(payload);
+        return buildR2Packet(0x03, 0x03, data);
+    }
+
+    void loopRunDeliversEachReadingWithoutEndingTheRun() {
+        DiFluidR2 r2(nullptr);
+        QSignalSpy tdsSpy(&r2, &DiFluidR2::tdsChanged);
+        QSignalSpy completeSpy(&r2, &DiFluidR2::measurementComplete);
+        beginMeasuringWithShortWatchdog(r2, 500);
+
+        r2.handlePacket(buildLoopRunPacket(2, tdsPayload(7.65)));
+        r2.handlePacket(buildLoopRunPacket(0, QByteArray(1, char(8))));   // ongoing
+        r2.handlePacket(buildLoopRunPacket(2, tdsPayload(7.64)));
+        r2.handlePacket(buildLoopRunPacket(2, tdsPayload(7.64)));
+
+        // Every reading reaches consumers — latest wins, so the settled value survives.
+        QCOMPARE(tdsSpy.count(), 3);
+        QCOMPARE(r2.tds(), 7.64);
+        // But the run is one settling measurement, not three finished ones.
+        QCOMPARE(completeSpy.count(), 0);
+        QVERIFY(r2.isMeasuring());
+
+        r2.handlePacket(buildLoopRunPacket(0, QByteArray(1, char(9))));  // loop finished
+        QCOMPARE(completeSpy.count(), 1);
+        QVERIFY(!r2.isMeasuring());
+        QCOMPARE(r2.tds(), 7.64);
+    }
+
+    void singleTestIsStillTerminalOnItsOwnResult() {
+        // The loop-run handling must not change Cmd 0, which is what both the app button
+        // and a physical R2 button press use.
+        DiFluidR2 r2(nullptr);
+        QSignalSpy completeSpy(&r2, &DiFluidR2::measurementComplete);
+        beginMeasuringWithShortWatchdog(r2, 500);
+
+        r2.handlePacket(buildTdsPacket(7.64));
+
+        QCOMPARE(completeSpy.count(), 1);
+        QVERIFY(!r2.isMeasuring());
+    }
+
     // === Measurement liveness watchdog ===
     //
     // The watchdog exists to recover from a device that goes silent, which produces no
