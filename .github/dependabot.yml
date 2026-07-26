@@ -42,3 +42,25 @@ updates:
     directory: "/obsidian-plugin"
     schedule:
       interval: "weekly"
+    # TypeScript majors are held back deliberately. package.json pins "^5", but
+    # note that the range in the manifest does NOT hold Dependabot back on its
+    # own — for version updates it REWRITES the declared range rather than
+    # staying inside it. PR #1642 did exactly that, turning "^5.4.0" into
+    # "^7.0.2". This ignore rule is the part that actually works; the "^5" in
+    # package.json only documents the intent for a human reading it.
+    #
+    # Why hold it: TS 7 removed `baseUrl` and `moduleResolution: node10`, so it
+    # rejects obsidian-plugin/tsconfig.json outright (TS5102 / TS5108) before
+    # typechecking anything, and once the config is migrated it surfaces four
+    # further TS2550 errors in src/charts/ShotChart.ts that TS 5.9.3 does not
+    # report against that same config. That is a migration, not a bump.
+    #
+    # It would also land silently: `npm run build` is esbuild-only and never
+    # invokes tsc, and no workflow touches obsidian-plugin/, so a tsconfig the
+    # pinned compiler cannot parse would break nothing visible. (`tsc --noEmit`
+    # is in fact already failing on main — 12 errors — for the same reason.)
+    #
+    # Remove this rule as part of doing the migration, not before it.
+    ignore:
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
