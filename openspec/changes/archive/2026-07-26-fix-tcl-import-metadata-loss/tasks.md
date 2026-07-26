@@ -34,7 +34,9 @@
 ## 5. Documentation
 
 - [x] 5.1 Update `docs/CLAUDE_MD/RECIPE_PROFILES.md` for the bare-value rule and the new de1app dose mapping
-- [ ] 5.2 Add a wiki manual note: a Visualizer `.tcl` download now keeps its full name and stays in its editor group instead of importing truncated
+- [x] 5.2 ~~Wiki manual note~~ — **deliberately skipped.** The manual documents features, not
+  every bug fix, and this one restores the behaviour a user already expects (a downloaded profile
+  keeps its name). Nothing about the documented feature set changes.
 
 ## 6. Upstream
 

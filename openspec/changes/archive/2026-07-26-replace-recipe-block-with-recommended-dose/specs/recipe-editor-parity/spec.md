@@ -11,6 +11,14 @@ either re-derived from the frames on read, duplicated by a top-level key, or unr
 path — except `dose`, which is preserved as `recommended_dose` rather than discarded. No value a
 user set is lost.
 
+#### Scenario: Stored profiles are not migrated
+
+- **WHEN** the corrected extraction ships
+- **THEN** no pass rewrites the VALUES held in an already-saved profile
+- **AND** each such profile reads its parameters from its frames the next time it is opened
+- **AND** removing the recipe block is not such a rewrite: it drops a key no reader consults,
+  preserving the one value in it a user could set
+
 #### Scenario: Disagreeing values are not corrected in place
 
 - **WHEN** a profile carries a recipe block whose values contradict its frames

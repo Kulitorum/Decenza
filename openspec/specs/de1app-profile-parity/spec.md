@@ -18,7 +18,18 @@ The scalars are: `espresso_pressure`, `espresso_hold_time`, `espresso_decline_ti
 `flow_profile_minimum_pressure`, `maximum_flow`, `maximum_pressure`,
 `maximum_flow_range_default`, `maximum_pressure_range_default`, `espresso_temperature`,
 `espresso_temperature_0..3`, `espresso_temperature_steps_enabled`,
-`tank_desired_water_temperature`, and the target weight/volume fields covered below.
+`tank_desired_water_temperature`, `profile_grinder_dose_weight`, and the target weight/volume
+fields covered below.
+
+`profile_grinder_dose_weight` is de1app's per-profile dose. It SHALL be read into Decenza's
+`recommended_dose`, enabling `has_recommended_dose` only when the imported value is greater than
+zero, so that a dose a de1app user set on a profile survives the import instead of being replaced
+by Decenza's default. It has no absent-value substitute: a profile that omits the key SHALL be
+left at Decenza's default with no recommendation enabled, because supplying one would make every
+built-in fail the de1app drift comparison, which walks this same table.
+
+Unlike the other scalars, this one has no `.tcl` output side — Decenza writes no Tcl — so
+"reproduces the source values" applies to it on import only.
 
 #### Scenario: Simple profile that also carries a stored advanced_shot
 
@@ -36,6 +47,22 @@ The scalars are: `espresso_pressure`, `espresso_hold_time`, `espresso_decline_ti
 - **WHEN** any profile in `tests/data/de1app_profiles/` is imported and re-serialized
 - **THEN** every scalar listed in this requirement equals the value in the `.tcl` source,
   after applying the type-dependent selection rule below
+
+#### Scenario: A de1app per-profile dose is preserved
+
+- **WHEN** a `.tcl` assigning `profile_grinder_dose_weight 20.5` is imported
+- **THEN** the profile's recommended dose is `20.5` and its recommendation is enabled
+
+#### Scenario: A zero or absent per-profile dose enables nothing
+
+- **WHEN** a `.tcl` assigning `profile_grinder_dose_weight 0`, or omitting it, is imported
+- **THEN** no recommendation is enabled and the profile keeps the default dose
+
+#### Scenario: The built-in drift gate still passes
+
+- **WHEN** the built-in corpus is compared against its de1app sources, none of which carries the
+  key
+- **THEN** no profile is reported as drifted on account of the dose
 
 ### Requirement: Dual-spelled fields resolve by profile type
 
@@ -115,12 +142,25 @@ that the data change is verified by a checked-in test rather than by an ad-hoc s
 
 Correcting import fidelity SHALL apply to newly imported profiles and to the app-authored
 built-ins in `resources/profiles/` only. Profiles a user has saved MUST NOT be retroactively
-rewritten, since they load through `fromJson` and may hold deliberate user edits.
+rewritten to change a value, since they load through `fromJson` and may hold deliberate user
+edits.
+
+Removing a key that no reader consults is not such a rewrite, and is permitted. The distinction
+is whether a stored value the user could have set is altered: correcting a scalar to match an
+import rule would be, while dropping the `recipe` block is not, because every value in it is
+re-derived on read, duplicated by a top-level key, or read by nothing — except `dose`, which is
+preserved as `recommended_dose` rather than discarded.
 
 #### Scenario: User profile with a non-default scalar
 
 - **WHEN** the built-in corpus is re-synced
 - **THEN** profiles in the user's own profile directory are byte-identical to before
+
+#### Scenario: A user profile keeps every value it holds
+
+- **WHEN** a user-saved profile has its recipe block removed
+- **THEN** every scalar, frame, target and flag it holds is unchanged
+- **AND** a dose the user set is preserved as the profile's recommended dose
 
 ### Requirement: Simple profiles derive frames from their scalars
 
@@ -141,4 +181,48 @@ scalars are authoritative.
 
 - **WHEN** a `settings_2c` `.tcl` with a stored `advanced_shot` is imported
 - **THEN** the stored frames are preserved verbatim
+
+### Requirement: A bare multi-word value is read whole for free-text keys
+
+A Tcl assignment whose value is neither braced nor quoted SHALL be read to the end of the line
+when the key is free text — `profile_title`, `author`, `profile_notes`. Every other key SHALL
+keep taking the first whitespace-delimited token.
+
+The list is confined to keys whose value is prose. An enum or a code MUST NOT be included:
+`beverage_type` is written bare across the de1app corpus with values such as `espresso`,
+`cleaning` and `tea_portafilter`, and reading a malformed line whole would produce an unmatchable
+string and silently drop the classification — a worse outcome than truncation, which at least
+recovers the intended value.
+
+This deliberately diverges from Tcl's own `array set`, which reads only the first word and turns
+the remainder into stray keys. The divergence is confined to fields that cannot reach a frame, a
+machine value or a classification, and it recovers what the author wrote in files that are
+malformed but common — Visualizer's `.tcl` export does not brace multi-word titles.
+
+#### Scenario: An unbraced multi-word title imports whole
+
+- **WHEN** a `.tcl` assigning `profile_title D-Flow / Q` unbraced is imported
+- **THEN** the profile's title is `D-Flow / Q`
+- **AND** its editor type and slash-prefix category resolve as they would for a braced title
+
+#### Scenario: An enum keeps the first-token rule
+
+- **WHEN** a `.tcl` assigns a bare `beverage_type` followed by trailing text
+- **THEN** the beverage type is the first token, and the profile's classification is preserved
+
+#### Scenario: Numeric keys are unaffected
+
+- **WHEN** a `.tcl` assigning a bare numeric value is imported
+- **THEN** that value is read exactly as before
+
+#### Scenario: Braced and quoted values are unaffected
+
+- **WHEN** a free-text key's value is braced or quoted
+- **THEN** it is read exactly as before, by the same path as before
+
+#### Scenario: The de1app corpus is unchanged
+
+- **WHEN** every profile in the de1app corpus is imported and re-serialized
+- **THEN** the output is identical to the output before this rule, because no de1app profile
+  carries a bare multi-word value
 

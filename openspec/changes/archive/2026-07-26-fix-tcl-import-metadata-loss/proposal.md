@@ -63,8 +63,8 @@ since been disproved and should be withdrawn rather than left as standing intent
   table, the known-ignored list
 - `src/profile/profile.cpp` — `loadFromTclString`, for the dose flag
 - `tests/tst_tclimport.cpp` and the de1app profile corpus round-trip assertions
-- `docs/CLAUDE_MD/RECIPE_PROFILES.md` and the wiki manual — a Visualizer `.tcl` download now
-  keeps its full name and stays in its editor group, which is user-visible
+- `docs/CLAUDE_MD/RECIPE_PROFILES.md`. No wiki manual entry: this restores behaviour a user
+  already expects rather than changing the documented feature set
 - `openspec/changes/preserve-recipe-visualizer-roundtrip/` — withdrawn
 - No change to frames, BLE output, or any numeric profile value. The bare-value rule is verified
   to alter nothing across all 88 de1app profiles, none of which carries a bare multi-word value.
