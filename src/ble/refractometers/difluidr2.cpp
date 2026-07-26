@@ -59,20 +59,15 @@ DiFluidR2::DiFluidR2(ScaleBleTransport* transport, QObject* parent)
         emit connectedChanged();
         R2_LOG("Connected and ready for measurements");
 
-        // Send "get temperature unit" as init handshake (Func=1, Cmd=0, DataLen=0)
-        // This benign query confirms the BLE link is working and may wake the R2
-        QByteArray initCmd;
-        initCmd.append(static_cast<char>(0xDF));
-        initCmd.append(static_cast<char>(0xDF));
-        initCmd.append(static_cast<char>(0x01));  // Func: Settings
-        initCmd.append(static_cast<char>(0x00));  // Cmd: Temperature Unit
-        initCmd.append(static_cast<char>(0x00));  // DataLen: 0 (query)
-        uint8_t checksum = 0;
-        for (qsizetype i = 0; i < initCmd.size(); ++i)
-            checksum += static_cast<uint8_t>(initCmd[i]);
-        initCmd.append(static_cast<char>(checksum));
-        R2_LOG(QString("Sending init query: %1").arg(QString(initCmd.toHex(' '))));
-        sendCommand(initCmd);
+        // Put the R2 into Celsius (Func=1 Settings, Cmd=0 Temperature Unit, Data=0).
+        // Doubles as the init handshake the connect path has always sent — it
+        // confirms the BLE link and may wake the R2 — but as a write rather than a
+        // query, so the device also stops reporting in whatever unit it was left in.
+        // Belt and braces with the pack-1 Data5 conversion below, which stays: the
+        // set is not instantaneous, packets from a device-initiated measurement can
+        // already be in flight, and Data5 is authoritative for the packet carrying it.
+        R2_LOG("Setting device temperature unit to Celsius");
+        sendCommand(QByteArray::fromHex("DFDF01000100C0"));  // Set Temperature Unit = °C
 
         // Instrumentation: identify the unit. Per DiFluid's official protocolR2.md, a
         // genuine R2 Extract (model "DFT-R102") transmits coffee *TDS* in pack 2, while
@@ -313,6 +308,17 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
             R2_LOG(QString("Device info response: Cmd=%1 data=%2")
                        .arg(cmd).arg(QString(data.toHex(' '))));
         }
+        return;
+    }
+
+    // Func 1 = Device Settings. The R2 echoes the setting back, so the response to
+    // the connect-time "set Celsius" write is the confirmation that it took. Worth
+    // logging on its own line: if a reading ever looks unit-shifted, this says
+    // whether the device was actually switched or the write went missing.
+    if (func == 1 && cmd == 0) {
+        const uint8_t unit = dataLen >= 1 ? static_cast<uint8_t>(packet[5]) : 0;
+        R2_LOG(QString("Temperature unit now: %1")
+                   .arg(unit == 1 ? QStringLiteral("°F") : QStringLiteral("°C")));
         return;
     }
 

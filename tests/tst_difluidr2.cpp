@@ -366,6 +366,23 @@ private slots:
         QVERIFY(qAbs(r2.temperature() - 79.1) > 1.0);
     }
 
+    // The R2 echoes a settings write back (Func 1, Cmd 0 = temperature unit).
+    // That echo is log-only — it must not be mistaken for measurement data.
+    void settingsEchoIsNotTreatedAsMeasurement() {
+        DiFluidR2 r2(nullptr);
+        QSignalSpy tempSpy(&r2, &DiFluidR2::temperatureChanged);
+        QSignalSpy tdsSpy(&r2, &DiFluidR2::tdsChanged);
+
+        QByteArray data;
+        data.append(static_cast<char>(0x00));  // 0 = °C
+        r2.handlePacket(buildR2Packet(0x01, 0x00, data));
+
+        QCOMPARE(tempSpy.count(), 0);
+        QCOMPARE(tdsSpy.count(), 0);
+        QCOMPARE(r2.temperature(), 0.0);
+        QCOMPARE(r2.tds(), 0.0);
+    }
+
     // === Status packet parsing ===
 
     void parseStatusFinished() {
