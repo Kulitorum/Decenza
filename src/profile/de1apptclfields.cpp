@@ -371,6 +371,24 @@ const QStringList& nonScalarTclKeys()
         QStringLiteral("read_only_backup"),
         QStringLiteral("profile_editor"),
 
+        // de1app's save-only bookkeeping. `profile.tcl:658` writes these three
+        // alongside profile_vars whenever it saves, so ANY real de1app-authored file
+        // carries them — none of de1app's own 88 shipped profiles do, which is why
+        // they went unnoticed until a genuine third-party export was added to the
+        // corpus (tests/data/malformed_tcl/).
+        //
+        // Not modelled, deliberately:
+        //   profile_filename        — the storage name, which Decenza derives from the
+        //                             title itself (titleToFilename); importing one
+        //                             app's filename convention into another's store
+        //                             invents a name the user never chose.
+        //   original_profile_title  — de1app's "saved as a copy of" breadcrumb
+        //                             (profile.tcl:774), for its own rename UI.
+        //   profile_to_save         — a transient save-in-progress flag, not state.
+        QStringLiteral("profile_filename"),
+        QStringLiteral("original_profile_title"),
+        QStringLiteral("profile_to_save"),
+
         // de1app/DSx bean and grinder metadata. Decenza models these in its own
         // bean and equipment records, not on the profile, so they are outside
         // what a profile comparison can meaningfully say anything about.

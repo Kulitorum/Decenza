@@ -229,27 +229,21 @@ private slots:
             && !produced.contains(QStringLiteral("recipe"))) {
             const QJsonObject recipe = legacy.value(QStringLiteral("recipe")).toObject();
             if (recipe.contains(QStringLiteral("dose"))) {
-                // Three-way rule, not an unconditional copy. Asserting equality
-                // outright happens to hold across this corpus only because every
-                // block in it carries the default 18 — it would be wrong the moment
-                // a fixture had a real dose alongside an explicit recommendation.
+                // Every one of the 16 fixtures in this corpus that carries a block has
+                // `dose: 18` and no explicit recommendation, so only ONE branch of the
+                // three-way promotion rule is reachable here: a default dose promotes
+                // nothing. Asserting the other two would be dead test code dressed as
+                // coverage — they are covered directly in tst_profile
+                // (storedDoseIsPromotedToRecommendedDose,
+                // anExplicitRecommendationBeatsTheBlock).
                 const double blockDose = profileJsonToDouble(recipe.value(QStringLiteral("dose")));
-                const double producedDose =
-                    profileJsonToDouble(produced.value(QStringLiteral("recommended_dose")));
-                const bool hadExplicit =
-                    profileJsonToBool(legacy.value(QStringLiteral("has_recommended_dose")), false);
-                if (hadExplicit) {
-                    // The editor's value wins; the block must not overwrite it.
-                    QCOMPARE(producedDose,
-                             profileJsonToDouble(legacy.value(QStringLiteral("recommended_dose"))));
-                } else if (qFuzzyCompare(blockDose, Profile::kDefaultRecommendedDose)) {
-                    // A default dose promotes nothing, so no recommendation appears.
-                    QVERIFY2(!profileJsonToBool(produced.value(QStringLiteral("has_recommended_dose")), false),
-                             "a default dose of 18 was promoted into a real recommendation");
-                } else {
-                    QCOMPARE(producedDose, blockDose);
-                    QVERIFY(profileJsonToBool(produced.value(QStringLiteral("has_recommended_dose")), false));
-                }
+                QVERIFY2(qFuzzyCompare(blockDose, Profile::kDefaultRecommendedDose),
+                         qPrintable(QStringLiteral("%1 carries a non-default block dose (%2) — "
+                                                   "the corpus assumption above no longer holds, "
+                                                   "so assert the full rule here")
+                                    .arg(QFileInfo(filePath).fileName()).arg(blockDose)));
+                QVERIFY2(!profileJsonToBool(produced.value(QStringLiteral("has_recommended_dose")), false),
+                         "a default dose of 18 was promoted into a real recommendation");
             }
             legacyCmp.remove(QStringLiteral("recipe"));
         }

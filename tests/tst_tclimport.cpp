@@ -257,6 +257,37 @@ private slots:
         QCOMPARE(p.title(), QStringLiteral("Blend #3 light roast"));
     }
 
+    void allThreeFreeTextKeysReadWholeWhenBare() {
+        // isFreeTextKey covers three keys; only profile_title was exercised bare, so a
+        // typo or a narrowing of that list would have gone unnoticed for the other two.
+        const QString tcl = QStringLiteral(
+            "profile_title D-Flow / Three Keys\n"
+            "author Damian and Jan\n"
+            "profile_notes ground fine for this one\n"
+            "settings_profile_type settings_2c\n"
+            "advanced_shot {{name Pour temperature 90.00 sensor coffee pump flow "
+            "transition fast pressure 6.00 flow 2.00 seconds 30.00 volume 100.0 "
+            "exit_if 0 max_flow_or_pressure 0.00 max_flow_or_pressure_range 0.20 weight 0.0}}\n");
+        const Profile p = Profile::loadFromTclString(tcl);
+        QCOMPARE(p.title(), QStringLiteral("D-Flow / Three Keys"));
+        QCOMPARE(p.author(), QStringLiteral("Damian and Jan"));
+        QCOMPARE(p.profileNotes(), QStringLiteral("ground fine for this one"));
+    }
+
+    void theRealVisualizerFixtureLeavesNoUnhandledKeys() {
+        // The corpus drift gate only ever sees de1app's own files. This is a real
+        // third-party export carrying keys de1app's shipped profiles do not
+        // (profile_to_save, original_profile_title, profile_filename, …) — exactly the
+        // population where an unhandled key would first show up in the wild.
+        const QString content =
+            readFile(QStringLiteral(MALFORMED_TCL_PATH) + "/visualizer_unbraced_title.tcl");
+        QVERIFY2(!content.isEmpty(), "fixture missing");
+        const QStringList uncovered = De1AppTcl::uncoveredTclKeys(content);
+        QVERIFY2(uncovered.isEmpty(),
+                 qPrintable(QStringLiteral("keys neither modelled nor listed as ignored: ")
+                            + uncovered.join(QStringLiteral(", "))));
+    }
+
     void bracedAndQuotedValuesAreUnaffected() {
         const QString tcl = QStringLiteral(
             "profile_title {D-Flow / Braced}\n"

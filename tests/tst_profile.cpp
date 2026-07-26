@@ -606,26 +606,25 @@ private slots:
         obj["preinfusion_time"] = 18.0;
         obj["steps"] = QJsonArray();          // generated from the scalars
 
-        const Profile without = Profile::fromJson(QJsonDocument(obj));
-
         obj["recipe"] = QJsonObject{{"editorType", "pressure"}, {"dose", 18},
                                     {"espressoPressure", 6.0}};   // contradicts the scalar
         const Profile with = Profile::fromJson(QJsonDocument(obj));
 
-        QVERIFY2(!with.toJsonObject().contains("recipe"), "the block survived");
-        // Every scalar the generator reads is unchanged, and so are the frames.
-        QCOMPARE(with.espressoPressure(), without.espressoPressure());
+        // THE assertion. On main a settings_2a profile's editorType is "pressure", so
+        // toJsonObject re-emitted the block; this fails there and passes here.
+        QVERIFY2(!with.toJsonObject().contains("recipe"),
+                 "a simple profile's recipe block survived serialization");
+
+        // Deliberately NOT asserting that the scalars and frames are unchanged. Nothing
+        // has ever read espressoPressure out of a stored block into the Profile —
+        // RecipeParams::espressoPressure is a separate struct field consumed only by
+        // regenerateFromRecipe(), which fromJson never calls — so those comparisons
+        // hold on main and under any regression short of restoring block->params->
+        // frames. They read as coverage and are not. What actually protects the simple
+        // path is that getOrConvertRecipeParams builds its params from the de1app
+        // scalars, which tst_recipeeditorapppath covers.
         QCOMPARE(with.espressoPressure(), 7.8);   // the scalar, never the block's 6.0
-        QCOMPARE(with.espressoHoldTime(), without.espressoHoldTime());
-        QCOMPARE(with.espressoDeclineTime(), without.espressoDeclineTime());
-        QCOMPARE(with.espressoTemperature(), without.espressoTemperature());
-        QCOMPARE(with.steps().size(), without.steps().size());
-        QVERIFY(!with.steps().isEmpty());
-        for (qsizetype i = 0; i < with.steps().size(); ++i) {
-            QCOMPARE(with.steps()[i].temperature, without.steps()[i].temperature);
-            QCOMPARE(with.steps()[i].pressure, without.steps()[i].pressure);
-            QCOMPARE(with.steps()[i].seconds, without.steps()[i].seconds);
-        }
+        QVERIFY(!with.steps().isEmpty());         // frames still generated from scalars
     }
 
     void storedDoseIsPromotedToRecommendedDose() {

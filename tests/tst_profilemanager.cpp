@@ -492,10 +492,13 @@ private slots:
 
     void uneditedSaveLeavesDFlowFramesUntouched() {
         // A regeneration is NOT a no-op for D-Flow: it derives exit_pressure_over
-        // from the soak pressure (soak/2 + 0.6), so a profile whose stored value is
-        // off-formula would be silently rewritten by an open-and-close save. The
-        // fixture below stores 3.00 against a soak of 6.0, whose formula value is
-        // 3.6 — so a spurious regeneration is visible.
+        // from the soak pressure (soak < 2.8 ? soak : soak/2 + 0.6, floored 1.2), so a
+        // profile whose stored value is off-formula is silently rewritten by an
+        // open-and-close save.
+        //
+        // makeDFlowJson stores exit_pressure_over 3.0 against a soak pressure of 3.0,
+        // whose formula value is 3.0/2 + 0.6 = 2.1. Keep that margin if you retune the
+        // fixture — equal values would make a spurious regeneration invisible here.
         McpTestFixture f;
         clearTestProfileStore();
         loadThreeFrameDFlow(f, "guard_noop", "D-Flow / Guard");
