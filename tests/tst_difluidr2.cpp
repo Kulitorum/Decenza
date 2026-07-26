@@ -526,6 +526,24 @@ private slots:
         QCOMPARE(tempSpy.count(), 0);
     }
 
+    void autoTestEchoDisagreeingWithTheRequestIsVisible() {
+        // Settings holds the intent and is pushed on connect; the device's echo is the
+        // only evidence it landed. If they diverge, the log has to say so — otherwise a
+        // failed write looks identical to a successful one.
+        DiFluidR2 r2(nullptr);
+        QSignalSpy logSpy(&r2, &DiFluidR2::logMessage);
+
+        QByteArray off;
+        off.append(static_cast<char>(0x00));
+        r2.handlePacket(buildR2Packet(0x01, 0x01, off));
+
+        bool stated = false;
+        for (const auto& e : logSpy)
+            if (e.at(0).toString().contains(QLatin1String("Auto Test is off"))) stated = true;
+        QVERIFY2(stated, "the device's Auto Test state was not reported");
+        QVERIFY(!r2.autoTest());
+    }
+
     void autoTestWriteRequiresAConnectedDevice() {
         // The setting is written to the device, so there is nothing to do without one.
         // Silently no-oping would leave the user believing they had changed it.

@@ -1457,32 +1457,25 @@ Item {
                                 }
                             }
 
-                            // Auto Test toggle. The setting lives on the R2 and persists
-                            // there, so this is a one-time action rather than a Decenza
-                            // preference — which is also why it needs the device present.
-                            // The R2 is only connected while the review page is open or
-                            // just after pairing here, so the button states its
-                            // requirement rather than silently doing nothing.
+                            // Auto Test toggle. Bound to the setting, not to the device:
+                            // the R2 is only connected while the post-shot review page is
+                            // open, so a device-only control would be greyed out almost
+                            // everywhere the user would want to reach it. The setting is
+                            // pushed to the refractometer on every connect (main.cpp), so
+                            // changing it with the device away still takes effect.
                             AccessibleButton {
                                 id: autoTestButton
-                                readonly property bool refReady: BLEManager.refractometerConnected
-                                    && typeof Refractometer !== "undefined" && Refractometer
-                                readonly property bool autoTestOn: refReady && Refractometer.autoTest
+                                readonly property bool autoTestOn: Settings.app.refractometerAutoTest
 
-                                visible: !refReady || Refractometer.supportsAutoTest()
-                                enabled: refReady
                                 text: autoTestOn
-                                    ? TranslationManager.translate("connections.autoTestDisable", "Auto Test: On")
-                                    : TranslationManager.translate("connections.autoTestEnable", "Auto Test: Off")
-                                accessibleName: !refReady
-                                    ? TranslationManager.translate("connections.autoTestUnavailable",
-                                        "Auto Test — connect the refractometer to change this")
-                                    : (autoTestOn
-                                        ? TranslationManager.translate("connections.autoTestTurnOff",
-                                            "Turn off Auto Test — the refractometer will no longer measure by itself")
-                                        : TranslationManager.translate("connections.autoTestTurnOn",
-                                            "Turn on Auto Test — the refractometer measures by itself when a sample is loaded"))
-                                onClicked: if (refReady) Refractometer.setAutoTest(!autoTestOn)
+                                    ? TranslationManager.translate("connections.autoTestOn", "Auto Test: On")
+                                    : TranslationManager.translate("connections.autoTestOff", "Auto Test: Off")
+                                accessibleName: autoTestOn
+                                    ? TranslationManager.translate("connections.autoTestTurnOff",
+                                        "Turn off Auto Test — the refractometer will no longer measure by itself")
+                                    : TranslationManager.translate("connections.autoTestTurnOn",
+                                        "Turn on Auto Test — the refractometer measures by itself when a sample is loaded")
+                                onClicked: Settings.app.refractometerAutoTest = !autoTestOn
                             }
 
                             AccessibleButton {
