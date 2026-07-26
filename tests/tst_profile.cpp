@@ -447,7 +447,9 @@ private slots:
 
         Profile p = Profile::fromJson(QJsonDocument(obj));
         QCOMPARE(p.editorType(), QString("aflow"));
-        QCOMPARE(p.recipeParams().editorType, EditorType::AFlow);
+        // recipeParams().editorType is NOT asserted: a stored block is no longer read
+        // into RecipeParams at all. editorType() derives from the title, which is the
+        // only channel that ever carried it — no de1app profile stores one either.
     }
 
     void editorTypeInferenceDFlowDefault() {
@@ -568,16 +570,92 @@ private slots:
         QVERIFY(!out.contains("editor_type"));
     }
 
-    void toJsonDFlowIncludesRecipeBlock() {
-        // D-Flow profile should emit "recipe" in JSON
+    void toJsonDFlowDropsAStoredRecipeBlock() {
+        // A D-Flow profile that arrives WITH a block must serialize without one.
+        // The block was a cache of values re-derived from the frames on every read;
+        // it is no longer written, and `recipe` stays in kKnownProfileKeys precisely
+        // so the unknown-key passthrough drops it here instead of echoing it back.
         QJsonObject obj = makeAdvancedProfileJson("D-Flow Test");
-        obj["recipe"] = RecipeParams().toJson();
+        obj["recipe"] = QJsonObject{{"dose", 18}, {"fillTemperature", 88}};
 
         Profile p = Profile::fromJson(QJsonDocument(obj));
-        QJsonDocument doc = p.toJson();
-        QJsonObject out = doc.object();
-        QVERIFY(out.contains("recipe"));
+        QJsonObject out = p.toJson().object();
+        QVERIFY2(!out.contains("recipe"), "a stored recipe block survived a round-trip");
         QVERIFY(!out.contains("editor_type"));  // Never stored
+    }
+
+    // Simple profiles carry blocks too — four of the fixtures in a real user store
+    // are settings_2a/2b. Their safety argument is DIFFERENT from D-Flow/A-Flow's:
+    // nothing re-derives their parameters from frames, the block is shadowed by the
+    // de1app scalars that generate those frames. Assert that, rather than assume it.
+    void simpleProfileLosesItsBlockWithNothingElseChanging() {
+        QJsonObject obj;
+        obj["title"] = "Simple Pressure";
+        obj["author"] = "test";
+        obj["beverage_type"] = "espresso";
+        obj["version"] = "2";
+        obj["legacy_profile_type"] = "settings_2a";
+        obj["target_weight"] = 36.0;
+        obj["target_volume"] = 0.0;
+        obj["target_volume_count_start"] = 2;
+        obj["tank_temperature"] = 0.0;
+        obj["espresso_temperature"] = 92.5;
+        obj["espresso_pressure"] = 7.8;      // distinctive, not the 9.2 default
+        obj["espresso_hold_time"] = 12.0;
+        obj["espresso_decline_time"] = 22.0;
+        obj["preinfusion_time"] = 18.0;
+        obj["steps"] = QJsonArray();          // generated from the scalars
+
+        obj["recipe"] = QJsonObject{{"editorType", "pressure"}, {"dose", 18},
+                                    {"espressoPressure", 6.0}};   // contradicts the scalar
+        const Profile with = Profile::fromJson(QJsonDocument(obj));
+
+        // THE assertion. On main a settings_2a profile's editorType is "pressure", so
+        // toJsonObject re-emitted the block; this fails there and passes here.
+        QVERIFY2(!with.toJsonObject().contains("recipe"),
+                 "a simple profile's recipe block survived serialization");
+
+        // Deliberately NOT asserting that the scalars and frames are unchanged. Nothing
+        // has ever read espressoPressure out of a stored block into the Profile —
+        // RecipeParams::espressoPressure is a separate struct field consumed only by
+        // regenerateFromRecipe(), which fromJson never calls — so those comparisons
+        // hold on main and under any regression short of restoring block->params->
+        // frames. They read as coverage and are not. What actually protects the simple
+        // path is that getOrConvertRecipeParams builds its params from the de1app
+        // scalars, which tst_recipeeditorapppath covers.
+        QCOMPARE(with.espressoPressure(), 7.8);   // the scalar, never the block's 6.0
+        QVERIFY(!with.steps().isEmpty());         // frames still generated from scalars
+    }
+
+    void storedDoseIsPromotedToRecommendedDose() {
+        // `dose` was the one value in the block not reconstructed from the frames or
+        // duplicated by a top-level key, so it is carried over rather than dropped.
+        QJsonObject obj = makeAdvancedProfileJson("D-Flow Dose");
+        obj["recipe"] = QJsonObject{{"dose", 20.5}};
+        Profile p = Profile::fromJson(QJsonDocument(obj));
+        QVERIFY2(p.hasRecommendedDose(), "a user-set dose was dropped with the block");
+        QCOMPARE(p.recommendedDose(), 20.5);
+    }
+
+    void defaultDoseDoesNotEnableARecommendation() {
+        // Every block ever written carries the struct default of 18, so promoting
+        // unconditionally would switch on a recommendation nobody set — on every
+        // profile that ever had a block.
+        QJsonObject obj = makeAdvancedProfileJson("D-Flow Default Dose");
+        obj["recipe"] = QJsonObject{{"dose", Profile::kDefaultRecommendedDose}};
+        Profile p = Profile::fromJson(QJsonDocument(obj));
+        QVERIFY2(!p.hasRecommendedDose(),
+                 "the default dose of 18 was promoted into a real recommendation");
+    }
+
+    void anExplicitRecommendationBeatsTheBlock() {
+        QJsonObject obj = makeAdvancedProfileJson("D-Flow Explicit");
+        obj["has_recommended_dose"] = true;
+        obj["recommended_dose"] = 21.0;
+        obj["recipe"] = QJsonObject{{"dose", 16.0}};
+        Profile p = Profile::fromJson(QJsonDocument(obj));
+        QVERIFY(p.hasRecommendedDose());
+        QCOMPARE(p.recommendedDose(), 21.0);   // the editor's value, not the block's
     }
 
     // ===== Canonical serialization shape (align-profile-json-with-reaprime) =====

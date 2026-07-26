@@ -72,6 +72,21 @@ const QVector<ScalarField>& scalarFields()
         { QStringLiteral("flow_profile_minimum_pressure"), QStringLiteral("flow_profile_minimum_pressure"),
           QStringLiteral("flow_profile_minimum_pressure"), Kind::Number, ProfileJson::Pressure },
 
+        // --- de1app's per-profile dose. In profile_vars (vars.tcl:3305), so de1app
+        // writes it on every save, but only the Streamline skin populates it
+        // (skins/Streamline/skin.tcl:2550-2556) — which is why none of the 88 shipped
+        // profiles carries one and this went unnoticed. Decenza's equivalent is the
+        // recommended_dose / has_recommended_dose pair; the companion flag cannot be
+        // set from this table (readScalar yields a bare double), so it is set in
+        // Profile::loadFromTclString.
+        //
+        // whenAbsent MUST stay unset. compareScalars() walks this same table and IS
+        // the built-in drift gate: give this row a 0 fallback and all 88 corpus
+        // profiles — none of which carries the key — would compare 0 against each
+        // built-in's recommended_dose of 18.0 and fail the gate on eight files.
+        { QStringLiteral("recommended_dose"), QStringLiteral("profile_grinder_dose_weight"),
+          QStringLiteral("profile_grinder_dose_weight"), Kind::Number, ProfileJson::Weight },
+
         // --- Temperature ---
         { QStringLiteral("espresso_temperature"), QStringLiteral("espresso_temperature"),
           QStringLiteral("espresso_temperature"), Kind::Number, ProfileJson::Temperature },
@@ -152,6 +167,55 @@ QString tclKeyFor(const QString& canonical, const QString& profileType)
     return QString();
 }
 
+namespace {
+
+// Keys whose value is PROSE, and whose bare (unbraced, unquoted) form is therefore
+// read to the end of the line rather than to the first space.
+//
+// This deliberately diverges from Tcl. A profile file is read with `array set`,
+// which treats the whole thing as a flat key/value list, so `profile_title D-Flow / Q`
+// yields profile_title -> "D-Flow" plus a stray "/" -> "Q" (verified with tclsh).
+// de1app never trips this because it braces every multi-word value — all 88 of its
+// profiles do, and zero carry a bare multi-word value at depth 0. Visualizer's `.tcl`
+// export does NOT brace the title, so every multi-word title from that export
+// truncates: "D-Flow / Q" becomes "D-Flow", "Damian's Q" becomes "Damian's".
+//
+// The cost of matching Tcl here is real and one-sided: the profile loses its
+// slash-prefix category and so drops out of its editor group, its filename collides
+// with the next download of the same family, and in DE1APP ITSELF it loses the editor
+// entirely — the dispatch takes the first 8 characters of the title and compares them
+// against the literal "D-Flow /":
+//     set title_test [string range [ifexists ::settings(profile_title)] 0 7]
+// (plugins/D_Flow_Espresso_Profile/plugin.tcl:196-197, in `proc prep`; the same test is
+// repeated inline at :1144-1152). Six characters cannot satisfy it. Decenza's own writer braces properly, so re-saving repairs the file
+// for every app downstream.
+//
+// STRICTLY PROSE ONLY. An enum or a code must NOT be added here: `beverage_type` is
+// written bare across the de1app corpus in eight values (espresso x44,
+// tea_portafilter x11, calibrate x5, cleaning x3, pourover x3, filter x2, manual,
+// tea), and reading a malformed line whole would yield an unmatchable string and
+// silently drop a classification that drives tea/pourover handling and travels on to
+// Visualizer and reaprime. For those, first-token truncation is the CORRECT recovery.
+// `original_profile_title` is likewise excluded: Decenza models it nowhere, so
+// including it would put an unhandled key into uncoveredTclKeys().
+bool isFreeTextKey(const QString& key)
+{
+    return key == QLatin1String("profile_title")
+        || key == QLatin1String("author")
+        || key == QLatin1String("profile_notes");
+}
+
+// NO COMMENT STRIPPING. An earlier revision trimmed a trailing `;#` or ` #` from a
+// bare value on the theory that a hand-edited profile might carry a Tcl comment. It
+// cannot: a profile file is consumed as a flat key/value list (`array set`), where no
+// command is ever parsed, so neither `#` nor `;` has comment syntax anywhere in it.
+// The stripping had no case to serve and one real victim — a profile titled
+// `Blend #3` is written bare by Visualizer (the brace heuristic needs word/space/word
+// and `#` is not a word character) and would have imported as `Blend`, reintroducing
+// the exact truncation this rule exists to prevent.
+
+}  // namespace
+
 QList<QPair<QString, QString>> topLevelAssignments(const QString& content)
 {
     // ONE definition of "a top-level assignment", used by extractValue() and
@@ -209,7 +273,14 @@ QList<QPair<QString, QString>> topLevelAssignments(const QString& content)
                     continue;
                 }
 
-                out.append({key, rest.section(QRegularExpression(QStringLiteral("[ \t]")), 0, 0)});
+                // Bare value. Prose keys take the whole line (see isFreeTextKey);
+                // everything else — numbers, enums, codes — takes the first token,
+                // which is what Tcl itself would read.
+                if (isFreeTextKey(key)) {
+                    out.append({key, rest});
+                } else {
+                    out.append({key, rest.section(QRegularExpression(QStringLiteral("[ \t]")), 0, 0)});
+                }
                 continue;
             }
         }
@@ -300,12 +371,37 @@ const QStringList& nonScalarTclKeys()
         QStringLiteral("read_only_backup"),
         QStringLiteral("profile_editor"),
 
+        // de1app's save-only bookkeeping. `profile.tcl:658` writes these three
+        // alongside profile_vars whenever it saves, so ANY real de1app-authored file
+        // carries them — none of de1app's own 88 shipped profiles do, which is why
+        // they went unnoticed until a genuine third-party export was added to the
+        // corpus (tests/data/malformed_tcl/).
+        //
+        // Not modelled, deliberately:
+        //   profile_filename        — the storage name, which Decenza derives from the
+        //                             title itself (titleToFilename); importing one
+        //                             app's filename convention into another's store
+        //                             invents a name the user never chose.
+        //   original_profile_title  — de1app's "saved as a copy of" breadcrumb
+        //                             (profile.tcl:774), for its own rename UI.
+        //   profile_to_save         — a transient save-in-progress flag, not state.
+        QStringLiteral("profile_filename"),
+        QStringLiteral("original_profile_title"),
+        QStringLiteral("profile_to_save"),
+
         // de1app/DSx bean and grinder metadata. Decenza models these in its own
         // bean and equipment records, not on the profile, so they are outside
         // what a profile comparison can meaningfully say anything about.
         QStringLiteral("bean_brand"),      QStringLiteral("bean_type"),
         QStringLiteral("grinder_model"),   QStringLiteral("grinder_setting"),
         QStringLiteral("grinder_dose_weight"),
+        // profile_grinder_setting is de1app's PER-PROFILE grind setting, written
+        // alongside profile_grinder_dose_weight by the Streamline skin. Unlike the
+        // dose it is not mapped: Decenza models grind settings on equipment and
+        // recipes, and pinning a grind string to a profile would invent an
+        // association de1app does not make either — its own value is a free-text
+        // note the skin copies to and from the global setting.
+        QStringLiteral("profile_grinder_setting"),
 
         // Legacy spellings, one profile each (flow_calibration.tcl), and NOT in
         // de1app's own profile_vars list (vars.tcl:3305) — so de1app never

@@ -238,6 +238,22 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
             QString editorType = profileManager->currentEditorType();
             result["editorType"] = editorType;
 
+            // Always PAIRED, and reported exactly once. Every profile holds a dose
+            // whether one was set or not (the read default is 18 g), so a bare figure
+            // would tell a caller there is a recommendation when there is not — all
+            // eight built-ins that used to carry a recipe block sit at exactly that
+            // default with the flag off.
+            //
+            // Not emitted on the advanced branch: that path spreads the whole profile
+            // JSON, which already carries `recommended_dose` / `has_recommended_dose`
+            // under their canonical names, and those are the spellings its own
+            // edit path accepts. Emitting both would hand an agent two names for one
+            // field with no way to tell which the writer honours.
+            if (editorType != "advanced") {
+                result["recommendedDoseG"] = profileManager->profileRecommendedDose();
+                result["hasRecommendedDose"] = profileManager->profileHasRecommendedDose();
+            }
+
             if (editorType == "advanced") {
                 // Advanced editor: show full profile data with frames
                 // (same data ProfileEditorPage uses via getCurrentProfile())
@@ -254,7 +270,7 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
                 QJsonObject recipeJson = recipe.toJson();
 
                 // Common fields shown by all recipe editors
-                QStringList common = {"targetWeight", "targetVolume", "dose", "editorType"};
+                QStringList common = {"targetWeight", "targetVolume", "editorType"};
                 for (const QString& key : common) {
                     if (recipeJson.contains(key))
                         result[key] = recipeJson[key];
@@ -341,7 +357,6 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
                 // g
                 {"infuseWeight", "infuseWeightG"},
                 {"targetWeight", "targetWeightG"},
-                {"dose", "doseG"},
                 // mL
                 {"infuseVolume", "infuseVolumeMl"},
                 {"targetVolume", "targetVolumeMl"},
@@ -370,7 +385,7 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
                 // Recipe params (dflow/aflow/pressure/flow)
                 {"targetWeight", QJsonObject{{"type", "number"}, {"description", "Stop at weight (grams)"}}},
                 {"targetVolume", QJsonObject{{"type", "number"}, {"description", "Stop at volume (mL, 0=disabled)"}}},
-                {"dose", QJsonObject{{"type", "number"}, {"description", "Input dose for ratio display (grams)"}}},
+                {"dose", QJsonObject{{"type", "number"}, {"description", "Recommended dose for this profile (grams, 0-100). Writes recommended_dose and enables it."}}},
                 {"fillTemperature", QJsonObject{{"type", "number"}, {"description", "Fill water temperature (Celsius)"}}},
                 {"infusePressure", QJsonObject{{"type", "number"}, {"description", "Soak pressure (bar)"}}},
                 {"infuseTime", QJsonObject{{"type", "number"}, {"description", "Soak duration (seconds, 0=no soak)"}}},
@@ -426,12 +441,60 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
             // Use the same authoritative method the app uses to determine editor type
             QString editorType = profileManager->currentEditorType();
 
-            QStringList ignoredKeys;   // see the recipe path below
+            QStringList ignoredKeys;      // see the recipe path below
+            QStringList conflictedKeys;   // recognised, but overridden by another argument
+
+            // `dose` is handled here for BOTH paths, before anything else looks at
+            // the incoming keys.
+            //
+            // It used to write RecipeParams::dose, which lived in the profile's recipe
+            // block and was read by nothing. That block is gone and so is the field, so
+            // an unhandled `dose` would fall through to the currentParams membership
+            // check below and be reported IGNORED — the one outcome worth avoiding,
+            // since the parameter has always been accepted. It now writes the
+            // per-profile dose that IS consumed: recommended_dose plus its enabled
+            // flag, which reach the advanced editor's control, dialing_get_context and
+            // the AI advisor.
+            //
+            // Clamped because RecipeParams::clamp() bounded this to [0, 100] and
+            // Profile::setRecommendedDose is a bare assignment.
+            //
+            // NOTE: `recommended_dose` / `has_recommended_dose` are ALSO accepted
+            // directly, but only on the advanced branch below, where the whole
+            // profile map is passed through. So the same profile field has two
+            // spellings depending on editor type. `dose` is the portable one and the
+            // only one that works for dflow/aflow/pressure/flow; the pair is kept on
+            // the advanced branch because that branch mirrors the advanced editor's
+            // own field set, where they are separate controls.
+            QJsonObject remaining = args;
+            if (remaining.contains(QStringLiteral("dose"))) {
+                // The conflict below can ONLY arise on the advanced branch, which is
+                // the only one that also accepts `recommended_dose` (straight through
+                // the profile map). Firing it everywhere dropped `dose` on a D-Flow
+                // profile, let `recommended_dose` fall into ignoredFields, applied
+                // NEITHER, and still reported success — while the note named a winner
+                // that lost and an editor the caller was not using.
+                // On the advanced branch `recommended_dose` is also accepted, straight
+                // through the profile map. Supplying both used to be silently
+                // last-writer-wins — `dose` applied here, then overwritten by the map
+                // loop below — with success:true and no hint that a value was dropped.
+                // Say so instead, and let the canonical spelling win, since that is the
+                // one the advanced editor itself writes.
+                if (editorType == QLatin1String("advanced")
+                    && remaining.contains(QStringLiteral("recommended_dose"))) {
+                    conflictedKeys << QStringLiteral("dose");
+                    remaining.remove(QStringLiteral("dose"));
+                } else {
+                    const double d =
+                        qBound(0.0, remaining.take(QStringLiteral("dose")).toDouble(), 100.0);
+                    profileManager->setCurrentProfileRecommendedDose(d);
+                }
+            }
 
             if (editorType == "advanced") {
                 // Advanced path: use uploadProfile() — same as ProfileEditorPage
                 QVariantMap profileData = profileManager->getCurrentProfile();
-                for (auto it = args.begin(); it != args.end(); ++it) {
+                for (auto it = remaining.begin(); it != remaining.end(); ++it) {
                     if (it.key() == "confirmed") continue;
                     profileData[it.key()] = it.value().toVariant();
                 }
@@ -447,7 +510,7 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
                 // infuseEnabled were all valid and effective before they were
                 // removed, so a client written against the older schema would
                 // believe its edit took effect. Report them instead.
-                for (auto it = args.begin(); it != args.end(); ++it) {
+                for (auto it = remaining.begin(); it != remaining.end(); ++it) {
                     if (it.key() == "confirmed") continue;
                     if (!currentParams.contains(it.key())) ignoredKeys << it.key();
                     currentParams[it.key()] = it.value().toVariant();
@@ -457,6 +520,17 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
             }
 
             result["success"] = true;
+            if (!conflictedKeys.isEmpty()) {
+                // Distinct from ignoredFields: these ARE recognised, and were dropped
+                // because another argument in the same call sets the same profile
+                // field. Reporting them as "unrecognised" would send a caller looking
+                // for a typo that is not there.
+                result["conflictedFields"] = QJsonArray::fromStringList(conflictedKeys);
+                result["conflictNote"] =
+                    QStringLiteral("%1 was overridden by 'recommended_dose', which is the "
+                                   "canonical spelling on the advanced editor.")
+                        .arg(conflictedKeys.join(QStringLiteral(", ")));
+            }
             result["message"] = ignoredKeys.isEmpty()
                 ? QStringLiteral("Profile updated and uploaded to machine. "
                                  "Call profiles_save to persist.")

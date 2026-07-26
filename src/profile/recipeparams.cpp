@@ -4,7 +4,7 @@
 bool RecipeParams::frameAffectingFieldsEqual(const RecipeParams& other) const {
     auto eq = [](double a, double b) { return qFuzzyCompare(1.0 + a, 1.0 + b); };
     // Compare all fields that affect frame generation.
-    // Excluded: targetWeight, targetVolume, dose (metadata only — don't affect frames).
+    // Excluded: targetWeight, targetVolume (metadata only — don't affect frames).
     return editorType == other.editorType
         // Fill
         && eq(fillTemperature, other.fillTemperature)
@@ -105,8 +105,6 @@ QStringList RecipeParams::validate() const {
         issues << "targetWeight out of range [0, 500]";
     if (targetVolume < 0 || targetVolume > 500)
         issues << "targetVolume out of range [0, 500]";
-    if (dose < 0 || dose > 100)
-        issues << "dose out of range [0, 100]";
 
     // Temperature bounds
     auto checkTemp = [&](double temp, const char* name) {
@@ -168,7 +166,6 @@ void RecipeParams::clamp() {
 
     clampVal(targetWeight, 0.0, 500.0);
     clampVal(targetVolume, 0.0, 500.0);
-    clampVal(dose, 0.0, 100.0);
 
     // Temperatures (0-110)
     for (double* t : {&fillTemperature, &pourTemperature, &tempStart, &tempPreinfuse, &tempHold, &tempDecline})
@@ -197,7 +194,6 @@ QJsonObject RecipeParams::toJson() const {
     // Core
     obj["targetWeight"] = targetWeight;
     obj["targetVolume"] = targetVolume;
-    obj["dose"] = dose;
 
     // Fill
     obj["fillTemperature"] = fillTemperature;
@@ -251,7 +247,6 @@ RecipeParams RecipeParams::fromJson(const QJsonObject& json) {
     // Core
     params.targetWeight = json["targetWeight"].toDouble(36.0);
     params.targetVolume = json["targetVolume"].toDouble(0.0);
-    params.dose = json["dose"].toDouble(18.0);
 
     // Fill
     params.fillTemperature = json["fillTemperature"].toDouble(88.0);
@@ -325,7 +320,6 @@ QVariantMap RecipeParams::toVariantMap() const {
     // Core
     map["targetWeight"] = targetWeight;
     map["targetVolume"] = targetVolume;
-    map["dose"] = dose;
 
     // Fill
     map["fillTemperature"] = fillTemperature;
@@ -382,7 +376,6 @@ RecipeParams RecipeParams::fromVariantMap(const QVariantMap& map) {
     // Core
     params.targetWeight = map.value("targetWeight", 36.0).toDouble();
     params.targetVolume = map.value("targetVolume", 0.0).toDouble();
-    params.dose = map.value("dose", 18.0).toDouble();
 
     // Fill
     params.fillTemperature = map.value("fillTemperature", 88.0).toDouble();

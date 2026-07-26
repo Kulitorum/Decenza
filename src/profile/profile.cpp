@@ -61,6 +61,16 @@ static double jsonToDouble(const QJsonValue& val, double defaultVal = 0.0) {
 // set is retained verbatim in m_unknownKeys and re-emitted, so a Decenza save does
 // not strip keys another DE1 app authored. Add a key here when Profile starts
 // modelling it — otherwise it would be both parsed AND echoed from the passthrough.
+//
+// THE INVERSE ALSO HOLDS, and is the less obvious half: a key Profile has STOPPED
+// modelling must STAY listed. This set is the passthrough's exclusion list, so
+// membership is what makes a key get dropped — delist it and every stored instance
+// is captured into m_unknownKeys and re-emitted forever, which is the opposite of
+// removing it. `recipe` is exactly that case: nothing reads or writes it any more,
+// and its entry below is load-bearing rather than dead. It is one string, and it is
+// what makes a straggler — an old share code, a restored backup, a device that
+// skipped a release — drop its block on the next save instead of carrying it
+// permanently. Do not tidy it away.
 static const QSet<QString> kKnownProfileKeys = {
     QStringLiteral("title"), QStringLiteral("author"), QStringLiteral("notes"),
     QStringLiteral("profile_notes"), QStringLiteral("beverage_type"), QStringLiteral("version"),
@@ -559,36 +569,32 @@ QJsonObject Profile::toJsonObject() const {
     //      then discarded on save, so the repair re-ran every load and never
     //      stuck — and editorType drives frame generation.
     //
-    // Dropping `editorType` is correct: fromJson infers it for every case where a
-    // recipe block is written at all (dflow/aflow from the title, pressure/flow
-    // from settings_2a/2b), so nothing is lost.
-    //
     // RULE: a key the reader consumes as a migration source must never be echoed
     // back. Preserving it converts a one-shot migration into a permanent override.
-    auto recipeJson = [this]() { return m_recipeParams.toJson(); };
 
-    // NOTE: an ADVANCED profile deliberately gets no recipe block. Editor type is
-    // derived from the title ("D-Flow /", "A-Flow /"), so an advanced profile has
-    // no recipe editor and its recipe params are meaningless. Dropping a stale
-    // recipe block from an advanced profile is correct cleanup, not data loss —
-    // several built-ins carried one purely as cruft. Do not "preserve" it here.
+    // NO RECIPE BLOCK IS WRITTEN, for any editor type.
     //
-    // A block is written only when the parameters were ESTABLISHED — see
-    // Profile::hasRecipeParams(). A recipe-shaped TITLE is not evidence that a
-    // profile has recipe parameters. Every `.tcl` import, every Visualizer
-    // download and every profile shared from another app arrives without a
-    // recipe block, by design: both upstream plugins reconstruct their editor
-    // state from the frames on load, so nothing persists it. Writing one anyway
-    // from a default-constructed struct is finding REC-1 — it put five identical
-    // 88 °C / 25 s / 4 g blocks into the A-Flow built-ins, matching none of their
-    // frames, and made editing one parameter silently reset the others.
-    QString et = editorType();
-    if (m_hasRecipeParams
-        && (et == QLatin1String("dflow") || et == QLatin1String("aflow")
-            || et == QLatin1String("pressure") || et == QLatin1String("flow"))) {
-        obj["recipe"] = recipeJson();
-    }
-
+    // It was a cache of values that both upstream plugins reconstruct from the
+    // frames on every load — `proc prep`, transcribed as RecipeAnalyzer::prepDFlow
+    // and prepAFlow — and that Decenza likewise re-derives on every read
+    // (ProfileManager::getOrConvertRecipeParams). Of its 34 stored keys, 8 (D-Flow)
+    // or 12 (A-Flow) were overwritten by `prep` before anything could read them,
+    // 2 shadowed top-level target_weight/target_volume, 4 were unmodelled legacy,
+    // and the rest were inert for the profile's own editor. The one field that was
+    // genuinely carried, `dose`, is promoted to recommended_dose on read — a
+    // top-level key that is actually consumed (the advanced editor's control,
+    // dialing_get_context, the AI advisor).
+    //
+    // A cache no reader trusts still drifts: five shipped A-Flow built-ins carried
+    // byte-identical 88 °C / 20 s / 9 bar blocks against frames saying 93–95 / 6–60
+    // / 9–10. That is REC-1 residue, invisible to the edit matrix precisely because
+    // making the block irrelevant was the fix.
+    //
+    // Decenza was the only producer — de1app has no such key in any of its 88
+    // profiles, reaprime models ten fields and drops the rest, and Visualizer
+    // normalises it away in both renderings — so the population carrying one is
+    // closed and draining. docs/CLAUDE_MD/RECIPE_PROFILES.md carries the sunset order:
+    // what becomes deletable once it has drained, and the one entry that must not.
     // Read-only flag (de1app compatibility: integer 0/1/2)
     if (m_readOnly != 0) {
         obj["read_only"] = m_readOnly;
@@ -665,6 +671,26 @@ const QSet<QString>& nonZeroDefaultKeys() {
         QStringLiteral("temperature"), QStringLiteral("pressure"), QStringLiteral("flow"),
         QStringLiteral("seconds"), QStringLiteral("range"),
     };
+    return k;
+}
+
+// Keys this serializer DELIBERATELY stops emitting, so their absence downstream is
+// intended rather than a loss.
+//
+// `recipe` is the whole list. It was a cache of values reconstructed from the frames
+// on every read (RecipeAnalyzer::prepDFlow / prepAFlow), and is no longer written.
+// Without this excusal it reads as a loss on every profile that still carries one —
+// isInertValue() rightly refuses to call a structured value inert — and every caller
+// of jsonParityErrors acts on that verdict: ProfileManager's stored-encoding
+// upgrade and espresso_temperature repair both refuse to persist, migrateProfileFormat
+// counts the profile failed, and `profile_sync --rewrite-format` skips it. The
+// strip-on-load write-back is gated on the same check, so without this the block it
+// exists to remove is exactly what stops it running.
+//
+// This is transitional: once no profile in the wild carries a block it can go. The
+// entry in kKnownProfileKeys cannot — see the comment there.
+const QSet<QString>& deliberatelyDroppedKeys() {
+    static const QSet<QString> k = { QStringLiteral("recipe") };
     return k;
 }
 
@@ -778,6 +804,10 @@ void collectParityErrors(const QJsonObject& before, const QJsonObject& after,
     for (auto it = before.constBegin(); it != before.constEnd(); ++it) {
         const QString key = path.isEmpty() ? it.key() : path + QLatin1Char('.') + it.key();
         if (!after.contains(it.key())) {
+            // A key the serializer deliberately stopped emitting is not a loss, at any
+            // depth — checked first so it wins over the non-zero-default rule below.
+            if (deliberatelyDroppedKeys().contains(it.key()))
+                continue;
             // Only an informative value going missing is a loss — EXCEPT for keys
             // whose read default is non-zero, where dropping an explicit "0" flips
             // behaviour on reload (a dropped "target_weight":"0" comes back as 36 g
@@ -953,7 +983,7 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
     }
 
     profile.m_hasRecommendedDose = profileJsonToBool(obj["has_recommended_dose"], false);
-    profile.m_recommendedDose = jsonToDouble(obj["recommended_dose"], 18.0);
+    profile.m_recommendedDose = jsonToDouble(obj["recommended_dose"], Profile::kDefaultRecommendedDose);
 
     // Simple profile parameters (settings_2a/2b)
     profile.m_preinfusionTime = jsonToDouble(obj["preinfusion_time"], 5.0);
@@ -1017,29 +1047,48 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
     // Read-only flag (de1app compatibility: integer 0/1/2)
     profile.m_readOnly = obj["read_only"].toInt(0);
 
-    // Load recipe params if present. A block that is present was established by
-    // whoever wrote it, so it round-trips; its ABSENCE is meaningful and must not
-    // be papered over with defaults (REC-1).
-    if (obj.contains("recipe")) {
-        // Build the params COMPLETELY, then establish them with one
-        // setRecipeParams() call. Assigning m_recipeParams directly and setting
-        // m_hasRecipeParams beside it works — same class — but it makes
-        // "bypassing the setter is fine" the local idiom, and the setter is the
-        // only thing keeping the flag and the data in step. One writer.
-        RecipeParams params = RecipeParams::fromJson(obj["recipe"].toObject());
-        // Infer editorType from profileType/title when the block omits it.
-        if (!obj["recipe"].toObject().contains("editorType")) {
-            if (profile.m_profileType == "settings_2a") {
-                params.editorType = EditorType::Pressure;
-            } else if (profile.m_profileType == "settings_2b") {
-                params.editorType = EditorType::Flow;
-            } else if (profile.m_title.startsWith(QStringLiteral("A-Flow"), Qt::CaseInsensitive) ||
-                       (profile.m_title.startsWith(QLatin1Char('*')) &&
-                        profile.m_title.mid(1).startsWith(QStringLiteral("A-Flow"), Qt::CaseInsensitive))) {
-                params.editorType = EditorType::AFlow;
+    // A stored recipe block is READ FOR ONE FIELD AND THEN DROPPED.
+    //
+    // Nothing reconstructs RecipeParams from it any more: the editor derives its
+    // parameters from the frames on every read, so a stored block is a stale copy
+    // by construction. Not listing it in kKnownProfileKeys is what drops it — the
+    // passthrough only captures keys outside that set — so simply not reading it
+    // here is the whole of the removal for anything that gets re-saved.
+    //
+    // `dose` is the one value in it that was not reconstructed from the frames or
+    // duplicated by a top-level key, and the one a user could actually set — through
+    // the MCP parameter surface AND the Dose sliders on both recipe editor pages,
+    // which now write Profile::recommendedDose directly. Promote it to
+    // recommended_dose so it survives, but only when it says something: every block
+    // ever written carries the struct default of 18, so promoting unconditionally
+    // would switch on a recommendation the user never made for every profile that
+    // had a block. An explicit has_recommended_dose already on the profile always
+    // wins — that one came from the editor.
+    //
+    // m_recipeBlockStripped tells ProfileManager to write the profile back once, so
+    // a block does not survive on disk on a profile the user never re-saves.
+    if (obj.contains(QStringLiteral("recipe"))) {
+        profile.m_recipeBlockStripped = true;
+        const QJsonObject block = obj[QStringLiteral("recipe")].toObject();
+        if (!profile.m_hasRecommendedDose && block.contains(QStringLiteral("dose"))) {
+            // jsonToDouble, not QJsonValue::toDouble: this format string-encodes
+            // numbers, so a block written as "dose": "20.5" would otherwise read back
+            // as the default and be silently discarded along with the block.
+            const double blockDose =
+                jsonToDouble(block[QStringLiteral("dose")], Profile::kDefaultRecommendedDose);
+            if (qFuzzyCompare(blockDose, Profile::kDefaultRecommendedDose)) {
+                // The struct default. Says nothing, so it enables nothing.
+            } else if (blockDose > 0.0 && blockDose <= 100.0) {
+                profile.m_recommendedDose = blockDose;
+                profile.m_hasRecommendedDose = true;
+            } else {
+                // Out of range. Say so — the block is about to be removed from disk,
+                // so this is the only chance anyone has to notice the value existed.
+                qWarning() << "Profile::fromJson:" << profile.m_title
+                           << "carries a recipe dose of" << blockDose
+                           << "g, outside [0, 100] — not promoted to recommended_dose";
             }
         }
-        profile.setRecipeParams(params);
     }
 
     // Reconcile espresso_temperature against the frames, which are the source of
@@ -1323,6 +1372,33 @@ Profile Profile::loadFromTclString(const QString& content) {
     readNum(QStringLiteral("target_volume"),                   profile.m_targetVolume);
     readNum(QStringLiteral("maximum_flow_range_advanced"),     profile.m_maximumFlowRangeAdvanced);
     readNum(QStringLiteral("maximum_pressure_range_advanced"), profile.m_maximumPressureRangeAdvanced);
+
+    // de1app's per-profile dose (profile_grinder_dose_weight). The flag has to be set
+    // here rather than in the field table: readScalar hands back a bare double and has
+    // no way to touch a companion boolean.
+    //
+    // Only a value GREATER THAN ZERO enables the recommendation. de1app's Streamline
+    // skin writes the key on every save, so a 0 means "not set" rather than "a dose of
+    // zero" — the same reading the eight shipped profiles carrying `grinder_dose_weight
+    // 0` support. An absent key leaves Decenza's default in place and enables nothing.
+    //
+    // The presence of the KEY is the signal, not the value. Unlike the JSON recipe
+    // block — where every profile ever written carries the struct default of 18, so a
+    // value equal to the default says nothing — this key exists only because a user
+    // set it in Streamline. Gating on "differs from 18" as well would silently drop a
+    // deliberate 18.0 g dose, which is a perfectly ordinary thing to set.
+    {
+        // Read into a LOCAL, not straight into the member. readNum leaves its target
+        // untouched on a malformed value, so reading into m_recommendedDose left the
+        // 18.0 default sitting there — which then passed the `> 0` test and enabled a
+        // recommendation the file never stated. A local starting at 0 cannot.
+        double doseFromTcl = 0.0;
+        readNum(QStringLiteral("recommended_dose"), doseFromTcl);
+        if (doseFromTcl > 0.0) {
+            profile.m_recommendedDose = doseFromTcl;
+            profile.m_hasRecommendedDose = true;
+        }
+    }
 
     readNum(QStringLiteral("espresso_temperature"),           profile.m_espressoTemperature);
     readNum(QStringLiteral("maximum_flow"),                   profile.m_maximumFlow);

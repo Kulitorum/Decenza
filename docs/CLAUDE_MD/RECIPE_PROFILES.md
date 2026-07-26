@@ -70,14 +70,36 @@ live in `openspec/changes/verify-recipe-editor-parity/reference.md`, and the par
 Each of the three has a counterpart in the code. Changing one without the other reopens a whole
 class of bug, so they are named here together.
 
-1. **Frames are the source of truth; a stored `recipe` block is a cache.**
+1. **Frames are the source of truth. There is no longer a stored `recipe` block at all.**
    `RecipeAnalyzer::prepDFlow` / `prepAFlow` are direct transcriptions of the plugins' `prep`, and
-   they are what `getOrConvertRecipeParams` uses. A block is written only when parameters were
-   actually established — `Profile::hasRecipeParams()`, set by `setRecipeParams()` or by reading a
-   block. **Never write one because the title looks like a recipe profile.** `RecipeParams`'
-   defaults are live values (`targetWeight` 36.0, `fillTemperature` 88.0), not sentinels, so a
-   default-constructed struct is indistinguishable from deliberate settings — that is what put five
-   byte-identical 88 °C blocks into the A-Flow built-ins, matching none of their own frames.
+   they are what `getOrConvertRecipeParams` uses — on every read, for every D-Flow/A-Flow profile.
+
+   The block used to be a cache of exactly those derived values, written when parameters had been
+   "established". That rule was not enough: the five A-Flow built-ins complied with it and still
+   shipped byte-identical 88 °C / 20 s / 9 bar blocks against frames saying 93–95 / 6–60 / 9–10,
+   because their parameters had been established at some point in the past and then drifted. A
+   cache no reader trusts still goes stale, so **nothing writes one now**, and a stored block is
+   removed on sight (`ProfileManager::stripStoredRecipeBlocks` at startup for what is already
+   saved, plus a write-back in `loadProfile` for anything that arrives later).
+
+   Three consequences worth knowing:
+   - `recipe` **stays listed in `kKnownProfileKeys`** even though nothing reads or writes it. That
+     set is the unknown-key passthrough's *exclusion* list, so membership is what makes a stored
+     block get dropped — delist it and every one is captured and re-emitted forever.
+   - `Profile::jsonParityErrors` **excuses** `recipe` via `deliberatelyDroppedKeys()`. A structured
+     value is otherwise never inert, so without this a dropped block reads as `KEY LOST` and the
+     four consumers of that check — stored-encoding upgrade, the `espresso_temperature` repair,
+     legacy format migration, and `profile_sync --rewrite-format` — all refuse the profile,
+     including the write-back that removes the block.
+   - `dose` was the block's only field not re-derived from frames or duplicated by a top-level key.
+     It is promoted to `recommended_dose` on read, but **only** when it differs from the 18 g
+     default and the profile carries no explicit recommendation of its own.
+
+   This is transitional. Decenza was the only producer of the block — de1app has no such key in any
+   of its 88 profiles, reaprime models ten fields and drops the rest, Visualizer normalises it away
+   in both renderings — so the population carrying one is closed and draining. The strip pass, the
+   load write-back, the dose promotion and the parity excusal can all go once it has drained. The
+   `kKnownProfileKeys` entry cannot: it is what keeps a straggler harmless.
 
 2. **`Profile::restoreFieldsThePluginNeverWrites()` reinstates in-place mutation.** After
    generating, it restores by frame ROLE every field the corresponding `update_*` proc does not
@@ -577,7 +599,11 @@ These defaults only apply when creating brand-new profiles, not when editing exi
 
 ## JSON Format
 
-Recipe profiles store both the recipe parameters and generated frames:
+> **Historical.** The `recipe` block shown below is **no longer written** — see "How Decenza
+> honours those three facts" above. It is kept here because files in the wild still contain one and
+> the reader still promotes its `dose`. Everything outside the block is current.
+
+Recipe profiles used to store both the recipe parameters and generated frames:
 
 ```json
 {
@@ -690,8 +716,60 @@ The canonical format is:
 
 - **Writer keys**: `notes` (not `profile_notes`), `legacy_profile_type` (not `profile_type`), `number_of_preinfuse_frames` (not `preinfuse_frame_count`), nested `exit`/`limiter`/`weight` (no flat exit fields)
 - **Reader fallbacks**: Accepts old flat fields (`exit_if`, `exit_type`, `exit_pressure_over`, `max_flow_or_pressure`, `profile_notes`, `profile_type`, `preinfuse_frame_count`) for backward compat with shot history snapshots
-- **Decenza extensions**: `recipe`, `mode`, `has_recommended_dose`, `temperature_presets` — de1app ignores these. (The simple-profile params are **not** an extension: de1app writes them unconditionally and so do we; gating them on `settings_2a/2b` is what destroyed those keys on 58+ advanced built-ins.) (`is_recipe_mode` was removed; editor type is now derived at runtime from title + `legacy_profile_type`)
+- **Decenza extensions**: `mode`, `recommended_dose`, `has_recommended_dose`, `temperature_presets` — de1app ignores these *spellings*. Note `recommended_dose` is not a concept de1app lacks: it writes the same value as `profile_grinder_dose_weight` (see "de1app's per-profile dose" above), which Decenza now reads on import. The mapping is **one-way** — Decenza has no `.tcl` writer, so a dose set here never travels back. (`recipe` was one and is no longer written; the key stays in `kKnownProfileKeys` so stored blocks are dropped rather than round-tripped.) A key added here must hold state **independent of the frames** — never a cache of something re-derived on read, which is exactly what made `recipe` drift. (The simple-profile params are **not** an extension: de1app writes them unconditionally and so do we; gating them on `settings_2a/2b` is what destroyed those keys on 58+ advanced built-ins.) (`is_recipe_mode` was removed; editor type is now derived at runtime from title + `legacy_profile_type`)
 - **No separate reader**: There is no `loadFromDE1AppJson()` — `fromJson()` handles all variants
+
+### Bare (unbraced) values: prose keys take the whole line
+
+A `.tcl` assignment whose value is neither braced nor quoted normally takes only the **first
+whitespace-delimited token**, which is what Tcl itself reads — a profile file is parsed with
+`array set`, so `profile_title D-Flow / Q` yields `profile_title` → `D-Flow` plus a stray `/` → `Q`
+(verified with `tclsh`).
+
+**Three prose keys are exceptions and take the rest of the line**: `profile_title`, `author`,
+`profile_notes` (`De1AppTcl::isFreeTextKey`). A trailing `;#` or ` #` Tcl comment is stripped first.
+
+This is a deliberate divergence from de1app, and it is confined to fields that cannot reach a
+frame, a machine value or a classification. It exists because **Visualizer's `.tcl` export does not
+brace multi-word values**, so every multi-word title from that export truncates — `D-Flow / Q` →
+`D-Flow`, `Damian's Q` → `Damian's`. The cost of matching de1app there is one-sided: the profile
+loses its slash-prefix category and drops out of its editor group, its filename collides with the
+next download in the same family, and **in de1app itself it loses the editor entirely**, because
+the dispatch matches `[string range $title 0 7]` against the literal `"D-Flow /"`
+(`plugins/D_Flow_Espresso_Profile/plugin.tcl:1143`) and six characters cannot satisfy it.
+Decenza's own writer braces properly, so re-saving repairs the file for every app downstream.
+Visualizer's JSON rendering of the same profile gets the title right; only the `.tcl` one is
+affected, and the in-app importer reaches it because Visualizer returns TCL for some shots even
+when `?format=json` is requested.
+
+**Do not add an enum or a code to that list.** `beverage_type` is written bare across the de1app
+corpus in eight values (`espresso` ×44, `tea_portafilter` ×11, `calibrate` ×5, `cleaning` ×3,
+`pourover` ×3, `filter` ×2, `manual`, `tea`); reading a malformed line whole would produce an
+unmatchable string and silently drop a classification that drives tea/pourover handling and travels
+on to Visualizer and reaprime. For those, first-token truncation is the *correct* recovery.
+`original_profile_title` is excluded for a different reason — Decenza models it nowhere, so listing
+it would put an unhandled key into `uncoveredTclKeys()`.
+
+The fixture is real, not synthesised: `tests/data/malformed_tcl/visualizer_unbraced_title.tcl` is a
+verbatim Visualizer API response, with provenance in the README beside it.
+
+### de1app's per-profile dose
+
+`profile_grinder_dose_weight` is in de1app's `profile_vars` (`vars.tcl:3305`), so de1app writes it
+into every profile it saves — but only the **Streamline** skin populates it
+(`skins/Streamline/skin.tcl:2550-2556`), which is why none of the 88 shipped profiles carries one.
+It maps to Decenza's `recommended_dose`, with `has_recommended_dose` enabled **only for a value
+greater than zero** (Streamline writes the key unconditionally, so `0` means "not set" — the eight
+shipped profiles carrying `grinder_dose_weight 0` are the evidence). The flag is set in
+`Profile::loadFromTclString`, not in the field table, because `readScalar` hands back a bare double.
+
+That row's `whenAbsent` **must stay unset**. `compareScalars()` walks the same table and is the
+built-in drift gate; a `0` fallback would compare 0 against each built-in's `recommended_dose` of
+18.0 and fail the gate on eight files.
+
+`profile_grinder_setting` — the per-profile grind setting Streamline writes alongside it — is
+listed as deliberately ignored rather than mapped. Decenza models grind settings on equipment and
+recipes, and pinning one to a profile would invent an association de1app does not make either.
 
 ### Reading a de1app `.tcl`: which spelling wins depends on `settings_profile_type`
 
@@ -792,7 +870,7 @@ hundreds of rows — a structural diff of the two corpora is not a useful signal
 ## Profile Comparison / Sync Tools
 
 - **Profile comparison/sync**: Use the `profile_sync` C++ tool (built with the main project, no extra flags). `profile_sync <de1app_profiles_dir> <builtin_profiles_dir>` compares TCL sources against built-in JSONs. Pass `de1plus/profiles/` as the first arg — the tool also scans `de1plus/plugins/*/profiles/` and a plugin copy overrides a base copy with the same output filename (canonical source wins, e.g. the 9-frame `A_Flow` plugin profiles beat the stale 6-frame copies in `de1plus/profiles/`). **The base copies really are stale, and this is settled**: de1app added them on 2025-09-03 in commit `80eb34cc`, "Added A-Flow default profiles to distribution, so they can be translated" — a snapshot taken so the string extractor could see them — and has never refreshed them, while the source repo `Jan3kJ/A_Flow` updated its profiles twice since (`9ca39813` 2025-09-25, `7784922b` 2025-11-07). The plugin submodule is the source; `de1plus/profiles/` is a translation artefact. Don't "fix" the override by preferring the base copy. Simple profiles (`settings_2a`/`settings_2b`) ship with `"steps": []` and have their frames regenerated in-memory before comparison so the equality check is like-for-like. Add `--sync` to overwrite stale JSONs and create missing ones (**modifies `resources/profiles/` in-place** — review changes before committing).
-- **Format-only rewrite**: `profile_sync <de1app_dir> resources/profiles --rewrite-format` re-saves every built-in through the canonical serializer, leaving **content untouched**. It serializes in memory and audits with `Profile::jsonParityErrors` + `Profile::reaprimeReadabilityErrors` **before** writing, so a file that would lose data is left untouched rather than clobbered-then-reported; failures go to stderr and the tool exits non-zero. (`functionallyEqual` is explicitly NOT sufficient for this — it compares frames only, and once reported "content-identical" while recipe blocks were being stripped from 8 built-ins.) Use this to adopt a serialization change. It deliberately ignores de1app — reconciling *content* against de1app/reaprime is a separate concern (OpenSpec `sync-builtin-profiles`), and conflating the two would hide content changes inside a format diff.
+- **Format-only rewrite**: `profile_sync <de1app_dir> resources/profiles --rewrite-format` re-saves every built-in through the canonical serializer, leaving **content untouched**. It serializes in memory and audits with `Profile::jsonParityErrors` + `Profile::reaprimeReadabilityErrors` **before** writing, so a file that would lose data is left untouched rather than clobbered-then-reported; failures go to stderr and the tool exits non-zero. (`functionallyEqual` is explicitly NOT sufficient for this — it compares frames only, and once reported "content-identical" while recipe blocks were being stripped from 8 built-ins.) **This is the sanctioned way to strip recipe blocks from the shipped built-ins**, which mirror de1app sources and must never be hand-edited: the parity audit passes because `recipe` is excused in `deliberatelyDroppedKeys()`, and the result is pure deletions. Note that plain compare mode (`--sync`) cannot see a block at all — it asks "does this built-in still match its de1app source?", and `recipe` was never a de1app key. The guard for that is `tst_builtinprofileformat::noShippedProfileCarriesARecipeBlock`. Use this to adopt a serialization change. It deliberately ignores de1app — reconciling *content* against de1app/reaprime is a separate concern (OpenSpec `sync-builtin-profiles`), and conflating the two would hide content changes inside a format diff.
 - **`profile_sync` exit status and refusals**: compare mode exits **1** when the run could not do the job it claims — an unreadable/unparseable/invalid source, a refused write, or a de1app key absent from the field map. Drift itself does **not** gate (reporting it is what compare mode is *for*; `tst_tclimport` is the gate for that). `--sync` **refuses** rather than warns: it will not write a profile whose rewrite would drop a key, will not write over a built-in it cannot read or parse (that audit used to pass vacuously on exactly those files), and skips any `.tcl` the app's own `isValid()` rejects — otherwise the tool that *populates* the corpus would be the one path bypassing the import gate. All failures go to **stderr**.
 - **Scalar drift gate**: `profile_sync` compares **profile-level scalars** as well as frames, through `De1AppTcl::compareScalars()`, and `tst_tclimport::builtinScalarParity` fails the build on any drift. Before this existed the tool compared frames only, and 338 scalar mismatches across 82 of 89 built-ins went unseen. The comparison reads the raw `.tcl` rather than a parsed `Profile` **on purpose**: routing both sides through the reader would make the gate structurally unable to see a reader bug, which is the class of bug that caused this. Keys present in the corpus but absent from the field map are reported as `UNCOMPARED` rather than skipped — silently narrowing the comparison is how a 338-row drift was once measured as 4. **Frames are still not compared field-by-field against de1app** beyond `Profile::frameDiffReport()`; full frame parity remains open.
 - **de1app oracle (`tools/de1app_oracle/`)**: the only check that answers *"does this profile make the same coffee in both apps?"*. It `source`s de1app's real `profile.tcl` and runs its own frame builders, then diffs the result against `resources/profiles/`. **The `.tcl` is de1app's input, not its output** — for a simple profile de1app discards the stored `advanced_shot` and rebuilds from the scalars, so comparing against the file cannot tell you what it brews. Run `python3 tools/de1app_oracle/compare_builtins.py <de1app-checkout>`; exit status 1 means a real portability break. Requires `tclsh`, and is deliberately NOT wired into CMake/ctest so a machine without Tcl can still build and test. On its first run it found three divergences the entire C++ suite had missed — two profiles Decenza brewed 4–6 °C colder than de1app, and two where we omitted a whole preinfusion frame. See `tools/de1app_oracle/README.md`.

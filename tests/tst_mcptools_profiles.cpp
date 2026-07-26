@@ -141,6 +141,86 @@ private:
     }
 
 private slots:
+    // `dose` has always been an accepted edit_params field. It used to write
+    // RecipeParams::dose, which lived in the recipe block and was read by nothing.
+    // With that field gone it must not fall through to the unrecognised-key path —
+    // reporting IGNORED is the one outcome the redirect exists to prevent.
+    void editParamsDoseWritesTheRecommendedDose() {
+        McpTestFixture f;
+        registerProfileTools(&f.registry, &f.profileManager, nullptr);
+        loadDFlowProfile(f, "D-Flow / Dose");
+
+        const QJsonObject r = f.callTool("profiles_edit_params",
+                                         QJsonObject{{"dose", 20.5}, {"confirmed", true}});
+        QVERIFY2(!r.contains("ignoredFields"),
+                 qPrintable(QStringLiteral("dose was reported ignored: ")
+                            + QJsonDocument(r).toJson(QJsonDocument::Compact)));
+        QVERIFY(r.value("success").toBool());
+        QCOMPARE(f.profileManager.profileRecommendedDose(), 20.5);
+        QVERIFY2(f.profileManager.profileHasRecommendedDose(),
+                 "a dose was stored without enabling it, so nothing would read it");
+    }
+
+    void doseOnANonAdvancedProfileIsNotTreatedAsAConflict() {
+        // `recommended_dose` is only accepted on the advanced branch, so on D-Flow
+        // there is no competing spelling and `dose` must simply apply. Firing the
+        // conflict rule here dropped BOTH values, applied neither, reported success,
+        // and named a winner that lost.
+        McpTestFixture f;
+        registerProfileTools(&f.registry, &f.profileManager, nullptr);
+        loadDFlowProfile(f, "D-Flow / No Conflict");
+
+        const QJsonObject r = f.callTool(
+            "profiles_edit_params",
+            QJsonObject{{"dose", 20.5}, {"recommended_dose", 22.0}, {"confirmed", true}});
+
+        QVERIFY2(!r.contains("conflictedFields"),
+                 "a conflict was reported on an editor that accepts only one spelling");
+        QCOMPARE(f.profileManager.profileRecommendedDose(), 20.5);
+        QVERIFY(f.profileManager.profileHasRecommendedDose());
+    }
+
+    void doseOfZeroClearsTheRecommendation() {
+        // Tests the rule where it lives rather than through the MCP round-trip: an
+        // earlier version drove this via profiles_edit_params and did not
+        // discriminate — it passed with the zero-clearing removed, so it was
+        // asserting nothing. The MCP path for `dose` is covered by
+        // editParamsDoseWritesTheRecommendedDose above.
+        //
+        // Storing 0 with the flag on would be a recommendation of zero grams, which
+        // reaches dialing_get_context and the AI advisor and contradicts the .tcl
+        // importer's reading of de1app's 0 as "not set".
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / Zero Dose");
+
+        f.profileManager.setCurrentProfileRecommendedDose(19.0);
+        QVERIFY(f.profileManager.profileHasRecommendedDose());
+        QCOMPARE(f.profileManager.profileRecommendedDose(), 19.0);
+
+        f.profileManager.setCurrentProfileRecommendedDose(0.0);
+        QVERIFY2(!f.profileManager.profileHasRecommendedDose(),
+                 "a dose of 0 was stored as a recommendation of zero grams");
+    }
+
+    void getParamsReportsTheDoseWithItsFlag() {
+        // Every profile holds 18 g whether one was set or not, so a bare figure
+        // would tell an AI there is a recommendation when there is not.
+        McpTestFixture f;
+        registerProfileTools(&f.registry, &f.profileManager, nullptr);
+        loadDFlowProfile(f, "D-Flow / Dose Read");
+
+        QJsonObject r = f.callTool("profiles_get_params", QJsonObject{});
+        QVERIFY(r.contains("recommendedDoseG"));
+        QVERIFY2(r.contains("hasRecommendedDose"),
+                 "the dose was reported without the flag saying whether it is real");
+        QCOMPARE(r.value("hasRecommendedDose").toBool(), false);
+
+        f.callTool("profiles_edit_params", QJsonObject{{"dose", 21.0}, {"confirmed", true}});
+        r = f.callTool("profiles_get_params", QJsonObject{});
+        QCOMPARE(r.value("hasRecommendedDose").toBool(), true);
+        QCOMPARE(r.value("recommendedDoseG").toDouble(), 21.0);
+    }
+
     void init() { QTest::failOnWarning(); }
 
     // ===== profiles_list =====

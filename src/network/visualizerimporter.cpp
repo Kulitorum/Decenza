@@ -639,21 +639,19 @@ Profile VisualizerImporter::parseVisualizerProfile(const QJsonObject& json) {
         profile.setTitle(json["title"].toString("Imported Profile"));
     }
 
-    // Safety net: if profile has recipe params with no steps, generate frames.
+    // There is deliberately NO frame-generation safety net here for a payload that
+    // arrives with no steps.
     //
-    // regenerateFromRecipe() now refuses when the parameters were never
-    // established, and that is deliberate here rather than a gap. A Visualizer
-    // download carries no recipe block — both plugins rebuild their editor from
-    // the frames, so nothing persists one — which means "no steps AND no recipe"
-    // is a broken payload, and the old behaviour was to fabricate a complete
-    // default profile from it. That is REC-1. It now stays empty and is rejected
-    // by the isValid()/steps().isEmpty() checks in both callers.
+    // One used to call regenerateFromRecipe() on the theory that a profile carrying
+    // a recipe block but no frames could be rebuilt from the block. Two things
+    // retired it. First, fabricating a profile from unestablished parameters is
+    // finding REC-1 — it produced a complete default 88 °C / 20 s / 4 g profile from
+    // a broken download. Second, a stored block is no longer read into RecipeParams
+    // at all, so regenerateFromRecipe() would refuse regardless: it is guarded on
+    // hasRecipeParams(), which nothing sets from JSON any more.
     //
-    // The net still fires for its actual case: a profile that DOES carry a
-    // recipe block but lost its steps.
-    if (profile.steps().isEmpty() && profile.editorType() != QLatin1String("advanced")) {
-        profile.regenerateFromRecipe();
-    }
+    // A payload with no steps is simply broken, and is rejected by the
+    // isValid()/steps().isEmpty() checks in both callers of this function.
 
     qDebug() << "Parsed Visualizer profile:" << profile.title()
              << "with" << profile.steps().size() << "steps";
