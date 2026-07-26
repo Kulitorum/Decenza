@@ -45,10 +45,31 @@ SettingsCalibration::SettingsCalibration(Settings* owner, QObject* parent)
 {
 }
 
+void SettingsCalibration::setServingScaleTypeProvider(std::function<QString()> provider) {
+    m_servingScaleType = std::move(provider);
+}
+
 QString SettingsCalibration::currentScaleType() const {
+    // Prefer the scale actually serving the shot path. Keying on the SAVED type
+    // instead is how BLE-served shots came to be written into the "decent-wifi"
+    // pool: the WiFi scale stays the saved primary while every weight sample
+    // arrives over BLE. Four consecutive BLE shots logged scale="decent-wifi"
+    // on-device before this was resolved centrally.
+    const QString serving = m_servingScaleType ? m_servingScaleType() : QString();
+    if (!serving.isEmpty() && ScaleTypeIds::isCanonicalScaleTypeId(serving))
+        return serving;
     // Normalize defensively — scaleType is stored as a canonical id, but this keeps
     // SAW keying correct even if a legacy display name slips through pre-migration.
     return ScaleTypeIds::normalizeScaleTypeId(m_owner ? m_owner->scaleType() : QStringLiteral("decent"));
+}
+
+QString SettingsCalibration::resolveScaleKey(const QString& explicitKey) const {
+    if (explicitKey.isEmpty())
+        return currentScaleType();
+    // Normalize an explicit key too. A caller holding a legacy display name would
+    // otherwise open a second pool alongside the canonical one under a different
+    // spelling of the same scale — the split this resolution exists to close.
+    return ScaleTypeIds::normalizeScaleTypeId(explicitKey);
 }
 
 void SettingsCalibration::invalidateCache() {
@@ -675,7 +696,8 @@ void SettingsCalibration::savePerProfileSawBatchMap(const QJsonObject& map) {
 }
 
 QJsonArray SettingsCalibration::perProfileSawHistory(const QString& profileFilename, const QString& scaleType) const {
-    return loadPerProfileSawHistoryMap().value(sawPairKey(profileFilename, scaleType)).toArray();
+    return loadPerProfileSawHistoryMap()
+        .value(sawPairKey(profileFilename, resolveScaleKey(scaleType))).toArray();
 }
 
 QJsonObject SettingsCalibration::allPerProfileSawHistory() const {
@@ -683,7 +705,8 @@ QJsonObject SettingsCalibration::allPerProfileSawHistory() const {
 }
 
 QJsonArray SettingsCalibration::sawPendingBatch(const QString& profileFilename, const QString& scaleType) const {
-    return loadPerProfileSawBatchMap().value(sawPairKey(profileFilename, scaleType)).toArray();
+    return loadPerProfileSawBatchMap()
+        .value(sawPairKey(profileFilename, resolveScaleKey(scaleType))).toArray();
 }
 
 double SettingsCalibration::globalSawBootstrapLag(const QString& scaleType) const {
@@ -699,7 +722,7 @@ void SettingsCalibration::setGlobalSawBootstrapLag(const QString& scaleType, dou
 // ---- per-(profile, scale) read path ----
 
 QString SettingsCalibration::sawModelSource(const QString& profileFilename, QString scaleType) const {
-    scaleType = ScaleTypeIds::normalizeScaleTypeId(scaleType);
+    scaleType = resolveScaleKey(scaleType);
     if (!profileFilename.isEmpty()) {
         QJsonArray pairHistory = perProfileSawHistory(profileFilename, scaleType);
         if (pairHistory.size() >= kSawMinMediansForGraduation) return QStringLiteral("perProfile");
@@ -715,9 +738,10 @@ QString SettingsCalibration::sawModelSource(const QString& profileFilename, QStr
 QList<QPair<double, double>> SettingsCalibration::sawLearningEntriesFor(const QString& profileFilename,
                                                                        const QString& scaleType,
                                                                        int maxEntries) const {
+    const QString scale = resolveScaleKey(scaleType);
     QList<QPair<double, double>> result;
     if (!profileFilename.isEmpty()) {
-        QJsonArray pairHistory = perProfileSawHistory(profileFilename, scaleType);
+        QJsonArray pairHistory = perProfileSawHistory(profileFilename, scale);
         if (pairHistory.size() >= kSawMinMediansForGraduation) {
             for (qsizetype i = pairHistory.size() - 1; i >= 0 && result.size() < maxEntries; --i) {
                 QJsonObject obj = pairHistory[i].toObject();
@@ -728,12 +752,13 @@ QList<QPair<double, double>> SettingsCalibration::sawLearningEntriesFor(const QS
             if (!result.isEmpty()) return result;
         }
     }
-    return sawLearningEntries(scaleType, maxEntries);
+    return sawLearningEntries(scale, maxEntries);
 }
 
 double SettingsCalibration::sawLearnedLagFor(const QString& profileFilename, const QString& scaleType) const {
+    const QString scale = resolveScaleKey(scaleType);
     if (!profileFilename.isEmpty()) {
-        QJsonArray pairHistory = perProfileSawHistory(profileFilename, scaleType);
+        QJsonArray pairHistory = perProfileSawHistory(profileFilename, scale);
         if (pairHistory.size() >= kSawMinMediansForGraduation) {
             double sumLag = 0;
             qsizetype count = 0;
@@ -749,7 +774,7 @@ double SettingsCalibration::sawLearnedLagFor(const QString& profileFilename, con
             if (count > 0) return sumLag / count;
         }
     }
-    double bootstrap = globalSawBootstrapLag(scaleType);
+    double bootstrap = globalSawBootstrapLag(scale);
     if (bootstrap > 0.0) return bootstrap;
     return sawLearnedLag();
 }
@@ -757,8 +782,9 @@ double SettingsCalibration::sawLearnedLagFor(const QString& profileFilename, con
 double SettingsCalibration::getExpectedDripFor(const QString& profileFilename,
                                                const QString& scaleType,
                                                double currentFlowRate) const {
+    const QString scale = resolveScaleKey(scaleType);
     if (!profileFilename.isEmpty()) {
-        QJsonArray pairHistory = perProfileSawHistory(profileFilename, scaleType);
+        QJsonArray pairHistory = perProfileSawHistory(profileFilename, scale);
         if (pairHistory.size() >= kSawMinMediansForGraduation) {
             // Same flow-similarity kernel as the global getExpectedDrip(), but
             // recencyMin is fixed at 3.0 — per-pair history only kicks in after
@@ -787,11 +813,11 @@ double SettingsCalibration::getExpectedDripFor(const QString& profileFilename,
             }
         }
     }
-    double bootstrap = globalSawBootstrapLag(scaleType);
+    double bootstrap = globalSawBootstrapLag(scale);
     if (bootstrap > 0.0) {
         return qMin(currentFlowRate * bootstrap, 8.0);
     }
-    return qMin(currentFlowRate * (sensorLag(scaleType) + 0.1), 8.0);
+    return qMin(currentFlowRate * (sensorLag(scale) + 0.1), 8.0);
 }
 
 // ---- per-pair batch accumulator + commit ----

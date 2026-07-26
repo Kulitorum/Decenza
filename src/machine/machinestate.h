@@ -60,6 +60,9 @@ public:
     Q_ENUM(Phase)
 
     explicit MachineState(DE1Device* device, QObject* parent = nullptr);
+    // Clears the SAW scale-type provider it installed on SettingsCalibration, which
+    // captures `this` — see syncServingScale().
+    ~MachineState() override;
 
     Phase phase() const { return m_phase; }
     QString phaseString() const;
@@ -152,6 +155,11 @@ private slots:
     void onTimingControllerTareComplete();
 
 private:
+    // Push the serving scale down to SettingsCalibration, which resolves the SAW pool
+    // key for every consumer. Called from setScale() and setSettings() — they arrive
+    // in either order at startup, and both must leave the resolver current.
+    void syncServingScale();
+
     void updatePhase();
     void startShotTimer();
     void stopShotTimer();

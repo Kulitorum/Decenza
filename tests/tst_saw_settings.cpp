@@ -57,6 +57,88 @@ private slots:
         m_settings.calibration()->resetSawLearning();
     }
 
+    // ===== Scale-key resolution (omitted scaleType) =====
+    //
+    // The whole point of the optional parameter: a call site that omits the scale
+    // gets the SAME key the learner writes under. Four consumers previously derived
+    // it three ways, so these pin the resolution itself rather than any one caller.
+
+    void omittedScaleTypeResolvesToTheServingScale() {
+        // Saved primary is one scale, a different one is actually serving. Learning
+        // under the serving scale must be readable by a caller that names nothing —
+        // this is the decent-wifi/BLE split that started all of this.
+        m_settings.setScaleType(QStringLiteral("decent-wifi"));
+        m_settings.calibration()->setServingScaleTypeProvider(
+            []() { return QStringLiteral("bookoo"); });
+
+        for (int i = 0; i < 3; ++i)
+            m_settings.calibration()->addSawLearningPoint(3.0, 1.5, QStringLiteral("bookoo"),
+                                                          0.0, kProfileA);
+        for (int i = 0; i < 3; ++i)
+            m_settings.calibration()->addSawLearningPoint(3.0, 1.5, QStringLiteral("bookoo"),
+                                                          0.0, kProfileA);
+
+        const double resolved = m_settings.calibration()->sawLearnedLagFor(kProfileA);
+        const double explicitBookoo =
+            m_settings.calibration()->sawLearnedLagFor(kProfileA, QStringLiteral("bookoo"));
+        QCOMPARE(resolved, explicitBookoo);
+        QVERIFY2(resolved > 1.8, "omitting the scale must reach the serving scale's pool");
+
+        m_settings.calibration()->setServingScaleTypeProvider(nullptr);
+    }
+
+    void omittedScaleTypeFallsBackToSavedWhenNothingIsServing() {
+        // No physical scale connected — the provider reports empty. The saved primary
+        // is the only answer left, and it must be NORMALIZED: "Decent Scale" and
+        // "decent" keying different pools is the same split under another spelling.
+        m_settings.setScaleType(QStringLiteral("Decent Scale"));
+        m_settings.calibration()->setServingScaleTypeProvider([]() { return QString(); });
+
+        QCOMPARE(m_settings.calibration()->currentScaleType(), QStringLiteral("decent"));
+
+        m_settings.calibration()->setServingScaleTypeProvider(nullptr);
+    }
+
+    void nonCanonicalServingScaleFallsBackToSaved() {
+        // FlowScale reports "flow" and is permanently connected. Without the canonical
+        // check every scale-less shot would open a "flow" pool and make sensorLag()
+        // warn about an unknown type on every cycle (init()'s failOnWarning would
+        // catch that here).
+        m_settings.setScaleType(QStringLiteral("bookoo"));
+        m_settings.calibration()->setServingScaleTypeProvider(
+            []() { return QStringLiteral("flow"); });
+
+        QCOMPARE(m_settings.calibration()->currentScaleType(), QStringLiteral("bookoo"));
+
+        m_settings.calibration()->setServingScaleTypeProvider(nullptr);
+    }
+
+    void explicitScaleTypeOverridesTheServingScale() {
+        // The learning path latches the key at shot start and passes it ~40 s later,
+        // so a scale swapped mid-shot still trains the pool that made the prediction.
+        // An explicit key must therefore beat live resolution, not be overridden by it.
+        m_settings.setScaleType(QStringLiteral("decent"));
+        m_settings.calibration()->setServingScaleTypeProvider(
+            []() { return QStringLiteral("bookoo"); });
+
+        for (int i = 0; i < 3; ++i)
+            m_settings.calibration()->addSawLearningPoint(0.6, 1.5, QStringLiteral("acaia"),
+                                                          0.0, kProfileA);
+        for (int i = 0; i < 3; ++i)
+            m_settings.calibration()->addSawLearningPoint(0.6, 1.5, QStringLiteral("acaia"),
+                                                          0.0, kProfileA);
+
+        // acaia's pool has the graduated data; bookoo (resolved) does not.
+        QVERIFY2(m_settings.calibration()
+                     ->perProfileSawHistory(kProfileA, QStringLiteral("acaia")).size() > 0,
+                 "precondition: explicit-key learning landed in acaia's pool");
+        QCOMPARE(m_settings.calibration()
+                     ->perProfileSawHistory(kProfileA, QStringLiteral("bookoo")).size(),
+                 qsizetype(0));
+
+        m_settings.calibration()->setServingScaleTypeProvider(nullptr);
+    }
+
     // ===== Per-pair isolation =====
 
     void perPairIsolatesFromOtherProfile() {
