@@ -1,25 +1,25 @@
 ## 1. Diagnostics tables (no behaviour change, lands first)
 
-- [ ] 1.1 Add a status-code translation covering 0–12 in `difluidr2.cpp`, returning the numeric value for anything unrecognised
-- [ ] 1.2 Replace the two hardcoded status log branches (0 and 11) with the table
-- [ ] 1.3 Add an error-code translation for class 2 codes 1–4 and class 3 (Hardware), including the on-screen code in the hardware message
-- [ ] 1.4 Route the existing error handling through the table, leaving the user-actionable/log-only division exactly as it is
-- [ ] 1.5 Tests: every status code logs its name; unknown status logs its number; hardware error names the on-screen code; class 2 code 1 is named but raises no new user-visible error
+- [x] 1.1 Add a status-code translation covering 0–12 in `difluidr2.cpp`, returning the numeric value for anything unrecognised
+- [x] 1.2 Replace the two hardcoded status log branches (0 and 11) with the table
+- [x] 1.3 Add an error-code translation for class 2 codes 1–4 and class 3 (Hardware), including the on-screen code in the hardware message
+- [x] 1.4 Route the existing error handling through the table, leaving the user-actionable/log-only division exactly as it is
+- [x] 1.5 Tests: every status code logs its name; unknown status logs its number; hardware error names the on-screen code; class 2 code 1 is named but raises no new user-visible error
 
 ## 2. Serial number capture
 
-- [ ] 2.1 Add a fixed-width serial buffer plus per-part arrival tracking to `DiFluidR2`
-- [ ] 2.2 Handle Func 0 Cmd 0 packets — splice 5 bytes at `Data0 * 5`, order-independent
-- [ ] 2.3 Log the serial only once all three parts have arrived; never log a partial as the device identity
-- [ ] 2.4 Send the Get-SN query alongside the existing model/firmware queries in the connect handshake
-- [ ] 2.5 Tests: in-order assembly, out-of-order assembly produces the identical string, partial set logs no identity
+- [x] 2.1 Add a fixed-width serial buffer plus per-part arrival tracking to `DiFluidR2`
+- [x] 2.2 Handle Func 0 Cmd 0 packets — splice 5 bytes at `Data0 * 5`, order-independent
+- [x] 2.3 Log the serial only once all three parts have arrived; never log a partial as the device identity
+- [x] 2.4 Send the Get-SN query alongside the existing model/firmware queries in the connect handshake
+- [x] 2.5 Tests: in-order assembly, out-of-order assembly produces the identical string, partial set logs no identity
 
 ## 3. Measurement lifecycle
 
-- [ ] 3.1 Restart `m_measurementTimer` on pack 0 statuses 4, 5 and 10, and on per-test result packets
-- [ ] 3.2 Rewrite the timer's comment to say what it now is — a liveness watchdog fed by device traffic — and why that remains the documented exception to the no-timers-as-guards rule
-- [ ] 3.3 Clear the measuring state on transport disconnect, not only on result or timeout
-- [ ] 3.4 Tests: progress packets past the watchdog interval do not abort; status 10 restarts it silently; total silence still times out; status 6 stops it; disconnect mid-run clears measuring
+- [x] 3.1 Restart `m_measurementTimer` on pack 0 statuses 4, 5 and 10, and on per-test result packets
+- [x] 3.2 Rewrite the timer's comment to say what it now is — a liveness watchdog fed by device traffic — and why that remains the documented exception to the no-timers-as-guards rule
+- [x] 3.3 Clear the measuring state on transport disconnect, not only on result or timeout (already correct in `onTransportDisconnected`/`onTransportError`; locked in with a test rather than changed)
+- [x] 3.4 Tests: progress packets past the watchdog interval do not abort; status 10 restarts it silently; total silence still times out; status 6 stops it; disconnect mid-run clears measuring
 
 ## 4. Averaged measurement
 

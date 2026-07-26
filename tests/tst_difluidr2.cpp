@@ -405,7 +405,7 @@ private slots:
         DiFluidR2 r2(nullptr);
         QSignalSpy errorSpy(&r2, &DiFluidR2::errorOccurred);
 
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("R2 error: class=2 code=3"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("R2 error: No liquid .*class=2 code=3"));
         r2.handlePacket(buildErrorPacket(2, 3));  // errClass=2, errCode=3 = no liquid
 
         QCOMPARE(errorSpy.count(), 1);
@@ -416,7 +416,7 @@ private slots:
         DiFluidR2 r2(nullptr);
         QSignalSpy errorSpy(&r2, &DiFluidR2::errorOccurred);
 
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("R2 error: class=2 code=4"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("R2 error: Beyond range .*class=2 code=4"));
         r2.handlePacket(buildErrorPacket(2, 4));  // errClass=2, errCode=4 = beyond range
 
         QCOMPARE(errorSpy.count(), 1);
@@ -450,7 +450,8 @@ private slots:
         QSignalSpy errorSpy(&r2, &DiFluidR2::errorOccurred);
         QSignalSpy measSpy(&r2, &DiFluidR2::measuringChanged);
 
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("R2 error: class=0 code=2"));
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression("R2 error: benign device status .*class=0 code=2"));
         r2.handlePacket(buildErrorPacket(0, 2));
 
         QCOMPARE(errorSpy.count(), 0);
@@ -458,6 +459,264 @@ private slots:
         // doesn't hang on a benign status error.
         QCOMPARE(measSpy.count(), 1);
         QVERIFY(!r2.isMeasuring());
+    }
+
+    // === Measurement liveness watchdog ===
+    //
+    // The watchdog exists to recover from a device that goes silent, which produces no
+    // event for an event-based mechanism to see. It must NOT double as a ceiling on how
+    // long a legitimate measurement may take — armed once at request time it was exactly
+    // that, and an averaged run of several tests would trip it mid-run.
+    //
+    // Tests shorten the interval; 15s is not a unit-test timescale.
+
+    // Put the driver in the state requestMeasurement() leaves it in, with a short
+    // watchdog so a test can outlive it in a few hundred milliseconds.
+    static void beginMeasuringWithShortWatchdog(DiFluidR2& r2, int intervalMs) {
+        r2.m_measuring = true;
+        r2.m_measurementTimer.setInterval(intervalMs);
+        r2.m_measurementTimer.start();
+    }
+
+    void progressPacketsKeepALongRunAlive() {
+        DiFluidR2 r2(nullptr);
+        beginMeasuringWithShortWatchdog(r2, 100);
+
+        // Five progress packets at 60ms — 300ms total, three watchdog intervals.
+        // Any timeout would emit a warning and fail the test via failOnWarning().
+        for (int i = 0; i < 5; ++i) {
+            QTest::qWait(60);
+            r2.handlePacket(buildStatusPacket(5));  // Average test ongoing
+        }
+
+        QVERIFY2(r2.isMeasuring(), "healthy long run was aborted by the watchdog");
+        QVERIFY(r2.m_measurementTimer.isActive());
+    }
+
+    void slowTestStatusRestartsTheWatchdog() {
+        DiFluidR2 r2(nullptr);
+        beginMeasuringWithShortWatchdog(r2, 100);
+
+        // Status 10 is the R2 saying "this individual test is running long" — precisely
+        // when a fixed deadline would have fired.
+        QTest::qWait(60);
+        r2.handlePacket(buildStatusPacket(10));
+        QTest::qWait(60);
+
+        QVERIFY(r2.isMeasuring());
+        QVERIFY(r2.m_measurementTimer.isActive());
+    }
+
+    void temperaturePacketIsProgressToo() {
+        DiFluidR2 r2(nullptr);
+        beginMeasuringWithShortWatchdog(r2, 100);
+
+        QTest::qWait(60);
+        r2.handlePacket(buildTemperaturePacket(23.5, /*unit=*/0));
+        QTest::qWait(60);
+
+        QVERIFY(r2.isMeasuring());
+    }
+
+    void silenceStillTimesOut() {
+        // The property the no-timers-as-guards exception was granted for: a device that
+        // stops answering entirely must not leave the UI waiting forever.
+        DiFluidR2 r2(nullptr);
+        QSignalSpy measSpy(&r2, &DiFluidR2::measuringChanged);
+        beginMeasuringWithShortWatchdog(r2, 50);
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Measurement timeout"));
+        QTest::qWait(200);
+
+        QVERIFY2(!r2.isMeasuring(), "silent device did not time out");
+        QCOMPARE(measSpy.count(), 1);
+    }
+
+    void resultStopsTheWatchdogAndLaterStatusChangesNothing() {
+        DiFluidR2 r2(nullptr);
+        QSignalSpy tdsSpy(&r2, &DiFluidR2::tdsChanged);
+        beginMeasuringWithShortWatchdog(r2, 100);
+
+        r2.handlePacket(buildAverageTdsPacket(1.35));
+        QCOMPARE(tdsSpy.count(), 1);
+        QVERIFY(!r2.isMeasuring());
+        QVERIFY(!r2.m_measurementTimer.isActive());
+
+        // Status 6 (Average Test Finished) trails the result; it must not resurrect
+        // the run or re-fire anything.
+        r2.handlePacket(buildStatusPacket(6));
+        QVERIFY(!r2.isMeasuring());
+        QVERIFY(!r2.m_measurementTimer.isActive());
+        QCOMPARE(tdsSpy.count(), 1);
+    }
+
+    void disconnectMidRunClearsMeasuring() {
+        DiFluidR2 r2(nullptr);
+        QSignalSpy measSpy(&r2, &DiFluidR2::measuringChanged);
+        beginMeasuringWithShortWatchdog(r2, 100);
+
+        // An averaged run holds the measuring state open far longer than a single test,
+        // so losing the link mid-run is a realistic case rather than a 2-second window.
+        r2.onTransportDisconnected();
+
+        QVERIFY(!r2.isMeasuring());
+        QVERIFY(!r2.m_measurementTimer.isActive());
+        QVERIFY(measSpy.count() >= 1);
+    }
+
+    // === Serial number reassembly ===
+    //
+    // Byte vectors are DiFluid's own worked example from protocolR2.md, which
+    // decodes to "68B6B32417B0000".
+
+    static QByteArray buildSerialPacket(uint8_t part, const char* fiveChars) {
+        QByteArray data;
+        data.append(static_cast<char>(part));
+        data.append(QByteArray(fiveChars, 5));
+        return buildR2Packet(0x00, 0x00, data);
+    }
+
+    void serialNumberAssembledFromThreeParts() {
+        DiFluidR2 r2(nullptr);
+        QSignalSpy logSpy(&r2, &DiFluidR2::logMessage);
+
+        r2.handlePacket(buildSerialPacket(0, "68B6B"));
+        r2.handlePacket(buildSerialPacket(1, "32417"));
+        r2.handlePacket(buildSerialPacket(2, "B0000"));
+
+        QCOMPARE(r2.m_serialNumber, QStringLiteral("68B6B32417B0000"));
+        bool logged = false;
+        for (const auto& e : logSpy)
+            if (e.at(0).toString().contains(QLatin1String("68B6B32417B0000"))) logged = true;
+        QVERIFY2(logged, "complete serial number was not logged");
+    }
+
+    void serialNumberPartsArrivingOutOfOrder() {
+        DiFluidR2 r2(nullptr);
+
+        // Deliberately reversed — BLE notification ordering is not guaranteed.
+        r2.handlePacket(buildSerialPacket(2, "B0000"));
+        r2.handlePacket(buildSerialPacket(0, "68B6B"));
+        r2.handlePacket(buildSerialPacket(1, "32417"));
+
+        QCOMPARE(r2.m_serialNumber, QStringLiteral("68B6B32417B0000"));
+    }
+
+    void partialSerialNumberIsNotReportedAsIdentity() {
+        DiFluidR2 r2(nullptr);
+        QSignalSpy logSpy(&r2, &DiFluidR2::logMessage);
+
+        r2.handlePacket(buildSerialPacket(0, "68B6B"));
+        r2.handlePacket(buildSerialPacket(2, "B0000"));
+
+        // Middle part missing: no serial number exists yet.
+        QVERIFY(r2.m_serialNumber.isEmpty());
+        for (const auto& e : logSpy) {
+            const QString line = e.at(0).toString();
+            QVERIFY2(!line.contains(QLatin1String("Serial number: ")),
+                     "a partial serial was logged as the device identity");
+        }
+    }
+
+    void malformedSerialPartIsRejected() {
+        DiFluidR2 r2(nullptr);
+
+        // Part index beyond the three the device sends.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("part index 9 out of range"));
+        r2.handlePacket(buildSerialPacket(9, "XXXXX"));
+
+        // Truncated payload.
+        QByteArray shortData;
+        shortData.append(static_cast<char>(0x00));
+        shortData.append("AB", 2);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Serial number packet too short"));
+        r2.handlePacket(buildR2Packet(0x00, 0x00, shortData));
+
+        QVERIFY(r2.m_serialNumber.isEmpty());
+    }
+
+    // === Status and error naming ===
+    //
+    // Field logs are read by people and by AI assistants triaging over MCP, so the
+    // names are an interface. These tests assert on the emitted log text.
+
+    void statusCodesAreLoggedByName() {
+        struct { uint8_t code; const char* fragment; } cases[] = {
+            {  0, "Test finished" },
+            {  1, "Calibration finished" },
+            {  4, "Average test started" },
+            {  5, "Average test ongoing" },
+            {  6, "Average test finished" },
+            {  7, "Loop test started" },
+            {  8, "Loop test ongoing" },
+            {  9, "Loop test finished" },
+            { 10, "running long" },
+            { 11, "Test started" },
+            { 12, "Calibration started" },
+        };
+
+        for (const auto& c : cases) {
+            DiFluidR2 r2(nullptr);
+            QSignalSpy logSpy(&r2, &DiFluidR2::logMessage);
+            r2.handlePacket(buildStatusPacket(c.code));
+
+            bool found = false;
+            for (const auto& entry : logSpy)
+                if (entry.at(0).toString().contains(QLatin1String(c.fragment))) found = true;
+            QVERIFY2(found, qPrintable(QString("status %1 was not logged as \"%2\"")
+                                           .arg(c.code).arg(c.fragment)));
+        }
+    }
+
+    void unknownStatusCodeStillLogsItsNumber() {
+        DiFluidR2 r2(nullptr);
+        QSignalSpy logSpy(&r2, &DiFluidR2::logMessage);
+        QSignalSpy measSpy(&r2, &DiFluidR2::measuringChanged);
+
+        r2.handlePacket(buildStatusPacket(200));
+
+        bool found = false;
+        for (const auto& entry : logSpy)
+            if (entry.at(0).toString().contains(QLatin1String("200"))) found = true;
+        QVERIFY2(found, "unnamed status code was not logged with its number");
+        // An unrecognised status must not move the measurement state machine.
+        QCOMPARE(measSpy.count(), 0);
+    }
+
+    void hardwareErrorNamesTheOnScreenCode() {
+        DiFluidR2 r2(nullptr);
+        QSignalSpy errorSpy(&r2, &DiFluidR2::errorOccurred);
+        QSignalSpy logSpy(&r2, &DiFluidR2::logMessage);
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("hardware error.*code 7"));
+        r2.handlePacket(buildErrorPacket(3, 7));
+
+        bool found = false;
+        for (const auto& entry : logSpy)
+            if (entry.at(0).toString().contains(QLatin1String("code 7"))) found = true;
+        QVERIFY2(found, "hardware error did not report the code shown on the device screen");
+        // Naming a code is not the same as surfacing it — the user-actionable
+        // division is unchanged.
+        QCOMPARE(errorSpy.count(), 0);
+    }
+
+    void newlyNamedErrorCodesDoNotBecomeNewDialogs() {
+        // Class 2 codes 1 and 2 are named as of this change, but the division over
+        // what reaches the user is deliberately untouched: only no-liquid (3) and
+        // beyond-range (4) are things a user can act on.
+        for (uint8_t code : { uint8_t(1), uint8_t(2) }) {
+            DiFluidR2 r2(nullptr);
+            QSignalSpy errorSpy(&r2, &DiFluidR2::errorOccurred);
+            QSignalSpy measSpy(&r2, &DiFluidR2::measuringChanged);
+
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("R2 error: .*class=2"));
+            r2.handlePacket(buildErrorPacket(2, code));
+
+            QCOMPARE(errorSpy.count(), 0);
+            // Measuring state still clears so the UI cannot hang on any error.
+            QCOMPARE(measSpy.count(), 1);
+            QVERIFY(!r2.isMeasuring());
+        }
     }
 
     // === Invalid packets ===

@@ -58,6 +58,11 @@ private slots:
 
 private:
     void handlePacket(const QByteArray& packet);
+    // The R2 sends its serial number as SERIAL_PART_COUNT packets, each carrying a
+    // part index in Data0 followed by SERIAL_PART_BYTES bytes. Parts are spliced at
+    // their indicated offset, so arrival order does not matter — BLE notification
+    // ordering is not something to assume.
+    void handleSerialNumberPart(const QByteArray& data);
     // Shared TDS result path for pack 2 (single test — used by both the app's
     // "Read TDS" button and the physical R2 Start button) and pack 3 (average).
     // Applies the out-of-range sanity gate so every consumer-bound TDS is
@@ -77,6 +82,15 @@ private:
     ScaleBleTransport* m_transport = nullptr;
     QString m_name = "DiFluid R2";
     QString m_deviceModel;  // From Get-Device-Model query; "DFT-R102" == genuine R2 Extract
+    // Serial number, reassembled from its parts. Identity data, not measurement data:
+    // it supports telling a genuine R2 Extract from a Brix-reporting variant, where
+    // the model string alone has proven insufficient. Empty until every part arrives —
+    // a partial serial is never presented as the device's identity.
+    static constexpr int SERIAL_PART_COUNT = 3;
+    static constexpr int SERIAL_PART_BYTES = 5;
+    QString m_serialNumber;
+    QByteArray m_serialParts;
+    quint8 m_serialPartsSeen = 0;  // bit N set once part N has arrived
     bool m_connected = false;
     bool m_serviceFound = false;
     bool m_characteristicsReady = false;
