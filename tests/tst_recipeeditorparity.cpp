@@ -31,6 +31,7 @@
 #include <QTextStream>
 #include <QDir>
 #include <QJsonDocument>
+#include <functional>
 
 #include "../src/profile/profile.h"
 #include "../src/profile/profileframe.h"
@@ -1496,6 +1497,119 @@ private slots:
         // And the one field the plugin DOES write there still tracks the
         // parameter, so the restore has not gone too far the other way.
         QCOMPARE(edited.steps()[0].temperature, source.steps()[1].temperature);
+    }
+
+    void restoredFieldPartitionIsPinned() {
+        // The tripwire on ProfileFrame's declaration names this test. It exists so
+        // that a field added to ProfileFrame and forgotten in
+        // restoreFieldsThePluginNeverWrites becomes a failing test rather than
+        // silent behaviour drift.
+        //
+        // ProfileFrame has ~23 fields. The restore mechanism touches exactly ten.
+        // The other thirteen are structural — the generator owns them, and the
+        // plugin rewrites the whole frame list anyway — so they are excluded BY
+        // DESIGN. Nothing in either type records which is which, so it is
+        // recorded here: set every restorable field to a sentinel on a non-stock
+        // profile, regenerate, and require each to survive.
+        Profile source = loadAFlow("A-Flow____default-medium.tcl");
+        QCOMPARE(source.steps().size(), qsizetype(9));
+
+        QList<ProfileFrame> steps = source.steps();
+        // Pre Fill: the plugin writes only its temperature, so every other field
+        // here is restorable and gets a distinctive value.
+        ProfileFrame& f = steps[0];
+        f.pressure = 7.25; f.flow = 5.5; f.seconds = 3.5; f.volume = 66.0;
+        f.exitWeight = 1.25; f.maxFlowOrPressure = 4.5;
+        f.exitPressureOver = 2.75; f.exitFlowOver = 3.25; f.exitFlowUnder = 0.75;
+        source.setSteps(steps);
+
+        Profile edited = source;
+        edited.setRecipeParams(RecipeAnalyzer::extractRecipeParams(source));
+        edited.regenerateFromRecipe();
+        QCOMPARE(edited.steps().size(), qsizetype(9));
+        const ProfileFrame& g = edited.steps()[0];
+
+        // THE RESTORED TEN. A field dropped from the restore fails here.
+        struct { const char* name; double got; double want; } restored[] = {
+            {"pressure",          g.pressure,          7.25},
+            {"flow",              g.flow,              5.5},
+            {"seconds",           g.seconds,           3.5},
+            {"volume",            g.volume,            66.0},
+            {"exitWeight",        g.exitWeight,        1.25},
+            {"maxFlowOrPressure", g.maxFlowOrPressure, 4.5},
+            {"exitPressureOver",  g.exitPressureOver,  2.75},
+            {"exitFlowOver",      g.exitFlowOver,      3.25},
+            {"exitFlowUnder",     g.exitFlowUnder,     0.75},
+        };
+        for (const auto& r : restored)
+            QVERIFY2(qAbs(r.got - r.want) < 0.01,
+                     qPrintable(QStringLiteral("Pre Fill %1 was not restored: %2 (want %3). "
+                                               "Either restoreFieldsThePluginNeverWrites lost a "
+                                               "field, or the plugin genuinely writes this one "
+                                               "and the Written set needs updating.")
+                                .arg(QString::fromLatin1(r.name)).arg(r.got).arg(r.want)));
+        // The tenth: temperature, which the plugin DOES write, from fillTemperature.
+        QCOMPARE(g.temperature, source.steps()[1].temperature);
+
+        // THE EXCLUDED THIRTEEN, recorded so the partition is explicit rather
+        // than implied by absence. If you add a ProfileFrame field, it belongs in
+        // one of these two lists — decide which.
+        static const char* excludedByDesign[] = {
+            "name", "sensor", "pump", "transition",       // structural: role identity
+            "exitIf", "exitType",                          // set consistently with the exits
+            "exitPressureUnder",                           // no plugin path writes or reads it
+            "popup", "maxFlowOrPressureRange",             // generator-owned
+            "moving", "previousPressure", "previousFlow",  // direct-setpoint mode only,
+            "previousTemperature",                         //   never part of a frame upload
+        };
+        QCOMPARE(int(std::size(excludedByDesign)), 13);
+    }
+
+    void everyFrameAffectingFieldIsCompared() {
+        // frameAffectingFieldsEqual decides whether a save regenerates at all. It
+        // is a hand-written field-by-field comparison with no structural link to
+        // RecipeParams' member list — miss a field and editing it silently does
+        // nothing: the user changes a value, saves, and the frames do not move.
+        //
+        // One case per field. A field dropped from the comparison fails here.
+        RecipeParams base;
+        base.editorType = EditorType::AFlow;
+
+        struct Case { const char* name; std::function<void(RecipeParams&)> mutate; };
+        const QList<Case> cases = {
+            {"fillTemperature",   [](RecipeParams& p){ p.fillTemperature += 1.0; }},
+            {"infusePressure",    [](RecipeParams& p){ p.infusePressure += 1.0; }},
+            {"infuseTime",        [](RecipeParams& p){ p.infuseTime += 1.0; }},
+            {"infuseWeight",      [](RecipeParams& p){ p.infuseWeight += 1.0; }},
+            {"infuseVolume",      [](RecipeParams& p){ p.infuseVolume += 1.0; }},
+            {"pourTemperature",   [](RecipeParams& p){ p.pourTemperature += 1.0; }},
+            {"pourPressure",      [](RecipeParams& p){ p.pourPressure += 1.0; }},
+            {"pourFlow",          [](RecipeParams& p){ p.pourFlow += 1.0; }},
+            {"rampTime",          [](RecipeParams& p){ p.rampTime += 1.0; }},
+            {"rampDownEnabled",   [](RecipeParams& p){ p.rampDownEnabled = !p.rampDownEnabled; }},
+            {"flowExtractionUp",  [](RecipeParams& p){ p.flowExtractionUp = !p.flowExtractionUp; }},
+            {"secondFillEnabled", [](RecipeParams& p){ p.secondFillEnabled = !p.secondFillEnabled; }},
+            {"editorType",        [](RecipeParams& p){ p.editorType = EditorType::DFlow; }},
+        };
+        for (const Case& c : cases) {
+            RecipeParams other = base;
+            c.mutate(other);
+            QVERIFY2(!base.frameAffectingFieldsEqual(other),
+                     qPrintable(QStringLiteral("changing %1 does not register as "
+                                               "frame-affecting — an edit to it would save "
+                                               "without regenerating the frames")
+                                .arg(QString::fromLatin1(c.name))));
+        }
+
+        // And the converse: the display-only fields must NOT force a regenerate.
+        for (const auto& pair : {std::make_pair("targetWeight", 1), std::make_pair("dose", 2)}) {
+            RecipeParams other = base;
+            if (pair.second == 1) other.targetWeight += 1.0; else other.dose += 1.0;
+            QVERIFY2(base.frameAffectingFieldsEqual(other),
+                     qPrintable(QStringLiteral("%1 is display-only and must not trigger a "
+                                               "frame regeneration")
+                                .arg(QString::fromLatin1(pair.first))));
+        }
     }
 
     void everyFindingIdIsStillAccountedFor() {

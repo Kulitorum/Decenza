@@ -426,6 +426,8 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
             // Use the same authoritative method the app uses to determine editor type
             QString editorType = profileManager->currentEditorType();
 
+            QStringList ignoredKeys;   // see the recipe path below
+
             if (editorType == "advanced") {
                 // Advanced path: use uploadProfile() — same as ProfileEditorPage
                 QVariantMap profileData = profileManager->getCurrentProfile();
@@ -438,8 +440,16 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
             } else {
                 // Recipe path: use uploadRecipeProfile() — same as RecipeEditorPage/SimpleProfileEditorPage
                 QVariantMap currentParams = profileManager->getOrConvertRecipeParams();
+                // Nothing validates incoming keys against the declared schema, so
+                // an unrecognised one lands here, is dropped by
+                // RecipeParams::fromVariantMap, and used to still draw a
+                // success:true. fillPressure, fillFlow, fillTimeout and
+                // infuseEnabled were all valid and effective before they were
+                // removed, so a client written against the older schema would
+                // believe its edit took effect. Report them instead.
                 for (auto it = args.begin(); it != args.end(); ++it) {
                     if (it.key() == "confirmed") continue;
+                    if (!currentParams.contains(it.key())) ignoredKeys << it.key();
                     currentParams[it.key()] = it.value().toVariant();
                 }
                 profileManager->uploadRecipeProfile(currentParams);
@@ -447,7 +457,15 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
             }
 
             result["success"] = true;
-            result["message"] = "Profile updated and uploaded to machine. Call profiles_save to persist.";
+            result["message"] = ignoredKeys.isEmpty()
+                ? QStringLiteral("Profile updated and uploaded to machine. "
+                                 "Call profiles_save to persist.")
+                : QStringLiteral("Profile updated and uploaded to machine, but %1 "
+                                 "unrecognised field(s) were IGNORED: %2. "
+                                 "Call profiles_save to persist.")
+                      .arg(ignoredKeys.size()).arg(ignoredKeys.join(QStringLiteral(", ")));
+            if (!ignoredKeys.isEmpty())
+                result["ignoredFields"] = QJsonArray::fromStringList(ignoredKeys);
             result["modified"] = true;
             result["editorType"] = editorType;
             return result;

@@ -34,7 +34,21 @@ public:
      * @param profile The profile to analyze
      * @return RecipeParams extracted from the frames (defaults if not convertible)
      */
-    static RecipeParams extractRecipeParams(const Profile& profile);
+    static RecipeParams extractRecipeParams(const Profile& profile, bool* derived = nullptr);
+
+    /**
+     * Do this profile's frames fit the layout its editor indexes?
+     *
+     * D-Flow needs 3; A-Flow needs 6 (legacy) or 9. Both plugins index frame
+     * roles POSITIONALLY with no validation, so a profile that does not fit
+     * cannot have its parameters read — `prep` would be reading whatever
+     * happens to sit at those indices.
+     *
+     * Callers use this to refuse to REGENERATE such a profile. Rebuilding its
+     * frames from parameters that were never derived from it replaces real
+     * frames with fabricated ones, which is finding REC-1 in a different guise.
+     */
+    static bool framesFitEditorLayout(const Profile& profile);
 
     /**
      * D-Flow's `proc prep` (plugin.tcl:195-210), transcribed.
@@ -43,7 +57,7 @@ public:
      * neither does this. Returns the profile's params untouched if the profile is
      * too short to have those frames.
      */
-    static RecipeParams prepDFlow(const Profile& profile);
+    static RecipeParams prepDFlow(const Profile& profile, bool* derived = nullptr);
 
     /**
      * A-Flow's `proc prep` (code.tcl:194-240), transcribed, with frame roles from
@@ -55,7 +69,7 @@ public:
      * Pause. The three structural toggles are DERIVED from the frames — nothing
      * stores them, which is the property that makes the frames sufficient.
      */
-    static RecipeParams prepAFlow(const Profile& profile);
+    static RecipeParams prepAFlow(const Profile& profile, bool* derived = nullptr);
 
     /**
      * Convert a profile to recipe mode if possible.

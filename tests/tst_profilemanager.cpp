@@ -1,6 +1,8 @@
 #include <QtTest>
 #include <QSignalSpy>
 #include <QJsonDocument>
+#include <QStandardPaths>
+#include <QRegularExpression>
 #include <QJsonObject>
 #include <QJsonArray>
 
@@ -144,7 +146,91 @@ private:
     }
 
 private slots:
+    void initTestCase() {
+        // Redirect AppDataLocation, which ProfileManager::profilesPath() reads.
+        // Two reasons: migrateRecipeFrames below writes real files, and without
+        // this the whole suite has been reading and writing the developer's own
+        // ~/Library/Application Support profiles directory.
+        QStandardPaths::setTestModeEnabled(true);
+    }
+
     void init() { QTest::failOnWarning(); }
+
+    // === migrateRecipeFrames: runs at startup, rewrites files on disk ===
+
+    void migrateRecipeFramesLeavesLegacyFlagOnlyProfilesAlone() {
+        // This migration had no test at all, and this change narrowed its gate
+        // from `is_recipe_mode || recipe` to `recipe` only. It runs ONCE (gated on
+        // recipe_frames_migrated), reads every profile on disk, and rewrites the
+        // ones that qualify — so a mistake here is permanent and silent.
+        //
+        // A profile carrying the legacy flag and NO recipe block has nothing to
+        // regenerate from. The old gate accepted it and rebuilt its frames from
+        // RecipeParams' defaults; the new one leaves it exactly as it is.
+        McpTestFixture f;
+        // The migration early-returns on this flag, and it is ALREADY set by the
+        // time the fixture is built. Without clearing it the call below is a
+        // no-op and this test asserts nothing — which is exactly what it did on
+        // first writing: it passed with the pre-change gate restored.
+        f.settings.setValue("recipe_frames_migrated", false);
+
+        const QString dir = f.profileManager.userProfilesPath();
+
+        QJsonObject legacy;
+        legacy["title"] = "D-Flow / Legacy Flag";
+        legacy["author"] = "test";
+        legacy["beverage_type"] = "espresso";
+        legacy["version"] = "2";
+        legacy["legacy_profile_type"] = "settings_2c";
+        legacy["is_recipe_mode"] = true;      // the legacy flag...
+        legacy["target_weight"] = 36.0;
+        legacy["espresso_temperature"] = 84.0;
+        QJsonArray steps;
+        for (const char* name : {"Filling", "Infusing", "Pouring"}) {
+            QJsonObject fr;
+            fr["name"] = name;
+            fr["temperature"] = 84.0;   // distinctive: NOT RecipeParams' 88.0 default
+            fr["sensor"] = "coffee";
+            fr["pump"] = "pressure";
+            fr["transition"] = "fast";
+            fr["pressure"] = 3.0;
+            fr["flow"] = 8.0;
+            fr["seconds"] = 25.0;
+            fr["volume"] = 60.0;
+            fr["exit"] = QJsonObject{{"type", "pressure"}, {"condition", "over"}, {"value", 3.0}};
+            fr["limiter"] = QJsonObject{{"value", 0.0}, {"range", 0.6}};
+            steps.append(fr);
+        }
+        legacy["steps"] = steps;
+        // ...and no "recipe" block, which is the whole point.
+
+        const QString path = dir + "/legacy_flag_only.json";
+        QFile out(path);
+        QVERIFY(out.open(QIODevice::WriteOnly));
+        const QByteArray before = QJsonDocument(legacy).toJson();
+        QCOMPARE(out.write(before), qint64(before.size()));
+        out.close();
+
+        // The migration must SAY it skipped something. It runs once, so a silently
+        // skipped profile is never revisited — asserting the warning is part of
+        // the behaviour, not noise to be suppressed.
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression("legacy is_recipe_mode flag with no recipe block"));
+
+        f.profileManager.migrateRecipeFrames();
+
+        QFile back(path);
+        QVERIFY(back.open(QIODevice::ReadOnly));
+        const QByteArray after = back.readAll();
+        back.close();
+        QFile::remove(path);
+
+        QVERIFY2(before == after,
+                 "a profile with the legacy is_recipe_mode flag and no recipe block was "
+                 "rewritten — there is nothing to regenerate it from, so the migration "
+                 "would have rebuilt its frames out of RecipeParams' defaults");
+    }
+
 
     // === Profile state after load ===
 
@@ -541,7 +627,10 @@ private slots:
 
     void uploadRecipeProfileUpdatesState() {
         McpTestFixture f;
-        loadDFlowProfile(f, "D-Flow / Test", 36.0, 93.0);
+        // Three frames: uploadRecipeProfile now refuses to regenerate a profile
+        // whose frames its editor cannot read positionally, and a two-frame
+        // "D-Flow" profile is not one.
+        loadDFlowProfile(f, "D-Flow / Test", 36.0, 93.0, /*withInfuse=*/true);
 
         QVariantMap recipe;
         recipe["editorType"] = "dflow";
@@ -1915,7 +2004,10 @@ private slots:
 
     void uploadRecipeProfileEmitsAllSignals() {
         McpTestFixture f;
-        loadDFlowProfile(f, "D-Flow / Test", 36.0, 93.0);
+        // Three frames: uploadRecipeProfile now refuses to regenerate a profile
+        // whose frames its editor cannot read positionally, and a two-frame
+        // "D-Flow" profile is not one.
+        loadDFlowProfile(f, "D-Flow / Test", 36.0, 93.0, /*withInfuse=*/true);
 
         QSignalSpy modSpy(&f.profileManager, &ProfileManager::profileModifiedChanged);
         QSignalSpy curSpy(&f.profileManager, &ProfileManager::currentProfileChanged);

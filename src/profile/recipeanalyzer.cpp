@@ -53,7 +53,8 @@ double roundToInteger(double v)  { return std::round(v); }
 // Fixed indices, no pattern matching. Note pouring_pressure comes from the
 // LIMITER (max_flow_or_pressure), not the frame's pressure setpoint — the pour
 // frame is flow-driven and the pressure the user set is its cap.
-RecipeParams RecipeAnalyzer::prepDFlow(const Profile& profile) {
+RecipeParams RecipeAnalyzer::prepDFlow(const Profile& profile, bool* derived) {
+    if (derived) *derived = false;
     RecipeParams params = profile.recipeParams();
     params.editorType = EditorType::DFlow;
     params.targetWeight = profile.targetWeight();
@@ -81,6 +82,7 @@ RecipeParams RecipeAnalyzer::prepDFlow(const Profile& profile) {
     params.pourFlow        = roundToOneDigit(pouring.flow);
     params.pourPressure    = pouring.maxFlowOrPressure;
     params.pourTemperature = pouring.temperature;
+    if (derived) *derived = true;
     return params;
 }
 
@@ -95,7 +97,8 @@ RecipeParams RecipeAnalyzer::prepDFlow(const Profile& profile) {
 //     the value on every save (AF-1).
 //   * ramp_updown_seconds is the SUM of both ramp frames, not either one (AF-3).
 //   * all three toggles are derived from frame structure, never stored (AF-2/4).
-RecipeParams RecipeAnalyzer::prepAFlow(const Profile& profile) {
+RecipeParams RecipeAnalyzer::prepAFlow(const Profile& profile, bool* derived) {
+    if (derived) *derived = false;
     RecipeParams params = profile.recipeParams();
     params.editorType = EditorType::AFlow;
     params.targetWeight = profile.targetWeight();
@@ -146,10 +149,12 @@ RecipeParams RecipeAnalyzer::prepAFlow(const Profile& profile) {
     params.flowExtractionUp = pouring.flow > params.pourFlow;  // vs the ROUNDED value
     params.secondFillEnabled = nine && steps[iPause].seconds > 0;
 
+    if (derived) *derived = true;
     return params;
 }
 
-RecipeParams RecipeAnalyzer::extractRecipeParams(const Profile& profile) {
+RecipeParams RecipeAnalyzer::extractRecipeParams(const Profile& profile, bool* derived) {
+    if (derived) *derived = false;
     RecipeParams params;
     const auto& steps = profile.steps();
 
@@ -163,8 +168,8 @@ RecipeParams RecipeAnalyzer::extractRecipeParams(const Profile& profile) {
     // wrong for one of these (it is a three-frame D-Flow shape detector, and
     // pointing it at a nine-frame A-Flow profile is findings AF-1..AF-5).
     const QString et = profile.editorType();
-    if (et == QLatin1String("dflow")) return prepDFlow(profile);
-    if (et == QLatin1String("aflow")) return prepAFlow(profile);
+    if (et == QLatin1String("dflow")) return prepDFlow(profile, derived);
+    if (et == QLatin1String("aflow")) return prepAFlow(profile, derived);
 
     // Extract targets from profile
     params.targetWeight = profile.targetWeight();
@@ -247,6 +252,16 @@ RecipeParams RecipeAnalyzer::extractRecipeParams(const Profile& profile) {
     }
 
     return params;
+}
+
+bool RecipeAnalyzer::framesFitEditorLayout(const Profile& profile) {
+    const qsizetype n = profile.steps().size();
+    const QString et = profile.editorType();
+    // Matches prep's own guards exactly: prepAFlow picks `nine = n > 8` and then
+    // requires n >= (nine ? 9 : 6), which reduces to n >= 6.
+    if (et == QLatin1String("dflow")) return n >= 3;
+    if (et == QLatin1String("aflow")) return n >= 6;
+    return true;   // no positional layout to fit
 }
 
 bool RecipeAnalyzer::convertToRecipeMode(Profile& profile) {

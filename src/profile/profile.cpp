@@ -1021,21 +1021,25 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
     // whoever wrote it, so it round-trips; its ABSENCE is meaningful and must not
     // be papered over with defaults (REC-1).
     if (obj.contains("recipe")) {
-        profile.m_recipeParams = RecipeParams::fromJson(obj["recipe"].toObject());
-        profile.m_hasRecipeParams = true;
-        // Infer RecipeParams.editorType from profileType/title when the recipe
-        // block does not include an explicit editorType enum value
+        // Build the params COMPLETELY, then establish them with one
+        // setRecipeParams() call. Assigning m_recipeParams directly and setting
+        // m_hasRecipeParams beside it works — same class — but it makes
+        // "bypassing the setter is fine" the local idiom, and the setter is the
+        // only thing keeping the flag and the data in step. One writer.
+        RecipeParams params = RecipeParams::fromJson(obj["recipe"].toObject());
+        // Infer editorType from profileType/title when the block omits it.
         if (!obj["recipe"].toObject().contains("editorType")) {
             if (profile.m_profileType == "settings_2a") {
-                profile.m_recipeParams.editorType = EditorType::Pressure;
+                params.editorType = EditorType::Pressure;
             } else if (profile.m_profileType == "settings_2b") {
-                profile.m_recipeParams.editorType = EditorType::Flow;
+                params.editorType = EditorType::Flow;
             } else if (profile.m_title.startsWith(QStringLiteral("A-Flow"), Qt::CaseInsensitive) ||
                        (profile.m_title.startsWith(QLatin1Char('*')) &&
                         profile.m_title.mid(1).startsWith(QStringLiteral("A-Flow"), Qt::CaseInsensitive))) {
-                profile.m_recipeParams.editorType = EditorType::AFlow;
+                params.editorType = EditorType::AFlow;
             }
         }
+        profile.setRecipeParams(params);
     }
 
     // Reconcile espresso_temperature against the frames, which are the source of
@@ -2022,7 +2026,17 @@ void Profile::restoreFieldsThePluginNeverWrites(const QList<ProfileFrame>& oldSt
     //   on  -> seconds AND temperature are written
     //   off -> only seconds is zeroed; the temperature is left alone
     const bool secondFill = m_recipeParams.secondFillEnabled;
-    auto written = [aflow, secondFill](Role r) {
+
+    // The Flow Start step is activated only when the post-split ramp-up ends
+    // under a second (code.tcl:276). Read it off the freshly generated frames,
+    // which is where the split has already been applied.
+    bool shortRamp = false;
+    if (aflow) {
+        const qsizetype ru = roleIndex(m_steps.size(), RampUp);
+        if (ru >= 0) shortRamp = m_steps[ru].seconds < 1.0;
+    }
+
+    auto written = [aflow, secondFill, shortRamp](Role r) {
         Written w;
         switch (r) {
         case PreFilling:
@@ -2052,10 +2066,22 @@ void Profile::restoreFieldsThePluginNeverWrites(const QList<ProfileFrame>& oldSt
             w.temperature = w.seconds = w.exitFlowUnder = true;
             break;
         case PouringStart:
-            // exit_type/exit_if are written too, but only on the short-ramp
-            // branch; the generator sets them consistently with seconds, so they
-            // travel with it.
-            w.temperature = w.flow = w.seconds = w.exitFlowOver = true;
+            // temperature, flow and seconds are written on BOTH branches
+            // (code.tcl:273-274, 277/284). exit_flow_over, exit_type and exit_if
+            // are written ONLY on the short-ramp branch — when ramp_up ends under
+            // a second and the Flow Start step is activated to reach target flow
+            // quickly (code.tcl:276-283). On the other branch the plugin leaves
+            // them alone.
+            //
+            // This used to mark exitFlowOver as always-written, excused as
+            // "travels with seconds". It does not: seconds IS written on both
+            // branches and exit_flow_over is not. Stock profiles hide it because
+            // their Flow Start carries exit_if 0, but the plugin does not touch
+            // exit_if on the long-ramp branch either — so a profile that arrives
+            // with exit_if 1 there loses a live exit condition to the
+            // generator's constant.
+            w.temperature = w.flow = w.seconds = true;
+            w.exitFlowOver = shortRamp;
             break;
         case Pouring:
             w.temperature = w.flow = w.limiter = true;
@@ -2066,9 +2092,25 @@ void Profile::restoreFieldsThePluginNeverWrites(const QList<ProfileFrame>& oldSt
         return w;
     };
 
+    // A frame count that fits NEITHER canonical layout means every role resolves
+    // to -1 and nothing is restored — silently, until now. prepDFlow/prepAFlow
+    // warn on the same condition; this is the write side of it.
+    const qsizetype frameCount = m_steps.size();
+    const bool recognisedLayout =
+        aflow ? (frameCount == 6 || frameCount == 9) : (frameCount == 3);
+    if (!recognisedLayout) {
+        qWarning() << "restoreFieldsThePluginNeverWrites:" << m_title << "has" << frameCount
+                   << "frames, which is not a" << (aflow ? "6- or 9-frame A-Flow"
+                                                         : "3-frame D-Flow")
+                   << "layout — fields the plugin preserves were NOT restored";
+    }
+
     for (int r = 0; r < RoleCount; ++r) {
         const qsizetype oldIdx = roleIndex(oldSteps.size(), Role(r));
         const qsizetype newIdx = roleIndex(m_steps.size(), Role(r));
+        // -1 on either side is expected for a role the layout lacks: Pre Fill /
+        // 2nd Fill / Pause do not exist in the legacy 6-frame form, and D-Flow
+        // has no ramp or pouring-start frames at all.
         if (oldIdx < 0 || newIdx < 0) continue;
 
         const ProfileFrame& o = oldSteps[oldIdx];
