@@ -832,8 +832,16 @@ void DiFluidR2::emitTdsResult(quint16 tdsRaw, bool isAverage, bool terminal) {
     }
 
     m_tds = tds;
+    // A non-terminal reading means something different in the two multi-reading runs:
+    // an averaged run is converging on a mean, a loop test is re-measuring the same
+    // sample until it settles. Saying "running average" for a loop test would describe
+    // the wrong mechanism to whoever reads the log next.
+    const QString progressNote =
+        terminal   ? QString()
+        : isAverage ? QStringLiteral(" (running average, not final)")
+                    : QStringLiteral(" (still settling, not final)");
     R2_LOG(QString("%1: %2% (raw=%3)%4").arg(label).arg(tds, 0, 'f', 2).arg(tdsRaw)
-               .arg(terminal ? QString() : QStringLiteral(" (running average, not final)")));
+               .arg(progressNote));
     emit tdsChanged(m_tds);
 
     if (!terminal) {

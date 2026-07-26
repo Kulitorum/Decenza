@@ -846,6 +846,34 @@ private slots:
         QCOMPARE(r2.tds(), 7.64);
     }
 
+    void loopAndAveragedProgressNotesDescribeTheRightMechanism() {
+        // A loop test re-measures one sample until it settles; an averaged run converges
+        // on a mean. Calling a loop reading a "running average" names the wrong thing.
+        DiFluidR2 loop(nullptr);
+        QSignalSpy loopLog(&loop, &DiFluidR2::logMessage);
+        beginMeasuringWithShortWatchdog(loop, 500);
+        loop.handlePacket(buildLoopRunPacket(2, tdsPayload(7.65)));
+
+        bool loopSettling = false, loopMislabelled = false;
+        for (const auto& e : loopLog) {
+            const QString s = e.at(0).toString();
+            if (s.contains(QLatin1String("still settling"))) loopSettling = true;
+            if (s.contains(QLatin1String("running average"))) loopMislabelled = true;
+        }
+        QVERIFY2(loopSettling, "loop reading was not described as still settling");
+        QVERIFY2(!loopMislabelled, "loop reading was described as a running average");
+
+        DiFluidR2 avg(nullptr);
+        QSignalSpy avgLog(&avg, &DiFluidR2::logMessage);
+        beginMeasuringWithShortWatchdog(avg, 500);
+        avg.handlePacket(buildAveragedRunPacket(3, tdsPayload(7.83)));
+
+        bool avgLabelled = false;
+        for (const auto& e : avgLog)
+            if (e.at(0).toString().contains(QLatin1String("running average"))) avgLabelled = true;
+        QVERIFY2(avgLabelled, "averaged reading was not described as a running average");
+    }
+
     void singleTestIsStillTerminalOnItsOwnResult() {
         // The loop-run handling must not change Cmd 0, which is what both the app button
         // and a physical R2 button press use.
