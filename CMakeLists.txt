@@ -1342,8 +1342,11 @@ set(QML_FILES
     qml/pages/CommunityBrowserPage.qml
 )
 
-# Simulator QML - desktop only (GHC window uses QWidget)
-if(WIN32 OR APPLE)
+# Simulator QML - desktop only (GHC window uses QWidget).
+# `WIN32 OR APPLE` would include iOS, which shipped this window's compiled QML
+# in every IPA — 30 QmlCacheGeneratedCode symbols for a window iOS never loads,
+# and whose GHCSimulator context property does not exist there at all.
+if(WIN32 OR (APPLE AND NOT IOS))
     list(APPEND QML_FILES
         qml/simulator/GHCSimulatorWindow.qml
     )
