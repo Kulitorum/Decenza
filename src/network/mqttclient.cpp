@@ -70,11 +70,16 @@ MqttClient::MqttClient(DE1Device* device, MachineState* machineState,
 
     // The reconnect budget is for "the broker is not answering us", not for "this
     // device has no network" — a connect attempt against a down interface tells us
-    // nothing about the broker, and MAX_RECONNECT_ATTEMPTS is terminal: once it is
-    // reached neither failure handler re-arms the timer, so MQTT stays dead until
-    // the app restarts. Observed on-device 2026-07-25: a ~7 min Wi-Fi drop consumed
-    // 9 of the 10 attempts and the 10th happened to land 12 s after the network came
-    // back. A slightly longer outage would have killed Home Assistant for the day.
+    // nothing about the broker, and hitting MAX_RECONNECT_ATTEMPTS ends automatic
+    // recovery: neither failure handler re-arms the timer past the cap, so nothing
+    // retries on its own. Recovery then needs a deliberate act — the Connect button,
+    // an MQTT settings change, or the mqtt_connect MCP tool — none of which a user
+    // has any reason to perform, because the failure is silent.
+    //
+    // Observed on-device 2026-07-25: a Wi-Fi drop consumed the budget down to the
+    // last attempt, which happened to land seconds after the network returned. A
+    // slightly longer outage would have left Home Assistant dark until someone
+    // noticed and intervened.
     //
     // So: watch reachability, don't spend attempts while it is positively down, and
     // treat the return of the network as a fresh budget. Only "Disconnected" counts
@@ -227,6 +232,17 @@ void MqttClient::connectToBroker()
             QString resolved = MdnsResolver::resolveHostname(host);
             QMetaObject::invokeMethod(guard.data(), [guard, resolved, host]() {
                 if (!guard) return;
+                // The resolve takes up to 2 s and conditions can change inside it —
+                // newly relevant now that connectToBroker() also fires on a reachability
+                // edge rather than only on user action. A flapping AP would otherwise
+                // land here with the network down again, overwrite the accurate
+                // "Waiting for network..." status, and dial a dead interface.
+                if (guard->m_networkDown || !guard->m_settingsMqtt
+                    || !guard->m_settingsMqtt->mqttEnabled()) {
+                    qDebug() << "MqttClient: mDNS resolve finished but conditions changed"
+                             << "(networkDown=" << guard->m_networkDown << ") - not connecting";
+                    return;
+                }
                 if (!resolved.isEmpty()) {
                     qDebug() << "MqttClient: Resolved" << host << "to" << resolved << "via mDNS";
                     guard->connectWithHost(resolved);
@@ -452,6 +468,19 @@ void MqttClient::onInternalConnectionFailed(const QString& error)
         int delay = reconnectDelayMs();
         qDebug() << "MqttClient: Retrying in" << delay / 1000 << "seconds";
         m_reconnectTimer.start(delay);
+    } else if (m_settingsMqtt && m_settingsMqtt->mqttEnabled()) {
+        // Budget exhausted against a reachable network — so this is the BROKER refusing
+        // or absent, not connectivity, and the reachability up-edge that rescues the
+        // offline case will never fire. Automatic recovery ends here. This branch used
+        // to be absent entirely: the client went quiet with the last log line being a
+        // "Retrying in 60 seconds" that was never honoured, which is precisely the shape
+        // of failure that hides a bad credential or a broker that moved.
+        qWarning() << "MqttClient: giving up after" << m_reconnectAttempts
+                   << "attempts - no further automatic reconnects. Last error:" << error
+                   << "- recovery needs Connect, an MQTT settings change, or the network"
+                      " dropping and returning.";
+        m_status = "Disconnected - max retries reached";
+        emit statusChanged();
     }
 }
 
@@ -610,12 +639,23 @@ void MqttClient::onNetworkReachabilityChanged(bool reachable)
 
     qDebug() << "MqttClient: network back - resuming reconnect";
 
+    // Clear the waiting-for-network status BEFORE any early return. It describes a
+    // condition that has just ended, so leaving it in place on the disabled/connected
+    // paths would strand the Home Automation tab reading "Waiting for network..." with
+    // the network up and, if the user disabled MQTT while it showed, nothing left that
+    // would ever rewrite it.
+    if (m_status == QLatin1String("Waiting for network...")) {
+        m_status = "Disconnected";
+        emit statusChanged();
+    }
+
     if (!m_settingsMqtt || !m_settingsMqtt->mqttEnabled() || isConnected())
         return;
 
     // A network we just regained is a different proposition from the one we lost:
-    // give it a full budget. This is also the only path that clears a latched
-    // "max retries reached", which nothing else in the class can undo.
+    // give it a full budget. This is the only path that does so WITHOUT user or
+    // settings action — disconnectFromBroker() and connectWithHost() also zero the
+    // count, but both need someone to ask.
     m_reconnectAttempts = 0;
     emit reconnectAttemptsChanged();
     m_reconnectTimer.stop();

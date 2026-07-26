@@ -1230,21 +1230,28 @@ int main(int argc, char *argv[])
     // SAW learning is keyed per (profile, scale) — and "scale" has to mean the scale that
     // actually served the shot, not the one nominated as primary in Settings. The two
     // diverge whenever the WiFi-primary Half Decent Scale is unreachable and the app falls
-    // back to its BLE transport: that path deliberately preserves the saved WiFi primary
-    // ("Scale connected via WiFi-to-BLE fallback — preserving saved WiFi primary"), so
-    // settings.scaleType() keeps answering "decent-wifi" while every weight sample arrives
-    // over BLE. Reading and writing the WiFi bucket from BLE shots trains one transport's
-    // lag model on the other's timing — the two transports are separate keys precisely
-    // because their latency differs. Observed on-device: four consecutive BLE-served shots
-    // logged scale="decent-wifi" and committed into that pool.
+    // back to its BLE transport: that path deliberately skips setPrimaryScale() (see
+    // isFallbackConnect in the scaleFound handler), so settings.scaleType() keeps answering
+    // "decent-wifi" while every weight sample arrives over BLE. Writing BLE-served shots
+    // into the WiFi pool corrupts a learned model the user cannot see or reset separately.
+    // Observed on-device: four consecutive BLE-served shots logged scale="decent-wifi".
     //
-    // Falls back to the saved type only when nothing is connected, which no live shot can
-    // observe — it exists so the expression is total, not as a real code path.
-    auto sawScaleType = [&physicalScale, &settings]() -> QString {
-        if (physicalScale && physicalScale->isConnected())
-            return physicalScale->type();
-        return settings.scaleType();
-    };
+    // Note the SEED defaults in SettingsCalibration::sensorLag() are identical for "decent"
+    // and "decent-wifi" today (both 0.38), so the first-shot prediction would not differ —
+    // it is the accumulated per-key pools that this protects, and that argument survives a
+    // future edit to the seed table.
+    //
+    // Resolved by MachineState::activeScaleType(), which keys on the scale actually wired
+    // into the shot path. Deliberately NOT main()'s physicalScale: a USB scale never
+    // occupies it (the USB discovery handler calls physicalScale.reset() and installs
+    // usbScale directly), so keying on physicalScale would leave USB shots on the saved
+    // type — correct today only because the USB path always calls setPrimaryScale(), i.e.
+    // by the same luck the WiFi→BLE fallback removes.
+    //
+    // The Calibration tab and the reset_saw_learning_for_profile MCP tool read the same
+    // property, so the pool being trained is the pool the user sees and can clear. Keeping
+    // those in sync matters as much as the key itself: a write path that diverges from the
+    // read path is worse than a consistently wrong key, because nothing on screen reveals it.
 
     // Connect SAW learning signal to settings persistence.
     // Logs the predicted-vs-actual drip ("accuracy" line) before persisting, so any single
@@ -1252,8 +1259,8 @@ int main(int argc, char *argv[])
     // the entry through the per-(profile, scale) batch accumulator and emits the
     // "accumulated"/"committed"/"batch rejected" qDebug line that ShotDebugLogger captures.
     QObject::connect(&timingController, &ShotTimingController::sawLearningComplete,
-                     [&settings, &mainController, sawScaleType](double drip, double flowAtStop, double overshoot) {
-                         const QString scaleType = sawScaleType();
+                     [&settings, &mainController, &machineState](double drip, double flowAtStop, double overshoot) {
+                         const QString scaleType = machineState.activeScaleType();
                          const QString profileFilename = mainController.profileManager()->baseProfileName();
                          const double predictedDrip = settings.calibration()->getExpectedDripFor(profileFilename, scaleType, flowAtStop);
                          qDebug() << "[SAW] accuracy: predictedDrip=" << predictedDrip
@@ -1367,8 +1374,7 @@ int main(int argc, char *argv[])
     // connection would race: its queued setTareComplete(true) arrives on the worker BEFORE
     // startExtraction() (which resets m_tareComplete=false), causing tare to be lost.
     QObject::connect(&machineState, &MachineState::espressoCycleStarted,
-                     [&weightProcessor, &machineState, &settings, &mainController, &timingController,
-                      sawScaleType]() {
+                     [&weightProcessor, &machineState, &settings, &mainController, &timingController]() {
                          // Freeze the resolved target + dose for the duration
                          // of the shot (add-yield-ratio-anchor Decision 9),
                          // alongside the SAW model snapshot below so the two
@@ -1388,7 +1394,7 @@ int main(int argc, char *argv[])
                          // committed batches). The "model:" log line records which source
                          // is driving this shot's predictions for later accuracy analysis.
                          double targetWeight = machineState.targetWeight();
-                         QString scaleType = sawScaleType();
+                         QString scaleType = machineState.activeScaleType();
                          QString profileFilename = mainController.profileManager()->baseProfileName();
                          bool converged = settings.calibration()->isSawConverged(scaleType);
                          int maxEntries = converged ? 12 : 8;

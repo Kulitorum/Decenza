@@ -1,6 +1,7 @@
 #include "machinestate.h"
 #include "../ble/de1device.h"
 #include "../ble/scaledevice.h"
+#include "../ble/scales/scaletypeids.h"
 #include "../core/settings.h"
 #include "../core/settings_brew.h"
 #include "../controllers/shottimingcontroller.h"
@@ -144,10 +145,48 @@ void MachineState::setScale(ScaleDevice* scale) {
                 m_weightTrailingTimer->start();
             }
         });
+        // activeScaleType() answers differently once the link comes up or drops, and
+        // nothing else would tell QML. Same connection lifetime as the weight relays
+        // above (disconnected wholesale on the next swap).
+        connect(m_scale, &ScaleDevice::connectedChanged,
+                this, &MachineState::activeScaleTypeChanged);
         // Emit immediately so QML picks up current weight
         emit scaleWeightChanged();
         emit scaleFlowRateChanged();
     }
+
+    emit activeScaleTypeChanged();
+}
+
+QString MachineState::activeScaleType() const {
+    // Only a scale in the canonical vocabulary is worth keying persistent per-scale
+    // state on. FlowScale reports "flow" and is permanently isConnected(), so without
+    // the vocabulary check every scale-less shot would open a "flow" pool and make
+    // SettingsCalibration::sensorLag() warn about an unknown type on every cycle.
+    // Falling back to the saved type for virtual scales preserves the long-standing
+    // behaviour there exactly; whether flow-derived shots should feed SAW learning at
+    // all is a separate question, deliberately not decided here.
+    if (m_scale && m_scale->isConnected()
+        && ScaleTypeIds::isCanonicalScaleTypeId(m_scale->type())) {
+        return m_scale->type();
+    }
+    return m_settings ? m_settings->scaleType() : QString();
+}
+
+QString MachineState::activeScaleName() const {
+    const QString saved = m_settings ? m_settings->scaleType() : QString();
+    const QString active = activeScaleType();
+
+    // Normal case: the serving scale IS the saved primary, so the user's own label
+    // (which may be a custom name) is both correct and the friendlier answer.
+    if (active == saved)
+        return m_settings ? m_settings->scaleName() : QString();
+
+    // Diverged — the saved label names a scale that is not serving. Report the
+    // canonical name of the one that is; a stale label next to a live model is
+    // exactly the confusion activeScaleType exists to remove.
+    const QString name = ScaleTypeIds::scaleTypeNameForId(active);
+    return name.isEmpty() ? (m_settings ? m_settings->scaleName() : QString()) : name;
 }
 
 

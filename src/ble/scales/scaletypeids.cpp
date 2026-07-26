@@ -48,17 +48,21 @@ QString scaleTypeName(ScaleType type) {
     return QStringLiteral("Unknown");
 }
 
+namespace {
+// All real (non-Unknown) scale types. Shared by normalizeScaleTypeId() and
+// isCanonicalScaleTypeId() so the two can never disagree about what counts as a
+// real scale — duplicating this list is how they would drift.
+constexpr ScaleType kAll[] = {
+    ScaleType::DecentScale, ScaleType::DecentScaleWifi, ScaleType::DecentScaleUsb,
+    ScaleType::Acaia, ScaleType::AcaiaPyxis, ScaleType::Felicita, ScaleType::Skale,
+    ScaleType::HiroiaJimmy, ScaleType::Bookoo, ScaleType::SmartChef,
+    ScaleType::Difluid, ScaleType::EurekaPrecisa, ScaleType::SoloBarista,
+    ScaleType::AtomheartEclair, ScaleType::VariaAku, ScaleType::Timemore,
+};
+}  // namespace
+
 QString normalizeScaleTypeId(const QString& typeOrName) {
     if (typeOrName.isEmpty()) return typeOrName;
-
-    // All real (non-Unknown) scale types, for inverse lookup.
-    static const ScaleType kAll[] = {
-        ScaleType::DecentScale, ScaleType::DecentScaleWifi, ScaleType::DecentScaleUsb,
-        ScaleType::Acaia, ScaleType::AcaiaPyxis, ScaleType::Felicita, ScaleType::Skale,
-        ScaleType::HiroiaJimmy, ScaleType::Bookoo, ScaleType::SmartChef,
-        ScaleType::Difluid, ScaleType::EurekaPrecisa, ScaleType::SoloBarista,
-        ScaleType::AtomheartEclair, ScaleType::VariaAku, ScaleType::Timemore,
-    };
 
     for (ScaleType t : kAll) {
         if (typeOrName == scaleTypeId(t)) return typeOrName;        // already a canonical id
@@ -67,6 +71,21 @@ QString normalizeScaleTypeId(const QString& typeOrName) {
 
     // Unrecognized (e.g. a future custom value) — return unchanged so nothing is destroyed.
     return typeOrName;
+}
+
+bool isCanonicalScaleTypeId(const QString& typeOrName) {
+    if (typeOrName.isEmpty()) return false;
+    for (ScaleType t : kAll) {
+        if (typeOrName == scaleTypeId(t)) return true;
+    }
+    return false;  // "flow" (FlowScale), "" (ScaleDevice base), or anything unrecognized
+}
+
+QString scaleTypeNameForId(const QString& typeId) {
+    for (ScaleType t : kAll) {
+        if (typeId == scaleTypeId(t)) return scaleTypeName(t);
+    }
+    return QString();
 }
 
 }  // namespace ScaleTypeIds

@@ -336,13 +336,13 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
         "reset_saw_learning_for_profile",
         "Reset stop-at-weight learning for a single (profile, scale) pair only. Other pairs "
         "and the global bootstrap are preserved. Defaults to the active profile and the "
-        "configured scale type when arguments are omitted.",
+        "scale currently serving shots when arguments are omitted.",
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{
             {"profileFilename", QJsonObject{{"type", "string"}, {"description", "Profile filename (defaults to active profile)"}}},
-            {"scaleType", QJsonObject{{"type", "string"}, {"description", "Scale type (defaults to configured scaleType)"}}},
+            {"scaleType", QJsonObject{{"type", "string"}, {"description", "Scale type (defaults to the scale currently serving shots, which is not always the saved primary)"}}},
             {"confirmed", QJsonObject{{"type", "boolean"}, {"description", "Set to true after user confirms this action in chat"}}}
         }}},
-        [settings, profileManager](const QJsonObject& args) -> QJsonObject {
+        [settings, profileManager, machineState](const QJsonObject& args) -> QJsonObject {
             QJsonObject result;
             if (!settings) {
                 result["error"] = "Settings not available";
@@ -357,6 +357,10 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
                 return result;
             }
             QString scale = args["scaleType"].toString();
+            // Default to the scale actually serving, matching what the shot engine
+            // learns under and what the Calibration tab shows. Defaulting to the saved
+            // primary would silently clear a pool the user is not using.
+            if (scale.isEmpty() && machineState) scale = machineState->activeScaleType();
             if (scale.isEmpty()) scale = settings->scaleType();
             settings->calibration()->resetSawLearningForProfile(filename, scale);
             result["success"] = true;

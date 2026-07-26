@@ -50,4 +50,21 @@ QString scaleTypeName(ScaleType type);
 // unchanged so no data is ever destroyed.
 QString normalizeScaleTypeId(const QString& typeOrName);
 
+// True only for a string that maps to a real ScaleType — i.e. a physical scale
+// whose per-transport state is worth keying on.
+//
+// Deliberately FALSE for the virtual scales: FlowScale reports "flow" (a raw
+// string, not a scaleTypeId), and ScaleDevice's base type() returns "". Callers
+// that key persistent per-scale state — SAW learning above all — use this to
+// decide whether the serving scale is one they should key on at all, rather than
+// inventing a pool for a scale that has no transport latency to learn.
+// normalizeScaleTypeId() deliberately passes unknown strings through unchanged,
+// so it cannot answer this question on its own.
+bool isCanonicalScaleTypeId(const QString& typeOrName);
+
+// Canonical id -> display name, without the caller needing the enum. Returns an
+// empty string for anything isCanonicalScaleTypeId() rejects, so a caller cannot
+// accidentally render "Unknown" for a virtual scale.
+QString scaleTypeNameForId(const QString& typeId);
+
 }  // namespace ScaleTypeIds

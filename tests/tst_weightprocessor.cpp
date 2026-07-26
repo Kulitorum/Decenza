@@ -622,11 +622,7 @@ private slots:
         WeightProcessor wp;
         installFakeClock(wp);
         QSignalSpy flowSpy(&wp, &WeightProcessor::flowRatesReady);
-        wp.startExtraction();      // Spike filter only active during extraction
-        wp.markExtractionStart();  // ...and only once the tare has landed / flow began.
-                                   // This test's baseline starts at 8 g and never passes
-                                   // through zero, so without this the filter would still
-                                   // be holding off for the tare — see tareStepIsNotASpike.
+        wp.startExtraction();  // Spike filter only active during extraction
 
         // Establish baseline at ~10g
         feedRising(wp, 8.0, 2.0, 5);
@@ -694,57 +690,114 @@ private slots:
         wp.processWeight(364.6); m_fakeClock += 200;
         const qsizetype countBeforeTare = flowSpy.count();
 
-        // Tare lands. No warning may be emitted — a stray qWarning here fails the
-        // suite under the project's warning policy, so absence is enforced, not assumed.
+        // Tare lands. No warning may be emitted — init() calls QTest::failOnWarning(),
+        // so absence is enforced, not assumed.
         wp.processWeight(0.0); m_fakeClock += 200;
 
         QCOMPARE(flowSpy.count(), countBeforeTare + 1);  // accepted, not rejected
     }
 
-    void spikeFilterArmsAfterTareLands() {
-        // The hold-off must not disable #610 protection for the rest of the shot:
-        // once a near-zero sample proves the tare landed, corruption is rejected again.
+    void tareExemptionIsDirectional() {
+        // The exemption is for a step DOWN to near zero, nothing else. #610 corruption
+        // travels upward (1649 g instead of 10 g), so an upward spike must still be
+        // rejected even while the tare is outstanding — otherwise the hold-off would be
+        // a window with no filter at all.
         WeightProcessor wp;
         installFakeClock(wp);
         QSignalSpy flowSpy(&wp, &WeightProcessor::flowRatesReady);
 
         wp.startExtraction();
-        wp.processWeight(364.6); m_fakeClock += 200;  // pre-tare
-        wp.processWeight(0.0);   m_fakeClock += 200;  // tare lands → filter arms
-
-        feedRising(wp, 0.0, 2.0, 5);
+        wp.processWeight(364.6); m_fakeClock += 200;  // pre-tare baseline, tare still pending
         const qsizetype countBefore = flowSpy.count();
 
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Spike rejected.*1649"));
         wp.processWeight(1649.0); m_fakeClock += 200;
 
-        QCOMPARE(flowSpy.count(), countBefore);  // rejected — no signal
+        QCOMPARE(flowSpy.count(), countBefore);  // rejected despite awaiting the tare
     }
 
-    void spikeFilterArmsAtFlowStartWithoutNearZeroSample() {
-        // Backstop for a scale that never reads near zero (untared cup left on the
-        // platter): flow starting is the point past which the pour — the only window
-        // where a corrupt packet can cause a false SAW stop — must be protected.
+    void tareExemptionIsConsumedOnce() {
+        // Once the tare has landed the exemption is spent: a second large drop to zero
+        // is a cup lift or a corrupt packet, not a tare, and must be filtered.
         WeightProcessor wp;
         installFakeClock(wp);
         QSignalSpy flowSpy(&wp, &WeightProcessor::flowRatesReady);
 
         wp.startExtraction();
-        wp.processWeight(120.0); m_fakeClock += 200;  // never passes through zero
-        wp.markExtractionStart();                     // flow begins → arm regardless
+        wp.processWeight(364.6); m_fakeClock += 200;
+        wp.processWeight(0.0);   m_fakeClock += 200;  // tare lands, exemption consumed
 
-        feedRising(wp, 120.0, 2.0, 4);
+        // Climb to a large-drink weight in steps under the 100 g spike threshold —
+        // a single jump to 150 g would itself be rejected as a spike, which is the
+        // filter working, not the thing under test.
+        wp.processWeight(60.0);  m_fakeClock += 200;
+        wp.processWeight(120.0); m_fakeClock += 200;
+        wp.processWeight(150.0); m_fakeClock += 200;
         const qsizetype countBefore = flowSpy.count();
 
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Spike rejected.*1649"));
-        wp.processWeight(1649.0); m_fakeClock += 200;
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Spike rejected.*0"));
+        wp.processWeight(0.0); m_fakeClock += 200;
+
+        QCOMPARE(flowSpy.count(), countBefore);  // rejected — no second free pass
+    }
+
+    void flowStartConsumesTareExemption() {
+        // Backstop for a scale that never reads near zero (an untared cup left on the
+        // platter): once flow begins there is no tare still to come, so a later drop to
+        // zero must be filtered rather than mistaken for one.
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy flowSpy(&wp, &WeightProcessor::flowRatesReady);
+
+        wp.startExtraction();
+        wp.processWeight(150.0); m_fakeClock += 200;  // never passes through zero
+        wp.markExtractionStart();                     // flow begins → exemption spent
+        feedRising(wp, 150.0, 2.0, 4);
+        const qsizetype countBefore = flowSpy.count();
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Spike rejected.*0"));
+        wp.processWeight(0.0); m_fakeClock += 200;
 
         QCOMPARE(flowSpy.count(), countBefore);
     }
 
+    void preTareWeightDoesNotTriggerFrameExit() {
+        // The per-frame weight exit compares an ABSOLUTE weight to a threshold, and a
+        // pre-tare reading (loaded portafilter, ~364 g) clears any plausible exitWeight
+        // outright. Acting on it would skip a frame on a number the app has already
+        // decided not to trust — the zero point is mid-move. Unlike the SAW stop, this
+        // branch has no extractionElapsed guard, so it carries its own !m_awaitingTare.
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy skipSpy(&wp, &WeightProcessor::skipFrame);
+
+        QVector<double> weights = {20.0, 0.0};  // frame 0 exits at 20 g
+        QVector<FrameExitCondition> conds = {{}, {}};
+        configureEspresso(wp, 0, 0, weights, conds);
+        wp.startExtraction();
+        // Mirrors production ordering: setTareComplete(true) rides in the SAME queued
+        // invocation as startExtraction() (see the comment at main.cpp's
+        // espressoCycleStarted handler), so it is already true while the scale is still
+        // reporting pre-tare weights. That is exactly why this window needs its own
+        // gate — the m_tareComplete check at the top of processWeight() does not cover it.
+        wp.setTareComplete(true);
+        wp.setCurrentFrame(0);
+
+        // Scale still reporting the loaded portafilter — way past the 20 g exit.
+        wp.processWeight(364.6); m_fakeClock += 200;
+        wp.processWeight(364.6); m_fakeClock += 200;
+        QCOMPARE(skipSpy.count(), 0);  // must NOT skip on an untared weight
+
+        // Tare lands, then a genuine 25 g crosses the exit for real.
+        wp.processWeight(0.0);  m_fakeClock += 200;
+        QCOMPARE(skipSpy.count(), 0);
+        wp.processWeight(25.0); m_fakeClock += 200;
+        QCOMPARE(skipSpy.count(), 1);  // ...and the gate does not block a real exit
+    }
+
     void retareStepIsNotASpike() {
         // resetForRetare() moves the zero point mid-preheat for exactly the same
-        // reason, so it re-enters the same hold-off.
+        // reason, so it re-arms the same one-shot exemption.
         WeightProcessor wp;
         installFakeClock(wp);
         QSignalSpy flowSpy(&wp, &WeightProcessor::flowRatesReady);
