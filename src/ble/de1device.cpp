@@ -6,7 +6,9 @@
 #include "profile/profile.h"
 #include "../core/settings_hardware.h"
 
+#ifdef DECENZA_SIMULATOR
 #include "../simulator/de1simulator.h"
+#endif
 #include <QBluetoothAddress>
 #include <QDateTime>
 #include <cmath>
@@ -255,6 +257,21 @@ bool DE1Device::isConnecting() const {
 // -- Simulation mode --
 
 void DE1Device::setSimulationMode(bool enabled) {
+#ifndef DECENZA_SIMULATOR
+    // Belt and braces. Today no caller can get here with `true` on a build
+    // without a simulator — main.cpp passes the hard-false settings getter and
+    // the Ctrl+D shortcut is disabled — but this is a public Q_PROPERTY WRITE
+    // that compiles identically in both configurations, so a future QML or C++
+    // writer would reopen the bug with no compile-time signal. Enabling here
+    // fabricates a connected machine (synthetic firmware string, water level,
+    // head temp) and makes isConnected() true, which is exactly the dead
+    // "simulating with no engine" UI this build is meant to be free of.
+    if (enabled) {
+        qWarning() << "DE1Device: simulation mode requested, but no simulator is "
+                      "compiled into this build - ignoring";
+        return;
+    }
+#endif
     if (m_simulationMode == enabled) {
         return;
     }
@@ -865,6 +882,7 @@ void DE1Device::parseMMRResponse(const QByteArray& data) {
 // -- Machine control methods (delegate through transport) --
 
 void DE1Device::requestState(DE1::State state) {
+#ifdef DECENZA_SIMULATOR
     if (m_simulationMode && m_simulator) {
         switch (state) {
         case DE1::State::Espresso:
@@ -906,6 +924,7 @@ void DE1Device::requestState(DE1::State state) {
         }
         return;
     }
+#endif
 
     if (!m_transport) return;
     if (dropDeviceWriteIfFirmwareFlash("requestState")) return;
@@ -1025,10 +1044,12 @@ void DE1Device::customEvent(QEvent* event) {
 }
 
 void DE1Device::stopOperationUrgent(qint64 sawTriggerMs) {
+#ifdef DECENZA_SIMULATOR
     if (m_simulationMode && m_simulator) {
         m_simulator->stop();
         return;
     }
+#endif
     if (!m_transport) return;
     if (dropDeviceWriteIfFirmwareFlash("stopOperationUrgent")) return;
     clearCommandQueue();
@@ -1054,10 +1075,12 @@ void DE1Device::skipToNextFrame() {
 }
 
 void DE1Device::goToSleep() {
+#ifdef DECENZA_SIMULATOR
     if (m_simulationMode && m_simulator) {
         m_simulator->goToSleep();
         return;
     }
+#endif
 
     // Never send sleep during a firmware flash: writing to REQUESTED_STATE
     // mid-flash can disrupt the bootloader and risk bricking. The MMR-write
@@ -1119,9 +1142,11 @@ void DE1Device::clearCommandQueue() {
 }
 
 void DE1Device::uploadProfile(const Profile& profile) {
+#ifdef DECENZA_SIMULATOR
     if (m_simulationMode && m_simulator) {
         m_simulator->setProfile(profile);
     }
+#endif
 
     if (!m_transport) return;
     if (dropDeviceWriteIfFirmwareFlash("uploadProfile")) {
@@ -1720,6 +1745,7 @@ void DE1Device::setShotSettings(double steamTemp, int steamDuration,
     // read-back verification are all skipped. m_lastShotSettingsPayload is
     // intentionally left untouched — drift detection only runs against real
     // DE1 indications, which never fire in sim mode.
+#ifdef DECENZA_SIMULATOR
     if (m_simulationMode && m_simulator) {
         m_simulator->setTargetSteamTemp(steamTemp);
         m_commandedSteamTargetC = steamTemp;
@@ -1729,6 +1755,7 @@ void DE1Device::setShotSettings(double steamTemp, int steamDuration,
         m_commandedGroupTargetC = groupTemp;
         return;
     }
+#endif
     if (!m_transport) return;
     if (dropDeviceWriteIfFirmwareFlash("setShotSettings")) return;
     QByteArray data(9, 0);

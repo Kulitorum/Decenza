@@ -1,3 +1,8 @@
+// Whole file compiles to nothing without DECENZA_SIMULATOR — see the rationale
+// in CMakeLists.txt. (moc then reports "No relevant classes found" for the
+// headers on those builds; that note is expected, not a fault.)
+#ifdef DECENZA_SIMULATOR
+
 #include "simulatedscale.h"
 #include <QDebug>
 #include <QDateTime>
@@ -74,3 +79,5 @@ void SimulatedScale::setSimulatedWeight(double weight) {
 
     setWeight(displayWeight);
 }
+
+#endif  // DECENZA_SIMULATOR

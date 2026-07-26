@@ -625,7 +625,9 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 // Language
                 {"currentLanguage", QJsonObject{{"type", "string"}, {"description", "App language code (e.g., 'en', 'de', 'ja')"}}},
                 // Debug
-                {"simulationMode", QJsonObject{{"type", "boolean"}, {"description", "Enable DE1 simulator"}}},
+                {"simulationMode", QJsonObject{{"type", "boolean"}, {"description",
+                    "Enable DE1 simulator. Rejected on builds without a simulator - check "
+                    "simulatorAvailable from settings_get first."}}},
                 // Battery
                 {"chargingMode", QJsonObject{{"type", "integer"}, {"description", "Smart charging mode"}}},
                 // Heater calibration (values in display units — same as QML sliders)
@@ -1369,6 +1371,16 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             // === Debug ===
             if (args.contains("simulationMode")) {
                 bool v = args["simulationMode"].toBool();
+                // Refuse rather than report a write that cannot take effect.
+                // Tablet release builds have no simulator compiled in, so the
+                // setter ignores `true` — listing it in `updated` would tell the
+                // client it succeeded while settings_get kept reporting false.
+                if (v && !settings->app()->simulatorAvailable()) {
+                    respond(QJsonObject{{"error",
+                        "simulationMode is not available in this build - the DE1 simulator "
+                        "is not included in tablet release builds. No settings were changed."}});
+                    return;
+                }
                 addSetter([settings, v]() { settings->app()->setSimulationMode(v); });
                 updated << "simulationMode";
             }

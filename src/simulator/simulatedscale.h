@@ -1,5 +1,10 @@
 #pragma once
 
+// Whole file compiles to nothing without DECENZA_SIMULATOR — see the rationale
+// in CMakeLists.txt. (moc then reports "No relevant classes found" for the
+// headers on those builds; that note is expected, not a fault.)
+#ifdef DECENZA_SIMULATOR
+
 #include "../ble/scaledevice.h"
 
 /**
@@ -36,3 +41,5 @@ private:
     double m_lastWeight = 0.0;
     qint64 m_lastTime = 0;
 };
+
+#endif  // DECENZA_SIMULATOR

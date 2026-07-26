@@ -1,3 +1,8 @@
+// Whole file compiles to nothing without DECENZA_SIMULATOR — see the rationale
+// in CMakeLists.txt. (moc then reports "No relevant classes found" for the
+// headers on those builds; that note is expected, not a fault.)
+#ifdef DECENZA_SIMULATOR
+
 #include "de1simulator.h"
 #include <QDebug>
 #include <QDateTime>
@@ -904,3 +909,5 @@ double DE1Simulator::calculatePressure(double flow, double resistance)
     // Inverse Darcy's law: P = Q * R / k
     return flow * resistance / DARCY_K;
 }
+
+#endif  // DECENZA_SIMULATOR

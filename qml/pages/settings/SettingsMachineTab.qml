@@ -1596,9 +1596,15 @@ KeyboardAwareContainer {
                     }
                 }
 
-                // Simulation Mode
+                // Simulation Mode — absent on builds with no simulator compiled
+                // in (tablet release). `visible` alone is the whole mechanism:
+                // ColumnLayout excludes invisible items, so no gap is left.
+                // Keep objectName, SettingsSearchIndex.js's cardId, and the
+                // filter in SettingsSearchDialog.qml in sync — search matches
+                // this card by that string.
                 Rectangle {
                     objectName: "simulationMode"
+                    visible: Settings.app.simulatorAvailable
                     Layout.fillWidth: true
                     implicitHeight: offlineContent.implicitHeight + Theme.scaled(30)
                     color: Theme.cardBackgroundColor

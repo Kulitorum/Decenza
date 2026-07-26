@@ -764,16 +764,23 @@ if(NOT IOS)
     )
 endif()
 
-# Simulator engine - always included for multi-config generators (Xcode, Visual Studio)
-# CMAKE_BUILD_TYPE is empty at configure time, so conditional inclusion won't work.
-# The simulator code is small and has no extra dependencies, so it's safe to always link.
+# Simulator engine - listed unconditionally so AUTOMOC sees the same files in
+# every configuration. Whether any of it actually compiles is decided by
+# DECENZA_SIMULATOR (see the target_compile_definitions block below), which the
+# files themselves guard on.
 list(APPEND SOURCES
     src/simulator/de1simulator.cpp
     src/simulator/simulatedscale.cpp
 )
 
-# GHC simulator window - desktop only (uses QWidget window)
-if(WIN32 OR APPLE)
+# GHC simulator window - desktop only. It opens a second top-level window,
+# which is meaningless on a tablet. (It is not a QWidget despite what this
+# comment said for years: GHCSimulator is a plain QObject and the window is a
+# QtQuick Window in its own QQmlApplicationEngine.)
+# NOT `if(WIN32 OR APPLE)`: APPLE is true for iOS too, so that spelling compiled
+# this into every iPad build despite the comment. It drives DE1Simulator's
+# signals, so with the simulator absent it would not even compile there.
+if(WIN32 OR (APPLE AND NOT IOS))
     list(APPEND SOURCES
         src/simulator/ghcsimulator.cpp
     )
@@ -943,8 +950,8 @@ list(APPEND HEADERS
     src/simulator/simulatedscale.h
 )
 
-# GHC simulator window header - desktop only
-if(WIN32 OR APPLE)
+# GHC simulator window header - desktop only (see source section note on iOS)
+if(WIN32 OR (APPLE AND NOT IOS))
     list(APPEND HEADERS
         src/simulator/ghcsimulator.h
     )
@@ -1002,6 +1009,51 @@ if(ENABLE_TSNET)
     target_compile_definitions(Decenza PRIVATE DECENZA_ENABLE_TSNET)
     decenza_link_tsnet(Decenza)
 endif()
+
+# Simulation Mode availability.
+#
+# The simulator is a development aid on a tablet — the machine is right there —
+# so tablet RELEASE builds ship without it: no engine, none of DE1Device's
+# simulator branches, no main.cpp wiring, and no Settings card. (DE1Device's
+# setSimulator() seam itself stays compiled in every configuration — see the
+# comment on it for why.) Debug builds keep it on every platform, and
+# desktop keeps it in every configuration (running the app on a laptop with no
+# DE1 attached is a legitimate way to use it).
+#
+# DECENZA_SIMULATOR is the single source of truth. src/simulator/*.{h,cpp} guard
+# their whole contents on it, so when it is off those translation units compile
+# to nothing and no simulator code reaches the binary. The sources stay listed in
+# the target either way, which keeps AUTOMOC's view of them stable.
+#
+# This MUST be a generator expression, not `if(CMAKE_BUILD_TYPE STREQUAL Debug)`.
+# The iOS release build uses the Xcode generator, where CMAKE_BUILD_TYPE is empty
+# at configure time — a configure-time test silently reads as "not Debug" for
+# every config, including Debug. That is exactly what broke the old conditional
+# and led #487 to link the engine into every build instead. Android builds
+# single-config, where a plain if() would work, but it uses the same genex so
+# there is one spelling to reason about rather than two that can diverge.
+#
+# DECENZA_SIMULATOR_OVERRIDE exists so the simulator-absent shape can be built
+# without an Android or iOS toolchain: configure with -DDECENZA_SIMULATOR_OVERRIDE=0
+# and a desktop build compiles exactly what ships to tablets. Worth having,
+# because otherwise no routine CI job compiles that arm at all — the nightly is
+# Linux (always on) and the mobile workflows run only on tag push or manual
+# dispatch, so a break of #1629's shape would first surface at a release tag.
+# Left empty by default; not cached as a computed default, which would go stale
+# if the same build directory were reconfigured for another platform.
+set(DECENZA_SIMULATOR_OVERRIDE "" CACHE STRING
+    "Force the DECENZA_SIMULATOR condition (0 = build the simulator-absent shape). Empty = per-platform default.")
+if(DECENZA_SIMULATOR_OVERRIDE STREQUAL "")
+    if(ANDROID OR IOS)
+        set(DECENZA_SIMULATOR_CONDITION "$<CONFIG:Debug>")
+    else()
+        set(DECENZA_SIMULATOR_CONDITION "1")
+    endif()
+else()
+    set(DECENZA_SIMULATOR_CONDITION "${DECENZA_SIMULATOR_OVERRIDE}")
+endif()
+target_compile_definitions(Decenza PRIVATE
+    "$<${DECENZA_SIMULATOR_CONDITION}:DECENZA_SIMULATOR>")
 
 # Link SerialPort only on desktop (not available on Android/iOS)
 if(NOT ANDROID AND NOT IOS)
@@ -1312,8 +1364,11 @@ set(QML_FILES
     qml/pages/CommunityBrowserPage.qml
 )
 
-# Simulator QML - desktop only (GHC window uses QWidget)
-if(WIN32 OR APPLE)
+# Simulator QML - desktop only (second top-level window; see source section).
+# `WIN32 OR APPLE` would include iOS, which shipped this window's compiled QML
+# in every IPA — dead weight for a window iOS never loads, and whose
+# GHCSimulator context property does not exist there at all.
+if(WIN32 OR (APPLE AND NOT IOS))
     list(APPEND QML_FILES
         qml/simulator/GHCSimulatorWindow.qml
     )

@@ -209,9 +209,18 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
           cd build/ios
+          # -configuration Release is load-bearing, not decoration. Without it
+          # `xcodebuild build` uses the scheme's Run action, which is Debug for a
+          # CMake-generated project, while the archive below uses the Archive
+          # action (Release). This check would then compile a different arm than
+          # the one that ships — and since DECENZA_SIMULATOR is on in Debug and
+          # off in Release on iOS, the simulator-absent configuration would first
+          # be compiled at a release tag, which is exactly the pre-tag surprise
+          # this step exists to prevent.
           xcodebuild build \
             -project Decenza.xcodeproj \
             -scheme Decenza \
+            -configuration Release \
             -destination "generic/platform=iOS" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
@@ -271,9 +280,13 @@ jobs:
           # command-line specifier applies to ALL targets and would clobber
           # the extension's own profile. Both targets carry their per-target
           # profile in-project (set by inject_widget_extension.rb).
+          # Release is already what the Archive action selects; stating it keeps
+          # the two xcodebuild calls above and here reading the same, so neither
+          # can drift onto a different configuration via a scheme change.
           xcodebuild archive \
             -project Decenza.xcodeproj \
             -scheme Decenza \
+            -configuration Release \
             -destination "generic/platform=iOS" \
             -archivePath $RUNNER_TEMP/Decenza.xcarchive \
             CODE_SIGN_STYLE=Manual \
