@@ -2972,13 +2972,6 @@ int main(int argc, char *argv[])
     QObject::connect(&bleManager, &BLEManager::disconnectRefractometerRequested, handlerScope.get(),
                      [&refractometer, &engine, &bleManager,
                       &refractometerReconnectTimer, &refractometerReconnectAttempt]() {
-        // Stop any pending/persistent reconnect — the user forgot this device.
-        // Unconditional (mirrors the scale's disconnectScaleRequested) so a
-        // timer armed by the clearSavedRefractometer → refractometerConnected-
-        // Changed emission is torn down deterministically rather than relying
-        // on the next-tick saved-address guard.
-        refractometerReconnectTimer.stop();
-        refractometerReconnectAttempt = 0;
         if (refractometer) {
             qDebug() << "[Refractometer] Forget requested, disconnecting";
             refractometer->disconnectFromDevice();
@@ -2986,6 +2979,23 @@ int main(int argc, char *argv[])
             engine.rootContext()->setContextProperty("Refractometer", nullptr);
             refractometer.reset();
         }
+        // Stop any pending/persistent reconnect — the user forgot this device.
+        // Unconditional (mirrors the scale's disconnectScaleRequested).
+        //
+        // LAST, not first. Everything above emits refractometerConnectedChanged
+        // — disconnectFromDevice() via the device's own connectedChanged, and
+        // setRefractometerDevice(nullptr) directly — and each of those re-arms
+        // this tick through the connectedChanged handler below. Stopping first
+        // therefore stopped a timer that was immediately re-armed: the debug log
+        // showed "scheduled first retry in 5000 ms" on both sides of the stop,
+        // with the tick surviving Forget and only self-cancelling ~5 s later on
+        // the next-tick saved-address guard. This comment used to claim the stop
+        // made teardown deterministic "rather than relying on the next-tick
+        // saved-address guard"; it relied on it. Stopping here makes the claim
+        // true — clearSavedRefractometer() emits this request last, so nothing
+        // runs after us to re-arm.
+        refractometerReconnectTimer.stop();
+        refractometerReconnectAttempt = 0;
     });
 
     QObject::connect(&refractometerReconnectTimer, &QTimer::timeout,
