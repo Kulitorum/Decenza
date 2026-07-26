@@ -12,6 +12,7 @@
 #include <QFile>
 #include <QDateTime>
 #include <QMutex>
+#include <QPointer>
 #include <atomic>
 
 #include "blecapability.h"
@@ -858,7 +859,18 @@ private:
     QList<QBluetoothDeviceInfo> m_refractometerDevices;
     QString m_savedRefractometerAddress;
     QString m_savedRefractometerName;
-    RefractometerDevice* m_refractometerDevice = nullptr;
+    // QPointer, not a raw pointer: main() owns the device in a unique_ptr declared
+    // AFTER the QML engine, so at teardown it dies while the engine — and every
+    // binding reading `BLEManager.refractometerConnected` — is still live. Its
+    // ~QObject emits destroyed(), QML drops the `Refractometer` context property,
+    // and the resulting binding re-evaluation calls isRefractometerConnected() on
+    // an object whose derived part is already gone. Through a raw pointer that is
+    // a pure-virtual dispatch on a rewound vptr: it indexes past QObject's vtable
+    // into adjacent data and jumps there (SIGBUS, instruction-abort). QObject's
+    // destructor zeroes the shared refcount *before* emitting destroyed()
+    // (qobject.cpp:1073 vs 1079), so a QPointer already reads null at that point
+    // and the getter simply reports "not connected".
+    QPointer<RefractometerDevice> m_refractometerDevice;
 
     // Scale debug log
     QStringList m_scaleLogMessages;

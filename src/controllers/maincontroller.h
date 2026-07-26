@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QVariantList>
 #include <QMap>
+#include <QPointer>
 #include <QTimer>
 #include "profilemanager.h"
 #include "recipeselectionmodel.h"
@@ -170,7 +171,10 @@ public:
     void setBLEManager(BLEManager* bleManager) { m_bleManager = bleManager; }
     void setFlowScale(FlowScale* flowScale) { m_flowScale = flowScale; }
     void setRefractometer(RefractometerDevice* refractometer);
-    RefractometerDevice* refractometer() const { return m_refractometer; }
+    // Out-of-line: m_refractometer is a QPointer and RefractometerDevice is only
+    // forward-declared here. Resolving the QPointer inline would need the full
+    // type in this header, which every translation unit including it would pay for.
+    RefractometerDevice* refractometer() const;
     void setTimingController(ShotTimingController* controller) { m_timingController = controller; }
     void setBackupManager(DatabaseBackupManager* backupManager) { m_backupManager = backupManager; }
     ShotDataModel* shotDataModel() const { return m_shotDataModel; }
@@ -477,7 +481,10 @@ private:
     ShotTimingController* m_timingController = nullptr;
     BLEManager* m_bleManager = nullptr;
     FlowScale* m_flowScale = nullptr;  // Shadow FlowScale for comparison logging
-    RefractometerDevice* m_refractometer = nullptr;
+    // QPointer for the same teardown reason as BLEManager::m_refractometerDevice —
+    // main() destroys the device while the QML engine is still live. See the
+    // comment there for the full chain.
+    QPointer<RefractometerDevice> m_refractometer;
 
     SteamDataModel* m_steamDataModel = nullptr;
     SteamHealthTracker* m_steamHealthTracker = nullptr;

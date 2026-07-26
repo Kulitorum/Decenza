@@ -4433,6 +4433,10 @@ void MainController::processVisualizerReconciliation()
     m_visualizer->fetchShotListSince(windowStartEpoch);
 }
 
+RefractometerDevice* MainController::refractometer() const {
+    return m_refractometer.data();
+}
+
 void MainController::setRefractometer(RefractometerDevice* refractometer) {
     // Disconnect old signal chain before connecting new one
     if (m_refractometer) {

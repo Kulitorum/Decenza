@@ -1833,7 +1833,7 @@ void BLEManager::clearSavedRefractometer() {
 
 void BLEManager::setRefractometerDevice(RefractometerDevice* device) {
     qDebug().noquote() << QString("[R2-diag] setRefractometerDevice old=%1 new=%2")
-        .arg(m_refractometerDevice ? QString::number(reinterpret_cast<quintptr>(m_refractometerDevice), 16)
+        .arg(m_refractometerDevice ? QString::number(reinterpret_cast<quintptr>(m_refractometerDevice.data()), 16)
                                     : QStringLiteral("none"),
              device ? QString::number(reinterpret_cast<quintptr>(device), 16)
                      : QStringLiteral("none"));
