@@ -36,9 +36,7 @@ class SettingsHardware;
 class DE1Transport;
 class BleTransport;
 
-#ifdef QT_DEBUG
 class DE1Simulator;
-#endif
 
 struct ShotSample {
     qint64 timestamp = 0;
@@ -172,9 +170,11 @@ public:
     // app commands a new steam target via setShotSettings). Emits a minimal
     // shot sample so QML bindings on DE1Device.steamTemperature re-evaluate.
     void setSimulatedIdleSteamTemp(double steamTempC);
-#ifdef QT_DEBUG
+    // Simulation mode is a shipped user setting (Settings -> Machine), not a
+    // debug-only affordance, so the simulator seam is compiled into every
+    // build. Every branch that uses it is gated on `m_simulationMode &&
+    // m_simulator` at runtime, so it stays inert until main.cpp wires one up.
     void setSimulator(DE1Simulator* simulator) { m_simulator = simulator; }
-#endif
 
     // Hardware settings (heater calibration sent to firmware)
     void setSettings(SettingsHardware* settings);
@@ -509,9 +509,7 @@ private:
     bool m_connecting = false;
     bool m_simulationMode = false;
     bool m_firmwareFlashInProgress = false;
-#ifdef QT_DEBUG
     DE1Simulator* m_simulator = nullptr;  // For simulation mode
-#endif
     SettingsHardware* m_settings = nullptr;  // Heater calibration sent to firmware
     bool m_profileUploadInProgress = false;  // True while profile header+frames are being sent
     bool m_sleepPendingAfterUpload = false;  // Sleep requested during profile upload

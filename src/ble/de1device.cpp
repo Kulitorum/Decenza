@@ -6,9 +6,7 @@
 #include "profile/profile.h"
 #include "../core/settings_hardware.h"
 
-#ifdef QT_DEBUG
 #include "../simulator/de1simulator.h"
-#endif
 #include <QBluetoothAddress>
 #include <QDateTime>
 #include <cmath>
@@ -867,7 +865,6 @@ void DE1Device::parseMMRResponse(const QByteArray& data) {
 // -- Machine control methods (delegate through transport) --
 
 void DE1Device::requestState(DE1::State state) {
-#ifdef QT_DEBUG
     if (m_simulationMode && m_simulator) {
         switch (state) {
         case DE1::State::Espresso:
@@ -909,7 +906,6 @@ void DE1Device::requestState(DE1::State state) {
         }
         return;
     }
-#endif
 
     if (!m_transport) return;
     if (dropDeviceWriteIfFirmwareFlash("requestState")) return;
@@ -1029,12 +1025,10 @@ void DE1Device::customEvent(QEvent* event) {
 }
 
 void DE1Device::stopOperationUrgent(qint64 sawTriggerMs) {
-#ifdef QT_DEBUG
     if (m_simulationMode && m_simulator) {
         m_simulator->stop();
         return;
     }
-#endif
     if (!m_transport) return;
     if (dropDeviceWriteIfFirmwareFlash("stopOperationUrgent")) return;
     clearCommandQueue();
@@ -1060,12 +1054,10 @@ void DE1Device::skipToNextFrame() {
 }
 
 void DE1Device::goToSleep() {
-#ifdef QT_DEBUG
     if (m_simulationMode && m_simulator) {
         m_simulator->goToSleep();
         return;
     }
-#endif
 
     // Never send sleep during a firmware flash: writing to REQUESTED_STATE
     // mid-flash can disrupt the bootloader and risk bricking. The MMR-write
@@ -1127,11 +1119,9 @@ void DE1Device::clearCommandQueue() {
 }
 
 void DE1Device::uploadProfile(const Profile& profile) {
-#ifdef QT_DEBUG
     if (m_simulationMode && m_simulator) {
         m_simulator->setProfile(profile);
     }
-#endif
 
     if (!m_transport) return;
     if (dropDeviceWriteIfFirmwareFlash("uploadProfile")) {
@@ -1730,11 +1720,6 @@ void DE1Device::setShotSettings(double steamTemp, int steamDuration,
     // read-back verification are all skipped. m_lastShotSettingsPayload is
     // intentionally left untouched — drift detection only runs against real
     // DE1 indications, which never fire in sim mode.
-    //
-    // Guarded by QT_DEBUG because m_simulator and setSimulator() are only
-    // compiled in debug builds (see de1device.h). Release builds have no
-    // simulator at all, so this branch is dead code there.
-#ifdef QT_DEBUG
     if (m_simulationMode && m_simulator) {
         m_simulator->setTargetSteamTemp(steamTemp);
         m_commandedSteamTargetC = steamTemp;
@@ -1744,7 +1729,6 @@ void DE1Device::setShotSettings(double steamTemp, int steamDuration,
         m_commandedGroupTargetC = groupTemp;
         return;
     }
-#endif
     if (!m_transport) return;
     if (dropDeviceWriteIfFirmwareFlash("setShotSettings")) return;
     QByteArray data(9, 0);

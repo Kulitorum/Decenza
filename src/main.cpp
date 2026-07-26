@@ -194,13 +194,11 @@ extern "C" const char* __ubsan_default_options()
 #include "weather/weathermanager.h"
 #include "models/flowcalibrationmodel.h"
 
-// Simulator engine (all debug builds) and GHC window (desktop debug only)
-#ifdef QT_DEBUG
+// Simulator engine (every build) and GHC window (desktop debug only)
 #include "simulator/de1simulator.h"
 #include "simulator/simulatedscale.h"
-#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
+#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
 #include "simulator/ghcsimulator.h"
-#endif
 #endif
 
 using namespace Qt::StringLiterals;
@@ -1139,7 +1137,6 @@ int main(int argc, char *argv[])
     // no way back: the Settings row is `visible: Settings.app.simulationMode`,
     // so the switch is hidden in exactly that state. "A simulated scale owns
     // the weight stream" is only true when a simulated scale actually exists.
-#ifdef QT_DEBUG
     const auto applyScaleSimulated = [&bleManager, &settings]() {
         bleManager.setScaleSimulated(settings.app()->simulationMode()
                                      && settings.app()->simulatedScaleEnabled());
@@ -1152,7 +1149,6 @@ int main(int argc, char *argv[])
     // too — otherwise turning the DE1 simulator off leaves the scale blocked.
     QObject::connect(settings.app(), &SettingsApp::simulationModeChanged,
                      &bleManager, applyScaleSimulated);
-#endif
 
     DE1Device de1Device;
     de1Device.setSettings(settings.hardware());  // Heater calibration sent to firmware
@@ -3441,14 +3437,14 @@ int main(int argc, char *argv[])
         }
     }
 
-    // Simulator engine (all debug builds) and GHC window (desktop debug only)
+    // Simulator engine (every build — Simulation Mode is a shipped user setting
+    // in Settings -> Machine) and GHC window (desktop debug only).
     // NOTE: These must be declared outside the if-block so they survive through
     // app.exec(). Otherwise the if-block scope destroys them before the event
     // loop starts, and signal connections become dangling references (use-after-free).
-#ifdef QT_DEBUG
     std::unique_ptr<DE1Simulator> de1SimulatorPtr;
     std::unique_ptr<SimulatedScale> simulatedScalePtr;
-#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
+#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
     std::unique_ptr<QQmlApplicationEngine> ghcEnginePtr;
 #endif
 
@@ -3595,10 +3591,9 @@ int main(int argc, char *argv[])
         ghcEngine.load(ghcUrl);
 #endif // desktop GHC window
     }
-#endif // QT_DEBUG
 
     // Purge the simulated-scale entry when not running in simulation mode, so a
-    // prior debug session's placeholder doesn't leak into the real connection UI.
+    // prior simulation session's placeholder doesn't leak into the real connection UI.
     if (!settings.app()->simulationMode()) {
         settings.removeKnownScale(QStringLiteral("sim:00:00:00:00:00:00"));
     }
