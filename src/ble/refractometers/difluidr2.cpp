@@ -366,15 +366,33 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
             break;
         }
         case 1: {
-            // Temperature: Data1-2 = prism temp * 10, Data3-4 = tank temp * 10
+            // Temperature: Data1-2 = prism temp * 10, Data3-4 = tank temp * 10,
+            // Data5 = the unit those two are expressed in (0 = °C, 1 = °F).
+            //
+            // The unit is a device setting the user flips on the R2 itself, and it
+            // changes the wire values — DiFluid's own worked example in protocolR2.md
+            // is a °F packet (`... 03 17 03 14 01` = 79.1/78.8 °F). Ignoring Data5
+            // meant an R2 set to Fahrenheit reported 79.1 as if it were Celsius.
+            // RefractometerDevice::temperature() is Celsius (DiFluidR1 emits °C), so
+            // convert here rather than let a unit-tagged number escape the driver.
             if (dataLen < 5) return;
             uint16_t prismTemp = static_cast<uint16_t>(
                 (static_cast<uint8_t>(packet[6]) << 8) | static_cast<uint8_t>(packet[7]));
             uint16_t tankTemp = static_cast<uint16_t>(
                 (static_cast<uint8_t>(packet[8]) << 8) | static_cast<uint8_t>(packet[9]));
-            m_temperature = prismTemp / 10.0;
-            R2_LOG(QString("Temperature: prism=%1°C tank=%2°C")
-                .arg(prismTemp / 10.0, 0, 'f', 1).arg(tankTemp / 10.0, 0, 'f', 1));
+            // Firmware predating the unit byte sends dataLen 5; those packets are
+            // Celsius, which is what this driver assumed before Data5 was honoured.
+            const bool fahrenheit =
+                dataLen >= 6 && static_cast<uint8_t>(packet[10]) == 1;
+            const auto toCelsius = [fahrenheit](double t) {
+                return fahrenheit ? (t - 32.0) * 5.0 / 9.0 : t;
+            };
+            const double prismC = toCelsius(prismTemp / 10.0);
+            const double tankC = toCelsius(tankTemp / 10.0);
+            m_temperature = prismC;
+            R2_LOG(QString("Temperature: prism=%1°C tank=%2°C (device reporting in %3)")
+                .arg(prismC, 0, 'f', 1).arg(tankC, 0, 'f', 1)
+                .arg(fahrenheit ? QStringLiteral("°F") : QStringLiteral("°C")));
             emit temperatureChanged(m_temperature);
             break;
         }

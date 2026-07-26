@@ -5,6 +5,7 @@
 
 #include "ble/scales/decentscale.h"
 #include "ble/scales/bookooscale.h"
+#include "ble/scales/difluidscale.h"
 #include "ble/transport/scalebletransport.h"
 #include "ble/protocol/de1characteristics.h"
 #include "ble/protocol/decentscaleprotocol.h"
@@ -26,19 +27,35 @@ public:
     void connectToDevice(const QString&, const QString&) override {}
     void disconnectFromDevice() override { m_disconnectCount++; }
     void discoverServices() override {}
-    void discoverCharacteristics(const QBluetoothUuid&) override {}
-    void enableNotifications(const QBluetoothUuid&, const QBluetoothUuid&) override { m_notifyEnableCount++; }
-    void writeCharacteristic(const QBluetoothUuid&, const QBluetoothUuid&,
+    void discoverCharacteristics(const QBluetoothUuid& service) override {
+        m_characteristicDiscoveries.append(service);
+    }
+    void enableNotifications(const QBluetoothUuid& service, const QBluetoothUuid&) override {
+        m_notifyEnableCount++;
+        m_lastNotifyService = service;
+    }
+    void writeCharacteristic(const QBluetoothUuid& service, const QBluetoothUuid&,
                              const QByteArray& value, WriteType = WriteType::WithResponse) override {
         m_writes.append(value);
+        m_lastWriteService = service;
     }
     void readCharacteristic(const QBluetoothUuid&, const QBluetoothUuid&) override {}
     bool isConnected() const override { return m_isConnected; }
+
+    // Drive the discovery handshake from a test (signals are protected on the base).
+    void fakeServiceDiscovered(const QBluetoothUuid& s) { emit serviceDiscovered(s); }
+    void fakeServicesDiscoveryFinished() { emit servicesDiscoveryFinished(); }
+    void fakeCharacteristicsDiscoveryFinished(const QBluetoothUuid& s) {
+        emit characteristicsDiscoveryFinished(s);
+    }
 
     int m_notifyEnableCount = 0;
     int m_disconnectCount = 0;
     bool m_isConnected = true;
     QList<QByteArray> m_writes;
+    QList<QBluetoothUuid> m_characteristicDiscoveries;
+    QBluetoothUuid m_lastNotifyService;
+    QBluetoothUuid m_lastWriteService;
 };
 
 class tst_ScaleProtocol : public QObject {
@@ -911,6 +928,70 @@ private slots:
 
         // Watchdog should have fired and re-enabled notifications
         QVERIFY(transport->m_notifyEnableCount >= 1);
+    }
+
+    // === DiFluid Microbalance / Microbalance Ti service selection ===
+    //
+    // The two models are the same protocol on different services (0x00EE vs
+    // 0x00DD). The driver must follow whichever the device advertised through
+    // characteristic discovery, notifications and writes — matching only 0x00EE
+    // left a Ti connected but permanently silent.
+
+    void difluidClassicServiceDrivesDiscovery() {
+        auto* transport = new MockScaleBleTransport;
+        DifluidScale scale(transport);
+
+        transport->fakeServiceDiscovered(Scale::DiFluid::SERVICE);
+        transport->fakeServicesDiscoveryFinished();
+
+        QCOMPARE(transport->m_characteristicDiscoveries.size(), 1);
+        QCOMPARE(transport->m_characteristicDiscoveries.at(0), Scale::DiFluid::SERVICE);
+    }
+
+    void difluidTiServiceDrivesDiscovery() {
+        auto* transport = new MockScaleBleTransport;
+        DifluidScale scale(transport);
+
+        transport->fakeServiceDiscovered(Scale::DiFluid::SERVICE_TI);
+        transport->fakeServicesDiscoveryFinished();
+
+        QCOMPARE(transport->m_characteristicDiscoveries.size(), 1);
+        QCOMPARE(transport->m_characteristicDiscoveries.at(0), Scale::DiFluid::SERVICE_TI);
+    }
+
+    void difluidTiCommandsUseTiService() {
+        auto* transport = new MockScaleBleTransport;
+        DifluidScale scale(transport);
+
+        transport->fakeServiceDiscovered(Scale::DiFluid::SERVICE_TI);
+        transport->fakeServicesDiscoveryFinished();
+        transport->fakeCharacteristicsDiscoveryFinished(Scale::DiFluid::SERVICE_TI);
+
+        QVERIFY(scale.isConnected());
+
+        // Setup commands are sent from a 100ms singleShot after discovery.
+        QTest::qWait(200);
+        QVERIFY(!transport->m_writes.isEmpty());
+        QCOMPARE(transport->m_lastWriteService, Scale::DiFluid::SERVICE_TI);
+        QCOMPARE(transport->m_lastNotifyService, Scale::DiFluid::SERVICE_TI);
+
+        // And an explicit command after setup keeps using the Ti service.
+        scale.tare();
+        QCOMPARE(transport->m_lastWriteService, Scale::DiFluid::SERVICE_TI);
+    }
+
+    void difluidUnknownServiceIsNotAdopted() {
+        auto* transport = new MockScaleBleTransport;
+        DifluidScale scale(transport);
+
+        // A Decent Scale service on a device we routed here by name must not be
+        // mistaken for a DiFluid one.
+        transport->fakeServiceDiscovered(Scale::Decent::SERVICE);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Neither DiFluid service.*"));
+        transport->fakeServicesDiscoveryFinished();
+
+        QVERIFY(transport->m_characteristicDiscoveries.isEmpty());
+        QVERIFY(!scale.isConnected());
     }
 };
 

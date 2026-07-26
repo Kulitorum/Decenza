@@ -46,7 +46,7 @@ void DifluidScale::connectToDevice(const QBluetoothDeviceInfo& device) {
     }
 
     m_name = device.name();
-    m_serviceFound = false;
+    m_service = QBluetoothUuid();
     m_characteristicsReady = false;
 
     DIFLUID_LOG(QString("Connecting to %1 (%2)")
@@ -73,23 +73,31 @@ void DifluidScale::onTransportError(const QString& message) {
 
 void DifluidScale::onServiceDiscovered(const QBluetoothUuid& uuid) {
     DIFLUID_LOG(QString("Service discovered: %1").arg(uuid.toString()));
+    // Microbalance (0x00EE) and Microbalance Ti (0x00DD) are the same protocol
+    // on different services — accept either and remember which.
     if (uuid == Scale::DiFluid::SERVICE) {
-        DIFLUID_LOG("Found DiFluid service");
-        m_serviceFound = true;
+        DIFLUID_LOG("Found DiFluid Microbalance service");
+        m_service = uuid;
+    } else if (uuid == Scale::DiFluid::SERVICE_TI) {
+        DIFLUID_LOG("Found DiFluid Microbalance Ti service");
+        m_service = uuid;
     }
 }
 
 void DifluidScale::onServicesDiscoveryFinished() {
-    DIFLUID_LOG(QString("Service discovery finished, service found: %1").arg(m_serviceFound));
-    if (!m_serviceFound) {
-        DIFLUID_WARN(QString("DiFluid service %1 not found!").arg(Scale::DiFluid::SERVICE.toString()));
+    DIFLUID_LOG(QString("Service discovery finished, service found: %1")
+                .arg(m_service.isNull() ? QStringLiteral("none") : m_service.toString()));
+    if (m_service.isNull()) {
+        DIFLUID_WARN(QString("Neither DiFluid service %1 nor %2 found!")
+                     .arg(Scale::DiFluid::SERVICE.toString(),
+                          Scale::DiFluid::SERVICE_TI.toString()));
         return;
     }
-    m_transport->discoverCharacteristics(Scale::DiFluid::SERVICE);
+    m_transport->discoverCharacteristics(m_service);
 }
 
 void DifluidScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& serviceUuid) {
-    if (serviceUuid != Scale::DiFluid::SERVICE) return;
+    if (m_service.isNull() || serviceUuid != m_service) return;
     if (m_characteristicsReady) {
         DIFLUID_LOG("Characteristics already set up, ignoring duplicate callback");
         return;
@@ -104,7 +112,7 @@ void DifluidScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& serv
     QTimer::singleShot(100, this, [this]() {
         if (!m_transport || !m_characteristicsReady) return;
         DIFLUID_LOG("Enabling notifications (100ms)");
-        m_transport->enableNotifications(Scale::DiFluid::SERVICE, Scale::DiFluid::CHARACTERISTIC);
+        m_transport->enableNotifications(m_service, Scale::DiFluid::CHARACTERISTIC);
 
         // Enable auto-notifications and set to grams
         DIFLUID_LOG("Sending enable notifications and set grams commands");
@@ -132,8 +140,8 @@ void DifluidScale::onCharacteristicChanged(const QBluetoothUuid& characteristicU
 }
 
 void DifluidScale::sendCommand(const QByteArray& cmd) {
-    if (!m_transport || !m_characteristicsReady) return;
-    m_transport->writeCharacteristic(Scale::DiFluid::SERVICE, Scale::DiFluid::CHARACTERISTIC, cmd);
+    if (!m_transport || !m_characteristicsReady || m_service.isNull()) return;
+    m_transport->writeCharacteristic(m_service, Scale::DiFluid::CHARACTERISTIC, cmd);
 }
 
 void DifluidScale::sendKeepAlive() {

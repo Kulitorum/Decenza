@@ -255,9 +255,17 @@ namespace Generic {
     const QBluetoothUuid CMD(QString("0000FFF2-0000-1000-8000-00805F9B34FB"));
 }
 
-// DiFluid
+// DiFluid Microbalance / Microbalance Ti
+//
+// The Ti speaks the identical DF-DF command protocol on the identical AA01
+// characteristic, but advertises a *different* 16-bit service: the original
+// Microbalance uses 0x00EE, the Ti 0x00DD (DiFluid's protocolMicrobalance.md,
+// updated Dec 2024). Matching only 0x00EE means a Ti connects, finds no
+// recognised service, and silently never reports weight. Both are accepted;
+// DifluidScale remembers which one the connected device actually exposed.
 namespace DiFluid {
     const QBluetoothUuid SERVICE(QString("000000EE-0000-1000-8000-00805F9B34FB"));
+    const QBluetoothUuid SERVICE_TI(QString("000000DD-0000-1000-8000-00805F9B34FB"));
     const QBluetoothUuid CHARACTERISTIC(QString("0000AA01-0000-1000-8000-00805F9B34FB"));
 }
 
