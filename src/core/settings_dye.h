@@ -43,6 +43,18 @@ class EquipmentStorage;
 class SettingsDye : public QObject {
     Q_OBJECT
 
+public:
+    // Which of the three standing sources supplies the dose for the next shot
+    // (dose-source-precedence). The ladder is recipe → bag → profile, the same
+    // one yield-anchor defines for the yield, and it is resolved HERE rather
+    // than left to emerge from the order in which the profile-load, bag-select
+    // and recipe-activate signals happen to arrive — which is exactly how it
+    // used to work, and why a profile load or a bag apply could silently
+    // overwrite a dose that outranked it.
+    enum class DoseOwner { Recipe, Bag, Profile };
+    Q_ENUM(DoseOwner)
+
+private:
     // DYE metadata - sticky fields
     Q_PROPERTY(QString dyeBeanBrand READ dyeBeanBrand WRITE setDyeBeanBrand NOTIFY dyeBeanBrandChanged)
     Q_PROPERTY(QString dyeBeanType READ dyeBeanType WRITE setDyeBeanType NOTIFY dyeBeanTypeChanged)
@@ -269,6 +281,35 @@ public:
     // Active recipe (add-recipes). Persisted id only — see the Q_PROPERTY note.
     int activeRecipeId() const;
     void setActiveRecipeId(int recipeId);
+    // The active recipe together with the dose it designs — set as ONE call so
+    // the ladder can never name one recipe while holding another's dose. That
+    // pairing is the whole invariant; splitting it into two setters is what let
+    // the id advance while the cache lagged. 0 = the recipe designs no dose, so
+    // the ladder falls through to the bag.
+    //
+    // Called from every path that learns the active recipe's dose: activation
+    // (applyActivatedRecipe), the startup restore and external-edit re-read
+    // (the recipeReady handler), and the dial-in stamp. SettingsDye caches it
+    // rather than reaching up into MainController, which owns the recipe map —
+    // mirroring how m_activeBagYieldValue caches the bag's yield spec.
+    void setActiveRecipe(int recipeId, double doseG);
+    double activeRecipeDose() const { return m_activeRecipeDoseG; }
+
+    // Which source supplies the dose for the next shot (dose-source-precedence).
+    // Every writer of dyeBeanWeight that represents a STANDING source — the
+    // profile's recommended dose, the bag's stored dose — gates itself on this.
+    // A shot replay is not a standing source and does not consult it (it does
+    // still MOVE the ladder, because its write-through makes the replayed dose
+    // genuinely the bag's and the stamp makes it the recipe's).
+    DoseOwner doseOwner() const;
+
+    // Whether the ladder can be answered at all: true once every SET rung has
+    // had its row read. Both rows load on a storage worker, so between
+    // selecting a bag/recipe and its row arriving doseOwner() would answer
+    // "profile" for a session another source owns — and the profile's write is
+    // the destructive one (it write-throughs to the bag and stamps the recipe).
+    // A source that is not set is resolved vacuously.
+    bool doseLadderResolved() const;
 
     // Auto-load recipe (recipe-auto-load). See the Q_PROPERTY note above for
     // the mutual-exclusion contract with SettingsApp::autoLoadProfileFilename.
@@ -367,6 +408,21 @@ private:
     QString m_activeBagOpenedDate;
     double m_activeBagYieldValue = 0;      // active bag's yield spec value (0 = unset)
     QString m_activeBagYieldMode = QStringLiteral("none");
+    // Dose ladder caches (dose-source-precedence). 0 = that source designs no
+    // dose, so the ladder falls through to the next rung. Runtime caches, not
+    // persisted — the ids are, and each rung's dose is re-read from its row on
+    // the way back up.
+    //
+    // The `Resolved` flag beside each is what makes the un-persisted half safe:
+    // it is false from the moment an id is set until that row actually arrives,
+    // and doseLadderResolved() refuses to answer the ladder in between. They
+    // start false and are only CONSULTED for a rung whose id is set, so the ids
+    // restored from QSettings at construction — whose rows are still on the
+    // worker — correctly read as unresolved without any constructor wiring.
+    double m_activeBagDoseG = 0;
+    bool m_activeBagDoseResolved = false;
+    double m_activeRecipeDoseG = 0;
+    bool m_activeRecipeDoseResolved = false;
 
     // Cached DYE values (avoid QSettings::value() → CFPreferences on every QML binding read)
     mutable QString m_dyeGrinderBrandCache;

@@ -553,6 +553,15 @@ void ProfileManager::activateBrewWithOverrides(double dose, double yieldValue,
                                                double temperature, const QString& grind,
                                                int rpm) {
     if (m_settings) {
+        // The dose ladder (dose-source-precedence) gains NO profile write
+        // target here, deliberately. The recipe stamp and the bag write-through
+        // already ride on setDyeBeanWeight, so an edit reaches whichever of the
+        // top two rungs is active. The profile is left out because the only way
+        // to write it is setCurrentProfileRecommendedDose, which marks the
+        // profile MODIFIED — so nudging the dose by 0.2 g in a dial-in dialog
+        // would dirty the loaded profile and ask to be saved. A profile's
+        // recommended dose is stored design, edited in the profile editors;
+        // Brew Settings dials the session. See the change's design notes.
         m_settings->dye()->setDyeBeanWeight(dose);
         m_settings->dye()->setDyeGrinderSetting(grind);
         // RPM is the second half of the dial-in; set it only when the caller
@@ -629,6 +638,80 @@ void ProfileManager::resetBrewOverridesForLoadedProfile() {
     if (brew->brewYieldMode() == YieldSpec::modeAbsolute()
         && qAbs(brew->brewYieldOverride() - m_currentProfile.targetWeight()) <= 0.1)
         brew->setBrewYieldOverride(0);
+}
+
+void ProfileManager::applyRecommendedDoseIfProfileOwnsIt() {
+    if (!m_settings)
+        return;
+    if (!m_currentProfile.hasRecommendedDose() || m_currentProfile.recommendedDose() <= 0)
+        return;
+    // The profile is the LAST rung of the dose ladder (dose-source-precedence):
+    // an active recipe or bag that supplies a dose outranks it. This write used
+    // to be unconditional, and precedence was "whichever queued write lands
+    // last" — which only ever held for a load that a recipe activation had
+    // itself triggered. With a BAG active the damage was persistent: the write
+    // lands, setDyeBeanWeight's writeThroughToBag rewrites the bag's stored
+    // doseWeightG, and the bean's remembered dose is gone.
+    //
+    // The ladder is consulted in the queued lambda below rather than here, so
+    // deciding late is the whole point — see the comment at the check. It also
+    // means this function reads the ladder AFTER MainController's title-mismatch
+    // watcher has had its turn: switching to a different profile deactivates the
+    // recipe during currentProfileChanged, and the write then correctly lands
+    // for a profile that really does own the dose.
+    //
+    // Startup is not a resolution point. The live dose is already persisted
+    // from the last session — whichever source won it then — while the bag and
+    // recipe rows are still loading asynchronously. Same rule
+    // resetBrewOverridesForLoadedProfile applies to the yield: persisted values
+    // survive the launch load.
+    if (!m_startupLoadDone)
+        return;
+    // Deferred to next event loop to avoid a QML signal cascade during load.
+    const double dose = m_currentProfile.recommendedDose();
+    const QString title = m_currentProfile.title();
+    QMetaObject::invokeMethod(this, [this, dose, title]() {
+        if (!m_settings)
+            return;
+        auto* dye = m_settings->dye();
+        // The ladder is resolved HERE, at delivery, not where the write was
+        // armed. Both higher rungs load their row on a storage worker, and a
+        // profile load can be issued in the window between selecting a bag or
+        // recipe and its row arriving — an arm-time check reads that window as
+        // "nobody else supplies a dose" and this write then lands on top of the
+        // source that does. It is the destructive one: setDyeBeanWeight writes
+        // through to the active bag's stored doseWeightG and stamps the active
+        // recipe's doseG, so a mistimed profile load does not merely show the
+        // wrong number, it erases what the bean or the recipe remembered.
+        if (!dye->doseLadderResolved()) {
+            qDebug().noquote()
+                << QStringLiteral("[dose] '%1' recommends %2 g but the bag/recipe rows have not "
+                                  "arrived yet, so the dose ladder cannot be resolved "
+                                  "(dose-source-precedence) — live dose stays %3 g. Re-select the "
+                                  "profile once loading settles if you want its dose.")
+                       .arg(title).arg(dose).arg(dye->dyeBeanWeight());
+            return;
+        }
+        if (dye->doseOwner() != SettingsDye::DoseOwner::Profile) {
+            // Deliberately suppressed and genuinely surprising, so it says so
+            // in the log: a user reporting "I loaded the 18 g profile and the
+            // dose stayed at 20" otherwise hands their AI a log with no
+            // evidence the ladder ran at all, and the likely reading is that
+            // the profile's recommendation is unset.
+            const bool recipeOwns = dye->doseOwner() == SettingsDye::DoseOwner::Recipe;
+            qDebug().noquote()
+                << QStringLiteral("[dose] '%1' recommends %2 g but the active %3 owns the dose "
+                                  "and outranks the profile (dose-source-precedence) — live dose "
+                                  "stays %4 g. Change it with MCP %5, or clear the %3; loading a "
+                                  "profile will not override it.")
+                       .arg(title).arg(dose)
+                       .arg(recipeOwns ? QStringLiteral("recipe") : QStringLiteral("bag"))
+                       .arg(dye->dyeBeanWeight())
+                       .arg(recipeOwns ? QStringLiteral("recipe_update") : QStringLiteral("bag_update"));
+            return;
+        }
+        dye->setDyeBeanWeight(dose);
+    }, Qt::QueuedConnection);
 }
 
 
@@ -1611,18 +1694,7 @@ void ProfileManager::loadProfile(const QString& profileName) {
     // Reset brew overrides for the new profile: a profile switch clears them
     // (flags genuinely go false); the startup load preserves persisted ones.
     resetBrewOverridesForLoadedProfile();
-    if (m_settings) {
-        // Apply recommended dose from profile if set
-        // Deferred to next event loop to avoid QML signal cascade during profile load
-        if (m_currentProfile.hasRecommendedDose() && m_currentProfile.recommendedDose() > 0) {
-            double dose = m_currentProfile.recommendedDose();
-            QMetaObject::invokeMethod(this, [this, dose]() {
-                if (m_settings) {
-                    m_settings->dye()->setDyeBeanWeight(dose);
-                }
-            }, Qt::QueuedConnection);
-        }
-    }
+    applyRecommendedDoseIfProfileOwnsIt();
 
     if (m_machineState) {
         m_machineState->setTargetWeight(targetWeight());
