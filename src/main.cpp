@@ -1933,6 +1933,16 @@ int main(int argc, char *argv[])
     // so it outlives the engine at scope unwind.
     TemperatureDisplayBridge temperatureDisplayBridge;
 
+    // Same rule, and this one was learned the hard way. The refractometer is
+    // wired up ~950 lines below, next to the rest of its BLE handling, but the
+    // unique_ptr lives HERE so the device outlives the engine. Declared down
+    // there it was destroyed first, and ~QObject's destroyed() reached a live
+    // QML binding on BLEManager.refractometerConnected, which dispatched a pure
+    // virtual on the half-destroyed object — a SIGBUS on quit. Keep the
+    // declaration above `engine`; the QPointer in BLEManager is the second
+    // line of defence, not a licence to move this back down.
+    std::unique_ptr<RefractometerDevice> refractometer;
+
     // Set up QML engine
     QQmlApplicationEngine engine;
     checkpoint("QML engine created");
@@ -2066,8 +2076,8 @@ int main(int argc, char *argv[])
     // by reference.
     //
     // Stack objects destruct in reverse declaration order, so everything declared
-    // after `engine` (the reconnect state just above, `refractometer` further
-    // down) is destroyed BEFORE `engine` is. The senders those handlers hang off
+    // after `engine` (the reconnect state just above) is destroyed BEFORE
+    // `engine` is. The senders those handlers hang off
     // — app, bleManager, machineState, screensaverManager, the scale — are all
     // declared above `engine` and so outlive the very locals their handlers write
     // to. A signal emitted during teardown then runs a lambda over dead stack.
@@ -2081,7 +2091,7 @@ int main(int argc, char *argv[])
     // when it dies. The explicit reset() after app.exec() is what does the work
     // and must not be dropped: it runs ahead of every local's destructor, whereas
     // this unique_ptr's own destructor fires at THIS declaration point and so
-    // would already be too late for anything declared below it (`refractometer`).
+    // would already be too late for anything declared below it.
     //
     // Handlers whose sender IS one of these locals (the reconnect timers) need no
     // guard — the connection already dies with the sender.
@@ -2873,7 +2883,8 @@ int main(int argc, char *argv[])
     });
 
     // === Refractometer (DiFluid R1 / R2) ===
-    std::unique_ptr<RefractometerDevice> refractometer;
+    // The `refractometer` unique_ptr itself is declared up with the engine —
+    // see the note there for why the order matters.
     engine.rootContext()->setContextProperty("Refractometer", nullptr);
 
     // Restore saved refractometer address for auto-reconnect
@@ -2883,7 +2894,7 @@ int main(int argc, char *argv[])
     }
 
     QObject::connect(&bleManager, &BLEManager::refractometerDiscovered, handlerScope.get(),
-                     [&refractometer, &mainController, &engine, &bleManager, &settings](const QBluetoothDeviceInfo& device) {
+                     [&refractometer, &engine, &bleManager, &settings](const QBluetoothDeviceInfo& device) {
         qDebug().noquote() << QString("[R2-diag] refractometerDiscovered dev=%1 existingInstance=%2 existingConnected=%3")
             .arg(getDeviceIdentifier(device),
                  refractometer ? QString::number(reinterpret_cast<quintptr>(refractometer.get()), 16)
@@ -2905,7 +2916,6 @@ int main(int argc, char *argv[])
                 .arg(QString::number(reinterpret_cast<quintptr>(refractometer.get()), 16),
                      refractometer->isConnected() ? QStringLiteral("true") : QStringLiteral("false"));
             refractometer->disconnectFromDevice();
-            mainController.setRefractometer(nullptr);
             bleManager.setRefractometerDevice(nullptr);
             engine.rootContext()->setContextProperty("Refractometer", nullptr);
         }
@@ -2931,9 +2941,6 @@ int main(int argc, char *argv[])
         // the scale connection-priority / feed-stall machinery off this link.
         transport->setConnectionPriorityManaged(false);
         refractometer->connectToDevice(device);
-
-        // Wire to MainController for TDS → Settings pipeline
-        mainController.setRefractometer(refractometer.get());
 
         // Tell BLEManager about the live device (for isRefractometerConnected property)
         bleManager.setRefractometerDevice(refractometer.get());
@@ -2963,23 +2970,32 @@ int main(int argc, char *argv[])
 
     // Handle Forget Refractometer — disconnect and clean up
     QObject::connect(&bleManager, &BLEManager::disconnectRefractometerRequested, handlerScope.get(),
-                     [&refractometer, &mainController, &engine, &bleManager,
+                     [&refractometer, &engine, &bleManager,
                       &refractometerReconnectTimer, &refractometerReconnectAttempt]() {
-        // Stop any pending/persistent reconnect — the user forgot this device.
-        // Unconditional (mirrors the scale's disconnectScaleRequested) so a
-        // timer armed by the clearSavedRefractometer → refractometerConnected-
-        // Changed emission is torn down deterministically rather than relying
-        // on the next-tick saved-address guard.
-        refractometerReconnectTimer.stop();
-        refractometerReconnectAttempt = 0;
         if (refractometer) {
             qDebug() << "[Refractometer] Forget requested, disconnecting";
             refractometer->disconnectFromDevice();
-            mainController.setRefractometer(nullptr);
             bleManager.setRefractometerDevice(nullptr);
             engine.rootContext()->setContextProperty("Refractometer", nullptr);
             refractometer.reset();
         }
+        // Stop any pending/persistent reconnect — the user forgot this device.
+        // Unconditional (mirrors the scale's disconnectScaleRequested).
+        //
+        // LAST, not first. Everything above emits refractometerConnectedChanged
+        // — disconnectFromDevice() via the device's own connectedChanged, and
+        // setRefractometerDevice(nullptr) directly — and each of those re-arms
+        // this tick through the connectedChanged handler below. Stopping first
+        // therefore stopped a timer that was immediately re-armed: the debug log
+        // showed "scheduled first retry in 5000 ms" on both sides of the stop,
+        // with the tick surviving Forget and only self-cancelling ~5 s later on
+        // the next-tick saved-address guard. This comment used to claim the stop
+        // made teardown deterministic "rather than relying on the next-tick
+        // saved-address guard"; it relied on it. Stopping here makes the claim
+        // true — clearSavedRefractometer() emits this request last, so nothing
+        // runs after us to re-arm.
+        refractometerReconnectTimer.stop();
+        refractometerReconnectAttempt = 0;
     });
 
     QObject::connect(&refractometerReconnectTimer, &QTimer::timeout,
@@ -4259,9 +4275,21 @@ int main(int argc, char *argv[])
             physicalScale->disconnectFromScale();
         }
 
-        // Note: No need to null context properties here. All C++ objects are
-        // stack-allocated before the QML engine, so reverse destruction order
-        // guarantees the engine (and all QML items) is destroyed first.
+        // Note: no need to null context properties here — but NOT because of a
+        // blanket "everything is declared before the engine" guarantee. This
+        // comment used to claim exactly that, and a refractometer teardown
+        // crash proved it wrong: the device was declared AFTER the engine, so
+        // it died first, while bindings reading it were still live.
+        //
+        // What actually holds: most context-property backing objects are
+        // declared above `engine` and so outlive it (`refractometer` now among
+        // them). Where that is not true — `de1SimulatorPtr`, see the note after
+        // app.exec(); also GHCSimulator and FlowCalibrationModel further down —
+        // safety comes from QML dropping a context property itself when its
+        // object emits destroyed(), plus the C++ side holding it via QPointer
+        // so it self-nulls at the same moment (BLEManager::m_refractometerDevice
+        // is the worked example). A new context-property object declared after
+        // the engine and held by a raw pointer has neither, and would need one.
 
         // Disable Qt's accessibility bridge before window destruction
         // This prevents iOS crash (SIGBUS) where the accessibility system tries to

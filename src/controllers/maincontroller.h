@@ -40,7 +40,6 @@ class DE1Device;
 class MachineState;
 class BLEManager;
 class FlowScale;
-class RefractometerDevice;
 class ProfileStorage;
 class ShotDebugLogger;
 class LocationProvider;
@@ -169,8 +168,6 @@ public:
     }
     void setBLEManager(BLEManager* bleManager) { m_bleManager = bleManager; }
     void setFlowScale(FlowScale* flowScale) { m_flowScale = flowScale; }
-    void setRefractometer(RefractometerDevice* refractometer);
-    RefractometerDevice* refractometer() const { return m_refractometer; }
     void setTimingController(ShotTimingController* controller) { m_timingController = controller; }
     void setBackupManager(DatabaseBackupManager* backupManager) { m_backupManager = backupManager; }
     ShotDataModel* shotDataModel() const { return m_shotDataModel; }
@@ -477,7 +474,6 @@ private:
     ShotTimingController* m_timingController = nullptr;
     BLEManager* m_bleManager = nullptr;
     FlowScale* m_flowScale = nullptr;  // Shadow FlowScale for comparison logging
-    RefractometerDevice* m_refractometer = nullptr;
 
     SteamDataModel* m_steamDataModel = nullptr;
     SteamHealthTracker* m_steamHealthTracker = nullptr;
