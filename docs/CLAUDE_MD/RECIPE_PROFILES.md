@@ -135,6 +135,59 @@ pass through the same load and save code.
 A golden is never hand-adjusted to match Decenza. If one looks wrong, re-read the oracle; if the
 oracle is right, Decenza changes.
 
+### `insert_preinfusion_pause` — carried, compared, deliberately not implemented
+
+This is the one known case where a `.tcl` and Decenza disagree about what the machine receives, and
+it is **closed as won't-implement** ([#1635](https://github.com/Kulitorum/Decenza/issues/1635)).
+Written down so nobody re-derives the divergence and "fixes" it.
+
+**What de1app does.** When `::settings(insert_preinfusion_pause)` is 1, `binary.tcl:880-891`
+prepends a 2-second, zero-flow, zero-pressure frame to the profile before packing it — a real
+extraction frame, not UI state, and not gated on profile type.
+
+**Why it exists.** It is not a brewing technique. The origin commit (`ec4c0dcc`, John Buckman,
+2021-07-24) introduces it to work around a DE1 whose inlet valve is scaling up and opening
+sluggishly; the pause gives the valve time to seat before water is commanded through it. That is
+why the toggle lives on de1app's **calibrate** tab labelled "Slow start", next to "Two tap steam
+stop" and "Eco steam", and why no de1app profile editor exposes it.
+
+**It is a global setting, not a profile property.** It reaches profile files only because
+`save_settings_vars` dumps the whole `profile_vars` list (`vars.tcl:3305`) on every save. In de1app
+the value is one global cell that a profile load clobbers, so a profile carrying `1` turns the pause
+on for **every profile loaded after it** that does not carry the key — which is all 88 stock ones.
+A `1` in a file is therefore a snapshot of that author's machine-maintenance setting, not intent
+about the coffee. Implementing it per-profile would apply one user's valve workaround to everyone
+who downloads their profile.
+
+**Population today: zero.** No de1app stock profile carries the key. The only files that do are the
+three A-Flow built-ins (`default-dark`, `default-like-dflow`, `default-light`), all at `0`.
+
+**What Decenza does, and why it is right:**
+
+- **Carried** — `Profile::loadFromTclString()` passes it through (`profile.cpp:1452`), so a
+  Decenza-written file still means the right thing to de1app and we do not silently clear someone's
+  setting.
+- **Compared** — `De1AppTcl::scalarFields()` includes it (`de1apptclfields.cpp:152`), so a built-in
+  that gains or loses it fails `tst_tclimport::builtinScalarParity` instead of drifting quietly.
+- **Not materialised** — no pause frame is ever generated.
+
+**If you ever do implement it, two traps.** `materializedSteps()` is the wrong place despite being
+the obvious one: it feeds `toJsonObject()`, not the wire, so a pause added there is stored, and
+re-exporting to `.tcl` hands de1app a profile with the frame *and* the flag — it prepends a second
+one. And the DE1 reports `sample.frameNumber` straight into `m_currentProfile->steps()[...]`
+(`shottimingcontroller.cpp:163`, `maincontroller.cpp:4095`), so a frame the machine has and
+`m_steps` does not puts every frame label, timeline, chart overlay, skip-frame and history record
+off by one for the whole shot.
+
+**Upstream note.** `binary.tcl:995` guards the `NumberOfPreinfuseFrames` increment on
+`::setting` — singular, a typo for `::settings` — and `ifexists` does `upvar` + `info exists`, which
+never brings that array into being. The branch is dead: de1app prepends the frame but does *not*
+increment the count, so the machine is told preinfusion ends a frame early, which also mis-arms the
+"no stop-at-weight during preinfusion" guard added in `855ca267`. Matching de1app's *behaviour*
+means leaving the count alone; matching its apparent *intent* would diverge. If upstream fixes line
+995, the header byte changes for every profile using the pause — treat that as a scheduled input to
+the parity audit, not a surprise.
+
 ## Editor Selection
 
 `MainController::currentEditorType()` determines which editor page opens. Selection is **title-first**:
