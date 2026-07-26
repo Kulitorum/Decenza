@@ -897,6 +897,18 @@ private:
     // disconnectFromDevice() — but it is not something QPointer protects.
     QPointer<RefractometerDevice> m_refractometerDevice;
 
+    // Handles for the two connections setRefractometerDevice() installs, so it
+    // can sever exactly those. It must NOT use a blanket
+    // disconnect(device, nullptr, this, nullptr): main.cpp also connects the
+    // device's logMessage to appendScaleLog and errorOccurred to our
+    // errorOccurred, and those have to survive until the device is actually
+    // destroyed. Forget nulls the holder BEFORE disconnecting the device (that
+    // order is load-bearing — see the timer-stop note on
+    // disconnectRefractometerRequested in main.cpp), so a blanket disconnect
+    // there silently swallowed every log line the disconnect itself produced.
+    QMetaObject::Connection m_refractometerConnectedConn;
+    QMetaObject::Connection m_refractometerDestroyedConn;
+
     // Scale debug log
     QStringList m_scaleLogMessages;
     QString m_scaleLogFilePath;

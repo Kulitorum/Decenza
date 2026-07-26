@@ -1834,6 +1834,12 @@ void BLEManager::clearSavedRefractometer() {
     // this call (main.cpp disconnects it, then destroys it), and was harmless
     // only because clearing the saved address above happens to make the stale
     // handler's re-kick no-op. It also emits refractometerConnectedChanged.
+    //
+    // This MUST stay ahead of disconnectRefractometerRequested: that emission
+    // is what arms the reconnect timer, and the handler's unconditional
+    // stop() — which runs first thing — is what tears it down again. Emitting
+    // the request first would stop the timer before this armed it, leaving a
+    // reconnect running for the device the user just forgot.
     setRefractometerDevice(nullptr);
     emit disconnectRefractometerRequested();
 }
@@ -1844,11 +1850,14 @@ void BLEManager::setRefractometerDevice(RefractometerDevice* device) {
                                     : QStringLiteral("none"),
              device ? QString::number(reinterpret_cast<quintptr>(device), 16)
                      : QStringLiteral("none"));
-    if (m_refractometerDevice) {
-        disconnect(m_refractometerDevice, nullptr, this, nullptr);
-    }
+    // Sever exactly the two handlers we installed — see the note on the
+    // Connection members. Disconnecting an already-severed or default
+    // Connection is a no-op, so this needs no null guard.
+    QObject::disconnect(m_refractometerConnectedConn);
+    QObject::disconnect(m_refractometerDestroyedConn);
     m_refractometerDevice = device;
     if (m_refractometerDevice) {
+        m_refractometerConnectedConn =
         connect(m_refractometerDevice, &RefractometerDevice::connectedChanged,
                 this, [this]() {
             emit refractometerConnectedChanged();
@@ -1872,9 +1881,12 @@ void BLEManager::setRefractometerDevice(RefractometerDevice* device) {
         // before the device dies, so in practice this only fires at app exit —
         // hence qDebug, not qWarning. A future path that forgets gets a log line
         // instead of a silently stale "connected".
+        m_refractometerDestroyedConn =
         connect(m_refractometerDevice, &QObject::destroyed, this, [this]() {
-            qDebug().noquote() << "[R2-diag] refractometer destroyed while still held "
-                                  "— reporting disconnected";
+            qDebug().noquote() << "[R2-diag] refractometer destroyed with the holder "
+                                  "still set — reporting disconnected. Expected at app "
+                                  "exit; anywhere else means a path skipped "
+                                  "setRefractometerDevice(nullptr).";
             emit refractometerConnectedChanged();
         });
     }
