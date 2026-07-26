@@ -1,5 +1,11 @@
 #pragma once
 
+// Simulation Mode is compiled out of tablet release builds — see the
+// DECENZA_SIMULATOR block in CMakeLists.txt. Guarding the whole file (rather
+// than dropping it from the source list) keeps AUTOMOC's view of the target
+// identical in every configuration, including the iOS Xcode multi-config build.
+#ifdef DECENZA_SIMULATOR
+
 #include "../ble/scaledevice.h"
 
 /**
@@ -36,3 +42,5 @@ private:
     double m_lastWeight = 0.0;
     qint64 m_lastTime = 0;
 };
+
+#endif  // DECENZA_SIMULATOR

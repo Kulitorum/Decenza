@@ -80,7 +80,13 @@ Dialog {
     // Filter results based on search text (with fuzzy matching)
     property var allEntries: {
         var v = _langVersion  // Force re-evaluation on language change
-        return SearchIndex.getSearchEntries(TranslationManager.translate.bind(TranslationManager))
+        var entries = SearchIndex.getSearchEntries(TranslationManager.translate.bind(TranslationManager))
+        // Drop cards this build doesn't have. Search must not offer a result
+        // that scrolls to a card the user cannot see — Simulation Mode is
+        // compiled out of tablet release builds.
+        if (!Settings.app.simulatorAvailable)
+            entries = entries.filter(function(e) { return e.cardId !== "simulationMode" })
+        return entries
     }
     property var filteredEntries: {
         // Read `displayText` (not `text`) so the filter binding re-evaluates on every

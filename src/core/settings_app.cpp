@@ -536,7 +536,13 @@ void SettingsApp::setDeveloperTranslationUpload(bool enabled) {
 }
 
 bool SettingsApp::simulationMode() const {
-#if defined(QT_DEBUG) && (defined(Q_OS_WIN) || defined(Q_OS_MACOS))
+#ifndef DECENZA_SIMULATOR
+    // No simulator in this build, so the answer is no regardless of what is
+    // stored. The stored value is NOT cleared: settings travel between devices
+    // (device-to-device migration, restored backups), and a tablet must not
+    // erase the preference belonging to the desktop it came from.
+    return false;
+#elif defined(QT_DEBUG) && (defined(Q_OS_WIN) || defined(Q_OS_MACOS))
     return m_settings.value("developer/simulationMode", true).toBool();
 #else
     return m_settings.value("developer/simulationMode", false).toBool();

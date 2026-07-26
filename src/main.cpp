@@ -194,9 +194,12 @@ extern "C" const char* __ubsan_default_options()
 #include "weather/weathermanager.h"
 #include "models/flowcalibrationmodel.h"
 
-// Simulator engine (every build) and GHC window (desktop debug only)
+// Simulator engine (absent from tablet release builds — see DECENZA_SIMULATOR
+// in CMakeLists.txt) and GHC window (desktop debug only)
+#ifdef DECENZA_SIMULATOR
 #include "simulator/de1simulator.h"
 #include "simulator/simulatedscale.h"
+#endif
 #if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
 #include "simulator/ghcsimulator.h"
 #endif
@@ -3437,11 +3440,12 @@ int main(int argc, char *argv[])
         }
     }
 
-    // Simulator engine (every build — Simulation Mode is a shipped user setting
-    // in Settings -> Machine) and GHC window (desktop debug only).
+    // Simulator engine (desktop in every configuration, tablets in debug only —
+    // see DECENZA_SIMULATOR in CMakeLists.txt) and GHC window (desktop debug only).
     // NOTE: These must be declared outside the if-block so they survive through
     // app.exec(). Otherwise the if-block scope destroys them before the event
     // loop starts, and signal connections become dangling references (use-after-free).
+#ifdef DECENZA_SIMULATOR
     std::unique_ptr<DE1Simulator> de1SimulatorPtr;
     std::unique_ptr<SimulatedScale> simulatedScalePtr;
 #if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
@@ -3591,6 +3595,7 @@ int main(int argc, char *argv[])
         ghcEngine.load(ghcUrl);
 #endif // desktop GHC window
     }
+#endif // DECENZA_SIMULATOR
 
     // Purge the simulated-scale entry when not running in simulation mode, so a
     // prior simulation session's placeholder doesn't leak into the real connection UI.

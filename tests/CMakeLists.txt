@@ -148,7 +148,14 @@ add_library(decenza_testlib STATIC
     ${CMAKE_SOURCE_DIR}/src/ble/de1transport.h
 )
 set_target_properties(decenza_testlib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)
-target_compile_definitions(decenza_testlib PUBLIC DECENZA_TESTING)
+# DECENZA_SIMULATOR unconditionally: tests build the simulator sources (see
+# SIMULATOR_SOURCES above) and tst_simulatedscale/tst_de1simulator exercise them,
+# so the seam must exist in every test configuration. PUBLIC so it reaches every
+# test target that links this. Tests run on desktop, which ships the simulator
+# anyway; keying this off the app's build type is what let #1629 through — the
+# nightly builds RelWithDebInfo, the guard was QT_DEBUG, and every local Debug
+# run stayed green while CI could not compile the test at all.
+target_compile_definitions(decenza_testlib PUBLIC DECENZA_TESTING DECENZA_SIMULATOR)
 # Qt6::Qml is needed for QJSValue/QJSEngine: TranslationManager exposes `translate` as a
 # QJSValue property holding a callable, which is what makes translated bindings re-evaluate
 # on a language change (see translationmanager.h). PUBLIC so every test target inherits it.

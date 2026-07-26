@@ -764,16 +764,20 @@ if(NOT IOS)
     )
 endif()
 
-# Simulator engine - always included for multi-config generators (Xcode, Visual Studio)
-# CMAKE_BUILD_TYPE is empty at configure time, so conditional inclusion won't work.
-# The simulator code is small and has no extra dependencies, so it's safe to always link.
+# Simulator engine - listed unconditionally so AUTOMOC sees the same files in
+# every configuration. Whether any of it actually compiles is decided by
+# DECENZA_SIMULATOR (see the target_compile_definitions block below), which the
+# files themselves guard on.
 list(APPEND SOURCES
     src/simulator/de1simulator.cpp
     src/simulator/simulatedscale.cpp
 )
 
-# GHC simulator window - desktop only (uses QWidget window)
-if(WIN32 OR APPLE)
+# GHC simulator window - desktop only (uses QWidget window).
+# NOT `if(WIN32 OR APPLE)`: APPLE is true for iOS too, so that spelling compiled
+# this into every iPad build despite the comment. It drives DE1Simulator's
+# signals, so with the simulator absent it would not even compile there.
+if(WIN32 OR (APPLE AND NOT IOS))
     list(APPEND SOURCES
         src/simulator/ghcsimulator.cpp
     )
@@ -943,8 +947,8 @@ list(APPEND HEADERS
     src/simulator/simulatedscale.h
 )
 
-# GHC simulator window header - desktop only
-if(WIN32 OR APPLE)
+# GHC simulator window header - desktop only (see source section note on iOS)
+if(WIN32 OR (APPLE AND NOT IOS))
     list(APPEND HEADERS
         src/simulator/ghcsimulator.h
     )
@@ -1002,6 +1006,32 @@ if(ENABLE_TSNET)
     target_compile_definitions(Decenza PRIVATE DECENZA_ENABLE_TSNET)
     decenza_link_tsnet(Decenza)
 endif()
+
+# Simulation Mode availability.
+#
+# The simulator is a development aid on a tablet — the machine is right there —
+# so tablet RELEASE builds ship without it: no engine, no wiring in DE1Device or
+# main.cpp, and no Settings card. Debug builds keep it on every platform, and
+# desktop keeps it in every configuration (running the app on a laptop with no
+# DE1 attached is a legitimate way to use it).
+#
+# DECENZA_SIMULATOR is the single source of truth. src/simulator/*.{h,cpp} guard
+# their whole contents on it, so when it is off those translation units compile
+# to nothing and no simulator code reaches the binary. The sources stay listed in
+# the target either way, which keeps AUTOMOC's view of them stable.
+#
+# This MUST be a generator expression, not `if(CMAKE_BUILD_TYPE STREQUAL Debug)`.
+# The iOS release build uses the Xcode generator, where CMAKE_BUILD_TYPE is empty
+# at configure time — a configure-time test silently reads as "not Debug" for
+# every config, including Debug. That is exactly what broke the old conditional
+# and led #487 to link the engine into every build instead.
+if(ANDROID OR IOS)
+    set(DECENZA_SIMULATOR_CONDITION "$<CONFIG:Debug>")
+else()
+    set(DECENZA_SIMULATOR_CONDITION "1")
+endif()
+target_compile_definitions(Decenza PRIVATE
+    "$<${DECENZA_SIMULATOR_CONDITION}:DECENZA_SIMULATOR>")
 
 # Link SerialPort only on desktop (not available on Android/iOS)
 if(NOT ANDROID AND NOT IOS)

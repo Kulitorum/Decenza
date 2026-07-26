@@ -1596,11 +1596,14 @@ KeyboardAwareContainer {
                     }
                 }
 
-                // Simulation Mode
+                // Simulation Mode — absent on builds with no simulator compiled
+                // in (tablet release). Height collapses too, so the card leaves
+                // no gap in the column.
                 Rectangle {
                     objectName: "simulationMode"
+                    visible: Settings.app.simulatorAvailable
                     Layout.fillWidth: true
-                    implicitHeight: offlineContent.implicitHeight + Theme.scaled(30)
+                    implicitHeight: visible ? offlineContent.implicitHeight + Theme.scaled(30) : 0
                     color: Theme.cardBackgroundColor
                     radius: Theme.cardRadius
 

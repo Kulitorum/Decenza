@@ -1,3 +1,9 @@
+// Simulation Mode is compiled out of tablet release builds — see the
+// DECENZA_SIMULATOR block in CMakeLists.txt. Guarding the whole file (rather
+// than dropping it from the source list) keeps AUTOMOC's view of the target
+// identical in every configuration, including the iOS Xcode multi-config build.
+#ifdef DECENZA_SIMULATOR
+
 #include "de1simulator.h"
 #include <QDebug>
 #include <QDateTime>
@@ -904,3 +910,5 @@ double DE1Simulator::calculatePressure(double flow, double resistance)
     // Inverse Darcy's law: P = Q * R / k
     return flow * resistance / DARCY_K;
 }
+
+#endif  // DECENZA_SIMULATOR

@@ -3737,9 +3737,12 @@ ApplicationWindow {
         onClicked: function(mouse) { mouse.accepted = false }
     }
 
-    // Keyboard shortcut for simulation mode (Ctrl+D)
+    // Keyboard shortcut for simulation mode (Ctrl+D). Inert on builds with no
+    // simulator compiled in, so it can't strand a user in a mode that has no
+    // engine behind it and no Settings card to switch it back off.
     Shortcut {
         sequence: "Ctrl+D"
+        enabled: Settings.app.simulatorAvailable
         onActivated: {
             var newState = !DE1Device.simulationMode
             console.log("Toggling simulation mode:", newState ? "ON" : "OFF")

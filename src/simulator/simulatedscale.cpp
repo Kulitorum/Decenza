@@ -1,3 +1,9 @@
+// Simulation Mode is compiled out of tablet release builds — see the
+// DECENZA_SIMULATOR block in CMakeLists.txt. Guarding the whole file (rather
+// than dropping it from the source list) keeps AUTOMOC's view of the target
+// identical in every configuration, including the iOS Xcode multi-config build.
+#ifdef DECENZA_SIMULATOR
+
 #include "simulatedscale.h"
 #include <QDebug>
 #include <QDateTime>
@@ -74,3 +80,5 @@ void SimulatedScale::setSimulatedWeight(double weight) {
 
     setWeight(displayWeight);
 }
+
+#endif  // DECENZA_SIMULATOR
