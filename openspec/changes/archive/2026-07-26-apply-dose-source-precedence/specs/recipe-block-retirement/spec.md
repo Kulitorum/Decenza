@@ -80,6 +80,19 @@ reported rather than the caller's number being echoed back as if stored.
 - **THEN** the stored value is the maximum
 - **AND** the response reports the adjustment
 
+#### Scenario: Competing spellings are never both discarded
+
+- **WHEN** a caller supplies `dose` and a retired spelling of the per-profile dose in one request
+- **THEN** `dose` is applied
+- **AND** the response names the retired spelling
+- **WHEN** a caller supplies only retired spellings
+- **THEN** the response does not report success
+
+The guarantee this scenario has always made — a caller never gets an unchanged profile *and* a
+success result — is unchanged. Only the mechanism is: adjudicating a collision between two live
+spellings has been replaced by there being one spelling, so the losing side is now reported as
+retired rather than as the loser of a conflict.
+
 #### Scenario: An advanced profile takes a dose like any other
 
 - **WHEN** a caller sets `dose` on a profile with no recipe editor type

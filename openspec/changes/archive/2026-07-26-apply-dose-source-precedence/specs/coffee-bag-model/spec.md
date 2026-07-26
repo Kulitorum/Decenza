@@ -39,3 +39,17 @@ Applying a bag's **yield spec** SHALL be gated on **no recipe being active**: th
 - **WHEN** a bag with a null/0 `doseWeightG` and a yield mode of `none` is selected
 - **THEN** the current global dose SHALL remain in effect and the brew yield SHALL follow the profile default
 - **AND** the bag SHALL adopt the dose on the first edit or shot save, and its yield spec only when the user presses "Update Bag" in brew settings
+
+#### Scenario: A bag's dose is not known until its row arrives
+- **WHEN** a bag is selected and a profile carrying a recommended dose is loaded before that bag's row has been read
+- **THEN** the profile's dose SHALL NOT be applied
+- **AND** the bag's stored `doseWeightG` SHALL be unchanged
+
+The row load is asynchronous, so between the selection and its arrival the bag is indistinguishable
+from one holding no dose. Reading it as empty would let the profile's dose through — and because
+that write travels back to the bag, it would replace the dose the bean actually remembered
+(`dose-source-precedence`).
+
+#### Scenario: No active bag
+- **WHEN** no bag is selected (`activeBagId` is null or references a deleted bag)
+- **THEN** the bean summary SHALL display "No beans selected" and prompt the user to select a bag

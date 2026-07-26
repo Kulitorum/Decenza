@@ -95,7 +95,7 @@ The DB import path (`ShotHistoryStorage::importDatabaseStatic`) SHALL migrate `c
 ### Requirement: Active bag selection
 The system SHALL maintain a single global `activeBagId` in `SettingsDye` (replacing the `bean/selectedPreset` index). The active bag's fields drive the next shot's bean snapshot.
 
-Applying a bag's **yield spec** SHALL be gated on **no recipe being active**: the resolution ladder of `yield-anchor` (recipe → bag → profile) SHALL be enforced explicitly, never left to emerge from the order in which the bag-selection and recipe-activation signals happen to arrive. The bag's dose continues to apply unconditionally, as today.
+Applying a bag's **yield spec** SHALL be gated on **no recipe being active**: the resolution ladder of `yield-anchor` (recipe → bag → profile) SHALL be enforced explicitly, never left to emerge from the order in which the bag-selection and recipe-activation signals happen to arrive. **Applying a bag's dose SHALL be gated the same way**, per the ladder in `dose-source-precedence`. The two were previously asymmetric — the yield spec respected the ladder while the dose applied unconditionally, so selecting a bag replaced an active recipe's dose while leaving its yield alone. Nothing about the bag justified the difference; the dose simply had no ladder to obey.
 
 #### Scenario: Bag selection applies all fields
 - **WHEN** the user selects a bag (from inventory or Change Beans dialog)
@@ -106,6 +106,11 @@ Applying a bag's **yield spec** SHALL be gated on **no recipe being active**: th
 - **THEN** the dose SHALL drive the next shot's dose (`dyeBeanWeight`)
 - **AND** switching the bean SHALL first reset the brew overrides to the active profile's defaults, then re-apply the bag's yield spec to the session anchor — so the next shot's target is the bean's own, and a bag without an anchor stays at the profile default
 - **AND** the bag's yield spec is NOT routed through `dyeDrinkWeight` (which remains plain DYE drink-weight metadata)
+
+#### Scenario: Recipe-driven bag selection does not overwrite the recipe's dose
+- **WHEN** a bag with a stored `doseWeightG` is selected while a recipe supplying a dose is active
+- **THEN** the next shot's dose SHALL remain the recipe's
+- **AND** the bag's dose SHALL NOT be written to `dyeBeanWeight`
 
 #### Scenario: A bag's own anchor is a baseline, not an override
 - **WHEN** a bag holding `{42.0, absolute}` is active, no recipe is active, and the profile's `target_weight` is 36 g
@@ -126,6 +131,16 @@ Applying a bag's **yield spec** SHALL be gated on **no recipe being active**: th
 - **WHEN** a bag with a null/0 `doseWeightG` and a yield mode of `none` is selected
 - **THEN** the current global dose SHALL remain in effect and the brew yield SHALL follow the profile default
 - **AND** the bag SHALL adopt the dose on the first edit or shot save, and its yield spec only when the user presses "Update Bag" in brew settings
+
+#### Scenario: A bag's dose is not known until its row arrives
+- **WHEN** a bag is selected and a profile carrying a recommended dose is loaded before that bag's row has been read
+- **THEN** the profile's dose SHALL NOT be applied
+- **AND** the bag's stored `doseWeightG` SHALL be unchanged
+
+The row load is asynchronous, so between the selection and its arrival the bag is indistinguishable
+from one holding no dose. Reading it as empty would let the profile's dose through — and because
+that write travels back to the bag, it would replace the dose the bean actually remembered
+(`dose-source-precedence`).
 
 #### Scenario: No active bag
 - **WHEN** no bag is selected (`activeBagId` is null or references a deleted bag)
