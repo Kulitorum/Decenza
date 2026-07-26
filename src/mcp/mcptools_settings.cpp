@@ -299,6 +299,10 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
 
             // === Debug ===
             if (include("simulationMode", "debug")) result["simulationMode"] = settings->app()->simulationMode();
+            // Without this a client cannot tell "the user switched it off" from
+            // "this build has no simulator", and would keep retrying a write
+            // that settings_set refuses.
+            if (include("simulatorAvailable", "debug")) result["simulatorAvailable"] = settings->app()->simulatorAvailable();
             if (include("hideGhcSimulator", "debug")) result["hideGhcSimulator"] = settings->app()->hideGhcSimulator();
 
             // === Battery ===

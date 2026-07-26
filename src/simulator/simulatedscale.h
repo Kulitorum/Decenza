@@ -1,9 +1,8 @@
 #pragma once
 
-// Simulation Mode is compiled out of tablet release builds — see the
-// DECENZA_SIMULATOR block in CMakeLists.txt. Guarding the whole file (rather
-// than dropping it from the source list) keeps AUTOMOC's view of the target
-// identical in every configuration, including the iOS Xcode multi-config build.
+// Whole file compiles to nothing without DECENZA_SIMULATOR — see the rationale
+// in CMakeLists.txt. (moc then reports "No relevant classes found" for the
+// headers on those builds; that note is expected, not a fault.)
 #ifdef DECENZA_SIMULATOR
 
 #include "../ble/scaledevice.h"

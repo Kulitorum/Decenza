@@ -257,6 +257,21 @@ bool DE1Device::isConnecting() const {
 // -- Simulation mode --
 
 void DE1Device::setSimulationMode(bool enabled) {
+#ifndef DECENZA_SIMULATOR
+    // Belt and braces. Today no caller can get here with `true` on a build
+    // without a simulator — main.cpp passes the hard-false settings getter and
+    // the Ctrl+D shortcut is disabled — but this is a public Q_PROPERTY WRITE
+    // that compiles identically in both configurations, so a future QML or C++
+    // writer would reopen the bug with no compile-time signal. Enabling here
+    // fabricates a connected machine (synthetic firmware string, water level,
+    // head temp) and makes isConnected() true, which is exactly the dead
+    // "simulating with no engine" UI this build is meant to be free of.
+    if (enabled) {
+        qWarning() << "DE1Device: simulation mode requested, but no simulator is "
+                      "compiled into this build - ignoring";
+        return;
+    }
+#endif
     if (m_simulationMode == enabled) {
         return;
     }

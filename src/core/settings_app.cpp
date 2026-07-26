@@ -535,22 +535,56 @@ void SettingsApp::setDeveloperTranslationUpload(bool enabled) {
     }
 }
 
-bool SettingsApp::simulationMode() const {
-#ifndef DECENZA_SIMULATOR
-    // No simulator in this build, so the answer is no regardless of what is
-    // stored. The stored value is NOT cleared: settings travel between devices
-    // (device-to-device migration, restored backups), and a tablet must not
-    // erase the preference belonging to the desktop it came from.
+bool SettingsApp::simulatorAvailable() const {
+#ifdef DECENZA_SIMULATOR
+    return true;
+#else
     return false;
-#elif defined(QT_DEBUG) && (defined(Q_OS_WIN) || defined(Q_OS_MACOS))
+#endif
+}
+
+// The stored preference with this build's default applied. The default is not
+// uniform — a debug desktop build starts in simulation — so the setter must
+// compare against this rather than against a raw value() with a false default,
+// or "switch it off" while the key is unset would write nothing and leave the
+// effective value true.
+bool SettingsApp::storedSimulationMode() const {
+#if defined(QT_DEBUG) && (defined(Q_OS_WIN) || defined(Q_OS_MACOS))
     return m_settings.value("developer/simulationMode", true).toBool();
 #else
     return m_settings.value("developer/simulationMode", false).toBool();
 #endif
 }
 
+bool SettingsApp::simulationMode() const {
+#ifndef DECENZA_SIMULATOR
+    // No simulator in this build, so the answer is no regardless of what is
+    // stored. A const getter must not mutate storage; setSimulationMode() below
+    // is what keeps a stale stored `true` from surviving here.
+    return false;
+#else
+    return storedSimulationMode();
+#endif
+}
+
 void SettingsApp::setSimulationMode(bool enabled) {
-    if (simulationMode() != enabled) {
+#ifndef DECENZA_SIMULATOR
+    // Never persist a value this build cannot honour. Without this the setter is
+    // asymmetric, because it compares against a getter hard-wired to false:
+    // setSimulationMode(true) would store `true` while the getter still read
+    // false, and setSimulationMode(false) would short-circuit and never clear
+    // it. The stored `true` would then be unreachable through every API on this
+    // device (the Settings card is hidden, MCP reads false) and would take
+    // effect the next time the same install ran a build that HAS the simulator
+    // — booting it into simulation with DE1 BLE disabled and no way back.
+    if (enabled) {
+        qWarning() << "SettingsApp: simulation mode requested, but no simulator is "
+                      "compiled into this build - ignoring";
+        return;
+    }
+    // Fall through on `false` so a stale stored `true` still gets cleared.
+#endif
+    if (storedSimulationMode() != enabled) {
         m_settings.setValue("developer/simulationMode", enabled);
         emit simulationModeChanged();
     }

@@ -3442,10 +3442,10 @@ int main(int argc, char *argv[])
 
     // Simulator engine (desktop in every configuration, tablets in debug only —
     // see DECENZA_SIMULATOR in CMakeLists.txt) and GHC window (desktop debug only).
+#ifdef DECENZA_SIMULATOR
     // NOTE: These must be declared outside the if-block so they survive through
     // app.exec(). Otherwise the if-block scope destroys them before the event
     // loop starts, and signal connections become dangling references (use-after-free).
-#ifdef DECENZA_SIMULATOR
     std::unique_ptr<DE1Simulator> de1SimulatorPtr;
     std::unique_ptr<SimulatedScale> simulatedScalePtr;
 #if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
