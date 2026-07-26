@@ -23,11 +23,13 @@
 
 ## 4. Averaged measurement
 
-- [ ] 4.1 Add an averaged-measurement entry point to `RefractometerDevice` with a base implementation that falls back to a single measurement (keeps `DiFluidR1` untouched)
-- [ ] 4.2 Implement it in `DiFluidR2` as Device Action Cmd 1 with a one-byte count, clamped to 1–10, checksum computed the same way as every other command
-- [ ] 4.3 Confirm pack 3 (averaged result) and pack 4 (averaged temps + M-of-N counter) parse correctly against the spec's worked example — this code has never run
-- [ ] 4.4 Surface the M-of-N progress from pack 4 as a signal the UI can bind to
-- [ ] 4.5 Tests: request bytes for count 3; clamping at 0 and 25; averaged result passes through the same plausibility gate as a single reading; single test remains the default path
+- [x] 4.1 Add an averaged-measurement entry point to `RefractometerDevice` with a base implementation that falls back to a single measurement (keeps `DiFluidR1` untouched)
+- [x] 4.2 Implement it in `DiFluidR2` as Device Action Cmd 1 with a one-byte count, clamped to 1–10, checksum computed the same way as every other command
+- [x] 4.3 Dispatch result packets on the response's action code: pack 2 is terminal only under cmd 0, and an unrecognised cmd falls back to that same single-test interpretation
+- [x] 4.4 Emit each pack 3 as it converges (latest-wins, never contingent on a terminal packet), and move completion — measuringChanged/measurementComplete — onto status 6
+- [x] 4.5 Surface the M-of-N progress from pack 4 as a signal the UI can bind to
+- [x] 4.6 Confirm pack 3 and pack 4 parse correctly against the spec's worked example — this code has never run
+- [x] 4.7 Tests: request bytes for count 3; clamping at 0 and 25; pack 2 under cmd 1 emits nothing; unknown cmd still emits; each pack 3 emits; run does not complete until status 6; device-initiated average (no requestMeasurement) still delivers; single test unchanged
 
 ## 5. Auto Test
 

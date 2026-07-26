@@ -269,6 +269,41 @@ void DiFluidR2::requestMeasurement() {
     m_measurementTimer.start();
 }
 
+void DiFluidR2::requestAveragedMeasurement(int testCount) {
+    if (!m_connected || !m_characteristicsReady) {
+        R2_WARN("Cannot read — not connected");
+        return;
+    }
+
+    const int clamped = qBound(MIN_TEST_COUNT, testCount, MAX_TEST_COUNT);
+    if (clamped != testCount) {
+        R2_WARN(QString("Averaged test count %1 outside the device range %2-%3 — using %4")
+                    .arg(testCount).arg(MIN_TEST_COUNT).arg(MAX_TEST_COUNT).arg(clamped));
+    }
+
+    m_measuring = true;
+    emit measuringChanged();
+    R2_LOG(QString("Requesting averaged test (%1 tests) from R2").arg(clamped));
+
+    // Official protocol: Func=3 (Device Action), Cmd=1 (Average Test), DataLen=1,
+    // Data0 = number of tests. Command: DF DF 03 01 01 <count> <checksum>
+    QByteArray cmd;
+    cmd.append(static_cast<char>(0xDF));  // Header
+    cmd.append(static_cast<char>(0xDF));  // Header
+    cmd.append(static_cast<char>(0x03));  // Func: Device Action
+    cmd.append(static_cast<char>(0x01));  // Cmd: Average Test
+    cmd.append(static_cast<char>(0x01));  // DataLen: 1
+    cmd.append(static_cast<char>(clamped));
+
+    uint8_t checksum = 0;
+    for (qsizetype i = 0; i < cmd.size(); ++i)
+        checksum += static_cast<uint8_t>(cmd[i]);
+    cmd.append(static_cast<char>(checksum));
+
+    sendCommand(cmd);
+    m_measurementTimer.start();
+}
+
 // === Transport callbacks ===
 
 void DiFluidR2::onTransportConnected() {
@@ -452,21 +487,29 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
             // measuring state so the UI doesn't hang.
             if (errClass == 2 && errCode == 3) emit errorOccurred("No liquid detected");
             else if (errClass == 2 && errCode == 4) emit errorOccurred("Beyond range");
-            m_measurementTimer.stop();
-            m_measuring = false;
-            emit measuringChanged();
+            finishMeasurement(/*complete=*/false);
             return;
         }
         if (cmd == 255) {
             // Non-actionable — log only (see the cmd==254 note above).
             R2_WARN("R2 unknown error");
-            m_measurementTimer.stop();
-            m_measuring = false;
-            emit measuringChanged();
+            finishMeasurement(/*complete=*/false);
             return;
         }
 
-        // Test result packets: Data0 = package number
+        // Test result packets: Data0 = package number.
+        //
+        // Which packet is THE reading depends on the action this response belongs to.
+        // During an averaged run the R2 emits a full packet set per constituent test,
+        // so pack 2 (single-test result) arrives once per test carrying that one test's
+        // concentration — it is per-test detail, not the answer. Only under a single-test
+        // action is pack 2 the final reading.
+        //
+        // Anything that is not explicitly the average action is treated as it was before
+        // this dispatch existed. We do not know what action code a physical-button
+        // measurement carries — the driver only ever observed that it "streams pack 2" —
+        // so an unrecognised code must degrade to today's behaviour rather than to silence.
+        const bool averagedRun = (cmd == 1);
         if (dataLen < 1) return;
         uint8_t packNo = static_cast<uint8_t>(packet[5]);
 
@@ -491,6 +534,12 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
             // The device is telling us it is still working — keep the run alive.
             if (m_measuring && r2StatusIsProgress(status))
                 m_measurementTimer.start();
+            // Status 6 (Average Test Finished) is the device's terminal signal for an
+            // averaged run. The value itself already arrived via pack 3 — this only ends
+            // the run, which is why a dropped status 6 costs the spinner and not the
+            // reading. The liveness watchdog covers the case where it never comes.
+            if (status == 6)
+                finishMeasurement(/*complete=*/true);
             break;
         }
         case 1: {
@@ -555,22 +604,42 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
             quint16 tdsRaw = static_cast<quint16>(
                 (static_cast<uint8_t>(packet[6]) << 8) | static_cast<uint8_t>(packet[7]));
             logRefractiveIndex(packet, dataLen);
-            emitTdsResult(tdsRaw, /*isAverage=*/false);
+            if (averagedRun) {
+                // One test of several. Informative in the log — it shows the scatter the
+                // averaging exists to smooth — but it is not the reading.
+                R2_LOG(QString("Individual test in averaged run: %1%% (raw=%2) — not emitted")
+                           .arg(tdsRaw / 100.0, 0, 'f', 2).arg(tdsRaw));
+                if (m_measuring) m_measurementTimer.start();
+                break;
+            }
+            emitTdsResult(tdsRaw, /*isAverage=*/false, /*terminal=*/true);
             break;
         }
         case 3: {
-            // Average result: same format as pack 2
+            // Average result: same format as pack 2. Under an averaged run this lands once
+            // per constituent test carrying the average so far, so each is emitted and the
+            // last one wins. Delivery is never contingent on a terminal packet arriving:
+            // a dropped terminal status would otherwise mean the user gets nothing.
             if (dataLen < 3) return;
             quint16 tdsRaw = static_cast<quint16>(
                 (static_cast<uint8_t>(packet[6]) << 8) | static_cast<uint8_t>(packet[7]));
             logRefractiveIndex(packet, dataLen);
-            emitTdsResult(tdsRaw, /*isAverage=*/true);
+            emitTdsResult(tdsRaw, /*isAverage=*/true, /*terminal=*/!averagedRun);
             break;
         }
         case 4: {
-            // Average temp + count info. One of these lands per completed test in an
-            // averaged run, so it is also a progress signal.
-            R2_LOG(QString("Average temp/count packet"));
+            // Average temp + count info: Data5 = tests completed, Data6 = tests total.
+            // One lands per completed test, so it is both a progress signal and a sign
+            // the device is still working.
+            if (dataLen >= 7) {
+                const int completed = static_cast<uint8_t>(packet[10]);
+                const int total = static_cast<uint8_t>(packet[11]);
+                R2_LOG(QString("Averaged run progress: test %1 of %2").arg(completed).arg(total));
+                emit averageProgress(completed, total);
+            } else {
+                R2_LOG(QString("Average temp/count packet (no counter, %1 data bytes)")
+                           .arg(dataLen));
+            }
             if (m_measuring) m_measurementTimer.start();
             break;
         }
@@ -616,7 +685,17 @@ void DiFluidR2::handleSerialNumberPart(const QByteArray& data) {
     R2_LOG(QString("Serial number: \"%1\"").arg(m_serialNumber));
 }
 
-void DiFluidR2::emitTdsResult(quint16 tdsRaw, bool isAverage) {
+void DiFluidR2::finishMeasurement(bool complete) {
+    m_measurementTimer.stop();
+    if (complete) emit measurementComplete();
+    // measuringChanged is emitted unconditionally, matching what every other end-of-run
+    // path in this driver has always done — a device-initiated run leaves m_measuring
+    // false throughout, and consumers tolerate the redundant notification.
+    m_measuring = false;
+    emit measuringChanged();
+}
+
+void DiFluidR2::emitTdsResult(quint16 tdsRaw, bool isAverage, bool terminal) {
     const double tds = tdsRaw / 100.0;
     const QString label = isAverage ? QStringLiteral("Average TDS")
                                      : QStringLiteral("TDS");
@@ -631,19 +710,21 @@ void DiFluidR2::emitTdsResult(quint16 tdsRaw, bool isAverage) {
         R2_WARN(QString("%1 out of range: %2% (raw=%3) — ignoring")
                     .arg(label).arg(tds, 0, 'f', 2).arg(tdsRaw));
         emit errorOccurred("R2 reported an out-of-range value");
-        m_measurementTimer.stop();
-        m_measuring = false;
-        emit measuringChanged();
+        finishMeasurement(/*complete=*/false);
         return;
     }
 
     m_tds = tds;
-    R2_LOG(QString("%1: %2% (raw=%3)").arg(label).arg(tds, 0, 'f', 2).arg(tdsRaw));
+    R2_LOG(QString("%1: %2% (raw=%3)%4").arg(label).arg(tds, 0, 'f', 2).arg(tdsRaw)
+               .arg(terminal ? QString() : QStringLiteral(" (running average, not final)")));
     emit tdsChanged(m_tds);
-    emit measurementComplete();
-    m_measurementTimer.stop();
-    m_measuring = false;
-    emit measuringChanged();
+
+    if (!terminal) {
+        // A converging average: the value is delivered, but the run continues.
+        if (m_measuring) m_measurementTimer.start();
+        return;
+    }
+    finishMeasurement(/*complete=*/true);
 }
 
 void DiFluidR2::logRefractiveIndex(const QByteArray& packet, quint8 dataLen) {

@@ -43,6 +43,11 @@ public:
     void connectToDevice(const QBluetoothDeviceInfo& device) override;
     void disconnectFromDevice() override;
     void requestMeasurement() override;
+    void requestAveragedMeasurement(int testCount) override;
+
+    // Device-supported range for the averaged test count (protocolR2.md).
+    static constexpr int MIN_TEST_COUNT = 1;
+    static constexpr int MAX_TEST_COUNT = 10;
 
     // BLE name matching — call before scale detection to prevent misclassification
     static bool isR2Device(const QString& name);
@@ -67,7 +72,13 @@ private:
     // "Read TDS" button and the physical R2 Start button) and pack 3 (average).
     // Applies the out-of-range sanity gate so every consumer-bound TDS is
     // validated identically regardless of which path produced it.
-    void emitTdsResult(quint16 tdsRaw, bool isAverage);
+    // `terminal` separates delivering a value from declaring the run over. An averaged
+    // run emits a converging average once per constituent test, so those deliveries are
+    // non-terminal; only the device's terminal status ends the run.
+    void emitTdsResult(quint16 tdsRaw, bool isAverage, bool terminal);
+    // Ends a run: stops the watchdog, clears the measuring state, and (on success)
+    // emits measurementComplete. Safe to call when no run is outstanding.
+    void finishMeasurement(bool complete);
     // Instrumentation: log the refractive index (Data3-6) carried alongside the
     // concentration in pack 2/3. RI is the device's ground-truth optical reading and
     // the cross-check for whether the concentration field is coffee TDS or raw Brix.

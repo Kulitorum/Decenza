@@ -461,6 +461,198 @@ private slots:
         QVERIFY(!r2.isMeasuring());
     }
 
+    // === Averaged measurement ===
+    //
+    // The R2 emits a full packet set per constituent test of an averaged run, so the
+    // single-test result packet arrives once per test carrying THAT test's value. Which
+    // packet is the real reading depends on the action code the response belongs to.
+    // Packet shapes follow DiFluid's worked Average Test example in protocolR2.md.
+
+    // Result packets under the Average Test action (Func 3, Cmd 1).
+    static QByteArray buildAveragedRunPacket(uint8_t packNo, const QByteArray& payload) {
+        QByteArray data;
+        data.append(static_cast<char>(packNo));
+        data.append(payload);
+        return buildR2Packet(0x03, 0x01, data);
+    }
+
+    static QByteArray tdsPayload(double tds) {
+        const quint16 raw = static_cast<quint16>(qRound(tds * 100.0));
+        QByteArray p;
+        p.append(static_cast<char>((raw >> 8) & 0xFF));
+        p.append(static_cast<char>(raw & 0xFF));
+        return p;
+    }
+
+    // Pack 4 under an averaged run: avg prism, avg tank, tests done, tests total.
+    static QByteArray buildAverageProgressPacket(uint8_t completed, uint8_t total) {
+        QByteArray p;
+        p.append(QByteArray(4, '\0'));               // averaged prism + tank temps
+        p.append(static_cast<char>(completed));
+        p.append(static_cast<char>(total));
+        return buildAveragedRunPacket(4, p);
+    }
+
+    static QByteArray buildAveragedRunStatusPacket(uint8_t status) {
+        QByteArray p;
+        p.append(static_cast<char>(status));
+        return buildAveragedRunPacket(0, p);
+    }
+
+    void averagedRequestSendsTheDocumentedBytes() {
+        // DF DF 03 01 01 <count> <checksum>, per protocolR2.md.
+        QByteArray expected = QByteArray::fromHex("DFDF03010103");
+        uint8_t sum = 0;
+        for (qsizetype i = 0; i < expected.size(); ++i) sum += static_cast<uint8_t>(expected[i]);
+        expected.append(static_cast<char>(sum));
+        QCOMPARE(expected.toHex(), QByteArray("dfdf030101 03c6").replace(" ", ""));
+    }
+
+    void averagedTestCountIsClampedToTheDeviceRange() {
+        // Not connected, so nothing is written — the clamp is asserted through the
+        // warning, which is the only observable without a transport.
+        DiFluidR2 low(nullptr);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Cannot read"));
+        low.requestAveragedMeasurement(0);
+
+        DiFluidR2 high(nullptr);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Cannot read"));
+        high.requestAveragedMeasurement(25);
+
+        // Range constants are what the command builder clamps against.
+        QCOMPARE(DiFluidR2::MIN_TEST_COUNT, 1);
+        QCOMPARE(DiFluidR2::MAX_TEST_COUNT, 10);
+    }
+
+    void perTestResultDuringAveragedRunIsNotAReading() {
+        DiFluidR2 r2(nullptr);
+        QSignalSpy tdsSpy(&r2, &DiFluidR2::tdsChanged);
+        QSignalSpy completeSpy(&r2, &DiFluidR2::measurementComplete);
+        beginMeasuringWithShortWatchdog(r2, 500);
+
+        // Pack 2 under Cmd 1: one test of several, not the answer.
+        r2.handlePacket(buildAveragedRunPacket(2, tdsPayload(9.99)));
+
+        QCOMPARE(tdsSpy.count(), 0);
+        QCOMPARE(completeSpy.count(), 0);
+        QVERIFY2(r2.isMeasuring(), "an individual test ended the averaged run");
+    }
+
+    void singleTestResultIsStillTerminal() {
+        DiFluidR2 r2(nullptr);
+        QSignalSpy tdsSpy(&r2, &DiFluidR2::tdsChanged);
+        QSignalSpy completeSpy(&r2, &DiFluidR2::measurementComplete);
+        beginMeasuringWithShortWatchdog(r2, 500);
+
+        r2.handlePacket(buildTdsPacket(8.50));  // Func 3, Cmd 0, pack 2
+
+        QCOMPARE(tdsSpy.count(), 1);
+        QCOMPARE(completeSpy.count(), 1);
+        QVERIFY(!r2.isMeasuring());
+    }
+
+    void unrecognisedActionCodeStillDeliversAReading() {
+        // We do not know what action code a physical-button measurement carries. An
+        // unrecognised one must behave as it did before the dispatch existed — a reading —
+        // never silence.
+        DiFluidR2 r2(nullptr);
+        QSignalSpy tdsSpy(&r2, &DiFluidR2::tdsChanged);
+
+        QByteArray data;
+        data.append(static_cast<char>(0x02));  // pack 2
+        data.append(tdsPayload(8.50));
+        r2.handlePacket(buildR2Packet(0x03, 0x07, data));  // Cmd 7: unknown action
+
+        QCOMPARE(tdsSpy.count(), 1);
+        QCOMPARE(tdsSpy.at(0).at(0).toDouble(), 8.50);
+    }
+
+    void averagedRunEmitsEachConvergingAverageAndCompletesOnlyAtTheEnd() {
+        DiFluidR2 r2(nullptr);
+        QSignalSpy tdsSpy(&r2, &DiFluidR2::tdsChanged);
+        QSignalSpy completeSpy(&r2, &DiFluidR2::measurementComplete);
+        QSignalSpy progressSpy(&r2, &DiFluidR2::averageProgress);
+        beginMeasuringWithShortWatchdog(r2, 500);
+
+        const double runningAverages[] = { 8.40, 8.46, 8.50 };
+        for (int test = 0; test < 3; ++test) {
+            r2.handlePacket(buildAveragedRunStatusPacket(5));                     // ongoing
+            r2.handlePacket(buildAveragedRunPacket(2, tdsPayload(8.60)));         // this test
+            r2.handlePacket(buildAveragedRunPacket(3, tdsPayload(runningAverages[test])));
+            r2.handlePacket(buildAverageProgressPacket(test + 1, 3));
+
+            // Each averaged result is delivered, but the run is not over.
+            QCOMPARE(tdsSpy.count(), test + 1);
+            QCOMPARE(completeSpy.count(), 0);
+            QVERIFY(r2.isMeasuring());
+        }
+
+        QCOMPARE(progressSpy.count(), 3);
+        QCOMPARE(progressSpy.at(2).at(0).toInt(), 3);
+        QCOMPARE(progressSpy.at(2).at(1).toInt(), 3);
+
+        // Terminal status ends the run; the value is already in hand.
+        r2.handlePacket(buildAveragedRunStatusPacket(6));
+        QCOMPARE(completeSpy.count(), 1);
+        QVERIFY(!r2.isMeasuring());
+        QCOMPARE(r2.tds(), 8.50);
+    }
+
+    void missingTerminalStatusDoesNotLoseTheReading() {
+        DiFluidR2 r2(nullptr);
+        QSignalSpy tdsSpy(&r2, &DiFluidR2::tdsChanged);
+        beginMeasuringWithShortWatchdog(r2, 50);
+
+        r2.handlePacket(buildAveragedRunPacket(3, tdsPayload(8.50)));
+
+        // Status 6 never arrives — the watchdog clears the spinner, but the user keeps
+        // the reading. Losing the value here is the failure mode this design avoids.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Measurement timeout"));
+        QTest::qWait(200);
+
+        QCOMPARE(tdsSpy.count(), 1);
+        QCOMPARE(r2.tds(), 8.50);
+        QVERIFY(!r2.isMeasuring());
+    }
+
+    void deviceInitiatedAveragedRunStillDelivers() {
+        // The R2's own test-count setting applies to measurements started on the device,
+        // so a run the app never requested can be a multi-test average. m_measuring is
+        // false throughout — handling must not depend on having asked.
+        DiFluidR2 r2(nullptr);
+        QSignalSpy tdsSpy(&r2, &DiFluidR2::tdsChanged);
+        QVERIFY(!r2.isMeasuring());
+
+        r2.handlePacket(buildAveragedRunStatusPacket(4));
+        r2.handlePacket(buildAveragedRunPacket(2, tdsPayload(8.60)));
+        r2.handlePacket(buildAveragedRunPacket(3, tdsPayload(8.50)));
+        r2.handlePacket(buildAverageProgressPacket(1, 1));
+        r2.handlePacket(buildAveragedRunStatusPacket(6));
+
+        QCOMPARE(tdsSpy.count(), 1);
+        QCOMPARE(r2.tds(), 8.50);
+        // No watchdog was ever started on its account.
+        QVERIFY(!r2.m_measurementTimer.isActive());
+    }
+
+    void averagedResultIsGatedLikeAnyOtherReading() {
+        DiFluidR2 r2(nullptr);
+        QSignalSpy tdsSpy(&r2, &DiFluidR2::tdsChanged);
+        QSignalSpy errorSpy(&r2, &DiFluidR2::errorOccurred);
+        beginMeasuringWithShortWatchdog(r2, 500);
+
+        // The out-of-range sentinel lands in the same field as a real reading.
+        QByteArray payload;
+        payload.append(static_cast<char>(0xFF));
+        payload.append(static_cast<char>(0xE5));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("out of range"));
+        r2.handlePacket(buildAveragedRunPacket(3, payload));
+
+        QCOMPARE(tdsSpy.count(), 0);
+        QCOMPARE(errorSpy.count(), 1);
+        QVERIFY(!r2.isMeasuring());
+    }
+
     // === Measurement liveness watchdog ===
     //
     // The watchdog exists to recover from a device that goes silent, which produces no

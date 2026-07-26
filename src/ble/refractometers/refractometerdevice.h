@@ -44,6 +44,18 @@ public:
     Q_INVOKABLE virtual void disconnectFromDevice() = 0;
     Q_INVOKABLE virtual void requestMeasurement() = 0;
 
+    // Averaged measurement over `testCount` tests, where the device supports it.
+    // Averaging several readings is standard practice for refractometry — a single
+    // reading on espresso carries real run-to-run scatter.
+    //
+    // The base implementation falls back to a single measurement, so a device with no
+    // averaging (DiFluidR1) needs no code and a caller always gets a reading rather
+    // than silence. Drivers that do support it clamp the count to their own range.
+    Q_INVOKABLE virtual void requestAveragedMeasurement(int testCount) {
+        Q_UNUSED(testCount);
+        requestMeasurement();
+    }
+
 signals:
     void connectedChanged();
     void tdsChanged(double tds);
@@ -51,6 +63,10 @@ signals:
     void measuringChanged();
     void nameChanged();
     void measurementComplete();
+    // Progress through a multi-test averaged run: `completed` of `total` tests done.
+    // Lets the UI show that several tests are being taken rather than appearing hung,
+    // without putting a half-finished average where a final reading belongs.
+    void averageProgress(int completed, int total);
     void errorOccurred(const QString& error);
     void logMessage(const QString& message);
 };
