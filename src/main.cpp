@@ -2873,6 +2873,13 @@ int main(int argc, char *argv[])
     });
 
     // === Refractometer (DiFluid R1 / R2) ===
+    // NOTE: declared AFTER `engine`, unlike the other context-property backing
+    // objects (see the convention stated at the engine's declaration). It is
+    // therefore destroyed while the engine and its bindings are still live, and
+    // BLEManager/MainController hold it via QPointer for exactly that reason —
+    // see BLEManager::m_refractometerDevice. Moving this above `engine` would
+    // remove the hazard at the source; until then, do not add a raw-pointer
+    // holder for this device.
     std::unique_ptr<RefractometerDevice> refractometer;
     engine.rootContext()->setContextProperty("Refractometer", nullptr);
 
@@ -4259,9 +4266,18 @@ int main(int argc, char *argv[])
             physicalScale->disconnectFromScale();
         }
 
-        // Note: No need to null context properties here. All C++ objects are
-        // stack-allocated before the QML engine, so reverse destruction order
-        // guarantees the engine (and all QML items) is destroyed first.
+        // Note: no need to null context properties here — but NOT because every
+        // C++ object outlives the engine. Most are declared before it and do;
+        // the exceptions (`refractometer` below, `de1SimulatorPtr` — see the
+        // note after app.exec()) are declared after it and die FIRST, while
+        // bindings that read them are still live. This comment used to claim
+        // the blanket guarantee, and a refractometer teardown crash proved it
+        // wrong. What makes nulling unnecessary is narrower: QML drops a
+        // context property itself when its object emits destroyed(), and the
+        // C++ side holds those objects via QPointer (see
+        // BLEManager::m_refractometerDevice) so it self-nulls at the same
+        // moment. A new context-property object held by a raw pointer would
+        // need one of those two, not this comment's blessing.
 
         // Disable Qt's accessibility bridge before window destruction
         // This prevents iOS crash (SIGBUS) where the accessibility system tries to

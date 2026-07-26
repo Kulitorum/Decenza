@@ -859,17 +859,37 @@ private:
     QList<QBluetoothDeviceInfo> m_refractometerDevices;
     QString m_savedRefractometerAddress;
     QString m_savedRefractometerName;
-    // QPointer, not a raw pointer: main() owns the device in a unique_ptr declared
-    // AFTER the QML engine, so at teardown it dies while the engine — and every
-    // binding reading `BLEManager.refractometerConnected` — is still live. Its
-    // ~QObject emits destroyed(), QML drops the `Refractometer` context property,
-    // and the resulting binding re-evaluation calls isRefractometerConnected() on
-    // an object whose derived part is already gone. Through a raw pointer that is
-    // a pure-virtual dispatch on a rewound vptr: it indexes past QObject's vtable
-    // into adjacent data and jumps there (SIGBUS, instruction-abort). QObject's
-    // destructor zeroes the shared refcount *before* emitting destroyed()
-    // (qobject.cpp:1073 vs 1079), so a QPointer already reads null at that point
-    // and the getter simply reports "not connected".
+    // QPointer, not a raw pointer: we do not own this device and cannot see it
+    // die. Same reason MachineState::m_scale and ShotTimingController::m_scale
+    // are QPointer (noted at the end of main()) — house style, not a one-off.
+    //
+    // What made it necessary: main() declares its `refractometer` unique_ptr
+    // AFTER the QML engine, breaking the convention stated at the engine's own
+    // declaration in main.cpp ("declared before the engine ... so it outlives
+    // the engine at scope unwind"). Treat that as a defect that has not been
+    // fixed yet, not as a fact of life. At scope unwind the device therefore
+    // dies while the engine and every binding reading
+    // `BLEManager.refractometerConnected` are still live: ~QObject emits
+    // destroyed(), QML drops the `Refractometer` context property, and the
+    // resulting binding re-evaluation lands in isRefractometerConnected() on an
+    // object whose derived part is already gone. Through a raw pointer, that
+    // call is a pure-virtual dispatch on a vptr already rewound to QObject's:
+    // it indexes past the end of QObject's vtable into adjacent data and jumps
+    // there. On macOS/arm64 that was a SIGBUS instruction-abort with the PC
+    // inside QtCore's non-executable __DATA; other platforms may land on a
+    // plausible-looking pointer and not trap at all, so "no crash here" is not
+    // evidence the fault is gone.
+    //
+    // Why QPointer answers it: ~QObject stores 0 into sharedRefcount->strongref
+    // before the `emit destroyed(this)` a few lines below (qtbase qobject.cpp,
+    // verified against Qt 6.11.1), so the pointer already reads null when that
+    // binding runs and the getter just reports "not connected".
+    //
+    // Bound worth knowing: this only covers the window from ~QObject onward. A
+    // signal emitted from a concrete driver's OWN destructor body would still
+    // find a non-null QPointer and a half-destroyed object. That window is
+    // empty today — neither transport emits synchronously from
+    // disconnectFromDevice() — but it is not something QPointer protects.
     QPointer<RefractometerDevice> m_refractometerDevice;
 
     // Scale debug log
