@@ -11,6 +11,24 @@
 // Protocol: header 0xDF 0xDF, func, cmd, datalen, data, additive checksum.
 // Func 3 = Device Action. Pack 0 = status, Pack 1 = temperature, Pack 2 = TDS, Pack 3 = average TDS.
 
+// A refractometer that implements nothing beyond the pure virtuals, standing in for a
+// device without the R2's optional features (the R1). Lets the base-class defaults be
+// tested without dragging another driver's dependencies into this binary.
+class MinimalRefractometer : public RefractometerDevice {
+    Q_OBJECT
+public:
+    bool isConnected() const override { return true; }
+    double tds() const override { return 0.0; }
+    double temperature() const override { return 0.0; }
+    bool isMeasuring() const override { return false; }
+    QString name() const override { return QStringLiteral("stub"); }
+    void connectToDevice(const QBluetoothDeviceInfo&) override {}
+    void disconnectFromDevice() override {}
+    void requestMeasurement() override { ++m_singleRequests; }
+
+    int m_singleRequests = 0;
+};
+
 class tst_DiFluidR2 : public QObject {
     Q_OBJECT
 
@@ -459,6 +477,80 @@ private slots:
         // doesn't hang on a benign status error.
         QCOMPARE(measSpy.count(), 1);
         QVERIFY(!r2.isMeasuring());
+    }
+
+    // === Auto Test ===
+    //
+    // The device starts a measurement itself when the sample is loaded. The setting
+    // lives on the R2 and persists there, so Decenza reads it back rather than storing
+    // a preference of its own.
+
+    void autoTestDefaultsOffAndIsSupported() {
+        DiFluidR2 r2(nullptr);
+        QVERIFY(r2.supportsAutoTest());
+        // Never assumed: until the device answers, we report the factory default.
+        QVERIFY(!r2.autoTest());
+    }
+
+    void autoTestStateFollowsTheDeviceEcho() {
+        DiFluidR2 r2(nullptr);
+        QSignalSpy spy(&r2, &DiFluidR2::autoTestChanged);
+
+        QByteArray on;
+        on.append(static_cast<char>(0x01));
+        r2.handlePacket(buildR2Packet(0x01, 0x01, on));
+        QVERIFY(r2.autoTest());
+        QCOMPARE(spy.count(), 1);
+
+        QByteArray off;
+        off.append(static_cast<char>(0x00));
+        r2.handlePacket(buildR2Packet(0x01, 0x01, off));
+        QVERIFY(!r2.autoTest());
+        QCOMPARE(spy.count(), 2);
+
+        // A redundant echo is not a change.
+        r2.handlePacket(buildR2Packet(0x01, 0x01, off));
+        QCOMPARE(spy.count(), 2);
+    }
+
+    void autoTestEchoIsNotTreatedAsMeasurement() {
+        DiFluidR2 r2(nullptr);
+        QSignalSpy tdsSpy(&r2, &DiFluidR2::tdsChanged);
+        QSignalSpy tempSpy(&r2, &DiFluidR2::temperatureChanged);
+
+        QByteArray on;
+        on.append(static_cast<char>(0x01));
+        r2.handlePacket(buildR2Packet(0x01, 0x01, on));
+
+        QCOMPARE(tdsSpy.count(), 0);
+        QCOMPARE(tempSpy.count(), 0);
+    }
+
+    void autoTestWriteRequiresAConnectedDevice() {
+        // The setting is written to the device, so there is nothing to do without one.
+        // Silently no-oping would leave the user believing they had changed it.
+        DiFluidR2 r2(nullptr);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Cannot change Auto Test"));
+        r2.setAutoTest(true);
+        QVERIFY(!r2.autoTest());
+    }
+
+    void baseRefractometerDeclinesAutoTest() {
+        // A device without the feature (the R1) must report that rather than pretend.
+        // Exercised through the base defaults so this test does not drag the R1's
+        // crypto dependencies into this binary.
+        MinimalRefractometer plain;
+        QVERIFY(!plain.supportsAutoTest());
+        QVERIFY(!plain.autoTest());
+        plain.setAutoTest(true);   // no-op, must not crash
+        QVERIFY(!plain.autoTest());
+    }
+
+    void baseAveragedMeasurementFallsBackToASingleOne() {
+        // Devices that cannot average still owe the caller a reading.
+        MinimalRefractometer plain;
+        plain.requestAveragedMeasurement(5);
+        QCOMPARE(plain.m_singleRequests, 1);
     }
 
     // === Averaged measurement ===

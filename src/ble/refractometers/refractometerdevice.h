@@ -23,6 +23,10 @@ class RefractometerDevice : public QObject {
     Q_PROPERTY(double temperature READ temperature NOTIFY temperatureChanged)
     Q_PROPERTY(bool measuring READ isMeasuring NOTIFY measuringChanged)
     Q_PROPERTY(QString name READ name NOTIFY nameChanged)
+    // Whether the device starts a measurement by itself. Reflects the DEVICE's own
+    // stored setting, read back from it — not a Decenza preference. Devices with no
+    // such feature report false and ignore attempts to set it.
+    Q_PROPERTY(bool autoTest READ autoTest NOTIFY autoTestChanged)
 
 public:
     using QObject::QObject;
@@ -39,6 +43,16 @@ public:
     virtual double temperature() const = 0;
     virtual bool isMeasuring() const = 0;
     virtual QString name() const = 0;
+
+    // Auto Test: the device starts a measurement itself when it detects the sample
+    // being loaded. Off by default on devices that support it; a device that does not
+    // reports false and silently ignores setAutoTest(). The setting lives on the
+    // device and persists there, so enabling it is a one-time action, not a Decenza
+    // preference we have to store and re-apply.
+    virtual bool autoTest() const { return false; }
+    Q_INVOKABLE virtual void setAutoTest(bool enabled) { Q_UNUSED(enabled); }
+    // Whether this device supports Auto Test at all — drives whether UI offers it.
+    Q_INVOKABLE virtual bool supportsAutoTest() const { return false; }
 
     virtual void connectToDevice(const QBluetoothDeviceInfo& device) = 0;
     Q_INVOKABLE virtual void disconnectFromDevice() = 0;
@@ -62,6 +76,7 @@ signals:
     void temperatureChanged(double temperature);
     void measuringChanged();
     void nameChanged();
+    void autoTestChanged();
     void measurementComplete();
     // Progress through a multi-test averaged run: `completed` of `total` tests done.
     // Lets the UI show that several tests are being taken rather than appearing hung,

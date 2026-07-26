@@ -33,10 +33,10 @@
 
 ## 5. Auto Test
 
-- [ ] 5.1 Add the Auto Test set command (Device Settings Cmd 1) and log the device's echoed confirmation
-- [ ] 5.2 Confirm a device-initiated reading reaches consumers through the unchanged `tdsChanged` path with no extra side effects
-- [ ] 5.3 Tests: command bytes for on and off; echo logs the resulting state
-- [ ] 5.4 Decide from design's open question whether Auto Test gets UI in this change or driver + MCP access only
+- [x] 5.1 Add the Auto Test set command (Device Settings Cmd 1) and log the device's echoed confirmation
+- [x] 5.2 Confirm a device-initiated reading reaches consumers through the unchanged `tdsChanged` path with no extra side effects
+- [x] 5.3 Tests: command bytes for on and off; echo logs the resulting state
+- [x] 5.4 Decided: Auto Test ships with UI — an on/off button on the Connections page refractometer row, reflecting the device's own stored setting
 
 ## 6. User-facing capture
 

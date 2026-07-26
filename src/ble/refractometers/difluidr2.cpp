@@ -158,6 +158,10 @@ DiFluidR2::DiFluidR2(ScaleBleTransport* transport, QObject* parent)
         // "concentration" field — which we'd then mislabel as TDS. Logging the model
         // string lets us tell them apart when a reading looks like Brix, not TDS.
         // These are fixed DataLen=0 queries straight from the spec (checksum baked in).
+        // Read back the device's Auto Test setting so the UI reflects the device rather
+        // than a guess. Query only — enabling it is the user's call, not ours.
+        sendCommand(QByteArray::fromHex("DFDF010100C0"));  // Get Auto Test Status
+
         R2_LOG("Querying serial + device model + firmware (instrumentation)");
         sendCommand(QByteArray::fromHex("DFDF000000BE"));  // Get SN (Func 0, Cmd 0)
         sendCommand(QByteArray::fromHex("DFDF000100BF"));  // Get Device Model (Func 0, Cmd 1)
@@ -216,6 +220,12 @@ void DiFluidR2::connectToDevice(const QBluetoothDeviceInfo& device) {
     m_serialNumber.clear();
     m_serialParts.clear();
     m_serialPartsSeen = 0;
+    // Auto Test is likewise the device's state, not ours — drop it until this device
+    // answers the query rather than carrying the last device's answer forward.
+    if (m_autoTest) {
+        m_autoTest = false;
+        emit autoTestChanged();
+    }
     if (nameChange) emit nameChanged();
 
     R2_LOG(QString("Connecting to %1 (%2)")
@@ -267,6 +277,35 @@ void DiFluidR2::requestMeasurement() {
 
     sendCommand(cmd);
     m_measurementTimer.start();
+}
+
+void DiFluidR2::setAutoTest(bool enabled) {
+    if (!m_connected || !m_characteristicsReady) {
+        R2_WARN("Cannot change Auto Test — not connected");
+        return;
+    }
+
+    // Func=1 (Device Settings), Cmd=1 (Auto Test Status), DataLen=1, Data0 = 0 off / 1 on.
+    // The setting lives on the device and persists there, so this is a one-time action
+    // rather than something Decenza stores and re-applies on every connect.
+    R2_LOG(QString("Setting Auto Test %1").arg(enabled ? "on" : "off"));
+    QByteArray cmd;
+    cmd.append(static_cast<char>(0xDF));
+    cmd.append(static_cast<char>(0xDF));
+    cmd.append(static_cast<char>(0x01));  // Func: Device Settings
+    cmd.append(static_cast<char>(0x01));  // Cmd: Auto Test Status
+    cmd.append(static_cast<char>(0x01));  // DataLen: 1
+    cmd.append(static_cast<char>(enabled ? 0x01 : 0x00));
+
+    uint8_t checksum = 0;
+    for (qsizetype i = 0; i < cmd.size(); ++i)
+        checksum += static_cast<uint8_t>(cmd[i]);
+    cmd.append(static_cast<char>(checksum));
+
+    // m_autoTest is NOT set here — the device echoes the setting back and that echo is
+    // what moves our state. Assuming the write took would show the user a state their
+    // device might not be in.
+    sendCommand(cmd);
 }
 
 void DiFluidR2::requestAveragedMeasurement(int testCount) {
@@ -453,6 +492,19 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
         const uint8_t unit = static_cast<uint8_t>(packet[5]);
         R2_LOG(QString("Temperature unit now: %1")
                    .arg(unit == 1 ? QStringLiteral("°F") : QStringLiteral("°C")));
+        return;
+    }
+
+    // Auto Test Status echo — the device's answer to both our query and our write, and
+    // the only thing that moves m_autoTest. Reading it back rather than assuming means
+    // the UI shows what the device is actually doing.
+    if (func == 1 && cmd == 1) {
+        const bool enabled = dataLen >= 1 && static_cast<uint8_t>(packet[5]) == 1;
+        R2_LOG(QString("Auto Test is %1").arg(enabled ? "on" : "off"));
+        if (enabled != m_autoTest) {
+            m_autoTest = enabled;
+            emit autoTestChanged();
+        }
         return;
     }
 

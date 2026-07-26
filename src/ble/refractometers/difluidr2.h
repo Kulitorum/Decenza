@@ -39,6 +39,9 @@ public:
     double temperature() const override { return m_temperature; }
     bool isMeasuring() const override { return m_measuring; }
     QString name() const override { return m_name; }
+    bool autoTest() const override { return m_autoTest; }
+    void setAutoTest(bool enabled) override;
+    bool supportsAutoTest() const override { return true; }
 
     void connectToDevice(const QBluetoothDeviceInfo& device) override;
     void disconnectFromDevice() override;
@@ -108,6 +111,10 @@ private:
     double m_tds = 0.0;
     double m_temperature = 0.0;
     bool m_measuring = false;
+    // Mirrors the device's own Auto Test setting, read back from it on connect and
+    // after every write. Never assumed — if the query goes unanswered this stays
+    // false, which matches the device's factory default and errs toward "off".
+    bool m_autoTest = false;
     QTimer m_measurementTimer;
     QTimer m_initTimer;
 };
