@@ -1361,6 +1361,25 @@ Profile Profile::loadFromTclString(const QString& content) {
     readNum(QStringLiteral("maximum_flow_range_advanced"),     profile.m_maximumFlowRangeAdvanced);
     readNum(QStringLiteral("maximum_pressure_range_advanced"), profile.m_maximumPressureRangeAdvanced);
 
+    // de1app's per-profile dose (profile_grinder_dose_weight). The flag has to be set
+    // here rather than in the field table: readScalar hands back a bare double and has
+    // no way to touch a companion boolean.
+    //
+    // Only a value GREATER THAN ZERO enables the recommendation. de1app's Streamline
+    // skin writes the key on every save, so a 0 means "not set" rather than "a dose of
+    // zero" — the same reading the eight shipped profiles carrying `grinder_dose_weight
+    // 0` support. An absent key leaves Decenza's default in place and enables nothing.
+    {
+        const double before = profile.m_recommendedDose;
+        readNum(QStringLiteral("recommended_dose"), profile.m_recommendedDose);
+        if (profile.m_recommendedDose > 0.0
+            && !qFuzzyCompare(profile.m_recommendedDose, before)) {
+            profile.m_hasRecommendedDose = true;
+        } else if (profile.m_recommendedDose <= 0.0) {
+            profile.m_recommendedDose = before;   // 0 means unset, not a real dose
+        }
+    }
+
     readNum(QStringLiteral("espresso_temperature"),           profile.m_espressoTemperature);
     readNum(QStringLiteral("maximum_flow"),                   profile.m_maximumFlow);
     readNum(QStringLiteral("maximum_pressure"),               profile.m_maximumPressure);

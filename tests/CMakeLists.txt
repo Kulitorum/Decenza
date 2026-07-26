@@ -502,6 +502,7 @@ add_decenza_test(tst_tclimport
     tst_tclimport.cpp
 )
 target_compile_definitions(tst_tclimport PRIVATE
+    MALFORMED_TCL_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/malformed_tcl"
     DE1APP_PROFILES_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/de1app_profiles"
 )
 

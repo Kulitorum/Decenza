@@ -192,6 +192,132 @@ private slots:
     // Specific profile oracle tests
     // ==========================================
 
+    // ==========================================
+    // Bare (unbraced) multi-word values — free-text keys only
+    // ==========================================
+
+    void unbracedTitleImportsWhole() {
+        // The real thing, fetched from Visualizer's ?format=tcl — see the README beside
+        // it. Tcl itself reads `profile_title D-Flow / Q` as "D-Flow" plus a stray "/"
+        // key, and so does de1app, which then loses the D-Flow editor for the profile
+        // because its dispatch matches [string range $title 0 7] against "D-Flow /".
+        const QString content =
+            readFile(QStringLiteral(MALFORMED_TCL_PATH) + "/visualizer_unbraced_title.tcl");
+        QVERIFY2(!content.isEmpty(), "fixture missing");
+        QVERIFY2(content.contains(QStringLiteral("\nprofile_title D-Flow / Q")),
+                 "fixture no longer carries an UNBRACED title — it proves nothing now");
+
+        const Profile p = Profile::loadFromTclString(content);
+        QCOMPARE(p.title(), QStringLiteral("D-Flow / Q"));
+        QCOMPARE(p.editorType(), QStringLiteral("dflow"));
+        QCOMPARE(p.steps().size(), 3);
+    }
+
+    void unbracedEnumKeepsFirstTokenOnly() {
+        // beverage_type is written BARE across the de1app corpus in eight values.
+        // Reading a malformed line whole would yield an unmatchable string and
+        // silently drop a classification that drives tea/pourover handling — the one
+        // case where this rule would be worse than truncating.
+        const QString tcl = QStringLiteral(
+            "profile_title {Tea}\n"
+            "settings_profile_type settings_2c\n"
+            "beverage_type tea_portafilter trailing junk\n"
+            "advanced_shot {{name Pour temperature 90.00 sensor coffee pump flow "
+            "transition fast pressure 6.00 flow 2.00 seconds 30.00 volume 100.0 "
+            "exit_if 0 max_flow_or_pressure 0.00 max_flow_or_pressure_range 0.20 weight 0.0}}\n");
+        const Profile p = Profile::loadFromTclString(tcl);
+        QCOMPARE(p.beverageType(), QStringLiteral("tea_portafilter"));
+    }
+
+    void unbracedNumberKeepsFirstTokenOnly() {
+        const QString tcl = QStringLiteral(
+            "profile_title {Numbers}\n"
+            "settings_profile_type settings_2c\n"
+            "maximum_flow 2.5 9\n"
+            "advanced_shot {{name Pour temperature 90.00 sensor coffee pump flow "
+            "transition fast pressure 6.00 flow 2.00 seconds 30.00 volume 100.0 "
+            "exit_if 0 max_flow_or_pressure 0.00 max_flow_or_pressure_range 0.20 weight 0.0}}\n");
+        const Profile p = Profile::loadFromTclString(tcl);
+        QCOMPARE(p.maximumFlow(), 2.5);
+    }
+
+    void trailingTclCommentIsStripped() {
+        // `profile_title Espresso ;# note` is ordinary Tcl, and hand-edited profiles
+        // exist. Folding the comment into the title would then be re-exported as
+        // canonical by Decenza's own writer.
+        const QString tcl = QStringLiteral(
+            "profile_title My Everyday Shot ;# tweaked for light roasts\n"
+            "settings_profile_type settings_2c\n"
+            "advanced_shot {{name Pour temperature 90.00 sensor coffee pump flow "
+            "transition fast pressure 6.00 flow 2.00 seconds 30.00 volume 100.0 "
+            "exit_if 0 max_flow_or_pressure 0.00 max_flow_or_pressure_range 0.20 weight 0.0}}\n");
+        const Profile p = Profile::loadFromTclString(tcl);
+        QCOMPARE(p.title(), QStringLiteral("My Everyday Shot"));
+    }
+
+    void bracedAndQuotedValuesAreUnaffected() {
+        const QString tcl = QStringLiteral(
+            "profile_title {D-Flow / Braced}\n"
+            "author \"Some One\"\n"
+            "settings_profile_type settings_2c\n"
+            "advanced_shot {{name Pour temperature 90.00 sensor coffee pump flow "
+            "transition fast pressure 6.00 flow 2.00 seconds 30.00 volume 100.0 "
+            "exit_if 0 max_flow_or_pressure 0.00 max_flow_or_pressure_range 0.20 weight 0.0}}\n");
+        const Profile p = Profile::loadFromTclString(tcl);
+        QCOMPARE(p.title(), QStringLiteral("D-Flow / Braced"));
+        QCOMPARE(p.author(), QStringLiteral("Some One"));
+    }
+
+    // ==========================================
+    // de1app's per-profile dose (profile_grinder_dose_weight)
+    // ==========================================
+
+    static QString doseTcl(const QString& doseLine) {
+        return QStringLiteral(
+            "profile_title {Dose Test}\n"
+            "settings_profile_type settings_2c\n") + doseLine + QStringLiteral(
+            "advanced_shot {{name Pour temperature 90.00 sensor coffee pump flow "
+            "transition fast pressure 6.00 flow 2.00 seconds 30.00 volume 100.0 "
+            "exit_if 0 max_flow_or_pressure 0.00 max_flow_or_pressure_range 0.20 weight 0.0}}\n");
+    }
+
+    void de1appPerProfileDoseIsImported() {
+        const Profile p = Profile::loadFromTclString(
+            doseTcl(QStringLiteral("profile_grinder_dose_weight 20.5\n")));
+        QVERIFY2(p.hasRecommendedDose(),
+                 "a dose a de1app user set on the profile was discarded");
+        QCOMPARE(p.recommendedDose(), 20.5);
+    }
+
+    void zeroPerProfileDoseEnablesNothing() {
+        // de1app's Streamline skin writes the key on every save, so 0 means "not set"
+        // rather than "a dose of zero" — the eight shipped profiles carrying
+        // `grinder_dose_weight 0` are the evidence.
+        const Profile p = Profile::loadFromTclString(
+            doseTcl(QStringLiteral("profile_grinder_dose_weight 0\n")));
+        QVERIFY(!p.hasRecommendedDose());
+        QCOMPARE(p.recommendedDose(), Profile::kDefaultRecommendedDose);
+    }
+
+    void absentPerProfileDoseEnablesNothing() {
+        const Profile p = Profile::loadFromTclString(doseTcl(QString()));
+        QVERIFY(!p.hasRecommendedDose());
+        QCOMPARE(p.recommendedDose(), Profile::kDefaultRecommendedDose);
+    }
+
+    void grinderKeysAreAllAccountedFor() {
+        // Both keys are in de1app's profile_vars, so a Streamline-saved profile carries
+        // them. Neither may show up as an unhandled key: one is mapped, the other is
+        // listed as deliberately ignored.
+        const QString tcl = doseTcl(QStringLiteral(
+            "profile_grinder_dose_weight 18.0\nprofile_grinder_setting {12 clicks}\n"));
+        const QStringList uncovered = De1AppTcl::uncoveredTclKeys(tcl);
+        QVERIFY2(!uncovered.contains(QStringLiteral("profile_grinder_dose_weight")),
+                 qPrintable(uncovered.join(QStringLiteral(", "))));
+        QVERIFY2(!uncovered.contains(QStringLiteral("profile_grinder_setting")),
+                 qPrintable(uncovered.join(QStringLiteral(", "))));
+    }
+
     void defaultProfileOracle() {
         // de1app default.tcl: simple pressure profile (settings_2a)
         QString content = readFile(DE1APP_PROFILES_DIR + "/default.tcl");

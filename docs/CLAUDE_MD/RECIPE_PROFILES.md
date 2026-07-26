@@ -719,6 +719,58 @@ The canonical format is:
 - **Decenza extensions**: `mode`, `recommended_dose`, `has_recommended_dose`, `temperature_presets` — de1app ignores these. (`recipe` was one and is no longer written; the key stays in `kKnownProfileKeys` so stored blocks are dropped rather than round-tripped.) A key added here must hold state **independent of the frames** — never a cache of something re-derived on read, which is exactly what made `recipe` drift. (The simple-profile params are **not** an extension: de1app writes them unconditionally and so do we; gating them on `settings_2a/2b` is what destroyed those keys on 58+ advanced built-ins.) (`is_recipe_mode` was removed; editor type is now derived at runtime from title + `legacy_profile_type`)
 - **No separate reader**: There is no `loadFromDE1AppJson()` — `fromJson()` handles all variants
 
+### Bare (unbraced) values: prose keys take the whole line
+
+A `.tcl` assignment whose value is neither braced nor quoted normally takes only the **first
+whitespace-delimited token**, which is what Tcl itself reads — a profile file is parsed with
+`array set`, so `profile_title D-Flow / Q` yields `profile_title` → `D-Flow` plus a stray `/` → `Q`
+(verified with `tclsh`).
+
+**Three prose keys are exceptions and take the rest of the line**: `profile_title`, `author`,
+`profile_notes` (`De1AppTcl::isFreeTextKey`). A trailing `;#` or ` #` Tcl comment is stripped first.
+
+This is a deliberate divergence from de1app, and it is confined to fields that cannot reach a
+frame, a machine value or a classification. It exists because **Visualizer's `.tcl` export does not
+brace multi-word values**, so every multi-word title from that export truncates — `D-Flow / Q` →
+`D-Flow`, `Damian's Q` → `Damian's`. The cost of matching de1app there is one-sided: the profile
+loses its slash-prefix category and drops out of its editor group, its filename collides with the
+next download in the same family, and **in de1app itself it loses the editor entirely**, because
+the dispatch matches `[string range $title 0 7]` against the literal `"D-Flow /"`
+(`plugins/D_Flow_Espresso_Profile/plugin.tcl:1143`) and six characters cannot satisfy it.
+Decenza's own writer braces properly, so re-saving repairs the file for every app downstream.
+Visualizer's JSON rendering of the same profile gets the title right; only the `.tcl` one is
+affected, and the in-app importer reaches it because Visualizer returns TCL for some shots even
+when `?format=json` is requested.
+
+**Do not add an enum or a code to that list.** `beverage_type` is written bare across the de1app
+corpus in eight values (`espresso` ×44, `tea_portafilter` ×11, `calibrate` ×5, `cleaning` ×3,
+`pourover` ×3, `filter` ×2, `manual`, `tea`); reading a malformed line whole would produce an
+unmatchable string and silently drop a classification that drives tea/pourover handling and travels
+on to Visualizer and reaprime. For those, first-token truncation is the *correct* recovery.
+`original_profile_title` is excluded for a different reason — Decenza models it nowhere, so listing
+it would put an unhandled key into `uncoveredTclKeys()`.
+
+The fixture is real, not synthesised: `tests/data/malformed_tcl/visualizer_unbraced_title.tcl` is a
+verbatim Visualizer API response, with provenance in the README beside it.
+
+### de1app's per-profile dose
+
+`profile_grinder_dose_weight` is in de1app's `profile_vars` (`vars.tcl:3305`), so de1app writes it
+into every profile it saves — but only the **Streamline** skin populates it
+(`skins/Streamline/skin.tcl:2550-2556`), which is why none of the 88 shipped profiles carries one.
+It maps to Decenza's `recommended_dose`, with `has_recommended_dose` enabled **only for a value
+greater than zero** (Streamline writes the key unconditionally, so `0` means "not set" — the eight
+shipped profiles carrying `grinder_dose_weight 0` are the evidence). The flag is set in
+`Profile::loadFromTclString`, not in the field table, because `readScalar` hands back a bare double.
+
+That row's `whenAbsent` **must stay unset**. `compareScalars()` walks the same table and is the
+built-in drift gate; a `0` fallback would compare 0 against each built-in's `recommended_dose` of
+18.0 and fail the gate on eight files.
+
+`profile_grinder_setting` — the per-profile grind setting Streamline writes alongside it — is
+listed as deliberately ignored rather than mapped. Decenza models grind settings on equipment and
+recipes, and pinning one to a profile would invent an association de1app does not make either.
+
 ### Reading a de1app `.tcl`: which spelling wins depends on `settings_profile_type`
 
 Four de1app fields exist in two spellings, and **which one is authoritative is not fixed —
