@@ -25,7 +25,8 @@ void WeightProcessor::processWeight(double weight)
     // A Felicita scale was observed sending 1649g instead of ~10g, causing a
     // false SAW stop. Any reading that jumps more than 100g from the previous
     // sample is rejected. Auto-resets after 3 consecutive rejections to handle
-    // legitimate shifts (cup removal, tare, scale reconnect at different offset).
+    // legitimate shifts (cup removal, scale reconnect at different offset). The tare
+    // used to rely on that hatch too; it is handled up front now — see below.
     //
     // Only active during extraction — between shots, cup placement/removal,
     // tare drift, and scale reconnect at different offset produce legitimate
@@ -46,8 +47,14 @@ void WeightProcessor::processWeight(double weight)
     // instead of 10 g), so nothing about that case needs the filter relaxed — and an
     // exemption for large steps in general would leave a window with no filter at all,
     // whose end depended on events that might never arrive (a scale that never reads
-    // near zero, a shot where flow never starts). There is no such window now: every
-    // sample that is not the tare step is filtered exactly as before.
+    // near zero, a shot where flow never starts). Every sample the SPIKE FILTER sees
+    // other than the tare step is therefore filtered exactly as before.
+    //
+    // The m_awaitingTare window is not gone, though — it still gates the per-frame
+    // weight exit at the bottom of this function, and on an untared cup that never
+    // reads near zero in a shot where flow never starts, that gate stays shut for the
+    // whole shot. That is the deliberate trade (see the comment there); it is a much
+    // smaller surface than leaving the spike filter itself off.
     if (m_active && m_hasLastWeight && qAbs(weight - m_lastRawWeight) > 100.0) {
         if (m_awaitingTare && qAbs(weight) <= kTareLandedThresholdG) {
             // The tare landing. Accept it and stop expecting it.

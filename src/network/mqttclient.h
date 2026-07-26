@@ -96,6 +96,7 @@ private:
     QString generateClientId();
     void onNetworkReachabilityChanged(bool reachable);
     QString reconnectStatusText() const;
+    void scheduleReconnect(const QString& reason);
 
     // Paho callbacks (static, call instance methods via context)
     static void onConnectSuccess(void* context, MQTTAsync_successData* response);

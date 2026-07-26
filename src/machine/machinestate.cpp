@@ -170,7 +170,13 @@ QString MachineState::activeScaleType() const {
         && ScaleTypeIds::isCanonicalScaleTypeId(m_scale->type())) {
         return m_scale->type();
     }
-    return m_settings ? m_settings->scaleType() : QString();
+    // Normalized, not raw. Settings::scaleType() returns whatever is stored, and
+    // SettingsCalibration::currentScaleType() already normalizes defensively against a
+    // legacy display name surviving migration — so "Decent Scale" can reach here. This
+    // property is documented as returning a type-ID, and a caller keying a SAW pool on
+    // "Decent Scale" while the global path reads "decent" is the same split this whole
+    // mechanism exists to close.
+    return m_settings ? ScaleTypeIds::normalizeScaleTypeId(m_settings->scaleType()) : QString();
 }
 
 QString MachineState::activeScaleName() const {
@@ -191,7 +197,28 @@ QString MachineState::activeScaleName() const {
 
 
 void MachineState::setSettings(Settings* settings) {
+    if (m_settings == settings) return;
+    if (m_settings) disconnect(m_settings, nullptr, this, nullptr);
+
     m_settings = settings;
+
+    // activeScaleType()/activeScaleName() fall back to the SAVED scale whenever the
+    // serving one is virtual or disconnected — which is the common case, since the app
+    // starts on FlowScale. Without these, changing the primary scale (Connections tab,
+    // removing a known scale, a settings restore) would move the answer while every
+    // QML binding on it kept the old value. The Calibration tab would then show one
+    // pool's lag and model tier while its reset button — an imperative read, not a
+    // binding — cleared a different pool. That read/write divergence is precisely what
+    // activeScaleType exists to prevent, so leaving it unwired would have reintroduced
+    // the bug one layer up.
+    if (m_settings) {
+        connect(m_settings, &Settings::scaleTypeChanged,
+                this, &MachineState::activeScaleTypeChanged);
+        connect(m_settings, &Settings::scaleNameChanged,
+                this, &MachineState::activeScaleTypeChanged);
+    }
+
+    emit activeScaleTypeChanged();
 }
 
 void MachineState::setTimingController(ShotTimingController* controller) {

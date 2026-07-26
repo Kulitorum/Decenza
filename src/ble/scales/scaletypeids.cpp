@@ -49,9 +49,14 @@ QString scaleTypeName(ScaleType type) {
 }
 
 namespace {
-// All real (non-Unknown) scale types. Shared by normalizeScaleTypeId() and
-// isCanonicalScaleTypeId() so the two can never disagree about what counts as a
-// real scale — duplicating this list is how they would drift.
+// All real (non-Unknown) scale types. Shared by normalizeScaleTypeId(),
+// isCanonicalScaleTypeId() and scaleTypeNameForId() so they cannot drift apart as
+// types are added — duplicating this list is how that would happen.
+//
+// Note the three do NOT accept the same inputs: normalizeScaleTypeId() also maps
+// legacy DISPLAY NAMES to ids, while the other two match ids only. That is
+// deliberate (an id is a key; a display name is not), so "agree on the type list"
+// is the invariant here, not "accept the same strings".
 constexpr ScaleType kAll[] = {
     ScaleType::DecentScale, ScaleType::DecentScaleWifi, ScaleType::DecentScaleUsb,
     ScaleType::Acaia, ScaleType::AcaiaPyxis, ScaleType::Felicita, ScaleType::Skale,
@@ -73,10 +78,10 @@ QString normalizeScaleTypeId(const QString& typeOrName) {
     return typeOrName;
 }
 
-bool isCanonicalScaleTypeId(const QString& typeOrName) {
-    if (typeOrName.isEmpty()) return false;
+bool isCanonicalScaleTypeId(const QString& typeId) {
+    if (typeId.isEmpty()) return false;
     for (ScaleType t : kAll) {
-        if (typeOrName == scaleTypeId(t)) return true;
+        if (typeId == scaleTypeId(t)) return true;
     }
     return false;  // "flow" (FlowScale), "" (ScaleDevice base), or anything unrecognized
 }

@@ -697,6 +697,33 @@ private slots:
         QCOMPARE(flowSpy.count(), countBeforeTare + 1);  // accepted, not rejected
     }
 
+    void tareLandsWithoutABigStep() {
+        // The common case, and the one the >100 g branch never sees: the scale was
+        // already at (or returned to) about zero, so the tare arrives as an ordinary
+        // sample. The exemption must still be consumed — otherwise it stays armed all
+        // preheat, keeping the per-frame weight exit gated off and handing a free pass
+        // to a genuine large drop later.
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy flowSpy(&wp, &WeightProcessor::flowRatesReady);
+
+        wp.startExtraction();
+        wp.processWeight(0.4);  m_fakeClock += 200;  // realistic post-tare residual,
+                                                     // not exactly 0 — the threshold
+                                                     // is a band, not an equality
+        // Climb in sub-100 g steps so nothing here is itself a spike.
+        wp.processWeight(60.0);  m_fakeClock += 200;
+        wp.processWeight(120.0); m_fakeClock += 200;
+        wp.processWeight(150.0); m_fakeClock += 200;
+        const qsizetype countBefore = flowSpy.count();
+
+        // Exemption already spent by the 0.4 g sample, so this is a spike.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Spike rejected: weight= 0 "));
+        wp.processWeight(0.0); m_fakeClock += 200;
+
+        QCOMPARE(flowSpy.count(), countBefore);
+    }
+
     void tareExemptionIsDirectional() {
         // The exemption is for a step DOWN to near zero, nothing else. #610 corruption
         // travels upward (1649 g instead of 10 g), so an upward spike must still be
@@ -714,6 +741,13 @@ private slots:
         wp.processWeight(1649.0); m_fakeClock += 200;
 
         QCOMPARE(flowSpy.count(), countBefore);  // rejected despite awaiting the tare
+
+        // ...and DOWN is not enough either — the destination has to be near zero.
+        // A large downward step that lands somewhere else is a cup lift or garbage,
+        // not the tare we are waiting for.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Spike rejected: weight= 250 "));
+        wp.processWeight(250.0); m_fakeClock += 200;
+        QCOMPARE(flowSpy.count(), countBefore);
     }
 
     void tareExemptionIsConsumedOnce() {
@@ -735,7 +769,7 @@ private slots:
         wp.processWeight(150.0); m_fakeClock += 200;
         const qsizetype countBefore = flowSpy.count();
 
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Spike rejected.*0"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Spike rejected: weight= 0 "));
         wp.processWeight(0.0); m_fakeClock += 200;
 
         QCOMPARE(flowSpy.count(), countBefore);  // rejected — no second free pass
@@ -755,7 +789,7 @@ private slots:
         feedRising(wp, 150.0, 2.0, 4);
         const qsizetype countBefore = flowSpy.count();
 
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Spike rejected.*0"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Spike rejected: weight= 0 "));
         wp.processWeight(0.0); m_fakeClock += 200;
 
         QCOMPARE(flowSpy.count(), countBefore);
