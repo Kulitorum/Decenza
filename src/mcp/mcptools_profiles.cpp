@@ -468,13 +468,20 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
             // own field set, where they are separate controls.
             QJsonObject remaining = args;
             if (remaining.contains(QStringLiteral("dose"))) {
+                // The conflict below can ONLY arise on the advanced branch, which is
+                // the only one that also accepts `recommended_dose` (straight through
+                // the profile map). Firing it everywhere dropped `dose` on a D-Flow
+                // profile, let `recommended_dose` fall into ignoredFields, applied
+                // NEITHER, and still reported success — while the note named a winner
+                // that lost and an editor the caller was not using.
                 // On the advanced branch `recommended_dose` is also accepted, straight
                 // through the profile map. Supplying both used to be silently
                 // last-writer-wins — `dose` applied here, then overwritten by the map
                 // loop below — with success:true and no hint that a value was dropped.
                 // Say so instead, and let the canonical spelling win, since that is the
                 // one the advanced editor itself writes.
-                if (remaining.contains(QStringLiteral("recommended_dose"))) {
+                if (editorType == QLatin1String("advanced")
+                    && remaining.contains(QStringLiteral("recommended_dose"))) {
                     conflictedKeys << QStringLiteral("dose");
                     remaining.remove(QStringLiteral("dose"));
                 } else {

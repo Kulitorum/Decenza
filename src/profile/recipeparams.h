@@ -48,12 +48,18 @@ struct RecipeParams {
     double targetWeight = 36.0;         // Stop at weight (grams)
     double targetVolume = 0.0;          // Stop at volume (mL, 0 = disabled)
 
-    // No `dose` here, deliberately. It was carried in the persisted recipe block and
-    // consumed by nothing — not by either frame generator, not by any QML binding,
-    // and explicitly excluded from frameAffectingFieldsEqual as "metadata only". The
-    // per-profile dose that IS consumed is Profile's recommended_dose /
-    // has_recommended_dose pair (the advanced editor's control, dialing_get_context,
-    // the AI advisor), and the MCP `dose` parameter now writes that.
+    // No `dose` here. It lived in the persisted recipe block and was read by neither
+    // frame generator, and was explicitly excluded from frameAffectingFieldsEqual as
+    // "metadata only".
+    //
+    // It DID have consumers, contrary to what an earlier revision of this comment
+    // claimed: the Dose sliders on RecipeEditorPage and SimpleProfileEditorPage both
+    // bound `recipe.dose` and wrote it back through updateRecipe(). Removing the field
+    // without them would have left two live controls silently doing nothing. They now
+    // read and write Profile's recommended_dose / has_recommended_dose pair directly
+    // (ProfileManager::setCurrentProfileRecommendedDose), which is the same field the
+    // advanced editor, dialing_get_context, the AI advisor and the MCP `dose`
+    // parameter use. One field, one meaning, four surfaces.
 
     // ADDING A FIELD HERE? Decide whether it affects frame GENERATION and update
     // frameAffectingFieldsEqual() in recipeparams.cpp to match. That function is

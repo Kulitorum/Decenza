@@ -1,3 +1,4 @@
+#include <optional>
 #include "core/settings_app.h"
 #include "profilemanager.h"
 #include "../core/drinktypes.h"
@@ -288,9 +289,15 @@ ProfileManager::ProfileManager(Settings* settings, DE1Device* device,
     // Load initial profile
     refreshProfiles();
 
-    // One-time upgrade: strip stored recipe blocks. BEFORE migrateProfileFormat(),
-    // whose parity gate would otherwise refuse every legacy profile carrying one and
-    // leave this pass to rewrite the same files unaudited.
+    // One-time upgrade: strip stored recipe blocks. Runs BEFORE migrateProfileFormat()
+    // so a profile carrying a block is brought to the canonical shape once, by the pass
+    // that understands the block, rather than being rewritten twice in one startup.
+    //
+    // (An earlier revision justified the ordering by claiming migrateProfileFormat's
+    // parity gate would otherwise refuse these profiles. It would not:
+    // collectParityErrors skips deliberatelyDroppedKeys() for every caller, so a
+    // dropped `recipe` is never reported to it either. The ordering is about doing the
+    // work once, not about unblocking a gate.)
     stripStoredRecipeBlocks();
 
     // One-time migration: resave profiles in unified de1app-compatible format
@@ -1488,61 +1495,35 @@ void ProfileManager::loadProfile(const QString& profileName) {
     // in deliberatelyDroppedKeys(), the check would report it as a lost key and
     // refuse the very write that removes it.
     if (found && m_currentProfile.recipeBlockStripped() && !m_currentProfile.isReadOnly()) {
-        bool wrote = false;
-        bool refused = false;
-
-        // Audit whichever source we are about to write back over — the stored copy
-        // when the profile came from ProfileStorage, otherwise the file. Reading the
-        // "before" bytes from the same place the write will land is what makes the
-        // check mean anything; gating it on `path` alone left the storage branch
-        // below rewriting unaudited, while stripStoredRecipeBlocks() audits its own
-        // storage pass.
-        const bool fromStorage = m_profileStorage && m_profileStorage->isConfigured()
-                                 && m_profileStorage->profileExists(resolvedName);
-        QString beforeJson;
-        if (fromStorage) {
-            beforeJson = m_profileStorage->readProfile(resolvedName);
-        } else if (!path.isEmpty() && !path.startsWith(QLatin1Char(':'))) {
-            QFile before(path);
-            if (before.open(QIODevice::ReadOnly))
-                beforeJson = QString::fromUtf8(before.readAll());
+        QStringList parity;
+        switch (writeProfileBackIfLossless(resolvedName, path, origin == Origin::Storage,
+                                           m_currentProfile, QString(), &parity)) {
+        case WriteBack::Written:
+            qInfo() << "ProfileManager::loadProfile: removed stored recipe block from"
+                    << resolvedName;
+            break;
+        case WriteBack::Refused:
+            // qInfo, not qWarning: a profile stored in a non-canonical encoding can
+            // never be rewritten losslessly, so this would fire on every load of that
+            // profile forever. The block staying on disk is harmless — nothing reads
+            // one — and it is already gone in memory.
+            qInfo() << "ProfileManager::loadProfile: leaving the recipe block on disk for"
+                    << resolvedName << "-" << parity.join(QStringLiteral("; "))
+                    << "- dropped in memory only";
+            break;
+        case WriteBack::Failed:
+            // Loud: unlike a refusal this CAN succeed later, and a permanently failing
+            // store (revoked SAF grant, read-only volume, full disk) would otherwise
+            // retry in silence on every load forever.
+            qWarning() << "ProfileManager::loadProfile: failed to persist the recipe-block"
+                       << "removal for" << resolvedName
+                       << "- dropped in memory only, will retry on next load";
+            break;
+        case WriteBack::NotWritable:
+            break;   // qrc built-in or no store; in-memory removal is all there is
         }
-
-        {
-            if (!beforeJson.isEmpty()) {
-                const QJsonObject wasOnDisk =
-                    QJsonDocument::fromJson(beforeJson.toUtf8()).object();
-                const QStringList parity =
-                    Profile::jsonParityErrors(wasOnDisk, m_currentProfile.toJsonObject());
-                if (!parity.isEmpty()) {
-                    // qInfo, not qWarning: a non-canonical profile can never be
-                    // rewritten losslessly, so this would fire on every single load
-                    // of that profile forever. The block staying on disk is harmless
-                    // — nothing reads one — and it is already gone in memory.
-                    qInfo() << "ProfileManager::loadProfile: leaving the recipe block on disk"
-                            << "for" << resolvedName
-                            << "- rewriting it would not be lossless:"
-                            << parity.join(QStringLiteral("; "))
-                            << "- dropped in memory only";
-                    refused = true;
-                }
-            }
-        }
-
-        if (!refused) {
-            if (fromStorage) {
-                wrote = m_profileStorage->writeProfile(resolvedName, m_currentProfile.toJsonString());
-            } else if (!path.isEmpty() && !path.startsWith(QLatin1Char(':'))) {
-                wrote = m_currentProfile.saveToFile(path);
-            }
-            if (wrote) {
-                qInfo() << "ProfileManager::loadProfile: removed stored recipe block from"
-                        << resolvedName;
-            }
-        }
-        // Cleared either way: a failed or refused write leaves the profile correct in
-        // memory, and retrying on the next load is the desired behaviour, driven by
-        // the block still being on disk rather than by this transient flag.
+        // Cleared either way: the retry driver is the block still being on disk, read
+        // afresh by fromJson on the next load, not this transient flag.
         m_currentProfile.clearRecipeBlockStripped();
     }
 
@@ -1553,56 +1534,36 @@ void ProfileManager::loadProfile(const QString& profileName) {
     // on every load. Skip read-only/built-in profiles (qrc, can't and needn't be
     // rewritten).
     if (found && m_currentProfile.espressoTemperatureHealed() && !m_currentProfile.isReadOnly()) {
-        bool writable = false;
-        bool repaired = false;
-        bool refused = false;
-
-        // Gate this write too. It re-serializes the WHOLE profile, so it can carry
-        // unrelated losses — a value that does not survive the writer's precision,
-        // say — into the user's file under the banner of a temperature repair.
+        // Gated like every write here. It re-serializes the WHOLE profile, so it can
+        // carry unrelated losses — a value that does not survive the writer's
+        // precision, say — into the user's file under the banner of a temperature
+        // repair. espresso_temperature is excluded from the comparison because
+        // changing it is the entire point; everything else must be unchanged.
         //
-        // espresso_temperature is excluded from the comparison because changing it
-        // is the entire point here; everything else must be unchanged. That works
-        // precisely because jsonParityErrors ignores ADDED keys, so the derived
-        // temperature would be invisible to it anyway, while a genuine loss
-        // elsewhere is still caught.
-        if (!path.isEmpty() && !path.startsWith(QLatin1Char(':'))) {
-            QFile before(path);
-            if (before.open(QIODevice::ReadOnly)) {
-                QJsonObject wasOnDisk = QJsonDocument::fromJson(before.readAll()).object();
-                QJsonObject willWrite = m_currentProfile.toJsonObject();
-                wasOnDisk.remove(QStringLiteral("espresso_temperature"));
-                willWrite.remove(QStringLiteral("espresso_temperature"));
-                const QStringList parity = Profile::jsonParityErrors(wasOnDisk, willWrite);
-                if (!parity.isEmpty()) {
-                    qWarning() << "ProfileManager::loadProfile: NOT persisting the"
-                               << "espresso_temperature repair for" << resolvedName
-                               << "- rewriting it would not be lossless:"
-                               << parity.join(QStringLiteral("; "))
-                               << "- corrected in memory only";
-                    refused = true;
-                }
-            }
-        }
-
-        if (refused) {
-            // fall through; nothing is written
-        } else if (m_profileStorage && m_profileStorage->isConfigured()
-            && m_profileStorage->profileExists(resolvedName)) {
-            writable = true;
-            repaired = m_profileStorage->writeProfile(resolvedName, m_currentProfile.toJsonString());
-        } else if (!path.isEmpty() && !path.startsWith(QLatin1Char(':'))) {
-            writable = true;
-            repaired = m_currentProfile.saveToFile(path);
-        }
-        if (repaired) {
-            qInfo() << "ProfileManager::loadProfile: repaired stale espresso_temperature on disk for" << resolvedName;
-        } else if (writable) {
-            // Write failed: the in-memory value is corrected, but the heal will run
-            // again on the next load. Surface it so a persistent failure (read-only
-            // FS, permissions, full disk) isn't invisible.
-            qWarning() << "ProfileManager::loadProfile: failed to persist espresso_temperature repair for"
-                       << resolvedName << "- corrected in memory only, will retry on next load";
+        // This block used to read its "before" bytes from `path` while writing to
+        // ProfileStorage, so the storage tier was rewritten unaudited. Routing it
+        // through the shared helper is what makes the read and the write agree on
+        // where the profile actually lives.
+        QStringList parity;
+        switch (writeProfileBackIfLossless(resolvedName, path, origin == Origin::Storage,
+                                           m_currentProfile,
+                                           QStringLiteral("espresso_temperature"), &parity)) {
+        case WriteBack::Written:
+            qInfo() << "ProfileManager::loadProfile: repaired stale espresso_temperature"
+                    << "on disk for" << resolvedName;
+            break;
+        case WriteBack::Refused:
+            qWarning() << "ProfileManager::loadProfile: NOT persisting the"
+                       << "espresso_temperature repair for" << resolvedName << "-"
+                       << parity.join(QStringLiteral("; ")) << "- corrected in memory only";
+            break;
+        case WriteBack::Failed:
+            qWarning() << "ProfileManager::loadProfile: failed to persist espresso_temperature"
+                       << "repair for" << resolvedName
+                       << "- corrected in memory only, will retry on next load";
+            break;
+        case WriteBack::NotWritable:
+            break;
         }
     }
 
@@ -2723,9 +2684,66 @@ void ProfileManager::applyRecipeToScalarFields(const RecipeParams& recipe) {
     m_currentProfile.setEspressoTemperature(recipe.tempStart);
 }
 
+ProfileManager::WriteBack ProfileManager::writeProfileBackIfLossless(
+    const QString& resolvedName, const QString& filePath, bool preferStorage,
+    const Profile& profile, const QString& excludedKey, QStringList* parityOut)
+{
+    const bool toStorage = preferStorage && m_profileStorage
+                           && m_profileStorage->isConfigured()
+                           && m_profileStorage->profileExists(resolvedName);
+    const bool toFile = !filePath.isEmpty() && !filePath.startsWith(QLatin1Char(':'));
+    if (!toStorage && !toFile)
+        return WriteBack::NotWritable;
+
+    // Read from the destination, never from "wherever we happened to have a path".
+    QString beforeJson;
+    if (toStorage) {
+        beforeJson = m_profileStorage->readProfile(resolvedName);
+    } else {
+        QFile before(filePath);
+        if (before.open(QIODevice::ReadOnly))
+            beforeJson = QString::fromUtf8(before.readAll());
+    }
+
+    // An unreadable destination is a refusal. Treating it as "nothing to compare"
+    // would let a transient SAF read error switch the audit off and clobber a file
+    // whose distinguishing feature is that it is old enough to carry foreign keys.
+    if (beforeJson.isEmpty()) {
+        if (parityOut)
+            *parityOut = QStringList{QStringLiteral("could not read the stored copy to compare against")};
+        return WriteBack::Refused;
+    }
+
+    QJsonObject wasOnDisk = QJsonDocument::fromJson(beforeJson.toUtf8()).object();
+    QJsonObject willWrite = profile.toJsonObject();
+    if (!excludedKey.isEmpty()) {
+        wasOnDisk.remove(excludedKey);
+        willWrite.remove(excludedKey);
+    }
+    const QStringList parity = Profile::jsonParityErrors(wasOnDisk, willWrite);
+    if (!parity.isEmpty()) {
+        if (parityOut) *parityOut = parity;
+        return WriteBack::Refused;
+    }
+
+    const bool ok = toStorage
+        ? m_profileStorage->writeProfile(resolvedName, profile.toJsonString())
+        : profile.saveToFile(filePath);   // QSaveFile: atomic, checks write + commit
+    return ok ? WriteBack::Written : WriteBack::Failed;
+}
+
 void ProfileManager::setCurrentProfileRecommendedDose(double doseG) {
-    m_currentProfile.setRecommendedDose(qBound(0.0, doseG, 100.0));
-    m_currentProfile.setHasRecommendedDose(true);
+    // 0 CLEARS the recommendation. Storing 0 with the flag on would be a
+    // recommendation of zero grams, which flows into dialing_get_context and the AI
+    // advisor and into ratio arithmetic — and it would contradict the .tcl importer,
+    // which reads de1app's 0 as "not set" (Profile::loadFromTclString). One field,
+    // one meaning.
+    if (doseG <= 0.0) {
+        m_currentProfile.setHasRecommendedDose(false);
+    } else {
+        m_currentProfile.setRecommendedDose(qMin(doseG, 100.0));
+        m_currentProfile.setHasRecommendedDose(true);
+    }
     m_profileModified = true;
     emit currentProfileChanged();
     emit profileModifiedChanged();
@@ -3474,10 +3492,11 @@ void ProfileManager::stripStoredRecipeBlocks() {
     // their own frames. Its settings flag is retired with it, so an install that
     // skipped the old pass is not skipped by this one.
     //
-    // Runs BEFORE migrateProfileFormat(). That pass has a jsonParityErrors gate
-    // whose comment warns it must not reach the legacy population unaudited; if this
-    // ran after it, every legacy profile carrying a block would be refused there and
-    // then rewritten here anyway, inverting the protection.
+    // Runs BEFORE migrateProfileFormat() so a block-carrying profile is normalised
+    // once, by the pass that knows what the block is, instead of being rewritten by
+    // both in the same startup. Note this is NOT because the other pass would refuse
+    // them — `recipe` is excused in deliberatelyDroppedKeys() for every caller of
+    // jsonParityErrors, migrateProfileFormat included.
     //
     // Profiles that arrive AFTER this pass — imports, share codes, SAF syncs,
     // restored backups — are handled by the strip-on-load write-back in loadProfile().
@@ -3508,22 +3527,36 @@ void ProfileManager::stripStoredRecipeBlocks() {
     int refused = 0;    // not losslessly rewritable; retrying cannot help
     int promoted = 0;   // blocks whose dose became a recommended_dose
 
-    // Returns true when the profile was rewritten, false when it was left alone.
-    // `ok` is cleared on a real failure, as opposed to "nothing to do".
-    auto stripped = [&](const QJsonDocument& doc, QString& outJson) -> bool {
-        if (doc.isNull()) return false;
+    // Returns the stripped profile, or nullopt when there is nothing to do or the
+    // file cannot be used. Every rejection is reported and counted — three distinct
+    // outcomes collapsing into one silent `false` is how a corrupt profile stays
+    // invisible on every launch while the completion flag is set anyway.
+    auto stripped = [&](const QString& label, const QByteArray& raw) -> std::optional<Profile> {
+        QJsonParseError parseError{};
+        const QJsonDocument doc = QJsonDocument::fromJson(raw, &parseError);
+        if (doc.isNull()) {
+            qWarning() << "stripStoredRecipeBlocks: cannot parse" << label << "-"
+                       << parseError.errorString() << "at offset" << parseError.offset;
+            failed++;
+            return std::nullopt;
+        }
         const QJsonObject obj = doc.object();
-        if (!obj.contains(QStringLiteral("recipe"))) return false;
+        if (!obj.contains(QStringLiteral("recipe"))) return std::nullopt;   // nothing to do
 
         Profile profile = Profile::fromJson(doc);
-        if (profile.title().isEmpty()) return false;
+        if (profile.title().isEmpty()) {
+            qWarning() << "stripStoredRecipeBlocks: abandoning" << label
+                       << "- it carries a recipe block but no title, so it cannot be"
+                       << "safely rewritten";
+            failed++;
+            return std::nullopt;
+        }
 
         // fromJson has already dropped the block and promoted any set dose; all that
         // is left is to confirm the rewrite loses nothing else. The parity check
         // excuses `recipe` deliberately (see deliberatelyDroppedKeys in profile.cpp),
         // so anything it reports here is a genuine loss and a reason to stop.
-        const QJsonObject rewritten = profile.toJsonObject();
-        const QStringList parity = Profile::jsonParityErrors(obj, rewritten);
+        const QStringList parity = Profile::jsonParityErrors(obj, profile.toJsonObject());
         if (!parity.isEmpty()) {
             // Not a failure, and deliberately not a warning. A profile stored in a
             // non-canonical encoding cannot be rewritten losslessly by any pass, so
@@ -3531,19 +3564,18 @@ void ProfileManager::stripStoredRecipeBlocks() {
             // same reason upgradeStoredEncoding leaves such files alone. Its block
             // stays, harmlessly: nothing reads one, and loadProfile will try again
             // per-profile through the same gate if the encoding is ever repaired.
-            qInfo() << "stripStoredRecipeBlocks: leaving" << profile.title()
+            qInfo() << "stripStoredRecipeBlocks: leaving" << label
                     << "as it is — rewriting it would not be lossless:"
                     << parity.join(QStringLiteral(", "));
             refused++;
-            return false;
+            return std::nullopt;
         }
 
         if (profile.hasRecommendedDose()
             && !profileJsonToBool(obj.value(QStringLiteral("has_recommended_dose")), false)) {
             promoted++;
         }
-        outJson = QString::fromUtf8(QJsonDocument(rewritten).toJson(QJsonDocument::Indented));
-        return true;
+        return profile;
     };
 
     auto migrateFile = [&](const QString& filePath) {
@@ -3553,20 +3585,23 @@ void ProfileManager::stripStoredRecipeBlocks() {
             failed++;
             return;
         }
-        const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+        const QByteArray raw = file.readAll();
         file.close();
 
-        QString out;
-        if (!stripped(doc, out)) return;
+        const std::optional<Profile> profile = stripped(filePath, raw);
+        if (!profile) return;
 
-        QFile w(filePath);
-        if (!w.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-            qWarning() << "stripStoredRecipeBlocks: failed to write" << filePath;
+        // saveToFile, never a raw QFile: it writes through QSaveFile (temp + rename)
+        // and checks both the byte count and commit(), so an interrupted or short
+        // write leaves the user's original intact instead of a truncated file. A
+        // startup pass rewriting every profile a user owns, purely to tidy them, is
+        // precisely the case its comment names.
+        if (!profile->saveToFile(filePath)) {
+            qWarning() << "stripStoredRecipeBlocks: failed to write" << filePath
+                       << "- left as it was; will retry on next launch";
             failed++;
             return;
         }
-        w.write(out.toUtf8());
-        w.close();
         qDebug() << "stripStoredRecipeBlocks: stripped" << filePath;
         migrated++;
     };
@@ -3585,11 +3620,21 @@ void ProfileManager::stripStoredRecipeBlocks() {
     if (m_profileStorage && m_profileStorage->isConfigured()) {
         for (const QString& name : m_profileStorage->listProfiles()) {
             const QString jsonContent = m_profileStorage->readProfile(name);
-            if (jsonContent.isEmpty()) continue;
+            if (jsonContent.isEmpty()) {
+                // Same condition as an unopenable file above, and the same bucket.
+                // readProfile() returns "" for ANY failure without logging, so a
+                // stale SAF grant would otherwise skip the entire external store in
+                // silence and still let the completion flag be set.
+                qWarning() << "stripStoredRecipeBlocks: cannot read SAF profile" << name
+                           << "- will retry on next launch";
+                failed++;
+                continue;
+            }
 
-            QString out;
-            if (!stripped(QJsonDocument::fromJson(jsonContent.toUtf8()), out)) continue;
-            if (m_profileStorage->writeProfile(name, out)) {
+            const std::optional<Profile> profile = stripped(name, jsonContent.toUtf8());
+            if (!profile) continue;
+
+            if (m_profileStorage->writeProfile(name, profile->toJsonString())) {
                 migrated++;
             } else {
                 qWarning() << "stripStoredRecipeBlocks: failed to write SAF profile:" << name;
@@ -3600,6 +3645,7 @@ void ProfileManager::stripStoredRecipeBlocks() {
 
     if (failed > 0) {
         qWarning() << "Recipe block strip incomplete:" << migrated << "stripped,"
+                   << refused << "left as they are," << promoted << "dose(s) promoted,"
                    << failed << "failed. Will retry on next launch.";
     } else {
         if (m_settings) m_settings->setValue("recipe_blocks_stripped", true);

@@ -645,7 +645,7 @@ Profile VisualizerImporter::parseVisualizerProfile(const QJsonObject& json) {
     // One used to call regenerateFromRecipe() on the theory that a profile carrying
     // a recipe block but no frames could be rebuilt from the block. Two things
     // retired it. First, fabricating a profile from unestablished parameters is
-    // finding REC-1 — it produced a complete default 88 °C / 25 s / 4 g profile from
+    // finding REC-1 — it produced a complete default 88 °C / 20 s / 4 g profile from
     // a broken download. Second, a stored block is no longer read into RecipeParams
     // at all, so regenerateFromRecipe() would refuse regardless: it is guarded on
     // hasRecipeParams(), which nothing sets from JSON any more.

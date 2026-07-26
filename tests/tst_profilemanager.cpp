@@ -425,6 +425,69 @@ private slots:
         QCOMPARE(afterFirst, afterSecond);
     }
 
+    void stripRefusesAProfileItCannotRewriteLosslessly() {
+        // The guard that stops the pass mangling a profile stored in an encoding the
+        // canonical serializer cannot reproduce. Every other fixture round-trips
+        // cleanly, so without a deliberately lossy one this branch is never entered.
+        clearTestProfileStore();
+        McpTestFixture f;
+        f.settings.setValue("recipe_blocks_stripped", false);
+
+        QJsonObject p = makeDFlowJson("D-Flow / Lossy");
+        p["recipe"] = QJsonObject{{"editorType", "dflow"}, {"dose", 18.0}};
+        // A key the serializer models and re-emits with a DIFFERENT value: the parity
+        // check reports a change, so the rewrite is refused.
+        p["target_weight"] = 36.5555;
+
+        const QString path = f.profileManager.userProfilesPath() + "/lossy.json";
+        QFile out(path);
+        QVERIFY(out.open(QIODevice::WriteOnly));
+        const QByteArray before = QJsonDocument(p).toJson();
+        out.write(before);
+        out.close();
+
+        f.profileManager.stripStoredRecipeBlocks();
+
+        QFile back(path);
+        QVERIFY(back.open(QIODevice::ReadOnly));
+        const QByteArray after = back.readAll();
+        back.close();
+        QFile::remove(path);
+
+        QCOMPARE(before, after);   // untouched, block and all
+        QVERIFY2(QJsonDocument::fromJson(after).object().contains("recipe"),
+                 "a profile that could not be rewritten losslessly was stripped anyway");
+        // A refusal must NOT block completion — it can never succeed on a later run.
+        QVERIFY2(f.settings.value("recipe_blocks_stripped", false).toBool(),
+                 "a refusal blocked the completion flag, so the pass would repeat forever");
+    }
+
+    void stripCountsAnUnparseableProfileAsFailedAndRetries() {
+        // Three outcomes used to collapse into one silent `false`, so a corrupt file
+        // was invisible on every launch AND the flag was set anyway.
+        clearTestProfileStore();
+        McpTestFixture f;
+        f.settings.setValue("recipe_blocks_stripped", false);
+
+        const QString path = f.profileManager.userProfilesPath() + "/corrupt.json";
+        QFile out(path);
+        QVERIFY(out.open(QIODevice::WriteOnly));
+        out.write("{ \"title\": \"D-Flow / Truncated\", \"recipe\": {");   // half a document
+        out.close();
+
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression("cannot parse .*corrupt\\.json"));
+        // ...and the run summary, which is a warning precisely because failed > 0 —
+        // that is the outcome being asserted, so it must be expected, not silenced.
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression("Recipe block strip incomplete"));
+        f.profileManager.stripStoredRecipeBlocks();
+        QFile::remove(path);
+
+        QVERIFY2(!f.settings.value("recipe_blocks_stripped", false).toBool(),
+                 "an unparseable profile did not block the flag, so it is never revisited");
+    }
+
     // === no-op-save guard ===
 
     void uneditedSaveLeavesDFlowFramesUntouched() {
@@ -451,6 +514,36 @@ private slots:
             QCOMPARE(after[i].seconds, before[i].seconds);
             QCOMPARE(after[i].exitPressureOver, before[i].exitPressureOver);
         }
+    }
+
+    void uneditedSaveLeavesAFlowFramesUntouched() {
+        // A-Flow is the harder half of the derivesFromFrames split: prepAFlow overwrites
+        // 12 fields across a 9-frame layout to D-Flow's 8 across 3. The guard rests on
+        // extractRecipeParams(profile) equalling getOrConvertRecipeParams(), and that
+        // equality was only ever demonstrated for the simpler generator.
+        McpTestFixture f;
+        clearTestProfileStore();
+        const QString src = QStringLiteral(":/profiles/a_flow_default_medium.json");
+        Profile aflow = Profile::loadFromFile(src);
+        QVERIFY(!aflow.steps().isEmpty());
+        const QString path = f.profileManager.userProfilesPath() + "/aflow_guard.json";
+        QVERIFY(aflow.saveToFile(path));
+        f.profileManager.refreshProfiles();
+        f.profileManager.loadProfile("aflow_guard");
+        QCOMPARE(f.profileManager.currentEditorType(), QStringLiteral("aflow"));
+
+        const QList<ProfileFrame> before = f.profileManager.currentProfile().steps();
+        f.profileManager.uploadRecipeProfile(f.profileManager.getOrConvertRecipeParams());
+        const QList<ProfileFrame> after = f.profileManager.currentProfile().steps();
+
+        QCOMPARE(after.size(), before.size());
+        for (qsizetype i = 0; i < before.size(); ++i) {
+            QCOMPARE(after[i].temperature, before[i].temperature);
+            QCOMPARE(after[i].pressure, before[i].pressure);
+            QCOMPARE(after[i].flow, before[i].flow);
+            QCOMPARE(after[i].seconds, before[i].seconds);
+        }
+        QFile::remove(path);
     }
 
     void editedSaveDoesRegenerate() {

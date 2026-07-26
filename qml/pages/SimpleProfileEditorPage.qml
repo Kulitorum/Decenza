@@ -393,7 +393,7 @@ Page {
 
                             // Dose
                             Text { text: TranslationManager.translate("simpleProfile.dose", "Dose"); font: Theme.captionFont; color: Theme.weightColor }
-                            ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: TranslationManager.translate("simpleProfileEditor.dose", "Dose"); from: 3; to: 40; stepSize: 0.1; suffix: " g"; value: val(recipe.dose, 18); onValueModified: function(newValue) { updateRecipe("dose", Math.round(newValue * 10) / 10) } }
+                            ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: TranslationManager.translate("simpleProfileEditor.dose", "Dose"); from: 3; to: 40; stepSize: 0.1; suffix: " g"; value: ProfileManager.profileRecommendedDose; onValueModified: function(newValue) { ProfileManager.setCurrentProfileRecommendedDose(Math.round(newValue * 10) / 10) } }
                         }
 
                         // Separator
@@ -593,7 +593,7 @@ Page {
 
                                 Text {
                                     Layout.fillWidth: true
-                                    text: { var d = val(recipe.dose, 18); return tr("ratio", "Ratio: 1:") + (d > 0 ? (val(recipe.targetWeight, 36) / d).toFixed(1) : "--") }
+                                    text: { var d = ProfileManager.profileRecommendedDose; return tr("ratio", "Ratio: 1:") + (d > 0 ? (val(recipe.targetWeight, 36) / d).toFixed(1) : "--") }
                                     font: Theme.captionFont
                                     color: Theme.textSecondaryColor
                                     horizontalAlignment: Text.AlignRight

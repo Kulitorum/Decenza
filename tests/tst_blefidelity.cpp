@@ -7,6 +7,7 @@
 
 #include "profile/profile.h"
 #include "profile/profileframe.h"
+#include "profile/recipeparams.h"
 #include "ble/protocol/binarycodec.h"
 #include "ble/protocol/de1characteristics.h"
 
@@ -446,50 +447,52 @@ private slots:
         QVERIFY2(checked >= 50, qPrintable(QString("Only %1 profiles checked").arg(checked)));
     }
 
-    // A stored recipe block must not reach the machine, in either direction: its
-    // presence must not change a byte, and neither must its removal. The block was a
-    // cache of values re-derived from the frames on every read, so this is the
-    // property that made removing it safe — asserted rather than assumed.
-    void storedRecipeBlockDoesNotChangeWhatTheMachineGets_data() {
+    // The real invariant, and the one that was actually at risk.
+    //
+    // An earlier version of this test loaded a profile with and without a stored block
+    // and compared bytes. That could not fail: on `main` a block reached only
+    // m_recipeParams, and neither toHeaderBytes() nor toFrameBytes() ever read it, so
+    // the bytes were identical before this change as well as after.
+    //
+    // What CAN diverge is the block being treated as a generation source. Drive the
+    // frames from a contradictory block the way regenerateFromRecipe would, and assert
+    // that what the machine gets still comes from the profile's own frames.
+    void framesComeFromTheFramesNotFromRecipeParams_data() {
         QTest::addColumn<QString>("fileName");
         QTest::newRow("dflow") << QStringLiteral("d_flow_q.json");
         QTest::newRow("aflow") << QStringLiteral("a_flow_default_medium.json");
     }
 
-    void storedRecipeBlockDoesNotChangeWhatTheMachineGets() {
+    void framesComeFromTheFramesNotFromRecipeParams() {
         QFETCH(QString, fileName);
-        const QString path = QDir(kProfilesDir).absoluteFilePath(fileName);
+        Profile p = loadProfile(QDir(kProfilesDir).absoluteFilePath(fileName));
+        QVERIFY(!p.steps().isEmpty());
 
-        QFile f(path);
-        QVERIFY(f.open(QIODevice::ReadOnly));
-        const QJsonObject clean = QJsonDocument::fromJson(f.readAll()).object();
-        f.close();
-        QVERIFY2(!clean.contains(QStringLiteral("recipe")),
-                 "fixture already carries a block — this test would prove nothing");
+        const QByteArray header = p.toHeaderBytes();
+        const QList<QByteArray> frames = p.toFrameBytes();
 
-        // A block that CONTRADICTS the frames, which is the real-world shape: the
-        // five shipped A-Flow built-ins carried exactly this until it was removed.
-        QJsonObject withBlock = clean;
-        withBlock[QStringLiteral("recipe")] = QJsonObject{
-            {QStringLiteral("editorType"), QStringLiteral("aflow")},
-            {QStringLiteral("dose"), 18},
-            {QStringLiteral("fillTemperature"), 88},
-            {QStringLiteral("infuseTime"), 20},
-            {QStringLiteral("pourPressure"), 9},
-            {QStringLiteral("pourTemperature"), 93}};
+        // Params that disagree with the frames on every field the generator reads.
+        RecipeParams wrong;
+        wrong.editorType = p.editorType() == QLatin1String("aflow") ? EditorType::AFlow
+                                                                   : EditorType::DFlow;
+        wrong.fillTemperature = 60.0;
+        wrong.pourTemperature = 60.0;
+        wrong.infuseTime      = 99.0;
+        wrong.pourPressure    = 1.0;
+        wrong.pourFlow        = 0.5;
+        p.setRecipeParams(wrong);
 
-        const Profile a = Profile::fromJson(QJsonDocument(clean));
-        const Profile b = Profile::fromJson(QJsonDocument(withBlock));
+        // Merely HOLDING them changes nothing — that is the property the removed block
+        // relied on, and it is worth pinning explicitly.
+        QCOMPARE(p.toHeaderBytes().toHex(), header.toHex());
+        const QList<QByteArray> after = p.toFrameBytes();
+        QCOMPARE(after.size(), frames.size());
+        for (qsizetype i = 0; i < frames.size(); ++i)
+            QCOMPARE(after[i].toHex(), frames[i].toHex());
 
-        QCOMPARE(b.toHeaderBytes().toHex(), a.toHeaderBytes().toHex());
-        QCOMPARE(b.toFrameBytes().size(), a.toFrameBytes().size());
-        const auto fa = a.toFrameBytes(), fb = b.toFrameBytes();
-        for (qsizetype i = 0; i < fa.size(); ++i)
-            QCOMPARE(fb[i].toHex(), fa[i].toHex());
-
-        // And the block does not survive serialization.
-        QVERIFY2(!b.toJsonObject().contains(QStringLiteral("recipe")),
-                 "the block survived a round-trip");
+        // And nothing serializes them back out.
+        QVERIFY2(!p.toJsonObject().contains(QStringLiteral("recipe")),
+                 "recipe params were serialized into a block");
     }
 
     void allProfilesEncodeWithoutCrash() {

@@ -593,8 +593,8 @@ QJsonObject Profile::toJsonObject() const {
     // Decenza was the only producer — de1app has no such key in any of its 88
     // profiles, reaprime models ten fields and drops the rest, and Visualizer
     // normalises it away in both renderings — so the population carrying one is
-    // closed and draining. See the Sunset section of the openspec change for what
-    // becomes deletable once it has drained, and what must not.
+    // closed and draining. docs/CLAUDE_MD/RECIPE_PROFILES.md carries the sunset order:
+    // what becomes deletable once it has drained, and the one entry that must not.
     // Read-only flag (de1app compatibility: integer 0/1/2)
     if (m_readOnly != 0) {
         obj["read_only"] = m_readOnly;
@@ -680,8 +680,8 @@ const QSet<QString>& nonZeroDefaultKeys() {
 // `recipe` is the whole list. It was a cache of values reconstructed from the frames
 // on every read (RecipeAnalyzer::prepDFlow / prepAFlow), and is no longer written.
 // Without this excusal it reads as a loss on every profile that still carries one —
-// isInertValue() rightly refuses to call a structured value inert — and the four
-// callers of jsonParityErrors act on that verdict: ProfileManager's stored-encoding
+// isInertValue() rightly refuses to call a structured value inert — and every caller
+// of jsonParityErrors acts on that verdict: ProfileManager's stored-encoding
 // upgrade and espresso_temperature repair both refuse to persist, migrateProfileFormat
 // counts the profile failed, and `profile_sync --rewrite-format` skips it. The
 // strip-on-load write-back is gated on the same check, so without this the block it
@@ -1056,8 +1056,9 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
     // here is the whole of the removal for anything that gets re-saved.
     //
     // `dose` is the one value in it that was not reconstructed from the frames or
-    // duplicated by a top-level key, and the one a user could actually set (through
-    // the MCP parameter surface — there has never been a QML control). Promote it to
+    // duplicated by a top-level key, and the one a user could actually set — through
+    // the MCP parameter surface AND the Dose sliders on both recipe editor pages,
+    // which now write Profile::recommendedDose directly. Promote it to
     // recommended_dose so it survives, but only when it says something: every block
     // ever written carries the struct default of 18, so promoting unconditionally
     // would switch on a recommendation the user never made for every profile that
@@ -1070,11 +1071,22 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
         profile.m_recipeBlockStripped = true;
         const QJsonObject block = obj[QStringLiteral("recipe")].toObject();
         if (!profile.m_hasRecommendedDose && block.contains(QStringLiteral("dose"))) {
-            const double blockDose = block[QStringLiteral("dose")].toDouble(Profile::kDefaultRecommendedDose);
-            if (!qFuzzyCompare(blockDose, Profile::kDefaultRecommendedDose)
-                && blockDose > 0.0 && blockDose <= 100.0) {
+            // jsonToDouble, not QJsonValue::toDouble: this format string-encodes
+            // numbers, so a block written as "dose": "20.5" would otherwise read back
+            // as the default and be silently discarded along with the block.
+            const double blockDose =
+                jsonToDouble(block[QStringLiteral("dose")], Profile::kDefaultRecommendedDose);
+            if (qFuzzyCompare(blockDose, Profile::kDefaultRecommendedDose)) {
+                // The struct default. Says nothing, so it enables nothing.
+            } else if (blockDose > 0.0 && blockDose <= 100.0) {
                 profile.m_recommendedDose = blockDose;
                 profile.m_hasRecommendedDose = true;
+            } else {
+                // Out of range. Say so — the block is about to be removed from disk,
+                // so this is the only chance anyone has to notice the value existed.
+                qWarning() << "Profile::fromJson:" << profile.m_title
+                           << "carries a recipe dose of" << blockDose
+                           << "g, outside [0, 100] — not promoted to recommended_dose";
             }
         }
     }
@@ -1375,14 +1387,16 @@ Profile Profile::loadFromTclString(const QString& content) {
     // value equal to the default says nothing — this key exists only because a user
     // set it in Streamline. Gating on "differs from 18" as well would silently drop a
     // deliberate 18.0 g dose, which is a perfectly ordinary thing to set.
-    if (!De1AppTcl::extractValue(content, QStringLiteral("profile_grinder_dose_weight"))
-             .trimmed().isEmpty()) {
-        const double before = profile.m_recommendedDose;
-        readNum(QStringLiteral("recommended_dose"), profile.m_recommendedDose);
-        if (profile.m_recommendedDose > 0.0) {
+    {
+        // Read into a LOCAL, not straight into the member. readNum leaves its target
+        // untouched on a malformed value, so reading into m_recommendedDose left the
+        // 18.0 default sitting there — which then passed the `> 0` test and enabled a
+        // recommendation the file never stated. A local starting at 0 cannot.
+        double doseFromTcl = 0.0;
+        readNum(QStringLiteral("recommended_dose"), doseFromTcl);
+        if (doseFromTcl > 0.0) {
+            profile.m_recommendedDose = doseFromTcl;
             profile.m_hasRecommendedDose = true;
-        } else {
-            profile.m_recommendedDose = before;   // 0 means unset, not a real dose
         }
     }
 

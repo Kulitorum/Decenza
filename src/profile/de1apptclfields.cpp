@@ -183,9 +183,11 @@ namespace {
 // The cost of matching Tcl here is real and one-sided: the profile loses its
 // slash-prefix category and so drops out of its editor group, its filename collides
 // with the next download of the same family, and in DE1APP ITSELF it loses the editor
-// entirely — the dispatch matches `[string range $title 0 7]` against the literal
-// "D-Flow /" (plugins/D_Flow_Espresso_Profile/plugin.tcl:1143), which 6 characters
-// cannot satisfy. Decenza's own writer braces properly, so re-saving repairs the file
+// entirely — the dispatch takes the first 8 characters of the title and compares them
+// against the literal "D-Flow /":
+//     set title_test [string range [ifexists ::settings(profile_title)] 0 7]
+// (plugins/D_Flow_Espresso_Profile/plugin.tcl:196-197, in `proc prep`; the same test is
+// repeated inline at :1144-1152). Six characters cannot satisfy it. Decenza's own writer braces properly, so re-saving repairs the file
 // for every app downstream.
 //
 // STRICTLY PROSE ONLY. An enum or a code must NOT be added here: `beverage_type` is

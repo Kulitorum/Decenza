@@ -7,8 +7,11 @@ hand-written approximation.
 ## `visualizer_unbraced_title.tcl`
 
 Fetched from `https://visualizer.coffee/api/shots/<id>/profile?format=tcl` on
-2026-07-26. Visualizer's `.tcl` renderer does not brace multi-word values, so the
-title is written bare:
+2026-07-26. Visualizer's `.tcl` renderer *does* brace multi-word values, but only when
+they match `/\w\s\w/` — word character, whitespace, word character
+(`app/models/shot_information/profile.rb:29`). A title whose every space sits beside a
+non-word character misses that test, so `D-Flow / Q` (spaces flanking the `/`) is
+written bare while `Damian's Q` is braced correctly:
 
     profile_title D-Flow / Q
 

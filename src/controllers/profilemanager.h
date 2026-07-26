@@ -125,10 +125,15 @@ public:
     double profileRecommendedDose() const { return m_currentProfile.recommendedDose(); }
 
     // Sets the per-profile dose and enables it in one step, for callers that have a
-    // value rather than a value plus a toggle — the MCP `dose` parameter. Setting a
-    // dose without enabling it would store a number nothing reads, which is what the
-    // retired recipe-block `dose` did.
-    void setCurrentProfileRecommendedDose(double doseG);
+    // value rather than a value plus a toggle — the MCP `dose` parameter and the Dose
+    // control on both recipe editors. Setting a dose without enabling it would store a
+    // number nothing reads, which is what the retired recipe-block `dose` did.
+    //
+    // Q_INVOKABLE because RecipeEditorPage and SimpleProfileEditorPage call it
+    // directly: their `updateRecipe(key, value)` idiom routes through RecipeParams,
+    // which no longer carries a dose, so the slider has to write the profile field.
+    // Passing 0 CLEARS the recommendation rather than recommending zero grams.
+    Q_INVOKABLE void setCurrentProfileRecommendedDose(double doseG);
 
     // === Target weight / brew-by-ratio ===
     // The yield ladder's single evaluation point (add-yield-ratio-anchor):
@@ -396,6 +401,26 @@ private:
     // One-time upgrade: remove the `recipe` block from already-saved profiles,
     // promoting a set dose to recommended_dose. Replaces migrateRecipeFrames().
     void stripStoredRecipeBlocks();
+
+    enum class WriteBack { Written, Refused, Failed, NotWritable };
+
+    // Rewrites a profile over whichever stored copy it came from, but ONLY when
+    // re-serializing it loses nothing.
+    //
+    // The point is that it reads the "before" bytes from the SAME place the write
+    // will land. Splitting those two decisions is what let a storage-tier write go
+    // unaudited in two separate places here; keeping them in one function makes that
+    // divergence impossible rather than merely fixed.
+    //
+    // An unreadable "before" is a REFUSAL, not a clean audit — otherwise the read
+    // failure silently disables the check it was supposed to gate.
+    //
+    // `excludedKey` is dropped from both sides for a repair whose whole purpose is to
+    // change one key. Refusal detail lands in *parityOut so each caller keeps its own
+    // wording and log level.
+    WriteBack writeProfileBackIfLossless(const QString& resolvedName, const QString& filePath,
+                                         bool preferStorage, const Profile& profile,
+                                         const QString& excludedKey, QStringList* parityOut);
     void migrateReadOnlyProfiles();
     void applyRecipeToScalarFields(const RecipeParams& recipe);
     void createNewProfileWithEditorType(EditorType type, const QString& title);
