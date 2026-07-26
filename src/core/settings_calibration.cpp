@@ -66,9 +66,12 @@ QString SettingsCalibration::currentScaleType() const {
 QString SettingsCalibration::resolveScaleKey(const QString& explicitKey) const {
     if (explicitKey.isEmpty())
         return currentScaleType();
-    // Normalize an explicit key too. A caller holding a legacy display name would
-    // otherwise open a second pool alongside the canonical one under a different
-    // spelling of the same scale — the split this resolution exists to close.
+    // Normalizing an explicit key is belt-and-braces, not load-bearing: every
+    // downstream already does it (sawPairKey, globalSawBootstrapLag, sensorLag,
+    // sawLearningEntries), so a legacy display name cannot open a second pool today
+    // whether or not this line exists. It is here so the value this function RETURNS
+    // is canonical for any future consumer that uses it as a key or compares it,
+    // rather than depending on each one remembering to normalize again.
     return ScaleTypeIds::normalizeScaleTypeId(explicitKey);
 }
 
