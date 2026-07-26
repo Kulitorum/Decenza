@@ -56,11 +56,32 @@ void WeightProcessor::processWeight(double weight)
     // whole shot. That is the deliberate trade (see the comment there); it is a much
     // smaller surface than leaving the spike filter itself off.
     if (m_active && m_hasLastWeight && qAbs(weight - m_lastRawWeight) > 100.0) {
-        if (m_awaitingTare && qAbs(weight) <= kTareLandedThresholdG) {
-            // The tare landing. Accept it and stop expecting it.
+        if (m_awaitingTare && qAbs(weight) <= kTareLandedThresholdG
+            && ++m_tareLandedSamples >= kTareLandedConfirmations) {
+            // The tare landing, CONFIRMED. One packet is deliberately not enough.
+            //
+            // To be clear about the evidence: the observed "weight= 0 last= 364.6"
+            // above was the REAL tare being wrongly rejected, not corruption — it is
+            // not evidence that spurious zeros occur. The reason to require a second
+            // sample is that single-packet corruption is the documented failure mode
+            // this whole filter exists for (#610, a Felicita reporting 1649 g instead
+            // of ~10 g), and Decenza supports sixteen scale types whose behaviour
+            // around a tare we have no data on. Believing one spurious near-zero
+            // would consume the exemption, leave the real tare step to be rejected
+            // three times and escape-hatched, and open the per-frame weight exit on a
+            // full pre-tare reading — firing exactly the skipFrame the gate below
+            // exists to prevent. Same shape as the oscillation detector's settle
+            // count, and it costs ~200 ms of preheat.
             m_awaitingTare = false;
+            m_tareLandedSamples = 0;
             m_consecutiveRejections = 0;
+        } else if (m_awaitingTare && qAbs(weight) <= kTareLandedThresholdG) {
+            // Near zero but unconfirmed. Hold it: do NOT let it become the baseline,
+            // or a spurious zero still displaces a real pre-tare reading.
+            m_lastWallClockMs = wallClock;  // keep de-jitter timing accurate
+            return;
         } else if (++m_consecutiveRejections < 3) {
+            m_tareLandedSamples = 0;  // not near zero — any run of them is broken
             m_lastWallClockMs = wallClock;  // Keep de-jitter timing accurate
             qWarning() << "[SAW-Worker] Spike rejected: weight=" << weight
                        << "last=" << m_lastRawWeight;
@@ -73,9 +94,16 @@ void WeightProcessor::processWeight(double weight)
         }
     } else {
         // A near-zero reading with no big step (the common case — the scale was already
-        // at zero) still satisfies the tare we were waiting for.
-        if (m_awaitingTare && qAbs(weight) <= kTareLandedThresholdG)
-            m_awaitingTare = false;
+        // at zero) still satisfies the tare we were waiting for, and is confirmed the
+        // same way. Samples here are accepted normally either way; only the flag waits.
+        if (m_awaitingTare && qAbs(weight) <= kTareLandedThresholdG) {
+            if (++m_tareLandedSamples >= kTareLandedConfirmations) {
+                m_awaitingTare = false;
+                m_tareLandedSamples = 0;
+            }
+        } else {
+            m_tareLandedSamples = 0;
+        }
         m_consecutiveRejections = 0;
     }
     // Captured before the overwrite below: pre-#1176, a sample equal to the
@@ -525,6 +553,7 @@ void WeightProcessor::startExtraction()
     m_hasLastWeight = false;
     m_consecutiveRejections = 0;
     m_awaitingTare = true;  // Cleared when the scale is seen to reach zero
+    m_tareLandedSamples = 0;
     m_currentFrame = -1;
     m_tareComplete = false;
     m_oscillationDetected = false;
@@ -548,6 +577,15 @@ void WeightProcessor::markExtractionStart()
     // Flow has begun, so whatever the scale reads now is its post-tare zero even if
     // it never passed through the near-zero window (an untared cup left on the
     // platter, say). Arm the spike filter unconditionally here.
+    //
+    // Deliberately NOT warned about. An earlier revision logged when m_awaitingTare
+    // was still set here, on the theory that reaching flow without an observed tare is
+    // abnormal. There is no evidence for that theory and good reason to doubt it: the
+    // near-zero window is 5 g, and across the sixteen supported scale types any scale
+    // that settles a little above it after a tare would warn on every single shot. The
+    // condition is also already surfaced properly — untaredCupDetected() carries it to
+    // the UI — and by the next line the app has recovered, so per-frame exits work from
+    // flow start regardless. A log line here would be noise on a handled path.
     //
     // The SAW stop of #610 cannot fire before this point regardless — it requires
     // extractionElapsed > 5 s, and extractionElapsed is 0 while m_extractionStartTime
@@ -601,6 +639,7 @@ void WeightProcessor::resetForRetare()
     m_hasLastWeight = false;
     m_consecutiveRejections = 0;
     m_awaitingTare = true;  // Retare moves the zero point again — same reasoning
+    m_tareLandedSamples = 0;
     m_extractionStartTime = 0;  // Will be set when extraction actually starts
     m_stopTriggered = false;
     m_frameWeightSkipSent.clear();

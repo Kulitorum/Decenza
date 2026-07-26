@@ -1253,14 +1253,36 @@ int main(int argc, char *argv[])
     // those in sync matters as much as the key itself: a write path that diverges from the
     // read path is worse than a consistently wrong key, because nothing on screen reveals it.
 
+    // The SAW key is resolved at shot START (to pick the prediction model and sensor
+    // lag) and again ~40 s later at learning time (to pick the pool to write). Those
+    // are two reads of live state with a whole shot in between, and main() swaps the
+    // serving scale on device events at a dozen call sites — a USB cable knocked loose
+    // mid-pour is enough. Latch it once, alongside ProfileManager::latchForShot(),
+    // and learn under the key that actually made the prediction.
+    QString sawScaleKeyForShot;
+
     // Connect SAW learning signal to settings persistence.
     // Logs the predicted-vs-actual drip ("accuracy" line) before persisting, so any single
     // shot's debug log records whether SAW hit its target. addSawLearningPoint then routes
     // the entry through the per-(profile, scale) batch accumulator and emits the
     // "accumulated"/"committed"/"batch rejected" qDebug line that ShotDebugLogger captures.
     QObject::connect(&timingController, &ShotTimingController::sawLearningComplete,
-                     [&settings, &mainController, &machineState](double drip, double flowAtStop, double overshoot) {
-                         const QString scaleType = machineState.activeScaleType();
+                     [&settings, &mainController, &machineState, &sawScaleKeyForShot](
+                             double drip, double flowAtStop, double overshoot) {
+                         // Prefer the latched key. Empty only if learning somehow fires
+                         // without a cycle start, in which case live state is all there is.
+                         const QString liveScaleType = machineState.activeScaleType();
+                         const QString scaleType = sawScaleKeyForShot.isEmpty()
+                                                       ? liveScaleType : sawScaleKeyForShot;
+                         if (!sawScaleKeyForShot.isEmpty() && liveScaleType != sawScaleKeyForShot) {
+                             // Not fatal — the latched key is the correct one to learn
+                             // under — but it means the serving scale changed mid-shot,
+                             // which is worth seeing in the shot log rather than inferring
+                             // later from a pool that drifted.
+                             qWarning() << "[SAW] scale changed mid-shot: predicted with"
+                                        << sawScaleKeyForShot << "but now serving"
+                                        << liveScaleType << "- learning under the former";
+                         }
                          const QString profileFilename = mainController.profileManager()->baseProfileName();
                          const double predictedDrip = settings.calibration()->getExpectedDripFor(profileFilename, scaleType, flowAtStop);
                          qDebug() << "[SAW] accuracy: predictedDrip=" << predictedDrip
@@ -1374,7 +1396,8 @@ int main(int argc, char *argv[])
     // connection would race: its queued setTareComplete(true) arrives on the worker BEFORE
     // startExtraction() (which resets m_tareComplete=false), causing tare to be lost.
     QObject::connect(&machineState, &MachineState::espressoCycleStarted,
-                     [&weightProcessor, &machineState, &settings, &mainController, &timingController]() {
+                     [&weightProcessor, &machineState, &settings, &mainController, &timingController,
+                      &sawScaleKeyForShot]() {
                          // Freeze the resolved target + dose for the duration
                          // of the shot (add-yield-ratio-anchor Decision 9),
                          // alongside the SAW model snapshot below so the two
@@ -1395,6 +1418,7 @@ int main(int argc, char *argv[])
                          // is driving this shot's predictions for later accuracy analysis.
                          double targetWeight = machineState.targetWeight();
                          QString scaleType = machineState.activeScaleType();
+                         sawScaleKeyForShot = scaleType;  // latched for the learning path
                          QString profileFilename = mainController.profileManager()->baseProfileName();
                          bool converged = settings.calibration()->isSawConverged(scaleType);
                          int maxEntries = converged ? 12 : 8;

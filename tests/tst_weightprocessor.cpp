@@ -690,10 +690,13 @@ private slots:
         wp.processWeight(364.6); m_fakeClock += 200;
         const qsizetype countBeforeTare = flowSpy.count();
 
-        // Tare lands. No warning may be emitted — init() calls QTest::failOnWarning(),
-        // so absence is enforced, not assumed.
+        // First near-zero sample is HELD, not believed — one packet is not proof.
         wp.processWeight(0.0); m_fakeClock += 200;
+        QCOMPARE(flowSpy.count(), countBeforeTare);
 
+        // Second confirms it. No warning may be emitted — init() calls
+        // QTest::failOnWarning(), so absence is enforced, not assumed.
+        wp.processWeight(0.0); m_fakeClock += 200;
         QCOMPARE(flowSpy.count(), countBeforeTare + 1);  // accepted, not rejected
     }
 
@@ -708,9 +711,10 @@ private slots:
         QSignalSpy flowSpy(&wp, &WeightProcessor::flowRatesReady);
 
         wp.startExtraction();
-        wp.processWeight(0.4);  m_fakeClock += 200;  // realistic post-tare residual,
-                                                     // not exactly 0 — the threshold
-                                                     // is a band, not an equality
+        // Realistic post-tare residual, not exactly 0 — the threshold is a band, not
+        // an equality. Two of them, because one is never enough.
+        wp.processWeight(0.4);  m_fakeClock += 200;
+        wp.processWeight(0.3);  m_fakeClock += 200;
         // Climb in sub-100 g steps so nothing here is itself a spike.
         wp.processWeight(60.0);  m_fakeClock += 200;
         wp.processWeight(120.0); m_fakeClock += 200;
@@ -759,7 +763,8 @@ private slots:
 
         wp.startExtraction();
         wp.processWeight(364.6); m_fakeClock += 200;
-        wp.processWeight(0.0);   m_fakeClock += 200;  // tare lands, exemption consumed
+        wp.processWeight(0.0);   m_fakeClock += 200;  // held
+        wp.processWeight(0.0);   m_fakeClock += 200;  // confirmed — exemption consumed
 
         // Climb to a large-drink weight in steps under the 100 g spike threshold —
         // a single jump to 150 g would itself be rejected as a spike, which is the
@@ -822,11 +827,44 @@ private slots:
         wp.processWeight(364.6); m_fakeClock += 200;
         QCOMPARE(skipSpy.count(), 0);  // must NOT skip on an untared weight
 
-        // Tare lands, then a genuine 25 g crosses the exit for real.
+        // Tare lands (confirmed), then a genuine 25 g crosses the exit for real.
+        wp.processWeight(0.0);  m_fakeClock += 200;
         wp.processWeight(0.0);  m_fakeClock += 200;
         QCOMPARE(skipSpy.count(), 0);
         wp.processWeight(25.0); m_fakeClock += 200;
         QCOMPARE(skipSpy.count(), 1);  // ...and the gate does not block a real exit
+    }
+
+    void singleSpuriousZeroDoesNotOpenFrameExit() {
+        // Regression for the hole the confirmation requirement closes. Zero is a
+        // demonstrated spurious reading on this hardware. Believing one would consume
+        // the exemption, leaving the REAL pre-tare weights to be rejected three times
+        // and then escape-hatched — at which point the per-frame exit is open and a
+        // 364 g portafilter reading clears any plausible exit weight, firing exactly
+        // the spurious skipFrame the gate exists to prevent.
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy skipSpy(&wp, &WeightProcessor::skipFrame);
+
+        QVector<double> weights = {20.0, 0.0};  // frame 0 exits at 20 g
+        QVector<FrameExitCondition> conds = {{}, {}};
+        configureEspresso(wp, 0, 0, weights, conds);
+        wp.startExtraction();
+        wp.setTareComplete(true);
+        wp.setCurrentFrame(0);
+
+        wp.processWeight(364.6); m_fakeClock += 200;  // real pre-tare baseline
+        wp.processWeight(0.0);   m_fakeClock += 200;  // ONE spurious zero — held
+        wp.processWeight(364.6); m_fakeClock += 200;  // real weight resumes
+        wp.processWeight(364.6); m_fakeClock += 200;
+
+        QCOMPARE(skipSpy.count(), 0);  // gate must still be shut
+
+        // The real tare, confirmed, then a genuine crossing.
+        wp.processWeight(0.0);  m_fakeClock += 200;
+        wp.processWeight(0.0);  m_fakeClock += 200;
+        wp.processWeight(25.0); m_fakeClock += 200;
+        QCOMPARE(skipSpy.count(), 1);
     }
 
     void retareStepIsNotASpike() {
@@ -845,7 +883,8 @@ private slots:
 
         wp.processWeight(364.6); m_fakeClock += 200;  // scale still pre-retare
         const qsizetype countBefore = flowSpy.count();
-        wp.processWeight(0.0);   m_fakeClock += 200;  // retare lands
+        wp.processWeight(0.0);   m_fakeClock += 200;  // held
+        wp.processWeight(0.0);   m_fakeClock += 200;  // retare confirmed
 
         QCOMPARE(flowSpy.count(), countBefore + 1);
     }

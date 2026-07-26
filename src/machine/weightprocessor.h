@@ -139,6 +139,12 @@ private:
     // A tared scale reads within a gram or two of zero; 5 g leaves room for drift
     // and a wet basket without being wide enough to swallow a real cup.
     static constexpr double kTareLandedThresholdG = 5.0;
+    // Consecutive near-zero samples required before the tare is believed. Single-packet
+    // corruption is the documented failure mode this filter exists for (#610), and we
+    // support sixteen scale types whose behaviour around a tare is unmeasured — so one
+    // packet must not be able to consume the exemption. Costs ~200 ms during preheat.
+    static constexpr int kTareLandedConfirmations = 2;
+    int m_tareLandedSamples = 0;
 
     // Scale-feed liveness (in-shot backstop). Evaluated on the DE1 tick so a
     // fully-silent scale is still detected. 2000ms mirrors the de-jitter

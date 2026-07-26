@@ -101,8 +101,13 @@ MqttClient::MqttClient(DE1Device* device, MachineState* machineState,
                     });
         }
     }
-    // No backend on this platform leaves m_networkDown false forever, which is
-    // exactly the pre-existing behaviour: every tick spends an attempt.
+    else {
+        // Not an error — but without it a field debug log cannot distinguish "the
+        // network was fine" from "we had no way to tell", which matters when the
+        // whole reachability feature is inert.
+        qInfo() << "MqttClient: no QNetworkInformation backend - reconnect attempts "
+                   "will be spent while offline (pre-existing behaviour)";
+    }
 
     m_status = "Disconnected";
 }
@@ -363,6 +368,9 @@ void MqttClient::connectWithHost(const QString& host)
 
 void MqttClient::disconnectFromBroker()
 {
+    // Consumed by onInternalDisconnected() so Paho's disconnect callback does not
+    // read as a fault and re-arm the retry loop.
+    m_userRequestedDisconnect = true;
     m_reconnectTimer.stop();
     m_publishTimer.stop();
     m_reconnectAttempts = 0;
@@ -445,15 +453,33 @@ void MqttClient::onInternalDisconnected()
     m_publishTimer.stop();
     emit connectedChanged();
 
-    // Always keep trying while MQTT is enabled — only the cadence changes.
-    if (m_settingsMqtt && m_settingsMqtt->mqttEnabled()) {
-        m_status = reconnectStatusText();
-        emit statusChanged();
-        m_reconnectTimer.start(reconnectDelayMs());
-    } else {
+    // A disconnect the USER asked for is not a fault to recover from. Without this,
+    // tapping Disconnect (or calling the mqtt_disconnect MCP tool, or the web
+    // endpoint) immediately re-armed the timer and dialled back 5 s later — the
+    // status would read "reconnecting (1/10)..." while the tool that just returned
+    // {"success": true, "message": "MQTT disconnected"} was already being undone.
+    // Bounded to 10 attempts before; unbounded once retries stopped being terminal.
+    if (m_userRequestedDisconnect) {
+        m_userRequestedDisconnect = false;
+        m_reconnectTimer.stop();
         m_status = "Disconnected";
         emit statusChanged();
+        return;
     }
+
+    // Otherwise keep trying while MQTT is enabled — only the cadence changes.
+    // Routed through the shared helper so this path announces the fast→slow
+    // transition too: a broker that accepts TCP then drops the session (a stale
+    // ACL, or a duplicate client-id from a second install) only ever reaches here,
+    // never onInternalConnectionFailed, and used to loop every 15 minutes forever
+    // with one qDebug line per cycle and no warning at all.
+    if (m_settingsMqtt && m_settingsMqtt->mqttEnabled()) {
+        scheduleReconnect(QStringLiteral("broker closed the connection"));
+        return;
+    }
+
+    m_status = "Disconnected";
+    emit statusChanged();
 }
 
 void MqttClient::onInternalConnectionFailed(const QString& error)
@@ -636,7 +662,7 @@ void MqttClient::onReconnectTimerTick()
     if (m_networkDown) {
         qDebug() << "MqttClient: reconnect deferred - no network (attempt"
                  << (m_reconnectAttempts + 1) << "not spent)";
-        m_status = "Waiting for network...";
+        m_status = kWaitingForNetwork;
         emit statusChanged();
         return;
     }
@@ -668,10 +694,12 @@ void MqttClient::onNetworkReachabilityChanged(bool reachable)
         // Cancel a pending tick rather than let it fire and log a deferral. The
         // flag is cleared by the reachable event below, not by waiting this out.
         m_reconnectTimer.stop();
-        if (!isConnected()) {
-            m_status = "Waiting for network...";
-            emit statusChanged();
-        }
+        // Say so even while still nominally connected. Paho will not notice for up to
+        // a keepalive (60 s), and in the meantime publish() silently drops every
+        // update the user's Home Assistant automations depend on, behind a green dot
+        // reading "Connected". The app knows at t=0; there is no reason to hide it.
+        m_status = isConnected() ? "Connected - network unreachable" : kWaitingForNetwork;
+        emit statusChanged();
         return;
     }
 
@@ -682,7 +710,7 @@ void MqttClient::onNetworkReachabilityChanged(bool reachable)
     // paths would strand the Home Automation tab reading "Waiting for network..." with
     // the network up and, if the user disabled MQTT while it showed, nothing left that
     // would ever rewrite it.
-    if (m_status == QLatin1String("Waiting for network...")) {
+    if (m_status == QLatin1String(kWaitingForNetwork)) {
         m_status = "Disconnected";
         emit statusChanged();
     }
@@ -716,7 +744,21 @@ void MqttClient::onSettingsChanged()
 
     if (m_settingsMqtt && m_settingsMqtt->mqttEnabled()) {
         connectToBroker();
+        return;
     }
+
+    // MQTT switched off. Nothing below runs otherwise, and the retry timer would
+    // survive: onReconnectTimerTick() early-returns on !mqttEnabled() WITHOUT
+    // touching the status, so whatever string was showing — "retrying every 15 min",
+    // or kWaitingForNetwork — stayed on the Home Automation tab forever, describing
+    // a loop that is no longer running. Same permanently-latched status this branch
+    // was already fixed for once; it was fixed for one string and not the others.
+    m_reconnectTimer.stop();
+    m_reconnectAttempts = 0;
+    m_slowRetryAnnounced = false;
+    emit reconnectAttemptsChanged();
+    m_status = "Disabled";
+    emit statusChanged();
 }
 
 QString MqttClient::topicPath(const QString& subtopic) const

@@ -145,6 +145,14 @@ private:
     // Latches when the slow cadence is announced, so the transition is logged once
     // rather than every 15 minutes for as long as the broker stays away.
     bool m_slowRetryAnnounced = false;
+    // Set by disconnectFromBroker(), consumed by onInternalDisconnected(), so a stop
+    // the user asked for is not treated as a fault and immediately undone.
+    bool m_userRequestedDisconnect = false;
+    // One definition for a string that is both WRITTEN and COMPARED. It had three
+    // copies; editing any one of them would have silently stopped the clear-on-resume
+    // from matching, re-creating the permanently-latched status it exists to prevent,
+    // with no compiler help.
+    static constexpr auto kWaitingForNetwork = "Waiting for network...";
 
     QString m_status;
     bool m_connected = false;

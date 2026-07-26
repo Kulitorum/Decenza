@@ -164,8 +164,11 @@ QString MachineState::activeScaleType() const {
     // the vocabulary check every scale-less shot would open a "flow" pool and make
     // SettingsCalibration::sensorLag() warn about an unknown type on every cycle.
     // Falling back to the saved type for virtual scales preserves the long-standing
-    // behaviour there exactly; whether flow-derived shots should feed SAW learning at
-    // all is a separate question, deliberately not decided here.
+    // behaviour there exactly. Note this fallback is only safe for the PREDICTION
+    // read: flow-derived shots must not feed SAW learning at all, which is enforced
+    // upstream by the isFlowScale() guard in ShotTimingController::onSettlingComplete()
+    // — see the reasoning there. Were that guard removed, this fallback is the exact
+    // mechanism by which a scale-less shot would write into a physical scale's pool.
     if (m_scale && m_scale->isConnected()
         && ScaleTypeIds::isCanonicalScaleTypeId(m_scale->type())) {
         return m_scale->type();

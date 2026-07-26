@@ -608,9 +608,29 @@ void ShotTimingController::onSettlingComplete()
     // the ordering.
     auto deferProcessing = qScopeGuard([this] { emit shotProcessingReady(); });
 
-    // Check scale is still connected
-    if (!m_scale || !m_scale->isConnected()) {
-        qWarning() << "[SAW] Scale disconnected, skipping learning";
+    // Check a REAL scale is still serving. isConnected() alone cannot fail the way
+    // this guard intends: every path that drops a physical scale installs FlowScale
+    // in its place, and FlowScale's constructor calls setConnected(true) — it is
+    // permanently "connected". So a USB or BLE scale lost mid-pour left this check
+    // passing and learning proceeded on a flow-integral ESTIMATE, writing a
+    // fabricated drip into the real scale's pool.
+    //
+    // Without a physical scale there is no observation of what actually landed in
+    // the cup, so there is nothing for SAW to learn FROM — and the number it did
+    // learn was not merely noisy, it was structurally zero. Drip is measured over
+    // the settling window as m_weight - m_weightAtStop, but m_weight only advances
+    // on a scale sample, and FlowScale only emits while MachineState::isFlowing().
+    // The SAW stop ends the pour, isFlowing() goes false, FlowScale falls silent,
+    // and m_weight stays pinned at m_weightAtStop for the whole window. drip == 0
+    // clears every validation gate below and lands in the SAVED scale's pool
+    // (activeScaleType() falls back to it for a virtual scale), dragging that
+    // model toward "no drip" — so SAW then stops late and overshoots once the
+    // user reconnects the real scale. FlowScale still SERVES SAW; it just must
+    // never train it.
+    if (!m_scale || !m_scale->isConnected() || m_scale->isFlowScale()) {
+        qWarning() << "[SAW] No physical scale at settling (scale="
+                   << (m_scale ? m_scale->type() : QStringLiteral("none"))
+                   << "), skipping learning";
         return;
     }
 

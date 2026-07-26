@@ -472,7 +472,20 @@ QString Settings::scaleType() const {
 void Settings::setScaleType(const QString& type) {
     // Persist the canonical type-id, never a display name — scaleType is a
     // rename-stable key for SAW learning / sensorLag / known scales.
-    const QString id = ScaleTypeIds::normalizeScaleTypeId(type);
+    QString id = ScaleTypeIds::normalizeScaleTypeId(type);
+
+    // Never persist an EMPTY id. removeKnownScale()'s auto-promote reaches here with
+    // "" when the removed scale was primary and nothing is left to promote, and once
+    // stored, the "decent" default below stops applying — scaleType() returns the
+    // stored empty string. Everything downstream then keys on it: SAW pools become
+    // "<profile>::" and sensorLag("") warns on every single shot with an empty value
+    // in the message, which reads as a logging bug rather than the data bug it is.
+    // The pool is also orphaned the moment a scale is paired again. Fall back to the
+    // same default scaleType() would have used.
+    if (id.isEmpty()) {
+        id = QStringLiteral("decent");
+    }
+
     if (scaleType() != id) {
         m_settings.setValue("scale/type", id);
         emit scaleTypeChanged();
