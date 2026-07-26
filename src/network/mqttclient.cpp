@@ -68,18 +68,17 @@ MqttClient::MqttClient(DE1Device* device, MachineState* machineState,
     m_reconnectTimer.setSingleShot(true);
     connect(&m_reconnectTimer, &QTimer::timeout, this, &MqttClient::onReconnectTimerTick);
 
-    // The reconnect budget is for "the broker is not answering us", not for "this
+    // The FAST reconnect budget is for "the broker is not answering us", not for "this
     // device has no network" — a connect attempt against a down interface tells us
-    // nothing about the broker, and hitting MAX_RECONNECT_ATTEMPTS ends automatic
-    // recovery: neither failure handler re-arms the timer past the cap, so nothing
-    // retries on its own. Recovery then needs a deliberate act — the Connect button,
-    // an MQTT settings change, or the mqtt_connect MCP tool — none of which a user
-    // has any reason to perform, because the failure is silent.
+    // nothing about the broker, so spending the budget on an outage just burns through
+    // the responsive phase while nothing could have worked anyway.
     //
-    // Observed on-device 2026-07-25: a Wi-Fi drop consumed the budget down to the
-    // last attempt, which happened to land seconds after the network returned. A
-    // slightly longer outage would have left Home Assistant dark until someone
-    // noticed and intervened.
+    // Observed on-device 2026-07-25: a Wi-Fi drop consumed the budget down to the last
+    // attempt, which happened to land seconds after the network returned. At the time
+    // that budget was TERMINAL, so a slightly longer outage would have left Home
+    // Assistant dark until someone noticed and intervened. It is no longer terminal —
+    // retries continue every IDLE_RECONNECT_DELAY_MS forever — but exhausting it still
+    // means a 15-minute hole in the fast path, which reachability avoids entirely.
     //
     // So: watch reachability, don't spend attempts while it is positively down, and
     // treat the return of the network as a fresh budget. Only "Disconnected" counts
@@ -275,6 +274,7 @@ void MqttClient::connectWithHost(const QString& host)
 
     if (!m_isReconnecting) {
         m_reconnectAttempts = 0;
+        m_slowRetryAnnounced = false;  // fresh budget → announce again if it happens again
         emit reconnectAttemptsChanged();
     }
     m_isReconnecting = false;
@@ -357,6 +357,7 @@ void MqttClient::disconnectFromBroker()
     m_reconnectTimer.stop();
     m_publishTimer.stop();
     m_reconnectAttempts = 0;
+    m_slowRetryAnnounced = false;  // fresh budget → announce again if it happens again
     emit reconnectAttemptsChanged();
 
     if (m_client && m_connected) {
@@ -391,6 +392,7 @@ void MqttClient::onInternalConnected()
     emit connectedChanged();
 
     m_reconnectAttempts = 0;
+    m_slowRetryAnnounced = false;  // fresh budget → announce again if it happens again
     emit reconnectAttemptsChanged();
 
     // Publish availability
@@ -434,16 +436,11 @@ void MqttClient::onInternalDisconnected()
     m_publishTimer.stop();
     emit connectedChanged();
 
-    // Attempt reconnection with exponential backoff if MQTT is still enabled
-    if (m_settingsMqtt && m_settingsMqtt->mqttEnabled() && m_reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-        m_status = QString("Disconnected - reconnecting (%1/%2)...")
-            .arg(m_reconnectAttempts + 1)
-            .arg(MAX_RECONNECT_ATTEMPTS);
+    // Always keep trying while MQTT is enabled — only the cadence changes.
+    if (m_settingsMqtt && m_settingsMqtt->mqttEnabled()) {
+        m_status = reconnectStatusText();
         emit statusChanged();
         m_reconnectTimer.start(reconnectDelayMs());
-    } else if (m_reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-        m_status = "Disconnected - max retries reached";
-        emit statusChanged();
     } else {
         m_status = "Disconnected";
         emit statusChanged();
@@ -463,25 +460,35 @@ void MqttClient::onInternalConnectionFailed(const QString& error)
     emit statusChanged();
     emit connectedChanged();
 
-    // Attempt reconnection with exponential backoff
-    if (m_settingsMqtt && m_settingsMqtt->mqttEnabled() && m_reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-        int delay = reconnectDelayMs();
+    // Keep trying indefinitely while MQTT is enabled; only the cadence changes.
+    if (m_settingsMqtt && m_settingsMqtt->mqttEnabled()) {
+        const int delay = reconnectDelayMs();
+        if (m_reconnectAttempts >= MAX_FAST_RECONNECT_ATTEMPTS && !m_slowRetryAnnounced) {
+            // Announce the transition ONCE. Past this point the fast budget is spent
+            // against a network that is up, so this is the broker refusing or absent —
+            // a bad credential, a broker that moved, a container still restarting. Worth
+            // one warning naming the cause; not worth one every 15 minutes thereafter.
+            m_slowRetryAnnounced = true;
+            qWarning() << "MqttClient: broker unreachable after" << m_reconnectAttempts
+                       << "attempts - backing off to one retry every" << delay / 60000
+                       << "min. Last error:" << error;
+        }
         qDebug() << "MqttClient: Retrying in" << delay / 1000 << "seconds";
         m_reconnectTimer.start(delay);
-    } else if (m_settingsMqtt && m_settingsMqtt->mqttEnabled()) {
-        // Budget exhausted against a reachable network — so this is the BROKER refusing
-        // or absent, not connectivity, and the reachability up-edge that rescues the
-        // offline case will never fire. Automatic recovery ends here. This branch used
-        // to be absent entirely: the client went quiet with the last log line being a
-        // "Retrying in 60 seconds" that was never honoured, which is precisely the shape
-        // of failure that hides a bad credential or a broker that moved.
-        qWarning() << "MqttClient: giving up after" << m_reconnectAttempts
-                   << "attempts - no further automatic reconnects. Last error:" << error
-                   << "- recovery needs Connect, an MQTT settings change, or the network"
-                      " dropping and returning.";
-        m_status = "Disconnected - max retries reached";
+        m_status = reconnectStatusText();
         emit statusChanged();
     }
+}
+
+QString MqttClient::reconnectStatusText() const
+{
+    if (m_reconnectAttempts >= MAX_FAST_RECONNECT_ATTEMPTS) {
+        return QString("Disconnected - retrying every %1 min")
+            .arg(IDLE_RECONNECT_DELAY_MS / 60000);
+    }
+    return QString("Disconnected - reconnecting (%1/%2)...")
+        .arg(m_reconnectAttempts + 1)
+        .arg(MAX_FAST_RECONNECT_ATTEMPTS);
 }
 
 void MqttClient::onInternalMessageReceived(const QString& topic, const QString& payload)
@@ -611,7 +618,12 @@ void MqttClient::onReconnectTimerTick()
     m_reconnectAttempts++;
     emit reconnectAttemptsChanged();
 
-    qDebug() << "MqttClient: Reconnection attempt" << m_reconnectAttempts << "of" << MAX_RECONNECT_ATTEMPTS;
+    if (m_reconnectAttempts > MAX_FAST_RECONNECT_ATTEMPTS) {
+        qDebug() << "MqttClient: Reconnection attempt" << m_reconnectAttempts << "(slow retry)";
+    } else {
+        qDebug() << "MqttClient: Reconnection attempt" << m_reconnectAttempts
+                 << "of" << MAX_FAST_RECONNECT_ATTEMPTS << "before backing off";
+    }
 
     // Flag preserved until connectWithHost() checks it (may be async on Android)
     m_isReconnecting = true;
@@ -653,10 +665,12 @@ void MqttClient::onNetworkReachabilityChanged(bool reachable)
         return;
 
     // A network we just regained is a different proposition from the one we lost:
-    // give it a full budget. This is the only path that does so WITHOUT user or
-    // settings action — disconnectFromBroker() and connectWithHost() also zero the
-    // count, but both need someone to ask.
+    // give it a full FAST budget rather than leaving it on the 15-minute cadence,
+    // and reconnect now instead of waiting out the current slow interval. This is the
+    // only path that does so without user or settings action — disconnectFromBroker()
+    // and connectWithHost() also zero the count, but both need someone to ask.
     m_reconnectAttempts = 0;
+    m_slowRetryAnnounced = false;  // fresh budget → announce again if it happens again
     emit reconnectAttemptsChanged();
     m_reconnectTimer.stop();
     m_isReconnecting = false;

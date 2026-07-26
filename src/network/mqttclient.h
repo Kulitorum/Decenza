@@ -95,6 +95,7 @@ private:
     void publishAvailability(bool online);
     QString generateClientId();
     void onNetworkReachabilityChanged(bool reachable);
+    QString reconnectStatusText() const;
 
     // Paho callbacks (static, call instance methods via context)
     static void onConnectSuccess(void* context, MQTTAsync_successData* response);
@@ -120,11 +121,29 @@ private:
     // NOT offline — see the constructor). Reconnect attempts are not spent while it
     // holds, and the transition back to reachable is what resumes them.
     bool m_networkDown = false;
-    static constexpr int MAX_RECONNECT_ATTEMPTS = 10;
+    // Attempts spent at the FAST cadence before dropping to the slow one. Not a
+    // stopping point: retries continue indefinitely, just rarely. It used to be
+    // terminal, which meant a broker outage longer than the budget (~7 min) killed
+    // MQTT until someone intervened — a Home Assistant restart or a broker redeploy
+    // was enough, and nothing about that is the user's fault or their job to notice.
+    static constexpr int MAX_FAST_RECONNECT_ATTEMPTS = 10;
     static constexpr int INITIAL_RECONNECT_DELAY_MS = 5000;
     static constexpr int MAX_RECONNECT_DELAY_MS = 60000;
-    // Exponential backoff: 5s, 10s, 20s, 40s, 60s, 60s, ... (capped at 60s)
-    int reconnectDelayMs() const { return std::min(INITIAL_RECONNECT_DELAY_MS * (1 << std::min(m_reconnectAttempts, 20)), MAX_RECONNECT_DELAY_MS); }
+    // Slow cadence once the fast budget is spent. A TCP connect to a LAN broker is
+    // negligible, so this is about log noise and not looking frantic, not cost —
+    // 15 min recovers an unattended broker restart well within the time it takes
+    // anyone to notice Home Assistant went quiet.
+    static constexpr int IDLE_RECONNECT_DELAY_MS = 15 * 60 * 1000;
+    // Exponential backoff: 5s, 10s, 20s, 40s, 60s, 60s… then every 15 min forever.
+    int reconnectDelayMs() const {
+        if (m_reconnectAttempts >= MAX_FAST_RECONNECT_ATTEMPTS)
+            return IDLE_RECONNECT_DELAY_MS;
+        return std::min(INITIAL_RECONNECT_DELAY_MS * (1 << std::min(m_reconnectAttempts, 20)),
+                        MAX_RECONNECT_DELAY_MS);
+    }
+    // Latches when the slow cadence is announced, so the transition is logged once
+    // rather than every 15 minutes for as long as the broker stays away.
+    bool m_slowRetryAnnounced = false;
 
     QString m_status;
     bool m_connected = false;
