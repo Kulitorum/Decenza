@@ -483,6 +483,18 @@ void Settings::setScaleType(const QString& type) {
     // The pool is also orphaned the moment a scale is paired again. Fall back to the
     // same default scaleType() would have used.
     if (id.isEmpty()) {
+        // Logged because this SUBSTITUTES a specific scale the user may not own for a
+        // genuinely-unknown state. Without it a support log shows scale/type = "decent"
+        // with no way to tell whether the user owns a Decent scale or whether this
+        // branch invented one.
+        //
+        // qDebug, not qWarning: setPrimaryScale(QString()) reaches here on a perfectly
+        // ordinary path (clearing the primary, e.g. removing the last known scale), so
+        // a warning would flag routine behaviour — and did fail three tests exercising
+        // exactly that. The substitution is still worth a line in the log.
+        qDebug() << "[Settings] setScaleType() called with an empty/unrecognized type"
+                 << type << "- falling back to \"decent\". An empty key would orphan"
+                 << "the SAW pool; see removeKnownScale()'s auto-promote.";
         id = QStringLiteral("decent");
     }
 

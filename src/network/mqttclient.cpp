@@ -76,10 +76,12 @@ MqttClient::MqttClient(DE1Device* device, MachineState* machineState,
     // Observed on-device 2026-07-25: a Wi-Fi drop consumed the budget down to the last
     // attempt, which happened to land seconds after the network returned. At the time
     // that budget was TERMINAL, so a slightly longer outage would have left Home
-    // Assistant dark until someone noticed and intervened. It is no longer terminal —
-    // every failure path now routes through scheduleReconnect(), which always re-arms —
-    // but exhausting it still means a 15-minute hole in the fast path, which
-    // reachability avoids entirely.
+    // Assistant dark until someone noticed and intervened. It is no longer terminal:
+    // the connect-failure paths route through scheduleReconnect(), which re-arms at the
+    // slow cadence rather than stopping. (Not "every path" — connectToBroker()'s two
+    // configuration guards deliberately do not, and scheduleReconnect() itself does not
+    // re-arm while MQTT is disabled; both are documented at those sites.) Exhausting the
+    // fast budget still means a 15-minute hole, which reachability avoids entirely.
     //
     // (The ~7 min figure is the sum of the backoff delays. Wall-clock is longer against
     // a blackholed host: Paho's connectTimeout defaults to 30 s and is not overridden,
@@ -99,6 +101,12 @@ MqttClient::MqttClient(DE1Device* device, MachineState* machineState,
                         onNetworkReachabilityChanged(
                             reachability != QNetworkInformation::Reachability::Disconnected);
                     });
+        } else {
+            // Same reasoning as the else below, and it was missing here: a backend that
+            // loads but yields no instance leaves the whole feature inert while the log
+            // looks exactly like a healthy install.
+            qInfo() << "MqttClient: QNetworkInformation backend loaded but no instance - "
+                       "reconnect attempts will be spent while offline";
         }
     }
     else {
@@ -217,6 +225,17 @@ void MqttClient::onSubscribeFailure(void* context, MQTTAsync_failureData* respon
 
 void MqttClient::connectToBroker()
 {
+    // Second, independent guard on the same latch. Setting the flag only on the
+    // callback-producing branch of disconnectFromBroker() closes the reachable case,
+    // but not this one: onSettingsChanged() disconnects and immediately reconnects, and
+    // connectWithHost() calls MQTTAsync_destroy() on the client whose disconnect
+    // callback is still in flight. Whether Paho still delivers onDisconnectSuccess
+    // after a destroy is not something to depend on — and every mqtt* setter fires
+    // onSettingsChanged() synchronously, so one settings save runs that race several
+    // times. A user-requested disconnect only ever describes the connection it ended;
+    // once we are dialling again it is meaningless, so clear it unconditionally here.
+    m_userRequestedDisconnect = false;
+
     if (!m_settingsMqtt) {
         m_status = "Error: No settings";
         emit statusChanged();
@@ -244,7 +263,7 @@ void MqttClient::connectToBroker()
                 if (!guard) return;
                 // The resolve takes up to 2 s and conditions can change inside it —
                 // newly relevant now that connectToBroker() also fires on a reachability
-                // edge rather than only on user action. A flapping AP would otherwise
+                // edge, one of several non-user callers. A flapping AP would otherwise
                 // land here with the network down again, overwrite the accurate
                 // "Waiting for network..." status, and dial a dead interface.
                 if (guard->m_networkDown || !guard->m_settingsMqtt
@@ -285,7 +304,7 @@ void MqttClient::connectWithHost(const QString& host)
 
     if (!m_isReconnecting) {
         m_reconnectAttempts = 0;
-        m_slowRetryAnnounced = false;  // fresh budget → announce again if it happens again
+        m_slowRetryAnnounced = false;
         emit reconnectAttemptsChanged();
     }
     m_isReconnecting = false;
@@ -356,28 +375,47 @@ void MqttClient::connectWithHost(const QString& host)
     if (rc != MQTTASYNC_SUCCESS) {
         MQTTAsync_destroy(&m_client);
         m_client = nullptr;
-        // Synchronous refusal — Paho validated the request and rejected it without
-        // ever dialing, so NO onConnectFailure callback will follow. Before this,
-        // these three exits returned with no timer armed and no callback pending,
-        // which is the terminal death the slow-retry change was supposed to end:
-        // a typo'd broker host (`tcp://tcp://host` -> MQTTASYNC_BAD_PROTOCOL) killed
-        // MQTT until the app restarted, with only a status string to show for it.
+        // Synchronous refusal — Paho validated the request and rejected it without ever
+        // dialing, so NO onConnectFailure callback will follow (verified in MQTTAsync.c:
+        // every synchronous error exit is a bare validation `goto exit`, and
+        // m->connect.onFailure is assigned only after all of them). Before this, the
+        // synchronous exits returned with no timer armed and no callback pending, which
+        // is the terminal death the slow-retry change exists to end — MQTT stayed dead
+        // until the app restarted, with only a status string to show for it.
+        //
+        // No worked example here on purpose: an earlier version claimed a `tcp://tcp://`
+        // host typo produced MQTTASYNC_BAD_PROTOCOL on this line. Both halves were wrong
+        // — that code comes from the create call above, and the URI is always built as
+        // "tcp://%1:%2" so the scheme prefix check cannot fail. The structural point
+        // stands regardless of which rc gets us here.
         scheduleReconnect(QString("Connect failed (%1)").arg(rc));
     }
 }
 
 void MqttClient::disconnectFromBroker()
 {
-    // Consumed by onInternalDisconnected() so Paho's disconnect callback does not
-    // read as a fault and re-arm the retry loop.
-    m_userRequestedDisconnect = true;
     m_reconnectTimer.stop();
     m_publishTimer.stop();
     m_reconnectAttempts = 0;
-    m_slowRetryAnnounced = false;  // fresh budget → announce again if it happens again
+    m_slowRetryAnnounced = false;
     emit reconnectAttemptsChanged();
 
     if (m_client && m_connected) {
+        // Set ONLY here. The flag is consumed by onInternalDisconnected(), and this is
+        // the one branch that causes that callback to run — so arming it is safe only
+        // on this path. Setting it unconditionally (as this did) latched it forever
+        // whenever the user disconnected while ALREADY disconnected: the else branch
+        // below returns without any callback, nothing clears the flag, and the next
+        // GENUINE broker drop is then misread as user-requested, stops the timer and
+        // arms nothing. That is precisely the terminal reconnect death this change set
+        // exists to remove, reintroduced by the flag added to remove it.
+        //
+        // Reachable from two unguarded callers: the Home Automation tab's Disconnect
+        // button (SettingsHomeAutomationTab.qml) and ShotServer::handleMqttDisconnect —
+        // neither checks isConnected() first, and tapping Disconnect while the status
+        // reads "reconnecting (3/10)…" is the obvious thing a user does.
+        m_userRequestedDisconnect = true;
+
         publishAvailability(false);
 
         MQTTAsync_disconnectOptions opts = MQTTAsync_disconnectOptions_initializer;
@@ -409,7 +447,7 @@ void MqttClient::onInternalConnected()
     emit connectedChanged();
 
     m_reconnectAttempts = 0;
-    m_slowRetryAnnounced = false;  // fresh budget → announce again if it happens again
+    m_slowRetryAnnounced = false;
     emit reconnectAttemptsChanged();
 
     // Publish availability
@@ -498,14 +536,31 @@ void MqttClient::onInternalConnectionFailed(const QString& error)
     scheduleReconnect(error);
 }
 
-// Single arming point for every failure that should be retried. Every path that ends
-// a connect attempt without success must come through here — the bug this consolidates
-// away was three synchronous exits in connectWithHost() that armed no timer and had no
-// Paho callback coming, so they simply stopped forever.
+// Single arming point for every failure that should be RETRIED, and the only place the
+// three synchronous exits in connectWithHost() report at all — they used to set their own
+// "Error: …" status and this consolidation removed it, so anything that returns from here
+// without writing a status leaves the tab reading "Connecting..." forever.
+//
+// Not universal, deliberately: connectToBroker()'s two configuration guards (null settings,
+// empty host) end a connect attempt without coming through here. Both set an accurate,
+// actionable status and are recovered by onSettingsChanged() when the user fixes the
+// setting, so arming a retry against an unfixable config would only produce log spam.
 void MqttClient::scheduleReconnect(const QString& reason)
 {
-    if (!m_settingsMqtt || !m_settingsMqtt->mqttEnabled())
+    if (!m_settingsMqtt || !m_settingsMqtt->mqttEnabled()) {
+        // Do NOT retry — but do not swallow the failure either. A connect can be
+        // initiated while MQTT is disabled: the Home Automation tab's Connect button
+        // gates only on host-non-empty, and neither the mqtt_connect MCP tool nor the
+        // ShotServer endpoint checks mqttEnabled(). Returning silently here left the
+        // status latched at "Connecting...", discarded the Paho rc, and turned a precise
+        // BAD_PROTOCOL (the tcp://tcp:// typo) into the ShotServer poller's generic
+        // "Connection timed out" — pointing the user at their network instead of the typo.
+        qWarning() << "MqttClient: connect attempt failed while MQTT is disabled -"
+                   << "not retrying. Reason:" << reason;
+        m_status = "Error: " + reason;
+        emit statusChanged();
         return;
+    }
 
     const int delay = reconnectDelayMs();
     if (m_reconnectAttempts >= MAX_FAST_RECONNECT_ATTEMPTS && !m_slowRetryAnnounced) {
@@ -524,7 +579,8 @@ void MqttClient::scheduleReconnect(const QString& reason)
     // Keep the broker's own words. The caller has usually just set an "Error: …"
     // status, and both assignments land in one event-loop turn, so a bare
     // reconnectStatusText() would erase "Bad user name or password" before it could
-    // ever be painted — and the Home Automation tab's status line is the ONLY place
+    // ever be painted — and the status line (Home Automation tab, and the ShotServer
+    // settings page which mirrors it) is the main place
     // that reason reaches the user. With retries no longer stopping, there would be
     // no later moment when anything more specific appeared: the tab would read
     // "reconnecting (1/10)..." forever while the real problem sat in a log nobody opens.
@@ -698,20 +754,29 @@ void MqttClient::onNetworkReachabilityChanged(bool reachable)
         // a keepalive (60 s), and in the meantime publish() silently drops every
         // update the user's Home Assistant automations depend on, behind a green dot
         // reading "Connected". The app knows at t=0; there is no reason to hide it.
-        m_status = isConnected() ? "Connected - network unreachable" : kWaitingForNetwork;
+        m_status = isConnected() ? kConnectedNetworkUnreachable : kWaitingForNetwork;
         emit statusChanged();
         return;
     }
 
     qDebug() << "MqttClient: network back - resuming reconnect";
 
-    // Clear the waiting-for-network status BEFORE any early return. It describes a
-    // condition that has just ended, so leaving it in place on the disabled/connected
-    // paths would strand the Home Automation tab reading "Waiting for network..." with
-    // the network up and, if the user disabled MQTT while it showed, nothing left that
-    // would ever rewrite it.
+    // Clear BOTH statuses the down-edge can write, BEFORE any early return. They describe
+    // a condition that has just ended, so leaving either in place strands the Home
+    // Automation tab describing a network problem that is over.
+    //
+    // Covering only kWaitingForNetwork — as this did — missed the connected case
+    // entirely, and that one is the worse of the two: a brief reachability blip the TCP
+    // session survives (well inside the 60 s keepalive) leaves "Connected - network
+    // unreachable" on screen INDEFINITELY, because the isConnected() early return below
+    // means nothing else ever rewrites it while the session holds. Publishing works fine
+    // the whole time. This is the same fixed-for-one-string-and-not-the-others mistake
+    // called out in onSettingsChanged(), made in the very comment warning about it.
     if (m_status == QLatin1String(kWaitingForNetwork)) {
         m_status = "Disconnected";
+        emit statusChanged();
+    } else if (m_status == QLatin1String(kConnectedNetworkUnreachable)) {
+        m_status = isConnected() ? "Connected" : "Disconnected";
         emit statusChanged();
     }
 
@@ -722,13 +787,14 @@ void MqttClient::onNetworkReachabilityChanged(bool reachable)
     // give it a full FAST budget rather than leaving it on the 15-minute cadence,
     // and reconnect now instead of waiting out the current slow interval.
     //
-    // Four sites zero m_reconnectAttempts: onInternalConnected() (success — the budget
-    // is moot), disconnectFromBroker() (user or settings action), connectWithHost()
-    // (only when !m_isReconnecting, which is precisely what stops the reconnect tick
-    // from refunding its own budget), and this one. This is the only one that refunds a
-    // LIVE budget and reconnects on its own, with nobody asking.
+    // Several sites zero m_reconnectAttempts — success, user/settings action, a fresh
+    // user-initiated connect (connectWithHost only when !m_isReconnecting, which is
+    // precisely what stops the reconnect tick from refunding its own budget). What is
+    // specific to THIS one, and the reason it is worth a comment: it refunds a LIVE
+    // budget and reconnects on its own, with nobody asking. (No count here on purpose —
+    // an earlier version said "four sites" and was wrong within its own commit.)
     m_reconnectAttempts = 0;
-    m_slowRetryAnnounced = false;  // fresh budget → announce again if it happens again
+    m_slowRetryAnnounced = false;
     emit reconnectAttemptsChanged();
     m_reconnectTimer.stop();
     m_isReconnecting = false;

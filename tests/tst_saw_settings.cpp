@@ -55,6 +55,48 @@ private slots:
 
     void cleanup() {
         m_settings.calibration()->resetSawLearning();
+        // Must be here, not at the end of each test that installs one. Settings is a
+        // class member, so a provider left installed leaks into every later test in the
+        // file — and a test that installs one then fails a QCOMPARE returns from the
+        // slot without reaching its own teardown, burying the real failure under
+        // cascading ones.
+        m_settings.calibration()->setServingScaleTypeProvider(nullptr);
+    }
+
+    // ===== ScaleTypeIds::kAll completeness =====
+
+    void everyScaleTypeIsInTheCanonicalVocabulary() {
+        // kAll is a hand-maintained array and gets NO compiler help. The switches in
+        // scaleTypeId()/scaleTypeName() have no `default:`, so -Wswitch (with -Werror)
+        // forces a new enumerator to be handled there — but nothing forces it into kAll.
+        //
+        // Miss it and the failure is silent and expensive: isCanonicalScaleTypeId()
+        // returns false for the new scale, SettingsCalibration::currentScaleType() falls
+        // through to the SAVED primary, and that scale's shots train another scale's SAW
+        // pool. Identical to the decent-wifi/BLE corruption this whole change set exists
+        // to fix, for a scale nobody is looking at yet.
+        //
+        // Bound: iterates the real types, Unknown excluded (it has no id by design).
+        // NOTE this catches "added an enumerator, forgot kAll" — the likely mistake —
+        // but not "added an enumerator AFTER Timemore", which also needs this bound
+        // moved. See the note on the enum's last entry in scaletypeids.h.
+        // ScaleType is at global scope; only the helper functions are namespaced.
+        int checked = 0;
+        for (int t = int(ScaleType::Unknown) + 1; t <= int(ScaleType::Timemore); ++t) {
+            const ScaleType type = static_cast<ScaleType>(t);
+            const QString id = ScaleTypeIds::scaleTypeId(type);
+            QVERIFY2(!id.isEmpty(),
+                     qPrintable(QString("ScaleType %1 has no canonical id").arg(t)));
+            QVERIFY2(ScaleTypeIds::isCanonicalScaleTypeId(id),
+                     qPrintable(QString("id '%1' (ScaleType %2) is missing from kAll — SAW "
+                                        "would key its shots on the saved primary").arg(id).arg(t)));
+            // The round trips the three kAll consumers rely on.
+            QCOMPARE(ScaleTypeIds::normalizeScaleTypeId(id), id);
+            QCOMPARE(ScaleTypeIds::normalizeScaleTypeId(ScaleTypeIds::scaleTypeName(type)), id);
+            QCOMPARE(ScaleTypeIds::scaleTypeNameForId(id), ScaleTypeIds::scaleTypeName(type));
+            ++checked;
+        }
+        QVERIFY2(checked >= 16, "enum shrank unexpectedly — is the bound still right?");
     }
 
     // ===== Scale-key resolution (omitted scaleType) =====
@@ -71,20 +113,46 @@ private slots:
         m_settings.calibration()->setServingScaleTypeProvider(
             []() { return QStringLiteral("bookoo"); });
 
-        for (int i = 0; i < 3; ++i)
-            m_settings.calibration()->addSawLearningPoint(3.0, 1.5, QStringLiteral("bookoo"),
-                                                          0.0, kProfileA);
+        // One batch of 3 graduates the pair (kSawMinMediansForGraduation == 1).
         for (int i = 0; i < 3; ++i)
             m_settings.calibration()->addSawLearningPoint(3.0, 1.5, QStringLiteral("bookoo"),
                                                           0.0, kProfileA);
 
-        const double resolved = m_settings.calibration()->sawLearnedLagFor(kProfileA);
-        const double explicitBookoo =
-            m_settings.calibration()->sawLearnedLagFor(kProfileA, QStringLiteral("bookoo"));
-        QCOMPARE(resolved, explicitBookoo);
-        QVERIFY2(resolved > 1.8, "omitting the scale must reach the serving scale's pool");
+        // Cover ALL FOUR optional-key entry points, not just one. Dropping the
+        // resolveScaleKey() call from any single reader must fail this — sawModelSource()
+        // especially, since that is the Q_INVOKABLE the Calibration tab reads, so its
+        // mutation is literally "the tab reports a pool the learner is not training".
+        //
+        // Each assertion is two-sided: the omitted-key answer must MATCH the serving
+        // scale's explicit answer and DIFFER from the saved primary's. The second half is
+        // what makes it discriminating — matching alone would also pass if both pools
+        // happened to be empty.
+        auto* cal = m_settings.calibration();
+        const QString kServing = QStringLiteral("bookoo");
+        const QString kSaved = QStringLiteral("decent-wifi");
 
-        m_settings.calibration()->setServingScaleTypeProvider(nullptr);
+        // Match-the-serving-scale holds for every reader.
+        QCOMPARE(cal->sawLearnedLagFor(kProfileA), cal->sawLearnedLagFor(kProfileA, kServing));
+        QCOMPARE(cal->sawModelSource(kProfileA), cal->sawModelSource(kProfileA, kServing));
+        QCOMPARE(cal->perProfileSawHistory(kProfileA).size(),
+                 cal->perProfileSawHistory(kProfileA, kServing).size());
+        QCOMPARE(cal->sawPendingBatch(kProfileA).size(),
+                 cal->sawPendingBatch(kProfileA, kServing).size());
+
+        // Differ-from-the-saved-primary is asserted on the DIRECT pool reads only.
+        // sawLearnedLagFor/sawModelSource deliberately fall back (per-pair → global
+        // bootstrap → global pool) when a pair has not graduated, and with only one
+        // scale's data present those fallbacks land on the same number — so "must
+        // differ" is not a property of those readers and asserting it there fails for
+        // a reason that has nothing to do with key resolution. perProfileSawHistory
+        // reads one pool with no fallback, which is what makes it discriminating.
+        QVERIFY2(cal->perProfileSawHistory(kProfileA).size()
+                     != cal->perProfileSawHistory(kProfileA, kSaved).size(),
+                 "resolved key must not reach the saved primary's pool");
+        QCOMPARE(cal->perProfileSawHistory(kProfileA, kSaved).size(), qsizetype(0));
+
+        QVERIFY2(cal->sawLearnedLagFor(kProfileA) > 1.8,
+                 "omitting the scale must reach the serving scale's pool");
     }
 
     void omittedScaleTypeFallsBackToSavedWhenNothingIsServing() {
@@ -96,7 +164,6 @@ private slots:
 
         QCOMPARE(m_settings.calibration()->currentScaleType(), QStringLiteral("decent"));
 
-        m_settings.calibration()->setServingScaleTypeProvider(nullptr);
     }
 
     void nonCanonicalServingScaleFallsBackToSaved() {
@@ -110,7 +177,6 @@ private slots:
 
         QCOMPARE(m_settings.calibration()->currentScaleType(), QStringLiteral("bookoo"));
 
-        m_settings.calibration()->setServingScaleTypeProvider(nullptr);
     }
 
     void explicitScaleTypeOverridesTheServingScale() {
@@ -136,7 +202,6 @@ private slots:
                      ->perProfileSawHistory(kProfileA, QStringLiteral("bookoo")).size(),
                  qsizetype(0));
 
-        m_settings.calibration()->setServingScaleTypeProvider(nullptr);
     }
 
     // ===== Per-pair isolation =====

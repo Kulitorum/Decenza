@@ -615,18 +615,31 @@ void ShotTimingController::onSettlingComplete()
     // passing and learning proceeded on a flow-integral ESTIMATE, writing a
     // fabricated drip into the real scale's pool.
     //
-    // Without a physical scale there is no observation of what actually landed in
-    // the cup, so there is nothing for SAW to learn FROM — and the number it did
-    // learn was not merely noisy, it was structurally zero. Drip is measured over
-    // the settling window as m_weight - m_weightAtStop, but m_weight only advances
-    // on a scale sample, and FlowScale only emits while MachineState::isFlowing().
-    // The SAW stop ends the pour, isFlowing() goes false, FlowScale falls silent,
-    // and m_weight stays pinned at m_weightAtStop for the whole window. drip == 0
-    // clears every validation gate below and lands in the SAVED scale's pool
-    // (activeScaleType() falls back to it for a virtual scale), dragging that
-    // model toward "no drip" — so SAW then stops late and overshoots once the
-    // user reconnects the real scale. FlowScale still SERVES SAW; it just must
-    // never train it.
+    // Without a physical scale there is no OBSERVATION of what landed in the cup, so
+    // there is nothing for SAW to learn from — the estimate and the thing it would be
+    // corrected against are the same number.
+    //
+    // Concretely, drip is what arrives after the stop command: m_weight - m_weightAtStop,
+    // where m_weightAtStop is captured in onSawTriggered() when SAW FIRES and m_weight
+    // keeps advancing until endShot() starts settling. On a real scale that spans two
+    // physical contributions — flow still leaving the group during the DE1's stop
+    // latency, AND the gravity drip off the puck afterwards. FlowScale can only ever
+    // see the first: MachineState::onFlowSample() is gated on isFlowing(), so the
+    // moment the pour ends FlowScale goes silent and every gram that drips after it is
+    // invisible. Its drip is therefore a real number but a systematically LOW one, and
+    // it is an integral of the DE1's own flow model rather than a measurement.
+    //
+    // That biased value used to land in the SAVED scale's pool (currentScaleType()
+    // falls back to it for a virtual scale), pulling a physical scale's learned drip
+    // down so SAW stops late and overshoots once the user reconnects it.
+    //
+    // (An earlier revision of this comment claimed the learned drip was structurally
+    // ZERO, reasoning that FlowScale falls silent at the stop. It does — but not until
+    // endShot(), which is well after onSawTriggered() captured m_weightAtStop, so the
+    // stop-latency flow is still integrated. Recorded because the wrong version is
+    // more memorable than the right one, and the conclusion is unchanged either way.)
+    //
+    // FlowScale still SERVES SAW; it just must never train it.
     if (!m_scale || !m_scale->isConnected() || m_scale->isFlowScale()) {
         qWarning() << "[SAW] No physical scale at settling (scale="
                    << (m_scale ? m_scale->type() : QStringLiteral("none"))

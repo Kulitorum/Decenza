@@ -155,9 +155,12 @@ private slots:
     void onTimingControllerTareComplete();
 
 private:
-    // Push the serving scale down to SettingsCalibration, which resolves the SAW pool
-    // key for every consumer. Called from setScale() and setSettings() — they arrive
-    // in either order at startup, and both must leave the resolver current.
+    // Install the serving-scale provider on SettingsCalibration, which resolves the SAW
+    // pool key for every consumer. Called from setSettings() ONLY, and once is enough:
+    // the provider is a closure over m_scale, so it follows every later setScale() and
+    // every connectedChanged without being reinstalled. (An earlier revision called it
+    // from setScale() too, which was the right shape for a pushed VALUE and pointless
+    // for a pull provider.)
     void syncServingScale();
 
     void updatePhase();

@@ -22,13 +22,27 @@ class Settings;
 //
 // SCALE KEY RESOLUTION — read this before adding a SAW call site.
 //
-// Every per-scale SAW read takes an OPTIONAL scaleType. Leave it empty and the
-// class resolves it itself, via currentScaleType(); that is the correct answer
-// and the one every other consumer gets. Pass a value only when you genuinely
-// mean a specific pool, which is true in exactly two places: the learning path
-// (main.cpp latches the key at shot start so a scale swapped mid-shot still
-// learns under the key that made the prediction) and the MCP
-// reset_saw_learning_for_profile tool (the user names a scale).
+// The per-(profile, scale) reads take an OPTIONAL scaleType: sawLearnedLagFor,
+// getExpectedDripFor, sawLearningEntriesFor, sawModelSource, perProfileSawHistory and
+// sawPendingBatch. Leave it empty and the class resolves it via currentScaleType();
+// that is the correct answer and the one every other consumer gets.
+//
+// Pass a value when you genuinely mean a SPECIFIC pool rather than the current one.
+// The case that must never be converted to resolution is the learning path: main.cpp
+// latches the key at shot start and passes it back ~40 s later, so a scale swapped
+// mid-shot still trains the pool that made the prediction. (Other callers pass an
+// explicit key today simply because they already hold the resolved value — that is
+// harmless, not a second rule. Deliberately not enumerated: an exhaustive list of call
+// sites in a comment is falsified by the next commit, and this file has already had
+// three such lists go stale.)
+//
+// The rule is NOT applied to the per-scale-only entry points — globalSawBootstrapLag,
+// setGlobalSawBootstrapLag, sensorLag, isSawConverged, sawLearningEntries. They keep a
+// required key, so `isSawConverged("")` still silently means the empty pool while
+// `sawLearnedLagFor(p)` resolves. That asymmetry is a wart, stated here rather than
+// papered over: those five are internal/bootstrap paths whose callers always have a
+// concrete key in hand, and sensorLag is static so it has no instance to resolve from.
+// If you add a NEW caller of one of them, pass currentScaleType() explicitly.
 //
 // This is deliberately the inverse of the older design, where the key was a
 // required parameter every caller derived for itself. Four consumers derived it
@@ -198,6 +212,10 @@ private:
 
     Settings* m_owner = nullptr;  // Non-owning; used ONLY for currentScaleType() lookup.
     std::function<QString()> m_servingScaleType;  // See setServingScaleTypeProvider().
+    // Last non-canonical serving id already reported, so the diagnostic in
+    // currentScaleType() logs once per distinct scale rather than on every SAW read.
+    // mutable: currentScaleType() is const and this is pure log-throttling state.
+    mutable QString m_warnedNonCanonicalScale;
     mutable AppSettings m_settings;
 
     // SAW learning history cache (avoids re-parsing JSON from QSettings on every weight sample)

@@ -25,7 +25,15 @@ enum class ScaleType {
     SoloBarista,
     AtomheartEclair,
     VariaAku,
-    Timemore
+    // ADDING A TYPE? Three places, and only the first two are compiler-checked:
+    //   1. scaleTypeId() / scaleTypeName() switches — enforced by -Wswitch (no default:).
+    //   2. kAll in scaletypeids.cpp — NOT enforced by anything. Miss it and
+    //      isCanonicalScaleTypeId() rejects the new scale, so SAW silently keys its
+    //      shots on the saved primary and corrupts another scale's learned pool.
+    //   3. If you add AFTER Timemore, move the loop bound in
+    //      tst_saw_settings::everyScaleTypeIsInTheCanonicalVocabulary, which is what
+    //      catches (2). It iterates Unknown+1 .. Timemore and cannot see past the end.
+    Timemore  // keep last, or update the test bound above
 };
 
 // Canonical scale type-id / display-name mapping and normalization.

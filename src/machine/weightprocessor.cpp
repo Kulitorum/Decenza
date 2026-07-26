@@ -78,6 +78,24 @@ void WeightProcessor::processWeight(double weight)
         } else if (m_awaitingTare && qAbs(weight) <= kTareLandedThresholdG) {
             // Near zero but unconfirmed. Hold it: do NOT let it become the baseline,
             // or a spurious zero still displaces a real pre-tare reading.
+            //
+            // Logged because this DISCARDS a sample, and its sibling branch below logs
+            // every sample it drops — a silent drop on a path that runs every shot is
+            // the one you cannot diagnose from a field log. qDebug, not qWarning:
+            // holding the first near-zero is the NORMAL case (the confirmation needs a
+            // second one), so a warning would fire on every shot and fail the suite
+            // under failOnWarning().
+            //
+            // Repeated lines here with no "tare confirmed" following them is the
+            // signature of a scale alternating a loaded reading with a near-zero one
+            // (e.g. 200, 0, 200, 0): each zero holds and is discarded without updating
+            // m_lastRawWeight, each 200 is a 0 g step that resets the confirmation
+            // count, so m_awaitingTare never clears for the whole preheat. Bounded —
+            // markExtractionStart() arms unconditionally at flow start — but worth
+            // seeing rather than guessing at.
+            qDebug() << "[SAW-Worker] Tare candidate held (unconfirmed): weight=" << weight
+                     << "last=" << m_lastRawWeight
+                     << "confirmations=" << m_tareLandedSamples << "/" << kTareLandedConfirmations;
             m_lastWallClockMs = wallClock;  // keep de-jitter timing accurate
             return;
         } else if (++m_consecutiveRejections < 3) {

@@ -342,7 +342,7 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
             {"scaleType", QJsonObject{{"type", "string"}, {"description", "Scale type (defaults to the scale currently serving shots, which is not always the saved primary)"}}},
             {"confirmed", QJsonObject{{"type", "boolean"}, {"description", "Set to true after user confirms this action in chat"}}}
         }}},
-        [settings, profileManager, machineState](const QJsonObject& args) -> QJsonObject {
+        [settings, profileManager](const QJsonObject& args) -> QJsonObject {
             QJsonObject result;
             if (!settings) {
                 result["error"] = "Settings not available";
@@ -357,11 +357,17 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
                 return result;
             }
             QString scale = args["scaleType"].toString();
-            // Default to the scale actually serving, matching what the shot engine
-            // learns under and what the Calibration tab shows. Defaulting to the saved
-            // primary would silently clear a pool the user is not using.
-            if (scale.isEmpty() && machineState) scale = machineState->activeScaleType();
-            if (scale.isEmpty()) scale = settings->scaleType();
+            // Default to the scale actually serving, matching what the shot engine learns
+            // under and what the Calibration tab shows. Defaulting to the saved primary
+            // would silently clear a pool the user is not using.
+            //
+            // Ask SettingsCalibration directly rather than rehydrating the rule here.
+            // This used to be two hand-rolled fallbacks, and the second one —
+            // settings->scaleType() — did NOT normalize, so a legacy display name
+            // surviving migration would clear "<profile>::Decent Scale" while the learner
+            // writes "<profile>::decent", reporting success having cleared nothing. It
+            // was also echoed verbatim to the model in result["scaleType"] below.
+            if (scale.isEmpty()) scale = settings->calibration()->currentScaleType();
             settings->calibration()->resetSawLearningForProfile(filename, scale);
             result["success"] = true;
             result["profileFilename"] = filename;

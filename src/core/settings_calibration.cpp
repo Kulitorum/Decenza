@@ -58,6 +58,23 @@ QString SettingsCalibration::currentScaleType() const {
     const QString serving = m_servingScaleType ? m_servingScaleType() : QString();
     if (!serving.isEmpty() && ScaleTypeIds::isCanonicalScaleTypeId(serving))
         return serving;
+
+    // A non-canonical id here is EXPECTED for the virtual scale ("flow") and for test
+    // doubles. For a real scale driver whose id was never added to ScaleTypeIds::kAll it
+    // is a silent correctness bug: nothing downstream rejects it — the isFlowScale()
+    // guard in onSettlingComplete() only catches the virtual scale — so a genuine scale
+    // trains the SAVED primary's pool with its own transport latency, undetectably.
+    // Logged once per distinct id: this runs on every SAW read, and the compile-time
+    // guard is the test over the enum (everyScaleTypeIsInTheCanonicalVocabulary); this
+    // is only so a field log can show it. qDebug not qWarning because serving a
+    // non-canonical type is legitimate in tests running under failOnWarning().
+    if (!serving.isEmpty() && serving != QLatin1String("flow")
+        && serving != m_warnedNonCanonicalScale) {
+        m_warnedNonCanonicalScale = serving;
+        qDebug() << "SettingsCalibration: serving scale reports non-canonical type-id"
+                 << serving << "- SAW will key on the saved primary instead."
+                 << "If this is a real scale, add it to ScaleTypeIds::kAll.";
+    }
     // Normalize defensively — scaleType is stored as a canonical id, but this keeps
     // SAW keying correct even if a legacy display name slips through pre-migration.
     return ScaleTypeIds::normalizeScaleTypeId(m_owner ? m_owner->scaleType() : QStringLiteral("decent"));
@@ -66,12 +83,16 @@ QString SettingsCalibration::currentScaleType() const {
 QString SettingsCalibration::resolveScaleKey(const QString& explicitKey) const {
     if (explicitKey.isEmpty())
         return currentScaleType();
-    // Normalizing an explicit key is belt-and-braces, not load-bearing: every
-    // downstream already does it (sawPairKey, globalSawBootstrapLag, sensorLag,
-    // sawLearningEntries), so a legacy display name cannot open a second pool today
-    // whether or not this line exists. It is here so the value this function RETURNS
-    // is canonical for any future consumer that uses it as a key or compares it,
-    // rather than depending on each one remembering to normalize again.
+    // Load-bearing, and specifically for sawModelSource(): it compares the key RAW
+    // against the stored "scale" field of each global-pool entry, so an un-normalized
+    // legacy display name there returns "scaleDefault" where the truth is "globalPool"
+    // — a wrong model tier shown in the Calibration tab and reported to the AI advisor.
+    //
+    // The key-derived paths (sawPairKey, globalSawBootstrapLag, sensorLag,
+    // sawLearningEntries) each normalize again, so for those it is belt-and-braces.
+    // Do NOT reason from that subset that the line can go: this comment previously
+    // claimed exactly that, having enumerated the normalizing consumers and missed the
+    // one comparing consumer.
     return ScaleTypeIds::normalizeScaleTypeId(explicitKey);
 }
 
@@ -452,7 +473,27 @@ double SettingsCalibration::sensorLag(const QString& scaleType)
     if (id == "skale")            return 0.38;
     if (id == "decent-wifi")      return 0.38;  // WiFi transport of the Half Decent Scale
     if (id == "decent-usb")       return 0.38;  // USB transport of the Half Decent Scale
-    qWarning() << "[SAW] Unknown scale type for sensorLag:" << scaleType << "- using default 0.38s";
+    // Two different situations reach here and they are not equally interesting.
+    //
+    // A CANONICAL id with no entry above is simply a supported scale whose BLE latency
+    // nobody has measured yet — six of the sixteen are in that position (difluid,
+    // eureka_precisa, smartchef, solo_barista, timemore, varia_aku). The de1app default
+    // is the correct answer for them and adaptive learning replaces it within a few
+    // shots. Warning here fired on EVERY SAW read for those users, naming their
+    // perfectly-supported scale as "unknown" — a log full of alarming lines describing
+    // normal operation, which is how genuinely alarming lines get ignored.
+    //
+    // A non-canonical string is the one worth flagging: it means a type-id reached SAW
+    // that ScaleTypeIds does not know, so it is also missing from kAll and keys its own
+    // orphan pool.
+    if (ScaleTypeIds::isCanonicalScaleTypeId(id)) {
+        qDebug() << "[SAW] No measured sensor lag for" << id
+                 << "- using the 0.38s default until learning has data";
+    } else {
+        qWarning() << "[SAW] Unknown scale type for sensorLag:" << scaleType
+                   << "- using default 0.38s. If this is a real scale, add it to"
+                   << "ScaleTypeIds::kAll.";
+    }
     return 0.38;  // de1app default for unknown/unlisted scales
 }
 

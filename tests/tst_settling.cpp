@@ -542,17 +542,18 @@ private slots:
 
     void flowScaleServesSawButNeverTrainsIt() {
         // A virtual scale is permanently isConnected(), so the connection check alone
-        // lets it through. Without the isFlowScale() clause a scale-less shot learns
-        // from a flow-integral estimate — and specifically learns drip == 0, because
-        // FlowScale stops emitting the moment the SAW stop ends the pour, leaving
-        // m_weight pinned at m_weightAtStop for the whole settling window. That zero
-        // lands in the SAVED physical scale's pool and drags it toward "no drip", so
-        // SAW stops late and overshoots once the real scale is reconnected.
+        // lets it through. Without the isFlowScale() clause a scale-less shot trains a
+        // physical scale's pool from a flow-integral ESTIMATE — and a biased one: the
+        // gravity drip off the puck lands after the pour ends, which is exactly when
+        // FlowScale goes silent, so its drip is systematically low and drags the saved
+        // scale's learned model down. SAW then stops late and overshoots once the real
+        // scale is reconnected. See the reasoning at the guard itself.
         //
         // State below is byte-for-byte the passing case in
-        // sawLearningCompleteEmittedBeforeShotProcessingReady above, so the ONLY
+        // sawLearningCompleteFiresBeforeShotProcessingReady above, so the ONLY
         // difference is isFlowScale() — deleting that clause flips this test red
-        // while the positive test stays green.
+        // while the positive test stays green. (Note the fixture's drip is 1.5 g, not
+        // zero; the guard does not depend on the value, only on the source.)
         DE1Device device;
         ShotTimingController tc(&device);
 
