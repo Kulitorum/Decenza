@@ -237,8 +237,11 @@ export function renderShotChart(
                             return `${label}: ${val}${unit}`;
                         },
                         title(items) {
-                            if (items.length === 0) return "";
-                            return `${items[0].parsed.x.toFixed(1)}s`;
+                            // `== null` rather than a falsy check: x is elapsed
+                            // seconds, and 0 is a real value to label.
+                            const x = items[0]?.parsed?.x;
+                            if (x == null) return "";
+                            return `${x.toFixed(1)}s`;
                         },
                     },
                 },
