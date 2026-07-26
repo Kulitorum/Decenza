@@ -50,10 +50,17 @@ the AI advisor.
 - Changing how editor parameters are derived. `prepDFlow` / `prepAFlow` are untouched.
 - Rewriting frames, or "correcting" any value that disagrees with them.
 - Removing `RecipeParams` itself — it remains the in-memory editor DTO, just not a persisted one.
-- Adding a recommended-dose control to the Recipe Editor. D-Flow/A-Flow profiles have no dose UI
-  today and deliberately do not gain one: recipes own dose going forward, and this change is
-  meant to preserve current behaviour — including the 18 g default much of the app assumes —
-  rather than open a new surface for it.
+- ~~Adding a recommended-dose control to the Recipe Editor. D-Flow/A-Flow profiles have no dose
+  UI today and deliberately do not gain one.~~
+  **WRONG, corrected during review.** Both `RecipeEditorPage` and `SimpleProfileEditorPage`
+  already had a Dose control bound to `recipe.dose`, and the Recipe Editor's round-tripped
+  correctly on `main`. Removing the field silently broke both. They were repaired to read and
+  write `recommended_dose` — no new surface was added; an existing one was kept working. The
+  scoping decision this Non-Goal recorded was taken on my false claim that no such control
+  existed, so it never had the meaning it appears to have. Kept struck through rather than
+  deleted: the promoted spec now carries the rule (`One dose field, whichever surface sets it`),
+  and a Non-Goal that quietly vanished would leave the next reader wondering why the change
+  touched QML at all.
 - Reading de1app's `profile_grinder_dose_weight` on import. Covered by
   `fix-tcl-import-metadata-loss`.
 

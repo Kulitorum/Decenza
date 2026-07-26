@@ -136,6 +136,58 @@ figure would tell a caller there is a recommendation when there is not.
 - **THEN** the profile's recommended dose takes that value and its recommendation is enabled
 - **AND** the field is not reported back as unrecognised or ignored
 
+### Requirement: A dose of zero clears the recommendation
+
+Setting a per-profile dose of zero SHALL disable the recommendation rather than store a
+recommendation of zero grams. The stored value SHALL be left as it was, so re-enabling restores
+the last real dose rather than a default.
+
+Zero is how the absence of a dose is expressed everywhere else this value travels: the `.tcl`
+importer reads de1app's `profile_grinder_dose_weight 0` as "not set" — de1app's Streamline skin
+writes the key on every save, so a zero there never means a deliberate zero — and a recommendation
+of zero grams would otherwise reach the dialing context, the AI advisor and any ratio arithmetic
+as if it were real.
+
+#### Scenario: Zero disables rather than recommends
+
+- **WHEN** a caller sets a dose of zero on a profile that has a recommendation
+- **THEN** the profile reports that no recommendation is enabled
+
+#### Scenario: The previous value survives being disabled
+
+- **WHEN** a recommendation is disabled by setting zero and later re-enabled
+- **THEN** the dose last set is restored, not the default
+
+### Requirement: One dose field, whichever surface sets it
+
+Every surface that offers a per-profile dose SHALL read and write the same profile field. No
+surface may keep its own copy.
+
+This is what the retired `recipe` block got wrong: it stored a second dose that the editors wrote
+and nothing else read, so the value shown in an editor and the value the advisor saw could differ
+without either being wrong. The Dose controls on the recipe editors, the advanced editor's
+control, the parameter surface, the dialing context and the advisor now all resolve to
+`recommended_dose` / `has_recommended_dose`.
+
+Where two spellings of the field reach the same call, the profile SHALL NOT be left unchanged in
+silence: either one is applied and the other reported as not accepted, or the loser is named.
+
+#### Scenario: An editor's dose control persists
+
+- **WHEN** a dose is set from a recipe editor's Dose control and the profile is reloaded
+- **THEN** the control shows the value that was set
+
+#### Scenario: The same dose is visible to every reader
+
+- **WHEN** a dose is set through any one surface
+- **THEN** every other surface reporting a per-profile dose reports that same value
+
+#### Scenario: Competing spellings are never both discarded
+
+- **WHEN** a caller supplies two spellings of the per-profile dose in one request
+- **THEN** the profile is not left unchanged with a success result
+- **AND** the response names whichever spelling was not applied
+
 ### Requirement: A one-time upgrade brings saved profiles to the new shape
 
 A one-time pass SHALL rewrite already-saved profiles in the user, downloaded and SAF stores to
@@ -166,4 +218,10 @@ migration.
 
 - **WHEN** rewriting a profile fails
 - **THEN** the original file is left intact and the failure is reported
+
+#### Scenario: An interrupted write does not lose a profile
+
+- **WHEN** a rewrite is interrupted partway — a full disk, a lost volume, a killed process
+- **THEN** the profile that was there before is still there afterwards
+- **AND** the upgrade has not recorded that profile as done
 
