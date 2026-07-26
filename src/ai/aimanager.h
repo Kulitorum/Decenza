@@ -37,6 +37,7 @@ class AIManager : public QObject {
     Q_PROPERTY(QString lastTestResult READ lastTestResult NOTIFY testResultChanged)
     Q_PROPERTY(bool lastTestSuccess READ lastTestSuccess NOTIFY testResultChanged)
     Q_PROPERTY(QStringList ollamaModels READ ollamaModels NOTIFY ollamaModelsChanged)
+    Q_PROPERTY(QStringList customEndpointModels READ customEndpointModels NOTIFY customEndpointModelsChanged)
     Q_PROPERTY(QString currentModelName READ currentModelName NOTIFY providerChanged)
     Q_PROPERTY(AIConversation* conversation READ conversation CONSTANT)
     Q_PROPERTY(bool hasAnyConversation READ hasAnyConversation NOTIFY conversationIndexChanged)
@@ -69,6 +70,7 @@ public:
     QString lastTestResult() const { return m_lastTestResult; }
     bool lastTestSuccess() const { return m_lastTestSuccess; }
     QStringList ollamaModels() const { return m_ollamaModels; }
+    QStringList customEndpointModels() const { return m_customEndpointModels; }
     QString currentModelName() const;
     Q_INVOKABLE QString modelDisplayName(const QString& providerId) const;
     // Selectable models for a provider as a list of { "id", "name" } maps, in UI
@@ -292,6 +294,8 @@ public:
 
     // Ollama-specific
     Q_INVOKABLE void refreshOllamaModels();
+    // Custom endpoint model fetch (OpenAI/Anthropic with custom base URL)
+    Q_INVOKABLE void refreshCustomEndpointModels();
 
 signals:
     void providerChanged();
@@ -305,6 +309,7 @@ signals:
     void bagDetailsExtractionFailed(const QString& requestToken, const QString& error);
     void testResultChanged();
     void ollamaModelsChanged();
+    void customEndpointModelsChanged();
     void conversationIndexChanged();
     void recentShotContextReady(const QString& context);
     void conversationResponseReceived(const QString& response);
@@ -315,6 +320,7 @@ private slots:
     void onAnalysisFailed(const QString& error);
     void onTestResult(bool success, const QString& message);
     void onOllamaModelsRefreshed(const QStringList& models);
+    void onCustomEndpointModelsRefreshed(const QStringList& models);
     void onSettingsChanged();
 
 private:
@@ -350,6 +356,7 @@ private:
     QString m_lastTestResult;
     bool m_lastTestSuccess = false;
     QStringList m_ollamaModels;
+    QStringList m_customEndpointModels;
 
     // For logging - store last prompts to pair with response
     QString m_lastSystemPrompt;
