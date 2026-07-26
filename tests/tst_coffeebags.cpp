@@ -134,6 +134,19 @@ private:
         return initAndClose(path, storage) ? path : QString();
     }
 
+    // Isolate from dye state a previous test in this file left behind.
+    //
+    // Through the PID-scoped test store, NOT a bare QSettings: SettingsDye reads
+    // an AppSettings, which under DECENZA_TESTING resolves here, so a bare
+    // QSettings would clear a store nothing reads while writing to the
+    // developer's real preferences (TESTING.md). These tests were doing exactly
+    // that, which is why they never actually started clean.
+    static void clearDyeSettings() {
+        QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+        raw.remove(QStringLiteral("dye"));
+        raw.sync();
+    }
+
 private slots:
     void init() { QTest::failOnWarning(); }
 
@@ -1771,7 +1784,7 @@ private slots:
     // using only the public API (add-yield-ratio-anchor).
     void settingsDyeYieldSpecPath() {
         // Isolate from any developer/CI dye state in the test app's QSettings.
-        { QSettings s; s.remove(QStringLiteral("dye")); s.sync(); }
+        clearDyeSettings();
 
         const QString path = freshDb();
         CoffeeBagStorage storage;
@@ -1838,14 +1851,14 @@ private slots:
         dye.persistYieldSpecToBag(44.0, QStringLiteral("absolute"));
         QCOMPARE(dye.activeBagYieldValue(), 44.0);
 
-        { QSettings s; s.remove(QStringLiteral("dye")); s.sync(); }
+        clearDyeSettings();
     }
 
     // The dose ladder (dose-source-precedence): recipe → bag → profile, resolved
     // by SettingsDye::doseOwner(). Drives the real async bag apply, so the bag
     // rung is armed the way a bag selection actually arms it.
     void settingsDyeDoseLadder() {
-        { QSettings s; s.remove(QStringLiteral("dye")); s.sync(); }
+        clearDyeSettings();
 
         const QString path = freshDb();
         CoffeeBagStorage storage;
@@ -1887,10 +1900,9 @@ private slots:
         QCOMPARE(dye.doseOwner(), SettingsDye::DoseOwner::Bag);
 
         // A recipe outranks the bag — but only one that supplies a dose.
-        dye.setActiveRecipeId(7);
-        dye.setActiveRecipeDose(0.0);            // grind-only recipe
+        dye.setActiveRecipe(7, 0.0);             // grind-only recipe
         QCOMPARE(dye.doseOwner(), SettingsDye::DoseOwner::Bag);
-        dye.setActiveRecipeDose(19.0);
+        dye.setActiveRecipe(7, 19.0);
         QCOMPARE(dye.doseOwner(), SettingsDye::DoseOwner::Recipe);
 
         // With the recipe on the top rung, re-applying the bag must NOT write
@@ -1912,8 +1924,95 @@ private slots:
         // And clearing the bag drops to the profile.
         dye.setActiveBagId(-1);
         QCOMPARE(dye.doseOwner(), SettingsDye::DoseOwner::Profile);
+    }
 
-        { QSettings s; s.remove(QStringLiteral("dye")); s.sync(); }
+    // Selecting a source is not the same as knowing what it designs: both rows
+    // load on a storage worker. Until the row lands the ladder must refuse to
+    // answer, because an unresolved rung reads exactly like a source that
+    // designs no dose — and the caller that acts on that reading (the profile's
+    // recommended dose) writes THROUGH to the bag's stored doseWeightG.
+    void settingsDyeDoseLadderIsUnresolvedUntilTheRowLands() {
+        clearDyeSettings();
+        const QString path = freshDb();
+        CoffeeBagStorage storage;
+        storage.initialize(path);
+
+        qint64 bagWithDose = -1, otherBag = -1;
+        withRawDb(path, "dose_resolve_seed", [&](QSqlDatabase& db) {
+            CoffeeBag a; a.roasterName = "R"; a.coffeeName = "Dosed";
+            a.doseWeightG = 20.0;
+            bagWithDose = CoffeeBagStorage::insertBagStatic(db, a);
+            CoffeeBag b; b.roasterName = "R"; b.coffeeName = "Other";
+            b.doseWeightG = 22.0;
+            otherBag = CoffeeBagStorage::insertBagStatic(db, b);
+        });
+        QVERIFY(bagWithDose > 0 && otherBag > 0);
+
+        SettingsDye dye;
+        dye.setBagStorage(&storage);
+
+        // Nothing set: vacuously resolved, so a profile load may proceed.
+        QVERIFY(dye.doseLadderResolved());
+
+        // Select the bag. Its row is in flight — the ladder would say "Profile"
+        // here, which is the wrong answer, so it must report itself unanswerable.
+        dye.setActiveBagId(static_cast<int>(bagWithDose));
+        QVERIFY(!dye.doseLadderResolved());
+        QTRY_VERIFY(dye.doseLadderResolved());
+        QCOMPARE(dye.doseOwner(), SettingsDye::DoseOwner::Bag);
+
+        // Switching to ANOTHER bag must un-resolve it again. This is the case
+        // the first selection cannot prove — the rung starts unresolved, so a
+        // missing reset is invisible until a resolved rung has to go back. It is
+        // also the live one: bag switch, then a profile load a beat later, and
+        // the profile's dose lands on the new bean before its row arrives.
+        dye.setActiveBagId(static_cast<int>(otherBag));
+        QVERIFY(!dye.doseLadderResolved());
+        QTRY_VERIFY(dye.doseLadderResolved());
+        QCOMPARE(dye.dyeBeanWeight(), 22.0);
+
+        // Same for a recipe: the id is set by the activation/restore path before
+        // MainController has read the row and can name the dose.
+        dye.setActiveRecipeId(7);
+        QVERIFY(!dye.doseLadderResolved());
+        dye.setActiveRecipe(7, 19.0);
+        QVERIFY(dye.doseLadderResolved());
+        QCOMPARE(dye.doseOwner(), SettingsDye::DoseOwner::Recipe);
+
+        // Deactivation needs no row to confirm it.
+        dye.setActiveRecipeId(-1);
+        QVERIFY(dye.doseLadderResolved());
+        dye.setActiveBagId(-1);
+        QVERIFY(dye.doseLadderResolved());
+    }
+
+    // setActiveBagKeepFields is the shot-replay path: it adopts the bag link
+    // without applying the bag's fields. The dose rung must still follow the
+    // row — keep-fields means "do not APPLY the dose", not "do not know it".
+    void settingsDyeKeepFieldsStillResolvesTheDoseRung() {
+        clearDyeSettings();
+        const QString path = freshDb();
+        CoffeeBagStorage storage;
+        storage.initialize(path);
+
+        qint64 bagId = -1;
+        withRawDb(path, "dose_keepfields_seed", [&](QSqlDatabase& db) {
+            CoffeeBag a; a.roasterName = "R"; a.coffeeName = "Kept";
+            a.doseWeightG = 17.5;
+            bagId = CoffeeBagStorage::insertBagStatic(db, a);
+        });
+        QVERIFY(bagId > 0);
+
+        SettingsDye dye;
+        dye.setBagStorage(&storage);
+        dye.setDyeBeanWeight(21.0);              // the replay's own dose
+
+        dye.setActiveBagKeepFields(static_cast<int>(bagId));
+        QTRY_VERIFY(dye.doseLadderResolved());
+        // The bag's dose was NOT applied — keep-fields leaves the live value to
+        // the caller — but the rung knows the bag has one.
+        QCOMPARE(dye.dyeBeanWeight(), 21.0);
+        QCOMPARE(dye.doseOwner(), SettingsDye::DoseOwner::Bag);
     }
 
     // SettingsDye is the equipment switch + dual-write-through orchestrator
@@ -1922,7 +2021,7 @@ private slots:
     // active bag at it; editing the dial fans out to BOTH the bag and the active
     // package's last-dial memory.
     void settingsDyeEquipmentSwitchAndDualWrite() {
-        { QSettings s; s.remove(QStringLiteral("dye")); s.sync(); }
+        clearDyeSettings();
 
         const QString path = freshDb();
         withRawDb(path, "eqdye_tables", [&](QSqlDatabase& db) {
@@ -1990,7 +2089,7 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(bagRpm(), static_cast<qint64>(1350), 15000);
         QTRY_COMPARE_WITH_TIMEOUT(pkgRpm(), static_cast<qint64>(1350), 15000);
 
-        { QSettings s; s.remove(QStringLiteral("dye")); s.sync(); }
+        clearDyeSettings();
     }
 
     // Unconditional grind write-through (fix-recipe-grind-integrity): the bag
@@ -1999,7 +2098,7 @@ private slots:
     // stamped independently by MainController off the same edit). Every edit
     // lands on the bag row, exactly like the other bag-backed dye fields.
     void settingsDyeGrindWritesThroughUnconditionally() {
-        { QSettings s; s.remove(QStringLiteral("dye")); s.sync(); }
+        clearDyeSettings();
 
         const QString path = freshDb();
         withRawDb(path, "pin_tables", [&](QSqlDatabase& db) {
@@ -2038,7 +2137,7 @@ private slots:
 
         // Clear the dye QSettings state before teardown; the DB worker is joined
         // by ~CoffeeBagStorage/~EquipmentStorage (SerialDbWorker quit()+wait()).
-        { QSettings s; s.remove(QStringLiteral("dye")); s.sync(); }
+        clearDyeSettings();
     }
 
     // Regression for the same-row write reorder that SerialDbWorker fixes. Fire

@@ -187,7 +187,14 @@ private slots:
         McpTestFixture f;
         registerProfileTools(&f.registry, &f.profileManager, nullptr);
         loadAdvancedProfile(f, "Advanced Retired");
-        f.profileManager.setCurrentProfileRecommendedDose(19.0);
+        // Not pre-set through setCurrentProfileRecommendedDose: that marks the
+        // profile modified, which would make the "did the rejected edit dirty
+        // it?" assertion below vacuous.
+        const double doseBefore = f.profileManager.profileRecommendedDose();
+        QVERIFY2(!qFuzzyCompare(1.0 + doseBefore, 1.0 + 22.0),
+                 "the value under test matches the loaded one — the assertion proves nothing");
+        QVERIFY2(!f.profileManager.isProfileModified(),
+                 "a freshly loaded profile is already modified — fix the fixture, not the check");
 
         const QJsonObject r = f.callTool(
             "profiles_edit_params",
@@ -196,13 +203,86 @@ private slots:
 
         // Silently applying them is what this replaces — on the advanced branch
         // the map loop would otherwise still push both straight onto the profile.
-        QCOMPARE(f.profileManager.profileRecommendedDose(), 19.0);
+        QCOMPARE(f.profileManager.profileRecommendedDose(), doseBefore);
         const QJsonArray retired = r.value("retiredFields").toArray();
         QCOMPARE(retired.size(), 2);
         QVERIFY(retired.contains(QJsonValue(QStringLiteral("recommended_dose"))));
         QVERIFY(retired.contains(QJsonValue(QStringLiteral("has_recommended_dose"))));
-        QVERIFY2(r.value("retiredNote").toString().contains(QStringLiteral("'dose'")),
+
+        // Every key in the call was retired, so NOTHING was applied. Reporting
+        // success here — with a message telling the caller to profiles_save —
+        // would be a lie that also dirties the loaded profile, because the
+        // upload runs on the way out.
+        QVERIFY2(!r.value("success").toBool(),
+                 "a call that changed nothing reported success");
+        QVERIFY2(r.value("error").toString().contains(QStringLiteral("'dose'")),
                  "the caller was told a field was retired without being told what replaced it");
+        QVERIFY2(!f.profileManager.isProfileModified(),
+                 "a fully rejected edit dirtied the loaded profile");
+    }
+
+    // A rejected spelling must not silence the rest of the call, and the caveat
+    // has to reach `message` — a client that reads only success + message would
+    // otherwise be told a clean "Profile updated" for a call that dropped an
+    // argument.
+    void aRetiredSpellingIsReportedOnRecipeEditorsToo() {
+        McpTestFixture f;
+        registerProfileTools(&f.registry, &f.profileManager, nullptr);
+        loadDFlowProfile(f, "D-Flow / Retired Reported");
+
+        const QJsonObject r = f.callTool(
+            "profiles_edit_params",
+            QJsonObject{{"dose", 20.5}, {"recommended_dose", 22.0}, {"confirmed", true}});
+
+        QVERIFY(r.value("success").toBool());
+        QCOMPARE(r.value("retiredFields").toArray().size(), 1);
+        QVERIFY2(r.value("message").toString().contains(QStringLiteral("recommended_dose")),
+                 "the retired spelling was reported only in a sibling key");
+    }
+
+    // `dose` is the one key read straight as a double rather than through
+    // toVariant(), and QJsonValue::toDouble() answers 0 for anything that is not
+    // a number — which setCurrentProfileRecommendedDose reads as "clear the
+    // recommendation". A stringified number is safe (normalizeArguments coerces
+    // "18" off the schema type, asserted below so the two layers stay honest
+    // about which one is doing the work); an unparseable one is not, and used to
+    // delete the profile's dose and report success.
+    void aNonNumericDoseIsRejectedRatherThanClearingTheRecommendation() {
+        McpTestFixture f;
+        registerProfileTools(&f.registry, &f.profileManager, nullptr);
+        loadDFlowProfile(f, "D-Flow / String Dose");
+        f.profileManager.setCurrentProfileRecommendedDose(19.0);
+
+        const QJsonObject r = f.callTool(
+            "profiles_edit_params",
+            QJsonObject{{"dose", QStringLiteral("heavy")}, {"confirmed", true}});
+
+        QVERIFY2(!r.value("success").toBool(), "an unparseable dose was accepted");
+        QCOMPARE(f.profileManager.profileRecommendedDose(), 19.0);
+        QVERIFY(f.profileManager.profileHasRecommendedDose());
+
+        // A numeric string still works — the registry normalises it first.
+        const QJsonObject ok = f.callTool(
+            "profiles_edit_params",
+            QJsonObject{{"dose", QStringLiteral("18")}, {"confirmed", true}});
+        QVERIFY(ok.value("success").toBool());
+        QCOMPARE(f.profileManager.profileRecommendedDose(), 18.0);
+    }
+
+    // Out of range is legal input handled by clamping, but the caller has to be
+    // told — echoing success with no note reads as "stored 150".
+    void anOutOfRangeDoseIsClampedAndSaidSo() {
+        McpTestFixture f;
+        registerProfileTools(&f.registry, &f.profileManager, nullptr);
+        loadDFlowProfile(f, "D-Flow / Clamped Dose");
+
+        const QJsonObject r = f.callTool(
+            "profiles_edit_params", QJsonObject{{"dose", 150.0}, {"confirmed", true}});
+
+        QVERIFY(r.value("success").toBool());
+        QCOMPARE(f.profileManager.profileRecommendedDose(), 100.0);
+        QCOMPARE(r.value("adjustedFields").toArray().size(), 1);
+        QVERIFY(r.value("adjustedNote").toString().contains(QStringLiteral("100")));
     }
 
     // The retired names losing does not cost `dose` its effect in the same call.

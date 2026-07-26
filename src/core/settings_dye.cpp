@@ -88,9 +88,11 @@ void SettingsDye::setBagStorage(CoffeeBagStorage* storage)
                     // Same reasoning for the dose ladder's cache: keep-fields
                     // means we do not APPLY the bag's dose, but doseOwner()
                     // must still know whether this bag has one
-                    // (dose-source-precedence).
+                    // (dose-source-precedence). The row has now been read, so
+                    // the rung is resolved either way.
                     const double keptDose = bag.value("doseWeightG", 0.0).toDouble();
                     m_activeBagDoseG = keptDose > 0 ? keptDose : 0;
+                    m_activeBagDoseResolved = true;
                     return;
                 }
                 applyActiveBag(bag);
@@ -486,9 +488,15 @@ void SettingsDye::setDyeBeanWeight(double value) {
         // has to follow it (dose-source-precedence). Without this a bag that
         // started with no dose would keep reading as an empty rung after the
         // user dialed one, and a later profile load would overwrite it.
-        // Skipped while applying a bag — there the cache is set from the row.
-        if (!m_applyingBag && bagIdIsSet(activeBagId()))
+        //
+        // The condition MIRRORS writeThroughToBag's, m_bagStorage included: the
+        // cache may only claim the bag owns a dose that was actually persisted
+        // to its row. Skipped while applying a bag — there the cache is set
+        // from the row itself.
+        if (!m_applyingBag && m_bagStorage && bagIdIsSet(activeBagId())) {
             m_activeBagDoseG = value > 0 ? value : 0;
+            m_activeBagDoseResolved = true;
+        }
         emit dyeBeanWeightChanged();
     }
 }
@@ -617,19 +625,43 @@ void SettingsDye::setActiveRecipeId(int recipeId) {
     if (activeRecipeId() == recipeId)
         return;
     m_settings.setValue("dye/activeRecipeId", recipeId);
-    if (recipeId <= 0)
-        m_activeRecipeDoseG = 0;   // no recipe → no rung on the dose ladder
+    // A different recipe is a different rung: drop the previous one's dose, and
+    // mark the rung unresolved until whoever read the row calls
+    // setActiveRecipe(). Deactivation (id <= 0) resolves immediately — "no
+    // recipe" needs no row to confirm it.
+    m_activeRecipeDoseG = 0;
+    m_activeRecipeDoseResolved = recipeId <= 0;
     emit activeRecipeIdChanged();
 }
 
-void SettingsDye::setActiveRecipeDose(double doseG) {
+void SettingsDye::setActiveRecipe(int recipeId, double doseG) {
+    // Id first — setActiveRecipeId clears the dose on any change, so setting it
+    // afterwards is what keeps the pair consistent in both orders of arrival.
+    setActiveRecipeId(recipeId);
+    if (recipeId <= 0)
+        return;
     m_activeRecipeDoseG = doseG > 0 ? doseG : 0;
+    m_activeRecipeDoseResolved = true;
+}
+
+bool SettingsDye::doseLadderResolved() const {
+    // Only a rung that is actually SET needs its row: an unset id supplies
+    // nothing, so there is nothing to wait for.
+    if (bagIdIsSet(activeBagId()) && !m_activeBagDoseResolved)
+        return false;
+    if (activeRecipeId() > 0 && !m_activeRecipeDoseResolved)
+        return false;
+    return true;
 }
 
 SettingsDye::DoseOwner SettingsDye::doseOwner() const {
     // recipe → bag → profile. A source holding no dose is SKIPPED, not read as
     // zero: a grind-only recipe or a never-dialed bag must not strand the dose
     // on a rung that has nothing to supply.
+    //
+    // Callers that WRITE off this answer must also check doseLadderResolved() —
+    // an unresolved rung reads as empty here, which is indistinguishable from a
+    // source that genuinely designs no dose.
     if (activeRecipeId() > 0 && m_activeRecipeDoseG > 0)
         return DoseOwner::Recipe;
     if (bagIdIsSet(activeBagId()) && m_activeBagDoseG > 0)
@@ -678,11 +710,21 @@ void SettingsDye::setActiveBagId(int bagId) {
         m_activeBagOpenedDate.clear();
         m_activeBagYieldValue = 0;      // no bag → no yield spec
         m_activeBagYieldMode = QStringLiteral("none");
-        m_activeBagDoseG = 0;           // no bag → no rung on the dose ladder
+        m_activeBagDoseG = 0;           // no bag → no rung, and nothing to wait for
+        m_activeBagDoseResolved = true;
         emit activeBagYieldSpecChanged();
         emit activeBagChanged();
         return;
     }
+
+    // A different bag is a different rung: drop the previous one's dose and
+    // hold the ladder unanswerable until this bag's row lands
+    // (dose-source-precedence). Without this, the window between selecting a
+    // bag and its bagReady reads as "the bag designs no dose" — and a profile
+    // load in that window writes its own dose straight through onto the new
+    // bag's stored doseWeightG.
+    m_activeBagDoseG = 0;
+    m_activeBagDoseResolved = false;
 
     if (m_bagStorage) {
         m_bagStorage->requestBag(bagId);     // applies via bagReady
@@ -704,7 +746,8 @@ void SettingsDye::setActiveBagKeepFields(int bagId)
         m_activeBagOpenedDate.clear();
         m_activeBagYieldValue = 0;      // no bag → no yield spec
         m_activeBagYieldMode = QStringLiteral("none");
-        m_activeBagDoseG = 0;           // no bag → no rung on the dose ladder
+        m_activeBagDoseG = 0;           // no bag → no rung, and nothing to wait for
+        m_activeBagDoseResolved = true;
         emit activeBagYieldSpecChanged();
         emit activeBagIdChanged();
         emit activeBagChanged();
@@ -712,6 +755,9 @@ void SettingsDye::setActiveBagKeepFields(int bagId)
     }
     m_settings.setValue("dye/activeBagId", bagId);
     emit activeBagIdChanged();
+    m_activeBagDoseG = 0;               // see setActiveBagId: unresolved until the row lands
+    m_activeBagDoseResolved = false;
+
     if (m_bagStorage) {
         m_keepFieldsOnNextApply = true;
         m_bagStorage->requestBag(bagId);     // lifecycle-only via bagReady
@@ -751,6 +797,7 @@ void SettingsDye::applyActiveBag(const QVariantMap& bag)
     // doseOwner() keeps naming the previous bag.
     const double dose = bag.value("doseWeightG", 0.0).toDouble();
     m_activeBagDoseG = dose > 0 ? dose : 0;
+    m_activeBagDoseResolved = true;
     // Applying the bag's dose is gated on no recipe supplying one — the
     // dose-source-precedence ladder, the same gate coffee-bag-model already
     // put on the bag's yield spec. Without it, an external edit to the active

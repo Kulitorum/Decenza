@@ -34,6 +34,40 @@ A source that holds no dose is skipped rather than treated as holding zero.
 - **WHEN** a recipe is active but holds no dose, and the active bag holds one
 - **THEN** the bag's dose is used
 
+### Requirement: The ladder is not answered until every active source's row has been read
+
+A source's id is selected synchronously; the row that says what dose it designs arrives from a
+storage worker. Between the two, that source is indistinguishable from one that designs no dose.
+The ladder SHALL therefore report itself unresolved while any active source's row is outstanding,
+and a caller that would WRITE a dose off the ladder's answer SHALL decline while it is unresolved.
+
+This matters because the profile's write is the destructive one: it writes through to the active
+bag's stored dose and stamps the active recipe's, so a resolution taken a beat too early does not
+merely show the wrong number — it erases what the bean or the recipe remembered.
+
+For the same reason the ladder SHALL be resolved where the dose is actually written, not where the
+write was scheduled. A deferred write that checked the ladder when it was armed would still land
+after an intervening bag or recipe selection.
+
+#### Scenario: A profile load between selecting a bag and its row arriving
+
+- **WHEN** a bag is selected and a profile with a recommended dose is loaded before the bag's row
+  has been read
+- **THEN** the profile's dose is not applied
+- **AND** the bag's stored dose is unchanged
+
+#### Scenario: A source restored at launch is unresolved until its row is read
+
+- **WHEN** the app starts with a recipe active
+- **THEN** the ladder is unresolved until that recipe's row has been read
+- **AND** once read, the recipe holds the rung for the rest of the session without needing to be
+  re-activated
+
+#### Scenario: Deactivation needs no row
+
+- **WHEN** the active recipe or bag is cleared
+- **THEN** the ladder is immediately resolved, with that rung empty
+
 ### Requirement: Loading a profile never overwrites a higher-priority dose
 
 Applying a profile's recommended dose to the active dose SHALL be gated on no recipe and no bag
@@ -117,3 +151,21 @@ other is what the profile suggests.
 - **WHEN** a recipe or bag holding no dose is active and the user dials one
 - **THEN** the write-through gives that source the dose
 - **AND** the ladder now names it as the owner, so a later profile load does not overwrite it
+
+#### Scenario: A source only claims a dose the write-through actually persisted
+
+- **WHEN** a dose is dialed against an active source whose storage is unavailable, so nothing is
+  written to its row
+- **THEN** that source does not claim the rung
+
+A rung standing on a value no row holds is the same defect as a stale one, reached from the other
+direction: the ladder would suppress the profile's dose in favour of a dose nothing remembers.
+
+#### Scenario: A drink with no shot dose does not claim the rung
+
+- **WHEN** a profile-less recipe (a hot-water tea) is active and a dose is dialed
+- **THEN** the recipe does not become the dose owner
+
+A tea's leaf dose is not a shot dose — activation deliberately gives such a recipe an empty rung,
+and no later edit may promote it onto one, or it would lock the bag and profile out of a value it
+never designs.

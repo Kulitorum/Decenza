@@ -80,7 +80,26 @@ resolving as: recipe if `activeRecipeId > 0 && m_activeRecipeDoseG > 0`, else ba
 
 Two small caches back it. `m_activeBagDoseG` is set in `applyBag` (which already reads
 `bag.value("doseWeightG")` locally) and cleared when no bag is active. `m_activeRecipeDoseG` is
-pushed by `MainController` alongside `setActiveRecipeId`, and cleared by `deactivateRecipe`.
+pushed down by `MainController`, which owns the recipe map.
+
+**The recipe's id and dose are set in one call**, `setActiveRecipe(recipeId, doseG)`, rather than a
+separate `setActiveRecipeDose`. Two setters make "the cache belongs to the recipe the id names" a
+convention that every call site has to remember, and the id then advances on paths the dose does
+not: activation sets the id last (deliberately — watchers must not see a half-applied recipe), and
+the startup restore and external-edit re-read both repopulate the recipe through `recipeReady`,
+which is not an activation at all. Folding them together makes the pairing structural, and gives
+those paths an obvious call site instead of a missing one.
+
+**Each rung also tracks whether its row has arrived** (`doseLadderResolved()`). An id is set
+synchronously; the row that says what dose it designs comes back from a storage worker. In between,
+an unresolved rung is indistinguishable from a source that designs no dose — and the caller that
+acts on that reading, the profile's recommended dose, is the destructive one: it writes through to
+the bag's stored dose and stamps the recipe's. So the ladder refuses to answer rather than answering
+wrongly, and the writer declines while it is unresolved.
+
+That refusal is also why the profile's write **resolves the ladder when it lands, not when it is
+armed**. Both are deferred a turn; an arm-time check reads the selection window as "nobody else
+supplies a dose", and the write then arrives after the bag's row has applied.
 
 *Rejected:* putting the resolver on `MainController` (owns `m_activeRecipe`, so no recipe cache
 needed) — `ProfileManager::loadProfile` is the site that most needs the gate and has no
@@ -135,17 +154,42 @@ activation and the bag apply.
 
 `m_activeBagDoseG` and `m_activeRecipeDoseG` are runtime-only, while `activeBagId` and
 `activeRecipeId` persist. At launch the ids are restored immediately but the rows load
-asynchronously, so for a moment the ladder would answer "profile" for a session a recipe actually
-owns. Persisting the two doses would close that window; skipping the dose write on the startup load
-closes it better, and is right on its own terms — the live dose is already persisted from whichever
-source won last session, so there is nothing to resolve and nothing to apply.
+asynchronously, so the ladder would answer "profile" for a session a recipe actually owns.
+Persisting the two doses would close that window; the resolution flags close it better, because the
+window is not confined to launch — it reopens on every bag or recipe selection, and a persisted
+cache would be just as stale there.
+
+The startup skip stays as well, on its own terms: the live dose is already persisted from whichever
+source won last session, so there is nothing to apply. It is not sufficient on its own, though, and
+the first draft of this change treated it as if it were. `m_startupLoadDone` flips at the end of the
+`ProfileManager` constructor, while `loadAutoLoadProfileIfNeeded()` fires later from QML — so for a
+user with an auto-load profile pinned, the launch-time load was never gated by it.
 
 ### MCP: one spelling
 
 `mcptools_profiles.cpp` keeps the `dose` handler (set-and-enable) and drops `recommended_dose` /
 `has_recommended_dose` from the accepted edit keys, which removes the conflict rule and
-`conflictedFields` with them. Reporting still emits both names — a reader needs the flag. The old
-names fall through to the existing unknown-field reporting, so a caller sending one is told.
+`conflictedFields` with them. Reporting still emits the field with its flag, once, as
+`recommendedDoseG` + `hasRecommendedDose` — the advanced branch's profile-JSON spread drops the
+snake_case pair so a reader is not shown four keys for two fields and tempted to send back the
+spelling that no longer writes.
+
+The retired names are stripped explicitly (nothing validates incoming keys against the schema, so
+the advanced branch's map loop would otherwise still apply them) and reported as `retiredFields`
+with a note naming `dose`. Three details the first cut got wrong:
+
+- The caveat rides on `message` as well, the way `ignoredFields` already does. A client that reads
+  `success` + `message` and skips the siblings was being told a clean "Profile updated" for a call
+  that dropped an argument.
+- A call whose *only* keys were retired returns `success: false` and stops before the upload.
+  Falling through ran `uploadProfile()`, which marks the profile modified — so a fully rejected edit
+  dirtied the loaded profile and then told the caller to `profiles_save` it.
+- `dose` is validated rather than coerced. It is the one key read straight as a number instead of
+  through `toVariant()`, and a failed read yields 0 — which *clears* the recommendation. A
+  stringified number is not the exposure (`normalizeArguments` coerces `"18"` off the schema's
+  declared type); a value no parse can rescue is, and it would have deleted the profile's dose and
+  reported success. A clamp is now reported in `adjustedFields` instead of the caller's number being
+  echoed back as if stored.
 
 ## Risks / Trade-offs
 
@@ -154,10 +198,17 @@ names fall through to the existing unknown-field reporting, so a caller sending 
   is the thing they chose most recently; the Brew Settings dose remains one tap away.
 - **Two mechanisms rather than one.** The queue ordering survives alongside the ladder, so someone
   reading either in isolation could conclude the other is redundant. Both sites now carry a comment
-  saying which collision each covers.
-- **Two new cached fields on `SettingsDye`** must be cleared on deactivation, and kept in step with
-  the write-through and the recipe stamp, or the ladder gets stuck on a stale rung. Covered by
-  tests in `tst_coffeebags` (the real async bag path) and `tst_profilemanager`.
+  saying which collision each covers — and the recipe-activation write's queueing is now justified
+  on its own terms (it must land after the id is set) rather than by out-racing another write.
+- **The rung caches must stay truthful**, or the ladder sits on a stale answer. This is the risk
+  that actually bit: the first cut maintained them by hand at each write site, and the guard sets
+  drifted — the startup restore never armed the recipe rung at all, and two sites claimed a rung for
+  a value their persist had declined to write. Three things narrow it now: the id and dose are set
+  together, each cache write carries the same guards as the persist it rides on, and an unresolved
+  rung is refused rather than read as empty. Covered by tests in `tst_coffeebags` (the real async
+  bag path) and `tst_profilemanager` (a real bag row read back after a profile load).
+- **`MainController` still has no test fixture**, so which value reaches `setActiveRecipe` from each
+  of its three call sites is verified by reading, not by a test. The pairing itself is covered.
 
 ## Migration Plan
 

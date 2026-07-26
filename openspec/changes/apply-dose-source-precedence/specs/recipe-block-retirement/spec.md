@@ -24,8 +24,22 @@ collision toward the "canonical" spelling stored a dose with the recommendation 
 state no reader acts on. Removing the second spelling removes the collision rather than adjudicating
 it.
 
-An unrecognised spelling is reported as unrecognised by the surface's existing rule for unknown
-fields, so a caller sending the old name is told, not silently ignored.
+A retired spelling is reported as RETIRED rather than merely unrecognised: it is not a typo, and
+"unrecognised" alone sends the caller hunting for one instead of telling them what replaced it. The
+report SHALL name the replacement, and SHALL appear in the response's human-readable message rather
+than only in a sibling field — a client that reads the message and the success flag must not be
+told a clean "updated" for a call that dropped an argument.
+
+A call whose only inputs were retired spellings SHALL change nothing and SHALL NOT report success.
+Reporting success there is not merely inaccurate: the surface's commit path marks the loaded profile
+modified on the way out, so a fully rejected edit would dirty the profile and then invite the caller
+to save the modification it never made.
+
+**The dose input is validated, not coerced.** A value that cannot be read as a number SHALL be
+rejected. `dose` is read directly as a number, and a failed read yields zero — which is the value
+that CLEARS the recommendation, so silently coercing would delete a profile's dose on a malformed
+call and report success. A value outside the accepted range is clamped, and the adjustment is
+reported rather than the caller's number being echoed back as if stored.
 
 #### Scenario: An editor's dose control persists
 
@@ -44,10 +58,27 @@ fields, so a caller sending the old name is told, not silently ignored.
 
 #### Scenario: A retired spelling is reported, not silently applied
 
-- **WHEN** a caller sends `recommended_dose` or `has_recommended_dose` to the profile parameter
-  edit surface
+- **WHEN** a caller sends `recommended_dose` or `has_recommended_dose` alongside other valid fields
 - **THEN** the profile's dose is unchanged
-- **AND** the response names the field as unrecognised
+- **AND** the response names the retired field and the replacement, in its message as well as in a
+  dedicated field
+
+#### Scenario: A call of nothing but retired spellings fails and changes nothing
+
+- **WHEN** every field in a call is a retired spelling
+- **THEN** the response does not report success
+- **AND** the loaded profile is not marked modified
+
+#### Scenario: A dose that is not a number is refused
+
+- **WHEN** a caller sends a `dose` that cannot be read as a number
+- **THEN** the call fails and the profile's recommended dose and enabled flag are both unchanged
+
+#### Scenario: A dose outside the range is clamped and said so
+
+- **WHEN** a caller sends a `dose` above the accepted maximum
+- **THEN** the stored value is the maximum
+- **AND** the response reports the adjustment
 
 #### Scenario: An advanced profile takes a dose like any other
 
