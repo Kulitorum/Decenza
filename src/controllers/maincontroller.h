@@ -3,7 +3,6 @@
 #include <QObject>
 #include <QVariantList>
 #include <QMap>
-#include <QPointer>
 #include <QTimer>
 #include "profilemanager.h"
 #include "recipeselectionmodel.h"
@@ -41,7 +40,6 @@ class DE1Device;
 class MachineState;
 class BLEManager;
 class FlowScale;
-class RefractometerDevice;
 class ProfileStorage;
 class ShotDebugLogger;
 class LocationProvider;
@@ -170,7 +168,6 @@ public:
     }
     void setBLEManager(BLEManager* bleManager) { m_bleManager = bleManager; }
     void setFlowScale(FlowScale* flowScale) { m_flowScale = flowScale; }
-    void setRefractometer(RefractometerDevice* refractometer);
     void setTimingController(ShotTimingController* controller) { m_timingController = controller; }
     void setBackupManager(DatabaseBackupManager* backupManager) { m_backupManager = backupManager; }
     ShotDataModel* shotDataModel() const { return m_shotDataModel; }
@@ -477,12 +474,6 @@ private:
     ShotTimingController* m_timingController = nullptr;
     BLEManager* m_bleManager = nullptr;
     FlowScale* m_flowScale = nullptr;  // Shadow FlowScale for comparison logging
-    // QPointer for symmetry with BLEManager::m_refractometerDevice: same
-    // ownership shape (main() destroys the device at scope unwind while we still
-    // hold it), so this can dangle the same way. Not the same fault, though —
-    // no QML binding reaches this member, so it has no path to the crash
-    // documented over there. Defensive, not load-bearing.
-    QPointer<RefractometerDevice> m_refractometer;
 
     SteamDataModel* m_steamDataModel = nullptr;
     SteamHealthTracker* m_steamHealthTracker = nullptr;

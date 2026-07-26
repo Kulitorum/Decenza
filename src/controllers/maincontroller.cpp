@@ -34,7 +34,6 @@
 #include "../ble/blemanager.h"
 #include "../ble/scaledevice.h"
 #include "../ble/scales/flowscale.h"
-#include "../ble/refractometers/refractometerdevice.h"
 #include <QGuiApplication>
 #include <QClipboard>
 #include <cmath>
@@ -4431,21 +4430,6 @@ void MainController::processVisualizerReconciliation()
     qDebug() << "MainController: starting one-time Visualizer reconciliation (window"
              << kReconcileWindowDays << "days)";
     m_visualizer->fetchShotListSince(windowStartEpoch);
-}
-
-void MainController::setRefractometer(RefractometerDevice* refractometer) {
-    // Disconnect old signal chain before connecting new one
-    if (m_refractometer) {
-        disconnect(m_refractometer, nullptr, this, nullptr);
-    }
-    m_refractometer = refractometer;
-    if (!m_refractometer) return;
-
-    // Non-mutating log only. PostShotReviewPage owns context-gated capture; do
-    // not write to Settings here — device-initiated readings would leak forward.
-    connect(m_refractometer, &RefractometerDevice::tdsChanged, this, [](double tds) {
-        qDebug() << "[Refractometer] tdsChanged" << tds;
-    });
 }
 
 

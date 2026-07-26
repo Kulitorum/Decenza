@@ -2890,7 +2890,7 @@ int main(int argc, char *argv[])
     }
 
     QObject::connect(&bleManager, &BLEManager::refractometerDiscovered, handlerScope.get(),
-                     [&refractometer, &mainController, &engine, &bleManager, &settings](const QBluetoothDeviceInfo& device) {
+                     [&refractometer, &engine, &bleManager, &settings](const QBluetoothDeviceInfo& device) {
         qDebug().noquote() << QString("[R2-diag] refractometerDiscovered dev=%1 existingInstance=%2 existingConnected=%3")
             .arg(getDeviceIdentifier(device),
                  refractometer ? QString::number(reinterpret_cast<quintptr>(refractometer.get()), 16)
@@ -2912,7 +2912,6 @@ int main(int argc, char *argv[])
                 .arg(QString::number(reinterpret_cast<quintptr>(refractometer.get()), 16),
                      refractometer->isConnected() ? QStringLiteral("true") : QStringLiteral("false"));
             refractometer->disconnectFromDevice();
-            mainController.setRefractometer(nullptr);
             bleManager.setRefractometerDevice(nullptr);
             engine.rootContext()->setContextProperty("Refractometer", nullptr);
         }
@@ -2938,9 +2937,6 @@ int main(int argc, char *argv[])
         // the scale connection-priority / feed-stall machinery off this link.
         transport->setConnectionPriorityManaged(false);
         refractometer->connectToDevice(device);
-
-        // Wire to MainController for TDS → Settings pipeline
-        mainController.setRefractometer(refractometer.get());
 
         // Tell BLEManager about the live device (for isRefractometerConnected property)
         bleManager.setRefractometerDevice(refractometer.get());
@@ -2970,7 +2966,7 @@ int main(int argc, char *argv[])
 
     // Handle Forget Refractometer — disconnect and clean up
     QObject::connect(&bleManager, &BLEManager::disconnectRefractometerRequested, handlerScope.get(),
-                     [&refractometer, &mainController, &engine, &bleManager,
+                     [&refractometer, &engine, &bleManager,
                       &refractometerReconnectTimer, &refractometerReconnectAttempt]() {
         // Stop any pending/persistent reconnect — the user forgot this device.
         // Unconditional (mirrors the scale's disconnectScaleRequested) so a
@@ -2982,7 +2978,6 @@ int main(int argc, char *argv[])
         if (refractometer) {
             qDebug() << "[Refractometer] Forget requested, disconnecting";
             refractometer->disconnectFromDevice();
-            mainController.setRefractometer(nullptr);
             bleManager.setRefractometerDevice(nullptr);
             engine.rootContext()->setContextProperty("Refractometer", nullptr);
             refractometer.reset();
