@@ -1369,13 +1369,19 @@ Profile Profile::loadFromTclString(const QString& content) {
     // skin writes the key on every save, so a 0 means "not set" rather than "a dose of
     // zero" — the same reading the eight shipped profiles carrying `grinder_dose_weight
     // 0` support. An absent key leaves Decenza's default in place and enables nothing.
-    {
+    //
+    // The presence of the KEY is the signal, not the value. Unlike the JSON recipe
+    // block — where every profile ever written carries the struct default of 18, so a
+    // value equal to the default says nothing — this key exists only because a user
+    // set it in Streamline. Gating on "differs from 18" as well would silently drop a
+    // deliberate 18.0 g dose, which is a perfectly ordinary thing to set.
+    if (!De1AppTcl::extractValue(content, QStringLiteral("profile_grinder_dose_weight"))
+             .trimmed().isEmpty()) {
         const double before = profile.m_recommendedDose;
         readNum(QStringLiteral("recommended_dose"), profile.m_recommendedDose);
-        if (profile.m_recommendedDose > 0.0
-            && !qFuzzyCompare(profile.m_recommendedDose, before)) {
+        if (profile.m_recommendedDose > 0.0) {
             profile.m_hasRecommendedDose = true;
-        } else if (profile.m_recommendedDose <= 0.0) {
+        } else {
             profile.m_recommendedDose = before;   // 0 means unset, not a real dose
         }
     }

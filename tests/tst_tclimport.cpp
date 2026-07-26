@@ -241,18 +241,20 @@ private slots:
         QCOMPARE(p.maximumFlow(), 2.5);
     }
 
-    void trailingTclCommentIsStripped() {
-        // `profile_title Espresso ;# note` is ordinary Tcl, and hand-edited profiles
-        // exist. Folding the comment into the title would then be re-exported as
-        // canonical by Decenza's own writer.
+    void hashInATitleIsNotTreatedAsAComment() {
+        // A profile file is read as a flat key/value list, so `#` never begins a
+        // comment in one. `Blend #3` is written BARE by Visualizer — its brace
+        // heuristic needs word/space/word and `#` is not a word character — so it
+        // lands on exactly the rest-of-line path, and trimming at " #" would truncate
+        // it to "Blend": the very failure this rule exists to prevent.
         const QString tcl = QStringLiteral(
-            "profile_title My Everyday Shot ;# tweaked for light roasts\n"
+            "profile_title Blend #3 light roast\n"
             "settings_profile_type settings_2c\n"
             "advanced_shot {{name Pour temperature 90.00 sensor coffee pump flow "
             "transition fast pressure 6.00 flow 2.00 seconds 30.00 volume 100.0 "
             "exit_if 0 max_flow_or_pressure 0.00 max_flow_or_pressure_range 0.20 weight 0.0}}\n");
         const Profile p = Profile::loadFromTclString(tcl);
-        QCOMPARE(p.title(), QStringLiteral("My Everyday Shot"));
+        QCOMPARE(p.title(), QStringLiteral("Blend #3 light roast"));
     }
 
     void bracedAndQuotedValuesAreUnaffected() {
@@ -287,6 +289,17 @@ private slots:
         QVERIFY2(p.hasRecommendedDose(),
                  "a dose a de1app user set on the profile was discarded");
         QCOMPARE(p.recommendedDose(), 20.5);
+    }
+
+    void de1appDoseEqualToTheDefaultStillCounts() {
+        // 18 g is an ordinary dose to set. The key is only ever present because a
+        // user set it in Streamline, so its VALUE matching Decenza's default says
+        // nothing — gating on "differs from 18" would silently drop it.
+        const Profile p = Profile::loadFromTclString(
+            doseTcl(QStringLiteral("profile_grinder_dose_weight 18.0\n")));
+        QVERIFY2(p.hasRecommendedDose(),
+                 "a deliberate 18 g dose was discarded because it equals the default");
+        QCOMPARE(p.recommendedDose(), 18.0);
     }
 
     void zeroPerProfileDoseEnablesNothing() {

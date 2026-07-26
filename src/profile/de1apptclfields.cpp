@@ -203,18 +203,14 @@ bool isFreeTextKey(const QString& key)
         || key == QLatin1String("profile_notes");
 }
 
-// Strip a trailing Tcl comment from a bare value. `profile_title Espresso ;# note`
-// is ordinary Tcl and hand-edited profiles exist; without this the rest-of-line rule
-// would fold the comment into the title, and Decenza would then re-export that as
-// canonical — the "re-saving repairs the file" argument running in reverse.
-QString stripTrailingTclComment(const QString& value)
-{
-    const qsizetype semi = value.indexOf(QLatin1String(";#"));
-    if (semi >= 0) return value.left(semi).trimmed();
-    const qsizetype hash = value.indexOf(QLatin1String(" #"));
-    if (hash >= 0) return value.left(hash).trimmed();
-    return value;
-}
+// NO COMMENT STRIPPING. An earlier revision trimmed a trailing `;#` or ` #` from a
+// bare value on the theory that a hand-edited profile might carry a Tcl comment. It
+// cannot: a profile file is consumed as a flat key/value list (`array set`), where no
+// command is ever parsed, so neither `#` nor `;` has comment syntax anywhere in it.
+// The stripping had no case to serve and one real victim — a profile titled
+// `Blend #3` is written bare by Visualizer (the brace heuristic needs word/space/word
+// and `#` is not a word character) and would have imported as `Blend`, reintroducing
+// the exact truncation this rule exists to prevent.
 
 }  // namespace
 
@@ -279,7 +275,7 @@ QList<QPair<QString, QString>> topLevelAssignments(const QString& content)
                 // everything else — numbers, enums, codes — takes the first token,
                 // which is what Tcl itself would read.
                 if (isFreeTextKey(key)) {
-                    out.append({key, stripTrailingTclComment(rest)});
+                    out.append({key, rest});
                 } else {
                     out.append({key, rest.section(QRegularExpression(QStringLiteral("[ \t]")), 0, 0)});
                 }

@@ -1491,10 +1491,27 @@ void ProfileManager::loadProfile(const QString& profileName) {
         bool wrote = false;
         bool refused = false;
 
-        if (!path.isEmpty() && !path.startsWith(QLatin1Char(':'))) {
+        // Audit whichever source we are about to write back over — the stored copy
+        // when the profile came from ProfileStorage, otherwise the file. Reading the
+        // "before" bytes from the same place the write will land is what makes the
+        // check mean anything; gating it on `path` alone left the storage branch
+        // below rewriting unaudited, while stripStoredRecipeBlocks() audits its own
+        // storage pass.
+        const bool fromStorage = m_profileStorage && m_profileStorage->isConfigured()
+                                 && m_profileStorage->profileExists(resolvedName);
+        QString beforeJson;
+        if (fromStorage) {
+            beforeJson = m_profileStorage->readProfile(resolvedName);
+        } else if (!path.isEmpty() && !path.startsWith(QLatin1Char(':'))) {
             QFile before(path);
-            if (before.open(QIODevice::ReadOnly)) {
-                const QJsonObject wasOnDisk = QJsonDocument::fromJson(before.readAll()).object();
+            if (before.open(QIODevice::ReadOnly))
+                beforeJson = QString::fromUtf8(before.readAll());
+        }
+
+        {
+            if (!beforeJson.isEmpty()) {
+                const QJsonObject wasOnDisk =
+                    QJsonDocument::fromJson(beforeJson.toUtf8()).object();
                 const QStringList parity =
                     Profile::jsonParityErrors(wasOnDisk, m_currentProfile.toJsonObject());
                 if (!parity.isEmpty()) {
@@ -1513,8 +1530,7 @@ void ProfileManager::loadProfile(const QString& profileName) {
         }
 
         if (!refused) {
-            if (m_profileStorage && m_profileStorage->isConfigured()
-                && m_profileStorage->profileExists(resolvedName)) {
+            if (fromStorage) {
                 wrote = m_profileStorage->writeProfile(resolvedName, m_currentProfile.toJsonString());
             } else if (!path.isEmpty() && !path.startsWith(QLatin1Char(':'))) {
                 wrote = m_currentProfile.saveToFile(path);
