@@ -796,8 +796,6 @@ private slots:
         // Set valid recipe params so regeneration produces frames
         RecipeParams recipe;
         recipe.editorType = EditorType::DFlow;
-        recipe.fillPressure = 6.0;
-        recipe.fillFlow = 4.0;
         recipe.pourFlow = 2.0;
         recipe.fillTemperature = 93.0;
         recipe.pourTemperature = 93.0;
@@ -1541,7 +1539,7 @@ private slots:
     void dflowInfuseDisabled() {
         RecipeParams recipe;
         recipe.editorType = EditorType::DFlow;
-        recipe.infuseEnabled = false;
+        recipe.infuseTime = 0.0;
 
         QList<ProfileFrame> frames = RecipeGenerator::generateFrames(recipe);
         QCOMPARE(frames.size(), 3);       // Still 3 frames

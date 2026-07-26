@@ -276,6 +276,61 @@ SKIP_INTERACTIVE=1 bash scripts/test_mcp.sh localhost:8888
 
 Run this after any changes to `src/mcp/`, `src/controllers/profilemanager.cpp`, or `src/network/shotserver*.cpp`.
 
+## What actually finds bugs here
+
+Written after the recipe-editor parity effort, because the yield was measured
+rather than assumed and the answer was not what was expected going in.
+
+That effort produced ~440 committed fixture files and eleven findings, then a
+code review found **six more defects while the suite sat at 101/101 green**.
+Attributing every bug to what caught it:
+
+| Found by | Bugs |
+|---|---|
+| **Differential oracle** — running de1app's real Tcl and diffing | the edit matrix's findings, WIRE-1 |
+| **Transcribing the upstream source** and asserting against real fixtures | AF-1…AF-6, DF-1…DF-5 |
+| **Pulling one actual shot** | the DE1Simulator zero-length-frame bug |
+| **Reading code, history, comments and fixtures** (review) | every defect in the second round |
+| **A 120-profile randomised corpus** | none |
+| **Extending a byte-parity corpus from 8 profiles to 89** | none |
+
+Three lessons, in descending order of how much they cost to learn:
+
+**1. A test you invent asserts what you already believe. A differential test
+asserts what the other system does.** Everything of value here came from
+executing de1app's own procs — `prep`, `update_*`, `de1_packed_shot` — and
+diffing. Hand-written expectations found nothing and were wrong seven times.
+
+**2. Scale is not coverage.** The byte-diff *method* found WIRE-1 with eight
+profiles. Going to 89, and generating 120 more, found nothing further. Before
+adding a corpus, ask what shape of defect it catches that a handful of cases
+does not — and if the answer is "more of the same", it is insurance, not
+detection. Insurance is legitimate; just argue it on risk and say so.
+
+**3. The failure mode to fear is a test that cannot fail.** Seven appeared in one
+effort. Every one passed because the FIXTURE could not distinguish:
+
+- asserting `pourFlow > 0` when the struct default is 2.0
+- a two-frame fixture for an editor that indexes frames 0/1/2
+- asserting a value that is also the generator's own hardcoded literal
+- a no-op-save test that passed only because a fabricated recipe block made the
+  save short-circuit before touching the frames
+- stock fixtures whose values already equal the constants under test, so
+  `before == after` either way
+- asserting pressure fields when the broken field was temperature
+- calling a one-shot migration whose "already ran" flag was set, so the call did
+  nothing
+
+**So: verify the test fails.** Revert the fix, watch it go red, restore. It takes
+two minutes, it is the only evidence that a green test means anything, and it
+caught the seventh case above *after* the first six had already taught the
+lesson. If reverting the fix leaves the test green, the test is decoration.
+
+Corollary: when a test needs a fixture, prefer a real artefact — a stock `.tcl`,
+a recorded shot — over one you construct. A constructed fixture tends to be built
+from the same assumptions as the code, which is precisely what stops it
+discriminating.
+
 ## Adding New Tests
 
 1. Create `tests/tst_yourtest.cpp` with `QTEST_GUILESS_MAIN(tst_YourTest)` and `#include "tst_yourtest.moc"`
@@ -342,6 +397,83 @@ When in doubt, fix it rather than suppress it. The goal of a passing test run is
 - **Do not globally suppress warnings** (e.g. a `qInstallMessageHandler` that drops everything at `QtWarningMsg`). That defeats the purpose.
 - **Do not suppress by substring-matching `"failed"` or `"error"`** — that's too broad and will hide genuine regressions.
 - **Do not amend an existing `ScopedWarningFilter` regex to make a new warning go away without adding a comment explaining the scenario.**
+
+## Recipe-editor parity gate — `tst_recipeeditorparity`
+
+Checks Decenza's D-Flow and A-Flow implementations against the **upstream de1app plugins that
+define them** (`Damian-AU/D_Flow_Espresso_Profile`, `Jan3kJ/A_Flow`), across frame generation,
+parameter extraction from frames, round-trip stability, both A-Flow frame layouts, and editor
+coverage.
+
+**Oracle discipline — the rule that makes this suite worth anything.** Every expected value traces
+to a plugin proc or to a profile the plugin itself ships. **Nothing** is derived from Decenza's own
+code or from its built-in JSONs; those are the subject, not the reference. Where the two disagree,
+the plugin is right by definition. The transcribed rules with line citations live in
+`openspec/changes/verify-recipe-editor-parity/reference.md`.
+
+The suite cannot run Tcl, so rules are transcribed — which is its weak point, since a transcription
+error yields a test that passes against the wrong oracle. It is checked two ways: against the
+plugin source, and against the plugin's own stock profiles, which are those rules already executed.
+A rule that disagrees with the shipped profiles is suspect regardless of how it reads.
+
+**Fixtures — where they come from matters.**
+
+| dir | contents | role |
+|---|---|---|
+| `tests/data/de1app_profiles/A-Flow____*.tcl` | the plugin's five stock profiles, 9 frames | **the oracle** |
+| `tests/data/dflow_plugin_profiles/` | D-Flow's three, extracted from `plugin.tcl` | the oracle |
+| `tests/data/aflow_legacy_profiles/` | one 6-frame profile from de1app's stale snapshot | **legacy case only** |
+
+de1app's `de1plus/profiles/` carries four A-Flow profiles at **6** frames and is missing
+`default-light`; the plugin ships all five at **9** (de1app issue #350). Verifying against the
+stale copy would produce a suite that passes against the wrong source, so the suite asserts a
+9-frame count at load. The 6-frame layout is still covered — as the *legacy* branch of
+`set_profile_index`, never as the reference.
+
+D-Flow ships no `.tcl` at all; regenerate its fixtures with
+`python3 tools/extract_dflow_profiles.py` after any plugin bump, and re-check the pinned commits
+recorded in the suite header — a transcribed rule goes stale silently.
+
+**Known findings are `QEXPECT_FAIL`, never relaxed assertions.** Confirmed defects stay expressed
+as failing checks carrying their finding id (`DF-1`, `AF-6`, …) so the gate records reality rather
+than the behaviour of the day. If you fix one, delete its `QEXPECT_FAIL` — do not weaken the check,
+and **do not delete the assertion with it**: `everyFindingIdIsStillAccountedFor` requires every id
+to remain referenced, because removing the check retires a finding by making the gate stop looking.
+All thirteen are now repaired (DF-3 excepted — see below); their dispositions are in
+`openspec/changes/verify-recipe-editor-parity/findings.md`.
+
+DF-3 is the one allowed divergence, and it is not a defect: `update_D-Flow` genuinely derives
+`filling(exit_pressure_over)` from the soak pressure, and de1app rewrites it on the user's first
+edit too. It is allowed **by name**, with `D-Flow / La Pavoni` — whose authored value already equals
+the derived one — asserted as an exact fixed point, so the allowance cannot mask a drifting rule.
+
+### The three gates, and what each one is for
+
+| Gate | Question | Oracle | Regenerate |
+|---|---|---|---|
+| **Edit matrix** — `editMatrixMatchesDe1app` (99 cases) | every plugin parameter × every stock profile, one edit, through `ProfileManager`'s `Q_INVOKABLE`s | the plugins' own `prep` + `update_*`, extracted verbatim and evaluated | `python3 tools/gen_edit_matrix.py <de1plus-dir>` |
+| **Compound edit** — `compoundEditMatchesDe1app` (8) | two successive saves, so the second `prep` re-derives from the frames the first wrote | same, one `prep`→`update` cycle per pair | same script |
+| **Byte parity** — `everyDe1appProfilePacksIdentically`, `everyDe1appProfileSurvivesASaveCycle` (89 each) | do all de1app stock profiles reach the machine as identical bytes, on load and after a save cycle | de1app's real `de1_packed_shot` | `python3 tools/gen_de1app_pack_corpus.py <de1plus-dir>` |
+
+The byte gates are the **regression guard for everything outside the two recipe editors.** About 80
+of those 89 profiles are advanced, pressure or flow profiles that no recipe-editor test touches, yet
+they pass through the same load and save code — so a change to `Profile::toJsonObject()` or the
+frame encoders shows up there and nowhere else. The save-cycle variant exists because the plain one
+loads and packs without ever writing, which would miss a serialization regression entirely.
+
+The pack oracle runs de1app's **real load path** for simple profiles: a `settings_2a`/`2b` profile's
+stored `advanced_shot` is a stale by-product, and de1app rebuilds the frames from the scalars via
+`pressure_to_advanced_list` / `flow_to_advanced_list` before packing. `profile_vars` and
+`machine.tcl`'s default `::settings` block are extracted verbatim rather than transcribed, because a
+copied field list drifts on a de1app bump and the drift is invisible.
+
+**A golden is never hand-adjusted to match Decenza.** If one looks wrong, re-read the oracle; if the
+oracle is right, Decenza changes. Regenerating after a plugin bump must leave every data row
+unchanged unless the plugin itself changed.
+
+These gates are the worked example behind [What actually finds bugs
+here](#what-actually-finds-bugs-here) — read that before adding a corpus of your own. The short
+version: the differential oracle earned its keep; the fixture volume did not.
 
 ## Shot Analysis Regression Tool (shot_eval)
 

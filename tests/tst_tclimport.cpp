@@ -672,8 +672,7 @@ private slots:
         // A built-in is supposed to BE its de1app profile, so profile_sync
         // REPLACES rather than merges. That is only safe while a rewrite drops
         // nothing — this asserts it for every shipped profile instead of taking
-        // it on trust. (The A-Flow recipe blocks survive because toJsonObject()
-        // derives them from editorType(); they are not carried over.)
+        // it on trust.
         QFETCH(QString, tclPath);
 
         const QString content = readFile(tclPath);
@@ -686,7 +685,22 @@ private slots:
         QVERIFY(bf.open(QIODevice::ReadOnly));
         const QJsonObject existing = QJsonDocument::fromJson(bf.readAll()).object();
 
-        const QStringList lost = De1AppTcl::keysLostByRewrite(existing, tcl.toJsonObject());
+        QStringList lost = De1AppTcl::keysLostByRewrite(existing, tcl.toJsonObject());
+
+        // `recipe` may disappear, and ONLY against this evidence: the .tcl source
+        // carries no recipe data at all, so a block in the built-in cannot have
+        // come from the source and is not being lost by rewriting from it. It was
+        // fabricated by toJsonObject() from a default-constructed RecipeParams
+        // because the TITLE looked like a recipe profile — finding REC-1, which is
+        // how the five A-Flow built-ins came to carry byte-identical 88 °C / 25 s /
+        // 4 g blocks matching none of their own frames.
+        //
+        // Conditional on hasRecipeParams(), never unconditional. An unconditional
+        // exemption for `recipe` is exactly the blind spot this corpus exists to
+        // close — it would stay green through a change that dropped a REAL block.
+        if (!tcl.hasRecipeParams())
+            lost.removeAll(QStringLiteral("recipe"));
+
         QVERIFY2(lost.isEmpty(),
                  qPrintable(tcl.title() + " would lose: " + lost.join(", ")));
     }

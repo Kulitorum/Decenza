@@ -23,6 +23,96 @@ The Recipe Editor supports four editor types, each generating a different frame 
 
 Profiles that don't match any of the above open in `ProfileEditorPage.qml`, the advanced frame-by-frame editor.
 
+### The plugins are the reference — Decenza is verified against them
+
+D-Flow and A-Flow are **de1app plugins**, each in its own repository, and each is the source of
+truth for its editor's behaviour. Decenza re-implements them; where the two disagree the plugin is
+right by definition.
+
+| Editor | Upstream | Local checkout | Pinned |
+|---|---|---|---|
+| D-Flow | `github.com/Damian-AU/D_Flow_Espresso_Profile` | `de1app/de1plus/plugins/D_Flow_Espresso_Profile` | `7f3c9726` (v3.1) |
+| A-Flow | `github.com/Jan3kJ/A_Flow` | `de1app/de1plus/plugins/A_Flow` | `e1a4d871` (v2.0-beta.2-2) |
+
+Both are git submodules of the de1app clone. **A-Flow's submodule pointer in de1app lags the
+plugin's own HEAD** — "latest de1app" is not "latest A-Flow" (see de1app issue #350 below).
+
+**Three facts about these plugins that are not obvious and that shape everything else:**
+
+1. **They store no high-level state.** Each has a `proc prep`, run on profile load, that rebuilds
+   its entire editor from the frames. The frames *are* the storage — which is why no `.tcl` profile
+   carries a recipe block. A-Flow's three structural toggles are derived from frame structure
+   (`ramp_down(seconds) > 0`; `pouring(flow) > pouring_start(flow)`; a 9-frame layout with a
+   non-zero pause), not stored anywhere.
+2. **They mutate frames in place.** `update_D-Flow` / `update_A-Flow` read the current
+   `advanced_shot`, overwrite a named list of fields, and write it back — so every field outside
+   that list survives untouched. This is the mechanism that lets one editor drive several profiles
+   with different machine personalities. **An editor that rebuilds frames from constants breaks
+   that contract**, and is the root cause of most findings recorded against Decenza.
+3. **Roles are positional, never pattern-matched.** `prep` indexes. A-Flow's `set_profile_index`
+   picks a 9-frame or legacy 6-frame mapping; D-Flow always uses 0/1/2.
+
+**A-Flow profile provenance (de1app issue #350).** The plugin's `profiles/` directory ships all
+five stock profiles at 9 frames. de1app's `de1plus/profiles/` holds a stale snapshot: four profiles
+at 6 frames, `default-light` missing entirely, added in de1app commit `80eb34cc` (2025-09-03) and
+never refreshed — `check_profiles_exist` only copies a file when it is absent, so the stale copy
+wins forever. **Always take A-Flow fixtures from the plugin, never from `de1plus/profiles/`.**
+
+**D-Flow ships no `.tcl` files at all.** Its three stock profiles are embedded in `plugin.tcl` and
+written out at plugin start. `tools/extract_dflow_profiles.py` extracts them for testing.
+
+The transcribed rules — every parameter, every write, every derived value, with line citations —
+live in `openspec/changes/verify-recipe-editor-parity/reference.md`, and the parity suite is
+`tests/tst_recipeeditorparity.cpp`. Read the reference before changing either generator.
+
+### How Decenza honours those three facts
+
+Each of the three has a counterpart in the code. Changing one without the other reopens a whole
+class of bug, so they are named here together.
+
+1. **Frames are the source of truth; a stored `recipe` block is a cache.**
+   `RecipeAnalyzer::prepDFlow` / `prepAFlow` are direct transcriptions of the plugins' `prep`, and
+   they are what `getOrConvertRecipeParams` uses. A block is written only when parameters were
+   actually established — `Profile::hasRecipeParams()`, set by `setRecipeParams()` or by reading a
+   block. **Never write one because the title looks like a recipe profile.** `RecipeParams`'
+   defaults are live values (`targetWeight` 36.0, `fillTemperature` 88.0), not sentinels, so a
+   default-constructed struct is indistinguishable from deliberate settings — that is what put five
+   byte-identical 88 °C blocks into the A-Flow built-ins, matching none of their own frames.
+
+2. **`Profile::restoreFieldsThePluginNeverWrites()` reinstates in-place mutation.** After
+   generating, it restores by frame ROLE every field the corresponding `update_*` proc does not
+   assign. **If you add a field to a generator, check the plugin actually writes it** — if not, add
+   it to the restore's write-set instead, or the first save silently overwrites what the profile's
+   author chose.
+
+3. **Roles resolve positionally**, through the same rule as `set_profile_index`, for both the
+   9-frame and legacy 6-frame layouts. No name matching, no sequence pattern matching.
+
+**Do not reintroduce a fill-pressure, fill-flow, fill-duration or infuse-enable parameter.**
+`update_A-Flow` writes the fill frame's temperature and nothing else; D-Flow additionally derives
+its pressure and pressure-over exit from the soak pressure. Decenza carried all four, wrote them
+into the frames, and overwrote fields the plugins preserve. "No soak" is `infuseTime` 0 — which is
+how the plugins express a disabled step everywhere else.
+
+### The gates
+
+Three, and they answer different questions. All are in `tests/tst_recipeeditorparity.cpp` and
+`tests/tst_recipeeditorapppath.cpp`; see `docs/CLAUDE_MD/TESTING.md` for how to regenerate the
+fixtures.
+
+| Gate | Question | Standing |
+|---|---|---|
+| **Edit matrix** (`editMatrixMatchesDe1app`) | every plugin parameter × every stock profile, one edit, through `ProfileManager` | 0 divergences / 99 |
+| **Compound edit** (`compoundEditMatchesDe1app`) | two successive saves, so the second `prep` re-derives from what the first wrote | 8 / 8 |
+| **Byte parity** (`everyDe1appProfilePacksIdentically`, `everyDe1appProfileSurvivesASaveCycle`) | do all 89 de1app stock profiles reach the machine as identical bytes, on load and after a save | 89 / 89, nothing excluded |
+
+The last one is the regression guard for everything **outside** the two recipe editors: ~80 of
+those profiles are advanced, pressure or flow profiles that no recipe-editor test touches, but they
+pass through the same load and save code.
+
+A golden is never hand-adjusted to match Decenza. If one looks wrong, re-read the oracle; if the
+oracle is right, Decenza changes.
+
 ## Editor Selection
 
 `MainController::currentEditorType()` determines which editor page opens. Selection is **title-first**:

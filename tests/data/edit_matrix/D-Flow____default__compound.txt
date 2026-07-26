@@ -1,0 +1,5 @@
+# fields: idx	name	temperature	pressure	flow	seconds	volume	weight	max_flow_or_pressure	max_flow_or_pressure_range	exit_if	exit_type	exit_pressure_over	exit_pressure_under	exit_flow_over	exit_flow_under	pump	transition	sensor
+# edit: compound -> Dflow_soaking_pressure 5.5 Dflow_pouring_temperature 91.5
+0	Filling	88	5.5	8	25.00	100	5.00	0	0.2	1	pressure_over	3.4	0	6	0	pressure	fast	coffee
+1	Infusing	91.5	5.5	8	60.0	100.00	4.00	0	0.2	0	pressure_over	3.0	0	6	0	pressure	fast	coffee
+2	Pouring	91.5	4.8	1.7	127	0	0.00	8.5	0.2	0	flow_over	11	0	2.80	0	flow	fast	coffee

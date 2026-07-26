@@ -116,12 +116,31 @@ private slots:
 
     void builtinProfilesRoundTripLosesNothing_data() { builtinProfiles_data(); }
 
+    // The four recipe keys removed with the vestigial parameters they named.
+    // Dropping them from a stored file is a deliberate model change, not the
+    // silent key loss this corpus exists to catch, so it is excused HERE — named
+    // one by one, so any OTHER key vanishing from `recipe` still fails.
+    //
+    // Why they went: neither upstream plugin has a fill-pressure, fill-flow,
+    // fill-duration or infuse-enable parameter. update_A-Flow writes the fill
+    // frame's temperature and nothing else; D-Flow additionally derives the fill
+    // pressure from the soak pressure. Decenza wrote all four into the frames,
+    // overwriting fields the plugins preserve. Nothing reads them now.
+    static void excuseRemovedRecipeKeys(QJsonObject& onDisk) {
+        if (!onDisk.contains(QStringLiteral("recipe"))) return;
+        QJsonObject recipe = onDisk.value(QStringLiteral("recipe")).toObject();
+        for (const char* k : {"fillPressure", "fillFlow", "fillTimeout", "infuseEnabled"})
+            recipe.remove(QString::fromLatin1(k));
+        onDisk[QStringLiteral("recipe")] = recipe;
+    }
+
     void builtinProfilesRoundTripLosesNothing() {
         QFETCH(QString, filePath);
 
         QFile file(filePath);
         QVERIFY(file.open(QIODevice::ReadOnly));
-        const QJsonObject onDisk = QJsonDocument::fromJson(file.readAll()).object();
+        QJsonObject onDisk = QJsonDocument::fromJson(file.readAll()).object();
+        excuseRemovedRecipeKeys(onDisk);
 
         const Profile p = Profile::loadFromFile(filePath);
         QVERIFY(p.isValid());
@@ -176,6 +195,7 @@ private slots:
 
         QJsonObject legacyCmp = legacy;
         QJsonObject producedCmp = produced;
+        excuseRemovedRecipeKeys(legacyCmp);
 
         // Transformation 1 — frame materialization. de1app's simple editors
         // (2a/2b) store their shot as scalar settings and ship `steps: []`.

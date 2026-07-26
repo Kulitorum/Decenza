@@ -101,9 +101,13 @@ ProfileFrame RecipeGenerator::createFillFrame(const RecipeParams& recipe) {
     frame.name = "Filling";
     frame.pump = "pressure";
     frame.pressure = recipe.infusePressure;
-    frame.flow = recipe.fillFlow;
+    // Flow and duration are the plugin's own template values, used only when a
+    // profile is created from scratch. update_D-Flow never writes either, so on a
+    // regenerate the source profile's values are restored over these
+    // (Profile::restoreFieldsThePluginNeverWrites).
+    frame.flow = 8.0;
     frame.temperature = recipe.fillTemperature;
-    frame.seconds = recipe.fillTimeout;
+    frame.seconds = 25.0;
     frame.transition = "fast";
     frame.sensor = "coffee";
     frame.volume = 100.0;
@@ -142,12 +146,13 @@ ProfileFrame RecipeGenerator::createInfuseFrame(const RecipeParams& recipe) {
     frame.temperature = recipe.pourTemperature;  // de1app uses pouring temp for infuse
     frame.transition = "fast";
     frame.sensor = "coffee";
-    frame.volume = recipe.infuseEnabled ? recipe.infuseVolume : 100.0;
+    frame.volume = recipe.infuseVolume;
 
-    // "First reached" exits: time is the max timeout, weight exits early if reached first.
-    // When disabled, seconds=0 causes the machine to skip this frame immediately.
-    frame.seconds = recipe.infuseEnabled ? recipe.infuseTime : 0.0;
-    if (recipe.infuseEnabled && recipe.infuseWeight > 0)
+    // "First reached" exits: time is the max timeout, weight exits early if
+    // reached first. infuseTime 0 is how the plugins express "no soak" — the
+    // machine skips a zero-length frame — so no separate enable flag is needed.
+    frame.seconds = recipe.infuseTime;
+    if (recipe.infuseWeight > 0)
         frame.exitWeight = recipe.infuseWeight;  // app-side SkipToNext when scale hits target
 
     // No machine-side exit condition; time-based exits via frame timeout, weight-based exits via app-side SkipToNext
@@ -237,16 +242,20 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
         ProfileFrame fill;
         fill.name = "Fill";
         fill.pump = "flow";
-        fill.flow = recipe.fillFlow;
-        fill.pressure = recipe.fillPressure;
+        // update_A-Flow writes the fill frame's TEMPERATURE and nothing else
+        // (code.tcl:251). The rest are the plugin's template values for a
+        // from-scratch profile; on a regenerate the source profile's own values
+        // are restored over them (Profile::restoreFieldsThePluginNeverWrites).
+        fill.flow = 8.0;
+        fill.pressure = 3.0;
         fill.temperature = recipe.fillTemperature;
-        fill.seconds = recipe.fillTimeout;
+        fill.seconds = 15.0;
         fill.transition = "fast";
         fill.sensor = "coffee";
         fill.volume = 100.0;
         fill.exitIf = true;
         fill.exitType = "pressure_over";
-        fill.exitPressureOver = recipe.fillPressure;  // de1app A-Flow template uses fill pressure (3.0)
+        fill.exitPressureOver = 3.0;  // de1app A-Flow template value
         fill.exitPressureUnder = 0.0;
         fill.exitFlowOver = 6.0;
         fill.exitFlowUnder = 0.0;
@@ -266,10 +275,10 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
         infuse.temperature = recipe.fillTemperature;  // A-Flow uses fill temp, not pour temp
         infuse.transition = "fast";
         infuse.sensor = "coffee";
-        infuse.volume = recipe.infuseEnabled ? recipe.infuseVolume : 100.0;
+        infuse.volume = recipe.infuseVolume;
 
-        infuse.seconds = recipe.infuseEnabled ? recipe.infuseTime : 0.0;
-        if (recipe.infuseEnabled && recipe.infuseWeight > 0)
+        infuse.seconds = recipe.infuseTime;
+        if (recipe.infuseWeight > 0)
             infuse.exitWeight = recipe.infuseWeight;
 
         // Dead exit fields (exit_if=false, but stored for de1app compatibility)

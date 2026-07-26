@@ -268,8 +268,12 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
                     // than only the ones present. GCC's -Wall flags it
                     // (-Wrange-loop-construct); clang's does not, which is why
                     // the macOS warning measurement never saw these five.
-                    for (const char* key : {"fillTemperature", "fillPressure", "fillFlow", "fillTimeout",
-                                                "infuseEnabled", "infusePressure", "infuseTime", "infuseWeight", "infuseVolume",
+                    // fillPressure / fillFlow / fillTimeout / infuseEnabled are
+                    // deliberately absent: neither plugin exposes them, and writing
+                    // them rewrote frame fields the plugins preserve. See
+                    // RecipeParams.
+                    for (const char* key : {"fillTemperature",
+                                                "infusePressure", "infuseTime", "infuseWeight", "infuseVolume",
                                                 "pourTemperature", "pourPressure", "pourFlow"}) {
                         if (recipeJson.contains(key))
                             result[key] = recipeJson[key];
@@ -318,20 +322,17 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
                 {"fillTemperature", "fillTemperatureC"},
                 {"pourTemperature", "pourTemperatureC"},
                 // bar
-                {"fillPressure", "fillPressureBar"},
                 {"infusePressure", "infusePressureBar"},
                 {"pourPressure", "pourPressureBar"},
                 {"espressoPressure", "espressoPressureBar"},
                 {"pressureEnd", "pressureEndBar"},
                 {"preinfusionStopPressure", "preinfusionStopPressureBar"},
                 // mL/s
-                {"fillFlow", "fillFlowMlPerSec"},
                 {"pourFlow", "pourFlowMlPerSec"},
                 {"holdFlow", "holdFlowMlPerSec"},
                 {"flowEnd", "flowEndMlPerSec"},
                 {"preinfusionFlowRate", "preinfusionFlowRateMlPerSec"},
                 // s
-                {"fillTimeout", "fillTimeoutSec"},
                 {"infuseTime", "infuseTimeSec"},
                 {"preinfusionTime", "preinfusionTimeSec"},
                 {"holdTime", "holdTimeSec"},
@@ -371,12 +372,8 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
                 {"targetVolume", QJsonObject{{"type", "number"}, {"description", "Stop at volume (mL, 0=disabled)"}}},
                 {"dose", QJsonObject{{"type", "number"}, {"description", "Input dose for ratio display (grams)"}}},
                 {"fillTemperature", QJsonObject{{"type", "number"}, {"description", "Fill water temperature (Celsius)"}}},
-                {"fillPressure", QJsonObject{{"type", "number"}, {"description", "Fill pressure (bar)"}}},
-                {"fillFlow", QJsonObject{{"type", "number"}, {"description", "Fill flow rate (mL/s)"}}},
-                {"fillTimeout", QJsonObject{{"type", "number"}, {"description", "Max fill duration (seconds)"}}},
-                {"infuseEnabled", QJsonObject{{"type", "boolean"}, {"description", "Enable infuse/soak phase"}}},
                 {"infusePressure", QJsonObject{{"type", "number"}, {"description", "Soak pressure (bar)"}}},
-                {"infuseTime", QJsonObject{{"type", "number"}, {"description", "Soak duration (seconds)"}}},
+                {"infuseTime", QJsonObject{{"type", "number"}, {"description", "Soak duration (seconds, 0=no soak)"}}},
                 {"infuseWeight", QJsonObject{{"type", "number"}, {"description", "Weight to exit infuse (grams, 0=disabled)"}}},
                 {"infuseVolume", QJsonObject{{"type", "number"}, {"description", "Max volume during infuse (mL)"}}},
                 {"pourTemperature", QJsonObject{{"type", "number"}, {"description", "Pour water temperature (Celsius)"}}},
@@ -429,6 +426,8 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
             // Use the same authoritative method the app uses to determine editor type
             QString editorType = profileManager->currentEditorType();
 
+            QStringList ignoredKeys;   // see the recipe path below
+
             if (editorType == "advanced") {
                 // Advanced path: use uploadProfile() — same as ProfileEditorPage
                 QVariantMap profileData = profileManager->getCurrentProfile();
@@ -441,8 +440,16 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
             } else {
                 // Recipe path: use uploadRecipeProfile() — same as RecipeEditorPage/SimpleProfileEditorPage
                 QVariantMap currentParams = profileManager->getOrConvertRecipeParams();
+                // Nothing validates incoming keys against the declared schema, so
+                // an unrecognised one lands here, is dropped by
+                // RecipeParams::fromVariantMap, and used to still draw a
+                // success:true. fillPressure, fillFlow, fillTimeout and
+                // infuseEnabled were all valid and effective before they were
+                // removed, so a client written against the older schema would
+                // believe its edit took effect. Report them instead.
                 for (auto it = args.begin(); it != args.end(); ++it) {
                     if (it.key() == "confirmed") continue;
+                    if (!currentParams.contains(it.key())) ignoredKeys << it.key();
                     currentParams[it.key()] = it.value().toVariant();
                 }
                 profileManager->uploadRecipeProfile(currentParams);
@@ -450,7 +457,15 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
             }
 
             result["success"] = true;
-            result["message"] = "Profile updated and uploaded to machine. Call profiles_save to persist.";
+            result["message"] = ignoredKeys.isEmpty()
+                ? QStringLiteral("Profile updated and uploaded to machine. "
+                                 "Call profiles_save to persist.")
+                : QStringLiteral("Profile updated and uploaded to machine, but %1 "
+                                 "unrecognised field(s) were IGNORED: %2. "
+                                 "Call profiles_save to persist.")
+                      .arg(ignoredKeys.size()).arg(ignoredKeys.join(QStringLiteral(", ")));
+            if (!ignoredKeys.isEmpty())
+                result["ignoredFields"] = QJsonArray::fromStringList(ignoredKeys);
             result["modified"] = true;
             result["editorType"] = editorType;
             return result;

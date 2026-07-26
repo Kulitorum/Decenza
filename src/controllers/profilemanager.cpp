@@ -2519,6 +2519,28 @@ void ProfileManager::uploadRecipeProfile(const QVariantMap& recipeParams) {
         bool needFrameRegen = m_currentProfile.steps().isEmpty()
                            || !oldRecipe.frameAffectingFieldsEqual(recipe);
 
+        // Refuse to rebuild a profile whose frames `prep` could not read.
+        //
+        // Both plugins index frame roles positionally with no validation, so a
+        // D-Flow profile with fewer than 3 frames (or A-Flow with fewer than 6)
+        // has no parameters to derive — prep warns and hands back whatever the
+        // params already were. Regenerating from those replaces the profile's
+        // real frames with a fabricated layout built from numbers that never
+        // came from it, which is REC-1 wearing a different hat.
+        //
+        // setRecipeParams() below flips hasRecipeParams unconditionally, so
+        // regenerateFromRecipe()'s own guard cannot catch this — the check has
+        // to happen here, against the frames as they stand.
+        const bool fits = m_currentProfile.steps().isEmpty()
+                       || RecipeAnalyzer::framesFitEditorLayout(m_currentProfile);
+        if (needFrameRegen && !fits) {
+            qWarning() << "uploadRecipeProfile:" << m_currentProfile.title() << "has"
+                       << m_currentProfile.steps().size()
+                       << "frames, which its editor cannot read — keeping them rather than "
+                          "regenerating from parameters that were not derived from them";
+            needFrameRegen = false;
+        }
+
         m_currentProfile.setRecipeParams(recipe);
 
         if (needFrameRegen) {
@@ -2608,26 +2630,40 @@ void ProfileManager::applyRecipeToScalarFields(const RecipeParams& recipe) {
 QVariantMap ProfileManager::getOrConvertRecipeParams() {
     const QString& et = m_currentProfile.editorType();
 
-    // D-Flow/A-Flow with stored recipe params: return them directly
-    if ((et == QLatin1String("dflow") || et == QLatin1String("aflow"))
-        && m_currentProfile.recipeParams().targetWeight > 0) {
-        // Ensure editorType matches title (handles profiles saved with wrong type)
-        RecipeParams params = m_currentProfile.recipeParams();
-        if (isAFlowTitle(m_currentProfile.title()) && params.editorType != EditorType::AFlow) {
-            params.editorType = EditorType::AFlow;
-            m_currentProfile.setRecipeParams(params);
-        }
-        return m_currentProfile.recipeParams().toVariantMap();
-    }
-
-    // D-Flow/A-Flow profiles from de1app (no stored recipe): extract from frames on-the-fly
+    // D-Flow/A-Flow: ALWAYS derive from the frames. A stored recipe block is a
+    // cache, never an oracle — the frames are what the machine executes and what
+    // both plugins reconstruct their editor from on every load.
+    //
+    // There used to be a branch above this one that returned a stored block
+    // directly whenever the profile had one. That left finding REC-1 half-fixed:
+    // gating the WRITE stopped new fabricated blocks appearing, but every
+    // profile that already carried one — including the five shipped A-Flow
+    // built-ins, whose identical blocks claim 88 °C / 20 s / 9 bar against
+    // frames that say 93 / 60 / 10 — still took the short-circuit, so `prep`
+    // never ran and the editor still showed the stale numbers. Deriving
+    // unconditionally is also what this change's own spec requires: "WHEN a
+    // profile carries a recipe block whose values contradict its frames, THEN
+    // the parameters used are those derived from the frames."
+    //
+    // Nothing is lost by ignoring the block: prepDFlow/prepAFlow start FROM the
+    // stored params and overwrite only what the frames determine, so fields no
+    // frame carries (dose) still come through.
     if (isDFlowTitle(m_currentProfile.title()) || isAFlowTitle(m_currentProfile.title())
         || et == QLatin1String("dflow") || et == QLatin1String("aflow")) {
-        RecipeParams params = RecipeAnalyzer::extractRecipeParams(m_currentProfile);
-        if (isAFlowTitle(m_currentProfile.title())) {
-            params.editorType = EditorType::AFlow;
+        bool derived = false;
+        QVariantMap out =
+            RecipeAnalyzer::extractRecipeParams(m_currentProfile, &derived).toVariantMap();
+        // A qWarning in the log does not reach the editor or an MCP client. When
+        // the frames could not be read, the values below are NOT this profile's —
+        // say so in the payload so a caller can refuse to dial from them.
+        if (!derived) {
+            out[QStringLiteral("parametersDerivedFromFrames")] = false;
+            out[QStringLiteral("warning")] =
+                QStringLiteral("This profile's %1 frames do not fit the layout its editor "
+                               "reads, so these values were not derived from it.")
+                    .arg(m_currentProfile.steps().size());
         }
-        return params.toVariantMap();
+        return out;
     }
 
     // Simple profiles (settings_2a/2b): populate RecipeParams from scalar fields
@@ -3334,6 +3370,7 @@ void ProfileManager::migrateRecipeFrames() {
     qDebug() << "Migrating recipe-mode profile frames...";
     int migrated = 0;
     int failed = 0;
+    int skippedLegacy = 0;   // legacy is_recipe_mode with no recipe block
 
     auto migrateFile = [&](const QString& filePath) {
         QFile file(filePath);
@@ -3347,8 +3384,26 @@ void ProfileManager::migrateRecipeFrames() {
         if (doc.isNull()) return;
 
         QJsonObject obj = doc.object();
-        // Identify recipe profiles: check is_recipe_mode (legacy) or recipe block (current)
-        if (!obj.value("is_recipe_mode").toBool() && !obj.contains("recipe")) return;
+        // A stored recipe block is the ONLY thing this migration can regenerate
+        // from. The legacy `is_recipe_mode` flag was accepted alongside it, but a
+        // profile carrying the flag and no block has no parameters to regenerate
+        // from — it would have been rebuilt from RecipeParams' defaults, silently
+        // replacing the user's frames with an 88 °C / 25 s / 4 g profile (REC-1).
+        if (!obj.contains("recipe")) {
+            // Named, not silently counted. Every other branch in this loop logs
+            // the profile; this one used to `return` with nothing, and the
+            // migration runs ONCE (gated on recipe_frames_migrated), so a profile
+            // skipped here is never revisited. The population that reaches this
+            // line is exactly the legacy `is_recipe_mode`-only one the old `||`
+            // clause used to catch.
+            if (obj.value(QStringLiteral("is_recipe_mode")).toBool()) {
+                qDebug() << "migrateRecipeFrames: skipping" << filePath
+                         << "- is_recipe_mode set but no recipe block, nothing to "
+                            "regenerate from";
+                skippedLegacy++;
+            }
+            return;
+        }
 
         Profile profile = Profile::fromJson(doc);
         if (profile.title().isEmpty()) return;
@@ -3390,7 +3445,7 @@ void ProfileManager::migrateRecipeFrames() {
             if (jsonContent.isEmpty()) continue;
             QJsonDocument doc = QJsonDocument::fromJson(jsonContent.toUtf8());
             QJsonObject sObj = doc.object();
-            if (doc.isNull() || (!sObj.value("is_recipe_mode").toBool() && !sObj.contains("recipe"))) continue;
+            if (doc.isNull() || !sObj.contains("recipe")) continue;  // see migrateFile above
 
             Profile profile = Profile::fromJson(doc);
             if (profile.title().isEmpty()) continue;
@@ -3414,12 +3469,22 @@ void ProfileManager::migrateRecipeFrames() {
         }
     }
 
+    // Surfaced rather than buried: this migration runs once, so a profile counted
+    // here is never revisited. A non-zero count is the trace to follow if someone
+    // later reports a stale-frame profile.
+    if (skippedLegacy > 0) {
+        qWarning() << "Recipe frame migration:" << skippedLegacy
+                   << "profile(s) carry the legacy is_recipe_mode flag with no recipe block "
+                      "and were left untouched — there is nothing to regenerate them from.";
+    }
+
     if (failed > 0) {
         qWarning() << "Recipe frame migration incomplete:" << migrated << "updated,"
                    << failed << "failed. Will retry on next launch.";
     } else {
         if (m_settings) m_settings->setValue("recipe_frames_migrated", true);
-        qDebug() << "Recipe frame migration complete:" << migrated << "profiles updated";
+        qDebug() << "Recipe frame migration complete:" << migrated << "profiles updated,"
+                 << skippedLegacy << "legacy-flag profiles skipped";
     }
 }
 

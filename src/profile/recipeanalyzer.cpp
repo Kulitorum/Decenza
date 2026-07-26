@@ -1,5 +1,6 @@
 #include "recipeanalyzer.h"
 #include <QDebug>
+#include <cmath>
 
 bool RecipeAnalyzer::canConvertToRecipe(const Profile& profile) {
     const auto& steps = profile.steps();
@@ -33,13 +34,142 @@ bool RecipeAnalyzer::canConvertToRecipe(const Profile& profile) {
     return true;
 }
 
-RecipeParams RecipeAnalyzer::extractRecipeParams(const Profile& profile) {
+namespace {
+
+// The plugins' two rounding helpers (de1app vars.tcl), used verbatim wherever
+// prep uses them. Where prep does NOT round, neither do we — `soaking(pressure)`
+// reaching the editor unrounded is the plugin's behaviour, not an oversight.
+double roundToOneDigit(double v) { return std::round(v * 10.0) / 10.0; }
+double roundToInteger(double v)  { return std::round(v); }
+
+}  // namespace
+
+// D-Flow's `proc prep` — plugin.tcl:195-210.
+//
+//   array set filling [lindex $::settings(advanced_shot) 0]
+//   array set soaking [lindex $::settings(advanced_shot) 1]
+//   array set pouring [lindex $::settings(advanced_shot) 2]
+//
+// Fixed indices, no pattern matching. Note pouring_pressure comes from the
+// LIMITER (max_flow_or_pressure), not the frame's pressure setpoint — the pour
+// frame is flow-driven and the pressure the user set is its cap.
+RecipeParams RecipeAnalyzer::prepDFlow(const Profile& profile, bool* derived) {
+    if (derived) *derived = false;
+    RecipeParams params = profile.recipeParams();
+    params.editorType = EditorType::DFlow;
+    params.targetWeight = profile.targetWeight();
+    params.targetVolume = profile.targetVolume();
+
+    const auto& steps = profile.steps();
+    if (steps.size() < 3) {
+        // The plugin would leave its globals at whatever the last profile set;
+        // we keep the profile's own params and say so, rather than inventing a
+        // shape the frames do not have.
+        qWarning() << "prepDFlow:" << profile.title() << "has" << steps.size()
+                   << "frames, expected 3 — parameters left as they were";
+        return params;
+    }
+
+    const ProfileFrame& filling = steps[0];
+    const ProfileFrame& soaking = steps[1];
+    const ProfileFrame& pouring = steps[2];
+
+    params.fillTemperature = filling.temperature;
+    params.infuseTime      = roundToOneDigit(soaking.seconds);
+    params.infusePressure  = soaking.pressure;
+    params.infuseVolume    = soaking.volume;
+    params.infuseWeight    = soaking.exitWeight;
+    params.pourFlow        = roundToOneDigit(pouring.flow);
+    params.pourPressure    = pouring.maxFlowOrPressure;
+    params.pourTemperature = pouring.temperature;
+    if (derived) *derived = true;
+    return params;
+}
+
+// A-Flow's `proc prep` — code.tcl:194-240, with roles from `set_profile_index`
+// (code.tcl:171-190).
+//
+// Three things here are not guessable from Decenza's side and are the whole of
+// findings AF-1 through AF-5:
+//
+//   * pouring_flow comes from POURING_START, not from pouring. The pouring frame
+//     carries the DOUBLED flow when flow-up is on, so reading it there doubles
+//     the value on every save (AF-1).
+//   * ramp_updown_seconds is the SUM of both ramp frames, not either one (AF-3).
+//   * all three toggles are derived from frame structure, never stored (AF-2/4).
+RecipeParams RecipeAnalyzer::prepAFlow(const Profile& profile, bool* derived) {
+    if (derived) *derived = false;
+    RecipeParams params = profile.recipeParams();
+    params.editorType = EditorType::AFlow;
+    params.targetWeight = profile.targetWeight();
+    params.targetVolume = profile.targetVolume();
+
+    const auto& steps = profile.steps();
+    const qsizetype n = steps.size();
+
+    // set_profile_index: `> 8` selects the 9-frame layout, else the legacy one.
+    const bool nine = n > 8;
+    const qsizetype iFilling      = nine ? 1 : 0;
+    const qsizetype iSoaking      = nine ? 2 : 1;
+    const qsizetype iPause        = nine ? 4 : -1;
+    const qsizetype iRampUp       = nine ? 5 : 2;
+    const qsizetype iRampDown     = nine ? 6 : 3;
+    const qsizetype iPouringStart = nine ? 7 : 4;
+    const qsizetype iPouring      = nine ? 8 : 5;
+
+    if (n < (nine ? 9 : 6)) {
+        qWarning() << "prepAFlow:" << profile.title() << "has" << n
+                   << "frames, too few for either A-Flow layout — parameters left as they were";
+        return params;
+    }
+
+    const ProfileFrame& filling      = steps[iFilling];
+    const ProfileFrame& soaking      = steps[iSoaking];
+    const ProfileFrame& rampUp       = steps[iRampUp];
+    const ProfileFrame& rampDown     = steps[iRampDown];
+    const ProfileFrame& pouringStart = steps[iPouringStart];
+    const ProfileFrame& pouring      = steps[iPouring];
+
+    params.fillTemperature = filling.temperature;
+    // prep also reads filling(flow) into ::Aflow_filling_flow, but only the demo
+    // graph consumes it (code.tcl:570) — update_A-Flow never writes that field, so
+    // Decenza has no parameter for it either.
+    params.infuseTime      = roundToOneDigit(soaking.seconds);
+    params.infusePressure  = soaking.pressure;
+    params.infuseVolume    = soaking.volume;
+    params.infuseWeight    = soaking.exitWeight;
+    params.rampTime        = roundToInteger(rampUp.seconds + rampDown.seconds);
+    params.pourFlow        = roundToOneDigit(pouringStart.flow);
+    params.pourPressure    = rampUp.pressure;
+    params.pourTemperature = rampUp.temperature;
+
+    // The toggles. Each is a property of the frames, which is why an A-Flow
+    // profile needs no stored state to round-trip.
+    params.rampDownEnabled  = rampDown.seconds > 0;
+    params.flowExtractionUp = pouring.flow > params.pourFlow;  // vs the ROUNDED value
+    params.secondFillEnabled = nine && steps[iPause].seconds > 0;
+
+    if (derived) *derived = true;
+    return params;
+}
+
+RecipeParams RecipeAnalyzer::extractRecipeParams(const Profile& profile, bool* derived) {
+    if (derived) *derived = false;
     RecipeParams params;
     const auto& steps = profile.steps();
 
     if (steps.isEmpty()) {
         return params;
     }
+
+    // A profile the plugins own is read by the plugins' own rule. Everything
+    // below this point is pattern detection for profiles that have no plugin —
+    // useful for converting an arbitrary profile into recipe mode, and exactly
+    // wrong for one of these (it is a three-frame D-Flow shape detector, and
+    // pointing it at a nine-frame A-Flow profile is findings AF-1..AF-5).
+    const QString et = profile.editorType();
+    if (et == QLatin1String("dflow")) return prepDFlow(profile, derived);
+    if (et == QLatin1String("aflow")) return prepAFlow(profile, derived);
 
     // Extract targets from profile
     params.targetWeight = profile.targetWeight();
@@ -81,9 +211,6 @@ RecipeParams RecipeAnalyzer::extractRecipeParams(const Profile& profile) {
     // Extract fill parameters
     if (fillIndex >= 0 && fillIndex < steps.size()) {
         const auto& fillFrame = steps[fillIndex];
-        params.fillPressure = extractFillPressure(fillFrame);
-        params.fillTimeout = fillFrame.seconds;
-        params.fillFlow = fillFrame.flow > 0 ? fillFrame.flow : 8.0;
         // Use fill frame temperature
         if (fillFrame.temperature > 0) {
             params.fillTemperature = fillFrame.temperature;
@@ -125,6 +252,16 @@ RecipeParams RecipeAnalyzer::extractRecipeParams(const Profile& profile) {
     }
 
     return params;
+}
+
+bool RecipeAnalyzer::framesFitEditorLayout(const Profile& profile) {
+    const qsizetype n = profile.steps().size();
+    const QString et = profile.editorType();
+    // Matches prep's own guards exactly: prepAFlow picks `nine = n > 8` and then
+    // requires n >= (nine ? 9 : 6), which reduces to n >= 6.
+    if (et == QLatin1String("dflow")) return n >= 3;
+    if (et == QLatin1String("aflow")) return n >= 6;
+    return true;   // no positional layout to fit
 }
 
 bool RecipeAnalyzer::convertToRecipeMode(Profile& profile) {
@@ -178,9 +315,6 @@ void RecipeAnalyzer::forceConvertToRecipe(Profile& profile) {
         // Look for fill-like frame (first frame with exit condition, or explicitly named)
         if (!foundFill && (isFillFrame(frame) || i == 0)) {
             foundFill = true;
-            params.fillPressure = extractFillPressure(frame);
-            params.fillTimeout = frame.seconds > 0 ? frame.seconds : 25.0;
-            params.fillFlow = frame.flow > 0 ? frame.flow : 8.0;
             if (frame.temperature > 0) {
                 params.fillTemperature = frame.temperature;
             }
@@ -320,18 +454,6 @@ bool RecipeAnalyzer::isPourFrame(const ProfileFrame& frame) {
 }
 
 // === Parameter Extraction ===
-
-double RecipeAnalyzer::extractFillPressure(const ProfileFrame& frame) {
-    // For fill frame, use the setpoint pressure
-    if (frame.pump == "pressure") {
-        return frame.pressure;
-    }
-    // For flow mode fill, use exit pressure as approximation
-    if (frame.exitPressureOver > 0) {
-        return frame.exitPressureOver;
-    }
-    return 2.0;  // Default
-}
 
 double RecipeAnalyzer::extractInfusePressure(const ProfileFrame& frame) {
     return frame.pressure > 0 ? frame.pressure : 3.0;

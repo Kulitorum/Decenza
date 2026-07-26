@@ -28,6 +28,76 @@ Investigations informing this design:
 
 ## Decisions
 
+> ## ⏸ ON HOLD — decide after `derive-recipe-params-from-frames` lands
+>
+> Do not build or archive this yet. The premise was tested and is false, and the problem it exists
+> to solve has been fixed a different way in `derive-recipe-params-from-frames` — but that work is
+> not merged, so the evidence below is recorded and the decision is deliberately left open until
+> it is. Revisit this section then.
+>
+> **What the Why section describes really happened.** Importing a D-Flow/A-Flow profile from
+> Visualizer did populate the editor with defaults, and saving from it did regenerate default
+> frames. That is finding **REC-1**, and it was worse than described: it was not confined to
+> Visualizer imports. Any profile arriving without a stored recipe block — a `.tcl` import, a
+> profile shared from another app, one of Decenza's own A-Flow built-ins — got a block fabricated
+> from `RecipeParams`' member initialisers, because `editorType()` derives from the title. The
+> editor then showed 88 °C for a profile whose fill frame says 84 °C.
+>
+> **The fix was frame→recipe reconstruction — the one thing this change lists as a Non-Goal and
+> "explicitly rejected".** Transcribing each plugin's own `prep` recovers every parameter,
+> including all three A-Flow toggles, from the frames alone. Verified against the plugins' real
+> procs: the edit matrix stands at 0 divergences across 99 cases, and 0 across a compound
+> two-save case.
+>
+> **So a `recipe` block on the wire is not needed for this.** A profile downloaded from Visualizer
+> now loads with its own parameters, because they come from its frames — which Visualizer already
+> round-trips faithfully. No schema, no interchange object, no upstream PRs to Visualizer, de1app
+> or reaprime.
+>
+> **What is NOT covered, and is the only thing left worth salvaging here:**
+>
+> - `target_volume_count_start` → preinfuse-frame-count loss. A real bug, unrelated to recipe
+>   reconstruction, and small. Worth its own change.
+> - The Visualizer download-button TCL/JSON choice (task 8.1b). A genuinely useful, view-only
+>   upstream change that stands on its own merits.
+> - Parameters no plugin has and no frame carries — `dose` is the clear case. If that matters for
+>   interchange it is a much smaller proposal than this one, and it should be argued on its own.
+>
+> **When the parity change lands, the question to answer is whether anything here still justifies a
+> `recipe` interchange object** — on the evidence below, the round-trip case for one is gone and only
+> the three items above remain, each smaller argued on its own. The WIP is in `stash@{0}`.
+>
+> The original note follows.
+>
+> ## ⚠ D1's premise was tested and is false
+>
+> `verify-recipe-editor-parity` checked this against the plugins. Findings:
+>
+> - **Both plugins reconstruct their entire editor state from the frames on every profile load**
+>   (`proc prep` in each). The frames *are* the storage; there is no separate recipe state, which
+>   is why no `.tcl` carries one. That is the design, not an oversight.
+> - **All three A-Flow structural toggles are recoverable from frame structure** — `ramp_down(seconds) > 0`,
+>   `pouring(flow) > pouring_start(flow)`, and a 9-frame layout with a non-zero pause. `prep` does
+>   it in three lines. D1 states they "cannot be recovered".
+> - **The editor type comes from the title prefix**, which Decenza already derives.
+>
+> What was actually observed when D1 was written was `RecipeAnalyzer`'s output — a D-Flow-shaped
+> three-frame pattern detector pointed at a nine-frame profile. It is wrong for reasons unrelated
+> to whether frames are sufficient (findings AF-1..AF-6). **"Our analyzer is wrong" does not imply
+> "frames are insufficient."**
+>
+> **Consequence:** implementing `prep` would close the Visualizer round-trip with **no `recipe`
+> block, no schema, no version marker, no Visualizer PR, no de1app PR and no reaprime PR** — the
+> frames already survive Visualizer intact. That is a materially smaller and more robust change
+> than the three-stage rollout below.
+>
+> This also explains the fabricated built-in recipe blocks that prompted the investigation: five
+> identical A-Flow blocks are what an analyzer that recovers almost nothing and falls back to
+> defaults produces.
+>
+> Everything below is retained as written, unexecuted, pending that decision. See
+> `openspec/changes/verify-recipe-editor-parity/findings.md`.
+
 ### D1. Carry the recipe verbatim; do not reconstruct from frames
 The recipe parameters are not derivable from the name (name = editor type only) and not losslessly derivable from the frames (the rejected `RecipeAnalyzer` path never sets `editorType` and cannot recover A-Flow toggles). The only faithful mechanism is to **carry the actual parameters** as a `recipe` object in the profile JSON. Import already consumes it: `Profile::fromJson` (profile.cpp:556) reconstructs `RecipeParams` from a `recipe` block. So the happy path is: add the block on upload, let Visualizer return it, and existing import logic rebuilds the editor exactly.
 

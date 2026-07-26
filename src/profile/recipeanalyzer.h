@@ -25,10 +25,51 @@ public:
 
     /**
      * Extract RecipeParams from a frame-based profile.
+     *
+     * For a D-Flow or A-Flow profile this dispatches to the matching transcription
+     * of the plugin's own `prep` below. Everything else falls back to the pattern
+     * detection further down, which exists for arbitrary profiles being converted
+     * into recipe mode and has no plugin to be faithful to.
+     *
      * @param profile The profile to analyze
      * @return RecipeParams extracted from the frames (defaults if not convertible)
      */
-    static RecipeParams extractRecipeParams(const Profile& profile);
+    static RecipeParams extractRecipeParams(const Profile& profile, bool* derived = nullptr);
+
+    /**
+     * Do this profile's frames fit the layout its editor indexes?
+     *
+     * D-Flow needs 3; A-Flow needs 6 (legacy) or 9. Both plugins index frame
+     * roles POSITIONALLY with no validation, so a profile that does not fit
+     * cannot have its parameters read — `prep` would be reading whatever
+     * happens to sit at those indices.
+     *
+     * Callers use this to refuse to REGENERATE such a profile. Rebuilding its
+     * frames from parameters that were never derived from it replaces real
+     * frames with fabricated ones, which is finding REC-1 in a different guise.
+     */
+    static bool framesFitEditorLayout(const Profile& profile);
+
+    /**
+     * D-Flow's `proc prep` (plugin.tcl:195-210), transcribed.
+     *
+     * Frame roles are FIXED INDICES 0/1/2 — the plugin does not pattern-match and
+     * neither does this. Returns the profile's params untouched if the profile is
+     * too short to have those frames.
+     */
+    static RecipeParams prepDFlow(const Profile& profile, bool* derived = nullptr);
+
+    /**
+     * A-Flow's `proc prep` (code.tcl:194-240), transcribed, with frame roles from
+     * `proc set_profile_index` (code.tcl:171-190).
+     *
+     * Roles are POSITIONAL and layout-dependent: a 9-frame profile numbers them
+     * Pre Fill / Filling / Soaking / 2nd Fill / Pause / Ramp Up / Ramp Down /
+     * Pouring Start / Pouring, a legacy 6-frame one drops Pre Fill, 2nd Fill and
+     * Pause. The three structural toggles are DERIVED from the frames — nothing
+     * stores them, which is the property that makes the frames sufficient.
+     */
+    static RecipeParams prepAFlow(const Profile& profile, bool* derived = nullptr);
 
     /**
      * Convert a profile to recipe mode if possible.
@@ -54,7 +95,6 @@ private:
     static bool isPourFrame(const ProfileFrame& frame);
 
     // Parameter extraction from frames
-    static double extractFillPressure(const ProfileFrame& frame);
     static double extractInfusePressure(const ProfileFrame& frame);
     static double extractInfuseTime(const ProfileFrame& frame);
     static double extractPourPressure(const ProfileFrame& frame);

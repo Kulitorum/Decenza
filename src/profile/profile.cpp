@@ -572,14 +572,20 @@ QJsonObject Profile::toJsonObject() const {
     // no recipe editor and its recipe params are meaningless. Dropping a stale
     // recipe block from an advanced profile is correct cleanup, not data loss —
     // several built-ins carried one purely as cruft. Do not "preserve" it here.
+    //
+    // A block is written only when the parameters were ESTABLISHED — see
+    // Profile::hasRecipeParams(). A recipe-shaped TITLE is not evidence that a
+    // profile has recipe parameters. Every `.tcl` import, every Visualizer
+    // download and every profile shared from another app arrives without a
+    // recipe block, by design: both upstream plugins reconstruct their editor
+    // state from the frames on load, so nothing persists it. Writing one anyway
+    // from a default-constructed struct is finding REC-1 — it put five identical
+    // 88 °C / 25 s / 4 g blocks into the A-Flow built-ins, matching none of their
+    // frames, and made editing one parameter silently reset the others.
     QString et = editorType();
-    if (et == QLatin1String("dflow") || et == QLatin1String("aflow")) {
-        obj["recipe"] = recipeJson();
-    } else if ((et == QLatin1String("pressure") || et == QLatin1String("flow"))
-               && m_recipeParams.targetWeight > 0
-               && m_recipeParams.editorType != EditorType::DFlow) {
-        // Only write recipe for simple profiles if params were explicitly set
-        // (not default DFlow params from a fresh RecipeParams())
+    if (m_hasRecipeParams
+        && (et == QLatin1String("dflow") || et == QLatin1String("aflow")
+            || et == QLatin1String("pressure") || et == QLatin1String("flow"))) {
         obj["recipe"] = recipeJson();
     }
 
@@ -1011,22 +1017,29 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
     // Read-only flag (de1app compatibility: integer 0/1/2)
     profile.m_readOnly = obj["read_only"].toInt(0);
 
-    // Load recipe params if present
+    // Load recipe params if present. A block that is present was established by
+    // whoever wrote it, so it round-trips; its ABSENCE is meaningful and must not
+    // be papered over with defaults (REC-1).
     if (obj.contains("recipe")) {
-        profile.m_recipeParams = RecipeParams::fromJson(obj["recipe"].toObject());
-        // Infer RecipeParams.editorType from profileType/title when the recipe
-        // block does not include an explicit editorType enum value
+        // Build the params COMPLETELY, then establish them with one
+        // setRecipeParams() call. Assigning m_recipeParams directly and setting
+        // m_hasRecipeParams beside it works — same class — but it makes
+        // "bypassing the setter is fine" the local idiom, and the setter is the
+        // only thing keeping the flag and the data in step. One writer.
+        RecipeParams params = RecipeParams::fromJson(obj["recipe"].toObject());
+        // Infer editorType from profileType/title when the block omits it.
         if (!obj["recipe"].toObject().contains("editorType")) {
             if (profile.m_profileType == "settings_2a") {
-                profile.m_recipeParams.editorType = EditorType::Pressure;
+                params.editorType = EditorType::Pressure;
             } else if (profile.m_profileType == "settings_2b") {
-                profile.m_recipeParams.editorType = EditorType::Flow;
+                params.editorType = EditorType::Flow;
             } else if (profile.m_title.startsWith(QStringLiteral("A-Flow"), Qt::CaseInsensitive) ||
                        (profile.m_title.startsWith(QLatin1Char('*')) &&
                         profile.m_title.mid(1).startsWith(QStringLiteral("A-Flow"), Qt::CaseInsensitive))) {
-                profile.m_recipeParams.editorType = EditorType::AFlow;
+                params.editorType = EditorType::AFlow;
             }
         }
+        profile.setRecipeParams(params);
     }
 
     // Reconcile espresso_temperature against the frames, which are the source of
@@ -1903,9 +1916,18 @@ QList<QByteArray> Profile::toFrameBytes() const {
     QByteArray tailFrame(8, 0);
     tailFrame[0] = static_cast<char>(m_steps.size());  // FrameToWrite = number of frames
 
-    uint16_t maxTotalVol = BinaryCodec::encodeU10P0(0);  // 0 = no limit
-    tailFrame[1] = static_cast<char>((maxTotalVol >> 8) & 0xFF);
-    tailFrame[2] = static_cast<char>(maxTotalVol & 0xFF);
+    // MaxTotalVolume, sent as a bare 16-bit 0 — NOT through encodeU10P0, which
+    // ORs in the bit-10 marker (0x0400). de1app sets `tail(MaxTotalVolume) 0`
+    // literally (binary.tcl:1001) and packs the low ten bits, so it sends
+    // 0x0000; Decenza sent 0x0400 on every profile (finding WIRE-1).
+    //
+    // Not cosmetic padding. de1app's own comment above that field reads "Unused.
+    // Use highest bit to enable / disable preinfusion tracking" — so bit 10 is a
+    // flag the firmware may act on, and Decenza was asserting it unconditionally
+    // while de1app never does. The per-frame MaxVol keeps the marker; only the
+    // tail differs, which is why it survived a field-level comparison.
+    tailFrame[1] = 0;
+    tailFrame[2] = 0;
     // Bytes 3-7 are padding (zeros)
 
     frames.append(tailFrame);
@@ -1935,8 +1957,192 @@ void Profile::regenerateSimpleFrames() {
     // temp2, not temp0.
 }
 
+// The plugins mutate frames IN PLACE — `array set filling [lindex ... 0]`,
+// overwrite a named handful of fields, write the array back — so every field
+// they do not name survives untouched. Decenza builds frames from constants, so
+// each unnamed field is a candidate divergence: findings DF-1, DF-2, DF-5 and
+// AF-6 are all one shape, "a field the plugin never writes, rewritten".
+//
+// This restores that semantics rather than patching the fields we happened to
+// notice. It was previously a name-matched restore of volume and exitWeight only
+// (issue #331), which fixed two of the four and left `filling(seconds)`,
+// `filling(pressure)` and the rest to keep drifting.
+//
+// Roles are POSITIONAL, matching the plugins. Old and new frames are matched by
+// role, not by index, so a legacy 6-frame profile being upgraded to 9 restores
+// its Filling fields onto the new Filling frame rather than onto Pre Fill. A role
+// with no old counterpart (the frames an upgrade inserts) keeps the generator's
+// values, which are the plugin's own template literals.
+void Profile::restoreFieldsThePluginNeverWrites(const QList<ProfileFrame>& oldSteps) {
+    if (oldSteps.isEmpty() || m_steps.isEmpty()) return;
+
+    enum Role { PreFilling, Filling, Soaking, SecondFill, Pause,
+                RampUp, RampDown, PouringStart, Pouring, RoleCount };
+
+    // set_profile_index (A_Flow/code.tcl:171-190) for A-Flow; D-Flow is always
+    // the three frames its `prep` indexes directly. Returns -1 for a role the
+    // layout does not have.
+    const bool aflow = editorType() == QLatin1String("aflow");
+    auto roleIndex = [aflow](qsizetype n, Role r) -> qsizetype {
+        if (!aflow) {
+            if (n < 3) return -1;
+            switch (r) {
+            case Filling: return 0;
+            case Soaking: return 1;
+            case Pouring: return 2;
+            default:      return -1;   // D-Flow has only these three frames
+            }
+        }
+        const bool nine = n > 8;
+        if (n < (nine ? 9 : 6)) return -1;
+        switch (r) {
+        // Pre Fill / 2nd Fill / Pause exist ONLY in the 9-frame layout. The
+        // legacy 6-frame one has no counterpart, so an upgrade leaves them at
+        // the generator's literals — which are the plugin's own.
+        case PreFilling:   return nine ? 0 : -1;
+        case Filling:      return nine ? 1 : 0;
+        case Soaking:      return nine ? 2 : 1;
+        case SecondFill:   return nine ? 3 : -1;
+        case Pause:        return nine ? 4 : -1;
+        case RampUp:       return nine ? 5 : 2;
+        case RampDown:     return nine ? 6 : 3;
+        case PouringStart: return nine ? 7 : 4;
+        case Pouring:      return nine ? 8 : 5;
+        default:           return -1;
+        }
+    };
+
+    // Exactly what each plugin's update_* proc assigns. Everything absent here is
+    // restored from the old frame.
+    //   D-Flow — plugin.tcl:338-353
+    //   A-Flow — code.tcl:251-296
+    struct Written {
+        bool temperature = false, pressure = false, flow = false, seconds = false;
+        bool volume = false, weight = false, limiter = false;
+        bool exitPressureOver = false, exitFlowOver = false, exitFlowUnder = false;
+    };
+    // The 2nd Fill / Pause write-set is CONDITIONAL on the toggle, so this takes
+    // the flag rather than being a pure function of the role (code.tcl:372-380):
+    //   on  -> seconds AND temperature are written
+    //   off -> only seconds is zeroed; the temperature is left alone
+    const bool secondFill = m_recipeParams.secondFillEnabled;
+
+    // The Flow Start step is activated only when the post-split ramp-up ends
+    // under a second (code.tcl:276). Read it off the freshly generated frames,
+    // which is where the split has already been applied.
+    bool shortRamp = false;
+    if (aflow) {
+        const qsizetype ru = roleIndex(m_steps.size(), RampUp);
+        if (ru >= 0) shortRamp = m_steps[ru].seconds < 1.0;
+    }
+
+    auto written = [aflow, secondFill, shortRamp](Role r) {
+        Written w;
+        switch (r) {
+        case PreFilling:
+            // update_A-Flow writes the Pre Fill frame's TEMPERATURE and nothing
+            // else (code.tcl:382). On an existing 9-frame profile it otherwise
+            // reads the frame and writes it straight back untouched.
+            w.temperature = true;
+            break;
+        case SecondFill:
+        case Pause:
+            w.seconds = true;
+            w.temperature = secondFill;
+            break;
+        case Filling:
+            w.temperature = true;
+            // D-Flow also DERIVES the fill pressure and its pressure-over exit
+            // from the soak pressure; A-Flow writes neither.
+            w.pressure = w.exitPressureOver = !aflow;
+            break;
+        case Soaking:
+            w.temperature = w.pressure = w.seconds = w.volume = w.weight = true;
+            break;
+        case RampUp:
+            w.temperature = w.pressure = w.seconds = w.exitFlowOver = true;
+            break;
+        case RampDown:
+            w.temperature = w.seconds = w.exitFlowUnder = true;
+            break;
+        case PouringStart:
+            // temperature, flow and seconds are written on BOTH branches
+            // (code.tcl:273-274, 277/284). exit_flow_over, exit_type and exit_if
+            // are written ONLY on the short-ramp branch — when ramp_up ends under
+            // a second and the Flow Start step is activated to reach target flow
+            // quickly (code.tcl:276-283). On the other branch the plugin leaves
+            // them alone.
+            //
+            // This used to mark exitFlowOver as always-written, excused as
+            // "travels with seconds". It does not: seconds IS written on both
+            // branches and exit_flow_over is not. Stock profiles hide it because
+            // their Flow Start carries exit_if 0, but the plugin does not touch
+            // exit_if on the long-ramp branch either — so a profile that arrives
+            // with exit_if 1 there loses a live exit condition to the
+            // generator's constant.
+            w.temperature = w.flow = w.seconds = true;
+            w.exitFlowOver = shortRamp;
+            break;
+        case Pouring:
+            w.temperature = w.flow = w.limiter = true;
+            break;
+        default:
+            break;
+        }
+        return w;
+    };
+
+    // A frame count that fits NEITHER canonical layout means every role resolves
+    // to -1 and nothing is restored — silently, until now. prepDFlow/prepAFlow
+    // warn on the same condition; this is the write side of it.
+    const qsizetype frameCount = m_steps.size();
+    const bool recognisedLayout =
+        aflow ? (frameCount == 6 || frameCount == 9) : (frameCount == 3);
+    if (!recognisedLayout) {
+        qWarning() << "restoreFieldsThePluginNeverWrites:" << m_title << "has" << frameCount
+                   << "frames, which is not a" << (aflow ? "6- or 9-frame A-Flow"
+                                                         : "3-frame D-Flow")
+                   << "layout — fields the plugin preserves were NOT restored";
+    }
+
+    for (int r = 0; r < RoleCount; ++r) {
+        const qsizetype oldIdx = roleIndex(oldSteps.size(), Role(r));
+        const qsizetype newIdx = roleIndex(m_steps.size(), Role(r));
+        // -1 on either side is expected for a role the layout lacks: Pre Fill /
+        // 2nd Fill / Pause do not exist in the legacy 6-frame form, and D-Flow
+        // has no ramp or pouring-start frames at all.
+        if (oldIdx < 0 || newIdx < 0) continue;
+
+        const ProfileFrame& o = oldSteps[oldIdx];
+        ProfileFrame& n = m_steps[newIdx];
+        const Written w = written(Role(r));
+
+        if (!w.temperature)      n.temperature = o.temperature;
+        if (!w.pressure)         n.pressure = o.pressure;
+        if (!w.flow)             n.flow = o.flow;
+        if (!w.seconds)          n.seconds = o.seconds;
+        if (!w.volume)           n.volume = o.volume;
+        if (!w.weight)           n.exitWeight = o.exitWeight;
+        if (!w.limiter)          n.maxFlowOrPressure = o.maxFlowOrPressure;
+        if (!w.exitPressureOver) n.exitPressureOver = o.exitPressureOver;
+        if (!w.exitFlowOver)     n.exitFlowOver = o.exitFlowOver;
+        if (!w.exitFlowUnder)    n.exitFlowUnder = o.exitFlowUnder;
+    }
+}
+
 void Profile::regenerateFromRecipe() {
     if (editorType() == QLatin1String("advanced")) {
+        return;
+    }
+
+    // Never regenerate from parameters nobody established. RecipeParams' defaults
+    // are live values rather than sentinels, so a default-constructed struct
+    // generates a complete, plausible-looking profile that brews something else
+    // entirely — the expensive failure. Keeping the frames and saying so is the
+    // correct outcome (REC-1; design D7).
+    if (!m_hasRecipeParams) {
+        qWarning() << "regenerateFromRecipe: no established recipe parameters for" << m_title
+                   << "— keeping its frames rather than generating from defaults";
         return;
     }
 
@@ -1951,24 +2157,14 @@ void Profile::regenerateFromRecipe() {
                    << "- check recipe parameters for" << m_title;
     }
 
-    // Preserve passthrough fields (volume cap, fill weight safety exit) from old frames.
-    // RecipeParams controls volume/exitWeight only on infuse frames ("Infusing"/"Infuse");
-    // for all other frames these fields are hardcoded defaults in RecipeGenerator, so we
-    // restore the stored values to avoid silently dropping them on each save (issue #331).
-    if (!oldSteps.isEmpty()) {
-        for (ProfileFrame& newFrame : m_steps) {
-            // Skip infuse frames — RecipeParams is authoritative for their volume/exitWeight
-            if (newFrame.name == "Infusing" || newFrame.name == "Infuse")
-                continue;
-            for (const ProfileFrame& oldFrame : oldSteps) {
-                if (oldFrame.name == newFrame.name) {
-                    newFrame.volume = oldFrame.volume;
-                    newFrame.exitWeight = oldFrame.exitWeight;
-                    break;
-                }
-            }
-        }
-    }
+    // ONLY the two plugin editors. `regenerateFromRecipe` also runs for
+    // settings_2a/2b profiles, whose frames are preinfusion / rise-and-hold /
+    // decline — imposing D-Flow's 0/1/2 role map on those would restore the
+    // wrong frames onto each other. There is no plugin preserving anything for
+    // a simple profile, so there is nothing to reinstate.
+    const QString et = editorType();
+    if (et == QLatin1String("dflow") || et == QLatin1String("aflow"))
+        restoreFieldsThePluginNeverWrites(oldSteps);
 
     // Update profile metadata from recipe
     m_targetWeight = m_recipeParams.targetWeight;

@@ -697,18 +697,46 @@ void DE1Simulator::executeFrame()
     }
 
     // ========== FRAME TRANSITIONS ==========
+    //
+    // AT MOST ONE ADVANCE PER TICK. These were three independent `if`s, which is
+    // safe only while they cannot both hold — and removing the zero-length guard
+    // below makes them hold together routinely: a disabled frame carrying an exit
+    // condition would advance on the condition and then again on its 0 s length,
+    // skipping the following frame outright. `frame` and `frameTime` are also
+    // captured before the first advance, so the second test would be reading the
+    // frame we just left. Each branch returns.
     if (checkExitCondition(frame)) {
         advanceToNextFrame();
+        return;
     }
 
-    if (frameTime >= frame.seconds && frame.seconds > 0) {
-        qDebug() << "DE1Simulator: Frame" << m_currentFrameIndex << "timeout";
+    // A ZERO-LENGTH FRAME IS A DISABLED FRAME, and must expire on the first tick.
+    //
+    // The `frame.seconds > 0` guard that used to be here made a 0 s frame run
+    // forever instead. That is not a corner case for the recipe editors: both
+    // plugins express "this step is off" as `seconds 0`, and it is how Decenza
+    // reads them back — `rampDownEnabled` and `secondFillEnabled` are literally
+    // `frame.seconds > 0` (recipeanalyzer.cpp). `update_A-Flow` disables the
+    // Flow Start step the same way, commented "disable step in case ramp up is
+    // used" (code.tcl:281).
+    //
+    // The bug hid because a disabled frame usually also carries an exit
+    // condition, and `checkExitCondition` above advanced past it within a tick —
+    // so 2nd Fill, Pause and Pressure Decline all appeared to work. Flow Start
+    // has `exit_if false` and nothing else to end it, so a simulated A-Flow shot
+    // poured its entire yield through the ramp-in step at the pour flow rate and
+    // never reached Flow Extraction, which is where the doubled rate lives.
+    if (frameTime >= frame.seconds) {
+        qDebug() << "DE1Simulator: Frame" << m_currentFrameIndex
+                 << (frame.seconds > 0 ? "timeout" : "skipped (zero length)");
         advanceToNextFrame();
+        return;
     }
 
     if (frame.volume > 0 && m_frameVolume >= frame.volume) {
         qDebug() << "DE1Simulator: Frame" << m_currentFrameIndex << "volume reached";
         advanceToNextFrame();
+        return;
     }
 }
 

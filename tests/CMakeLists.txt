@@ -325,6 +325,14 @@ add_decenza_test(tst_simulatedscale
     tst_simulatedscale.cpp
 )
 
+# --- tst_de1simulator: simulator frame stepping ---
+# The simulator drives every shot pulled without a machine, so a fault here reads
+# as a fault in the profile — which is exactly how the zero-length-frame bug was
+# found (an A-Flow shot that never reached its extraction frame).
+add_decenza_test(tst_de1simulator
+    tst_de1simulator.cpp
+)
+
 # --- tst_livesteamcoach: during-steam coaching milestones, gating, completion ---
 add_decenza_test(tst_livesteamcoach
     tst_livesteamcoach.cpp
@@ -500,6 +508,22 @@ target_compile_definitions(tst_tclimport PRIVATE
 # --- tst_recipegenerator: Frame generation vs de1app stock profiles ---
 add_decenza_test(tst_recipegenerator
     tst_recipegenerator.cpp
+)
+
+# --- tst_recipeeditorparity: D-Flow / A-Flow against their upstream plugins ---
+# The plugins are the oracle (Damian-AU/D_Flow_Espresso_Profile @ 7f3c9726,
+# Jan3kJ/A_Flow @ e1a4d871). A-Flow fixtures come from the de1app corpus, which
+# holds the plugin's own 9-frame profiles; D-Flow ships no .tcl, so its three are
+# extracted by tools/extract_dflow_profiles.py into their own fixture dir.
+add_decenza_test(tst_recipeeditorparity
+    tst_recipeeditorparity.cpp
+)
+target_compile_definitions(tst_recipeeditorparity PRIVATE
+    DE1APP_PROFILES_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/de1app_profiles"
+    DFLOW_PLUGIN_PROFILES_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/dflow_plugin_profiles"
+    DE1APP_PACKED_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/de1app_packed"
+    PACK_PROPERTY_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/pack_property"
+    AFLOW_LEGACY_PROFILES_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/aflow_legacy_profiles"
 )
 
 # --- tst_shotanalysis: ShotAnalysis quality heuristics ---
@@ -904,6 +928,27 @@ add_decenza_test(tst_profilemanager
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
 target_link_libraries(tst_profilemanager PRIVATE decenza_shotlib Qt6::Qml paho-mqtt3a-static)
+
+# --- tst_recipeeditorapppath: recipe editing through the path a USER takes ---
+# Companion to tst_recipeeditorparity, which exercises RecipeGenerator and
+# RecipeAnalyzer directly — one layer below the app. This drives the two
+# Q_INVOKABLEs QML binds (getOrConvertRecipeParams / uploadRecipeProfile), which
+# is the only place ProfileManager's editorType repair and regenerateFromRecipe's
+# #331 passthrough restore are both in the path.
+add_decenza_test(tst_recipeeditorapppath
+    tst_recipeeditorapppath.cpp
+    ${MCP_MOC_HEADERS}
+    ${PROFILEMANAGER_SOURCES}
+    ${CMAKE_BINARY_DIR}/version_code.cpp
+)
+target_link_libraries(tst_recipeeditorapppath PRIVATE Qt6::Graphs Qt6::Quick paho-mqtt3a-static)
+target_include_directories(tst_recipeeditorapppath PRIVATE ${CMAKE_BINARY_DIR})
+target_compile_definitions(tst_recipeeditorapppath PRIVATE
+    DE1APP_PROFILES_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/de1app_profiles"
+    DFLOW_PLUGIN_PROFILES_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/dflow_plugin_profiles"
+    EDIT_MATRIX_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/edit_matrix"
+)
+
 target_include_directories(tst_profilemanager PRIVATE ${CMAKE_BINARY_DIR})
 target_compile_definitions(tst_profilemanager PRIVATE SRCDIR="${CMAKE_SOURCE_DIR}/tests")
 # Add built-in profiles QRC so isBuiltInFilename() works in tests
@@ -911,6 +956,10 @@ qt_add_resources(PROFILES_QRC ${CMAKE_SOURCE_DIR}/resources/profiles.qrc)
 target_sources(tst_profilemanager PRIVATE ${PROFILES_QRC})
 # Also needed for compareWithBuiltin test (QFile::exists(":/profiles/..."))
 target_sources(tst_tclimport PRIVATE ${PROFILES_QRC})
+# ProfileManager falls back to :/profiles/default.json on construction; without
+# the built-in resource it warns, and QTest::failOnWarning turns that into a
+# failure unrelated to anything under test.
+target_sources(tst_recipeeditorapppath PRIVATE ${PROFILES_QRC})
 
 # --- MCP tool tests (ProfileManager + MockTransport) ---
 

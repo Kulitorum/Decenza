@@ -1,6 +1,8 @@
 #include <QtTest>
 #include <QSignalSpy>
 #include <QJsonDocument>
+#include <QStandardPaths>
+#include <QRegularExpression>
 #include <QJsonObject>
 #include <QJsonArray>
 
@@ -57,8 +59,14 @@ class tst_ProfileManager : public QObject {
 
 private:
     // Load a minimal D-Flow profile into the fixture's ProfileManager
+    // withInfuse: a real D-Flow profile is ALWAYS three frames — Filling /
+    // Infusing / Pouring — because that is what the plugin's `prep` indexes
+    // (0/1/2, no pattern matching). Most tests here only need *a* profile to
+    // manipulate frames on and hardcode a count of two, so the third frame is
+    // opt-in; any test that reads recipe PARAMETERS needs it.
     static void loadDFlowProfile(McpTestFixture& f, const QString& title = "D-Flow / Test",
-                                 double targetWeight = 36.0, double temp = 93.0) {
+                                 double targetWeight = 36.0, double temp = 93.0,
+                                 bool withInfuse = false) {
         QJsonObject json;
         json["title"] = title;
         json["author"] = "test";
@@ -77,8 +85,6 @@ private:
         recipe.targetWeight = targetWeight;
         recipe.fillTemperature = temp;
         recipe.pourTemperature = temp;
-        recipe.fillPressure = 6.0;
-        recipe.fillFlow = 4.0;
         recipe.pourFlow = 2.0;
         json["recipe"] = recipe.toJson();
 
@@ -96,6 +102,23 @@ private:
         frame1["exit"] = QJsonObject{{"type", "pressure"}, {"condition", "over"}, {"value", 4.0}};
         frame1["limiter"] = QJsonObject{{"value", 0.0}, {"range", 0.6}};
         steps.append(frame1);
+
+        if (withInfuse) {
+        QJsonObject frameSoak;
+        frameSoak["name"] = "infuse";
+        frameSoak["temperature"] = temp;
+        frameSoak["sensor"] = "coffee";
+        frameSoak["pump"] = "pressure";
+        frameSoak["transition"] = "fast";
+        frameSoak["pressure"] = 3.0;
+        frameSoak["flow"] = 8.0;
+        frameSoak["seconds"] = 20.0;
+        frameSoak["volume"] = 100.0;
+        frameSoak["weight"] = 4.0;
+        frameSoak["exit"] = QJsonObject{{"type", "pressure"}, {"condition", "over"}, {"value", 3.0}};
+        frameSoak["limiter"] = QJsonObject{{"value", 0.0}, {"range", 0.6}};
+        steps.append(frameSoak);
+        }
 
         QJsonObject frame2;
         frame2["name"] = "pour";
@@ -123,7 +146,91 @@ private:
     }
 
 private slots:
+    void initTestCase() {
+        // Redirect AppDataLocation, which ProfileManager::profilesPath() reads.
+        // Two reasons: migrateRecipeFrames below writes real files, and without
+        // this the whole suite has been reading and writing the developer's own
+        // ~/Library/Application Support profiles directory.
+        QStandardPaths::setTestModeEnabled(true);
+    }
+
     void init() { QTest::failOnWarning(); }
+
+    // === migrateRecipeFrames: runs at startup, rewrites files on disk ===
+
+    void migrateRecipeFramesLeavesLegacyFlagOnlyProfilesAlone() {
+        // This migration had no test at all, and this change narrowed its gate
+        // from `is_recipe_mode || recipe` to `recipe` only. It runs ONCE (gated on
+        // recipe_frames_migrated), reads every profile on disk, and rewrites the
+        // ones that qualify — so a mistake here is permanent and silent.
+        //
+        // A profile carrying the legacy flag and NO recipe block has nothing to
+        // regenerate from. The old gate accepted it and rebuilt its frames from
+        // RecipeParams' defaults; the new one leaves it exactly as it is.
+        McpTestFixture f;
+        // The migration early-returns on this flag, and it is ALREADY set by the
+        // time the fixture is built. Without clearing it the call below is a
+        // no-op and this test asserts nothing — which is exactly what it did on
+        // first writing: it passed with the pre-change gate restored.
+        f.settings.setValue("recipe_frames_migrated", false);
+
+        const QString dir = f.profileManager.userProfilesPath();
+
+        QJsonObject legacy;
+        legacy["title"] = "D-Flow / Legacy Flag";
+        legacy["author"] = "test";
+        legacy["beverage_type"] = "espresso";
+        legacy["version"] = "2";
+        legacy["legacy_profile_type"] = "settings_2c";
+        legacy["is_recipe_mode"] = true;      // the legacy flag...
+        legacy["target_weight"] = 36.0;
+        legacy["espresso_temperature"] = 84.0;
+        QJsonArray steps;
+        for (const char* name : {"Filling", "Infusing", "Pouring"}) {
+            QJsonObject fr;
+            fr["name"] = name;
+            fr["temperature"] = 84.0;   // distinctive: NOT RecipeParams' 88.0 default
+            fr["sensor"] = "coffee";
+            fr["pump"] = "pressure";
+            fr["transition"] = "fast";
+            fr["pressure"] = 3.0;
+            fr["flow"] = 8.0;
+            fr["seconds"] = 25.0;
+            fr["volume"] = 60.0;
+            fr["exit"] = QJsonObject{{"type", "pressure"}, {"condition", "over"}, {"value", 3.0}};
+            fr["limiter"] = QJsonObject{{"value", 0.0}, {"range", 0.6}};
+            steps.append(fr);
+        }
+        legacy["steps"] = steps;
+        // ...and no "recipe" block, which is the whole point.
+
+        const QString path = dir + "/legacy_flag_only.json";
+        QFile out(path);
+        QVERIFY(out.open(QIODevice::WriteOnly));
+        const QByteArray before = QJsonDocument(legacy).toJson();
+        QCOMPARE(out.write(before), qint64(before.size()));
+        out.close();
+
+        // The migration must SAY it skipped something. It runs once, so a silently
+        // skipped profile is never revisited — asserting the warning is part of
+        // the behaviour, not noise to be suppressed.
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression("legacy is_recipe_mode flag with no recipe block"));
+
+        f.profileManager.migrateRecipeFrames();
+
+        QFile back(path);
+        QVERIFY(back.open(QIODevice::ReadOnly));
+        const QByteArray after = back.readAll();
+        back.close();
+        QFile::remove(path);
+
+        QVERIFY2(before == after,
+                 "a profile with the legacy is_recipe_mode flag and no recipe block was "
+                 "rewritten — there is nothing to regenerate it from, so the migration "
+                 "would have rebuilt its frames out of RecipeParams' defaults");
+    }
+
 
     // === Profile state after load ===
 
@@ -520,15 +627,16 @@ private slots:
 
     void uploadRecipeProfileUpdatesState() {
         McpTestFixture f;
-        loadDFlowProfile(f, "D-Flow / Test", 36.0, 93.0);
+        // Three frames: uploadRecipeProfile now refuses to regenerate a profile
+        // whose frames its editor cannot read positionally, and a two-frame
+        // "D-Flow" profile is not one.
+        loadDFlowProfile(f, "D-Flow / Test", 36.0, 93.0, /*withInfuse=*/true);
 
         QVariantMap recipe;
         recipe["editorType"] = "dflow";
         recipe["targetWeight"] = 40.0;
         recipe["fillTemperature"] = 95.0;
         recipe["pourTemperature"] = 95.0;
-        recipe["fillPressure"] = 6.0;
-        recipe["fillFlow"] = 4.0;
         recipe["pourFlow"] = 2.5;
         f.profileManager.uploadRecipeProfile(recipe);
 
@@ -1093,7 +1201,9 @@ private slots:
 
     void qmlMethodsCallable() {
         McpTestFixture f;
-        loadDFlowProfile(f, "D-Flow / Methods Test");
+        // Three-frame: this smoke test calls getOrConvertRecipeParams below, and
+        // parameters are derived from the frames.
+        loadDFlowProfile(f, "D-Flow / Methods Test", 36.0, 93.0, /*withInfuse=*/true);
 
         QQmlEngine engine;
         engine.rootContext()->setContextProperty("ProfileManager", &f.profileManager);
@@ -1113,7 +1223,7 @@ private slots:
 
         result = evaluate("ProfileManager.frameCount()");
         QVERIFY2(!result.isNull(), "ProfileManager.frameCount() must be callable from QML");
-        QCOMPARE(result.toInt(), 2);
+        QCOMPARE(result.toInt(), 3);
 
         result = evaluate("ProfileManager.previousProfileName()");
         // May return empty string but must not be undefined
@@ -1894,7 +2004,10 @@ private slots:
 
     void uploadRecipeProfileEmitsAllSignals() {
         McpTestFixture f;
-        loadDFlowProfile(f, "D-Flow / Test", 36.0, 93.0);
+        // Three frames: uploadRecipeProfile now refuses to regenerate a profile
+        // whose frames its editor cannot read positionally, and a two-frame
+        // "D-Flow" profile is not one.
+        loadDFlowProfile(f, "D-Flow / Test", 36.0, 93.0, /*withInfuse=*/true);
 
         QSignalSpy modSpy(&f.profileManager, &ProfileManager::profileModifiedChanged);
         QSignalSpy curSpy(&f.profileManager, &ProfileManager::currentProfileChanged);
@@ -1905,8 +2018,6 @@ private slots:
         recipe["targetWeight"] = 40.0;
         recipe["fillTemperature"] = 95.0;
         recipe["pourTemperature"] = 95.0;
-        recipe["fillPressure"] = 6.0;
-        recipe["fillFlow"] = 4.0;
         recipe["pourFlow"] = 2.5;
         f.profileManager.uploadRecipeProfile(recipe);
 
@@ -2813,19 +2924,65 @@ private slots:
 
     // === getOrConvertRecipeParams for different editor types ===
 
-    void getOrConvertRecipeParamsDFlowReturnsStoredParams() {
+    void getOrConvertRecipeParamsDFlowDerivesFromFrames() {
+        // Renamed from ...ReturnsStoredParams. It no longer does, deliberately:
+        // a stored recipe block is a cache, and the frames win. The old
+        // short-circuit left finding REC-1 half-fixed — every profile that
+        // already carried a fabricated block, including the five shipped A-Flow
+        // built-ins, kept showing the stale numbers because `prep` never ran.
         McpTestFixture f;
-        loadDFlowProfile(f, "D-Flow / Test", 36.0, 93.0);
+        loadDFlowProfile(f, "D-Flow / Test", 36.0, 93.0, /*withInfuse=*/true);
 
         QVariantMap params = f.profileManager.getOrConvertRecipeParams();
 
         QCOMPARE(params["editorType"].toString(), "dflow");
+        // Profile-level, so it comes through either way.
         QCOMPARE(params["targetWeight"].toDouble(), 36.0);
+        // Frame-derived: the fixture's Infusing frame, not the stored block
+        // (which carries none of these).
+        QCOMPARE(params["infusePressure"].toDouble(), 3.0);
+        QCOMPARE(params["infuseTime"].toDouble(), 20.0);
+        QCOMPARE(params["infuseWeight"].toDouble(), 4.0);
+    }
+
+    void storedRecipeBlockNeverOverridesTheFrames() {
+        // The spec requirement, asserted directly: "WHEN a profile carries a
+        // recipe block whose values contradict its frames, THEN the parameters
+        // used are those derived from the frames."
+        //
+        // This is the shape of the five shipped A-Flow built-ins, whose
+        // byte-identical blocks claim 88 C / 20 s / 9 bar against frames saying
+        // 93 / 60 / 10.
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / Contradictory", 36.0, 93.0, /*withInfuse=*/true);
+
+        Profile p = f.profileManager.currentProfile();
+        RecipeParams stale;                 // deliberately disagrees with the frames
+        stale.editorType = EditorType::DFlow;
+        stale.infusePressure = 9.9;
+        stale.infuseTime = 1.0;
+        stale.fillTemperature = 60.0;
+        p.setRecipeParams(stale);
+        QVERIFY(f.profileManager.loadProfileFromJson(
+            QString::fromUtf8(QJsonDocument(p.toJsonObject()).toJson(QJsonDocument::Compact))));
+
+        const QVariantMap params = f.profileManager.getOrConvertRecipeParams();
+        QCOMPARE(params["infusePressure"].toDouble(), 3.0);    // frame, not 9.9
+        QCOMPARE(params["infuseTime"].toDouble(), 20.0);       // frame, not 1.0
+        QCOMPARE(params["fillTemperature"].toDouble(), 93.0);  // frame, not 60.0
     }
 
     void getOrConvertRecipeParamsDFlowNoStoredExtractsFromFrames() {
         // D-Flow profile without stored recipe params (de1app import)
-        // Should extract params from frames on-the-fly
+        // Should extract params from frames on-the-fly.
+        //
+        // The fixture is three frames — Filling / Infusing / Pouring — because
+        // that is what a D-Flow profile IS. The plugin's `prep` reads indices
+        // 0/1/2 with no pattern matching, so a two-frame profile has no pour
+        // frame to read and the extraction has nothing to do. This used to be a
+        // two-frame fixture asserting `pourFlow > 0`, which the struct default
+        // of 2.0 satisfied on its own: it would have passed with extraction
+        // deleted entirely. Assert the frames' own values instead.
         QJsonObject json;
         json["title"] = "D-Flow / Import";
         json["author"] = "test";
@@ -2855,18 +3012,32 @@ private slots:
         frame1["exit"] = QJsonObject{{"type", "pressure"}, {"condition", "over"}, {"value", 4.0}};
         frame1["limiter"] = QJsonObject{{"value", 0.0}, {"range", 0.6}};
         steps.append(frame1);
+        QJsonObject frameSoak;
+        frameSoak["name"] = "infuse";
+        frameSoak["temperature"] = 90.5;
+        frameSoak["sensor"] = "coffee";
+        frameSoak["pump"] = "pressure";
+        frameSoak["transition"] = "fast";
+        frameSoak["pressure"] = 3.5;
+        frameSoak["flow"] = 8.0;
+        frameSoak["seconds"] = 22.0;
+        frameSoak["volume"] = 70.0;
+        frameSoak["weight"] = 1.5;
+        frameSoak["exit"] = QJsonObject{{"type", "pressure"}, {"condition", "over"}, {"value", 4.0}};
+        frameSoak["limiter"] = QJsonObject{{"value", 0.0}, {"range", 0.6}};
+        steps.append(frameSoak);
         QJsonObject frame2;
         frame2["name"] = "pour";
-        frame2["temperature"] = 93.0;
+        frame2["temperature"] = 91.5;
         frame2["sensor"] = "coffee";
         frame2["pump"] = "flow";
         frame2["transition"] = "smooth";
         frame2["pressure"] = 6.0;
-        frame2["flow"] = 2.0;
+        frame2["flow"] = 2.4;
         frame2["seconds"] = 60.0;
         frame2["volume"] = 0.0;
         frame2["exit"] = QJsonObject{{"type", "pressure"}, {"condition", "over"}, {"value", 11.0}};
-        frame2["limiter"] = QJsonObject{{"value", 0.0}, {"range", 0.6}};
+        frame2["limiter"] = QJsonObject{{"value", 8.5}, {"range", 0.6}};
         steps.append(frame2);
         json["steps"] = steps;
 
@@ -2875,7 +3046,17 @@ private slots:
 
         QVariantMap params = f.profileManager.getOrConvertRecipeParams();
         QCOMPARE(params["editorType"].toString(), "dflow");
-        QVERIFY(params["pourFlow"].toDouble() > 0);  // Extracted from frames
+
+        // plugin.tcl:195-210 — filling(0), soaking(1), pouring(2), by index.
+        QCOMPARE(params["fillTemperature"].toDouble(), 93.0);
+        QCOMPARE(params["infusePressure"].toDouble(), 3.5);
+        QCOMPARE(params["infuseTime"].toDouble(), 22.0);
+        QCOMPARE(params["infuseVolume"].toDouble(), 70.0);
+        QCOMPARE(params["infuseWeight"].toDouble(), 1.5);
+        QCOMPARE(params["pourFlow"].toDouble(), 2.4);
+        QCOMPARE(params["pourTemperature"].toDouble(), 91.5);
+        // Pour pressure is the LIMITER, not the frame's pressure setpoint.
+        QCOMPARE(params["pourPressure"].toDouble(), 8.5);
     }
 
     void getOrConvertRecipeParamsPressureReturnsScalarFields() {
@@ -2914,15 +3095,14 @@ private slots:
 
     void uploadRecipeProfileRegeneratesFramesOnParamChange() {
         McpTestFixture f;
-        loadDFlowProfile(f, "D-Flow / Test", 36.0, 93.0);
+        loadDFlowProfile(f, "D-Flow / Test", 36.0, 93.0, /*withInfuse=*/true);
 
         QVariantMap recipe;
         recipe["editorType"] = "dflow";
         recipe["targetWeight"] = 40.0;
         recipe["fillTemperature"] = 95.0;
         recipe["pourTemperature"] = 95.0;
-        recipe["fillPressure"] = 8.0;  // Changed from 6.0
-        recipe["fillFlow"] = 4.0;
+        recipe["infusePressure"] = 8.0;  // Changed from 6.0
         recipe["pourFlow"] = 2.5;     // Changed from 2.0
         f.profileManager.uploadRecipeProfile(recipe);
 
@@ -2947,7 +3127,15 @@ private slots:
         // flow-controlled Pouring frame.
         QCOMPARE(pouring["pump"].toString(), QStringLiteral("flow"));
         QCOMPARE(pouring["flow"].toDouble(), 2.5);
-        // fillFlow and pourTemperature must survive the same regeneration.
+        // The fill frame's flow is a field update_D-Flow never writes, so it must
+        // survive the regeneration carrying the SOURCE profile's value.
+        //
+        // This asserted 8.0 until the review caught it. 8.0 is
+        // RecipeGenerator::createFillFrame's own hardcoded literal, and the
+        // fixture was two frames — for which roleIndex returns -1 for every role
+        // (n < 3), so the restore loop is skipped entirely. The assertion passed
+        // whether restoreFieldsThePluginNeverWrites worked, was broken, or was
+        // deleted. Three frames, and 4.0 from the fixture, makes it discriminate.
         QCOMPARE(filling["flow"].toDouble(), 4.0);
         QCOMPARE(pouring["temperature"].toDouble(), 95.0);
 

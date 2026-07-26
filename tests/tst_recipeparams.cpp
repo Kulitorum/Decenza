@@ -24,10 +24,6 @@ private slots:
         original.targetVolume = 100.0;
         original.dose = 20.0;
         original.fillTemperature = 85.0;
-        original.fillPressure = 4.0;
-        original.fillFlow = 7.0;
-        original.fillTimeout = 20.0;
-        original.infuseEnabled = false;
         original.infusePressure = 2.5;
         original.infuseTime = 15.0;
         original.infuseWeight = 3.0;
@@ -49,10 +45,6 @@ private slots:
         QCOMPARE(parsed.targetVolume, 100.0);
         QCOMPARE(parsed.dose, 20.0);
         QCOMPARE(parsed.fillTemperature, 85.0);
-        QCOMPARE(parsed.fillPressure, 4.0);
-        QCOMPARE(parsed.fillFlow, 7.0);
-        QCOMPARE(parsed.fillTimeout, 20.0);
-        QVERIFY(!parsed.infuseEnabled);
         QCOMPARE(parsed.infusePressure, 2.5);
         QCOMPARE(parsed.pourTemperature, 90.0);
         QCOMPARE(parsed.pourPressure, 8.0);
@@ -87,8 +79,6 @@ private slots:
         QCOMPARE(parsed.targetWeight, 36.0);
         QCOMPARE(parsed.dose, 18.0);
         QCOMPARE(parsed.fillTemperature, 88.0);
-        QCOMPARE(parsed.fillPressure, 3.0);
-        QVERIFY(parsed.infuseEnabled);
         QCOMPARE(parsed.editorType, EditorType::DFlow);
         QCOMPARE(parsed.preinfuseFrameCount, -1);  // Sentinel: use countPreinfuseFrames()
     }
@@ -132,8 +122,6 @@ private slots:
         params.applyEditorDefaults();
 
         QCOMPARE(params.fillTemperature, 88.0);
-        QCOMPARE(params.fillPressure, 3.0);
-        QCOMPARE(params.fillTimeout, 25.0);
         QCOMPARE(params.infuseTime, 60.0);
         QCOMPARE(params.infusePressure, 3.0);
         QCOMPARE(params.infuseWeight, 4.0);
@@ -151,8 +139,6 @@ private slots:
         params.applyEditorDefaults();
 
         QCOMPARE(params.fillTemperature, 95.0);
-        QCOMPARE(params.fillPressure, 3.0);
-        QCOMPARE(params.fillTimeout, 15.0);
         QCOMPARE(params.infuseTime, 60.0);
         QCOMPARE(params.infuseWeight, 3.6);
         QCOMPARE(params.pourTemperature, 95.0);
@@ -178,10 +164,10 @@ private slots:
 
     void clampPressureRange() {
         RecipeParams params;
-        params.fillPressure = 20.0;  // Over 12 bar max
+        params.infusePressure = 20.0;  // Over 12 bar max
         params.espressoPressure = -5.0;  // Negative
         params.clamp();
-        QCOMPARE(params.fillPressure, 12.0);
+        QCOMPARE(params.infusePressure, 12.0);
         QCOMPARE(params.espressoPressure, 0.0);
     }
 
@@ -205,10 +191,10 @@ private slots:
 
     void clampNegativeTimesToZero() {
         RecipeParams params;
-        params.fillTimeout = -5.0;
+        params.infuseTime = -5.0;
         params.holdTime = -1.0;
         params.clamp();
-        QCOMPARE(params.fillTimeout, 0.0);
+        QCOMPARE(params.infuseTime, 0.0);
         QCOMPARE(params.holdTime, 0.0);
     }
 
@@ -224,9 +210,9 @@ private slots:
     void validateOutOfRangeReportsErrors() {
         RecipeParams params;
         params.targetWeight = -10.0;
-        params.fillPressure = 15.0;
+        params.infusePressure = 15.0;
         params.pourFlow = 20.0;
-        params.fillTimeout = -1.0;
+        params.infuseTime = -1.0;
         params.preinfuseFrameCount = 25;
 
         QStringList issues = params.validate();
@@ -299,7 +285,7 @@ private slots:
 
     void frameFieldsNotEqualWhenBoolDiffers() {
         RecipeParams a, b;
-        b.infuseEnabled = !a.infuseEnabled;
+        b.rampDownEnabled = !a.rampDownEnabled;
         QVERIFY(!a.frameAffectingFieldsEqual(b));
     }
 
