@@ -200,6 +200,33 @@ Page {
     Tr { id: trRowWater; key: "recipes.wizard.rowHotWater"; fallback: "Hot water"; visible: false }
     Tr { id: trRowEquipment; key: "shotdetail.equipment"; fallback: "Equipment"; visible: false }
 
+    // Averaged refractometer read. avgTotal > 0 means a run is in flight; both reset
+    // when it finishes so the button returns to its resting label.
+    readonly property int averageTestCount: 3
+    property int avgDone: 0
+    property int avgTotal: 0
+
+    Connections {
+        target: (typeof Refractometer !== "undefined" && Refractometer) ? Refractometer : null
+        function onAverageProgress(completed, total) {
+            postShotReviewPage.avgDone = completed
+            postShotReviewPage.avgTotal = total
+        }
+        // measurementComplete fires once at the end of an averaged run (the driver
+        // separates delivering a value from declaring the run over), so this is the
+        // right place to clear the progress label.
+        function onMeasurementComplete() {
+            postShotReviewPage.avgDone = 0
+            postShotReviewPage.avgTotal = 0
+        }
+        function onMeasuringChanged() {
+            if (Refractometer && !Refractometer.measuring) {
+                postShotReviewPage.avgDone = 0
+                postShotReviewPage.avgTotal = 0
+            }
+        }
+    }
+
     property bool autoClose: true  // false when user opens manually (no auto-dismiss)
     property bool advancedMode: Settings.boolValue("shotReview/advancedMode", false)
     property string uploadError: ""
@@ -1175,6 +1202,57 @@ Page {
                     }
                 }
 
+                // Averaged read. A single refractometer reading carries real run-to-run
+                // scatter — two back-to-back reads on one sample differed by 0.02% on
+                // hardware — so the R2 can take several and average them in firmware.
+                // Fixed at three: it captures most of the benefit, and a count the user
+                // has no basis to choose is not worth a setting.
+                Rectangle {
+                    id: avgTdsButton
+                    property bool refConnected: BLEManager.refractometerConnected
+                    property bool refReady: refConnected && typeof Refractometer !== "undefined" && Refractometer
+                    property bool refMeasuring: refReady && Refractometer.measuring
+
+                    visible: Settings.savedRefractometerAddress !== ""
+                             && refReady && Refractometer.supportsAveraging()
+                    Layout.preferredWidth: Theme.scaled(64)
+                    Layout.preferredHeight: Theme.scaled(36)
+                    Layout.alignment: Qt.AlignVCenter
+                    radius: Theme.scaled(12)
+                    color: Theme.cardBackgroundColor
+                    border.width: 1
+                    border.color: Theme.textSecondaryColor
+                    opacity: refMeasuring ? 0.5 : 1.0
+                    Accessible.ignored: true
+
+                    Text {
+                        anchors.centerIn: parent
+                        // While a run is in flight, show which test of how many — the R2
+                        // takes seconds per test and a static label reads as hung.
+                        text: postShotReviewPage.avgTotal > 0
+                            ? postShotReviewPage.avgDone + "/" + postShotReviewPage.avgTotal
+                            : TranslationManager.translate("postshotreview.refractometer.avgTds", "Avg ×3")
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(13)
+                        Accessible.ignored: true
+                    }
+
+                    AccessibleMouseArea {
+                        anchors.fill: parent
+                        accessibleName: TranslationManager.translate(
+                            "postshotreview.readAveragedTds",
+                            "Read averaged TDS — takes three measurements and averages them")
+                        accessibleItem: avgTdsButton
+                        enabled: !avgTdsButton.refMeasuring
+                        onAccessibleClicked: {
+                            if (!avgTdsButton.refReady) return
+                            postShotReviewPage.avgDone = 0
+                            postShotReviewPage.avgTotal = 0
+                            Refractometer.requestAveragedMeasurement(postShotReviewPage.averageTestCount)
+                        }
+                    }
+                }
+
                 // Basic/Advanced mode toggle (matches espresso page view selector)
                 Rectangle {
                     Layout.preferredWidth: Theme.scaled(36)
@@ -1431,7 +1509,7 @@ Page {
                 Rectangle {
                     id: ratingBox
                     Layout.fillWidth: true
-                    height: Theme.scaled(44)
+                    Layout.preferredHeight: Theme.scaled(44)
                     radius: Theme.scaled(12)
                     color: Theme.cardBackgroundColor
                     border.width: 1
@@ -1668,8 +1746,8 @@ Page {
                             }
                             // Refractometer status dot (only when configured)
                             Rectangle {
-                                width: Theme.scaled(6)
-                                height: Theme.scaled(6)
+                                Layout.preferredWidth: Theme.scaled(6)
+                                Layout.preferredHeight: Theme.scaled(6)
                                 radius: Theme.scaled(3)
                                 visible: Settings.savedRefractometerAddress !== ""
                                 color: {
@@ -1952,7 +2030,7 @@ Page {
                             Layout.fillWidth: true
                             Layout.topMargin: Theme.scaled(2)
                             Layout.bottomMargin: Theme.scaled(2)
-                            height: Theme.scaled(1)
+                            Layout.preferredHeight: Theme.scaled(1)
                             color: Theme.borderColor
                             Accessible.ignored: true
                         }

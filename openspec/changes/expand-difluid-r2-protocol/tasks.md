@@ -40,11 +40,11 @@
 
 ## 6. User-facing capture
 
-- [ ] 6.1 Add an averaged-read affordance to the TDS control on `PostShotReviewPage.qml`, defaulting to single test
-- [ ] 6.2 Show multi-test progress while a run is in flight so the control does not read as hung
-- [ ] 6.3 Accessibility: `Accessible.role`/`name`/`focusable`/`onPressAction` on any new control, and fix any pre-existing violations in the files touched
-- [ ] 6.4 Internationalize all new visible text via `TranslationManager.translate` / `Tr`, reusing existing keys where they fit
-- [ ] 6.5 Resolve design's open question on whether an averaged reading is distinguished from a single one after the fact
+- [x] 6.1 Add an averaged-read affordance to the TDS control on `PostShotReviewPage.qml`, defaulting to single test
+- [x] 6.2 Show multi-test progress while a run is in flight so the control does not read as hung
+- [x] 6.3 Accessibility: `Accessible.role`/`name`/`focusable`/`onPressAction` on any new control, and fix any pre-existing violations in the files touched
+- [x] 6.4 Internationalize all new visible text via `TranslationManager.translate` / `Tr`, reusing existing keys where they fit
+- [x] 6.5 Resolved: not distinguished after the fact. The saved value is a TDS measurement either way; M-of-N progress during the run is what the user needs, and a persisted "this was an average" flag has no consumer
 
 ## 7. Documentation and verification
 

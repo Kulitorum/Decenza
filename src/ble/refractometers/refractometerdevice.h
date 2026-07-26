@@ -53,6 +53,10 @@ public:
     Q_INVOKABLE virtual void setAutoTest(bool enabled) { Q_UNUSED(enabled); }
     // Whether this device supports Auto Test at all — drives whether UI offers it.
     Q_INVOKABLE virtual bool supportsAutoTest() const { return false; }
+    // Whether the device can average in firmware. The base falls back to a single
+    // measurement, which is a safe answer but not an honest label — UI offering an
+    // "average" that silently takes one reading would be a lie, so it asks first.
+    Q_INVOKABLE virtual bool supportsAveraging() const { return false; }
 
     virtual void connectToDevice(const QBluetoothDeviceInfo& device) = 0;
     Q_INVOKABLE virtual void disconnectFromDevice() = 0;
