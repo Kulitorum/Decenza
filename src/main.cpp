@@ -2965,6 +2965,31 @@ int main(int argc, char *argv[])
         QObject::connect(refractometer.get(), &RefractometerDevice::errorOccurred,
                          &bleManager, &BLEManager::errorOccurred);
 
+        // Auto Test lives in Settings, not on the device, because the R2 is only
+        // connected while the post-shot review page is open — a device-only control
+        // would be unusable almost everywhere the user might want to change it. So
+        // Settings holds the intent and we push it to the device on every connect.
+        // The device stores it too; writing on each connect just keeps the two in
+        // step when the setting was changed with the R2 away.
+        if (refractometer->supportsAutoTest()) {
+            RefractometerDevice* refPtr = refractometer.get();
+            // Auto Test only. Making it also raise the device's test count so unattended
+            // readings were averaged was tried and dropped: three runs on hardware put
+            // the single-reading scatter at about 0.011% TDS, so averaging three buys
+            // roughly 0.005% — less than the 0.01% step the device reports in, and so
+            // not representable in the answer at all. The driver keeps setDeviceTestCount
+            // as protocol coverage; nothing sets it, and the device default of 1 stands.
+            const auto applyAutoTest = [refPtr, &settings]() {
+                if (!refPtr->isConnected()) return;
+                refPtr->setAutoTest(settings.app()->refractometerAutoTest());
+            };
+            QObject::connect(refPtr, &RefractometerDevice::connectedChanged, refPtr, applyAutoTest);
+            // Changing the setting while the device happens to be connected applies
+            // straight away rather than waiting for the next connect.
+            QObject::connect(settings.app(), &SettingsApp::refractometerAutoTestChanged,
+                             refPtr, applyAutoTest);
+        }
+
         qDebug() << "[Refractometer] Created and connecting to" << device.name();
     });
 

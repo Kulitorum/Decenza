@@ -58,7 +58,7 @@ Item {
                 Layout.leftMargin: Theme.scaled(20)
                 Layout.rightMargin: Theme.scaled(20)
                 Layout.topMargin: Theme.scaled(10)
-                height: Theme.scaled(40)
+                Layout.preferredHeight: Theme.scaled(40)
                 color: emailMouseArea.containsMouse
                        ? Qt.rgba(Theme.accentColor.r, Theme.accentColor.g, Theme.accentColor.b, 0.25)
                        : Qt.rgba(Theme.accentColor.r, Theme.accentColor.g, Theme.accentColor.b, 0.15)
@@ -160,8 +160,8 @@ Item {
 
                 // Share button
                 Rectangle {
-                    width: Theme.scaled(140)
-                    height: Theme.scaled(36)
+                    Layout.preferredWidth: Theme.scaled(140)
+                    Layout.preferredHeight: Theme.scaled(36)
                     color: Theme.accentColor
                     radius: Theme.scaled(6)
 
@@ -543,8 +543,8 @@ Item {
                         Item { Layout.fillWidth: true }
 
                         Rectangle {
-                            width: usbStatusText.implicitWidth + Theme.scaled(16)
-                            height: Theme.scaled(24)
+                            Layout.preferredWidth: usbStatusText.implicitWidth + Theme.scaled(16)
+                            Layout.preferredHeight: Theme.scaled(24)
                             radius: Theme.scaled(12)
                             color: DE1Device.connected
                                    ? Qt.rgba(Theme.successColor.r, Theme.successColor.g, Theme.successColor.b, 0.2)
@@ -676,7 +676,7 @@ Item {
                     // Bluetooth off warning
                     Rectangle {
                         Layout.fillWidth: true
-                        height: btOffRow.implicitHeight + Theme.scaled(16)
+                        Layout.preferredHeight: btOffRow.implicitHeight + Theme.scaled(16)
                         color: Qt.rgba(Theme.errorColor.r, Theme.errorColor.g, Theme.errorColor.b, 0.15)
                         radius: Theme.scaled(6)
                         border.color: Theme.errorColor
@@ -1035,7 +1035,7 @@ Item {
                     // Virtual scale notice (FlowScale active)
                     Rectangle {
                         Layout.fillWidth: true
-                        height: flowScaleNotice.implicitHeight + 16
+                        Layout.preferredHeight: flowScaleNotice.implicitHeight + 16
                         radius: Theme.scaled(6)
                         color: Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15)
                         border.color: Theme.primaryColor
@@ -1058,7 +1058,7 @@ Item {
                     // Simulated scale notice
                     Rectangle {
                         Layout.fillWidth: true
-                        height: simScaleNotice.implicitHeight + 16
+                        Layout.preferredHeight: simScaleNotice.implicitHeight + 16
                         radius: Theme.scaled(6)
                         color: Qt.rgba(Theme.warningColor.r, Theme.warningColor.g, Theme.warningColor.b, 0.15)
                         border.color: Theme.warningColor
@@ -1181,8 +1181,8 @@ Item {
 
                                     Rectangle {
                                         Layout.leftMargin: Theme.scaled(10)
-                                        width: Theme.scaled(8)
-                                        height: Theme.scaled(8)
+                                        Layout.preferredWidth: Theme.scaled(8)
+                                        Layout.preferredHeight: Theme.scaled(8)
                                         radius: Theme.scaled(4)
                                         color: (ScaleDevice && ScaleDevice.connected)
                                                ? Theme.successColor
@@ -1211,8 +1211,8 @@ Item {
                                             return ""
                                         }
                                         visible: badge.length > 0
-                                        width: badgeText.implicitWidth + Theme.scaled(10)
-                                        height: Theme.scaled(18)
+                                        Layout.preferredWidth: badgeText.implicitWidth + Theme.scaled(10)
+                                        Layout.preferredHeight: Theme.scaled(18)
                                         radius: Theme.scaled(9)
                                         color: Qt.rgba(Theme.accentColor.r, Theme.accentColor.g, Theme.accentColor.b, 0.22)
                                         Text {
@@ -1284,8 +1284,8 @@ Item {
                                         Rectangle {
                                             property string badge: scalePicker.transportLabel(modelData.type)
                                             visible: badge.length > 0
-                                            width: rowBadgeText.implicitWidth + Theme.scaled(10)
-                                            height: Theme.scaled(18)
+                                            Layout.preferredWidth: rowBadgeText.implicitWidth + Theme.scaled(10)
+                                            Layout.preferredHeight: Theme.scaled(18)
                                             radius: Theme.scaled(9)
                                             color: Qt.rgba(Theme.accentColor.r, Theme.accentColor.g, Theme.accentColor.b, 0.2)
                                             Accessible.ignored: true
@@ -1407,7 +1407,7 @@ Item {
 
                             Rectangle {
                                 Layout.fillWidth: true
-                                height: Theme.scaled(36)
+                                Layout.preferredHeight: Theme.scaled(36)
                                 radius: Theme.scaled(6)
                                 color: Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.12)
                                 border.color: Theme.primaryColor
@@ -1421,8 +1421,8 @@ Item {
 
                                     // Status dot
                                     Rectangle {
-                                        width: Theme.scaled(8)
-                                        height: Theme.scaled(8)
+                                        Layout.preferredWidth: Theme.scaled(8)
+                                        Layout.preferredHeight: Theme.scaled(8)
                                         radius: Theme.scaled(4)
                                         color: BLEManager.refractometerConnected ? Theme.successColor : Theme.textSecondaryColor
                                         Accessible.ignored: true
@@ -1439,8 +1439,8 @@ Item {
 
                                     // Type badge
                                     Rectangle {
-                                        width: refBadgeText.implicitWidth + Theme.scaled(8)
-                                        height: Theme.scaled(18)
+                                        Layout.preferredWidth: refBadgeText.implicitWidth + Theme.scaled(8)
+                                        Layout.preferredHeight: Theme.scaled(18)
                                         radius: Theme.scaled(9)
                                         color: Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.2)
 
@@ -1455,6 +1455,39 @@ Item {
                                         }
                                     }
                                 }
+                            }
+
+                            // Auto Test toggle. Bound to the setting, not to the device:
+                            // the R2 is only connected while the post-shot review page is
+                            // open, so a device-only control would be greyed out almost
+                            // everywhere the user would want to reach it. The setting is
+                            // pushed to the refractometer on every connect (main.cpp), so
+                            // changing it with the device away still takes effect.
+                            AccessibleButton {
+                                id: autoTestButton
+                                readonly property bool autoTestOn: Settings.app.refractometerAutoTest
+                                // An R1 has no Auto Test. Offering the toggle anyway
+                                // persisted a setting that the device never honoured and
+                                // that main.cpp never even wired up, with no feedback.
+                                // While disconnected the saved name is the only evidence
+                                // of which model is paired.
+                                readonly property bool deviceSupports:
+                                    (BLEManager.refractometerConnected
+                                     && typeof Refractometer !== "undefined" && Refractometer)
+                                        ? Refractometer.supportsAutoTest
+                                        : (Settings.savedRefractometerName || "")
+                                              .toLowerCase().indexOf("dft_tdj") !== 0
+
+                                visible: deviceSupports
+                                text: autoTestOn
+                                    ? TranslationManager.translate("connections.autoTestOn", "Auto Test: On")
+                                    : TranslationManager.translate("connections.autoTestOff", "Auto Test: Off")
+                                accessibleName: autoTestOn
+                                    ? TranslationManager.translate("connections.autoTestTurnOff",
+                                        "Turn off Auto Test — the refractometer will no longer measure by itself")
+                                    : TranslationManager.translate("connections.autoTestTurnOn",
+                                        "Turn on Auto Test — the refractometer measures by itself when a sample is loaded")
+                                onClicked: Settings.app.refractometerAutoTest = !autoTestOn
                             }
 
                             AccessibleButton {
@@ -1691,15 +1724,15 @@ Item {
                                 }
                                 // Type badge
                                 Rectangle {
-                                    width: badgeText.implicitWidth + Theme.scaled(8)
-                                    height: Theme.scaled(18)
+                                    Layout.preferredWidth: discoveredBadgeText.implicitWidth + Theme.scaled(8)
+                                    Layout.preferredHeight: Theme.scaled(18)
                                     radius: Theme.scaled(9)
                                     color: modelData.deviceClass === "refractometer"
                                         ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.2)
                                         : Qt.rgba(Theme.accentColor.r, Theme.accentColor.g, Theme.accentColor.b, 0.2)
 
                                     Text {
-                                        id: badgeText
+                                        id: discoveredBadgeText
                                         anchors.centerIn: parent
                                         text: modelData.deviceClass === "refractometer"
                                             ? TranslationManager.translate("connections.refractometer", "Refractometer")

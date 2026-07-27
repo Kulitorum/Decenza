@@ -556,6 +556,17 @@ bool SettingsApp::storedSimulationMode() const {
 #endif
 }
 
+bool SettingsApp::refractometerAutoTest() const {
+    // Defaults to the device's own factory default, so a first run configures nothing.
+    return m_settings.value("refractometer/autoTest", false).toBool();
+}
+
+void SettingsApp::setRefractometerAutoTest(bool value) {
+    if (refractometerAutoTest() == value) return;
+    m_settings.setValue("refractometer/autoTest", value);
+    emit refractometerAutoTestChanged();
+}
+
 bool SettingsApp::simulationMode() const {
 #ifndef DECENZA_SIMULATOR
     // No simulator in this build, so the answer is no regardless of what is

@@ -19,6 +19,76 @@
 static constexpr uint8_t PACKET_HEADER = 0xDF;
 static constexpr int PACKET_MIN_LENGTH = 6;  // header(2) + func(1) + cmd(1) + datalen(1) + checksum(1)
 
+// R2 test status codes (protocolR2.md "Device Status"), cross-checked against
+// Beanconqueror's `diFluid.R2.action.test.status` enum. Returns an empty string for
+// a code we have no name for — the caller always logs the number, so an unnamed
+// code is still visible rather than silently swallowed.
+//
+// These names are read by people and by AI assistants triaging a user's log over
+// MCP. "Status: 5" says nothing; "Average test ongoing" says the device is healthy
+// and working, which is the difference between a bug report and a non-report.
+static QString r2StatusName(uint8_t status) {
+    switch (status) {
+    case 0:  return QStringLiteral("Test finished");
+    case 1:  return QStringLiteral("Calibration finished");
+    case 2:
+    case 3:  return QStringLiteral("reserved");
+    case 4:  return QStringLiteral("Average test started");
+    case 5:  return QStringLiteral("Average test ongoing");
+    case 6:  return QStringLiteral("Average test finished");
+    case 7:  return QStringLiteral("Loop test started");
+    case 8:  return QStringLiteral("Loop test ongoing");
+    case 9:  return QStringLiteral("Loop test finished");
+    // The R2 emits 10 specifically to say an individual test is taking a long time.
+    // It is a liveness signal, not a fault — see the watchdog handling below.
+    case 10: return QStringLiteral("Average test ongoing (this test is running long)");
+    case 11: return QStringLiteral("Test started");
+    case 12: return QStringLiteral("Calibration started");
+    default: return QString();
+    }
+}
+
+// Statuses that say the device is still working on the measurement. Restarting the
+// liveness watchdog on these is what lets a multi-test averaged run outlive a single
+// watchdog interval without the driver having to guess how long the run should take.
+static bool r2StatusIsProgress(uint8_t status) {
+    switch (status) {
+    case 4:   // Average test started
+    case 5:   // Average test ongoing
+    case 7:   // Loop test started
+    case 8:   // Loop test ongoing
+    case 10:  // Average test ongoing — this individual test is running long
+    case 11:  // Test started
+        return true;
+    default:
+        return false;
+    }
+}
+
+// R2 error classes and codes (protocolR2.md "Error Code"). Always returns something
+// printable, so an unrecognised pair degrades to its numbers rather than to silence.
+static QString r2ErrorDescription(uint8_t errClass, uint8_t errCode) {
+    if (errClass == 2) {  // General (software) errors
+        switch (errCode) {
+        case 1:  return QStringLiteral("Test error");
+        case 2:  return QStringLiteral("Calibration failed");
+        case 3:  return QStringLiteral("No liquid");
+        case 4:  return QStringLiteral("Beyond range");
+        default: return QStringLiteral("unrecognised general error (code %1)").arg(errCode);
+        }
+    }
+    if (errClass == 3) {  // Hardware — the code is what the device itself displays
+        return QStringLiteral("hardware error — the device screen is showing code %1")
+            .arg(errCode);
+    }
+    if (errClass == 0) {
+        // Observed in the field around SUCCESSFUL reads; see the note at the call site
+        // on why these are log-only.
+        return QStringLiteral("benign device status (code %1), not a fault").arg(errCode);
+    }
+    return QStringLiteral("unrecognised error (class %1, code %2)").arg(errClass).arg(errCode);
+}
+
 // R2-specific note on the shared plausibility ceiling: when an R2 measurement
 // fails mid-flight it emits an out-of-range sentinel in the TDS field —
 // observed as raw 0xFFE5 (65509 → 655.09%) one packet before an
@@ -30,9 +100,16 @@ DiFluidR2::DiFluidR2(ScaleBleTransport* transport, QObject* parent)
     : RefractometerDevice(parent)
     , m_transport(transport)
 {
-    // Watchdog: BLE measurement failures may produce no packet at all (device out of
-    // range, disconnected mid-measurement). This timeout recovers from stuck measurements
-    // that produce no error event — event-based detection cannot detect missing events.
+    // Liveness watchdog, NOT a bound on how long a measurement may take. A device that
+    // goes silent (out of range, powered off mid-measurement) emits no event at all, and
+    // no event-based mechanism can detect a missing event — which is why this timer is
+    // the documented exception to the project's no-timers-as-guards rule.
+    //
+    // The interval is restarted by any packet saying the device is still working (see
+    // r2StatusIsProgress). That distinction matters: armed once at request time, this
+    // was effectively a 15-second ceiling, and an averaged run of several tests would
+    // trip it and abort a perfectly healthy device. Silence still recovers, which is
+    // the only property the exception was granted for.
     m_measurementTimer.setSingleShot(true);
     m_measurementTimer.setInterval(15000);
     connect(&m_measurementTimer, &QTimer::timeout, this, [this]() {
@@ -45,8 +122,9 @@ DiFluidR2::DiFluidR2(ScaleBleTransport* transport, QObject* parent)
                     .arg(m_measurementTimer.interval()));
         emit errorOccurred("The refractometer stopped responding. Check it is "
                            "switched on and in range, then try again.");
-        m_measuring = false;
-        emit measuringChanged();
+        // Route through the single end-of-run path rather than inlining a second one,
+        // so anything added there is not silently skipped on the timeout branch.
+        finishMeasurement(/*complete=*/false);
     });
 
     // BLE stack constraint: Qt's BLE layer (Android BluetoothLE + iOS CoreBluetooth)
@@ -81,7 +159,14 @@ DiFluidR2::DiFluidR2(ScaleBleTransport* transport, QObject* parent)
         // "concentration" field — which we'd then mislabel as TDS. Logging the model
         // string lets us tell them apart when a reading looks like Brix, not TDS.
         // These are fixed DataLen=0 queries straight from the spec (checksum baked in).
-        R2_LOG("Querying device model + firmware (instrumentation)");
+        // Read back the device's Auto Test setting. Note the ordering: emit
+        // connectedChanged() above invokes main.cpp's applyAutoTest synchronously, so
+        // our own write is already on the wire and this query confirms that rather than
+        // observing the device's independent state.
+        sendCommand(QByteArray::fromHex("DFDF010100C0"));  // Get Auto Test Status
+
+        R2_LOG("Querying serial + device model + firmware (instrumentation)");
+        sendCommand(QByteArray::fromHex("DFDF000000BE"));  // Get SN (Func 0, Cmd 0)
         sendCommand(QByteArray::fromHex("DFDF000100BF"));  // Get Device Model (Func 0, Cmd 1)
         sendCommand(QByteArray::fromHex("DFDF000200C0"));  // Get Firmware Version (Func 0, Cmd 2)
     });
@@ -133,6 +218,20 @@ void DiFluidR2::connectToDevice(const QBluetoothDeviceInfo& device) {
     m_name = newName;
     m_serviceFound = false;
     m_characteristicsReady = false;
+    // Identity belongs to the device we are connecting to, not to the driver — a
+    // different R2 must not inherit the last one's serial.
+    m_serialNumber.clear();
+    m_serialParts.clear();
+    m_serialPartsSeen = 0;
+    // Auto Test is likewise the device's state, not ours — drop it until this device
+    // answers the query rather than carrying the last device's answer forward.
+    if (m_autoTest) {
+        m_autoTest = false;
+        emit autoTestChanged();
+    }
+    // Also an outstanding request — otherwise a dropped echo lets a stale one be
+    // compared against a DIFFERENT R2's state, warning about a write never made to it.
+    m_autoTestRequested = -1;
     if (nameChange) emit nameChanged();
 
     R2_LOG(QString("Connecting to %1 (%2)")
@@ -164,6 +263,8 @@ void DiFluidR2::requestMeasurement() {
     }
 
     m_measuring = true;
+    m_runDeliveredReading = false;
+    m_runInFlight = true;
     emit measuringChanged();
     R2_LOG("Requesting single test from R2");
 
@@ -183,6 +284,107 @@ void DiFluidR2::requestMeasurement() {
     cmd.append(static_cast<char>(checksum));
 
     sendCommand(cmd);
+    m_runElapsed.start();
+    m_measurementTimer.start();
+}
+
+void DiFluidR2::setAutoTest(bool enabled) {
+    if (!m_connected || !m_characteristicsReady) {
+        R2_WARN("Cannot change Auto Test — not connected");
+        return;
+    }
+
+    // Func=1 (Device Settings), Cmd=1 (Auto Test Status), DataLen=1, Data0 = 0 off / 1 on.
+    // The device persists this too, but Decenza owns the intent and re-applies it on
+    // every connect (main.cpp) — the R2 is only connected while the review page is
+    // open, so a device-only control would be unreachable almost everywhere.
+    R2_LOG(QString("Setting Auto Test %1").arg(enabled ? "on" : "off"));
+    QByteArray cmd;
+    cmd.append(static_cast<char>(0xDF));
+    cmd.append(static_cast<char>(0xDF));
+    cmd.append(static_cast<char>(0x01));  // Func: Device Settings
+    cmd.append(static_cast<char>(0x01));  // Cmd: Auto Test Status
+    cmd.append(static_cast<char>(0x01));  // DataLen: 1
+    cmd.append(static_cast<char>(enabled ? 0x01 : 0x00));
+
+    uint8_t checksum = 0;
+    for (qsizetype i = 0; i < cmd.size(); ++i)
+        checksum += static_cast<uint8_t>(cmd[i]);
+    cmd.append(static_cast<char>(checksum));
+
+    // m_autoTest is NOT set here — the device echoes the setting back and that echo is
+    // what moves our state. Assuming the write took would show the user a state their
+    // device might not be in. Remember what we asked for so the echo can be compared
+    // against it rather than merely reported.
+    m_autoTestRequested = enabled ? 1 : 0;
+    sendCommand(cmd);
+}
+
+void DiFluidR2::setDeviceTestCount(int count) {
+    if (!m_connected || !m_characteristicsReady) {
+        R2_WARN("Cannot set the device test count — not connected");
+        return;
+    }
+
+    const int clamped = qBound(MIN_TEST_COUNT, count, MAX_TEST_COUNT);
+
+    // Func=1 (Device Settings), Cmd=3 (Number of Tests), DataLen=1, Data0 = count.
+    // Per protocolR2.md this "only takes effect on offline test" — a measurement the
+    // device starts itself. Above 1 it also converts the loop test the R2 falls back
+    // to on an unsettled prism into a real average test, which is what makes a
+    // button-press or Auto Test reading averaged rather than single.
+    R2_LOG(QString("Setting device-initiated test count to %1").arg(clamped));
+    QByteArray cmd;
+    cmd.append(static_cast<char>(0xDF));
+    cmd.append(static_cast<char>(0xDF));
+    cmd.append(static_cast<char>(0x01));  // Func: Device Settings
+    cmd.append(static_cast<char>(0x03));  // Cmd: Number of Tests
+    cmd.append(static_cast<char>(0x01));  // DataLen: 1
+    cmd.append(static_cast<char>(clamped));
+
+    uint8_t checksum = 0;
+    for (qsizetype i = 0; i < cmd.size(); ++i)
+        checksum += static_cast<uint8_t>(cmd[i]);
+    cmd.append(static_cast<char>(checksum));
+
+    sendCommand(cmd);
+}
+
+void DiFluidR2::requestAveragedMeasurement(int testCount) {
+    if (!m_connected || !m_characteristicsReady) {
+        R2_WARN("Cannot read — not connected");
+        return;
+    }
+
+    const int clamped = qBound(MIN_TEST_COUNT, testCount, MAX_TEST_COUNT);
+    if (clamped != testCount) {
+        R2_WARN(QString("Averaged test count %1 outside the device range %2-%3 — using %4")
+                    .arg(testCount).arg(MIN_TEST_COUNT).arg(MAX_TEST_COUNT).arg(clamped));
+    }
+
+    m_measuring = true;
+    m_runDeliveredReading = false;
+    m_runInFlight = true;
+    emit measuringChanged();
+    R2_LOG(QString("Requesting averaged test (%1 tests) from R2").arg(clamped));
+
+    // Official protocol: Func=3 (Device Action), Cmd=1 (Average Test), DataLen=1,
+    // Data0 = number of tests. Command: DF DF 03 01 01 <count> <checksum>
+    QByteArray cmd;
+    cmd.append(static_cast<char>(0xDF));  // Header
+    cmd.append(static_cast<char>(0xDF));  // Header
+    cmd.append(static_cast<char>(0x03));  // Func: Device Action
+    cmd.append(static_cast<char>(0x01));  // Cmd: Average Test
+    cmd.append(static_cast<char>(0x01));  // DataLen: 1
+    cmd.append(static_cast<char>(clamped));
+
+    uint8_t checksum = 0;
+    for (qsizetype i = 0; i < cmd.size(); ++i)
+        checksum += static_cast<uint8_t>(cmd[i]);
+    cmd.append(static_cast<char>(checksum));
+
+    sendCommand(cmd);
+    m_runElapsed.start();
     m_measurementTimer.start();
 }
 
@@ -269,6 +471,12 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
     // Official DiFluid protocol: DF DF <Func> <Cmd> <DataLen> <Data0..DataN> <Checksum>
     // Minimum packet: header(2) + func(1) + cmd(1) + datalen(1) + checksum(1) = 6 bytes
     if (packet.size() < PACKET_MIN_LENGTH) {
+        // A runt is at least as alarming as the bad-header case logged below — BLE
+        // fragmentation, an MTU change, a firmware emitting a shape we do not know —
+        // and it used to be the one malformed packet that left no evidence at all.
+        R2_LOG(QString("Runt packet (%1 bytes, minimum %2): %3")
+                   .arg(packet.size()).arg(PACKET_MIN_LENGTH)
+                   .arg(QString(packet.toHex(' '))));
         return;
     }
 
@@ -301,7 +509,9 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
     // Brix variant / rebrand and the pack-2 concentration field is Brix, not TDS.
     if (func == 0) {
         const QByteArray data = packet.mid(5, dataLen);
-        if (cmd == 1) {  // Device Model
+        if (cmd == 0) {  // Serial Number (arrives in parts)
+            handleSerialNumberPart(data);
+        } else if (cmd == 1) {  // Device Model
             m_deviceModel = QString::fromLatin1(data);
             R2_LOG(QString("Device model: \"%1\"%2")
                        .arg(m_deviceModel,
@@ -336,6 +546,53 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
         return;
     }
 
+    // Number-of-Tests echo. Governs device-initiated runs only; logging it makes it
+    // possible to tell from a log whether a button-press reading was averaged.
+    if (func == 1 && cmd == 3) {
+        if (dataLen < 1) {
+            R2_WARN(QString("Test-count echo carried no data byte (%1)")
+                        .arg(QString(packet.toHex(' '))));
+            return;
+        }
+        const int count = static_cast<uint8_t>(packet[5]);
+        R2_LOG(QString("Device-initiated test count is now %1%2")
+                   .arg(count)
+                   .arg(count > 1 ? QStringLiteral(" (device-started reads are averaged)")
+                                  : QStringLiteral(" (device-started reads are single)")));
+        return;
+    }
+
+    // Auto Test Status echo — the device's answer to both our query and our write, and
+    // the only thing that moves m_autoTest. Reading it back rather than assuming means
+    // the UI shows what the device is actually doing.
+    if (func == 1 && cmd == 1) {
+        // A malformed echo must not move device state. Defaulting an absent byte to 0
+        // let a zero-length packet flip m_autoTest to false and log a confident
+        // "Auto Test is off" — a packet carrying no answer, reported as an answer.
+        if (dataLen < 1) {
+            R2_WARN(QString("Auto Test echo carried no data byte (%1) — state unchanged")
+                        .arg(QString(packet.toHex(' '))));
+            return;
+        }
+        const bool enabled = static_cast<uint8_t>(packet[5]) == 1;
+        // A write that never landed and a device that is simply off produce the same
+        // "Auto Test is off" line, so the divergence has to be stated explicitly or it
+        // cannot be seen. Nobody greps for the absence of a log line.
+        if (m_autoTestRequested >= 0 && enabled != (m_autoTestRequested == 1)) {
+            R2_WARN(QString("Auto Test write did not take: asked for %1, device reports %2 "
+                            "— try toggling it on the R2 itself")
+                        .arg(m_autoTestRequested == 1 ? "on" : "off", enabled ? "on" : "off"));
+        } else {
+            R2_LOG(QString("Auto Test is %1").arg(enabled ? "on" : "off"));
+        }
+        m_autoTestRequested = -1;
+        if (enabled != m_autoTest) {
+            m_autoTest = enabled;
+            emit autoTestChanged();
+        }
+        return;
+    }
+
     // Func 3 = Device Action (test results)
     if (func == 3) {
         // Instrumentation: full raw bytes of every result packet, so a Brix-vs-TDS
@@ -351,14 +608,16 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
                 R2_WARN(QString("Error packet truncated (dataLen=%1, need 2): %2 — "
                                 "cannot classify, clearing the measurement")
                             .arg(dataLen).arg(QString(packet.toHex(' '))));
-                m_measurementTimer.stop();
-                m_measuring = false;
-                emit measuringChanged();
+                emit errorOccurred("The refractometer reported a failure that could not "
+                                   "be identified. Try the measurement again.");
+                finishMeasurement(/*complete=*/false);
                 return;
             }
             uint8_t errClass = static_cast<uint8_t>(packet[5]);
             uint8_t errCode = static_cast<uint8_t>(packet[6]);
-            R2_WARN(QString("R2 error: class=%1 code=%2").arg(errClass).arg(errCode));
+            R2_WARN(QString("R2 error: %1 (class=%2 code=%3)")
+                        .arg(r2ErrorDescription(errClass, errCode))
+                        .arg(errClass).arg(errCode));
             // Surface ONLY the user-actionable measurement failures. Class-2 are
             // the measurement errors; other class/code combos (notably 0/2) are
             // benign device status the R2 also emits around a SUCCESSFUL read, so
@@ -367,22 +626,44 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
             // measuring state so the UI doesn't hang.
             if (errClass == 2 && errCode == 3) emit errorOccurred("No liquid detected");
             else if (errClass == 2 && errCode == 4) emit errorOccurred("Beyond range");
-            m_measurementTimer.stop();
-            m_measuring = false;
-            emit measuringChanged();
+            finishMeasurement(/*complete=*/false);
             return;
         }
         if (cmd == 255) {
             // Non-actionable — log only (see the cmd==254 note above).
             R2_WARN("R2 unknown error");
-            m_measurementTimer.stop();
-            m_measuring = false;
-            emit measuringChanged();
+            finishMeasurement(/*complete=*/false);
             return;
         }
 
-        // Test result packets: Data0 = package number
-        if (dataLen < 1) return;
+        // Test result packets: Data0 = package number.
+        // Every malformed-packet path in this switch warns; a reading dropped in
+        // silence is the one that costs a user their measurement with a clean log.
+        //
+        // Which packet is THE reading depends on the action this response belongs to.
+        // During an averaged run the R2 emits a full packet set per constituent test,
+        // so pack 2 (single-test result) arrives once per test carrying that one test's
+        // concentration — it is per-test detail, not the answer. Only under a single-test
+        // action is pack 2 the final reading.
+        //
+        // Anything that is not explicitly the average action is treated as it was before
+        // this dispatch existed. A physical-button read is Cmd 0 (verified on hardware,
+        // DFT-R102 fw V230), so it already lands on the single-test path; the fallback
+        // is for codes we have not seen. It is not hypothetical: an exhaustive dispatch
+        // would have taken Cmd 3 silent before we knew loop tests existed.
+        const bool averagedRun = (cmd == 1);
+        // Cmd 3 is a loop test: undocumented by DiFluid and absent from Beanconqueror's
+        // enum, but observed on hardware as what Auto Test escalates to when the prism
+        // is not thermally settled. It re-measures every ~3s until the reading stops
+        // moving, then ends with status 9 — one settling measurement, not N finished
+        // ones. Treating each reading as terminal fired measurementComplete five times
+        // in a 16s run and let a mid-loop save persist a superseded value.
+        const bool loopRun = (cmd == 3);
+        if (dataLen < 1) {
+            R2_WARN(QString("Action packet carried no pack number: %1")
+                        .arg(QString(packet.toHex(' '))));
+            return;
+        }
         uint8_t packNo = static_cast<uint8_t>(packet[5]);
 
         switch (packNo) {
@@ -396,12 +677,28 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
                 return;
             }
             uint8_t status = static_cast<uint8_t>(packet[6]);
-            R2_LOG(QString("Status: %1").arg(status));
-            if (status == 0) {
-                R2_LOG("Test finished");
-            } else if (status == 11) {
-                R2_LOG("Test started");
+            const QString name = r2StatusName(status);
+            // Bind the ternary to a local: R2_LOG concatenates its argument onto a
+            // prefix, so an unparenthesised ternary would bind as (prefix + cond) ? a : b.
+            const QString statusLine =
+                name.isEmpty() ? QString("Status %1 (no name for this code)").arg(status)
+                               : QString("Status %1: %2").arg(status).arg(name);
+            R2_LOG(statusLine);
+            // A start status is the only marker a device-initiated run gives us.
+            if (status == 4 || status == 7 || status == 11) {
+                if (!m_runInFlight) m_runDeliveredReading = false;
+                m_runInFlight = true;
             }
+            // The device is telling us it is still working — keep the run alive.
+            if (r2StatusIsProgress(status) && !noteDeviceProgress())
+                break;
+            // Status 6 (Average Test Finished) and 9 (Loop Test Finished) are the
+            // device's terminal signals for the two multi-reading run types. The value
+            // itself already arrived — these only end the run, which is why a dropped
+            // terminal status costs the spinner and not the reading. The liveness
+            // watchdog covers the case where one never comes.
+            if (status == 6 || status == 9)
+                finishMeasurement(/*complete=*/true);
             break;
         }
         case 1: {
@@ -448,6 +745,11 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
             };
             const double prismC = toCelsius(prismTemp / 10.0);
             const double tankC = toCelsius(tankTemp / 10.0);
+            // A temperature packet lands per test, so it is progress too. Note the
+            // ordering: m_temperature must not be assigned before this, or a run that
+            // trips the ceiling commits the member and then skips the notify below —
+            // leaving every binding rendering a stale value with no way to know.
+            if (!noteDeviceProgress()) break;
             m_temperature = prismC;
             R2_LOG(QString("Temperature: prism=%1°C tank=%2°C (unit: %3)")
                 .arg(prismC, 0, 'f', 1).arg(tankC, 0, 'f', 1)
@@ -464,21 +766,61 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
             quint16 tdsRaw = static_cast<quint16>(
                 (static_cast<uint8_t>(packet[6]) << 8) | static_cast<uint8_t>(packet[7]));
             logRefractiveIndex(packet, dataLen);
-            emitTdsResult(tdsRaw, /*isAverage=*/false);
+            if (averagedRun) {
+                // One test of several. Informative in the log — it shows the scatter the
+                // averaging exists to smooth — but it is not the reading.
+                R2_LOG(QString("Individual test in averaged run: %1%% (raw=%2) — not emitted")
+                           .arg(tdsRaw / 100.0, 0, 'f', 2).arg(tdsRaw));
+                // Nothing follows in this branch, so an abandoned run needs no
+                // further action here — finishMeasurement has already run.
+                (void)noteDeviceProgress();
+                break;
+            }
+            // In a loop run the reading is real and must reach consumers — latest wins,
+            // so the settled value is the one that survives — but the run continues
+            // until status 9.
+            emitTdsResult(tdsRaw, /*isAverage=*/false, /*terminal=*/!loopRun);
             break;
         }
         case 3: {
-            // Average result: same format as pack 2
+            // Average result: same format as pack 2. Under an averaged run this lands once
+            // per constituent test carrying the average so far, so each is emitted and the
+            // last one wins. Delivery is never contingent on a terminal packet arriving:
+            // a dropped terminal status would otherwise mean the user gets nothing.
             if (dataLen < 3) return;
             quint16 tdsRaw = static_cast<quint16>(
                 (static_cast<uint8_t>(packet[6]) << 8) | static_cast<uint8_t>(packet[7]));
-            logRefractiveIndex(packet, dataLen);
-            emitTdsResult(tdsRaw, /*isAverage=*/true);
+            // Data3-6 is NOT the refractive index here, despite occupying the same
+            // offsets as in pack 2. Observed on hardware: a run whose per-test RI read
+            // 1.34689 reported 782332 in this field alongside a 7.83% average — i.e. the
+            // averaged concentration at higher precision, not an RI (which is ~1.3).
+            // Logging it as "refractive index" would put a wrong number in the record
+            // someone later reasons from.
+            if (dataLen >= 7) {
+                const quint32 extra = (static_cast<quint32>(static_cast<uint8_t>(packet[8])) << 24)
+                                    | (static_cast<quint32>(static_cast<uint8_t>(packet[9])) << 16)
+                                    | (static_cast<quint32>(static_cast<uint8_t>(packet[10])) << 8)
+                                    | static_cast<quint32>(static_cast<uint8_t>(packet[11]));
+                R2_LOG(QString("Average high-precision concentration: %1%% (raw=%2)")
+                           .arg(extra / 100000.0, 0, 'f', 5).arg(extra));
+            }
+            emitTdsResult(tdsRaw, /*isAverage=*/true, /*terminal=*/!averagedRun);
             break;
         }
         case 4: {
-            // Average temp + count info
-            R2_LOG(QString("Average temp/count packet"));
+            // Average temp + count info: Data5 = tests completed, Data6 = tests total.
+            // One lands per completed test, so it is both a progress signal and a sign
+            // the device is still working.
+            if (dataLen >= 7) {
+                const int completed = static_cast<uint8_t>(packet[10]);
+                const int total = static_cast<uint8_t>(packet[11]);
+                R2_LOG(QString("Averaged run progress: test %1 of %2").arg(completed).arg(total));
+                emit averageProgress(completed, total);
+            } else {
+                R2_LOG(QString("Average temp/count packet (no counter, %1 data bytes)")
+                           .arg(dataLen));
+            }
+            (void)noteDeviceProgress();  // nothing follows; see note above
             break;
         }
         default:
@@ -491,7 +833,82 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
     }
 }
 
-void DiFluidR2::emitTdsResult(quint16 tdsRaw, bool isAverage) {
+void DiFluidR2::handleSerialNumberPart(const QByteArray& data) {
+    // Data0 = part index, Data1..Data5 = five bytes of serial.
+    if (data.size() < 1 + SERIAL_PART_BYTES) {
+        R2_WARN(QString("Serial number packet too short (%1 bytes): %2")
+                    .arg(data.size()).arg(QString(data.toHex(' '))));
+        return;
+    }
+    const int part = static_cast<uint8_t>(data[0]);
+    if (part >= SERIAL_PART_COUNT) {
+        R2_WARN(QString("Serial number part index %1 out of range: %2")
+                    .arg(part).arg(QString(data.toHex(' '))));
+        return;
+    }
+
+    if (m_serialParts.size() != SERIAL_PART_COUNT * SERIAL_PART_BYTES)
+        m_serialParts = QByteArray(SERIAL_PART_COUNT * SERIAL_PART_BYTES, '\0');
+    m_serialParts.replace(part * SERIAL_PART_BYTES, SERIAL_PART_BYTES,
+                          data.mid(1, SERIAL_PART_BYTES));
+    m_serialPartsSeen |= static_cast<quint8>(1u << part);
+
+    // Only once every part is in. A partial buffer still contains zero bytes for the
+    // parts that have not arrived, and logging that as the serial number would put a
+    // wrong device identity into a log someone later reasons from.
+    constexpr quint8 allParts = (1u << SERIAL_PART_COUNT) - 1;
+    if (m_serialPartsSeen != allParts) {
+        int held = 0;
+        for (quint8 bit = m_serialPartsSeen; bit; bit >>= 1) held += (bit & 1);
+        R2_LOG(QString("Serial number part index %1 received (%2 of %3 parts held)")
+                   .arg(part).arg(held).arg(SERIAL_PART_COUNT));
+        return;
+    }
+
+    QByteArray assembled = m_serialParts;
+    while (assembled.endsWith('\0')) assembled.chop(1);
+    m_serialNumber = QString::fromLatin1(assembled);
+    R2_LOG(QString("Serial number: \"%1\"").arg(m_serialNumber));
+}
+
+bool DiFluidR2::noteDeviceProgress() {
+    if (!m_measuring) return true;
+    if (m_runElapsed.isValid() && m_runElapsed.elapsed() > m_maxRunMs) {
+        R2_WARN(QString("Run still reporting progress after %1 s — abandoning. The prism "
+                        "may not be settling; wipe it and let the R2 rest.")
+                    .arg(m_runElapsed.elapsed() / 1000));
+        emit errorOccurred("The refractometer kept re-measuring without settling. "
+                           "Wipe the prism and try again.");
+        finishMeasurement(/*complete=*/false);
+        return false;
+    }
+    m_measurementTimer.start();
+    return true;
+}
+
+void DiFluidR2::finishMeasurement(bool complete) {
+    // A run can end cleanly having delivered nothing — every reading rejected mid-run
+    // by the plausibility gate, which deliberately does not surface an error while the
+    // device is still measuring. Without this the spinner just stops, the field keeps
+    // its old value, and the user is told nothing.
+    if (complete && m_runInFlight && !m_runDeliveredReading) {
+        R2_WARN("Run finished without a usable reading — every result was rejected");
+        emit errorOccurred("The refractometer finished without a usable reading. "
+                           "Wipe the prism, re-load the sample and try again.");
+        complete = false;
+    }
+    m_runInFlight = false;
+    m_runElapsed.invalidate();
+    m_measurementTimer.stop();
+    if (complete) emit measurementComplete();
+    // measuringChanged is emitted unconditionally, matching what every other end-of-run
+    // path in this driver has always done — a device-initiated run leaves m_measuring
+    // false throughout, and consumers tolerate the redundant notification.
+    m_measuring = false;
+    emit measuringChanged();
+}
+
+void DiFluidR2::emitTdsResult(quint16 tdsRaw, bool isAverage, bool terminal) {
     const double tds = tdsRaw / 100.0;
     const QString label = isAverage ? QStringLiteral("Average TDS")
                                      : QStringLiteral("TDS");
@@ -505,20 +922,41 @@ void DiFluidR2::emitTdsResult(quint16 tdsRaw, bool isAverage) {
     if (tds > MAX_PLAUSIBLE_TDS) {
         R2_WARN(QString("%1 out of range: %2% (raw=%3) — ignoring")
                     .arg(label).arg(tds, 0, 'f', 2).arg(tdsRaw));
+        // Mid-run, ending our side leaves the two disagreeing: we clear the measuring
+        // state and re-enable the button while the R2 keeps measuring, so the user
+        // gets an error dialog and then a good reading seconds later, and can start a
+        // second run on top of the first. Skip the bad reading and let the run finish.
+        if (!terminal) {
+            // Reading skipped, run left alive. Nothing follows either way.
+            (void)noteDeviceProgress();
+            return;
+        }
         emit errorOccurred("R2 reported an out-of-range value");
-        m_measurementTimer.stop();
-        m_measuring = false;
-        emit measuringChanged();
+        finishMeasurement(/*complete=*/false);
         return;
     }
 
     m_tds = tds;
-    R2_LOG(QString("%1: %2% (raw=%3)").arg(label).arg(tds, 0, 'f', 2).arg(tdsRaw));
+    m_runDeliveredReading = true;
+    // A non-terminal reading means something different in the two multi-reading runs:
+    // an averaged run is converging on a mean, a loop test is re-measuring the same
+    // sample until it settles. Saying "running average" for a loop test would describe
+    // the wrong mechanism to whoever reads the log next.
+    const QString progressNote =
+        terminal   ? QString()
+        : isAverage ? QStringLiteral(" (running average, not final)")
+                    : QStringLiteral(" (still settling, not final)");
+    R2_LOG(QString("%1: %2% (raw=%3)%4").arg(label).arg(tds, 0, 'f', 2).arg(tdsRaw)
+               .arg(progressNote));
     emit tdsChanged(m_tds);
-    emit measurementComplete();
-    m_measurementTimer.stop();
-    m_measuring = false;
-    emit measuringChanged();
+
+    if (!terminal) {
+        // A converging average: the value is delivered, but the run continues. The
+        // value has already been emitted, so an abandoned run needs nothing more here.
+        (void)noteDeviceProgress();
+        return;
+    }
+    finishMeasurement(/*complete=*/true);
 }
 
 void DiFluidR2::logRefractiveIndex(const QByteArray& packet, quint8 dataLen) {

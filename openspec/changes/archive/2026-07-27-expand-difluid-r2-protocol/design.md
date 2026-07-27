@@ -45,6 +45,38 @@ The fix is to restart the interval on any packet indicating progress — pack 0 
 
 *Alternative — a longer fixed interval scaled by test count:* rejected. It restores the same bug at a larger number, and picks a duration from guesswork rather than from what the device is telling us.
 
+### An averaged run is a stream of packets, not one result — corrected mid-implementation
+
+This design originally assumed the averaged-result packet arrives once, at the end of a run. It does not. DiFluid's own worked example shows every constituent test emitting a full packet set:
+
+```
+Res0:  status 5 │ temperature │ single result │ average so far │ counter "1 of 3"
+Res1:  … counter "2 of 3"
+Res2:  … counter "3 of 3"
+Res3:  status 6 (average test finished)
+```
+
+The single-test result packet — the one the driver currently treats as *the* answer — therefore arrives once per test during an averaged run, carrying that individual test's concentration. Wired up naively, requesting an average of 3 would emit six readings and declare the run finished after the first.
+
+The discriminator is already on the wire: the Func 3 response carries the action code it belongs to (0 single test, 1 average test), which the driver currently ignores for result packets. Beanconqueror gates on exactly this pairing — `(average ∧ average-result) ∨ (single ∧ single-result)` — which is about as much confirmation as is available without hardware.
+
+**Unknown action codes fall back to today's behaviour rather than to an exhaustive table.** We do not know what action code a physical-button measurement carries; the existing code records only that it "streams" the single-test result packet. An exhaustive dispatch that happened to miss that value would take a working path silent. Defaulting unknown codes to the current interpretation bounds the worst case at "no better than today".
+
+### Readings are delivered as they converge; completion is a separate signal
+
+Beanconqueror emits on every averaged-result packet, latest-wins, and never waits for a terminal status. An earlier draft of this design held the value and emitted once on status 6 instead, to avoid an intermediate average reaching a field the user can save to a shot record.
+
+That was wrong, for two reasons that only surfaced when considering measurements started on the device rather than by the app:
+
+1. **The R2's own test-count setting applies to device-initiated runs** — `protocolR2.md` notes it "only takes effect on offline test". So a run the app never requested can be a multi-test average, with no measuring state set. Any hold-and-emit logic gated on app-side state would silently drop those, regressing a path that works today.
+2. **Withholding until a terminal packet makes a working path contingent on that packet.** A dropped status 6 means the user gets nothing where today they get a value. Without hardware to confirm what a device-initiated run actually terminates with, that is a bet against a currently-working path.
+
+So value delivery follows Beanconqueror: emit each averaged result, last one wins, nothing contingent.
+
+What is *not* copied is conflating that with completion. Their driver has no measuring state and no watchdog — grep their R2 driver for a timer and there is none — so repeated emissions cost them nothing. Ours clears the measuring state and emits measurement-complete in the same step, which after one test of three would leave the UI idle while the device kept working. Completion therefore follows the terminal status, with the liveness watchdog as the existing backstop when it never arrives.
+
+The mid-run-save risk that motivated the original hold is real but smaller than silently losing a reading — and it exists for device-initiated averaged runs no matter what the driver does. The M-of-N counter (already task 4.4) is the honest way to show progress without putting a half-finished number where a final one belongs.
+
 ### Averaging is a parameter on the existing request, not a second device mode
 
 `requestMeasurement()` gains an averaged variant rather than the driver holding a mode flag. A mode flag would be state that can disagree with what the user last pressed, and would have to be reconciled across disconnects. A parameter cannot drift.

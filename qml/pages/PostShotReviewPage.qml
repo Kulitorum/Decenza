@@ -200,6 +200,60 @@ Page {
     Tr { id: trRowWater; key: "recipes.wizard.rowHotWater"; fallback: "Hot water"; visible: false }
     Tr { id: trRowEquipment; key: "shotdetail.equipment"; fallback: "Equipment"; visible: false }
 
+    // Multi-reading refractometer runs. avgTotal > 0 means a run is in flight; both
+    // reset when it finishes so the button returns to its resting label.
+    //
+    // These only ever populate for a run the DEVICE decided to make multi-reading:
+    // a loop test on an unsettled prism, or an averaged run if the R2's own test
+    // count was raised outside Decenza. Nothing here requests one.
+    property int avgDone: 0
+    property int avgTotal: 0
+    // A reading has arrived that has not been committed yet. The driver delivers a
+    // value per reading during a settling or averaged run, so committing on arrival
+    // wrote the shot record once per reading — each one superseded by the next.
+    property bool r2CommitPending: false
+
+    Connections {
+        // Deliberately NOT gated on BLEManager.refractometerConnected, unlike the
+        // tdsChanged block below. That block must re-attach when the R2 connects after
+        // the page opens. This one must keep firing while it DISconnects: the driver
+        // emits connectedChanged before measuringChanged, and connectedChanged drives
+        // refractometerConnectedChanged synchronously — so the extra term would
+        // re-evaluate this target to null and the measuringChanged that ends the run
+        // would be delivered to nothing, stranding the progress label and the pending
+        // commit. The device object itself stays non-null across a disconnect.
+        target: (typeof Refractometer !== "undefined" && Refractometer) ? Refractometer : null
+
+        function onAverageProgress(completed, total) {
+            postShotReviewPage.avgDone = completed
+            postShotReviewPage.avgTotal = total
+        }
+        // The end of a run is the commit point. measurementComplete fires exactly once
+        // per run — the driver separates delivering a value from declaring the run
+        // over — so this is where a reading becomes a saved reading.
+        function onMeasurementComplete() {
+            postShotReviewPage.avgDone = 0
+            postShotReviewPage.avgTotal = 0
+            postShotReviewPage.commitPendingR2Reading()
+        }
+        function onMeasuringChanged() {
+            if (Refractometer && !Refractometer.measuring) {
+                postShotReviewPage.avgDone = 0
+                postShotReviewPage.avgTotal = 0
+                // Covers a run that ends without a terminal status — the watchdog
+                // clears the measuring state but emits no measurementComplete, and a
+                // reading that arrived is still the user's reading.
+                postShotReviewPage.commitPendingR2Reading()
+            }
+        }
+    }
+
+    function commitPendingR2Reading() {
+        if (!r2CommitPending) return
+        r2CommitPending = false
+        autosave("r2", true)
+    }
+
     property bool autoClose: true  // false when user opens manually (no auto-dismiss)
     property bool advancedMode: Settings.boolValue("shotReview/advancedMode", false)
     property string uploadError: ""
@@ -489,11 +543,23 @@ Page {
             }
             editDrinkTds = tds
             calculateEy()
-            // An R2 measurement is a committed value just like a user-entered
-            // one — persist it the moment it lands (finalize: a discrete async
-            // commit, not a coalesced gesture). Without this it relied on a
-            // later manual Save and was frequently lost on navigate-away.
-            postShotReviewPage.autosave("r2", true)
+            // An R2 measurement is a committed value just like a user-entered one, and
+            // without persisting it the value relied on a later manual Save and was
+            // frequently lost on navigate-away. But it is committed when the RUN ends,
+            // not when a value arrives: a settling or averaged run delivers a reading
+            // every few seconds, and committing each one wrote the shot record five
+            // times in a measured 16-second loop, every write but the last superseded.
+            // Deferred unconditionally. An earlier version committed immediately when
+            // `measuring` was false — but `measuring` is a REQUEST-side flag, set only
+            // by requestMeasurement()/requestAveragedMeasurement(), so it is false
+            // throughout a device-initiated run. Auto Test and the physical button are
+            // exactly that, and an Auto Test loop is where the five-writes-in-16s
+            // measurement came from, so the guard exempted the case it was written for.
+            //
+            // Nothing is lost by always deferring: finishMeasurement() emits
+            // measurementComplete and measuringChanged on every terminal path
+            // regardless of who started the run.
+            postShotReviewPage.r2CommitPending = true
         }
     }
 
@@ -1149,6 +1215,10 @@ Page {
                                     ? TranslationManager.translate("postshotreview.refractometer.r1off", "R1 Off")
                                     : TranslationManager.translate("postshotreview.refractometer.r2off", "R2 Off")
                             }
+                            // A ×3 run takes ~22s on hardware, so "..." for that long
+                            // reads as hung — show which test of how many instead.
+                            if (postShotReviewPage.avgTotal > 0)
+                                return postShotReviewPage.avgDone + "/" + postShotReviewPage.avgTotal
                             if (readTdsButton.refMeasuring) return TranslationManager.translate("postshotreview.refractometer.measuring", "...")
                             return TranslationManager.translate("postshotreview.refractometer.readTds", "Read TDS")
                         }
@@ -1165,12 +1235,30 @@ Page {
                         accessibleItem: readTdsButton
                         enabled: !readTdsButton.refMeasuring
                         onAccessibleClicked: {
-                            if (readTdsButton.refConnected) {
-                                if (typeof Refractometer !== "undefined" && Refractometer)
-                                    Refractometer.requestMeasurement()
-                            } else {
+                            if (!readTdsButton.refConnected) {
                                 BLEManager.scanForDevices()
+                                return
                             }
+                            if (typeof Refractometer === "undefined" || !Refractometer) return
+                            postShotReviewPage.avgDone = 0
+                            postShotReviewPage.avgTotal = 0
+                            // A single test, deliberately — a judgement about magnitude,
+                            // not about whether averaging works. Three runs on hardware
+                            // (7.82/7.83/7.85, 8.04/8.05/8.05, 8.10/8.08/8.08) show
+                            // genuine random scatter, sigma about 0.011% TDS, which
+                            // averaging over three does reduce — to about 0.007%.
+                            //
+                            // But that 0.005% improvement is smaller than the 0.01% step
+                            // the device reports in, so it cannot even be represented in
+                            // the answer, and it is an order of magnitude under
+                            // sample-prep variance. The cost is 12-22s against ~3.5s.
+                            //
+                            // Averaging is not used anywhere: setDeviceTestCount() exists
+                            // as protocol coverage only and nothing calls it, so the
+                            // device's own count stays at 1 and an Auto Test reading is a
+                            // single reading too. See BLE_PROTOCOL.md, "Averaging is
+                            // driver-level only".
+                            Refractometer.requestMeasurement()
                         }
                     }
                 }
@@ -1431,7 +1519,7 @@ Page {
                 Rectangle {
                     id: ratingBox
                     Layout.fillWidth: true
-                    height: Theme.scaled(44)
+                    Layout.preferredHeight: Theme.scaled(44)
                     radius: Theme.scaled(12)
                     color: Theme.cardBackgroundColor
                     border.width: 1
@@ -1668,8 +1756,8 @@ Page {
                             }
                             // Refractometer status dot (only when configured)
                             Rectangle {
-                                width: Theme.scaled(6)
-                                height: Theme.scaled(6)
+                                Layout.preferredWidth: Theme.scaled(6)
+                                Layout.preferredHeight: Theme.scaled(6)
                                 radius: Theme.scaled(3)
                                 visible: Settings.savedRefractometerAddress !== ""
                                 color: {
@@ -1952,7 +2040,7 @@ Page {
                             Layout.fillWidth: true
                             Layout.topMargin: Theme.scaled(2)
                             Layout.bottomMargin: Theme.scaled(2)
-                            height: Theme.scaled(1)
+                            Layout.preferredHeight: Theme.scaled(1)
                             color: Theme.borderColor
                             Accessible.ignored: true
                         }

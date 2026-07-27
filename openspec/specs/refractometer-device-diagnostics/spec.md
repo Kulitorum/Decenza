@@ -1,5 +1,8 @@
-## ADDED Requirements
+# refractometer-device-diagnostics Specification
 
+## Purpose
+TBD - created by archiving change expand-difluid-r2-protocol. Update Purpose after archive.
+## Requirements
 ### Requirement: Every device status code is logged by name
 
 The driver SHALL log R2 test status codes by their documented meaning across the full range the device emits (0–12), not as bare integers. A status the driver does not recognise SHALL still be logged, with its numeric value, rather than silently discarded.
@@ -67,6 +70,29 @@ This is identification data, not measurement data: it supports telling a genuine
 - **WHEN** only some of the serial-number packets have arrived
 - **THEN** no partial serial number is logged as if it were the device's identity
 
+### Requirement: A multi-reading run started by the device ends once, not once per reading
+
+The R2 re-measures a single sample repeatedly when the prism is not thermally settled, ending with its own terminal status. Each reading SHALL be delivered — the settled value is the last one, and latest-wins leaves it in place — but the run SHALL be declared complete only on the terminal status, not on each reading.
+
+Treating each reading as a completed measurement was observed on hardware to fire completion five times across a 16-second run, and would let a value saved mid-run persist a reading the device had already superseded.
+
+#### Scenario: Each reading of a settling run is delivered
+
+- **WHEN** the device performs a settling run that reports several readings
+- **THEN** each reading reaches consumers
+- **AND** the last one is the value that remains
+
+#### Scenario: A settling run completes once
+
+- **WHEN** a settling run reports several readings and then its terminal status
+- **THEN** the measurement-complete signal is emitted exactly once
+- **AND** the measuring state remains true until that terminal status
+
+#### Scenario: A single test is unaffected
+
+- **WHEN** an ordinary single test reports its result
+- **THEN** it completes on that result, as it did before settling runs were handled
+
 ### Requirement: Device-initiated measurement can be enabled
 
 The driver SHALL be able to set the R2's Auto Test setting, which makes the device start a measurement on its own when it detects a prism or sample-tank temperature change — so a reading arrives when the sample is loaded, with no button press. Readings produced this way are device-initiated and SHALL be subject to exactly the same consumer-side gating as a button-initiated reading.
@@ -82,3 +108,4 @@ The driver SHALL be able to set the R2's Auto Test setting, which makes the devi
 - **WHEN** Auto Test is on and the device starts and completes a measurement with no request from the app
 - **THEN** the resulting reading flows through the same plausibility gate and the same active-page gating as any other reading
 - **AND** it does not populate any field that a button-initiated reading would not
+
