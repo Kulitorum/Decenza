@@ -219,7 +219,9 @@ are dirty for other reasons anyway. They keep their per-file ceilings.
 
 ## 5. Imports and close-out
 
-- [ ] 5.1 Add `import Decenza` to the 13 QML files that lack it
+- [x] 5.1 Add `import Decenza` to the 13 QML files that lack it — done under 3.3; see the entry
+  there. Note the sequel recorded as 6.2 below: three components had `import Decenza` *removed*
+  as dead one commit before it became load-bearing.
 - [ ] 5.2 Re-run the report from 1.1 and confirm the clean list reached 103 of 212 files
 - [ ] 5.3 Confirm `qml/Theme.qml` is on the clean list — that file is the specific regression this change exists to prevent, and it is the acceptance test for the whole change
 - [ ] 5.4 Triage the categories the noise was hiding — 310 `missing-property`, 27 `import`, 25 `index`, and the singleton `incompatible-type` / `equality-type-coercion` / `unresolved-type` findings — and fix or exempt each explicitly
@@ -227,3 +229,52 @@ are dirty for other reasons anyway. They keep their per-file ceilings.
 - [ ] 5.6 Update the qmllint instruction in `CLAUDE.md` and `docs/CLAUDE_MD/QML_GOTCHAS.md`, which currently point at a command whose output is unreadable
 - [ ] 5.7 Record in `QML_GOTCHAS.md` that new C++ objects exposed to QML are registered as singletons, never via `setContextProperty()`
 - [ ] 5.8 Archive this change with `openspec archive fix-qmllint-usability` as the last commit on the branch
+
+## 6. Review round on PR #1665
+
+Five reviewers over the branch as opened. Every item below was reproduced before it was fixed,
+and the confirmed defects are in [`bugs-found.md`](bugs-found.md) entries 3–7 with their evidence.
+
+- [x] 6.1 Fix the crash hazard, the 0×0 widget and the green-when-blind gate (`db15d2d8`)
+- [x] 6.2 Restore the three accessibility imports and finish the Windows path fix (`a420a28c`).
+  The interesting half is 6.2's first commit: removing `import Decenza` from
+  `AccessibleMouseArea`/`AccessibleTapHandler`/`AccessibleLabel` was correct when it happened and
+  wrong one commit later. **The lesson is about verification, not about imports**: every use site
+  is guarded by `typeof AccessibilityManager !== "undefined"`, so the app-log check used to verify
+  each migration could not have seen it. Those three files are now on the gate's clean list, i.e.
+  locked at zero, which is the only check that would have caught it
+- [x] 6.3 Write the `settings-architecture` spec delta. The capability still required
+  `Q_PROPERTY(QObject* …)` and a 200-line `settings.h` — this change does the opposite of both,
+  so without the delta the shipped spec contradicts the shipped code
+- [x] 6.4 Reconcile the build-cost figures everywhere they appear. `settings.h` claimed a marginal
+  blast of "37 TUs" against design.md's reconciled +129, and `SETTINGS.md` presented 439/310 as
+  literal translation-unit counts when they are ninja's pre-`restat` dirty set. Wall clock is the
+  number to quote: 60 s against 26 s
+- [x] 6.5 Correct the stale comments: `translationmanager.h` still said calling `setJsEngine()`
+  twice is harmless (it `qFatal`s), and `tst_settings.cpp` still described the reverted
+  `Q_DECLARE_OPAQUE_POINTER` design as current
+- [x] 6.6 Replace the vacuous `typeof === 'object'` probe in
+  `tst_settings::qmlChainsThroughDomainSubObjects`. A QVariant-wrapped opaque pointer answers
+  `'object'` too, so the assertion could not fail for the reason it named. Now writes through the
+  sub-object and checks the value landed on the C++ instance — a write cannot survive the wrapper
+- [x] 6.7 Close the category-ceiling slack. The ceilings were measured full-tree, CI runs
+  `--skip-unlintable`, and the difference was a free allowance. `UNLINTABLE_CATEGORY_CONTRIBUTION`
+  records what the skipped files contribute (measured: 4 `missing-property`), the skipped run
+  enforces the ceilings minus that, and a complete run hard-errors if the table has gone stale
+- [x] 6.8 Add `tests/tst_qmlregistration.cpp`. Nothing in the suite touched the registration path
+  at all — the one test cited as guarding it publishes a context property, which is what this
+  change removes. It checks the generated `Decenza.qmltypes` (the three singletons, and every
+  domain sub-object *derived from `settings.h`* rather than hard-coded) plus main.cpp's explicit
+  `qml_register_types_Decenza()` call and the runtime registrations that make it necessary.
+  **Verified by breaking it**: deleting `SettingsThemeForeign` builds clean with zero warnings and
+  fails this test with the fix named in the message
+- [x] 6.9 Document why `AccessibilityManager::create()` correctly has no second-engine guard where
+  `TranslationManager::create()` needs one — it holds no per-engine state
+- [x] 6.10 `ComparisonDataTable.qml:210` — `Layout.preferredHeight: parent.height` asks a layout
+  child for its parent layout's height. It does not loop here (the RowLayout is `anchors.fill`),
+  but that is a property of the enclosing scope rather than of the line; `Layout.fillHeight`
+  expresses the intent and cannot loop
+- [ ] 6.11 Deferred at the maintainer's direction: `docs/CLAUDE_MD/BUILD_PERFORMANCE.md` still says
+  main.cpp "registers zero QML singletons" (it now registers three). That document is a draft that
+  looked at performance without correctness, and is to be revisited as a whole after the QML
+  cleanup lands rather than patched line by line now

@@ -207,7 +207,12 @@ ColumnLayout {
                     // Line-style indicator (solid / dashed / dash-dot)
                     Item {
                         Layout.preferredWidth: Theme.scaled(16)
-                        Layout.preferredHeight: parent.height
+                        // fillHeight, not `preferredHeight: parent.height` — asking a layout
+                        // child for its parent layout's height is a size hint that reads the
+                        // thing the hint feeds. It happens not to loop here (the RowLayout is
+                        // anchors.fill, so its height comes from outside), but that is a
+                        // property of the enclosing scope, not of this line.
+                        Layout.fillHeight: true
                         Accessible.ignored: true
 
                         // Shot 0: solid

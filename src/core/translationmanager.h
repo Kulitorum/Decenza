@@ -119,8 +119,12 @@ public:
     // Must be called once, after the QML engine exists and before QML loads. The engine does not
     // construct this object (see create() above), so qmlEngine(this) is null and the engine has
     // to be handed in explicitly — `translate` is a QJSValue property and needs one to build the
-    // callable it returns. create() also calls this, which covers engines that resolve the
-    // singleton without main.cpp's wiring; calling it twice is harmless.
+    // callable it returns.
+    //
+    // Calling it twice is NOT harmless: handed a different engine it qFatal()s rather than
+    // rebind, because bindings already hold a callable from the first engine and there is no
+    // migration path. create() therefore calls it only when nothing is bound yet, and declines
+    // the singleton to a second engine instead. Do not add an unconditional call.
     void setJsEngine(QJSEngine* engine);
 
     // Which engine `translate` is currently bound to, or null. create() needs this because

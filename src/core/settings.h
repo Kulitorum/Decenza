@@ -34,11 +34,15 @@
 // `Settings.<domain>` fails at runtime. That was tried and reverted; see
 // tst_settings::qmlChainsThroughDomainSubObjects, which pins the working behaviour.
 //
-// The cost, measured rather than assumed: 86 translation units include this header, and 49 of
-// them already included at least one domain header, so the marginal blast is 37 TUs on a domain
-// header edit (~2,450 lines of plain QObject declarations, no templates). The domain SPLIT still
-// does its job — implementations stay in their own .cpp files — and the recompile win that
-// motivated the split is unaffected by declaring the façade's property types honestly.
+// The cost, measured rather than assumed: editing one domain header takes 60 s instead of 26 s
+// on this machine (warm ccache, ASan+UBSan debug). That is +129 C++ translation units — the 218
+// QML cache units in the dirty set rebuild either way, because a domain header carries Q_OBJECT
+// and any moc-metadata change invalidates Decenza.qmltypes. 86 TUs include this header directly
+// and 49 of them already pulled in a domain header, so the blast was large before this change
+// too. The domain SPLIT still does its job — implementations stay in their own .cpp files, and a
+// narrow consumer taking Settings<Domain>* still rebuilds only on its own header — and the
+// recompile win that motivated the split is unaffected by declaring the façade's property types
+// honestly. See openspec/changes/fix-qmllint-usability/design.md D2a for the full measurement.
 //
 // C++ callers may still use the typed accessors (e.g. `settings->mqtt()`); they no longer need
 // to include the domain header themselves.

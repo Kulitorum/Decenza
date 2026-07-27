@@ -77,6 +77,10 @@ BASELINE = REPO / "qml-diagnostics-baseline.json"
 # disagreed by 3 on one category. check_accounting() now makes that class of undercount a hard
 # error instead of a plausible-looking number. Correcting a measurement is the ONE reason a
 # ceiling may go up; a genuine regression is never it.
+#
+# These are COMPLETE-RUN numbers. A --skip-unlintable run enforces them minus what the skipped
+# files contribute (UNLINTABLE_CATEGORY_CONTRIBUTION / effective_ceilings), because a ceiling that
+# still includes files the run never read is an allowance, not a ceiling.
 CATEGORY_EXEMPTIONS: dict[str, int] = {
     # Each entry is a ceiling, not a budget.
     "missing-property": 326,
@@ -144,6 +148,55 @@ UNLINTABLE_BY_TOOL_BUG: dict[str, str] = {
         "https://codereview.qt-project.org/c/qt/qtdeclarative/+/755657 — delete this entry "
         "once CI's Qt carries it.",
 }
+
+# What each of those files contributes to CATEGORY_EXEMPTIONS, measured with a PATCHED qmllint
+# that can finish them. Without this the gate has slack exactly where it is least noticed:
+# the ceilings above are full-tree numbers, CI runs with --skip-unlintable, and the difference
+# is a free allowance for a regression to hide in. Subtracting the recorded contribution makes
+# the skipped run's ceilings as tight as the complete run's.
+#
+# Kept honest in both directions. A full run re-measures these files and hard-errors if the table
+# has drifted (check_unlintable_contribution), so the numbers cannot quietly go stale while the
+# skip-mode ceilings depend on them. `unqualified` is absent on purpose — it is never a category
+# exemption, it is enforced per file, and a skipped file simply has no ceiling checked that run.
+UNLINTABLE_CATEGORY_CONTRIBUTION: dict[str, dict[str, int]] = {
+    "qml/components/layout/items/CustomItem.qml": {"missing-property": 4},
+}
+
+
+def effective_ceilings(skipped: set[str]) -> dict[str, int]:
+    """CATEGORY_EXEMPTIONS, less what the skipped files would have contributed."""
+    ceilings = dict(CATEGORY_EXEMPTIONS)
+    for f in skipped:
+        for cat, n in UNLINTABLE_CATEGORY_CONTRIBUTION.get(f, {}).items():
+            if cat in ceilings:
+                ceilings[cat] = max(0, ceilings[cat] - n)
+    return ceilings
+
+
+def check_unlintable_contribution(per_file_category: dict[str, Counter],
+                                  skipped: set[str]) -> None:
+    """On a COMPLETE run, verify the recorded contribution of the unlintable files.
+
+    Only a run that actually analysed them can say what they contribute, and only that number
+    makes the skipped run's ceilings correct. So the complete run is where the table is checked —
+    a stale entry here silently loosens every CI run, which is the shape of failure this whole
+    script is built against.
+    """
+    for f in UNLINTABLE_BY_TOOL_BUG:
+        if f in skipped:
+            continue  # this run did not analyse it; it has nothing to say about the table
+        observed = {c: n for c, n in per_file_category.get(f, Counter()).items()
+                    if c in CATEGORY_EXEMPTIONS}
+        recorded = UNLINTABLE_CATEGORY_CONTRIBUTION.get(f, {})
+        if observed != recorded:
+            sys.exit(
+                f"UNLINTABLE_CATEGORY_CONTRIBUTION for {f} is stale.\n"
+                f"  recorded: {recorded or '{}'}\n"
+                f"  observed: {observed or '{}'}\n"
+                f"Update the table in scripts/qmllint_report.py. Until you do, every "
+                f"--skip-unlintable run enforces the wrong category ceilings."
+            )
 
 
 def relative_to_repo(path: str) -> str:
@@ -338,10 +391,12 @@ def run(qmllint: str, import_path: str, files: list[str], rsp: Path | None,
 #
 #     "      You first have to give the element an idWarning: /path/File.qml:67:24: Detected ..."
 #
-# A ^-anchored match then skips that diagnostic entirely. Measured: 3 real
-# Quick.layout-positioning findings lost this way, discovered only because a grep and the parser
-# disagreed. Split such lines apart before parsing rather than loosening the anchor, which would
-# risk matching "Warning:" inside a message body.
+# A ^-anchored match then skips that diagnostic entirely. Measured on a full run of this tree:
+# 471 diagnostics lost — 458 unqualified, 11 missing-property, 2 import. It was found only
+# because a grep and the parser disagreed by 3 on one category; the size of the disagreement said
+# nothing about the size of the bug, which is why check_accounting() below now compares totals
+# rather than waiting for someone to notice. Split such lines apart before parsing rather than
+# loosening the anchor, which would risk matching "Warning:" inside a message body.
 GLUED_RE = re.compile(r"(?<!^)(?=(?:Warning|Error|Info): )", re.MULTILINE)
 
 # A second, independent count of how many findings the output holds — see check_accounting().
@@ -362,7 +417,7 @@ def check_accounting(output: str, parsed: int) -> None:
 
     This exists because the failure it catches has now happened twice, both times silently and
     both times producing plausible numbers: a category regex that rejected dotted names dropped
-    264 findings, and a missing newline in qmllint's own output glued 3 more onto hint lines. A
+    264 findings, and a missing newline in qmllint's own output glued 471 more onto hint lines. A
     parser that quietly sees less than it was given is the same defect as a linter that quietly
     analyses fewer files than it was asked to, and this script exists to make that impossible.
     """
@@ -380,12 +435,14 @@ def check_accounting(output: str, parsed: int) -> None:
         )
 
 
-def parse(output: str) -> tuple[Counter, dict[str, Counter], Counter]:
-    """-> (per-category counts, per-file unqualified-identifier counts, per-file totals)"""
+def parse(output: str) -> tuple[Counter, dict[str, Counter], Counter, dict[str, Counter]]:
+    """-> (per-category counts, per-file unqualified identifiers, per-file totals,
+           per-file per-category counts)"""
     lines = GLUED_RE.sub("\n", output).split("\n")
     categories: Counter = Counter()
     unqualified: dict[str, Counter] = defaultdict(Counter)
     per_file: Counter = Counter()
+    per_file_category: dict[str, Counter] = defaultdict(Counter)
     for i, line in enumerate(lines):
         m = WARN_RE.match(line)
         if not m:
@@ -401,6 +458,7 @@ def parse(output: str) -> tuple[Counter, dict[str, Counter], Counter]:
             continue
         path = relative_to_repo(path)
         per_file[path] += 1
+        per_file_category[path][category] += 1
         if category != "unqualified":
             continue
         # Recover the identifier from the source line at the reported column.
@@ -408,7 +466,7 @@ def parse(output: str) -> tuple[Counter, dict[str, Counter], Counter]:
         start = int(col) - 1
         tok = IDENT_RE.match(src[start:]) if 0 <= start < len(src) else None
         unqualified[path][tok.group(0) if tok else "<unparsed>"] += 1
-    return categories, unqualified, per_file
+    return categories, unqualified, per_file, per_file_category
 
 
 def build_state(categories: Counter, unqualified: dict, files: list[str]) -> dict:
@@ -557,18 +615,24 @@ def cmd_check(state: dict, skipped: set[str], unlisted: list[str] | None = None)
             failures.append(f"{f}: unqualified rose {limit} -> {now}.")
 
     # Every other category is enforced globally, against the hand-edited block above rather
-    # than against anything the baseline file regenerates.
+    # than against anything the baseline file regenerates. On a --skip-unlintable run the limits
+    # are tightened by what the skipped files would have contributed, so a partial run does not
+    # hand out an allowance the size of the files it did not read.
+    ceilings = effective_ceilings(skipped)
     for cat, n in sorted(state["observed_categories"].items()):
         if cat == "unqualified":
             continue
-        if cat not in CATEGORY_EXEMPTIONS:
+        if cat not in ceilings:
             failures.append(
                 f"category '{cat}': {n} occurrence(s), and the category is not exempt.\n"
                 f"    Fix them. Adding an entry to CATEGORY_EXEMPTIONS is for recording an "
                 f"existing backlog, not for admitting a new one."
             )
-        elif n > CATEGORY_EXEMPTIONS[cat]:
-            failures.append(f"category '{cat}' rose {CATEGORY_EXEMPTIONS[cat]} -> {n}.")
+        elif n > ceilings[cat]:
+            adjusted = ("" if ceilings[cat] == CATEGORY_EXEMPTIONS[cat]
+                        else f" (exemption {CATEGORY_EXEMPTIONS[cat]}, less what the skipped "
+                             f"file(s) contribute)")
+            failures.append(f"category '{cat}' rose {ceilings[cat]} -> {n}.{adjusted}")
 
     if failures:
         print("QML diagnostics gate FAILED:\n")
@@ -736,8 +800,9 @@ def main() -> int:
     else:
         output = run(args.qmllint or find_qmllint(), import_path, files, rsp,
                      args.raw_out, args.batch, args.timeout, set(skipped))
-    categories, unqualified, _ = parse(output)
+    categories, unqualified, _, per_file_category = parse(output)
     check_accounting(output, sum(categories.values()))
+    check_unlintable_contribution(per_file_category, set(skipped))
     state = build_state(categories, unqualified, files)
 
     if args.check:

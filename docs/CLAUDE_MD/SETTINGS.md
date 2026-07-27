@@ -4,7 +4,7 @@
 
 The split exists so that a **narrow consumer** — one that takes a `Settings<Domain>*` and includes only that domain's header — recompiles when its own domain changes and not when any other does (~9 files for `settings_mqtt.h`). That is still true and is still the reason to write consumers that way.
 
-What is **no longer** true: that a domain-header edit is cheap for everything else. `settings.h` includes all twelve domain headers (see "Why the includes are back"), so anything taking a `Settings*` rebuilds on any domain change — 439 translation units, ~60 s. Measured before the change it was already 310 TUs / 26 s, so this is a widening of an existing cost, not a new one. The way to reduce it is to make more consumers narrow, or to trim what the domain headers themselves include.
+What is **no longer** true: that a domain-header edit is cheap for everything else. `settings.h` includes all twelve domain headers (see "Why the includes are back"), so anything taking a `Settings*` rebuilds on any domain change — **~60 s, against ~26 s before**. The blast was already large before the change, so this is a widening of an existing cost, not a new one. The way to reduce it is to make more consumers narrow, or to trim what the domain headers themselves include.
 
 The split was tricky to get right — the rules below capture every gotcha that came up during PR #852 (issue #743). Follow them and the architecture stays healthy.
 
@@ -74,9 +74,18 @@ method under `Settings.<domain>` fails at runtime. That was tried and reverted;
 reintroduced quietly.
 
 Measured cost of the includes, touching one domain header (ASan+UBSan debug, warm ccache):
-**439 TUs / 60 s**, against **310 TUs / 26 s** before. Note the *before* number: 310 TUs already
-rebuilt on that edit, so the blast was large regardless and the `QObject*` trick was buying less
-than it looked like. Full build is 122 s for scale.
+**60 s, against 26 s before**. Full build is 122 s for scale.
+
+**Read the wall clock, not the file counts.** ninja reports a dirty set of 439 after and 310
+before, but those are the *pre-`restat`* set — the build actually executed 297 edges, because
+`restat` prunes the chain wherever regenerated content turns out unchanged. Splitting the dirty
+set by kind: 221 C++ TUs + 218 QML cache units after, against roughly 92 + 218 before. The 218
+QML units are in **both**, so they are not this decision's cost — a domain header carries
+`Q_OBJECT`, and any moc-metadata change invalidates `Decenza.qmltypes` and with it every QML
+unit. The marginal cost of declaring the types honestly is the **+129 C++ TUs**, ~34 s.
+
+Note the *before* number too: ~92 C++ TUs already rebuilt on that edit, so the blast was large
+regardless and the `QObject*` trick was buying less than it looked like.
 
 The domain split still does its job — implementations stay in their own `.cpp` files, and narrow
 consumers taking `Settings<Domain>*` still recompile only on their own header. If the 60 s

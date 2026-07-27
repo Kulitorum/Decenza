@@ -34,6 +34,13 @@ AccessibilityManager *AccessibilityManager::create(QQmlEngine *qmlEngine, QJSEng
                   "before QQmlEngine::load().");
         return nullptr;
     }
+    // No second-engine guard here, unlike TranslationManager::create() — deliberately, not by
+    // oversight. That one declines a second engine because `translate` is a QJSValue bound to
+    // exactly one QJSEngine. AccessibilityManager holds no per-engine state: every property is a
+    // plain value and every method is a Q_INVOKABLE, so the debug-build GHC simulator engine
+    // sharing main's instance is correct rather than a hazard. Add a guard here only if this
+    // class gains a QJSValue or QJSEngine member.
+    //
     // The engine would otherwise take ownership of what it is handed and delete a stack object
     // owned by main().
     QJSEngine::setObjectOwnership(s_qmlInstance, QJSEngine::CppOwnership);
