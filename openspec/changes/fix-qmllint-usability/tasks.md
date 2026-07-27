@@ -221,18 +221,35 @@ evaluates — the same silent, delayed shape as the bug this change exists to pr
   - Bare-basename include dirs needed for this: `src/controllers`, `src/ai`, `src/history`,
     `src/machine`, `src/models`, `src/network`, `src/profile`. Basename ambiguity re-checked after
     adding them — still none.
-- [ ] 3.6 `ProfileManager` — unlocks 3 files (→ 99). **Read the `currentProfilePtr` note in
-  bugs-found.md before starting.** `ProfileManager` carries `Q_PROPERTY(Profile* currentProfilePtr)`
-  where `Profile` is a plain C++ class (no Q_OBJECT, no Q_GADGET), so registering ProfileManager
-  will surface it as `unresolved-type` the same way MainController's 21 sub-objects did. The fix is
-  a `Q_GADGET` on `Profile`, never an opaque pointer — or delete the property, since no QML
-  references it.
-- [ ] 3.7 `MachineState` — unlocks 1 file (→ 100)
-- [ ] 3.8 `MachineStateType` — unlocks 1 file (→ 101). This is a `qmlRegisterUncreatableType`, not a context property; establish why it is unresolved before changing anything
-- [ ] 3.9 `MarkdownRenderer` — unlocks 1 file (→ 102)
-- [ ] 3.10 `EmojiAssets` and `TemperatureDisplay` — 0 files each alone, but together with `Settings` they are what unlocks `qml/Theme.qml` (→ 103). Greedy single-name ordering misses files blocked by combinations; this pair is the one that matters, because `Theme.qml` is the file whose silent `ReferenceError` shipped in 2.0.1
+- [x] 3.6 `ProfileManager` — **unlocked 5 files, not the 3 predicted** (clean 75 -> 80).
+  Took the third option on `currentProfilePtr`: deleted the `Q_PROPERTY`, kept the C++ accessor.
+  A `Q_GADGET` on `Profile` would have meant annotating ~50 accessors to expose something no
+  caller wants — nothing in `qml/` referenced the property, and QML could never have read a
+  member through the pointer anyway.
+- [x] 3.7 + 3.8 `MachineState` / `MachineStateType` — done together, because they are one object.
+  MachineStateType existed ONLY because a context property named MachineState shadows a type of
+  the same name, so the enums needed a second, invented name. A QML_SINGLETON needs no such
+  split: `MachineState.Phase.X` resolves through the singleton's own metaobject. 155 call sites
+  across 13 QML files rewritten, the `qmlRegisterUncreatableType` deleted. That the enums resolve
+  is verified, not assumed — an unknown enum member is a `missing-property` diagnostic, and all
+  155 lint clean. Unlocked 3 files (clean 80 -> 83).
+- [x] 3.9 + 3.10 `MarkdownRenderer`, `EmojiAssets`, `TemperatureDisplay` — done together.
+  **`qml/Theme.qml` is clean**, which is task 5.3's acceptance test. Clean 83 -> 85 (also
+  ConversationOverlay.qml).
+  - These three take a different registration shape from every earlier one: stateless and
+    default-constructible, so there is no object `main()` owns and nothing to publish.
+    `QML_SINGLETON` alone, engine-constructed and engine-owned. That also covered the GHC
+    simulator's separate engine for free — it had needed its own `setContextProperty` line.
+  - `TemperatureDisplayBridge` exports as `TemperatureDisplay` via `QML_NAMED_ELEMENT`. This
+    broke `tst_qmlregistration`, which looked the QML name up as a class name: a .qmltypes
+    Component is keyed by the C++ class name and the QML name is only in `exports`. The test now
+    carries both names per row and asserts the exported NAME rather than just the Decenza URI —
+    the old check would have passed a `QML_NAMED_ELEMENT` typo that registered under the wrong
+    name.
 - [ ] 3.11 After each of the above: launch the app and check the log for QML TypeErrors. Building is not evidence
-- [ ] 3.12 Move each unlocked file onto the clean list in the same commit that unlocks it
+- [x] 3.12 Move each unlocked file onto the clean list in the same commit that unlocks it —
+  done for 3.6, 3.7/3.8 and 3.9/3.10; the baseline was regenerated with the patched qmllint in
+  each commit, and each run confirmed no file left the clean list and no ceiling rose.
 
 ## 4. Deferred: the runtime-swapped devices
 
