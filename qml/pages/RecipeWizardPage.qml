@@ -1126,6 +1126,26 @@ Page {
         return parts.join(" · ")
     }
 
+    // Snapshot the chosen water vessel preset onto the recipe BY VALUE (never a
+    // preset index). Shared by the hot-water window's tiles.
+    function selectVessel(preset) {
+        fVesselName = preset.name || ""
+        fVesselVolume = preset.volume || 0
+        fVesselMode = preset.mode || "weight"
+        fVesselFlowRate = preset.flowRate || 40
+        fVesselTemperatureC = preset.temperature || 0
+    }
+
+    // Compact "220ml · 96°C" metadata line for a water vessel preset tile.
+    function vesselTileMeta(preset) {
+        var parts = []
+        if ((preset.volume || 0) > 0)
+            parts.push(preset.volume + (preset.mode === "volume" ? "ml" : "g"))
+        if ((preset.temperature || 0) > 0)
+            parts.push(Theme.formatTemperature(preset.temperature, 0))
+        return parts.join(" · ")
+    }
+
     // --- details prefill (history → tea bag data → profile defaults) -------
 
     // Absolute tea temperature (vendor numbers are steeping temps; the tea
@@ -1903,56 +1923,6 @@ Page {
     Tr { id: trJustHotWater; key: "recipes.wizard.justHotWater"; fallback: "Just hot water — no profile"; visible: false }
 
     // --- Reusable pieces (composer idiom) -----------------------------------
-
-    component PickerField: ColumnLayout {
-        id: pickerField
-        property string label: ""
-        property string value: ""
-        property string placeholder: ""
-        signal activated()
-        spacing: Theme.scaled(4)
-        Label {
-            text: pickerField.label
-            font: Theme.captionFont
-            color: Theme.textSecondaryColor
-            Accessible.ignored: true
-        }
-        Rectangle {
-            Layout.fillWidth: true
-            implicitHeight: Theme.scaled(44)
-            radius: Theme.scaled(8)
-            color: Theme.cardBackgroundColor
-            border.color: Theme.borderColor
-            border.width: 1
-            RowLayout {
-                anchors.fill: parent
-                anchors.leftMargin: Theme.spacingMedium
-                anchors.rightMargin: Theme.spacingMedium
-                spacing: Theme.spacingSmall
-                Label {
-                    Layout.fillWidth: true
-                    text: pickerField.value !== "" ? pickerField.value : pickerField.placeholder
-                    font: Theme.bodyFont
-                    color: pickerField.value !== "" ? Theme.textColor : Theme.textSecondaryColor
-                    elide: Text.ElideRight
-                    Accessible.ignored: true
-                }
-                Label {
-                    text: "→"
-                    font: Theme.bodyFont
-                    color: Theme.textSecondaryColor
-                    Accessible.ignored: true
-                }
-            }
-            AccessibleMouseArea {
-                anchors.fill: parent
-                accessibleName: pickerField.label + ", "
-                    + (pickerField.value !== "" ? pickerField.value : pickerField.placeholder)
-                accessibleItem: parent
-                onAccessibleClicked: pickerField.activated()
-            }
-        }
-    }
 
     component NumberField: ColumnLayout {
         id: numberField
@@ -3343,13 +3313,10 @@ Page {
                             // The hot-water window.
                             visible: wizardPage.fHasWater && wizardPage._detailsPage === "water"
                             title: TranslationManager.translate("recipes.composer.sectionHotWater", "Hot water")
-                            PickerField {
-                                Layout.fillWidth: true
-                                label: TranslationManager.translate("recipes.composer.waterVessel", "Water vessel")
-                                value: wizardPage.fVesselName
-                                placeholder: TranslationManager.translate("recipes.composer.chooseVessel", "Choose vessel…")
-                                onActivated: vesselPicker.open()
-                            }
+                            // Order BEFORE the vessel: the vessel tile is the
+                            // terminal choice and moves on by itself, so the
+                            // order (a modifier, template-defaulted) has to be
+                            // settled first.
                             ColumnLayout {
                                 // Latte + Water fixes the order (water before the
                                 // espresso) — no order choice is offered for it.
@@ -3363,18 +3330,60 @@ Page {
                                     color: Theme.textSecondaryColor
                                     Accessible.ignored: true
                                 }
-                                StyledComboBox {
+                                Flow {
                                     Layout.fillWidth: true
-                                    accessibleLabel: TranslationManager.translate("recipes.composer.waterOrder", "When to add the water")
-                                    model: [
-                                        TranslationManager.translate("recipes.composer.waterAfter", "After espresso (Americano)"),
-                                        TranslationManager.translate("recipes.composer.waterBefore", "Before espresso (long black)")
-                                    ]
-                                    currentIndex: wizardPage.fWaterOrder === "before" ? 1 : 0
-                                    onActivated: function(index) {
-                                        wizardPage.fWaterOrder = index === 1 ? "before" : "after"
+                                    spacing: Theme.spacingMedium
+                                    ChoiceTile {
+                                        title: TranslationManager.translate("recipes.composer.waterAfter", "After espresso (Americano)")
+                                        selected: wizardPage.fWaterOrder !== "before"
+                                        onChosen: wizardPage.fWaterOrder = "after"
+                                    }
+                                    ChoiceTile {
+                                        title: TranslationManager.translate("recipes.composer.waterBefore", "Before espresso (long black)")
+                                        selected: wizardPage.fWaterOrder === "before"
+                                        onChosen: wizardPage.fWaterOrder = "before"
                                     }
                                 }
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                text: TranslationManager.translate("recipes.wizard.vesselHint",
+                                      "Pick the vessel this drink is poured into — its preset sets the "
+                                      + "water amount and temperature.")
+                                font: Theme.captionFont
+                                color: Theme.textSecondaryColor
+                                wrapMode: Text.WordWrap
+                            }
+                            // The vessel presets as inline, tap-to-select tiles
+                            // (like the pitchers on the steam window): the chosen
+                            // one is highlighted, and picking one moves on.
+                            Flow {
+                                Layout.fillWidth: true
+                                spacing: Theme.spacingMedium
+                                Repeater {
+                                    model: Settings.brew.waterVesselPresets
+                                    delegate: ChoiceTile {
+                                        title: modelData.name || ""
+                                        meta: wizardPage.vesselTileMeta(modelData)
+                                        selected: (modelData.name || "") === wizardPage.fVesselName
+                                        onChosen: {
+                                            wizardPage.selectVessel(modelData)
+                                            wizardPage.detailsContinue()
+                                        }
+                                    }
+                                }
+                            }
+                            Label {
+                                visible: Settings.brew.waterVesselPresets.length === 0
+                                Layout.fillWidth: true
+                                text: TranslationManager.translate("recipes.wizard.noVessels",
+                                      "No water vessels saved yet — add one on the Hot Water page "
+                                      + "and it will show up here.")
+                                font: Theme.captionFont
+                                color: Theme.textSecondaryColor
+                                wrapMode: Text.WordWrap
+                                Accessible.role: Accessible.StaticText
+                                Accessible.name: text
                             }
                         }
 
@@ -3702,69 +3711,6 @@ Page {
             basketBrand: wizardPage._selectedPackage.basketBrand || ""
             basketModel: wizardPage._selectedPackage.basketModel || ""
             puckPrepCanonical: wizardPage._selectedPackage.puckPrepCanonical || ""
-        }
-    }
-
-    // --- Pickers (selection-only dialogs, composer idiom) -------------------
-
-    component PickerDialog: Dialog {
-        modal: true
-        anchors.centerIn: parent
-        width: Math.min(Theme.scaled(520), parent.width - Theme.scaled(40))
-        height: Math.min(Theme.scaled(620), parent.height - Theme.scaled(80))
-        background: Rectangle { color: Theme.surfaceColor; radius: Theme.cardRadius; border.color: Theme.borderColor; border.width: 1 }
-    }
-
-
-
-    PickerDialog {
-        id: vesselPicker
-        height: Math.min(Theme.scaled(420), parent.height - Theme.scaled(80))
-        contentItem: ListView {
-            clip: true
-            model: Settings.brew.waterVesselPresets
-            delegate: ItemDelegate {
-                width: ListView.view.width
-                // Preset metadata on the row: amount (per its mode) and
-                // temperature — "220ml · 96°C", never name-only.
-                readonly property string rowMeta: {
-                    var parts = []
-                    if ((modelData.volume || 0) > 0)
-                        parts.push(modelData.volume + (modelData.mode === "volume" ? "ml" : "g"))
-                    if ((modelData.temperature || 0) > 0)
-                        parts.push(Theme.formatTemperature(modelData.temperature, 0))
-                    return parts.join(" · ")
-                }
-                contentItem: ColumnLayout {
-                    spacing: 0
-                    Label {
-                        Layout.fillWidth: true
-                        text: modelData.name || ""
-                        font: Theme.bodyFont
-                        color: Theme.textColor
-                        elide: Text.ElideRight
-                    }
-                    Label {
-                        visible: rowMeta !== ""
-                        Layout.fillWidth: true
-                        text: rowMeta
-                        font: Theme.captionFont
-                        color: Theme.textSecondaryColor
-                        elide: Text.ElideRight
-                    }
-                }
-                Accessible.role: Accessible.Button
-                Accessible.name: (modelData.name || "") + (rowMeta !== "" ? ", " + rowMeta : "")
-                onClicked: {
-                    // Snapshot BY VALUE (never a preset index).
-                    wizardPage.fVesselName = modelData.name || ""
-                    wizardPage.fVesselVolume = modelData.volume || 0
-                    wizardPage.fVesselMode = modelData.mode || "weight"
-                    wizardPage.fVesselFlowRate = modelData.flowRate || 40
-                    wizardPage.fVesselTemperatureC = modelData.temperature || 0
-                    vesselPicker.close()
-                }
-            }
         }
     }
 
