@@ -214,9 +214,10 @@ void SerialTransport::open()
         // dialout group" case and IS actionable. Rather than reinstate a modal
         // carrying an untranslated raw QSerialPort string, the advisory goes in
         // the log naming the exact remedy: the debug log is what the issue
-        // template collects and what users' own assistants read. The DE1 also
-        // shows as offline in the connection indicator either way, so the
-        // failure is never invisible. (#1658)
+        // template collects and what users' own assistants read. USBManager also
+        // discards the unopened transport and re-arms discovery, and the status
+        // bar's machineStatus widget shows the DE1 as Disconnected meanwhile, so
+        // the failure is neither invisible nor terminal. (#1658)
         qWarning() << "[USB] Failed to open serial port" << m_portName << ":"
                    << m_port->errorString();
         if (m_port->error() == QSerialPort::PermissionError) {
@@ -267,8 +268,8 @@ void SerialTransport::onAndroidReadTimer()
     // Check if connection was lost
     if (!AndroidUsbHelper::isOpen()) {
         // The cable came out. disconnect() drops the DE1 to offline, which the
-        // connection indicator already shows — a modal saying the same thing
-        // adds nothing to an action the user just took themselves. (#1658)
+        // status bar's machineStatus widget already says in words — a modal
+        // repeating it adds nothing to an action the user just took. (#1658)
         qWarning() << "[USB] Android USB connection lost";
         disconnect();
         return;
