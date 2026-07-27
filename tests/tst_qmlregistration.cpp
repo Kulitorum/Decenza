@@ -469,10 +469,12 @@ private slots:
         // maincontroller.h — tst_mqttclient among them, and it does not link Qt6::Quick. Spreading
         // QtQuick across test targets to satisfy a registration that isn't due yet is the wrong
         // trade. Delete each entry when that name's own migration lands.
-        static const QSet<QString> deferredToOwnMigration = {
-            QStringLiteral("ShotDataModel"),   // tasks.md 3.x — still a context property
-            QStringLiteral("SteamDataModel"),  // tasks.md 3.x — still a context property
-        };
+        // There was a `deferredToOwnMigration` allowlist here holding ShotDataModel and
+        // SteamDataModel, which were MainController property types still published as context
+        // properties. Both are now QML_FOREIGN singletons (src/core/contextsingletons_qml.h), so
+        // the allowlist is empty and is gone rather than left as an empty set: the assertion that
+        // guarded it — fail the moment an entry becomes registered — is what forced this deletion,
+        // and it did its job. Reintroduce the pair if a type ever needs deferring again.
 
         const auto components = componentsByName(m_qmltypes);
         QStringList missing;
@@ -482,8 +484,6 @@ private slots:
             // a future Decenza `QrCodeGenerator` would be silently exempted from the very check
             // this test exists to provide. Narrow it to a known-Qt list if that day comes.
             if (t == QStringLiteral("QObject") || t.startsWith(QStringLiteral("Q")))
-                continue;
-            if (deferredToOwnMigration.contains(t))
                 continue;
             if (!components.contains(t)) {
                 missing << t;
@@ -496,16 +496,6 @@ private slots:
             if (!components.value(t).contains(QStringLiteral("exports: [\"Decenza/")))
                 missing << (t + QStringLiteral(" (present but not exported under Decenza/)"));
         }
-        // Assert the negative, so the exemption cannot outlive its reason: the day one of these
-        // is registered, this fails and tells you to delete the entry. An allowlist nobody is
-        // forced to revisit decays into a permanent blind spot.
-        for (const QString& t : deferredToOwnMigration) {
-            QVERIFY2(!components.contains(t),
-                     qPrintable(t + QStringLiteral(" is now registered — delete its "
-                                "deferredToOwnMigration entry in this file so it is checked "
-                                "like every other MainController property type.")));
-        }
-
         QVERIFY2(missing.isEmpty(),
                  qPrintable(QStringLiteral(
                      "these MainController property types are absent from Decenza.qmltypes: %1.\n"
