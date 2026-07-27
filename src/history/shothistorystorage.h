@@ -13,6 +13,7 @@
 #include <functional>
 #include <memory>
 
+#include <QtQml/qqmlregistration.h>
 class QThread;
 class SerialDbWorker;
 
@@ -22,6 +23,13 @@ struct ShotMetadata;
 
 class ShotHistoryStorage : public QObject {
     Q_OBJECT
+
+    // Reached from QML only as a MainController property (e.g. MainController.shotHistoryStorage),
+    // never constructed there. Registered at COMPILE time so qmllint, qmlcachegen and the
+    // language server can follow the property through to this class; a runtime
+    // qmlRegister* call is invisible to all three.
+    QML_ELEMENT
+    QML_UNCREATABLE("ShotHistoryStorage is created in C++ and reached via MainController")
 
     Q_PROPERTY(int totalShots READ totalShots NOTIFY totalShotsChanged)
     Q_PROPERTY(bool isReady READ isReady NOTIFY readyChanged)

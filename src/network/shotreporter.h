@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QNetworkAccessManager>
 
+#include <QtQml/qqmlregistration.h>
 class LocationProvider;
 class Settings;
 
@@ -21,6 +22,13 @@ struct ShotEvent {
 
 class ShotReporter : public QObject {
     Q_OBJECT
+
+    // Reached from QML only as a MainController property (e.g. MainController.shotReporter),
+    // never constructed there. Registered at COMPILE time so qmllint, qmlcachegen and the
+    // language server can follow the property through to this class; a runtime
+    // qmlRegister* call is invisible to all three.
+    QML_ELEMENT
+    QML_UNCREATABLE("ShotReporter is created in C++ and reached via MainController")
 
     Q_PROPERTY(bool enabled READ isEnabled WRITE setEnabled NOTIFY enabledChanged)
     Q_PROPERTY(bool hasLocation READ hasLocation NOTIFY locationStatusChanged)

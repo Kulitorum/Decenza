@@ -14,6 +14,7 @@
 #include "../history/shotprojection.h"
 #include "../history/shothistory_types.h"
 
+#include <QtQml/qqmlregistration.h>
 class QNetworkAccessManager;
 class AIProvider;
 class AIConversation;
@@ -27,6 +28,13 @@ class ProfileManager;
 
 class AIManager : public QObject {
     Q_OBJECT
+
+    // Reached from QML only as a MainController property (e.g. MainController.aIManager),
+    // never constructed there. Registered at COMPILE time so qmllint, qmlcachegen and the
+    // language server can follow the property through to this class; a runtime
+    // qmlRegister* call is invisible to all three.
+    QML_ELEMENT
+    QML_UNCREATABLE("AIManager is created in C++ and reached via MainController")
 
     Q_PROPERTY(QString selectedProvider READ selectedProvider WRITE setSelectedProvider NOTIFY providerChanged)
     Q_PROPERTY(QStringList availableProviders READ availableProviders CONSTANT)

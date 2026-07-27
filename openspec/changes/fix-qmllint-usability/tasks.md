@@ -198,7 +198,26 @@ evaluates — the same silent, delayed shape as the bug this change exists to pr
   ReferenceError, and TTS initialised (i.e. the object is genuinely live, not undefined).
   Predicted 8 files, delivered 5 — the shortfall is D2's stale anchor, not a miss; see the note
   on that table.
-- [ ] 3.5 `MainController` — 879 sites, unlocks 9 files (→ 96)
+- [x] 3.5 `MainController` — unlocked 9 files (66 → 75 clean), `unqualified` 7,251 → 6,337 (−914,
+  exactly the predicted count). Used the SIMPLE direct-macro shape per the maintainer's call: Qt
+  recommends it for types you own, and that was the tiebreaker over the `QML_FOREIGN` wrapper.
+  Three things this taught that the earlier migrations did not:
+  - **Registering the parent exposes the children.** `unresolved-type` went 2 → **763** the moment
+    qmllint could read MainController's property list and found 21 sub-object types unregistered.
+    Registering those (plus `AIConversation`) took it back to 2. Landing MainController without
+    them would have meant a 763-entry exemption of known-unverifiable accesses — progress by count
+    with none in findability, which the proposal names as the failure mode to avoid.
+  - **A QML type needs complete parameter types.** moc must build a metatype for every pointer
+    parameter of a `Q_INVOKABLE`/signal/slot on a registered class, so forward declarations that
+    were fine become hard build errors. Three methods hit this; see bugs-found.md 11.
+  - **The direct shape's structural cost is real and showed up here.** `fastlinerenderer.h`
+    includes `<QQuickItem>`, so registering `ShotDataModel` would drag QtQuick into every target
+    transitively including `maincontroller.h` — `tst_mqttclient` among them, and it does not link
+    Qt6::Quick. Deferred those two to their own migration with a named exemption in
+    `tst_qmlregistration` rather than spreading QtQuick across test targets.
+  - Bare-basename include dirs needed for this: `src/controllers`, `src/ai`, `src/history`,
+    `src/machine`, `src/models`, `src/network`, `src/profile`. Basename ambiguity re-checked after
+    adding them — still none.
 - [ ] 3.6 `ProfileManager` — unlocks 3 files (→ 99)
 - [ ] 3.7 `MachineState` — unlocks 1 file (→ 100)
 - [ ] 3.8 `MachineStateType` — unlocks 1 file (→ 101). This is a `qmlRegisterUncreatableType`, not a context property; establish why it is unresolved before changing anything

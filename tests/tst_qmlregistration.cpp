@@ -88,6 +88,7 @@ private slots:
         QTest::newRow("Settings") << "Settings";
         QTest::newRow("TranslationManager") << "TranslationManager";
         QTest::newRow("AccessibilityManager") << "AccessibilityManager";
+        QTest::newRow("MainController") << "MainController";
     }
 
     void singletonsAreRegistered()
@@ -144,6 +145,62 @@ private slots:
                      qPrintable(domain + " is registered but not exported as " + domain
                                 + "Type under the Decenza URI."));
         }
+    }
+
+    // Same contract one level out: every type reachable as a MainController property must itself
+    // be registered, or QML resolves MainController, follows the property, and finds nothing —
+    // which qmllint reports as unresolved-type and the app renders as undefined. Registering
+    // MainController alone took that category from 2 to 763; registering its 21 sub-object types
+    // took it back to 2. Derived from the header so a 22nd added without QML_ELEMENT fails here.
+    void everyMainControllerSubObjectIsRegistered()
+    {
+        const QString header =
+            readOrEmpty(QStringLiteral(DECENZA_SOURCE_DIR) + "/src/controllers/maincontroller.h");
+        QVERIFY2(!header.isEmpty(), "cannot read src/controllers/maincontroller.h");
+
+        // Q_PROPERTY(Foo* bar READ ...) — the pointer-typed ones are the chainable surface.
+        static const QRegularExpression propRe(
+            QStringLiteral("Q_PROPERTY\\(\\s*(\\w+)\\s*\\*"));
+        QSet<QString> types;
+        auto it = propRe.globalMatch(header);
+        while (it.hasNext())
+            types.insert(it.next().captured(1));
+
+        QVERIFY2(types.size() >= 15,
+                 qPrintable(QStringLiteral("found only %1 pointer Q_PROPERTYs on MainController — "
+                                           "the regex has drifted from the header, so this test is "
+                                           "checking less than it claims").arg(types.size())));
+
+        // Deferred to their own migration, with a reason and an expiry rather than a silent gap.
+        // Both are ALSO published as context properties in main.cpp today, and registering them
+        // early forces `#include "fastlinerenderer.h"` (for the Q_INVOKABLE registerFastSeries
+        // parameter type) which pulls <QQuickItem> into every target that transitively includes
+        // maincontroller.h — tst_mqttclient among them, and it does not link Qt6::Quick. Spreading
+        // QtQuick across test targets to satisfy a registration that isn't due yet is the wrong
+        // trade. Delete each entry when that name's own migration lands.
+        static const QSet<QString> deferredToOwnMigration = {
+            QStringLiteral("ShotDataModel"),   // tasks.md 3.x — still a context property
+            QStringLiteral("SteamDataModel"),  // tasks.md 3.x — still a context property
+        };
+
+        const auto components = componentsByName(m_qmltypes);
+        QStringList missing;
+        for (const QString& t : types) {
+            // QObject itself is Qt's, always known; skip anything Qt owns rather than us.
+            if (t == QStringLiteral("QObject") || t.startsWith(QStringLiteral("Q")))
+                continue;
+            if (deferredToOwnMigration.contains(t))
+                continue;
+            if (!components.contains(t))
+                missing << t;
+        }
+        QVERIFY2(missing.isEmpty(),
+                 qPrintable(QStringLiteral(
+                     "these MainController property types are absent from Decenza.qmltypes: %1.\n"
+                     "Add QML_ELEMENT + QML_UNCREATABLE to each class (and its directory to the "
+                     "bare-basename include list in CMakeLists.txt). Without it, "
+                     "MainController.<prop>.<member> is undefined at runtime and unverifiable by "
+                     "every static tool.").arg(missing.join(QStringLiteral(", ")))));
     }
 
     // Qt registers a module's declarative types only `if (!module)` — see the file header. Our

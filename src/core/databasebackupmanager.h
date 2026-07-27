@@ -7,6 +7,7 @@
 #include <QVector>
 #include <memory>
 
+#include <QtQml/qqmlregistration.h>
 class Settings;
 class TranslationManager;
 class ShotHistoryStorage;
@@ -24,6 +25,13 @@ class ScreensaverVideoManager;
  */
 class DatabaseBackupManager : public QObject {
     Q_OBJECT
+
+    // Reached from QML only as a MainController property (e.g. MainController.databaseBackupManager),
+    // never constructed there. Registered at COMPILE time so qmllint, qmlcachegen and the
+    // language server can follow the property through to this class; a runtime
+    // qmlRegister* call is invisible to all three.
+    QML_ELEMENT
+    QML_UNCREATABLE("DatabaseBackupManager is created in C++ and reached via MainController")
 
     Q_PROPERTY(QStringList availableBackups READ availableBackups NOTIFY availableBackupsChanged)
 

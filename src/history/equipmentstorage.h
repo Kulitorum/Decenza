@@ -10,6 +10,7 @@
 #include <functional>
 #include <memory>
 
+#include <QtQml/qqmlregistration.h>
 class QSqlDatabase;
 class QSqlQuery;
 class SerialDbWorker;
@@ -100,6 +101,13 @@ struct EquipmentPackageView {
 // connection, and are shared with the migration, device import, and tests.
 class EquipmentStorage : public QObject {
     Q_OBJECT
+
+    // Reached from QML only as a MainController property (e.g. MainController.equipmentStorage),
+    // never constructed there. Registered at COMPILE time so qmllint, qmlcachegen and the
+    // language server can follow the property through to this class; a runtime
+    // qmlRegister* call is invisible to all three.
+    QML_ELEMENT
+    QML_UNCREATABLE("EquipmentStorage is created in C++ and reached via MainController")
 
 public:
     explicit EquipmentStorage(QObject* parent = nullptr);

@@ -34,7 +34,11 @@
 #include "../core/datamigrationclient.h"
 #include "../core/databasebackupmanager.h"
 
+#include <QtQml/qqmlregistration.h>
+
 class QNetworkAccessManager;
+class QQmlEngine;
+class QJSEngine;
 class Settings;
 class DE1Device;
 class MachineState;
@@ -49,6 +53,23 @@ struct ShotSample;
 
 class MainController : public QObject {
     Q_OBJECT
+
+    // A compile-time-registered QML singleton. The macros are what put the type in the module's
+    // generated Decenza.qmltypes — the only place qmllint, qmlcachegen and the language server
+    // learn about C++ types. This replaced a setContextProperty, which exists only at runtime and
+    // is therefore invisible to all three: it was the single largest source of unresolvable names
+    // in the QML tree at 914 flagged identifiers.
+    //
+    // Registering the type is necessary but NOT sufficient: main.cpp must also call
+    // qml_register_types_Decenza() explicitly, or no declarative type in this module reaches the
+    // runtime registry at all. See the comment at that call site.
+    //
+    // Direct macros rather than the QML_FOREIGN wrapper Settings needs: every target that
+    // compiles this header links Qt::Qml (the Decenza target, and decenza_testlib which links
+    // Qt6::Qml PUBLIC). The CLI tools that forced the wrapper for settings.h — saw_parity and
+    // friends — do not include this header. Check which case a name is before copying either.
+    QML_ELEMENT
+    QML_SINGLETON
 
     // Non-profile QML properties (profile properties are on ProfileManager)
     Q_PROPERTY(VisualizerUploader* visualizer READ visualizer CONSTANT)
@@ -134,6 +155,13 @@ public:
                            MachineState* machineState, ShotDataModel* shotDataModel,
                            ProfileStorage* profileStorage = nullptr,
                            QObject* parent = nullptr);
+
+    // QML_SINGLETON hooks. The engine does not create this object: main.cpp builds it on the
+    // stack with five collaborators the constructor requires, and wires it into the MCP server,
+    // the ShotServer and the machine signal path long before QML exists. So main publishes the
+    // instance and create() hands that same one back.
+    static void setQmlInstance(MainController *instance);
+    static MainController *create(QQmlEngine *qmlEngine, QJSEngine *jsEngine);
 
     // ProfileManager accessor
     ProfileManager* profileManager() const { return m_profileManager; }
@@ -439,6 +467,10 @@ private slots:
                                 double deviceGroupTargetC);
 
 private:
+    // The instance create() hands to the engine. Not owned here — main's stack object outlives
+    // the engine, which is why create() pins CppOwnership.
+    static MainController *s_qmlInstance;
+
     void applyAllSettings();
     void applyLoadedShotMetadata(qint64 shotId, const ShotRecord& shotRecord, double doseOverride = 0,
                                  qint64 matchedBagId = -1);

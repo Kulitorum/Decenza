@@ -68,6 +68,37 @@ clean set. Found and fixed twice: the first fix normalised `qml_files()` and mis
 converted `Dialog`s cannot catch this one — a reparented `Rectangle` is still an `Item`, so the
 attached property is legal; it just has no layout to talk to.
 
+**10. Backup "created" / "restored" screen-reader announcements have never fired.**
+`SettingsHistoryDataTab.qml` had four blocks of the shape:
+
+```qml
+if (MainController.accessibilityManager) {
+    MainController.accessibilityManager.announce(...)
+}
+```
+
+`MainController` has no `accessibilityManager` property and never has — there is no such accessor
+on the class. So the guard was permanently falsy and the announce never ran. A blind user got no
+confirmation that a backup succeeded, failed, or restored.
+
+Found the moment `MainController` became a registered type: qmllint could suddenly read its
+property list and reported `Member "accessibilityManager" not found on type "MainController"` at
+all 8 lines. Before that, `MainController` was a context property — invisible — so the access was
+just one more `unqualified` warning among 914. This is the single clearest demonstration of what
+the change is for: the defect was reachable, user-visible in its absence, and undetectable by
+running the app, because the guard is exactly what stops it from throwing.
+
+Fixed by calling the `AccessibilityManager` singleton directly.
+
+**11. Three `Q_INVOKABLE` methods carry parameter types QML has no metatype for.**
+`VisualizerUploader::uploadShot()` takes `const Profile*`, and `Profile` was only forward-declared.
+Registering the class made moc demand a complete type ("Pointer Meta Types must either point to
+fully-defined types..."). Fixed by including the header — but note what it means: `Profile` is not
+a registered QML type either, and no QML calls `uploadShot`, so the `Q_INVOKABLE` is decorative.
+Whether to keep the annotation or drop it is a judgement call left to the maintainer rather than
+made here. `ShotDataModel`/`SteamDataModel::registerFastSeries(FastLineRenderer*...)` is the same
+shape but genuinely used from QML, and works today because `FastLineRenderer` IS a registered type.
+
 ---
 
 ## Upstream (Qt) defects

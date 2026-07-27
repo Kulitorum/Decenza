@@ -16,6 +16,7 @@
 #include <QSettings>
 #include <memory>
 
+#include <QtQml/qqmlregistration.h>
 class QTcpSocket;
 
 class Settings;
@@ -32,6 +33,13 @@ class AIManager;
  */
 class DataMigrationClient : public QObject {
     Q_OBJECT
+
+    // Reached from QML only as a MainController property (e.g. MainController.dataMigrationClient),
+    // never constructed there. Registered at COMPILE time so qmllint, qmlcachegen and the
+    // language server can follow the property through to this class; a runtime
+    // qmlRegister* call is invisible to all three.
+    QML_ELEMENT
+    QML_UNCREATABLE("DataMigrationClient is created in C++ and reached via MainController")
 
     Q_PROPERTY(bool isConnecting READ isConnecting NOTIFY isConnectingChanged)
     Q_PROPERTY(bool isImporting READ isImporting NOTIFY isImportingChanged)

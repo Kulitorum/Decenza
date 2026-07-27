@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QDateTime>
 #include "core/appsettings.h"
+#include <QtQml/qqmlregistration.h>
 
 class SteamDataModel;
 
@@ -19,6 +20,17 @@ struct SteamSessionSummary {
 
 class SteamHealthTracker : public QObject {
     Q_OBJECT
+
+    // Reached from QML as a MainController property, never constructed there. Registered at
+    // COMPILE time so qmllint, qmlcachegen and the language server can follow the property
+    // through to this class; a runtime qmlRegister* call is invisible to all three.
+    //
+    // NAMED SteamHealthTrackerType, not the bare class name: main.cpp still publishes an INSTANCE under the
+    // class name as a context property, and a context property resolves ahead of a type
+    // name. Registering the bare name would shadow-collide and make qmllint read SteamHealthTracker
+    // as the type where QML means the instance. Matches the existing ...Type convention.
+    QML_NAMED_ELEMENT(SteamHealthTrackerType)
+    QML_UNCREATABLE("SteamHealthTracker is created in C++ and reached via MainController.steamHealthTracker")
 
 public:
     // Baseline lifecycle state surfaced to QML so the settings/calibration

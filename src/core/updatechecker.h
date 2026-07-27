@@ -8,11 +8,19 @@
 #include <QFile>
 #include <QFileInfo>
 
+#include <QtQml/qqmlregistration.h>
 class Settings;
 class TranslationManager;
 
 class UpdateChecker : public QObject {
     Q_OBJECT
+
+    // Reached from QML only as a MainController property (e.g. MainController.updateChecker),
+    // never constructed there. Registered at COMPILE time so qmllint, qmlcachegen and the
+    // language server can follow the property through to this class; a runtime
+    // qmlRegister* call is invisible to all three.
+    QML_ELEMENT
+    QML_UNCREATABLE("UpdateChecker is created in C++ and reached via MainController")
 
     Q_PROPERTY(bool checking READ isChecking NOTIFY checkingChanged)
     Q_PROPERTY(bool downloading READ isDownloading NOTIFY downloadingChanged)

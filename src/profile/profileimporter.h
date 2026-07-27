@@ -8,6 +8,7 @@
 #include <QVariantMap>
 #include "profile.h"
 
+#include <QtQml/qqmlregistration.h>
 class MainController;
 class ProfileSaveHelper;
 class Settings;
@@ -26,6 +27,13 @@ class Settings;
  */
 class ProfileImporter : public QObject {
     Q_OBJECT
+
+    // Reached from QML only as a MainController property (e.g. MainController.profileImporter),
+    // never constructed there. Registered at COMPILE time so qmllint, qmlcachegen and the
+    // language server can follow the property through to this class; a runtime
+    // qmlRegister* call is invisible to all three.
+    QML_ELEMENT
+    QML_UNCREATABLE("ProfileImporter is created in C++ and reached via MainController")
 
     Q_PROPERTY(bool isScanning READ isScanning NOTIFY isScanningChanged)
     Q_PROPERTY(bool isImporting READ isImporting NOTIFY isImportingChanged)

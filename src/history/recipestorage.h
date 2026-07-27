@@ -10,6 +10,7 @@
 #include <functional>
 #include <memory>
 
+#include <QtQml/qqmlregistration.h>
 class QSqlDatabase;
 class SerialDbWorker;
 
@@ -178,6 +179,13 @@ struct InventoryRecipe {
 // shared with the migration and unit tests.
 class RecipeStorage : public QObject {
     Q_OBJECT
+
+    // Reached from QML only as a MainController property (e.g. MainController.recipeStorage),
+    // never constructed there. Registered at COMPILE time so qmllint, qmlcachegen and the
+    // language server can follow the property through to this class; a runtime
+    // qmlRegister* call is invisible to all three.
+    QML_ELEMENT
+    QML_UNCREATABLE("RecipeStorage is created in C++ and reached via MainController")
 
 public:
     explicit RecipeStorage(QObject* parent = nullptr);

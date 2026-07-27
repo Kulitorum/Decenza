@@ -8,9 +8,20 @@
 
 #include "../history/shotprojection.h"
 
-class ShotDataModel;
+#include <QtQml/qqmlregistration.h>
+// Profile and ShotDataModel are INCLUDED, not forward-declared, because they appear as pointer
+// parameters of Q_INVOKABLE methods on a class that is now a QML type. moc must build a metatype
+// for every such parameter, and an incomplete type fails the build outright ("Pointer Meta Types
+// must either point to fully-defined types...").
+//
+// This surfaced a latent defect rather than creating one: uploadShot() has been Q_INVOKABLE all
+// along with `const Profile*` incomplete, so QML could never actually have called it — the
+// marshalling had no metatype to work with. Registering the type is what made that visible.
+// Q_DECLARE_OPAQUE_POINTER would silence this and reintroduce the runtime failure; see
+// src/core/settings.h for why that escape hatch is banned here.
+#include "../profile/profile.h"
+#include "../models/shotdatamodel.h"
 class Settings;
-class Profile;
 class DE1Device;
 class TranslationManager;
 
@@ -69,6 +80,13 @@ struct ShotMetadata {
 
 class VisualizerUploader : public QObject {
     Q_OBJECT
+
+    // Reached from QML only as a MainController property (e.g. MainController.visualizerUploader),
+    // never constructed there. Registered at COMPILE time so qmllint, qmlcachegen and the
+    // language server can follow the property through to this class; a runtime
+    // qmlRegister* call is invisible to all three.
+    QML_ELEMENT
+    QML_UNCREATABLE("VisualizerUploader is created in C++ and reached via MainController")
 
     Q_PROPERTY(bool uploading READ isUploading NOTIFY uploadingChanged)
     Q_PROPERTY(QString lastUploadStatus READ lastUploadStatus NOTIFY lastUploadStatusChanged)
