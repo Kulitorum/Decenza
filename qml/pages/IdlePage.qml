@@ -200,7 +200,12 @@ Page {
     // measuring inside a reactive page-size binding doesn't self-trigger a
     // binding loop. Font MIRRORS PresetPillRow's pill font (16 bold).
     FontMetrics { id: idlePillMetrics; font.pixelSize: Theme.scaled(16); font.bold: true }
+    // MIRRORS PresetPillRow.ringOutset — the row reserves this much on each side
+    // for the outward selection/focus rings, so pack against the same width or a
+    // page that fits here would need a third row there.
+    readonly property real _pillRingOutset: Theme.scaled(3) + Theme.focusMargin
     function _pillPagesFor(widths, availWidth) {
+        availWidth = Math.max(0, availWidth - 2 * _pillRingOutset)
         var sizes = PillFit.packPageSizes(widths, Theme.scaled(12), availWidth, 2)
         if (sizes.length <= 1)
             return sizes
@@ -222,6 +227,41 @@ Page {
         var idx = Math.max(0, Math.min(pageIndex, sizes.length - 1))
         var start = _pillPageStart(sizes, pageIndex)
         return list.slice(start, start + (sizes[idx] || 0))
+    }
+
+    // ---- Pill-order freeze, shared by the three MRU-ordered rows (#1673) ----
+    // Recipes, beans and equipment are all listed last_used DESC, and activating
+    // a pill touches last_used. The next inventory therefore re-sorts the list
+    // and the row REPACKS, moving pills out from under the user's finger. While
+    // a row is open we hold the order it is showing (PillFit.keepOrder); the
+    // freeze lifts on close, where a re-request adopts the true MRU order.
+    //
+    // The StackView check matters: activePresetFunction is NOT cleared by
+    // navigation, so without it the freeze would still be engaged on the way
+    // back from e.g. the Recipes page and anything created there would be held
+    // at the tail of the list instead of appearing MRU-first.
+    function _orderFrozen(row) {
+        return activePresetFunction === row && StackView.status === StackView.Active
+    }
+    // Which MRU row is open, so the close edge can be detected in one place.
+    property string _openMruRow: ""
+    // Set while a close-time re-request is in flight: that inventory is the one
+    // that lifts the freeze, so it must be taken in true MRU order even if the
+    // user has already reopened the row (a fast close→open beats the reply).
+    property bool _bagOrderLiftPending: false
+    property bool _equipmentOrderLiftPending: false
+    property bool _recipeOrderLiftPending: false
+    function _liftOrderFreeze(row) {
+        if (row === "recipes") {
+            _recipeOrderLiftPending = true
+            MainController.recipeStorage.requestInventory()
+        } else if (row === "beans") {
+            _bagOrderLiftPending = true
+            MainController.bagStorage.requestInventory()
+        } else if (row === "equipment") {
+            _equipmentOrderLiftPending = true
+            MainController.equipmentStorage.requestInventory()
+        }
     }
 
     // Inventory bags for the beans pill row (bean-bag-inventory: pills are
@@ -248,7 +288,11 @@ Page {
     Connections {
         target: MainController.bagStorage
         function onInventoryReady(bags) {
-            idlePage.inventoryBags = bags
+            const freeze = idlePage._orderFrozen("beans") && !idlePage._bagOrderLiftPending
+            idlePage._bagOrderLiftPending = false
+            idlePage.inventoryBags = freeze
+                ? PillFit.keepOrder(idlePage.inventoryBags, bags, "id")
+                : bags
             // Keep the page valid if bags were added/removed/reordered.
             idlePage.beanPageIndex = Math.max(0, Math.min(idlePage.beanPageIndex, idlePage.beanPageCount - 1))
         }
@@ -283,7 +327,11 @@ Page {
     Connections {
         target: MainController.equipmentStorage
         function onInventoryReady(packages) {
-            idlePage.inventoryEquipment = packages
+            const freeze = idlePage._orderFrozen("equipment") && !idlePage._equipmentOrderLiftPending
+            idlePage._equipmentOrderLiftPending = false
+            idlePage.inventoryEquipment = freeze
+                ? PillFit.keepOrder(idlePage.inventoryEquipment, packages, "id")
+                : packages
             idlePage.equipmentPageIndex = Math.max(0, Math.min(idlePage.equipmentPageIndex, idlePage.equipmentPageCount - 1))
         }
         function onPackagesChanged() {
@@ -311,7 +359,11 @@ Page {
     Connections {
         target: MainController.recipeStorage
         function onInventoryReady(recipes) {
-            idlePage.inventoryRecipes = recipes
+            const freeze = idlePage._orderFrozen("recipes") && !idlePage._recipeOrderLiftPending
+            idlePage._recipeOrderLiftPending = false
+            idlePage.inventoryRecipes = freeze
+                ? PillFit.keepOrder(idlePage.inventoryRecipes, recipes, "id")
+                : recipes
             // Keep the page valid if recipes were added/removed/reordered.
             idlePage.recipePageIndex = Math.max(0, Math.min(idlePage.recipePageIndex, idlePage.recipePageCount - 1))
         }
@@ -651,11 +703,28 @@ Page {
         Theme.currentOperationMode =
             (StackView.status === StackView.Active) ? activePresetFunction : ""
     }
-    StackView.onStatusChanged: _publishOperationMode()
+    StackView.onStatusChanged: {
+        _publishOperationMode()
+        // Coming back with a row still open: _orderFrozen() was false the whole
+        // time we were away, but anything created on the page we just left (a new
+        // recipe, a new bag) may have arrived while it was true again mid-pop. Ask
+        // once for a fresh list and take it unfrozen, so a new item shows up
+        // MRU-first instead of being appended at the tail of the frozen order.
+        if (StackView.status === StackView.Active && _openMruRow !== "")
+            _liftOrderFreeze(_openMruRow)
+    }
 
     // Auto-tare scale and announce presets when activePresetFunction changes
     onActivePresetFunctionChanged: {
         _publishOperationMode()
+        // An MRU row just closed → lift its order freeze and adopt the real MRU
+        // order for the next open (see _liftOrderFreeze / _orderFrozen).
+        var nowOpen = (activePresetFunction === "recipes" || activePresetFunction === "beans"
+                       || activePresetFunction === "equipment") ? activePresetFunction : ""
+        if (_openMruRow !== "" && _openMruRow !== nowOpen)
+            _liftOrderFreeze(_openMruRow)
+        _openMruRow = nowOpen
+
         // Paged pill rows always (re)open on the first page — the most-recent items.
         if (activePresetFunction === "recipes") recipePageIndex = 0
         else if (activePresetFunction === "beans") beanPageIndex = 0

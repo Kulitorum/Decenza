@@ -34,6 +34,8 @@ Item {
     // the Equipment page.
     property var inventoryEquipment: []
     property int equipmentPageIndex: 0
+    // Set while the close-time re-request is in flight — see onInventoryReady.
+    property bool _equipmentOrderLiftPending: false
 
     function equipmentLabel(pkg) {
         if (!pkg) return ""
@@ -45,7 +47,7 @@ Item {
     // Live two-row fit (descriptive-recipe-names, mirrors RecipesItem). Equipment
     // pills carry no icon. Widths MIRROR PresetPillRow's metrics — keep in sync
     // (see PillFit.js).
-    readonly property real _pillFitAvail: equipmentPillRow ? equipmentPillRow.effectiveMaxWidth : Theme.scaled(600)
+    readonly property real _pillFitAvail: equipmentPillRow ? equipmentPillRow.effectiveMaxWidth - 2 * equipmentPillRow.ringOutset : Theme.scaled(600)
     // FontMetrics.advanceWidth() (not a mutated TextMetrics.text/.width) so
     // measuring inside a reactive binding doesn't self-trigger a binding loop.
     FontMetrics { id: equipmentPillMetrics; font.pixelSize: Theme.scaled(16); font.bold: true }
@@ -74,7 +76,16 @@ Item {
     Connections {
         target: MainController.equipmentStorage
         function onInventoryReady(packages) {
-            root.inventoryEquipment = packages
+            // While the popup is open, hold the order the user is looking at —
+            // selecting a package bumps last_used and a re-sort would move the
+            // pills mid-tap (#1673). Lifted on close (see presetPopup.onClosed);
+            // that lift wins even if the popup is already open again, because a
+            // fast close→reopen can beat the async inventory reply.
+            const freeze = presetPopup.visible && !root._equipmentOrderLiftPending
+            root._equipmentOrderLiftPending = false
+            root.inventoryEquipment = freeze
+                ? PillFit.keepOrder(root.inventoryEquipment, packages, "id")
+                : packages
             root.equipmentPageIndex = Math.max(0, Math.min(root.equipmentPageIndex, root.equipmentPageCount - 1))
         }
         function onPackagesChanged() {
@@ -185,6 +196,10 @@ Item {
         }
         onClosed: {
             if (root.idlePage) root.idlePage.releasePanelClearance()
+            // Lift the order freeze held while open (#1673) — this request comes
+            // back in true MRU order, so the next open shows the fresh order.
+            root._equipmentOrderLiftPending = true
+            MainController.equipmentStorage.requestInventory()
         }
 
         function _announceOnOpen() {

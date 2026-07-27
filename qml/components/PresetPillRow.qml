@@ -27,6 +27,16 @@ FocusScope {
     // recipe pills' drink-type icon, add-recipe-wizard-tea). Presets without
     // one render exactly as before. Colorized to match the pill text.
     readonly property real pillIconSize: Theme.scaled(20)
+    // Width of the selected-pill ring. It is drawn OUTSIDE the pill, so it costs
+    // no interior space and never changes what fits on the label (#1673).
+    readonly property real selectionRingWidth: Theme.scaled(3)
+    // Vertical breathing room the OUTWARD rings need. The row's hosts size
+    // themselves to implicitHeight and some of them clip to it (IdlePage's
+    // inline preset-row Item does), so without this allowance the top and
+    // bottom bands of an outward ring are clipped away and the ring reads as
+    // two loose vertical bars. Covers the selection ring and, nested outside
+    // it, the focus ring.
+    readonly property real ringOutset: selectionRingWidth + Theme.focusMargin
 
     // Optional pagination (add-idle-pill-pagination). Opt-in: a caller that owns a
     // longer list passes a windowed slice as `presets` plus the page metadata, and
@@ -53,12 +63,17 @@ FocusScope {
     // appears/disappears. No gutter when not paginating → the ≤5 layout is
     // pixel-identical to before. calculateRows() flows pills into pillsAvailableWidth.
     readonly property real arrowGutter: pageCount > 1 ? Theme.scaled(48) : 0
-    readonly property real pillsAvailableWidth: Math.max(0, effectiveMaxWidth - 2 * arrowGutter)
+    // ringOutset is reserved on both sides as well: a row that packed to exactly
+    // effectiveMaxWidth would put its end pills flush against the host's edge,
+    // and the outward ring on a selected end pill would be clipped away by hosts
+    // that clip to this width (IdlePage's inline preset-row Item does).
+    readonly property real pillsAvailableWidth:
+        Math.max(0, effectiveMaxWidth - 2 * arrowGutter - 2 * ringOutset)
 
     signal presetSelected(int index)
     signal presetLongPressed(int index)
 
-    implicitHeight: contentColumn.implicitHeight
+    implicitHeight: contentColumn.implicitHeight + 2 * ringOutset
     implicitWidth: effectiveMaxWidth
     width: effectiveMaxWidth
 
@@ -375,6 +390,10 @@ FocusScope {
     Column {
         id: contentColumn
         anchors.horizontalCenter: parent.horizontalCenter
+        // Inset by the ring allowance so an outward ring on the first/last row
+        // stays inside the row's own height (the page arrows anchor to this
+        // column's verticalCenter, so they follow it).
+        y: root.ringOutset
         spacing: Theme.scaled(8)
 
         Repeater {
@@ -432,24 +451,34 @@ FocusScope {
                         // colour — lighter in dark mode, darker in light mode — so the active
                         // preset reads clearly as selected against both the fill and the page
                         // background, matching the active action-button highlight.
+                        // Drawn OUTSIDE the pill (negative margins, like the focus ring
+                        // below): a Rectangle border paints INWARD, so anchoring it flush
+                        // put the ring inside the pill and stole 3px of interior from the
+                        // label on every side (#1673).
                         Rectangle {
                             anchors.fill: parent
+                            anchors.margins: -root.selectionRingWidth
                             visible: pill.isSelected && !pill.isDisabled
                             color: "transparent"
-                            border.width: Theme.scaled(3)
+                            border.width: root.selectionRingWidth
                             border.color: Settings.theme.isDarkMode ? Qt.lighter(pill.color, 1.6) : Qt.darker(pill.color, 1.5)
-                            radius: parent.radius
+                            radius: parent.radius + root.selectionRingWidth
                         }
 
-                        // Focus indicator
+                        // Focus indicator. Sits OUTSIDE the selection ring when the
+                        // pill is both selected and focused — it is declared later, so
+                        // at equal margins it would paint over all but a sliver of the
+                        // selection colour and the two states would be indistinguishable.
                         Rectangle {
+                            readonly property real focusOutset:
+                                Theme.focusMargin + ((pill.isSelected && !pill.isDisabled) ? root.selectionRingWidth : 0)
                             anchors.fill: parent
-                            anchors.margins: -Theme.focusMargin
+                            anchors.margins: -focusOutset
                             visible: pill.isFocused
                             color: "transparent"
                             border.width: Theme.focusBorderWidth
                             border.color: Theme.focusColor
-                            radius: parent.radius + Theme.focusMargin
+                            radius: parent.radius + focusOutset
                         }
 
                         Row {
