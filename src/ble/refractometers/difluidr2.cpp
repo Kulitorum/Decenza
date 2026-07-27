@@ -309,7 +309,9 @@ void DiFluidR2::setAutoTest(bool enabled) {
 
     // m_autoTest is NOT set here — the device echoes the setting back and that echo is
     // what moves our state. Assuming the write took would show the user a state their
-    // device might not be in.
+    // device might not be in. Remember what we asked for so the echo can be compared
+    // against it rather than merely reported.
+    m_autoTestRequested = enabled ? 1 : 0;
     sendCommand(cmd);
 }
 
@@ -462,6 +464,12 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
     // Official DiFluid protocol: DF DF <Func> <Cmd> <DataLen> <Data0..DataN> <Checksum>
     // Minimum packet: header(2) + func(1) + cmd(1) + datalen(1) + checksum(1) = 6 bytes
     if (packet.size() < PACKET_MIN_LENGTH) {
+        // A runt is at least as alarming as the bad-header case logged below — BLE
+        // fragmentation, an MTU change, a firmware emitting a shape we do not know —
+        // and it used to be the one malformed packet that left no evidence at all.
+        R2_LOG(QString("Runt packet (%1 bytes, minimum %2): %3")
+                   .arg(packet.size()).arg(PACKET_MIN_LENGTH)
+                   .arg(QString(packet.toHex(' '))));
         return;
     }
 
@@ -560,7 +568,17 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
             return;
         }
         const bool enabled = static_cast<uint8_t>(packet[5]) == 1;
-        R2_LOG(QString("Auto Test is %1").arg(enabled ? "on" : "off"));
+        // A write that never landed and a device that is simply off produce the same
+        // "Auto Test is off" line, so the divergence has to be stated explicitly or it
+        // cannot be seen. Nobody greps for the absence of a log line.
+        if (m_autoTestRequested >= 0 && enabled != (m_autoTestRequested == 1)) {
+            R2_WARN(QString("Auto Test write did not take: asked for %1, device reports %2 "
+                            "— try toggling it on the R2 itself")
+                        .arg(m_autoTestRequested == 1 ? "on" : "off", enabled ? "on" : "off"));
+        } else {
+            R2_LOG(QString("Auto Test is %1").arg(enabled ? "on" : "off"));
+        }
+        m_autoTestRequested = -1;
         if (enabled != m_autoTest) {
             m_autoTest = enabled;
             emit autoTestChanged();
@@ -793,12 +811,14 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
 void DiFluidR2::handleSerialNumberPart(const QByteArray& data) {
     // Data0 = part index, Data1..Data5 = five bytes of serial.
     if (data.size() < 1 + SERIAL_PART_BYTES) {
-        R2_WARN(QString("Serial number packet too short (%1 bytes)").arg(data.size()));
+        R2_WARN(QString("Serial number packet too short (%1 bytes): %2")
+                    .arg(data.size()).arg(QString(data.toHex(' '))));
         return;
     }
     const int part = static_cast<uint8_t>(data[0]);
     if (part >= SERIAL_PART_COUNT) {
-        R2_WARN(QString("Serial number part index %1 out of range").arg(part));
+        R2_WARN(QString("Serial number part index %1 out of range: %2")
+                    .arg(part).arg(QString(data.toHex(' '))));
         return;
     }
 
@@ -813,12 +833,16 @@ void DiFluidR2::handleSerialNumberPart(const QByteArray& data) {
     // wrong device identity into a log someone later reasons from.
     constexpr quint8 allParts = (1u << SERIAL_PART_COUNT) - 1;
     if (m_serialPartsSeen != allParts) {
-        R2_LOG(QString("Serial number part %1 of %2 received")
-                   .arg(part + 1).arg(SERIAL_PART_COUNT));
+        int held = 0;
+        for (quint8 bit = m_serialPartsSeen; bit; bit >>= 1) held += (bit & 1);
+        R2_LOG(QString("Serial number part index %1 received (%2 of %3 parts held)")
+                   .arg(part).arg(held).arg(SERIAL_PART_COUNT));
         return;
     }
 
-    m_serialNumber = QString::fromLatin1(m_serialParts);
+    QByteArray assembled = m_serialParts;
+    while (assembled.endsWith('\0')) assembled.chop(1);
+    m_serialNumber = QString::fromLatin1(assembled);
     R2_LOG(QString("Serial number: \"%1\"").arg(m_serialNumber));
 }
 

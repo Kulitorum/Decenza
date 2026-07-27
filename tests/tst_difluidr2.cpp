@@ -121,14 +121,19 @@ private:
     // Prism temp = temp * 10, tank temp = temp * 10, both in the DEVICE's unit.
     // unit: -1 omits Data5 entirely (firmware predating the unit byte, dataLen 5),
     //        0 = °C, 1 = °F.
-    static QByteArray buildTemperaturePacket(double temp, int unit = -1) {
+    static QByteArray buildTemperaturePacket(double temp, int unit = -1,
+                                            double tankTemp = -999.0) {
+        // Prism and tank default to DIFFERENT values, so swapping the two reads in the
+        // driver cannot pass. DiFluid's worked example is 79.1 prism / 78.8 tank.
         uint16_t raw = static_cast<uint16_t>(qRound(temp * 10.0));
+        uint16_t tankRaw = static_cast<uint16_t>(
+            qRound((tankTemp > -900.0 ? tankTemp : temp - 0.3) * 10.0));
         QByteArray data;
         data.append(static_cast<char>(0x01));  // PackNo = 1 (temperature)
-        data.append(static_cast<char>((raw >> 8) & 0xFF));  // Prism temp high
-        data.append(static_cast<char>(raw & 0xFF));          // Prism temp low
-        data.append(static_cast<char>((raw >> 8) & 0xFF));  // Tank temp high
-        data.append(static_cast<char>(raw & 0xFF));          // Tank temp low
+        data.append(static_cast<char>((raw >> 8) & 0xFF));      // Prism temp high
+        data.append(static_cast<char>(raw & 0xFF));              // Prism temp low
+        data.append(static_cast<char>((tankRaw >> 8) & 0xFF));  // Tank temp high
+        data.append(static_cast<char>(tankRaw & 0xFF));          // Tank temp low
         if (unit >= 0)
             data.append(static_cast<char>(unit));            // Data5: 0 = °C, 1 = °F
         return buildR2Packet(0x03, 0x00, data);
@@ -549,20 +554,44 @@ private slots:
 
     void autoTestEchoDisagreeingWithTheRequestIsVisible() {
         // Settings holds the intent and is pushed on connect; the device's echo is the
-        // only evidence it landed. If they diverge, the log has to say so — otherwise a
-        // failed write looks identical to a successful one.
-        DiFluidR2 r2(nullptr);
-        QSignalSpy logSpy(&r2, &DiFluidR2::logMessage);
+        // only evidence it landed. If they diverge the log has to say so — a dropped
+        // write and a device that is simply off otherwise produce the same line, and
+        // nobody greps for the absence of one.
+        //
+        // This test previously never issued a write, so it passed against a driver with
+        // no divergence detection at all while its name claimed the opposite.
+        auto* transport = new MockR2Transport;
+        QScopedPointer<DiFluidR2> r2(connectedDriver(transport));
+        QSignalSpy logSpy(r2.data(), &DiFluidR2::logMessage);
+
+        r2->setAutoTest(true);
 
         QByteArray off;
         off.append(static_cast<char>(0x00));
-        r2.handlePacket(buildR2Packet(0x01, 0x01, off));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Auto Test write did not take"));
+        r2->handlePacket(buildR2Packet(0x01, 0x01, off));
 
         bool stated = false;
         for (const auto& e : logSpy)
-            if (e.at(0).toString().contains(QLatin1String("Auto Test is off"))) stated = true;
-        QVERIFY2(stated, "the device's Auto Test state was not reported");
-        QVERIFY(!r2.autoTest());
+            if (e.at(0).toString().contains(QLatin1String("did not take"))) stated = true;
+        QVERIFY2(stated, "a write that the device did not honour was reported as normal");
+        QVERIFY(!r2->autoTest());
+    }
+
+    void autoTestEchoMatchingTheRequestIsNotAWarning() {
+        auto* transport = new MockR2Transport;
+        QScopedPointer<DiFluidR2> r2(connectedDriver(transport));
+        QSignalSpy logSpy(r2.data(), &DiFluidR2::logMessage);
+
+        r2->setAutoTest(true);
+        QByteArray on;
+        on.append(static_cast<char>(0x01));
+        r2->handlePacket(buildR2Packet(0x01, 0x01, on));
+
+        QVERIFY(r2->autoTest());
+        for (const auto& e : logSpy)
+            QVERIFY2(!e.at(0).toString().contains(QLatin1String("did not take")),
+                     "a write the device honoured was reported as a failure");
     }
 
     void deviceTestCountEchoDistinguishesAveragedFromSingle() {
@@ -819,6 +848,10 @@ private slots:
         }
 
         QCOMPARE(progressSpy.count(), 3);
+        // Assert an intermediate emission, not just the last: the final one is (3, 3),
+        // so swapping completed and total would pass unnoticed.
+        QCOMPARE(progressSpy.at(0).at(0).toInt(), 1);
+        QCOMPARE(progressSpy.at(0).at(1).toInt(), 3);
         QCOMPARE(progressSpy.at(2).at(0).toInt(), 3);
         QCOMPARE(progressSpy.at(2).at(1).toInt(), 3);
 
@@ -1002,7 +1035,7 @@ private slots:
 
     void progressPacketsKeepALongRunAlive() {
         DiFluidR2 r2(nullptr);
-        beginMeasuringWithShortWatchdog(r2, 100);
+        beginMeasuringWithShortWatchdog(r2, 300);
 
         // Five progress packets at 60ms — 300ms total, three watchdog intervals.
         // Any timeout would emit a warning and fail the test via failOnWarning().
@@ -1017,7 +1050,7 @@ private slots:
 
     void slowTestStatusRestartsTheWatchdog() {
         DiFluidR2 r2(nullptr);
-        beginMeasuringWithShortWatchdog(r2, 100);
+        beginMeasuringWithShortWatchdog(r2, 300);
 
         // Status 10 is the R2 saying "this individual test is running long" — precisely
         // when a fixed deadline would have fired.
@@ -1031,7 +1064,7 @@ private slots:
 
     void temperaturePacketIsProgressToo() {
         DiFluidR2 r2(nullptr);
-        beginMeasuringWithShortWatchdog(r2, 100);
+        beginMeasuringWithShortWatchdog(r2, 300);
 
         QTest::qWait(60);
         r2.handlePacket(buildTemperaturePacket(23.5, /*unit=*/0));
@@ -1057,7 +1090,7 @@ private slots:
     void resultStopsTheWatchdogAndLaterStatusChangesNothing() {
         DiFluidR2 r2(nullptr);
         QSignalSpy tdsSpy(&r2, &DiFluidR2::tdsChanged);
-        beginMeasuringWithShortWatchdog(r2, 100);
+        beginMeasuringWithShortWatchdog(r2, 300);
 
         r2.handlePacket(buildAverageTdsPacket(1.35));
         QCOMPARE(tdsSpy.count(), 1);
@@ -1075,7 +1108,7 @@ private slots:
     void disconnectMidRunClearsMeasuring() {
         DiFluidR2 r2(nullptr);
         QSignalSpy measSpy(&r2, &DiFluidR2::measuringChanged);
-        beginMeasuringWithShortWatchdog(r2, 100);
+        beginMeasuringWithShortWatchdog(r2, 300);
 
         // An averaged run holds the measuring state open far longer than a single test,
         // so losing the link mid-run is a realistic case rather than a 2-second window.

@@ -121,6 +121,10 @@ private:
     // after every write. Never assumed — if the query goes unanswered this stays
     // false, which matches the device's factory default and errs toward "off".
     bool m_autoTest = false;
+    // What we last asked the device for, -1 if we have not asked. Without it a
+    // dropped Auto Test write is indistinguishable from a device that is simply
+    // off: Settings says On, the echo says off, and the log reads as normal.
+    int m_autoTestRequested = -1;
     QTimer m_measurementTimer;
     // Absolute ceiling on a run, alongside the liveness watchdog. A loop test on a
     // prism that never settles emits progress every ~3s, which restarts the watchdog
