@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QSet>
 #include <QString>
+#include <QtQml/qqmlregistration.h>
 
 // Which emoji assets are actually bundled.
 //
@@ -20,6 +21,17 @@
 // drift out of sync with the assets themselves.
 class EmojiAssets : public QObject {
     Q_OBJECT
+
+    // Compile-time QML registration, replacing setContextProperty("EmojiAssets", …). A context
+    // property is invisible to qmllint, qmlcachegen and the language server. Full rationale in
+    // src/controllers/maincontroller.h.
+    //
+    // No create() and no published instance, unlike the singletons that wrap objects main()
+    // already owns: this class is stateless and default-constructible, so the engine builds and
+    // owns it on first use. Two engines get two instances, which is harmless for the same
+    // reason.
+    QML_ELEMENT
+    QML_SINGLETON
 
 public:
     explicit EmojiAssets(QObject* parent = nullptr) : QObject(parent) {}

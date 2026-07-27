@@ -79,36 +79,56 @@ private slots:
                  "nothing, which is the whole failure this test exists to catch.");
     }
 
-    // The three objects that moved from setContextProperty() to singleton registration. A
-    // context property is invisible to qmllint, qmlcachegen and the language server; these are
-    // the registrations that make ~7,000 QML references checkable.
+    // Everything that moved from setContextProperty() to singleton registration. A context
+    // property is invisible to qmllint, qmlcachegen and the language server; these are the
+    // registrations that make ~7,000 QML references checkable.
+    //
+    // Two shapes are in here and they fail differently. Most wrap an object main() already
+    // owns, so they need BOTH the macros and a publish call — everySingletonInstanceIsPublished
+    // below covers that second half. EmojiAssets, MarkdownRenderer and TemperatureDisplay are
+    // stateless and engine-constructed, so they have no publish call and correctly have no row
+    // there.
+    //
+    // Two names per row, because they are not always the same one and only one of them is what
+    // QML actually types. A .qmltypes Component is keyed by the C++ class name; the QML name
+    // lives in its `exports` line. TemperatureDisplayBridge exports as TemperatureDisplay, and
+    // an earlier version of this test looked the QML name up as a class name and reported the
+    // type as absent when it was registered correctly.
     void singletonsAreRegistered_data()
     {
-        QTest::addColumn<QString>("typeName");
-        QTest::newRow("Settings") << "Settings";
-        QTest::newRow("TranslationManager") << "TranslationManager";
-        QTest::newRow("AccessibilityManager") << "AccessibilityManager";
-        QTest::newRow("MainController") << "MainController";
-        QTest::newRow("ProfileManager") << "ProfileManager";
-        QTest::newRow("MachineState") << "MachineState";
+        QTest::addColumn<QString>("className");
+        QTest::addColumn<QString>("qmlName");
+        QTest::newRow("Settings") << "Settings" << "Settings";
+        QTest::newRow("TranslationManager") << "TranslationManager" << "TranslationManager";
+        QTest::newRow("AccessibilityManager") << "AccessibilityManager" << "AccessibilityManager";
+        QTest::newRow("MainController") << "MainController" << "MainController";
+        QTest::newRow("ProfileManager") << "ProfileManager" << "ProfileManager";
+        QTest::newRow("MachineState") << "MachineState" << "MachineState";
+        QTest::newRow("EmojiAssets") << "EmojiAssets" << "EmojiAssets";
+        QTest::newRow("MarkdownRenderer") << "MarkdownRenderer" << "MarkdownRenderer";
+        QTest::newRow("TemperatureDisplay") << "TemperatureDisplayBridge" << "TemperatureDisplay";
     }
 
     void singletonsAreRegistered()
     {
-        QFETCH(QString, typeName);
+        QFETCH(QString, className);
+        QFETCH(QString, qmlName);
         const auto components = componentsByName(m_qmltypes);
-        QVERIFY2(components.contains(typeName),
-                 qPrintable(typeName + " is absent from Decenza.qmltypes. QML will resolve it to "
-                                       "undefined at every call site, and nothing else in the "
-                                       "build will report it."));
-        const QString& block = components.value(typeName);
+        QVERIFY2(components.contains(className),
+                 qPrintable(className + " is absent from Decenza.qmltypes. QML will resolve it to "
+                                        "undefined at every call site, and nothing else in the "
+                                        "build will report it."));
+        const QString& block = components.value(className);
         QVERIFY2(block.contains(QStringLiteral("isSingleton: true")),
-                 qPrintable(typeName + " is in Decenza.qmltypes but not as a singleton — "
-                                       "QML_SINGLETON is missing, so `" + typeName
+                 qPrintable(className + " is in Decenza.qmltypes but not as a singleton — "
+                                        "QML_SINGLETON is missing, so `" + qmlName
                             + ".x` is a type reference rather than an instance."));
-        QVERIFY2(block.contains(QStringLiteral("exports: [\"Decenza/") ),
-                 qPrintable(typeName + " is not exported under the Decenza URI, so `import "
-                                       "Decenza` does not bring it into scope."));
+        // The exported NAME, not just the URI: a QML_NAMED_ELEMENT typo compiles, registers, and
+        // exports under the wrong name, which reads as undefined at every call site.
+        QVERIFY2(block.contains(QStringLiteral("exports: [\"Decenza/") + qmlName + QLatin1Char(' ')),
+                 qPrintable(className + " is not exported as Decenza/" + qmlName
+                            + ", so `" + qmlName + ".x` does not resolve. Exports line: "
+                            + block.section(QStringLiteral("exports:"), 1, 1).section('\n', 0, 0)));
     }
 
     // Every domain sub-object declared on Settings must also be a QML-known type, or chained

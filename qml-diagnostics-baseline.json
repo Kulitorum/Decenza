@@ -6,7 +6,6 @@
     "Category exemptions are NOT here. They are hand-edited in the script, because this file is regenerated and an exemption list that regenerates is not one."
   ],
   "ceilings": {
-    "qml/Theme.qml": 6,
     "qml/components/AIConversationPanel.qml": 23,
     "qml/components/AccessibleButton.qml": 1,
     "qml/components/ActionButton.qml": 1,
@@ -20,7 +19,6 @@
     "qml/components/ComparisonInspectBar.qml": 7,
     "qml/components/ComparisonShotTable.qml": 18,
     "qml/components/ConnectionIndicator.qml": 13,
-    "qml/components/ConversationOverlay.qml": 2,
     "qml/components/CrashReportDialog.qml": 13,
     "qml/components/CupFillView.qml": 6,
     "qml/components/DatePickerDialog.qml": 7,
@@ -100,7 +98,7 @@
     "qml/pages/BeanInfoPage.qml": 5,
     "qml/pages/CommunityBrowserPage.qml": 46,
     "qml/pages/DescalingPage.qml": 29,
-    "qml/pages/DialingAssistantPage.qml": 9,
+    "qml/pages/DialingAssistantPage.qml": 8,
     "qml/pages/EquipmentPage.qml": 4,
     "qml/pages/EspressoPage.qml": 68,
     "qml/pages/FlowCalibrationPage.qml": 39,
@@ -127,7 +125,7 @@
     "qml/pages/VisualizerMultiImportPage.qml": 98,
     "qml/pages/settings/AddLanguagePage.qml": 13,
     "qml/pages/settings/LayoutEditorZone.qml": 79,
-    "qml/pages/settings/SettingsAITab.qml": 61,
+    "qml/pages/settings/SettingsAITab.qml": 60,
     "qml/pages/settings/SettingsCalibrationTab.qml": 40,
     "qml/pages/settings/SettingsConnectionsTab.qml": 141,
     "qml/pages/settings/SettingsDebugTab.qml": 9,
@@ -138,11 +136,12 @@
     "qml/pages/settings/SettingsScreensaverTab.qml": 127,
     "qml/pages/settings/SettingsSearchDialog.qml": 17,
     "qml/pages/settings/SettingsThemesTab.qml": 22,
-    "qml/pages/settings/SettingsUpdateTab.qml": 11,
+    "qml/pages/settings/SettingsUpdateTab.qml": 9,
     "qml/pages/settings/StringBrowserPage.qml": 92,
     "qml/simulator/GHCSimulatorWindow.qml": 57
   },
   "clean": [
+    "qml/Theme.qml",
     "qml/components/AccessibleLabel.qml",
     "qml/components/AccessibleMouseArea.qml",
     "qml/components/AccessibleTapHandler.qml",
@@ -157,6 +156,7 @@
     "qml/components/ColorSwatch.qml",
     "qml/components/ColorWheel.qml",
     "qml/components/ColoredIcon.qml",
+    "qml/components/ConversationOverlay.qml",
     "qml/components/CrtOverlay.qml",
     "qml/components/CrtShaderEffect.qml",
     "qml/components/DateUtils.js",
@@ -235,7 +235,7 @@
     "import": 23,
     "incompatible-type": 1,
     "missing-property": 326,
-    "unqualified": 5722,
+    "unqualified": 5710,
     "unresolved-type": 2
   }
 }
