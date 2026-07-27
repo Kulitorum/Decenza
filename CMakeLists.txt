@@ -1138,8 +1138,17 @@ target_include_directories(Decenza PRIVATE
     # cause. Qt's own modules do not hit this because their headers sit flat in one include dir.
     #
     # Add the directory of each new QML_ELEMENT header here. There are currently no duplicate
-    # header basenames anywhere under src/, so this cannot make an include ambiguous.
+    # header basenames across these directories, so this cannot make an include ambiguous —
+    # re-check that when adding one (`find <dirs> -maxdepth 1 -name '*.h' -exec basename {} \; |
+    # sort | uniq -d`), because an ambiguous basename would silently pick the wrong header.
     ${CMAKE_CURRENT_SOURCE_DIR}/src/core
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/controllers
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/ai
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/history
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/machine
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/models
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/network
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/profile
 )
 if(ANDROID)
     # SYSTEM: mjansson/mdns is vendored third-party code, and it is header-only,

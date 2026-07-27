@@ -5,6 +5,7 @@
 
 #include "../machine/machinestate.h"
 
+#include <QtQml/qqmlregistration.h>
 class Settings;
 class TranslationManager;
 
@@ -55,6 +56,12 @@ class TranslationManager;
 // directly. The banner is purely visual; it does not speak.
 class LiveSteamCoach : public QObject {
     Q_OBJECT
+
+    // Compile-time QML registration, so qmllint, qmlcachegen and the language server can
+    // follow MainController's property through to this class. A runtime qmlRegister* call is
+    // invisible to all three. Full rationale in src/controllers/maincontroller.h.
+    QML_ELEMENT
+    QML_UNCREATABLE("LiveSteamCoach is created in C++ and reached via MainController")
 
     // QML-marshalable cue surface. The banner binds to these directly.
     // cueSeverity is one of the banner's "positive" | "info" | "caution".

@@ -68,6 +68,37 @@ clean set. Found and fixed twice: the first fix normalised `qml_files()` and mis
 converted `Dialog`s cannot catch this one — a reparented `Rectangle` is still an `Item`, so the
 attached property is legal; it just has no layout to talk to.
 
+**10. Backup "created" / "restored" screen-reader announcements have never fired.**
+`SettingsHistoryDataTab.qml` had four blocks of the shape:
+
+```qml
+if (MainController.accessibilityManager) {
+    MainController.accessibilityManager.announce(...)
+}
+```
+
+`MainController` has no `accessibilityManager` property and never has — there is no such accessor
+on the class. So the guard was permanently falsy and the announce never ran. A blind user got no
+confirmation that a backup succeeded, failed, or restored.
+
+Found the moment `MainController` became a registered type: qmllint could suddenly read its
+property list and reported `Member "accessibilityManager" not found on type "MainController"` at
+all 8 lines. Before that, `MainController` was a context property — invisible — so the access was
+just one more `unqualified` warning among 914. This is the single clearest demonstration of what
+the change is for: the defect was reachable, user-visible in its absence, and undetectable by
+running the app, because the guard is exactly what stops it from throwing.
+
+Fixed by calling the `AccessibilityManager` singleton directly.
+
+**11. Three `Q_INVOKABLE` methods carry pointer parameter types that were only forward-declared.**
+`VisualizerUploader::uploadShot()` takes `const Profile*`, and `Profile` was only forward-declared.
+Registering the class made moc demand a complete type ("Pointer Meta Types must either point to
+fully-defined types..."). Fixed by including the header — but note what it means: `Profile` is not
+a registered QML type either, and no QML calls `uploadShot`, so the `Q_INVOKABLE` is decorative.
+Whether to keep the annotation or drop it is a judgement call left to the maintainer rather than
+made here. `ShotDataModel`/`SteamDataModel::registerFastSeries(FastLineRenderer*...)` is the same
+shape but genuinely used from QML, and works today because `FastLineRenderer` IS a registered type.
+
 ---
 
 ## Upstream (Qt) defects
@@ -91,6 +122,47 @@ create the module before QML imports it, so `qml_register_types_Decenza()` is ne
 Worked around the way Qt does in its own `tools/qml/main.cpp` (an explicit call). Arguably worth
 an upstream report: the failure is silent and the diagnosis took reading three Qt source files.
 
+**12. Apple's `TextToSpeech.framework` overflows a 1-byte heap buffer, so any TTS utterance
+aborts an ASan build on macOS 27.0.** Tracked as
+[#1675](https://github.com/Kulitorum/Decenza/issues/1675).
+Not ours, and not caused by this change — recorded because the next person to touch accessibility
+will hit it and lose an hour working out whose bug it is.
+
+```
+==92783==ERROR: AddressSanitizer: heap-buffer-overflow
+READ of size 4 at 0x6030003f5741 thread T74
+    #0 memcpy
+    #1 (TextToSpeech:arm64e+0x1ed17c)
+0x6030003f5741 is located 0 bytes after 1-byte region [0x…5740,0x…5741)
+allocated by thread T74 here:
+    #2 swift_slowAlloc (libswiftCore)
+    #3 (TextToSpeech:arm64e+0x65a34)
+SUMMARY: AddressSanitizer: heap-buffer-overflow (TextToSpeech:arm64e+0x1ed17c)
+```
+
+Allocation and faulting read are both inside Apple's framework; every frame from `swift_slowAlloc`
+to the `memcpy` is theirs, on their own `TTSExecutor` dispatch queue. No Decenza frame appears on
+the thread at all.
+
+**Trigger:** turning the accessibility master switch on. The toggle speaks its own confirmation
+("Accessibility enabled"), TTS runs, and the process aborts. It is not string-specific — a relaunch
+died ~4 s in while speaking "Home screen". Observed on macOS 27.0 beta (`26A5388g`), Qt 6.11.1,
+`libqtexttospeech_speechdarwin`.
+
+**Not attributable to the MainController migration**, which was in flight when it was found: the
+four rewritten `AccessibilityManager.announce()` calls in `SettingsHistoryDataTab.qml` had fired
+zero times when it crashed (`grep -c "preview= Backup"` → 0). The utterances that did fire are all
+pre-existing paths.
+
+**Consequences worth knowing.** Local ASan debug builds cannot exercise accessibility TTS on this
+OS at all, which blocks hands-on verification for
+[#736](https://github.com/Kulitorum/Decenza/issues/736). Release builds do not abort — no ASan —
+but a 4-byte read off a 1-byte allocation is real corruption there too, just silent. There is
+nothing to work around on our side; the fix is Apple's.
+
+*Unconfirmed:* that it reproduces on `main` without this branch. Expected to, since no frame is
+ours, but nobody has run that A/B yet — do not record it as confirmed until someone does.
+
 ---
 
 ## Checked and found NOT to be bugs
@@ -102,6 +174,26 @@ Recorded so they are not re-investigated.
   and same-directory QML files are implicitly visible without an import. #1661 was `Theme.qml`
   reaching *across* directories, which is the case that fails. Of the 12 import-less files, only
   these two referenced module singletons at all, and both resolved.
+
+- **`ProfileManager.currentProfilePtr` is an opaque pointer property — loaded, but nothing is
+  pulling the trigger.** `Q_PROPERTY(Profile* currentProfilePtr READ currentProfilePtr CONSTANT)`
+  on `ProfileManager`, where `Profile` is a **plain C++ class**: no `Q_OBJECT`, no `Q_GADGET`.
+  QML therefore receives a value it cannot see into, and the natural-looking
+  `ProfileManager.currentProfilePtr.title` would evaluate to `undefined` — the same failure the
+  `Q_DECLARE_OPAQUE_POINTER` experiment produced for `Settings` (design D2a), arrived at from the
+  other direction.
+
+  **Checked, and currently harmless: no QML file references `currentProfilePtr`**, and qmllint
+  reports nothing against it. It is an unexercised API surface, not a live defect, which is why it
+  is recorded here rather than filed.
+
+  It matters for **task 3.6 (`ProfileManager`)**, the next migration after this one. Registering
+  `ProfileManager` will make qmllint able to read its property list, and this property will surface
+  as `unresolved-type` exactly the way MainController's 21 sub-objects did. **The fix is to give
+  `Profile` a `Q_GADGET` and register it** (it is a value type with no identity, so a gadget is the
+  right shape), *not* to declare it opaque and not to drop the property. Whoever does 3.6 should
+  also decide whether QML has any business holding a `Profile` at all — nothing uses it today, so
+  deleting the property is a legitimate third option.
 
 ---
 

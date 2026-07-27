@@ -427,6 +427,23 @@ add_decenza_test(tst_qmlregistration
 )
 target_compile_definitions(tst_qmlregistration PRIVATE
     DECENZA_QMLTYPES_PATH="${CMAKE_BINARY_DIR}/Decenza/Decenza.qmltypes")
+# THE DEPENDENCY IS REAL — express it, or this test is green while checking nothing.
+#
+# It reads a build artifact produced by qmltyperegistrar on the `Decenza` target. Without this
+# line, `ninja build_tests` (which is what nightly-sanitizers.yml runs — NOT `all`) never builds
+# that artifact, readOrEmpty() returns empty, initTestCase() skips, and a QSKIP in initTestCase
+# skips the WHOLE CLASS while ctest records a pass. The nightly is the only automated run of this
+# suite, so the test would have been permanently blind in the one place it had to work, and green
+# locally only because Qt Creator builds `all`. Found in review; it had shipped that way.
+#
+# It also fixes a second, quieter failure: without an order dependency the test can read a STALE
+# qmltypes. Adding a property without registering it fails loudly either way (source is fresh,
+# artifact lacks the type), but REMOVING a registration passes silently against yesterday's
+# artifact. That is the same stale-build-dir trap recorded in CLAUDE.local.md for this change.
+#
+# Cost: `build_tests` now builds the app. That contradicts the comment on build_tests below,
+# which has been updated — the premise "no test target depends on the app" is no longer true.
+add_dependencies(tst_qmlregistration Decenza)
 
 # --- tst_translationreactivity: QML binding dependency on translate/emoji lookups ---
 # Needs a real QQmlEngine to assert that bindings re-evaluate, so it links Qt6::Qml
@@ -1273,10 +1290,19 @@ endif()
 # so roughly 56% of the compilation, plus the app's link, is work the job
 # throws away.
 #
-# Safe because no test target links or depends on the app: they link
-# decenza_testlib / decenza_shotlib, which compile the src/ sources they need
-# independently. Sanitizer coverage is unaffected — ASan and UBSan report on
+# No test target LINKS the app — they link decenza_testlib / decenza_shotlib, which compile the
+# src/ sources they need independently. Sanitizer coverage is unaffected: ASan and UBSan report on
 # code that RUNS, and this job runs only the suite.
+#
+# ONE test does depend on the app, through a build artifact rather than a link:
+# tst_qmlregistration reads the Decenza.qmltypes that qmltyperegistrar generates on the `Decenza`
+# target, so it carries add_dependencies(tst_qmlregistration Decenza). That pulls the app into
+# `build_tests` and gives back some of the saving described above. It is not optional — this
+# comment previously read "no test target links or depends on the app", and on the strength of
+# that premise the test skipped its entire class in the nightly and ctest reported a pass. A test
+# that silently checks nothing costs more than the build minutes it saves. If the app build ever
+# has to come back out, the test must be made to FAIL rather than skip when the artifact is
+# missing; it must not go back to being quietly absent.
 #
 # What this gives up, stated plainly: the nightly no longer compiles
 # app-exclusive code (main.cpp, QML glue) under sanitizer flags. That is not a

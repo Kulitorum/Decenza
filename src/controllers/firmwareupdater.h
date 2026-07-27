@@ -10,6 +10,7 @@
 #include "core/firmwareassetcache.h"
 #include "core/firmwareheader.h"
 
+#include <QtQml/qqmlregistration.h>
 class DE1Device;
 
 // Orchestrates the three-phase DE1 firmware update (erase → upload → verify)
@@ -28,6 +29,12 @@ class DE1Device;
 
 class FirmwareUpdater : public QObject {
     Q_OBJECT
+
+    // Compile-time QML registration, so qmllint, qmlcachegen and the language server can
+    // follow MainController's property through to this class. A runtime qmlRegister* call is
+    // invisible to all three. Full rationale in src/controllers/maincontroller.h.
+    QML_ELEMENT
+    QML_UNCREATABLE("FirmwareUpdater is created in C++ and reached via MainController")
     Q_PROPERTY(State state READ state NOTIFY stateChanged)
     Q_PROPERTY(QString stateText READ stateText NOTIFY stateChanged)
     Q_PROPERTY(bool updateAvailable READ updateAvailable NOTIFY availabilityChanged)

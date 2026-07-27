@@ -6,6 +6,7 @@
 #include <QFuture>
 #include <QTemporaryDir>
 
+#include <QtQml/qqmlregistration.h>
 class ShotHistoryStorage;
 
 /**
@@ -18,6 +19,12 @@ class ShotHistoryStorage;
  */
 class ShotImporter : public QObject {
     Q_OBJECT
+
+    // Compile-time QML registration, so qmllint, qmlcachegen and the language server can
+    // follow MainController's property through to this class. A runtime qmlRegister* call is
+    // invisible to all three. Full rationale in src/controllers/maincontroller.h.
+    QML_ELEMENT
+    QML_UNCREATABLE("ShotImporter is created in C++ and reached via MainController")
 
     Q_PROPERTY(bool isImporting READ isImporting NOTIFY isImportingChanged)
     Q_PROPERTY(bool isExtracting READ isExtracting NOTIFY isExtractingChanged)

@@ -10,6 +10,7 @@
 
 #include "history/bagid.h"
 
+#include <QtQml/qqmlregistration.h>
 class QSqlDatabase;
 class BeanBaseClient;
 class CoffeeBagStorage;
@@ -39,6 +40,12 @@ class CoffeeBagStorage;
 // one is in flight is parked and re-run on completion (no timer guard).
 class UnifiedBeanSearchModel : public QAbstractListModel {
     Q_OBJECT
+
+    // Compile-time QML registration, so qmllint, qmlcachegen and the language server can
+    // follow MainController's property through to this class. A runtime qmlRegister* call is
+    // invisible to all three. Full rationale in src/controllers/maincontroller.h.
+    QML_ELEMENT
+    QML_UNCREATABLE("UnifiedBeanSearchModel is created in C++ and reached via MainController")
     Q_PROPERTY(QString query READ query WRITE setQuery NOTIFY queryChanged)
     Q_PROPERTY(bool searching READ searching NOTIFY searchingChanged)
     Q_PROPERTY(int count READ rowCount NOTIFY countChanged)

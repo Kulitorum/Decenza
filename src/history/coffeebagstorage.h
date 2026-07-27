@@ -11,6 +11,7 @@
 #include <functional>
 #include <memory>
 
+#include <QtQml/qqmlregistration.h>
 class QSqlDatabase;
 class QJsonArray;
 class QJsonObject;
@@ -162,6 +163,12 @@ struct InventoryBag {
 // shared with the migration, SettingsSerializer import, and unit tests.
 class CoffeeBagStorage : public QObject {
     Q_OBJECT
+
+    // Compile-time QML registration, so qmllint, qmlcachegen and the language server can
+    // follow MainController's property through to this class. A runtime qmlRegister* call is
+    // invisible to all three. Full rationale in src/controllers/maincontroller.h.
+    QML_ELEMENT
+    QML_UNCREATABLE("CoffeeBagStorage is created in C++ and reached via MainController")
 
 public:
     explicit CoffeeBagStorage(QObject* parent = nullptr);

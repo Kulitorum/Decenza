@@ -5,6 +5,7 @@
 #include <QJsonObject>
 #include <QRegularExpression>
 #include <optional>
+#include <QtQml/qqmlregistration.h>
 
 class AIManager;
 class TranslationManager;
@@ -26,6 +27,12 @@ class tst_AIManager;
 
 class AIConversation : public QObject {
     Q_OBJECT
+
+    // Reached from QML only as an AIManager property, never constructed there. Registered at
+    // COMPILE time so qmllint, qmlcachegen and the language server can follow the property
+    // through to this class; a runtime qmlRegister* call is invisible to all three.
+    QML_ELEMENT
+    QML_UNCREATABLE("AIConversation is created in C++ and reached via AIManager")
 #ifdef DECENZA_TESTING
     friend class tst_AIManager;
 #endif

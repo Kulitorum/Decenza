@@ -20,6 +20,7 @@
 #include <memory>
 
 #include "../history/shotprojection.h"
+#include <QtQml/qqmlregistration.h>
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
 #endif
@@ -55,6 +56,12 @@ struct PendingRequest {
 
 class ShotServer : public QObject {
     Q_OBJECT
+
+    // Compile-time QML registration, so qmllint, qmlcachegen and the language server can
+    // follow MainController's property through to this class. A runtime qmlRegister* call is
+    // invisible to all three. Full rationale in src/controllers/maincontroller.h.
+    QML_ELEMENT
+    QML_UNCREATABLE("ShotServer is created in C++ and reached via MainController")
 
     Q_PROPERTY(bool running READ isRunning NOTIFY runningChanged)
     Q_PROPERTY(QString url READ url NOTIFY urlChanged)

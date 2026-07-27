@@ -1130,12 +1130,10 @@ KeyboardAwareContainer {
             backupStatusTimer.restart();
 
             // TTS announcement for accessibility
-            if (MainController.accessibilityManager) {
-                MainController.accessibilityManager.announce(
-                    TranslationManager.translate("settings.data.backupcreatedAccessible",
-                        "Backup created successfully")
-                );
-            }
+            AccessibilityManager.announce(
+                TranslationManager.translate("settings.data.backupcreatedAccessible",
+                    "Backup created successfully")
+            );
         }
 
         function onBackupFailed(error) {
@@ -1147,12 +1145,10 @@ KeyboardAwareContainer {
             backupStatusTimer.restart();
 
             // TTS announcement for accessibility
-            if (MainController.accessibilityManager) {
-                MainController.accessibilityManager.announce(
-                    TranslationManager.translate("settings.data.backupfailedAccessible",
-                        "Backup failed: ") + error
-                );
-            }
+            AccessibilityManager.announce(
+                TranslationManager.translate("settings.data.backupfailedAccessible",
+                    "Backup failed: ") + error
+            );
         }
 
         function onStoragePermissionNeeded() {
@@ -1494,12 +1490,10 @@ KeyboardAwareContainer {
             backupStatusTimer.restart();
 
             // TTS announcement for accessibility
-            if (MainController.accessibilityManager) {
-                MainController.accessibilityManager.announce(
-                    TranslationManager.translate("settings.data.restorecompletedAccessible",
-                        "Backup restored successfully.")
-                );
-            }
+            AccessibilityManager.announce(
+                TranslationManager.translate("settings.data.restorecompletedAccessible",
+                    "Backup restored successfully.")
+            );
         }
 
         function onRestoreFailed(error) {
@@ -1513,12 +1507,10 @@ KeyboardAwareContainer {
             backupStatusTimer.restart();
 
             // TTS announcement for accessibility
-            if (MainController.accessibilityManager) {
-                MainController.accessibilityManager.announce(
-                    TranslationManager.translate("settings.data.restorefailedAccessible",
-                        "Restore failed: ") + error
-                );
-            }
+            AccessibilityManager.announce(
+                TranslationManager.translate("settings.data.restorefailedAccessible",
+                    "Restore failed: ") + error
+            );
         }
     }
 

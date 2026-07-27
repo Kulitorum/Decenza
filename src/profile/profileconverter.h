@@ -4,6 +4,7 @@
 #include <QString>
 #include <QStringList>
 
+#include <QtQml/qqmlregistration.h>
 /**
  * ProfileConverter - Batch convert DE1 app TCL profiles to our native JSON format
  *
@@ -18,6 +19,12 @@
  */
 class ProfileConverter : public QObject {
     Q_OBJECT
+
+    // Compile-time QML registration, so qmllint, qmlcachegen and the language server can
+    // follow MainController's property through to this class. A runtime qmlRegister* call is
+    // invisible to all three. Full rationale in src/controllers/maincontroller.h.
+    QML_ELEMENT
+    QML_UNCREATABLE("ProfileConverter is created in C++ and reached via MainController")
 
     Q_PROPERTY(bool isConverting READ isConverting NOTIFY isConvertingChanged)
     Q_PROPERTY(int totalFiles READ totalFiles NOTIFY progressChanged)

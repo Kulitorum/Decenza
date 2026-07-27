@@ -7,6 +7,7 @@
 #include <QVector>
 #include "../profile/profile.h"
 
+#include <QtQml/qqmlregistration.h>
 class MainController;
 class ProfileSaveHelper;
 class Settings;
@@ -14,6 +15,12 @@ class TranslationManager;
 
 class VisualizerImporter : public QObject {
     Q_OBJECT
+
+    // Compile-time QML registration, so qmllint, qmlcachegen and the language server can
+    // follow MainController's property through to this class. A runtime qmlRegister* call is
+    // invisible to all three. Full rationale in src/controllers/maincontroller.h.
+    QML_ELEMENT
+    QML_UNCREATABLE("VisualizerImporter is created in C++ and reached via MainController")
 
     Q_PROPERTY(bool importing READ isImporting NOTIFY importingChanged)
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)

@@ -3433,7 +3433,15 @@ int main(int argc, char *argv[])
     context->setContextProperty("ShotDataModel", &shotDataModel);
     context->setContextProperty("SteamDataModel", &steamDataModel);
     context->setContextProperty("SteamHealthTracker", &steamHealthTracker);
-    context->setContextProperty("MainController", &mainController);
+    // Compile-time QML singleton (QML_ELEMENT + QML_SINGLETON in maincontroller.h), not a
+    // context property — same reason as AccessibilityManager below. The largest win remaining
+    // after TranslationManager and Settings; measured reduction 916 unqualified warnings.
+    //
+    // BOTH halves are load-bearing and only one of them is visible to static tooling: the macros
+    // put the TYPE in the registry, this call publishes the INSTANCE. Delete this line and the
+    // build, qmllint and the whole suite stay green while every MainController.* binding in the
+    // app resolves to null. tst_qmlregistration asserts this call exists, for that reason.
+    MainController::setQmlInstance(&mainController);
     context->setContextProperty("ProfileManager", mainController.profileManager());
     context->setContextProperty("ScreensaverManager", &screensaverManager);
     context->setContextProperty("AutoWakeManager", &autoWakeManager);
@@ -3483,20 +3491,18 @@ int main(int argc, char *argv[])
         "DE1Device is created in C++");
     qmlRegisterUncreatableType<MachineState>("Decenza", 1, 0, "MachineStateType",
         "MachineState is created in C++");
-    qmlRegisterUncreatableType<AIConversation>("Decenza", 1, 0, "AIConversationType",
-        "AIConversation is created in C++");
-    qmlRegisterUncreatableType<CoffeeBagStorage>("Decenza", 1, 0, "CoffeeBagStorageType",
-        "CoffeeBagStorage is created in C++ (MainController.bagStorage)");
-    qmlRegisterUncreatableType<EquipmentStorage>("Decenza", 1, 0, "EquipmentStorageType",
-        "EquipmentStorage is created in C++ (MainController.equipmentStorage)");
-    qmlRegisterUncreatableType<UnifiedBeanSearchModel>("Decenza", 1, 0, "UnifiedBeanSearchModelType",
-        "UnifiedBeanSearchModel is created in C++ (MainController.beanSearch)");
-    // Exposes SteamHealthTracker::BaselineState enum values to QML
-    // (e.g. SteamHealthTrackerType.EstablishingAfterReset). The tracker
-    // instance itself is available as the "SteamHealthTracker" context
-    // property — this type registration is only needed for enum access.
-    qmlRegisterUncreatableType<SteamHealthTracker>("Decenza", 1, 0, "SteamHealthTrackerType",
-        "SteamHealthTracker is created in C++");
+    // AIConversation moved to QML_ELEMENT + QML_UNCREATABLE in aiconversation.h, for the same
+    // reason as the three named just below: a runtime registration is invisible to qmltyperegistrar, so
+    // qmllint could not resolve the type behind AIManager's conversation properties.
+    // CoffeeBagStorage, EquipmentStorage and UnifiedBeanSearchModel used to be registered here as
+    // ...Type. They now carry QML_ELEMENT + QML_UNCREATABLE in their own headers, which is what
+    // puts them in Decenza.qmltypes where qmllint can see them — a runtime call like these is
+    // invisible to qmltyperegistrar. The ...Type names are gone; nothing referenced them, because
+    // QML reaches these through MainController properties, never by type name.
+    // SteamHealthTracker moved to QML_NAMED_ELEMENT(SteamHealthTrackerType) in its own header.
+    // The QML name is unchanged, which matters: SettingsCalibrationTab.qml reads the enum as
+    // SteamHealthTrackerType.EstablishingAfterReset. Compile-time registration is what puts it
+    // in Decenza.qmltypes, so qmllint can now check those enum members too.
 
     // GPU-accelerated Canvas-like surface (CupFillView). The wrapper exposes
     // an `onPaint(ctx)` signal whose ctx replays JS-recorded draw commands

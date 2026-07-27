@@ -8,6 +8,7 @@
 #include <QTimer>
 #include <QVariantList>
 
+#include <QtQml/qqmlregistration.h>
 class QNetworkAccessManager;
 class QNetworkReply;
 class Settings;
@@ -29,6 +30,12 @@ class Settings;
 // (50 req/min per IP, 200/10 min).
 class BeanBaseClient : public QObject {
     Q_OBJECT
+
+    // Compile-time QML registration, so qmllint, qmlcachegen and the language server can
+    // follow MainController's property through to this class. A runtime qmlRegister* call is
+    // invisible to all three. Full rationale in src/controllers/maincontroller.h.
+    QML_ELEMENT
+    QML_UNCREATABLE("BeanBaseClient is created in C++ and reached via MainController")
 
 public:
     explicit BeanBaseClient(QNetworkAccessManager* networkManager,

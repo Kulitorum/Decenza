@@ -7,12 +7,19 @@
 #include <QColor>
 #include <QThread>
 
+#include <QtQml/qqmlregistration.h>
 class ShotHistoryStorage;
 struct ShotRecord;
 
 // Model for comparing shots with sliding window display (shows 3 at a time)
 class ShotComparisonModel : public QObject {
     Q_OBJECT
+
+    // Compile-time QML registration, so qmllint, qmlcachegen and the language server can
+    // follow MainController's property through to this class. A runtime qmlRegister* call is
+    // invisible to all three. Full rationale in src/controllers/maincontroller.h.
+    QML_ELEMENT
+    QML_UNCREATABLE("ShotComparisonModel is created in C++ and reached via MainController")
 
     // Display window properties (shows max 3 shots at a time)
     Q_PROPERTY(int shotCount READ displayShotCount NOTIFY shotsChanged)

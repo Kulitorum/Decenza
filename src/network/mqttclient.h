@@ -4,6 +4,7 @@
 #include <QTimer>
 #include <QMutex>
 #include <algorithm>
+#include <QtQml/qqmlregistration.h>
 
 extern "C" {
 #include <MQTTAsync.h>
@@ -17,6 +18,12 @@ class MainController;
 
 class MqttClient : public QObject {
     Q_OBJECT
+
+    // Compile-time QML registration, so qmllint, qmlcachegen and the language server can
+    // follow MainController's property through to this class. A runtime qmlRegister* call is
+    // invisible to all three. Full rationale in src/controllers/maincontroller.h.
+    QML_ELEMENT
+    QML_UNCREATABLE("MqttClient is created in C++ and reached via MainController")
 
     Q_PROPERTY(bool connected READ isConnected NOTIFY connectedChanged)
     Q_PROPERTY(QString status READ status NOTIFY statusChanged)
