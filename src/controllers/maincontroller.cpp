@@ -3515,7 +3515,7 @@ void MainController::onShotEnded() {
                     // Screen widget) while it is still in scope — `duration` and
                     // `finalWeight` are captured by value, so they describe THIS
                     // shot no matter what the live models hold by now.
-                    emit shotPersisted(shotId, finalWeight, duration);
+                    emit shotPersisted(shotId, duration, finalWeight);
 
                     // Auto-upload here (not before save) so we know the
                     // local shots.id and can pass it to the uploader.

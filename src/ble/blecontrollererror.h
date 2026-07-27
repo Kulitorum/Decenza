@@ -70,9 +70,11 @@ inline QString bleControllerStateName(QLowEnergyController::ControllerState stat
 // dual-HIGH contention signature the connection-priority coordinator and the
 // BLE-stack-wedge detector key off, reported via de1LinkFault().
 //
-// There is deliberately no user-facing message for these, nor for any other
-// controller error — see the comment in BleTransport::onControllerError for why
-// that whole path is log-only (#1658).
+// Scoped to that fault family on purpose. An earlier draft also asserted here
+// that no controller error raises a modal — but that is DE1-transport policy,
+// and this header is shared with QtScaleBleTransport, which routes its
+// controller errors differently. Policy belongs at the call site that enforces
+// it; see BleTransport::onControllerError (#1658).
 inline bool bleControllerErrorIsLinkTeardown(QLowEnergyController::Error err) {
     return err == QLowEnergyController::ConnectionError
         || err == QLowEnergyController::RemoteHostClosedError

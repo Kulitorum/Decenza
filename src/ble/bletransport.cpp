@@ -561,22 +561,33 @@ void BleTransport::onControllerError(QLowEnergyController::Error error) {
 
     // A controller error never raises a modal. The whole path used to, and the
     // dialog it produced carried no information the user could act on: a bare
-    // "Connection error" box with a single OK button, restating what the offline
-    // ConnectionIndicator was already showing. It fired on every app start for
-    // anyone who switches their DE1 off overnight — the direct-wake connect to
-    // the saved address beats the machine to readiness — while the reconnect
-    // ladder quietly recovered the link 26–118 s later, every single time in the
-    // reporter's log (#1658). AuthorizationError had already been carved out for
-    // the same reason (#1093), as had write-retry exhaustion (#1423); this
+    // "Connection error" box with a single OK button, restating what the status
+    // bar's machineStatus widget already says in words — a red icon and
+    // "Disconnected" (qml/components/layout/items/MachineStatusItem.qml, present
+    // by default per settings_network.cpp and drawn on every page).
+    //
+    // In the #1658 reporter's log it fired on every app start — they switch the
+    // DE1 off overnight, and the direct-wake connect to the saved address
+    // (main.cpp's startup path) runs before the machine finishes powering up —
+    // while the reconnect ladder recovered the link 26-118 s later in every one
+    // of the 7 affected sessions. Those figures are from that one report, not a
+    // measured system property. AuthorizationError had already been carved out
+    // for the same reason (#1093), as had write-retry exhaustion (#1423); this
     // finishes the job for the rest of the enum.
     //
-    // The errors a user CAN act on are surfaced by the layers that own them and
-    // can say something useful: BLEManager for permissions ("Bluetooth
-    // permission required. Please enable in Settings.") and for an adapter that
-    // won't come back up, and the service-discovery path below for a link that
-    // connects but yields no DE1 service ("try toggling Bluetooth off/on").
-    // Everything a controller error knows is in the warn line above, which goes
-    // to the debug log the issue template already collects.
+    // Where the actionable ones go instead, stated with their real scope rather
+    // than as blanket coverage:
+    //   - permissions: BLEManager::onScanError (all platforms — the DE1 connect
+    //     path always runs a scan alongside, see tryDirectConnectToDE1) and
+    //     requestBluetoothPermission (Android/iOS only);
+    //   - an adapter that will not come back up: finishAdapterRecovery, Android
+    //     only, since that is the only platform that power-cycles the radio;
+    //   - a link that connects but yields no DE1 service: the retry-exhausted
+    //     branch below ("try toggling Bluetooth off/on"), all platforms.
+    // On desktop a controller-level MissingPermissionsError or
+    // InvalidBluetoothAdapterError is therefore log-only. That is deliberate:
+    // the scan agent raises the same condition with a better message, and the
+    // warn line above carries it into the debug log the issue template collects.
 
     // The link-teardown family is the dual-HIGH BLE-contention signature (#1093
     // AuthorizationError, #1176 ConnectionError, #1238 RemoteHostClosedError).

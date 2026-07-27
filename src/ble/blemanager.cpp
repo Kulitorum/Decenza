@@ -287,8 +287,8 @@ void BLEManager::onDe1Error(const QString& error)
     // attempt, so show each distinct message only once until the DE1 reconnects.
     // Mirrors the onScanError debounce. Controller errors no longer reach here at
     // all — the transport keeps that whole path log-only (#1658) — so what lands
-    // here is the service-layer kind that can actually tell the user something,
-    // e.g. "DE1 service not found … try toggling Bluetooth off/on".
+    // here is the service-discovery and USB-transport kind, e.g. "DE1 service not
+    // found … try toggling Bluetooth off/on".
     if (error.isEmpty() || error == m_lastDe1ErrorShown) return;
     m_lastDe1ErrorShown = error;
     emit errorOccurred(error);

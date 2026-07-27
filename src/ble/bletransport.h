@@ -54,6 +54,14 @@ public:
      */
     void connectToDevice(const QBluetoothDeviceInfo& device);
 
+#ifdef DECENZA_TESTING
+    // tst_BleTransportError drives onControllerError directly to assert the
+    // #1658 contract: a controller error raises no user-facing errorOccurred,
+    // and the link-teardown family still fires de1LinkFault. That contract is
+    // otherwise enforced only by the ABSENCE of an emit, which no test can see.
+    friend class tst_BleTransportError;
+#endif
+
 private slots:
     void onControllerConnected();
     void onControllerDisconnected();

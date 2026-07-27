@@ -4,14 +4,18 @@
 
 // Naming and fault classification for QLowEnergyController::Error.
 //
-// Controller errors are log-only: a reporter with a DE1 they switch off
-// overnight got a bare "connection error" box on every single app start
-// (#1658), because the direct-wake connect to the saved address beat the
-// machine to readiness. In that reporter's own log the reconnect ladder had the
-// DE1 back 26–118 s later, every time — so the box only ever interrupted a
-// recovery already in progress, and said nothing the user could act on. What
-// remains is the debug log, which is where these names have to be right, and
-// the teardown-family predicate that drives the wedge detector.
+// Scope, stated honestly: this file covers the extracted helpers, which are a
+// pure refactor of two duplicated switches. It does NOT cover #1658's actual
+// behaviour change — restore the deleted `emit errorOccurred(...)` in
+// BleTransport::onControllerError and every case below still passes. That
+// contract lives in tst_bletransporterror.cpp.
+//
+// What these cases buy is insurance on the debug log, which is the only
+// remaining surface for a controller error now that the modal is gone: the
+// names are asserted against Qt's numeric enum values so a reordering or an
+// inserted enumerator is caught rather than silently re-labelling old logs.
+// Qt does not renumber public enums, so this is low-probability/high-cost
+// cover, not detection of anything expected.
 class tst_BleControllerError : public QObject {
     Q_OBJECT
 
@@ -107,13 +111,26 @@ private slots:
         QVERIFY(!bleControllerErrorIsLinkTeardown(error));
     }
 
-    // The number-fallback after each switch is deliberately NOT tested. Reaching
-    // it requires an out-of-range enum value, and merely loading one is
-    // undefined behaviour — UBSan flags it. macOS runs UBSan in recovering mode,
-    // so such a test passes locally and green-lights a change that would fail
-    // the halting-mode nightly Linux job. The fallback exists to satisfy the
-    // compiler's control-flow analysis, not as reachable behaviour; every value
-    // Qt can actually deliver is covered above.
+    // The number-fallback after each switch, exercised deliberately.
+    //
+    // An earlier revision claimed this could not be tested because loading an
+    // out-of-range enumerator is undefined behaviour that UBSan would flag. That
+    // was wrong for THESE enums. Both are unscoped with no fixed underlying
+    // type, so per [dcl.enum]/8 their value range is the smallest bit-field
+    // holding all enumerators: Error has 11 enumerators (0-10) → range 0-15, and
+    // ControllerState has 7 (0-6) → range 0-7. 11 and 7 are therefore
+    // representable and well-defined, and -fsanitize=enum does not fire.
+    //
+    // Worth testing rather than merely permitted: 11 is exactly what Qt's next
+    // added error value will be, and this asserts such a value degrades to a
+    // readable number in the log instead of an empty string.
+    void unrecognizedValuesDegradeToTheirNumber() {
+        QCOMPARE(bleControllerErrorName(static_cast<QLowEnergyController::Error>(11)),
+                 QStringLiteral("11"));
+        QCOMPARE(bleControllerStateName(
+                     static_cast<QLowEnergyController::ControllerState>(7)),
+                 QStringLiteral("7"));
+    }
 };
 
 QTEST_MAIN(tst_BleControllerError)

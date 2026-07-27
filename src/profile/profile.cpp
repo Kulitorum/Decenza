@@ -16,25 +16,26 @@
 // numbers as strings). Public — the ProfileManager catalog scan shares it.
 double profileJsonToDouble(const QJsonValue& val, double defaultVal) {
     if (val.isString()) {
-        const QString s = val.toString();
         bool ok;
-        double d = s.toDouble(&ok);
-        if (!ok && !s.trimmed().isEmpty()) {
-            // An empty string is "this frame doesn't use the field", not bad
-            // data, and it is how de1app and the Visualizer write a setpoint
-            // that doesn't apply — a pressure frame's `flow`, say. Warning on it
-            // was warning about a normal profile: one reporter's log carried 128
-            // of these from a single library browse, all `"flow": ""`, which is
-            // 128 lines of the debug log the issue template collects spent
-            // saying nothing (#1658). The RESULT is unchanged either way — both
-            // return defaultVal — so this is purely about what the log claims is
-            // wrong.
+        double d = val.toString().toDouble(&ok);
+        if (!ok) {
+            // Deliberately warns for an EMPTY string too, and that is not an
+            // oversight — an earlier revision of #1658 muted empty strings here
+            // to kill log noise, which was wrong and dangerous. This function
+            // has no idea which key it is reading, and for most of them the
+            // default it fabricates is not zero: see nonZeroDefaultKeys() below.
+            // "target_weight":"" would have become 36 g with stop-at-weight
+            // silently ON, "seconds":"" a fabricated 30-second frame — and
+            // ProfileFrame::toJson always re-emits a number, so the fabrication
+            // then PERSISTS with nothing recording that it was invented. The
+            // two comments in jsonParityErrors() below already spell out this
+            // exact hazard.
             //
-            // A non-empty string that won't parse ("abc", "9,5") still warns:
-            // that is real corruption, the default silently replaces a value the
-            // profile author meant, and it is worth seeing.
-            qWarning() << "profileJsonToDouble: failed to parse string" << s
-                       << "- using default" << defaultVal;
+            // The inapplicable-field case that motivated the noise complaint
+            // (a pressure frame carrying "flow":"") is silenced at its call
+            // site in ProfileFrame::fromJson, which knows the frame's pump and
+            // can tell "doesn't apply" from "lost".
+            qWarning() << "profileJsonToDouble: failed to parse string" << val.toString() << "- using default" << defaultVal;
         }
         return ok ? d : defaultVal;
     }

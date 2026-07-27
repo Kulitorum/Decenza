@@ -156,6 +156,13 @@ void warnUnmodelledNestedKeys(const QJsonObject& nested, const char* which,
                .arg(QLatin1String(which), unmodelled.join(QStringLiteral(", ")));
 }
 
+// True for a value that is present but blank — de1app / Visualizer notation for
+// "this frame does not use this setpoint". Distinct from absent (key missing)
+// and from unparseable ("abc"), both of which must keep warning.
+bool isBlankSetpoint(const QJsonValue& val) {
+    return val.isString() && val.toString().trimmed().isEmpty();
+}
+
 }  // namespace
 
 ProfileFrame ProfileFrame::fromJson(const QJsonObject& json) {
@@ -165,8 +172,23 @@ ProfileFrame ProfileFrame::fromJson(const QJsonObject& json) {
     frame.sensor = json["sensor"].toString("coffee");
     frame.pump = json["pump"].toString("pressure");
     frame.transition = json["transition"].toString("fast");
-    frame.pressure = jsonToDouble(json["pressure"], 9.0);
-    frame.flow = jsonToDouble(json["flow"], 2.0);
+    // A frame drives EITHER pressure or flow, and de1app / the Visualizer write
+    // the unused one as "" rather than omitting it. That blank is inapplicable,
+    // not lost, so reading it must not warn — one reporter's log carried 128
+    // "failed to parse string" lines from a single library browse, every one of
+    // them a pressure frame's empty `flow` (#1658).
+    //
+    // Scoped to exactly that pair, and only when the pump says the field is
+    // unused. Everything else — including a FLOW frame with an empty `flow`, or
+    // an empty `seconds` — still goes through the warning path, because there a
+    // blank means a real value was lost and the default silently fabricates one.
+    // The resulting VALUE is identical either way — both arms yield the same
+    // default the warning path would have returned. Only the log line differs.
+    const bool flowDriven = frame.pump == QStringLiteral("flow");
+    frame.pressure = (flowDriven && isBlankSetpoint(json["pressure"]))
+                         ? 9.0 : jsonToDouble(json["pressure"], 9.0);
+    frame.flow = (!flowDriven && isBlankSetpoint(json["flow"]))
+                     ? 2.0 : jsonToDouble(json["flow"], 2.0);
     frame.seconds = jsonToDouble(json["seconds"], 30.0);
     frame.volume = jsonToDouble(json["volume"], 0.0);
 

@@ -108,15 +108,52 @@ private slots:
         QCOMPARE(profileJsonToDouble(QJsonValue(), 3.0), 3.0);
     }
 
-    // An empty string means "this frame doesn't use the field" — how de1app and
-    // the Visualizer write an inapplicable setpoint (a pressure frame's `flow`).
-    // It takes the default like any other unparseable string, but it must do so
-    // SILENTLY: warning on it flooded one reporter's debug log with 128 lines
-    // from a single library browse (#1658). init()'s failOnWarning is what
-    // enforces the silence here — an unexpected qWarning fails this test.
-    void profileJsonToDoubleEmptyStringIsQuiet() {
-        QCOMPARE(profileJsonToDouble(QJsonValue(QStringLiteral("")), 2.0), 2.0);
-        QCOMPARE(profileJsonToDouble(QJsonValue(QStringLiteral("   ")), 2.0), 2.0);
+    // An empty string must STILL warn here, and this test exists to keep it that
+    // way. A first cut at #1658 muted it to kill log noise; that was wrong. This
+    // function does not know which key it is reading, and most of the keys it
+    // serves have a non-zero default (nonZeroDefaultKeys() in profile.cpp), so a
+    // blanket silence turns `"target_weight":""` into 36 g with stop-at-weight
+    // ON, and `"seconds":""` into a fabricated 30-second frame — which toJson
+    // then persists as a real number. The warning is the only runtime trace.
+    void profileJsonToDoubleEmptyStringStillWarns() {
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("failed to parse string"));
+        QCOMPARE(profileJsonToDouble(QJsonValue(QStringLiteral("")), 36.0), 36.0);
+    }
+
+    // The inapplicable-setpoint case is silenced ONE level up, where the frame's
+    // pump says whether the field is used. A pressure frame's empty `flow` is
+    // de1app/Visualizer notation for "not used by this frame", and reading it is
+    // silent — init()'s failOnWarning is what enforces that here. The value is
+    // the same default the warning path would have produced.
+    void blankSetpointIsQuietOnlyWhenPumpMakesItUnused() {
+        QJsonObject pressureFrame{{"name", "pf"}, {"pump", "pressure"},
+                                  {"pressure", "9.0"}, {"flow", ""},
+                                  {"seconds", "25"}, {"temperature", "93"}};
+        const ProfileFrame pf = ProfileFrame::fromJson(pressureFrame);
+        QCOMPARE(pf.flow, 2.0);        // unchanged default, no warning
+        QCOMPARE(pf.pressure, 9.0);
+
+        // Mirror case: a flow frame's empty `pressure` is equally inapplicable.
+        QJsonObject flowFrame{{"name", "ff"}, {"pump", "flow"},
+                              {"pressure", ""}, {"flow", "2.5"},
+                              {"seconds", "25"}, {"temperature", "93"}};
+        const ProfileFrame ff = ProfileFrame::fromJson(flowFrame);
+        QCOMPARE(ff.pressure, 9.0);
+        QCOMPARE(ff.flow, 2.5);
+    }
+
+    // The other side of that gate, and the reason it is scoped to the unused
+    // field: a FLOW frame with a blank `flow` has lost its actual setpoint, and
+    // the 2.0 it falls back to is fabricated. That must stay loud.
+    void blankSetpointOnTheDrivenFieldStillWarns() {
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("failed to parse string"));
+        QJsonObject flowFrame{{"name", "ff"}, {"pump", "flow"},
+                              {"pressure", "9.0"}, {"flow", ""},
+                              {"seconds", "25"}, {"temperature", "93"}};
+        const ProfileFrame ff = ProfileFrame::fromJson(flowFrame);
+        QCOMPARE(ff.flow, 2.0);
     }
 
     void jsonRoundTripAdvanced() {
