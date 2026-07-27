@@ -396,3 +396,38 @@ That last pair is contradictory on any simple theory, which is why no root cause
 Next step is to reproduce against a newer qtdeclarative and, if it persists, report upstream.
 Treat as suspected tool defect; the runtime behaviour is correct (recipe cards render their drink
 labels).
+
+---
+
+## The gate's first CI run: `GHCSimulatorWindow.qml` was linted by nobody
+
+Nightly run 30310401195 — the first execution of the `qmllint_check` step added to
+`nightly-sanitizers.yml` — failed with:
+
+> `qml/simulator/GHCSimulatorWindow.qml: exists but is not in the qt_add_qml_module list, so it
+> is neither linted nor bundled.`
+
+**Not a runtime bug**, and the first reading of it here was wrong. `DECENZA_SIMULATOR` is defined
+on every non-mobile platform including Linux, so it is tempting to conclude Linux compiles the
+simulator and then loads a QML file that is not in the resource. It does not: the load site at
+`src/main.cpp:3718` sits under `#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)`,
+so Linux never opens that window. The CMake guard and the C++ guard agreed all along.
+
+What was actually broken is **lint coverage, and only in CI**. `QML_FILES` appended the file under
+`if(WIN32 OR (APPLE AND NOT IOS))`, so the module's file set — which is what
+`.rcc/qmllint/Decenza.rsp` is generated from, and therefore what the gate lints — differed by
+platform. Local macOS runs linted 217 files; Linux CI linted 216. The missing one carries a
+baseline ceiling of **57 diagnostics** that the only automated lint run had never once evaluated.
+
+Fixed by making the file set platform-invariant: the guard is now `if(NOT ANDROID AND NOT IOS)`,
+so Linux bundles a window it will never load, purely so it lints one. The alternative —
+`NOT_IN_MODULE_BY_DESIGN` in `scripts/qmllint_report.py` — buys the same green CI at the price of
+the file never being linted anywhere automated, which is the outcome the check exists to prevent.
+
+Generalisable point: **a per-file gate is only as trustworthy as the invariance of its file set.**
+A baseline generated on one platform and enforced on another silently stops covering anything the
+second platform excludes, and the exclusion reads as a pass. The `unlisted` check caught this only
+because it compares files on disk against the module list rather than trusting the module list
+alone. The remaining conditional append — Quick3D screensavers, under
+`if(ENABLE_QUICK3D AND Qt6Quick3D_FOUND)` — has the same shape; it did not fire because the Linux
+runner does find Quick3D, which is luck rather than design.
