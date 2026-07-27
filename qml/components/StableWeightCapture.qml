@@ -1,5 +1,4 @@
 import QtQuick
-import Decenza
 
 // Delta-based stable-weight capture with an auto-tracked "virtual zero".
 //

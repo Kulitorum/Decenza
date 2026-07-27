@@ -70,20 +70,32 @@ BASELINE = REPO / "qml-diagnostics-baseline.json"
 #
 # `unqualified` is NOT eligible for this block and never will be — see the module docstring.
 # Its enforcement is per file, through the baseline's clean list and ceilings.
+# THE NUMBERS BELOW ROSE ONCE, AND ONLY FOR THIS REASON: the parser was dropping 475
+# diagnostics (~5.5% of the total). qmllint prints the hint "You first have to give the element
+# an id" WITHOUT a trailing newline, so the next diagnostic was glued onto the end of it and a
+# ^-anchored match skipped it — 471 of the 475. It was found because a grep and the parser
+# disagreed by 3 on one category. check_accounting() now makes that class of undercount a hard
+# error instead of a plausible-looking number. Correcting a measurement is the ONE reason a
+# ceiling may go up; a genuine regression is never it.
 CATEGORY_EXEMPTIONS: dict[str, int] = {
-    # Measured on the first full-tree run that completed and accounted for every diagnostic
-    # line it produced. Each entry is a ceiling, not a budget.
-    "missing-property": 317,
+    # Each entry is a ceiling, not a budget.
+    "missing-property": 326,
     # Undefined behaviour, per Qt's own wording: setting width/height/anchors/y on an item a
     # layout manages. The remedy is implicitWidth/implicitHeight or Layout.preferredWidth/
-    # Height. These were invisible until the parser stopped dropping dotted category names,
-    # so they have never been triaged — treat the number as unexamined, not as accepted.
-    "Quick.layout-positioning": 254,
-    "import": 21,
+    # Height. See bugs-found.md for the triage.
+    "Quick.layout-positioning": 257,
+    # Dead imports. Reported by qmllint at Info severity, which is why this category was
+    # invisible until WARN_RE stopped matching only Warning|Error.
+    "unused-imports": 36,
+    "import": 23,
     "Quick.property-changes-parsed": 5,
     "duplicate-property-binding": 2,
     "unresolved-type": 2,
     "equality-type-coercion": 1,
+    # One finding: StrangeAttractorScreensaver.qml:47 binds `target: renderer` where the
+    # declared type is QObject and the value is StrangeAttractorRenderer. This entry was briefly
+    # deleted as "cleared" — it was not, it was one of the 475 diagnostics the glued-line bug was
+    # dropping, and the gate caught the mistake on the next run.
     "incompatible-type": 1,
 }
 
@@ -97,8 +109,12 @@ CATEGORY_EXEMPTIONS: dict[str, int] = {
 # `[a-z-]+` class rejected exactly those, dropping 264 diagnostics from a 12,862-line run,
 # 254 of them real "undefined behavior" layout warnings. The count looked plausible, which is
 # why it went unnoticed until two counting methods disagreed.
+# `Info` is in the severity list deliberately. qmllint reports `unused-imports` at Info level,
+# and matching only Warning|Error made 42 of them invisible to every count this script prints —
+# a whole category nobody could see, which is the failure this file exists to prevent. Severity
+# is qmllint's judgement of how loud to be, not a licence for the gate to stop looking.
 WARN_RE = re.compile(
-    r"^(?:Warning|Error): (?:(?P<path>.+?):(?P<line>\d+):(?P<col>\d+): )?"
+    r"^(?:Warning|Error|Info): (?:(?P<path>.+?):(?P<line>\d+):(?P<col>\d+): )?"
     r"(?P<msg>.*?) \[(?P<category>[A-Za-z0-9._-]+)\]$")
 IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
@@ -300,9 +316,49 @@ def run(qmllint: str, import_path: str, files: list[str], rsp: Path | None,
     return out_path.read_text(errors="replace")
 
 
+# qmllint emits some hint lines WITHOUT a trailing newline, so the next diagnostic is glued onto
+# the end of them:
+#
+#     "      You first have to give the element an idWarning: /path/File.qml:67:24: Detected ..."
+#
+# A ^-anchored match then skips that diagnostic entirely. Measured: 3 real
+# Quick.layout-positioning findings lost this way, discovered only because a grep and the parser
+# disagreed. Split such lines apart before parsing rather than loosening the anchor, which would
+# risk matching "Warning:" inside a message body.
+GLUED_RE = re.compile(r"(?<!^)(?=(?:Warning|Error|Info): )", re.MULTILINE)
+
+# A second, independent count of how many findings the output holds — see check_accounting().
+# It must be anchored on the severity prefix as well as the trailing [category]: qmllint echoes
+# the offending SOURCE LINE under each diagnostic, and QML source ending in an array subscript
+# (`var bag = idlePage.visibleBags[index]`) looks exactly like a category tag otherwise. That
+# mistake made this check claim 48 phantom missing diagnostics on its first run.
+DIAGNOSTIC_LINE_RE = re.compile(
+    r"^(?:Warning|Error|Info): .*\[[A-Za-z0-9._-]+\]$")
+
+
+def check_accounting(output: str, parsed: int) -> None:
+    """Hard-error if the parser accounted for fewer diagnostics than the output contains.
+
+    This exists because the failure it catches has now happened twice, both times silently and
+    both times producing plausible numbers: a category regex that rejected dotted names dropped
+    264 findings, and a missing newline in qmllint's own output glued 3 more onto hint lines. A
+    parser that quietly sees less than it was given is the same defect as a linter that quietly
+    analyses fewer files than it was asked to, and this script exists to make that impossible.
+    """
+    expected = sum(1 for ln in GLUED_RE.sub("\n", output).split("\n")
+                   if DIAGNOSTIC_LINE_RE.match(ln))
+    if expected != parsed:
+        sys.exit(
+            f"Parser accounting mismatch: the output holds {expected} diagnostic line(s) but "
+            f"{parsed} were parsed.\nEvery count this script prints would be wrong by "
+            f"{abs(expected - parsed)}. Fix WARN_RE (or the line splitting) before trusting any "
+            f"number from this run."
+        )
+
+
 def parse(output: str) -> tuple[Counter, dict[str, Counter], Counter]:
     """-> (per-category counts, per-file unqualified-identifier counts, per-file totals)"""
-    lines = output.split("\n")
+    lines = GLUED_RE.sub("\n", output).split("\n")
     categories: Counter = Counter()
     unqualified: dict[str, Counter] = defaultdict(Counter)
     per_file: Counter = Counter()
@@ -629,6 +685,7 @@ def main() -> int:
         output = run(args.qmllint or find_qmllint(), import_path, files, rsp,
                      args.raw_out, args.batch, args.timeout, set(skipped))
     categories, unqualified, _ = parse(output)
+    check_accounting(output, sum(categories.values()))
     state = build_state(categories, unqualified, files)
 
     if args.check:

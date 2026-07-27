@@ -63,6 +63,87 @@ Recorded so they are not re-investigated.
 
 ---
 
+## Triaged: the 257 `Quick.layout-positioning` warnings
+
+Qt's message calls this *undefined behaviour*, which undersells it. Read from the Qt source
+(`qquicklayout.cpp:1249`, `qquickgridlayoutengine_p.h:32-47`): when a Layout child has no size
+hints and no implicit size, the layout falls back to the item's `width`/`height` — **once**.
+
+```cpp
+: useFallbackToWidthOrHeight(true) {}                        // enabled
+QQuickLayout::effectiveSizeHints_helper(…, useFallbackToWidthOrHeight);
+useFallbackToWidthOrHeight = false;                          // ← after the FIRST pass
+```
+
+with the value stored in `m_fallbackWidth` and reused forever. Qt's own comment says so plainly:
+*"we only want to use the initial width … the preferred width should return the same value,
+regardless of the current width."*
+
+So `width:`/`height:` on a Layout child is **read on the first layout pass and then frozen**.
+`Rectangle` and `Item` have `implicitWidth`/`implicitHeight` of 0, so they always take this path;
+types with real implicit sizes (`Text`, `Button`) do not and track correctly.
+
+**That makes the warning a live-defect detector for this app**, because the values are not
+constant: `Theme.scaled(v)` is `v * Theme.scale`, and `Theme.scale` / `Theme.pageScaleMultiplier`
+are reassigned at runtime by window resize (`main.qml:970`) and by a user-facing **"Page scale"**
+control (`main.qml:1209`, `main.qml:4550`).
+
+| count | shape | verdict |
+|---:|---|---|
+| 169 | `Theme.scaled(<constant>)` | **latent bug** — frozen; does not follow page-scale or resize |
+| 27 | other `Theme.*` expressions | **latent bug**, same mechanism |
+| 1 | `height: parent.height` | **latent bug**, same mechanism |
+| 44 | constant literal (`height: 1` separators) | harmless — the frozen value *is* the intended value |
+| 3 | other constants | harmless |
+| 13 | `anchors` / `x` / `y` | **qmllint false positive** — see below |
+
+**197 latent, 47 harmless, 13 false positives.**
+
+Worked example, `qml/main.qml:1055` — the untranslated-string count badge:
+
+```qml
+Rectangle {
+    visible: TranslationManager.untranslatedCount > 0
+    width: untranslatedText.width + Theme.scaled(12)   // frozen at first pass
+    height: Theme.scaled(22)
+}
+```
+
+Its width depends on a **sibling's** width, so the badge cannot grow when the count goes from one
+digit to three. Nobody would connect that symptom to a layout rule.
+
+**Severity, honestly.** Two caveats keep this from being "197 broken widgets":
+
+1. `Theme.scale` and `pageScaleMultiplier` do change at runtime, but **infrequently** — a window
+   resize or a deliberate visit to the page-scale control, not routine use. Most of the 196
+   scale-derived cases are therefore latent: wrong, reachable, and rarely reached. They are worth
+   fixing because the trigger is a user action we ship a control for, not because the UI is
+   broken today.
+2. An item that is also `Layout.fillWidth`/`fillHeight` is sized by the fill rather than the
+   frozen hint, so a further subset looks correct regardless. The frozen hint still feeds
+   minimum/preferred sizing, so they stay wrong, just less visibly.
+
+The exception is the one case that does **not** depend on scale at all: `qml/main.qml:1055`, whose
+width tracks a sibling's width and so goes stale on ordinary content changes rather than on a rare
+user action. That one is the most likely of the group to be reachable in normal use, and is worth
+fixing on its own regardless of what happens to the other 196.
+
+**Fix:** `Layout.preferredWidth` / `Layout.preferredHeight` (or `implicitWidth`/`implicitHeight`),
+which the layout re-reads when the binding changes. Mechanical, ~197 sites, and it should be its
+own change rather than smuggled into this one.
+
+### qmllint false positive worth reporting upstream
+
+The 13 `anchors`/`x`/`y` warnings are wrong. qmllint flags any child *declared lexically* inside a
+Layout without checking that the type is an `Item` the layout can manage:
+
+- 12 are `Popup`/`Dialog` with `parent: Overlay.overlay`. `QQuickPopup : public QObject` — not an
+  `Item`, so no Layout ever manages it, and the declaration site is irrelevant.
+- 1 is `IdlePage.qml:820`, the `y` of a `Translate` transform. `QQuickTranslate : public
+  QQuickTransform` — also not an `Item`.
+
+Both verified in the Qt 6.11.1 source. Nothing to fix in Decenza; do not "clean these up".
+
 ## Observed, not yet diagnosed
 
 Do not treat these as fixed or as false positives — nobody has looked.
