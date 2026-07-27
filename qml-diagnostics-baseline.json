@@ -9,9 +9,6 @@
     "qml/Theme.qml": 6,
     "qml/components/AIConversationPanel.qml": 23,
     "qml/components/AccessibleButton.qml": 1,
-    "qml/components/AccessibleLabel.qml": 2,
-    "qml/components/AccessibleMouseArea.qml": 6,
-    "qml/components/AccessibleTapHandler.qml": 6,
     "qml/components/ActionButton.qml": 1,
     "qml/components/BackgroundPickerDialog.qml": 17,
     "qml/components/BagCard.qml": 11,
@@ -163,6 +160,9 @@
     "qml/simulator/GHCSimulatorWindow.qml": 57
   },
   "clean": [
+    "qml/components/AccessibleLabel.qml",
+    "qml/components/AccessibleMouseArea.qml",
+    "qml/components/AccessibleTapHandler.qml",
     "qml/components/BackgroundSurface.qml",
     "qml/components/BeanBaseDetailsRow.qml",
     "qml/components/BeanSummary.qml",
@@ -228,14 +228,14 @@
     "qml/pages/settings/SettingsLayoutTab.qml"
   ],
   "observed_categories": {
-    "Quick.layout-positioning": 19,
+    "Quick.layout-positioning": 21,
     "Quick.property-changes-parsed": 5,
     "duplicate-property-binding": 2,
     "equality-type-coercion": 1,
     "import": 23,
     "incompatible-type": 1,
     "missing-property": 326,
-    "unqualified": 7265,
+    "unqualified": 7251,
     "unresolved-type": 2
   }
 }

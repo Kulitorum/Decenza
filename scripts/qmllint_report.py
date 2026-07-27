@@ -154,7 +154,9 @@ def relative_to_repo(path: str) -> str:
     entirely — keys have to be repo-relative or nothing ever matches.
     """
     path = path.replace("\\", "/")
-    prefix = str(REPO) + "/"
+    # REPO.as_posix(), not str(REPO): `path` above has already been normalised to
+    # forward slashes, so a backslashed prefix would never strip on Windows.
+    prefix = REPO.as_posix() + "/"
     return path[len(prefix):] if path.startswith(prefix) else path
 
 
@@ -235,7 +237,10 @@ def files_from_response(rsp: Path) -> list[str]:
     out = []
     for entry in split_response(rsp)[1]:
         p = Path(entry)
-        out.append(str(p.relative_to(REPO)) if p.is_absolute() and p.is_relative_to(REPO) else entry)
+        # .as_posix() for the same reason as qml_files(): this is the AUTHORITATIVE
+        # file list whenever a .rsp exists, i.e. every CMake-driven run. Fixing
+        # qml_files() alone left the gate inert on Windows.
+        out.append(p.relative_to(REPO).as_posix() if p.is_absolute() and p.is_relative_to(REPO) else entry)
     return sorted(out)
 
 
@@ -508,7 +513,7 @@ def cmd_report(state: dict, categories: Counter, unqualified: dict, files: list[
     return 0
 
 
-def cmd_check(state: dict, skipped: set[str]) -> int:
+def cmd_check(state: dict, skipped: set[str], unlisted: list[str] | None = None) -> int:
     if not BASELINE.exists():
         sys.exit(f"No baseline at {BASELINE}. Run with --update-baseline first.")
     base = json.loads(BASELINE.read_text())
@@ -518,6 +523,17 @@ def cmd_check(state: dict, skipped: set[str]) -> int:
     # against its baseline entry would read as an improvement. Drop it from the baseline side
     # too. Note this can only ever weaken the gate, never fire it: nothing below can fail
     # because a file was skipped.
+    # A .qml that left qt_add_qml_module is neither bundled nor linted. It vanishes from
+    # `files`, so every per-file check below silently passes and `improved` counts its whole
+    # former ceiling — the gate would print "N improvement(s) ... run --update-baseline" and
+    # invite someone to bake the mistake in. It has to fail, not warn.
+    for f in unlisted or []:
+        failures.append(
+            f"{f}: exists but is not in the qt_add_qml_module list, so it is neither linted nor "
+            f"bundled.\n    Add it to CMakeLists.txt, or to NOT_IN_MODULE_BY_DESIGN if that is "
+            f"deliberate."
+        )
+
     base_clean = set(base["clean"]) - skipped
     base_ceilings = {f: n for f, n in base["ceilings"].items() if f not in skipped}
     now_ceilings = state["ceilings"]
@@ -576,9 +592,11 @@ def cmd_check(state: dict, skipped: set[str]) -> int:
         )
         return 0
 
+    # Warnings removed. A file that went 90 -> 0 counts 90 here; an earlier version added 1
+    # more for it having left the ceilings map, double-counting every fully-cleared file.
     improved = sum(
         max(0, limit - now_ceilings.get(f, 0)) for f, limit in base_ceilings.items()
-    ) + len(set(base_ceilings) - set(now_ceilings))
+    )
     if improved:
         print(f"{improved} improvement(s) not yet in the baseline — run --update-baseline to lock them in.")
     # An exemption whose count has reached zero is finished work that nobody has noticed.
@@ -654,6 +672,7 @@ def main() -> int:
         check_fresh(import_path, on_disk)
 
     rsp = response_file(import_path)
+    unlisted: list[str] = []
     if rsp:
         files = files_from_response(rsp)
         # A .qml on disk that the module does not list is invisible to qmllint AND missing from
@@ -698,7 +717,14 @@ def main() -> int:
         reported = {relative_to_repo(m["path"]) for m in
                     (WARN_RE.match(ln) for ln in output.split("\n")) if m and m["path"]}
         analysed = sorted(reported & set(files))
-        if analysed and files and analysed[-1] != files[-1] and files[-1] not in reported:
+        if files and not analysed:
+            sys.exit(
+                f"{args.from_raw} contains no diagnostic for any file in this module. A capture "
+                f"that intersects none of the expected files cannot be checked against — every "
+                f"file would record as clean and the gate would pass on nothing. Check it is the "
+                f"right file, from this checkout, and not truncated before its first diagnostic."
+            )
+        if analysed and files and analysed[-1] != files[-1]:
             tail = files[files.index(analysed[-1]) + 1:]
             print(
                 f"warning: {args.from_raw} reports nothing after {analysed[-1]}, and "
@@ -715,7 +741,7 @@ def main() -> int:
     state = build_state(categories, unqualified, files)
 
     if args.check:
-        return cmd_check(state, set(skipped))
+        return cmd_check(state, set(skipped), unlisted)
     if args.update_baseline:
         BASELINE.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
         print(

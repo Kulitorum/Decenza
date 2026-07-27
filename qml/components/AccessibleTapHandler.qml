@@ -1,4 +1,5 @@
 import QtQuick
+import Decenza
 
 // Touch handler with improved responsiveness
 // Uses MouseArea but with better event handling for touch devices
