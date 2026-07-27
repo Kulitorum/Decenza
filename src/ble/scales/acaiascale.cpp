@@ -57,9 +57,25 @@ void AcaiaScale::connectToDevice(const QBluetoothDeviceInfo& device) {
         return;
     }
 
-    // Prevent duplicate connection attempts
-    if (m_isConnecting) {
-        ACAIA_LOG("Already connecting, ignoring duplicate request");
+    // Don't tear down an established link. A stray scaleDiscovered for a scale
+    // we're already talking to would otherwise run the reset below on a live
+    // connection — stopping the heartbeat and clearing m_characteristicsReady,
+    // which blocks every subsequent write.
+    //
+    // Note what this deliberately does NOT guard: a duplicate connect while the
+    // link is still coming up. That belongs to the transport, which debounces on
+    // the controller's live state (QtScaleBleTransport::connectToDevice) and so
+    // recovers correctly once the controller is gone. This used to be a latched
+    // m_isConnecting bool, set here and cleared only by onTransportDisconnected()
+    // — but BLEManager's direct-connect abort severs the controller's signals
+    // before deleting it, so that clear never ran. The flag stayed set for the
+    // life of the process and every later attempt was refused with "Already
+    // connecting, ignoring duplicate request", leaving the scale recoverable only
+    // by forgetting and re-pairing it (#1669). It predated the transport-level
+    // debounce and had been redundant since. reaprime guards the same way, on
+    // live transport state (acaia_scale.dart onConnect).
+    if (isConnected() || (m_transport && m_transport->isConnected())) {
+        ACAIA_LOG("Already connected, ignoring duplicate request");
         return;
     }
 
@@ -73,7 +89,6 @@ void AcaiaScale::connectToDevice(const QBluetoothDeviceInfo& device) {
     m_characteristicsReady = false;
     m_receivingNotifications = false;
     m_weightReceived = false;
-    m_isConnecting = true;
     m_identRetryCount = 0;
     m_buffer.clear();
 
@@ -91,14 +106,12 @@ void AcaiaScale::onTransportDisconnected() {
     stopAllTimers();
     m_weightReceived = false;
     m_characteristicsReady = false;
-    m_isConnecting = false;
     setConnected(false);
 }
 
 void AcaiaScale::onTransportError(const QString& message) {
     ACAIA_WARN(QString("Transport error: %1").arg(message));
     stopAllTimers();
-    m_isConnecting = false;
     setConnected(false);
 }
 
@@ -191,7 +204,6 @@ void AcaiaScale::onInitTimer() {
     if (m_receivingNotifications) {
         ACAIA_LOG("Scale responded, stopping init sequence and starting heartbeat");
         m_initTimer->stop();
-        m_isConnecting = false;
 
         // Start heartbeat sequence
         sendConfig();
@@ -207,7 +219,6 @@ void AcaiaScale::onInitTimer() {
     if (m_identRetryCount >= MAX_IDENT_RETRIES) {
         ACAIA_WARN(QString("Init sequence failed after %1 retries").arg(MAX_IDENT_RETRIES));
         m_initTimer->stop();
-        m_isConnecting = false;
         return;
     }
 
@@ -298,66 +309,104 @@ void AcaiaScale::parseResponse(const QByteArray& data) {
     // Append to buffer
     m_buffer.append(data);
 
-    // Need at least 6 bytes for a valid message
-    if (m_buffer.size() < 6) return;
+    // One notification can carry several concatenated frames — commonly a weight
+    // frame with a 0x08 settings frame behind it. Decode every complete frame and
+    // keep the trailing partial for the next notification.
+    //
+    // This used to decode the first frame and then clear the whole buffer, which
+    // silently dropped whatever followed it. That is worse than de1app, which at
+    // least scans forward past uninteresting frames to reach a weight frame
+    // (bluetooth.tcl acaia_scan_buffer_for_msg). pyacaia and Beanconqueror both
+    // loop and carry the remainder (`bytes[messageEnd:]`); this matches them.
+    while (true) {
+        const uint8_t* buf = reinterpret_cast<const uint8_t*>(m_buffer.constData());
 
-    const uint8_t* buf = reinterpret_cast<const uint8_t*>(m_buffer.constData());
-
-    // Find message start (0xEF 0xDD)
-    int msgStart = -1;
-    for (int i = 0; i < m_buffer.size() - 1; i++) {
-        if (buf[i] == 0xEF && buf[i + 1] == 0xDD) {
-            msgStart = i;
-            break;
+        // Find message start (0xEF 0xDD)
+        int msgStart = -1;
+        for (qsizetype i = 0; i + 1 < m_buffer.size(); i++) {
+            if (buf[i] == 0xEF && buf[i + 1] == 0xDD) {
+                msgStart = static_cast<int>(i);
+                break;
+            }
         }
-    }
 
-    if (msgStart < 0) {
-        m_buffer.clear();
-        return;
-    }
-
-    // Skip bytes before message start
-    if (msgStart > 0) {
-        m_buffer = m_buffer.mid(msgStart);
-        buf = reinterpret_cast<const uint8_t*>(m_buffer.constData());
-    }
-
-    // Check if we have enough data for metadata
-    if (m_buffer.size() < ACAIA_METADATA_LEN + 1) return;
-
-    uint8_t msgType = buf[2];
-    uint8_t length = buf[3];
-    uint8_t eventType = buf[4];
-
-    // Mark that we're receiving notifications (not just info messages)
-    if (msgType != 7) {
-        m_receivingNotifications = true;
-    }
-
-    // Check if we have the complete message
-    int msgEnd = ACAIA_METADATA_LEN + length;
-    if (m_buffer.size() < msgEnd) return;
-
-    // Weight messages (msgType 0x0C, eventType 5 or 11)
-    if (msgType == 0x0C && (eventType == 5 || eventType == 11)) {
-        int payloadOffset = (eventType == 5) ? ACAIA_METADATA_LEN : ACAIA_METADATA_LEN + 3;
-        decodeWeight(m_buffer, payloadOffset);
-    }
-
-    // Settings response (msgType 0x08): contains battery level
-    // Unlike 0x0C event messages, 0x08 has no eventType byte — payload starts at buf[4]:
-    //   buf[4]=payload[0] (unknown), buf[5]=payload[1] (battery), buf[6]=payload[2] (units), ...
-    // Battery masked with 0x7F gives 0-100%
-    if (msgType == 0x08 && m_buffer.size() >= 6) {
-        int batteryLevel = buf[5] & 0x7F;
-        if (batteryLevel >= 0 && batteryLevel <= 100) {
-            setBatteryLevel(batteryLevel);
+        if (msgStart < 0) {
+            // No header in flight. A trailing 0xEF may be the first byte of a
+            // header split across two notifications, so hold it back.
+            if (!m_buffer.isEmpty() && static_cast<uint8_t>(m_buffer.back()) == 0xEF) {
+                m_buffer = m_buffer.right(1);
+            } else {
+                m_buffer.clear();
+            }
+            return;
         }
-    }
 
-    // Clear buffer after processing
-    m_buffer.clear();
+        // Skip bytes before message start
+        if (msgStart > 0) {
+            m_buffer = m_buffer.mid(msgStart);
+            buf = reinterpret_cast<const uint8_t*>(m_buffer.constData());
+        }
+
+        // Check if we have enough data for metadata
+        if (m_buffer.size() < ACAIA_METADATA_LEN + 1) return;
+
+        uint8_t msgType = buf[2];
+        uint8_t length = buf[3];
+        uint8_t eventType = buf[4];
+
+        // Mark that we're receiving notifications (not just info messages)
+        if (msgType != 7) {
+            m_receivingNotifications = true;
+        }
+
+        // A bogus length would park the buffer forever waiting on bytes that
+        // never arrive, now that the buffer survives across notifications.
+        // de1app gates on the same 64-byte ceiling; resync past this header.
+        if (length > MAX_ACAIA_PAYLOAD_LEN) {
+            m_buffer = m_buffer.mid(2);
+            continue;
+        }
+
+        // Check if we have the complete message
+        int msgEnd = ACAIA_METADATA_LEN + length;
+        if (m_buffer.size() < msgEnd) return;   // wait for the rest of the frame
+
+        // Weight messages (msgType 0x0C, eventType 5 or 11)
+        if (msgType == 0x0C && eventType == 5) {
+            decodeWeight(m_buffer, ACAIA_METADATA_LEN);
+        } else if (msgType == 0x0C && eventType == 11) {
+            // Heartbeat response. buf[7] (payload[2]) selects the body: 5 = weight,
+            // 7 = timer. de1app decodes the weight unconditionally here; a timer
+            // body decoded as a weight is garbage, so follow Beanconqueror and
+            // check the selector.
+            if (m_buffer.size() > 7 && buf[7] == 5) {
+                decodeWeight(m_buffer, ACAIA_METADATA_LEN + 3);
+            }
+        }
+
+        // Settings response (msgType 0x08): contains battery level.
+        // The payload starts right after msgType, at buf[3] — the same framing the
+        // weight path above relies on (length=buf[3], eventType=buf[4]):
+        //   buf[3]=payload[0] (unknown), buf[4]=payload[1] (battery),
+        //   buf[5]=payload[2] (units: 2=grams, 5=ounces)
+        // Battery masked with 0x7F gives 0-100%.
+        //
+        // This read buf[5] until issue #1670 — the units byte, so a scale set to
+        // grams reported a permanent "2%" battery (ounces would have read 5%).
+        // de1app never parses this frame at all, so there was no upstream to copy;
+        // pyacaia (`Settings(bytes[messageStart+3:])`) and Beanconqueror
+        // (`parseSettings(bytes.slice(messageStart+3))`) both put battery at
+        // payload[1].
+        if (msgType == 0x08) {
+            int batteryLevel = buf[4] & 0x7F;
+            if (batteryLevel <= 100) {
+                setBatteryLevel(batteryLevel);
+            }
+        }
+
+        // Consume the frame and look for the next one in the same buffer
+        m_buffer = m_buffer.mid(msgEnd);
+    }
 }
 
 void AcaiaScale::decodeWeight(const QByteArray& data, int payloadOffset) {

@@ -54,7 +54,6 @@ private:
     bool m_characteristicsReady = false;
     bool m_receivingNotifications = false;
     bool m_weightReceived = false;  // Track if we've received weight data
-    bool m_isConnecting = false;  // Track if connection is in progress
 
     // Timers
     QTimer* m_heartbeatTimer = nullptr;
@@ -66,6 +65,7 @@ private:
 
     // Constants
     static constexpr int ACAIA_METADATA_LEN = 5;
+    static constexpr int MAX_ACAIA_PAYLOAD_LEN = 64;  // Sanity ceiling, same as de1app
     static constexpr int MAX_IDENT_RETRIES = 10;  // Same as de1app
     static constexpr int INIT_TIMER_INTERVAL_MS = 500;  // Ident + config every 500ms
 };
