@@ -348,7 +348,7 @@ Item {
                     color: Theme.surfaceColor
                     radius: Theme.cardRadius
                     border.width: 2
-                    border.color: profileConvertResultDialog.isError ? Theme.dangerColor : Theme.primaryColor
+                    border.color: profileConvertResultDialog.isError ? Theme.errorColor : Theme.primaryColor
                 }
 
                 contentItem: Column {
@@ -358,7 +358,7 @@ Item {
                     Text {
                         text: profileConvertResultDialog.title
                         font: Theme.subtitleFont
-                        color: profileConvertResultDialog.isError ? Theme.dangerColor : Theme.textColor
+                        color: profileConvertResultDialog.isError ? Theme.errorColor : Theme.textColor
                         anchors.horizontalCenter: parent.horizontalCenter
                     }
 
@@ -494,7 +494,7 @@ Item {
                     color: Theme.surfaceColor
                     radius: Theme.cardRadius
                     border.width: 2
-                    border.color: importResultDialog.isError ? Theme.dangerColor : Theme.primaryColor
+                    border.color: importResultDialog.isError ? Theme.errorColor : Theme.primaryColor
                 }
 
                 contentItem: Column {
@@ -504,7 +504,7 @@ Item {
                     Text {
                         text: importResultDialog.title
                         font: Theme.subtitleFont
-                        color: importResultDialog.isError ? Theme.dangerColor : Theme.textColor
+                        color: importResultDialog.isError ? Theme.errorColor : Theme.textColor
                         anchors.horizontalCenter: parent.horizontalCenter
                     }
 
