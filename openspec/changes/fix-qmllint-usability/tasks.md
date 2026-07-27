@@ -189,7 +189,15 @@ evaluates — the same silent, delayed shape as the bug this change exists to pr
   the module and stays out. Missing this produced `ReferenceError: Settings is not defined`
   throughout `Theme.qml` — the same shape as #1661, which was also `Theme.qml` failing to resolve
   a `Decenza` singleton.
-- [ ] 3.4 `AccessibilityManager` — unlocks 8 files (→ 87)
+- [x] 3.4 `AccessibilityManager` — unlocked 5 files (58 → 63 clean, unqualified 7,612 → 7,265).
+  Used the SIMPLE shape — `QML_ELEMENT`/`QML_SINGLETON` directly on the class, like
+  `TranslationManager` — because every target that compiles `accessibilitymanager.h` links
+  Qt::Qml. `Settings` needed the `QML_FOREIGN` wrapper only because `saw_parity` compiles
+  `settings.h` without Qml. **Check which case a name is before starting it**; the wrapper is
+  not the default. Verified in the running app: no singleton-publish complaint, no
+  ReferenceError, and TTS initialised (i.e. the object is genuinely live, not undefined).
+  Predicted 8 files, delivered 5 — the shortfall is D2's stale anchor, not a miss; see the note
+  on that table.
 - [ ] 3.5 `MainController` — 879 sites, unlocks 9 files (→ 96)
 - [ ] 3.6 `ProfileManager` — unlocks 3 files (→ 99)
 - [ ] 3.7 `MachineState` — unlocks 1 file (→ 100)

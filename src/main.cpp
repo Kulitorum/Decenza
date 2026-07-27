@@ -3440,7 +3440,10 @@ int main(int argc, char *argv[])
     context->setContextProperty("BatteryManager", &batteryManager);
     context->setContextProperty("MemoryMonitor", &memoryMonitor);
     memoryMonitor.setEngine(&engine);
-    context->setContextProperty("AccessibilityManager", &accessibilityManager);
+    // Compile-time QML singleton (QML_ELEMENT + QML_SINGLETON in accessibilitymanager.h),
+    // not a context property: only a compile-time registration reaches qmllint,
+    // qmlcachegen and the language server. main owns the instance and publishes it.
+    AccessibilityManager::setQmlInstance(&accessibilityManager);
     context->setContextProperty("ProfileStorage", &profileStorage);
     context->setContextProperty("WeatherManager", &weatherManager);
     context->setContextProperty("CrashReporter", &crashReporter);
