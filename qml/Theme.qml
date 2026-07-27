@@ -1,5 +1,6 @@
 pragma Singleton
 import QtQuick
+import Decenza
 
 QtObject {
     // Reference design size (based on Android tablet in dp)

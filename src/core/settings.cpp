@@ -426,22 +426,6 @@ Settings::Settings(QObject* parent)
     }
 }
 
-// Domain sub-object QML accessors. Each sub-object IS-A QObject; the upcast
-// requires the full type to be visible, hence these live in the .cpp where
-// the headers are already included for construction.
-QObject* Settings::mqttQObject() const { return m_mqtt; }
-QObject* Settings::autoWakeQObject() const { return m_autoWake; }
-QObject* Settings::hardwareQObject() const { return m_hardware; }
-QObject* Settings::aiQObject() const { return m_ai; }
-QObject* Settings::themeQObject() const { return m_theme; }
-QObject* Settings::visualizerQObject() const { return m_visualizer; }
-QObject* Settings::mcpQObject() const { return m_mcp; }
-QObject* Settings::brewQObject() const { return m_brew; }
-QObject* Settings::dyeQObject() const { return m_dye; }
-QObject* Settings::networkQObject() const { return m_network; }
-QObject* Settings::appQObject() const { return m_app; }
-QObject* Settings::calibrationQObject() const { return m_calibration; }
-
 // Machine settings
 QString Settings::machineAddress() const {
     return m_settings.value("machine/address", "").toString();

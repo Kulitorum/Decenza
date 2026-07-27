@@ -22,6 +22,49 @@
 #include <functional>
 #include <memory>
 
+TranslationManager* TranslationManager::s_qmlInstance = nullptr;
+
+void TranslationManager::setQmlInstance(TranslationManager* instance)
+{
+    s_qmlInstance = instance;
+}
+
+TranslationManager* TranslationManager::create(QQmlEngine* qmlEngine, QJSEngine* jsEngine)
+{
+    Q_UNUSED(qmlEngine)
+    if (!s_qmlInstance) {
+        // Reached only if QML resolves the singleton before main.cpp published the instance.
+        // Say which call is missing: the symptom otherwise is every translated string in the
+        // app rendering as undefined, which looks like a translation-data problem and is not.
+        qCritical("TranslationManager: QML asked for the singleton before "
+                  "TranslationManager::setQmlInstance() was called. Every translated string "
+                  "will be undefined. Publish the instance before QQmlEngine::load().");
+        return nullptr;
+    }
+    // The engine would otherwise take ownership of what it is handed and delete a stack object
+    // owned by main().
+    QJSEngine::setObjectOwnership(s_qmlInstance, QJSEngine::CppOwnership);
+    // Do NOT call setJsEngine() unconditionally here. `translate` is a QJSValue bound to exactly
+    // one engine, and setJsEngine() qFatal()s when handed a different one rather than rebind —
+    // bindings already hold a callable from the first engine and there is no migration path.
+    //
+    // This app really does run a second QQmlApplicationEngine: the GHC simulator window in
+    // desktop debug builds (main.cpp), whose QML does `import Decenza`. It happens not to
+    // reference TranslationManager today, so an unconditional call would not fire yet — but one
+    // `Tr {}` added to that window would turn startup into an abort. Report and decline instead.
+    QJSEngine* const bound = s_qmlInstance->boundJsEngine();
+    if (bound && bound != jsEngine) {
+        qCritical("TranslationManager: a second QQmlEngine asked for this singleton. `translate` "
+                  "is bound to the engine main.cpp wired and cannot be rebound, so this engine "
+                  "gets no TranslationManager and its translated strings will be undefined. "
+                  "A second engine needing translations needs its own instance.");
+        return nullptr;
+    }
+    if (!bound)
+        s_qmlInstance->setJsEngine(jsEngine);
+    return s_qmlInstance;
+}
+
 TranslationManager::TranslationManager(QNetworkAccessManager* networkManager, Settings* settings, QObject* parent)
     : QObject(parent)
     , m_settings(settings)

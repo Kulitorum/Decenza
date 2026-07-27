@@ -1,4 +1,6 @@
 #include "accessibilitymanager.h"
+#include <QQmlEngine>
+#include <QJSEngine>
 #include "translationmanager.h"
 #include "settings.h"
 #include <QDebug>
@@ -11,6 +13,39 @@
 #ifndef QT_NO_ACCESSIBILITY
 #include <QAccessible>
 #endif
+
+AccessibilityManager *AccessibilityManager::s_qmlInstance = nullptr;
+
+void AccessibilityManager::setQmlInstance(AccessibilityManager *instance)
+{
+    s_qmlInstance = instance;
+}
+
+AccessibilityManager *AccessibilityManager::create(QQmlEngine *qmlEngine, QJSEngine *jsEngine)
+{
+    Q_UNUSED(qmlEngine)
+    Q_UNUSED(jsEngine)
+    if (!s_qmlInstance) {
+        // Reached only if QML resolves the singleton before main.cpp published the instance.
+        // Name the missing call: the symptom otherwise is every accessibility binding in the UI
+        // reading as undefined, which looks like an accessibility bug and is not.
+        qCritical("AccessibilityManager: QML asked for the singleton before "
+                  "AccessibilityManager::setQmlInstance() was called. Publish the instance "
+                  "before QQmlEngine::load().");
+        return nullptr;
+    }
+    // No second-engine guard here, unlike TranslationManager::create() — deliberately, not by
+    // oversight. That one declines a second engine because `translate` is a QJSValue bound to
+    // exactly one QJSEngine. AccessibilityManager holds no per-engine state: every property is a
+    // plain value and every method is a Q_INVOKABLE, so the debug-build GHC simulator engine
+    // sharing main's instance is correct rather than a hazard. Add a guard here only if this
+    // class gains a QJSValue or QJSEngine member.
+    //
+    // The engine would otherwise take ownership of what it is handed and delete a stack object
+    // owned by main().
+    QJSEngine::setObjectOwnership(s_qmlInstance, QJSEngine::CppOwnership);
+    return s_qmlInstance;
+}
 
 AccessibilityManager::AccessibilityManager(QObject *parent)
     : QObject(parent)

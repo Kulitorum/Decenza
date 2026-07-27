@@ -246,8 +246,8 @@ KeyboardAwareContainer {
                             spacing: Theme.spacingSmall
 
                             Rectangle {
-                                width: Theme.scaled(32)
-                                height: Theme.scaled(32)
+                                Layout.preferredWidth: Theme.scaled(32)
+                                Layout.preferredHeight: Theme.scaled(32)
                                 radius: Theme.scaled(6)
                                 color: themesTab.selectedColorValue
                                 border.color: Theme.borderColor

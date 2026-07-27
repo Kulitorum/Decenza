@@ -150,8 +150,8 @@ Page {
             // Settings button (gear icon)
             Rectangle {
                 id: settingsButton
-                width: Theme.scaled(36)
-                height: Theme.scaled(36)
+                Layout.preferredWidth: Theme.scaled(36)
+                Layout.preferredHeight: Theme.scaled(36)
                 radius: Theme.scaled(18)
                 color: Theme.cardBackgroundColor
                 Accessible.ignored: true
@@ -331,8 +331,8 @@ Page {
                     // Info button
                     Rectangle {
                         id: infoButton
-                        width: Theme.scaled(70)
-                        height: Theme.scaled(40)
+                        Layout.preferredWidth: Theme.scaled(70)
+                        Layout.preferredHeight: Theme.scaled(40)
                         radius: Theme.scaled(20)
                         color: Theme.primaryColor
                         Accessible.ignored: true
@@ -377,8 +377,8 @@ Page {
                     // Show button — opens Shot History filtered to this group
                     Rectangle {
                         id: showButton
-                        width: Theme.scaled(70)
-                        height: Theme.scaled(40)
+                        Layout.preferredWidth: Theme.scaled(70)
+                        Layout.preferredHeight: Theme.scaled(40)
                         radius: Theme.scaled(20)
                         color: Theme.primaryColor
                         Accessible.ignored: true
@@ -444,8 +444,8 @@ Page {
                     // Load button
                     Rectangle {
                         id: loadButton
-                        width: Theme.scaled(70)
-                        height: Theme.scaled(40)
+                        Layout.preferredWidth: Theme.scaled(70)
+                        Layout.preferredHeight: Theme.scaled(40)
                         radius: Theme.scaled(20)
                         color: Theme.primaryColor
                         Accessible.ignored: true
@@ -480,8 +480,8 @@ Page {
                     // Opens the composer prefilled from the group's shot.
                     Rectangle {
                         id: favRecipeButton
-                        width: Theme.scaled(70)
-                        height: Theme.scaled(40)
+                        Layout.preferredWidth: Theme.scaled(70)
+                        Layout.preferredHeight: Theme.scaled(40)
                         radius: Theme.scaled(20)
                         color: Theme.primaryColor
                         Accessible.ignored: true

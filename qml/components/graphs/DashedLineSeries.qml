@@ -32,7 +32,6 @@
 
 import QtQuick
 import QtQuick.Shapes
-import QtGraphs
 import Decenza
 
 Item {

@@ -1,5 +1,4 @@
 import QtQuick
-import Decenza
 
 // Live-resolves a recipe's identity map by id (add-recipes), shared by the shot
 // pages' recipe cards. A shot-linked recipe can only be archived, never deleted,

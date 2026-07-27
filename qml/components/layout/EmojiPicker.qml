@@ -1,8 +1,6 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
-import ".."
 import "EmojiData.js" as EmojiData
 
 Item {
@@ -115,8 +113,8 @@ Item {
 
                 // Clear button
                 Rectangle {
-                    width: Theme.scaled(28)
-                    height: Theme.scaled(28)
+                    Layout.preferredWidth: Theme.scaled(28)
+                    Layout.preferredHeight: Theme.scaled(28)
                     radius: Theme.scaled(4)
                     color: clearMa.pressed ? Theme.errorColor : Theme.backgroundColor
                     border.color: Theme.errorColor

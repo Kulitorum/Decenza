@@ -291,8 +291,8 @@ Rectangle {
                     Rectangle {
                         visible: MainController.aiManager && MainController.aiManager.conversation &&
                                  MainController.aiManager.conversation.messageCount >= 2
-                        width: reportText.width + Theme.scaled(16)
-                        height: Theme.scaled(32)
+                        Layout.preferredWidth: reportText.width + Theme.scaled(16)
+                        Layout.preferredHeight: Theme.scaled(32)
                         radius: Theme.scaled(4)
                         color: Theme.warningColor
                         opacity: 0.8
@@ -320,8 +320,8 @@ Rectangle {
 
                     // Clear conversation button
                     Rectangle {
-                        width: clearText.width + Theme.scaled(16)
-                        height: Theme.scaled(32)
+                        Layout.preferredWidth: clearText.width + Theme.scaled(16)
+                        Layout.preferredHeight: Theme.scaled(32)
                         radius: Theme.scaled(4)
                         color: Theme.errorColor
                         opacity: 0.8
@@ -371,8 +371,8 @@ Rectangle {
                     // (button is scaled(36) wide + standardMargin from edge)
                     Item {
                         visible: overlay.isMobile
-                        width: Theme.scaled(52)
-                        height: 1
+                        Layout.preferredWidth: Theme.scaled(52)
+                        Layout.preferredHeight: 1
                     }
                 }
 
@@ -571,7 +571,7 @@ Rectangle {
                              overlay.pendingShotSummary.length === 0 &&
                              overlay.isMistakeShot
                     Layout.fillWidth: true
-                    height: Theme.scaled(28)
+                    Layout.preferredHeight: Theme.scaled(28)
                     radius: Theme.scaled(4)
                     color: Qt.rgba(Theme.warningColor.r, Theme.warningColor.g, Theme.warningColor.b, 0.15)
                     border.color: Theme.warningColor
@@ -590,7 +590,7 @@ Rectangle {
                 Rectangle {
                     visible: overlay.pendingShotSummary.length > 0
                     Layout.fillWidth: true
-                    height: Theme.scaled(28)
+                    Layout.preferredHeight: Theme.scaled(28)
                     radius: Theme.scaled(4)
                     color: Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15)
                     border.color: Theme.primaryColor
@@ -606,8 +606,8 @@ Rectangle {
                             source: Theme.emojiToImage("\uD83D\uDCCA")
                             sourceSize.width: Theme.scaled(12)
                             sourceSize.height: Theme.scaled(12)
-                            width: Theme.scaled(12)
-                            height: Theme.scaled(12)
+                            Layout.preferredWidth: Theme.scaled(12)
+                            Layout.preferredHeight: Theme.scaled(12)
                         }
 
                         Text {
@@ -618,8 +618,8 @@ Rectangle {
                         }
 
                         Item {
-                            width: Theme.scaled(16)
-                            height: Theme.scaled(16)
+                            Layout.preferredWidth: Theme.scaled(16)
+                            Layout.preferredHeight: Theme.scaled(16)
 
                             ColoredIcon {
                                 anchors.centerIn: parent

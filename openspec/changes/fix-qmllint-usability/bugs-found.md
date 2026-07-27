@@ -1,0 +1,231 @@
+# Bugs and latent defects surfaced by this change
+
+A running ledger. The point of this change is to **ship fewer QML bugs**, so what it actually
+turns up is the measure of whether it worked — more than any warning count.
+
+Rules for entries: record what was *observed*, not what was assumed; say plainly when something
+was checked and turned out to be fine, so nobody re-investigates it; and never promote a
+suspicion to a finding without evidence.
+
+---
+
+## Confirmed defects, fixed here
+
+**1. The `qmllint_check` / `qmllint_report` CMake targets had never run — not once.**
+CMake picks `Python3_EXECUTABLE`, which on macOS is Xcode's python3.9, and
+`scripts/qmllint_report.py` used PEP 604 `Path | None` annotations — 3.10+ syntax that 3.9
+evaluates eagerly and dies on at import, before argparse. Every check that "passed" had been run
+by hand with a newer interpreter. CI would not have caught it either (ubuntu-24.04 ships 3.12).
+Fixed with `from __future__ import annotations`. *Lesson recorded in tasks.md 1.12: verify a
+target by running the target, not the command you believe it runs.*
+
+**2. `Settings.<domain>.<prop>` was unverifiable across 1,310 call sites and 281 settings.**
+The domain sub-objects were declared `Q_PROPERTY(QObject* …)`, so qmllint, `qmlcachegen` and the
+QML language server could all reach `Settings` and see nothing behind it. A typo like
+`Settings.brew.slectedFlushPreset` compiled, linted clean, and failed silently at runtime — the
+#1661 defect class, over the most-used API in the QML tree. Not a bug in itself; a permanent
+blind spot where bugs could sit indefinitely. Closed by declaring the concrete types (design D2a).
+
+**3. Accessibility was silently dead in three components, introduced by this change.**
+The dead-import commit removed `import Decenza` from `AccessibleMouseArea.qml` (used in 39 files),
+`AccessibleTapHandler.qml` (25) and `AccessibleLabel.qml`. It was correct *at the time* — nothing
+in those files referenced the module. The very next commit made `AccessibilityManager` a QML
+singleton, which needs the import, and every use site in those three files sits behind
+`typeof AccessibilityManager !== "undefined"` — a guard whose entire purpose is not to throw. So
+there was no `ReferenceError`, nothing in the app log, and screen-reader announcements from the
+app's two most-used interactive primitives simply stopped.
+
+Worth recording because of *how* it was verified: the migration was checked by running the app and
+reading the log for `ReferenceError`s, and that method is structurally incapable of seeing this.
+The gate saw it — restoring the imports moved exactly those three files from ceilings of 6/6/2
+onto the clean list — and they are now locked at zero there, so the regression cannot recur
+quietly.
+
+**4. `TranslationManager::create()` could abort the app on a second QQmlEngine.**
+It called `setJsEngine()` unconditionally, and that function `qFatal()`s rather than rebind, because
+`translate` is a `QJSValue` bound to exactly one engine. Desktop debug builds really do run a
+second `QQmlApplicationEngine` (the GHC simulator window) whose QML does `import Decenza`. It
+happens not to reference `TranslationManager` today, so the call did not fire — but one `Tr {}`
+added to that window would have turned startup into an abort. Three separate comments asserted the
+call was there to serve exactly the case that kills the process. Now guarded: `create()` reports
+and declines the second engine.
+
+**5. The gate reported "218/218 clean" from a qmllint that had analysed nothing.**
+`run()` failed only on a *negative* exit code, on the reasoning that a positive one just means
+"found warnings". Measured: qmllint exits **0 even with 10,910 diagnostics**, 1 on a bad flag, 255
+on a file it cannot open. A stub qmllint exiting 1 produced a green gate over an empty analysis —
+and invited `--update-baseline` to write that emptiness in as the new truth. Now any non-zero exit
+is fatal.
+
+**6. On Windows the gate reported the entire tree clean.** qmllint prints backslash paths there
+while the baseline keys are forward-slash, so nothing matched and all 218 files fell into the
+clean set. Found and fixed twice: the first fix normalised `qml_files()` and missed
+`files_from_response()` and `relative_to_repo()`, which are the two that actually decide the keys.
+
+**7. The backup-status toast rendered 0×0**, introduced by the layout-positioning fix. One of the
+238 conversions was a `Rectangle` reparented to `Overlay.overlay` at runtime, where
+`Layout.preferred*` is inert. The `Quick.attached-property-type` guard that caught six wrongly
+converted `Dialog`s cannot catch this one — a reparented `Rectangle` is still an `Item`, so the
+attached property is legal; it just has no layout to talk to.
+
+---
+
+## Upstream (Qt) defects
+
+**8. `QQmlJSTypeResolver::merge()` is exponential — qmllint cannot lint some valid QML at all.**
+On `qml/components/layout/items/CustomItem.qml` (613 lines) stock qmllint 6.11.1 reaches a
+**313 GB** footprint and is OOM-killed after 622 s, having emitted 36 of that file's 122 warnings.
+Not a slowdown — a failure with no diagnostic and no exit status to act on.
+Patch submitted: [qtdeclarative/+/755657](https://codereview.qt-project.org/c/qt/qtdeclarative/+/755657)
+(`Pick-to: 6.12 6.11`). Consequence for us: **122 diagnostics in that file that nobody had ever
+seen**, because every previous run died before reaching it and a file qmllint never reaches
+prints no warnings — so it counted as clean.
+
+**9. Qt silently skips a module's declarative type registration if the module already exists.**
+`qqmltypeloader.cpp:783` (and identically `qqmlimport.cpp:920`) registers a module's
+compile-time types only `if (!module)`, commented *"If the module already exists, the types must
+have been already registered"*. For a module that mixes runtime and declarative registrations
+that assumption is false: our twenty-odd `qmlRegisterUncreatableType<…>("Decenza", …)` calls
+create the module before QML imports it, so `qml_register_types_Decenza()` is never invoked and
+**every** `QML_ELEMENT` type in the module is silently absent at runtime. No warning, no error.
+Worked around the way Qt does in its own `tools/qml/main.cpp` (an explicit call). Arguably worth
+an upstream report: the failure is silent and the diagnosis took reading three Qt source files.
+
+---
+
+## Checked and found NOT to be bugs
+
+Recorded so they are not re-investigated.
+
+- **`ThemedPageBackground.qml` referencing `LastShotChartSource` with no `import Decenza`.**
+  Looked like a second live instance of #1661. It is not: both files live in `qml/components/`,
+  and same-directory QML files are implicitly visible without an import. #1661 was `Theme.qml`
+  reaching *across* directories, which is the case that fails. Of the 12 import-less files, only
+  these two referenced module singletons at all, and both resolved.
+
+---
+
+## Fixed: 36 dead imports
+
+An entire category that no count had ever included, because qmllint reports `unused-imports` at
+**Info** severity and the report's regex matched only `Warning|Error`. Dead imports are minor in
+themselves; the reason this is recorded is that they were *invisible*, which is the failure mode
+this change exists to remove.
+
+17 `QtQuick.Controls`, 9 `QtQuick.Layouts`, 5 `Decenza`, 3 relative-directory imports,
+1 `QtQuick.Effects`, 1 `QtGraphs` — 34 files. Removing them left `unqualified` (7,612),
+`missing-property` (326) and `unresolved-type` (2) all unchanged, which is the evidence that
+nothing lost a type it actually needed. Category now **0** and its exemption entry deleted.
+
+A cross-check against type names in each file flagged 8 as suspicious; all 8 were the check being
+crude — `Accessible.Button` is a QtQuick enum, and the rest were mentions in comments. qmllint was
+right in every case.
+
+## Triaged: the 257 `Quick.layout-positioning` warnings
+
+Qt's message calls this *undefined behaviour*, which undersells it. Read from the Qt source
+(`qquicklayout.cpp:1249`, `qquickgridlayoutengine_p.h:32-47`): when a Layout child has no size
+hints and no implicit size, the layout falls back to the item's `width`/`height` — **once**.
+
+```cpp
+: useFallbackToWidthOrHeight(true) {}                        // enabled
+QQuickLayout::effectiveSizeHints_helper(…, useFallbackToWidthOrHeight);
+useFallbackToWidthOrHeight = false;                          // ← after the FIRST pass
+```
+
+with the value stored in `m_fallbackWidth` and reused forever. Qt's own comment says so plainly:
+*"we only want to use the initial width … the preferred width should return the same value,
+regardless of the current width."*
+
+So `width:`/`height:` on a Layout child is **read on the first layout pass and then frozen**.
+`Rectangle` and `Item` have `implicitWidth`/`implicitHeight` of 0, so they always take this path;
+types with real implicit sizes (`Text`, `Button`) do not and track correctly.
+
+**That makes the warning a live-defect detector for this app**, because the values are not
+constant: `Theme.scaled(v)` is `v * Theme.scale`, and `Theme.scale` / `Theme.pageScaleMultiplier`
+are reassigned at runtime by window resize (`main.qml:970`) and by a user-facing **"Page scale"**
+control (`main.qml:1209`, `main.qml:4550`).
+
+| count | shape | verdict |
+|---:|---|---|
+| 169 | `Theme.scaled(<constant>)` | **latent bug** — frozen; does not follow page-scale or resize |
+| 27 | other `Theme.*` expressions | **latent bug**, same mechanism |
+| 1 | `height: parent.height` | **latent bug**, same mechanism |
+| 44 | constant literal (`height: 1` separators) | harmless — the frozen value *is* the intended value |
+| 3 | other constants | harmless |
+| 13 | `anchors` / `x` / `y` | **qmllint false positive** — see below |
+
+**197 latent, 41 harmless, 19 false positives** — corrected from an earlier "13 false
+positives". The first pass counted only the `anchors`/`x`/`y` warnings as false positives and
+missed that six `width:` warnings were also on `Dialog` objects. That error was caught by the
+gate, not by review: the mechanical fix rewrote those six to `Layout.preferredWidth`, and a new
+`Quick.attached-property-type` category appeared with exactly six entries — *"Layout attached
+property must be attached to an object deriving from Item"*. Reverted; category back to 0.
+
+**FIXED.** All 238 real sites now use `Layout.preferredWidth`/`preferredHeight`, so the size is
+re-read when the binding changes instead of frozen at the first layout pass. The category went
+**257 -> 19**, and the 19 that remain are the false positives, which cannot be driven to zero
+from this side.
+
+Verified in the running app, not just by the counts: walked Settings -> History & Data (28 sites),
+the layout editor (31) and the library panel (17) — no visual change — then resized the window,
+which is what recomputes `Theme.scale` (`main.qml:970`). The library's 30x30 type-filter squares
+scaled proportionally with the window and stayed square, which is the behaviour the fix buys; the
+app log showed no binding loops or layout warnings throughout.
+
+Worked example, `qml/main.qml:1055` — the untranslated-string count badge:
+
+```qml
+Rectangle {
+    visible: TranslationManager.untranslatedCount > 0
+    width: untranslatedText.width + Theme.scaled(12)   // frozen at first pass
+    height: Theme.scaled(22)
+}
+```
+
+Its width depends on a **sibling's** width, so the badge cannot grow when the count goes from one
+digit to three. Nobody would connect that symptom to a layout rule.
+
+**Severity, honestly.** Two caveats keep this from being "197 broken widgets":
+
+1. `Theme.scale` and `pageScaleMultiplier` do change at runtime, but **infrequently** — a window
+   resize or a deliberate visit to the page-scale control, not routine use. Most of the 196
+   scale-derived cases are therefore latent: wrong, reachable, and rarely reached. They are worth
+   fixing because the trigger is a user action we ship a control for, not because the UI is
+   broken today.
+2. An item that is also `Layout.fillWidth`/`fillHeight` is sized by the fill rather than the
+   frozen hint, so a further subset looks correct regardless. The frozen hint still feeds
+   minimum/preferred sizing, so they stay wrong, just less visibly.
+
+The exception is the one case that does **not** depend on scale at all: `qml/main.qml:1055`, whose
+width tracks a sibling's width and so goes stale on ordinary content changes rather than on a rare
+user action. That one is the most likely of the group to be reachable in normal use, and is worth
+fixing on its own regardless of what happens to the other 196.
+
+**Fix:** `Layout.preferredWidth` / `Layout.preferredHeight` (or `implicitWidth`/`implicitHeight`),
+which the layout re-reads when the binding changes. Mechanical, ~197 sites, and it should be its
+own change rather than smuggled into this one.
+
+### qmllint false positive worth reporting upstream
+
+The 13 `anchors`/`x`/`y` warnings are wrong. qmllint flags any child *declared lexically* inside a
+Layout without checking that the type is an `Item` the layout can manage:
+
+- 12 are `Popup`/`Dialog` with `parent: Overlay.overlay`. `QQuickPopup : public QObject` — not an
+  `Item`, so no Layout ever manages it, and the declaration site is irrelevant.
+- 1 is `IdlePage.qml:820`, the `y` of a `Translate` transform. `QQuickTranslate : public
+  QQuickTransform` — also not an `Item`.
+
+Both verified in the Qt 6.11.1 source. Nothing to fix in Decenza; do not "clean these up".
+
+## Observed, not yet diagnosed
+
+Do not treat these as fixed or as false positives — nobody has looked.
+
+- **Transient binding-order `TypeError`s at startup** — `parts.length`, `legendRoot.entries.length`,
+  `puckPrepRows.length` and similar reading `undefined` during construction
+  (`Theme.qml`, `CustomLegend.qml`, `ChangeBeansDialog.qml`, `SwitchEquipmentDialog.qml`). Present
+  in one app run, absent in the next with no relevant code change, so they look timing-dependent.
+  Not attributed to this change and not claimed as fixed by it.
+- **122 diagnostics in `CustomItem.qml`**, seen for the first time once a patched qmllint could
+  finish the file. Counted, not read.

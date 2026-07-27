@@ -83,7 +83,7 @@ Dialog {
 
                 AccessibleButton {
                     Layout.alignment: Qt.AlignVCenter
-                    height: Theme.scaled(38)
+                    Layout.preferredHeight: Theme.scaled(38)
                     leftPadding: Theme.scaled(14)
                     rightPadding: Theme.scaled(14)
                     text: TranslationManager.translate("common.cancel", "Cancel")

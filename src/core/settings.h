@@ -11,50 +11,79 @@
 #include <QCoreApplication>
 #include <QDir>
 #endif
-// Domain sub-objects are forward-declared. The QML-facing Q_PROPERTYs return
-// QObject* (a known type that QML can introspect) so this header doesn't need
-// to include the twelve sub-object headers — preserving the recompile-blast
-// reduction this whole refactor is for.
+// The twelve domain sub-objects are INCLUDED, not forward-declared, and that is deliberate.
 //
-// C++ callers use the typed accessor (e.g. `settings->mqtt()`) and include
-// `settings_mqtt.h` themselves where they actually dereference.
-class SettingsMqtt;
-class SettingsAutoWake;
-class SettingsHardware;
-class SettingsAI;
-class SettingsTheme;
-class SettingsVisualizer;
-class SettingsMcp;
-class SettingsBrew;
-class SettingsDye;
-class SettingsNetwork;
-class SettingsApp;
-class SettingsCalibration;
+// These used to be forward declarations, with the QML-facing Q_PROPERTYs declared `QObject*` so
+// the includes could be avoided. That saved rebuilds and cost type information at the QML
+// boundary — which is a bad trade, because the type information is what four separate tools use
+// to find bugs before a user does:
+//
+//   - qmllint cannot check a property behind a QObject*. That blinded it to 1,310 QML call
+//     sites across 281 distinct settings, so `Settings.brew.slectedFlushPreset` compiled, linted
+//     clean, and failed silently at runtime — the exact class of defect that shipped in 2.0.1
+//     as #1661.
+//   - qmlcachegen cannot resolve those bindings ahead of time and falls back to a runtime lookup.
+//   - The QML language server cannot autocomplete or navigate them.
+//   - A reader of this header cannot tell what is behind `Settings.brew`.
+//
+// A pointer Q_PROPERTY needs a COMPLETE type: moc must build a metatype for it, and a forward
+// declaration fails the build outright ("Pointer Meta Types must either point to fully-defined
+// types or be declared with Q_DECLARE_OPAQUE_POINTER"). The Q_DECLARE_OPAQUE_POINTER escape
+// hatch is NOT a way around this — it compiles and satisfies qmllint, then hands QML a
+// `QVariant(SettingsBrew*)` instead of an object, so every property and method under
+// `Settings.<domain>` fails at runtime. That was tried and reverted; see
+// tst_settings::qmlChainsThroughDomainSubObjects, which pins the working behaviour.
+//
+// The cost, measured rather than assumed: editing one domain header takes 60 s instead of 26 s
+// on this machine (warm ccache, ASan+UBSan debug). That is +129 C++ translation units — the 218
+// QML cache units in the dirty set rebuild either way, because a domain header carries Q_OBJECT
+// and any moc-metadata change invalidates Decenza.qmltypes. 86 TUs include this header directly
+// and 49 of them already pulled in a domain header, so the blast was large before this change
+// too. The domain SPLIT still does its job — implementations stay in their own .cpp files, and a
+// narrow consumer taking Settings<Domain>* still rebuilds only on its own header — and the
+// recompile win that motivated the split is unaffected by declaring the façade's property types
+// honestly. See openspec/changes/fix-qmllint-usability/design.md D2a for the full measurement.
+//
+// C++ callers may still use the typed accessors (e.g. `settings->mqtt()`); they no longer need
+// to include the domain header themselves.
+#include "settings_mqtt.h"
+#include "settings_autowake.h"
+#include "settings_hardware.h"
+#include "settings_ai.h"
+#include "settings_theme.h"
+#include "settings_visualizer.h"
+#include "settings_mcp.h"
+#include "settings_brew.h"
+#include "settings_dye.h"
+#include "settings_network.h"
+#include "settings_app.h"
+#include "settings_calibration.h"
+
 
 class Settings : public QObject {
     Q_OBJECT
 
-    // Domain sub-objects exposed to QML as QObject* so QML can resolve
-    // `Settings.mqtt.mqttEnabled` via the runtime metaObject (SettingsMqtt's
-    // Q_OBJECT supplies it). The typed `mqtt()` accessor below is what C++
-    // callers use.
+    // Domain sub-objects, declared with their concrete types so every tool that reads this
+    // header can follow `Settings.mqtt.mqttEnabled` through to the property. See the file
+    // header for why this is worth the includes, and what breaks if you try to avoid them.
     //
-    // Required prerequisite: each sub-object type must be registered with the
-    // QML engine via qmlRegisterUncreatableType<SettingsXxx>(...) in main.cpp,
-    // otherwise QML can't discover the concrete type and resolves the chained
-    // property access (e.g. `.customThemeColors`) to `undefined` at runtime.
-    Q_PROPERTY(QObject* mqtt READ mqttQObject CONSTANT)
-    Q_PROPERTY(QObject* autoWake READ autoWakeQObject CONSTANT)
-    Q_PROPERTY(QObject* hardware READ hardwareQObject CONSTANT)
-    Q_PROPERTY(QObject* ai READ aiQObject CONSTANT)
-    Q_PROPERTY(QObject* theme READ themeQObject CONSTANT)
-    Q_PROPERTY(QObject* visualizer READ visualizerQObject CONSTANT)
-    Q_PROPERTY(QObject* mcp READ mcpQObject CONSTANT)
-    Q_PROPERTY(QObject* brew READ brewQObject CONSTANT)
-    Q_PROPERTY(QObject* dye READ dyeQObject CONSTANT)
-    Q_PROPERTY(QObject* network READ networkQObject CONSTANT)
-    Q_PROPERTY(QObject* app READ appQObject CONSTANT)
-    Q_PROPERTY(QObject* calibration READ calibrationQObject CONSTANT)
+    // Required prerequisite: each sub-object type must also be a QML-known type. That
+    // registration happens at COMPILE time via QML_FOREIGN in settings_qml.h (it used to be
+    // qmlRegisterUncreatableType<> calls in main.cpp, which qmltyperegistrar cannot see).
+    // Without it QML can't discover the type and chained access resolves to `undefined` at
+    // runtime while still compiling clean.
+    Q_PROPERTY(SettingsMqtt* mqtt READ mqtt CONSTANT)
+    Q_PROPERTY(SettingsAutoWake* autoWake READ autoWake CONSTANT)
+    Q_PROPERTY(SettingsHardware* hardware READ hardware CONSTANT)
+    Q_PROPERTY(SettingsAI* ai READ ai CONSTANT)
+    Q_PROPERTY(SettingsTheme* theme READ theme CONSTANT)
+    Q_PROPERTY(SettingsVisualizer* visualizer READ visualizer CONSTANT)
+    Q_PROPERTY(SettingsMcp* mcp READ mcp CONSTANT)
+    Q_PROPERTY(SettingsBrew* brew READ brew CONSTANT)
+    Q_PROPERTY(SettingsDye* dye READ dye CONSTANT)
+    Q_PROPERTY(SettingsNetwork* network READ network CONSTANT)
+    Q_PROPERTY(SettingsApp* app READ app CONSTANT)
+    Q_PROPERTY(SettingsCalibration* calibration READ calibration CONSTANT)
 
     // Machine settings
     Q_PROPERTY(QString machineAddress READ machineAddress WRITE setMachineAddress NOTIFY machineAddressChanged)
@@ -106,8 +135,8 @@ public:
     }
 #endif
 
-    // Domain sub-object accessors (typed, for C++ callers — header forward-declares
-    // the types so callers must include the specific settings_<domain>.h to dereference).
+    // Domain sub-object accessors (typed, for C++ callers). The domain headers are included
+    // above, so a caller can dereference these without including anything further.
     SettingsMqtt* mqtt() const { return m_mqtt; }
     SettingsAutoWake* autoWake() const { return m_autoWake; }
     SettingsHardware* hardware() const { return m_hardware; }
@@ -121,20 +150,7 @@ public:
     SettingsApp* app() const { return m_app; }
     SettingsCalibration* calibration() const { return m_calibration; }
 
-    // QML-facing accessors — implemented out-of-line in settings.cpp where the
-    // SettingsXxx -> QObject* upcast is visible. QML uses these via Q_PROPERTY.
-    QObject* mqttQObject() const;
-    QObject* autoWakeQObject() const;
-    QObject* hardwareQObject() const;
-    QObject* aiQObject() const;
-    QObject* themeQObject() const;
-    QObject* visualizerQObject() const;
-    QObject* mcpQObject() const;
-    QObject* brewQObject() const;
-    QObject* dyeQObject() const;
-    QObject* networkQObject() const;
-    QObject* appQObject() const;
-    QObject* calibrationQObject() const;
+
 
     // Machine settings
     QString machineAddress() const;

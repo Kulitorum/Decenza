@@ -101,7 +101,7 @@ Dialog {
             Layout.fillWidth: true
         }
 
-        Item { height: Theme.scaled(5) }
+        Item { Layout.preferredHeight: Theme.scaled(5) }
 
         // Device discovery and selection
         ColumnLayout {
@@ -141,7 +141,7 @@ Dialog {
             // Single device - show as clickable card
             Rectangle {
                 Layout.fillWidth: true
-                height: singleDeviceRow.height + Theme.scaled(16)
+                Layout.preferredHeight: singleDeviceRow.height + Theme.scaled(16)
                 color: singleDeviceMouseArea.containsMouse ? Theme.surfaceColor : Theme.backgroundColor
                 radius: Theme.scaled(6)
                 border.width: 1
@@ -263,7 +263,7 @@ Dialog {
                 visible: !MainController.dataMigration.isSearching &&
                          migrationDialog.searchPerformed
 
-                Item { height: Theme.scaled(5) }
+                Item { Layout.preferredHeight: Theme.scaled(5) }
 
                 Text {
                     text: TranslationManager.translate("settings.data.manualconnect", "Manual Connection")
@@ -435,8 +435,8 @@ Dialog {
                     spacing: Theme.scaled(8)
 
                     Rectangle {
-                        width: Theme.scaled(10)
-                        height: Theme.scaled(10)
+                        Layout.preferredWidth: Theme.scaled(10)
+                        Layout.preferredHeight: Theme.scaled(10)
                         radius: Theme.scaled(5)
                         color: Theme.successColor
                     }

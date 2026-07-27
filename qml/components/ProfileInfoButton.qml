@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Controls
 import Decenza
 
 // A small (i) info button that can be placed next to any profile name

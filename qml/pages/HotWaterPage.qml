@@ -698,7 +698,7 @@ Page {
                         }
                     }
 
-                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.textSecondaryColor; opacity: 0.3 }
+                    Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.textSecondaryColor; opacity: 0.3 }
 
                     // Temperature (per-preset)
                     RowLayout {
@@ -739,7 +739,7 @@ Page {
                         }
                     }
 
-                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.textSecondaryColor; opacity: 0.3 }
+                    Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.textSecondaryColor; opacity: 0.3 }
 
                     // Flow Rate (per-preset, stored as tenths of mL/s)
                     RowLayout {

@@ -122,8 +122,8 @@ Rectangle {
             // Scale separator
             Rectangle {
                 visible: root.showPositionControls
-                width: 1
-                height: Theme.scaled(20)
+                Layout.preferredWidth: 1
+                Layout.preferredHeight: Theme.scaled(20)
                 color: Theme.borderColor
             }
 

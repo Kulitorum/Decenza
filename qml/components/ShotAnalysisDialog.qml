@@ -74,8 +74,8 @@ Dialog {
                     // Colored dot for non-verdict lines
                     Rectangle {
                         visible: modelData.type !== "verdict"
-                        width: Theme.scaled(6)
-                        height: Theme.scaled(6)
+                        Layout.preferredWidth: Theme.scaled(6)
+                        Layout.preferredHeight: Theme.scaled(6)
                         radius: Theme.scaled(3)
                         Layout.alignment: Qt.AlignTop
                         Layout.topMargin: Theme.scaled(6)

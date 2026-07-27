@@ -399,7 +399,7 @@ Page {
                         // Separator
                         Rectangle {
                             Layout.fillWidth: true
-                            height: 1
+                            Layout.preferredHeight: 1
                             color: Theme.borderColor
                         }
 
@@ -447,7 +447,7 @@ Page {
                         }
 
                         // Separator
-                        Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderColor }
+                        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.borderColor }
 
                         // === 2: Hold (flow) / Rise and Hold (pressure) ===
                         Item {
@@ -515,7 +515,7 @@ Page {
                         }
 
                         // Separator
-                        Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderColor }
+                        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.borderColor }
 
                         // === 3: Decline ===
                         Item {
@@ -567,7 +567,7 @@ Page {
                         }
 
                         // Separator
-                        Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderColor }
+                        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.borderColor }
 
                         // === 4: Stop at Weight ===
                         Item {

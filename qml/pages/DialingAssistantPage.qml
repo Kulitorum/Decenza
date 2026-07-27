@@ -77,8 +77,8 @@ Page {
 
                 Rectangle {
                     Layout.alignment: Qt.AlignHCenter
-                    width: Theme.scaled(64)
-                    height: Theme.scaled(64)
+                    Layout.preferredWidth: Theme.scaled(64)
+                    Layout.preferredHeight: Theme.scaled(64)
                     radius: Theme.scaled(32)
                     color: Theme.errorColor
                     opacity: 0.2

@@ -1,4 +1,5 @@
 import QtQuick
+import Decenza
 
 // GPU-accelerated CRT shader effect.
 // Applied as layer.effect on the pageStack when Settings.theme.activeShader === "crt".

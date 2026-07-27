@@ -1,6 +1,10 @@
 #include <QtTest>
 #include <QSettings>
 #include <QSignalSpy>
+#include <QQmlEngine>
+#include <QQmlComponent>
+#include <QQmlContext>
+#include <memory>
 
 #include "core/settings.h"
 #include "core/settings_app.h"
@@ -2421,6 +2425,68 @@ private slots:
         theme->resetFontSizesToDefault();
         QVERIFY(theme->fontSizeOverrides().isEmpty());
         QCOMPARE(theme->effectiveFontSizes().value("headingSize").toInt(), 32);
+    }
+
+    // QML must be able to chain THROUGH a domain sub-object: `Settings.theme.activeThemeName`,
+    // which is how roughly 1,300 call sites read settings.
+    //
+    // This is not a hypothetical. `settings.h` declares the domain Q_PROPERTYs with their
+    // concrete types (SettingsTheme* etc.) precisely so qmllint can resolve what is behind them.
+    // Getting there without including the domain headers was attempted via
+    // Q_DECLARE_OPAQUE_POINTER — which compiled, satisfied the linter, and then handed QML a
+    // QVariant(SettingsTheme*) rather than an object, leaving every `Settings.<domain>.<prop>`
+    // undefined at runtime. That approach was reverted; this test is what makes the revert
+    // permanent, because nothing else in the build would notice its return.
+    //
+    // The change this test belongs to exists because that failure mode shipped once already
+    // (#1661), and during the migration an equivalent break passed the build, the linter AND the
+    // full suite while the app was unusable. So assert it against a real QQmlEngine.
+    //
+    // NOTE ON SCOPE: this publishes the instance as a context property, which is NOT how the app
+    // does it (main.cpp publishes SettingsForeign::s_singletonInstance and QML resolves the
+    // registered singleton type). The registration itself cannot be exercised here — it is
+    // emitted by qmltyperegistrar on the Decenza QML module target, which the test binaries do
+    // not link. What is checked instead is the property-chaining behaviour, which is identical
+    // once the object reaches QML by either route, and which is what the opaque-pointer attempt
+    // broke. The registration side is covered structurally by tst_qmlregistration.
+    void qmlChainsThroughDomainSubObjects() {
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty("Settings", &m_settings);
+
+        m_settings.theme()->setActiveThemeName("qml-chain-probe");
+
+        QQmlComponent component(&engine);
+        component.setData(
+            "import QtQml\n"
+            "QtObject {\n"
+            // A live binding through the sub-object — the read half.
+            "    property string themeName: Settings.theme.activeThemeName\n"
+            "    property string readBeforeWrite\n"
+            "    property bool wroteThrough\n"
+            // The write half, deliberately after property init so it does not race the binding
+            // above. Reading is the weaker check: a `typeof === 'object'` probe passes even for a
+            // QVariant-wrapped opaque pointer, which is the exact thing that broke. A write that
+            // reaches the C++ setter cannot.
+            "    Component.onCompleted: {\n"
+            "        readBeforeWrite = themeName\n"
+            "        Settings.theme.activeThemeName = 'qml-chain-written'\n"
+            "        wroteThrough = (Settings.theme.activeThemeName === 'qml-chain-written')\n"
+            "    }\n"
+            "}\n",
+            QUrl("qrc:/tst_settings_domain_chain.qml"));
+        QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+
+        std::unique_ptr<QObject> obj(component.create());
+        QVERIFY2(obj, qPrintable(component.errorString()));
+
+        QCOMPARE(obj->property("readBeforeWrite").toString(), QStringLiteral("qml-chain-probe"));
+        QVERIFY2(obj->property("wroteThrough").toBool(),
+                 "QML could not WRITE through Settings.<domain>.");
+        // And the write landed on the C++ object rather than on a copy — the failure shape of a
+        // QVariant-wrapped pointer.
+        QCOMPARE(m_settings.theme()->activeThemeName(), QStringLiteral("qml-chain-written"));
+        // The binding followed the change, so the sub-object's NOTIFY reaches QML too.
+        QCOMPARE(obj->property("themeName").toString(), QStringLiteral("qml-chain-written"));
     }
 
 };

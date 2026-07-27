@@ -1,6 +1,5 @@
 import QtQuick
 import Decenza
-import "../.."
 
 Item {
     id: root

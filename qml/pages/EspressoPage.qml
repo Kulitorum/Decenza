@@ -795,8 +795,8 @@ Page {
                 RowLayout {
                     spacing: Theme.scaled(4)
                     Rectangle {
-                        width: Theme.scaled(6)
-                        height: Theme.scaled(6)
+                        Layout.preferredWidth: Theme.scaled(6)
+                        Layout.preferredHeight: Theme.scaled(6)
                         radius: Theme.scaled(3)
                         color: pressureColumn.trackColor
                         visible: pressureColumn.trackReady
@@ -838,8 +838,8 @@ Page {
                 RowLayout {
                     spacing: Theme.scaled(4)
                     Rectangle {
-                        width: Theme.scaled(6)
-                        height: Theme.scaled(6)
+                        Layout.preferredWidth: Theme.scaled(6)
+                        Layout.preferredHeight: Theme.scaled(6)
                         radius: Theme.scaled(3)
                         color: flowColumn.trackColor
                         visible: flowColumn.trackReady

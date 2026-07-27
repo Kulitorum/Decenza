@@ -240,7 +240,7 @@ Page {
 
                         Rectangle {
                             Layout.fillWidth: true
-                            height: Theme.scaled(1)
+                            Layout.preferredHeight: Theme.scaled(1)
                             color: Theme.textSecondaryColor
                             opacity: 0.3
                         }
@@ -329,7 +329,7 @@ Page {
 
                         Rectangle {
                             Layout.fillWidth: true
-                            height: Theme.scaled(1)
+                            Layout.preferredHeight: Theme.scaled(1)
                             color: Theme.textSecondaryColor
                             opacity: 0.3
                         }
@@ -707,7 +707,7 @@ Page {
 
                         Rectangle {
                             Layout.fillWidth: true
-                            height: Theme.scaled(1)
+                            Layout.preferredHeight: Theme.scaled(1)
                             color: Theme.textSecondaryColor
                             opacity: 0.3
                         }

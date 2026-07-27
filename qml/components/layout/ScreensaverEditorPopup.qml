@@ -195,7 +195,7 @@ Dialog {
         // Separator
         Rectangle {
             Layout.fillWidth: true
-            height: 1
+            Layout.preferredHeight: 1
             color: Theme.borderColor
         }
 
@@ -771,8 +771,8 @@ Dialog {
             Item { Layout.fillWidth: true }
 
             Rectangle {
-                width: Theme.scaled(80)
-                height: Theme.scaled(36)
+                Layout.preferredWidth: Theme.scaled(80)
+                Layout.preferredHeight: Theme.scaled(36)
                 radius: Theme.cardRadius
                 color: Theme.surfaceColor
                 border.color: Theme.borderColor
@@ -798,8 +798,8 @@ Dialog {
             }
 
             Rectangle {
-                width: Theme.scaled(80)
-                height: Theme.scaled(36)
+                Layout.preferredWidth: Theme.scaled(80)
+                Layout.preferredHeight: Theme.scaled(36)
                 radius: Theme.cardRadius
                 color: Theme.primaryColor
                 visible: popup.hasSettings

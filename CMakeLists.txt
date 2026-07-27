@@ -807,6 +807,10 @@ set(HEADERS
     src/core/appsettings.h
     src/core/settingsstoremigration.h
     src/core/settings.h
+    # QML_FOREIGN registration for Settings. Listed here so AUTOMOC processes it and
+    # qmltyperegistrar sees the type; it is compiled by no other target, which is the point
+    # (settings.h stays free of QtQml — see the file's own comment).
+    src/core/settings_qml.h
     src/core/settings_mqtt.h
     src/core/settings_autowake.h
     src/core/settings_hardware.h
@@ -1124,6 +1128,18 @@ endif()
 target_include_directories(Decenza PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_BINARY_DIR}  # For version.h
+    # Needed by QML_ELEMENT types, whose headers must be reachable by BARE BASENAME.
+    # qmltyperegistrar generates decenza_qmltyperegistrations.cpp from moc's JSON and emits
+    # `#if __has_include(<translationmanager.h>)` around the include — moc records `inputFile`
+    # as the basename alone, and no path prefix changes that (AUTOMOC_PATH_PREFIX does prefix
+    # the include moc writes into moc_*.cpp, but not the JSON field this is generated from).
+    # When the basename does not resolve, the guarded include expands to nothing and the build
+    # fails on `use of undeclared identifier` in generated code — three tools away from the
+    # cause. Qt's own modules do not hit this because their headers sit flat in one include dir.
+    #
+    # Add the directory of each new QML_ELEMENT header here. There are currently no duplicate
+    # header basenames anywhere under src/, so this cannot make an include ambiguous.
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/core
 )
 if(ANDROID)
     # SYSTEM: mjansson/mdns is vendored third-party code, and it is header-only,
@@ -1465,6 +1481,105 @@ add_custom_target(validate_kb ALL
     VERBATIM
 )
 add_dependencies(Decenza validate_kb)
+
+# ---------------------------------------------------------------------------
+# QML diagnostics gate (qmllint)
+#
+# Deliberately NOT part of the default build and NOT a dependency of Decenza:
+# a full-tree qmllint run takes minutes, and a gate slow enough that people
+# route around it stops being a gate. It is an explicit target:
+#
+#     cmake --build <dir> --target qmllint_check     # the gate
+#     cmake --build <dir> --target qmllint_report    # what is actually in there
+#
+# Why it exists: an undeclared QML identifier compiles clean and throws only
+# when its binding is first evaluated — possibly on a screen nobody opened
+# during review. That is not hypothetical here. It shipped in 2.0.1 (#1661),
+# where Theme.qml referenced a singleton living in another directory, so
+# hasBackgroundImage stayed false forever and every user who chose the
+# shot-chart background silently lost its scrim.
+#
+# The import path is the BUILD directory, not the source tree, because that is
+# where the generated Decenza/qmldir lives and it points at the build's own
+# copies of the QML. Lint against a stale build and the numbers describe
+# whatever was last compiled rather than what is on disk — the script hard-errors
+# on that rather than reporting a plausible wrong answer.
+#
+# Policy (per-file clean list, category ceilings) lives in the script, next to
+# the parser that produces the numbers it enforces. This target only wires the
+# two together.
+# ---------------------------------------------------------------------------
+get_target_property(_qt_qmake_location Qt6::qmake IMPORTED_LOCATION)
+get_filename_component(_qt_bin_dir "${_qt_qmake_location}" DIRECTORY)
+find_program(QMLLINT_EXECUTABLE
+    NAMES qmllint
+    HINTS "${_qt_bin_dir}"
+    DOC "qmllint from the Qt build this project targets"
+)
+
+# qmllint 6.11.1 cannot analyse every file in this tree. QQmlJSTypeResolver::merge() is
+# exponential, and one layout item crosses the threshold: the linter grows to a 313 GB
+# footprint and is OOM-killed after ~10 minutes rather than reporting anything. So the
+# default here is to SKIP that file (the script names it, and says so on every run) —
+# a target that hangs a CI runner is worse than one that checks 217 of 218 files and
+# admits it.
+#
+# Turn this OFF when qmllint carries the upstream fix
+# (https://codereview.qt-project.org/c/qt/qtdeclarative/+/755657), which is also when the
+# whole option should be deleted:
+#
+#     cmake -DQMLLINT_EXECUTABLE=<fixed qmllint> -DQMLLINT_SKIP_UNLINTABLE=OFF <dir>
+#
+# It cannot be inferred from QMLLINT_EXECUTABLE — pointing at another binary says nothing
+# about whether that binary is patched — so it is an explicit switch.
+option(QMLLINT_SKIP_UNLINTABLE
+    "Exclude files a released qmllint cannot finish (see UNLINTABLE_BY_TOOL_BUG in scripts/qmllint_report.py)"
+    ON)
+if(QMLLINT_SKIP_UNLINTABLE)
+    set(_qmllint_skip --skip-unlintable)
+else()
+    set(_qmllint_skip "")
+endif()
+
+if(QMLLINT_EXECUTABLE)
+    add_custom_target(qmllint_check
+        COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/scripts/qmllint_report.py
+            --check
+            ${_qmllint_skip}
+            --qmllint ${QMLLINT_EXECUTABLE}
+            --import-path ${CMAKE_BINARY_DIR}
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        COMMENT "Checking QML diagnostics against the baseline..."
+        VERBATIM
+    )
+    add_custom_target(qmllint_report
+        COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/scripts/qmllint_report.py
+            --report
+            ${_qmllint_skip}
+            --qmllint ${QMLLINT_EXECUTABLE}
+            --import-path ${CMAKE_BINARY_DIR}
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        COMMENT "Summarising QML diagnostics by category and file..."
+        VERBATIM
+    )
+    # Both targets need the module built: qmllint resolves Decenza types through the generated
+    # qmldir, which points at the build's own copies of the QML, and Qt's generated argument
+    # file (.rcc/qmllint/Decenza.rsp) does not exist until then. The script refuses to run
+    # against a stale build rather than report numbers for whatever was last compiled — this
+    # dependency turns that refusal into a rebuild instead of an error message.
+    add_dependencies(qmllint_check Decenza)
+    add_dependencies(qmllint_report Decenza)
+else()
+    # Not fatal: qmllint ships with Qt's QML tooling, which a runtime-only Qt
+    # install can lack.
+    message(STATUS
+        "qmllint not found next to ${_qt_bin_dir} — the qmllint_check/qmllint_report "
+        "targets are unavailable. NOTE: the gate is not wired into CI yet (see "
+        "openspec/changes/fix-qmllint-usability/tasks.md 1.9), so nothing else is "
+        "checking this for you.")
+endif()
 
 # Force QML resource rebuild when source files change
 # NOTE: Disabled - defeats QML caching which slows page loads

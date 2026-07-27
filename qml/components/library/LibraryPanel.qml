@@ -105,7 +105,7 @@ Rectangle {
         // Tab row
         Item {
             Layout.fillWidth: true
-            height: Theme.scaled(28)
+            Layout.preferredHeight: Theme.scaled(28)
 
             // Bottom border line (active tab covers its portion)
             Rectangle {
@@ -185,8 +185,8 @@ Rectangle {
 
             // Add button with dropdown
             Rectangle {
-                width: Theme.scaled(30)
-                height: Theme.scaled(30)
+                Layout.preferredWidth: Theme.scaled(30)
+                Layout.preferredHeight: Theme.scaled(30)
                 radius: Theme.scaled(4)
                 color: addMa.pressed ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.3) : "transparent"
                 border.color: Theme.primaryColor
@@ -296,8 +296,8 @@ Rectangle {
 
             // Apply to zone button
             Rectangle {
-                width: Theme.scaled(30)
-                height: Theme.scaled(30)
+                Layout.preferredWidth: Theme.scaled(30)
+                Layout.preferredHeight: Theme.scaled(30)
                 radius: Theme.scaled(4)
                 color: applyMa.pressed ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.3) : "transparent"
                 border.color: applyEnabled ? Theme.primaryColor : Theme.borderColor
@@ -335,8 +335,8 @@ Rectangle {
 
             // Delete button
             Rectangle {
-                width: Theme.scaled(30)
-                height: Theme.scaled(30)
+                Layout.preferredWidth: Theme.scaled(30)
+                Layout.preferredHeight: Theme.scaled(30)
                 radius: Theme.scaled(4)
                 color: delMa.pressed ? Qt.rgba(Theme.errorColor.r, Theme.errorColor.g, Theme.errorColor.b, 0.3) : "transparent"
                 border.color: canDeleteSelected ? Theme.errorColor : Theme.borderColor
@@ -373,8 +373,8 @@ Rectangle {
             // Share button (local tab only)
             Rectangle {
                 visible: activeTab === "local"
-                width: Theme.scaled(30)
-                height: Theme.scaled(30)
+                Layout.preferredWidth: Theme.scaled(30)
+                Layout.preferredHeight: Theme.scaled(30)
                 radius: Theme.scaled(4)
                 color: shareMa.pressed ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.3) : "transparent"
                 border.color: WidgetLibrary.selectedEntryId !== "" ? Theme.primaryColor : Theme.borderColor
@@ -412,7 +412,7 @@ Rectangle {
 
             // Type filter: Items
             Rectangle {
-                width: Theme.scaled(30); height: Theme.scaled(30)
+                Layout.preferredWidth: Theme.scaled(30); Layout.preferredHeight: Theme.scaled(30)
                 radius: Theme.scaled(4)
                 color: showItems ? Theme.primaryColor : "transparent"
                 border.color: showItems ? Theme.primaryColor : Theme.borderColor
@@ -433,7 +433,7 @@ Rectangle {
 
             // Type filter: Zones
             Rectangle {
-                width: Theme.scaled(30); height: Theme.scaled(30)
+                Layout.preferredWidth: Theme.scaled(30); Layout.preferredHeight: Theme.scaled(30)
                 radius: Theme.scaled(4)
                 color: showZones ? Theme.primaryColor : "transparent"
                 border.color: showZones ? Theme.primaryColor : Theme.borderColor
@@ -454,7 +454,7 @@ Rectangle {
 
             // Type filter: Layouts
             Rectangle {
-                width: Theme.scaled(30); height: Theme.scaled(30)
+                Layout.preferredWidth: Theme.scaled(30); Layout.preferredHeight: Theme.scaled(30)
                 radius: Theme.scaled(4)
                 color: showLayouts ? Theme.primaryColor : "transparent"
                 border.color: showLayouts ? Theme.primaryColor : Theme.borderColor
@@ -475,7 +475,7 @@ Rectangle {
 
             // Type filter: Themes
             Rectangle {
-                width: Theme.scaled(30); height: Theme.scaled(30)
+                Layout.preferredWidth: Theme.scaled(30); Layout.preferredHeight: Theme.scaled(30)
                 radius: Theme.scaled(4)
                 color: showThemes ? Theme.primaryColor : "transparent"
                 border.color: showThemes ? Theme.primaryColor : Theme.borderColor

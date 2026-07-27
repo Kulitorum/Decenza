@@ -1,6 +1,10 @@
 # Settings Architecture
 
-`Settings` is a **composition façade** that owns 12 domain sub-objects. Each sub-object is its own `QObject` with its own `QSettings` instance, its own `Q_PROPERTY` declarations, and its own NOTIFY signals. The split exists so that touching one domain's header recompiles only its narrow set of consumers (~9 files for `settings_mqtt.h`) instead of every consumer of the monolithic `settings.h` (~39 files pre-split, 41 pre-refactor).
+`Settings` is a **composition façade** that owns 12 domain sub-objects. Each sub-object is its own `QObject` with its own `QSettings` instance, its own `Q_PROPERTY` declarations, and its own NOTIFY signals.
+
+The split exists so that a **narrow consumer** — one that takes a `Settings<Domain>*` and includes only that domain's header — recompiles when its own domain changes and not when any other does (~9 files for `settings_mqtt.h`). That is still true and is still the reason to write consumers that way.
+
+What is **no longer** true: that a domain-header edit is cheap for everything else. `settings.h` includes all twelve domain headers (see "Why the includes are back"), so anything taking a `Settings*` rebuilds on any domain change — **~60 s, against ~26 s before**. The blast was already large before the change, so this is a widening of an existing cost, not a new one. The way to reduce it is to make more consumers narrow, or to trim what the domain headers themselves include.
 
 The split was tricky to get right — the rules below capture every gotcha that came up during PR #852 (issue #743). Follow them and the architecture stays healthy.
 
@@ -30,13 +34,63 @@ That's it — no other files need to change. The narrow consumer set defined in 
 Full checklist (8 steps — missing one will silently break things):
 
 1. **Create `src/core/settings_<domain>.h` + `.cpp`**. Inherit `QObject`, own a `mutable AppSettings m_settings` (default-constructed — `AppSettings` names the store, see `src/core/appsettings.h`), declare properties + getters + setters + NOTIFY signals.
-2. **Add forward declaration in `src/core/settings.h`** at the top. NEVER `#include "settings_<domain>.h"` in `settings.h` — that pulls the new header into ~39 .cpp files transitively and undoes the build win.
-3. **Add `Q_PROPERTY(QObject* <domain> READ <domain>QObject CONSTANT)` to `Settings`**. The property type **must be `QObject*`**, not `Settings<Domain>*`. The typed pointer requires the full type for moc-generated code, which means including the header — losing the build win. `QObject*` lets QML resolve via the runtime metaObject.
+2. **Add `#include "settings_<domain>.h"` to `src/core/settings.h`** with the other eleven.
+   *(This reverses earlier guidance, which said never to include it. See "Why the includes are back" below — the short version is that avoiding it required erasing the property type, which blinded qmllint, `qmlcachegen` and the language server to 1,310 QML call sites.)*
+3. **Add `Q_PROPERTY(Settings<Domain>* <domain> READ <domain> CONSTANT)` to `Settings`** — the CONCRETE type, never `QObject*`. This is what lets every tool follow `Settings.<domain>.<prop>` through to the property.
 4. **Add typed inline accessor in header**: `Settings<Domain>* <domain>() const { return m_<domain>; }`. C++ callers use this (they include `settings_<domain>.h` themselves).
-5. **Add out-of-line `QObject*` accessor in `settings.cpp`**: `QObject* Settings::<domain>QObject() const { return m_<domain>; }`. The upcast requires the full type, which `settings.cpp` already has via its construction includes.
+5. *(No `QObject*` accessor. The `Q_PROPERTY` READs the typed accessor from step 4 directly — the old `<domain>QObject()` pair existed only to support the erased property type and has been deleted.)*
 6. **Construct in `Settings::Settings()` member-init list**: `, m_<domain>(new Settings<Domain>(this))`. Add the `#include "settings_<domain>.h"` in `settings.cpp`.
-7. **Register with QML in `main.cpp`**: `qmlRegisterUncreatableType<Settings<Domain>>("Decenza", 1, 0, "Settings<Domain>Type", "Settings<Domain> is created in C++");`. **Without this, QML resolves `Settings.<domain>.<prop>` to `undefined` at runtime even though `QObject*` is the property type.** This is the single most painful failure mode in the architecture — it doesn't show up until runtime, and it blanks every binding that walks through the sub-object.
+7. **Register with QML in `src/core/settings_qml.h`**, not `main.cpp`:
+
+   ```cpp
+   struct Settings<Domain>Foreign
+   {
+       Q_GADGET
+       QML_FOREIGN(Settings<Domain>)
+       QML_NAMED_ELEMENT(Settings<Domain>Type)
+       QML_UNCREATABLE("Settings<Domain> is created in C++")
+   };
+   ```
+
+   **Without this, QML resolves `Settings.<domain>.<prop>` to `undefined` at runtime while compiling clean.** Still the single most painful failure mode in the architecture. It moved from a runtime `qmlRegisterUncreatableType<>` call in `main.cpp` because `qmltyperegistrar` cannot see runtime calls, so the linter could not either. Write the struct out literally — moc does not expand macros that declare a `Q_GADGET`, so a generated one registers nothing, silently.
 8. **Wire into the build**: add to `CMakeLists.txt` (both `SOURCES` and `HEADERS` lists) and `tests/CMakeLists.txt` (`CORE_SOURCES`).
+
+## Why the includes are back
+
+`settings.h` includes all twelve domain headers, and the domain `Q_PROPERTY`s carry their
+concrete types. Earlier guidance said the opposite — forward-declare, and declare the properties
+`QObject*` — purely to keep the recompile blast down.
+
+That erasure cost more than it saved. qmllint cannot check a property behind a `QObject*`, so
+**1,310 QML call sites across 281 distinct settings** were unverifiable: `Settings.brew.slectedX`
+compiled, linted clean, and failed at runtime — the same class of defect that shipped in 2.0.1 as
+#1661. `qmlcachegen` also could not resolve those bindings ahead of time, and the QML language
+server could not complete or navigate them.
+
+`Q_DECLARE_OPAQUE_POINTER` is **not** a way to have both. It compiles and satisfies the linter,
+then hands QML a `QVariant(Settings<Domain>*)` rather than an object, so every property and
+method under `Settings.<domain>` fails at runtime. That was tried and reverted;
+`tst_settings::qmlChainsThroughDomainSubObjects` pins the working behaviour so it cannot be
+reintroduced quietly.
+
+Measured cost of the includes, touching one domain header (ASan+UBSan debug, warm ccache):
+**60 s, against 26 s before**. Full build is 122 s for scale.
+
+**Read the wall clock, not the file counts.** ninja reports a dirty set of 439 after and 310
+before, but those are the *pre-`restat`* set — the build actually executed 297 edges, because
+`restat` prunes the chain wherever regenerated content turns out unchanged. Splitting the dirty
+set by kind: 221 C++ TUs + 218 QML cache units after, against roughly 92 + 218 before. The 218
+QML units are in **both**, so they are not this decision's cost — a domain header carries
+`Q_OBJECT`, and any moc-metadata change invalidates `Decenza.qmltypes` and with it every QML
+unit. The marginal cost of declaring the types honestly is the **+129 C++ TUs**, ~34 s.
+
+Note the *before* number too: ~92 C++ TUs already rebuilt on that edit, so the blast was large
+regardless and the `QObject*` trick was buying less than it looked like.
+
+The domain split still does its job — implementations stay in their own `.cpp` files, and narrow
+consumers taking `Settings<Domain>*` still recompile only on their own header. If the 60 s
+becomes painful, fix it by restructuring what the domain headers pull in. Never by erasing the
+types again.
 
 ## QML access pattern
 
