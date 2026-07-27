@@ -598,6 +598,25 @@ void BleTransport::onControllerError(QLowEnergyController::Error error) {
         emit de1LinkFault(QStringLiteral("controller-error"));
     }
 
+    // Both Linux diagnostics below are guarded out of test builds, for the same
+    // reason as the BLEManager block further down but with a sharper edge: they
+    // are the only two things in this function that behave differently by
+    // platform, and both are invisible on a macOS dev machine.
+    //
+    //   - logLinuxBtDiagnosticsOnce() is genuinely a no-op off Linux, but ON
+    //     Linux it spawns a detached QThread running up to three 2-second
+    //     QProcess calls, cleaned up via a queued deleteLater. A QTEST_MAIN
+    //     process returns straight after qExec, so that deleteLater never gets
+    //     an event-loop turn and the thread leaks — which only the nightly
+    //     Linux ASan job can see, since LSan does not exist on macOS.
+    //   - the setcap hint calls linuxMissing(), whose first call ALSO warns
+    //     about CAP_NET_ADMIN. Unprivileged CI runners have no CAP_NET_ADMIN,
+    //     so on Linux an UnknownRemoteDeviceError emits two extra qWarnings
+    //     that a test's QTest::failOnWarning() would fail on.
+    //
+    // Neither is behaviour — both are diagnostics for a human reading the debug
+    // log — so a test build losing them costs nothing.
+#ifndef DECENZA_TESTING
     // Dump a one-shot Linux BT diagnostics block into the debug log the
     // first time any transport error fires. The issue template attaches
     // the debug log to every bug report, so this flows to maintainers
@@ -614,6 +633,7 @@ void BleTransport::onControllerError(QLowEnergyController::Error error) {
                             "(capability is often cleared by OS updates).")
                  .arg(BleCapability::linuxSetcapCommand()));
     }
+#endif
 
     // Caps are fine but the DE1 still couldn't be resolved — almost always
     // a stale BlueZ cache after an OS upgrade. Ask BLEManager to surface

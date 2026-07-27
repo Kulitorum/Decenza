@@ -374,7 +374,7 @@ signals:
     // to describe. generateFakeShotData() deliberately does NOT emit it — a
     // dev-simulated row is not a shot anyone pulled.
     //
-    // Parameter order is (duration, yield) to match shotDiscarded() above and
+    // Parameter order is (duration, yield) to match shotDiscarded() below and
     // ShotHistoryStorage::saveShot(), the two other carriers of this same pair
     // in onShotEnded(). Both are doubles, so a transposed call would compile and
     // produce a plausible-looking "30.0 g in 36 s" — matching the neighbours is

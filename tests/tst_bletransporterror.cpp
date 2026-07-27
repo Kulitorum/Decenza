@@ -19,6 +19,13 @@
 // (`m_controller ? m_controller->state() : UnconnectedState`), and
 // bletransport.cpp already carries #ifndef DECENZA_TESTING guards around its
 // BLEManager dependencies precisely so test targets can link it without one.
+//
+// The two Linux-only diagnostics in onControllerError are guarded out of test
+// builds under that same #ifndef — see the comment there. Without that, the
+// UnknownRemoteDeviceError rows below would emit two extra qWarnings on an
+// unprivileged CI runner (failing init()'s failOnWarning) and leak a detached
+// diagnostics thread into the nightly Linux ASan job. Both are invisible on
+// macOS, so a green local run proves nothing about either.
 class tst_BleTransportError : public QObject {
     Q_OBJECT
 
