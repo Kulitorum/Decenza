@@ -175,14 +175,28 @@ def effective_ceilings(skipped: set[str]) -> dict[str, int]:
 
 
 def check_unlintable_contribution(per_file_category: dict[str, Counter],
-                                  skipped: set[str]) -> None:
+                                  skipped: set[str], live: bool) -> None:
     """On a COMPLETE run, verify the recorded contribution of the unlintable files.
 
     Only a run that actually analysed them can say what they contribute, and only that number
     makes the skipped run's ceilings correct. So the complete run is where the table is checked —
     a stale entry here silently loosens every CI run, which is the shape of failure this whole
     script is built against.
+
+    `live` is required because "analysed and found nothing" and "never analysed" produce the same
+    empty result, and only a run this process launched knows which it was. Replaying a capture
+    taken with --skip-unlintable would otherwise report the table stale with `observed: {}` — a
+    confident, wrong failure pointing at a correct table. Verified: it did exactly that before
+    this parameter existed.
     """
+    if not live:
+        # Say so rather than passing quietly. A check that silently declines to run is how the
+        # first version of this gate reported 218/218 clean over nothing.
+        if any(f not in skipped for f in UNLINTABLE_BY_TOOL_BUG):
+            print("note: --from-raw cannot verify UNLINTABLE_CATEGORY_CONTRIBUTION; a capture "
+                  "does not record which files were passed to qmllint. Re-run live to check it.",
+                  file=sys.stderr)
+        return
     for f in UNLINTABLE_BY_TOOL_BUG:
         if f in skipped:
             continue  # this run did not analyse it; it has nothing to say about the table
@@ -802,7 +816,7 @@ def main() -> int:
                      args.raw_out, args.batch, args.timeout, set(skipped))
     categories, unqualified, _, per_file_category = parse(output)
     check_accounting(output, sum(categories.values()))
-    check_unlintable_contribution(per_file_category, set(skipped))
+    check_unlintable_contribution(per_file_category, set(skipped), live=not args.from_raw)
     state = build_state(categories, unqualified, files)
 
     if args.check:
