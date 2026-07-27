@@ -52,4 +52,4 @@
 - [x] 7.2 Note in `docs/CLAUDE_MD/BLE_PROTOCOL.md` which parts of the R2 command set are now implemented and which remain deliberately unimplemented (calibration, loop test, remaining settings)
 - [x] 7.3 Run the full suite through the Qt Creator MCP (`run_tests`, scope `all`) and clear every warning
 - [x] 7.4 Verified on a physical R2 (DFT-R102, fw V230): averaged run completed at 22.0s, exceeding the old 15s ceiling without aborting, reporting 7.83%. Also verified the temperature unit byte, serial reassembly, Auto Test round-trip, loop-test handling, and that a physical-button read is Cmd 0. Three findings came out of it that are in nobody's docs
-- [ ] 7.5 Archive this change with `openspec archive expand-difluid-r2-protocol` as the last commit on the feature branch
+- [x] 7.5 Archive this change with `openspec archive expand-difluid-r2-protocol` as the last commit on the feature branch
