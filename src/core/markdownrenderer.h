@@ -36,6 +36,7 @@ class MarkdownRenderer : public QObject {
 
     // Compile-time QML registration, replacing setContextProperty("MarkdownRenderer", …). See
     // EmojiAssets for why this one is engine-constructed rather than published from main().
+    // This class genuinely holds no members at all, so a per-engine instance costs nothing.
     QML_ELEMENT
     QML_SINGLETON
 

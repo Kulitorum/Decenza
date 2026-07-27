@@ -204,11 +204,11 @@ Page {
         var status = ""
 
         // Phase
-        if (MachineState.phase === MachineStateType.Phase.Preinfusion) {
+        if (MachineState.phase === MachineState.Phase.Preinfusion) {
             status = "Preinfusion. "
-        } else if (MachineState.phase === MachineStateType.Phase.Pouring) {
+        } else if (MachineState.phase === MachineState.Phase.Pouring) {
             status = "Pouring. "
-        } else if (MachineState.phase === MachineStateType.Phase.EspressoPreheating) {
+        } else if (MachineState.phase === MachineState.Phase.EspressoPreheating) {
             status = "Preheating. "
         }
 

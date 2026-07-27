@@ -21,6 +21,7 @@
 // Weaker than executing it, and much stronger than nothing, which is what was there before.
 
 #include <QtTest>
+#include <QDirIterator>
 #include <QFile>
 #include <QRegularExpression>
 #include <QSet>
@@ -52,6 +53,70 @@ QHash<QString, QString> componentsByName(const QString& qmltypes)
     return out;
 }
 
+struct SingletonDecl {
+    QString header;      // path, for failure messages
+    QString cppName;     // the C++ class/struct carrying the macros
+    QString registryName;// what Decenza.qmltypes keys the Component by
+    QString qmlName;     // what QML actually types
+    QString publishExpr; // expected text in main.cpp; empty = must NOT appear
+};
+
+QList<SingletonDecl> scanSingletons()
+{
+    QList<SingletonDecl> out;
+    static const QRegularExpression classRe(
+        QStringLiteral("^\\s*(?:class|struct)\\s+(\\w+)"));
+    static const QRegularExpression foreignRe(
+        QStringLiteral("QML_FOREIGN\\(\\s*(\\w+)\\s*\\)"));
+    static const QRegularExpression namedRe(
+        QStringLiteral("QML_NAMED_ELEMENT\\(\\s*(\\w+)\\s*\\)"));
+
+    QDirIterator it(QStringLiteral(DECENZA_SOURCE_DIR) + QStringLiteral("/src"),
+                    {QStringLiteral("*.h")}, QDir::Files, QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        const QString path = it.next();
+        const QString text = readOrEmpty(path);
+        const QStringList lines = text.split(QLatin1Char('\n'));
+
+        for (qsizetype i = 0; i < lines.size(); ++i) {
+            if (!lines.at(i).contains(QStringLiteral("QML_SINGLETON")))
+                continue;
+            // Comments and doc prose mention the macro; only a bare declaration counts.
+            if (lines.at(i).trimmed() != QStringLiteral("QML_SINGLETON"))
+                continue;
+
+            SingletonDecl d;
+            d.header = QString(path).remove(QStringLiteral(DECENZA_SOURCE_DIR) + QLatin1Char('/'));
+
+            // Nearest preceding class/struct is the one carrying the macro.
+            for (qsizetype j = i; j >= 0; --j) {
+                const auto m = classRe.match(lines.at(j));
+                if (m.hasMatch()) { d.cppName = m.captured(1); break; }
+            }
+            if (d.cppName.isEmpty())
+                continue;
+
+            // QML_FOREIGN retargets the registration at another type, and that foreign type
+            // is what .qmltypes keys the Component by.
+            const auto fm = foreignRe.match(text);
+            d.registryName = fm.hasMatch() ? fm.captured(1) : d.cppName;
+            const auto nm = namedRe.match(text);
+            d.qmlName = nm.hasMatch() ? nm.captured(1) : d.registryName;
+
+            if (text.contains(QStringLiteral("static void setQmlInstance(")))
+                d.publishExpr = d.cppName + QStringLiteral("::setQmlInstance(");
+            else if (text.contains(QStringLiteral("s_singletonInstance")))
+                d.publishExpr = d.cppName + QStringLiteral("::s_singletonInstance =");
+
+            out.append(d);
+        }
+    }
+    std::sort(out.begin(), out.end(), [](const SingletonDecl& a, const SingletonDecl& b) {
+        return a.qmlName < b.qmlName;
+    });
+    return out;
+}
+
 } // namespace
 
 class tst_QmlRegistration : public QObject
@@ -79,56 +144,172 @@ private slots:
                  "nothing, which is the whole failure this test exists to catch.");
     }
 
-    // Everything that moved from setContextProperty() to singleton registration. A context
-    // property is invisible to qmllint, qmlcachegen and the language server; these are the
-    // registrations that make ~7,000 QML references checkable.
+    // Every QML_SINGLETON in src/, DERIVED — not a hand-written list.
     //
-    // Two shapes are in here and they fail differently. Most wrap an object main() already
-    // owns, so they need BOTH the macros and a publish call — everySingletonInstanceIsPublished
-    // below covers that second half. EmojiAssets, MarkdownRenderer and TemperatureDisplay are
-    // stateless and engine-constructed, so they have no publish call and correctly have no row
-    // there.
+    // A context property is invisible to qmllint, qmlcachegen and the language server; these
+    // registrations are what make ~7,000 QML references checkable. But registration is only half
+    // of it, and the two halves fail differently:
     //
-    // Two names per row, because they are not always the same one and only one of them is what
-    // QML actually types. A .qmltypes Component is keyed by the C++ class name; the QML name
-    // lives in its `exports` line. TemperatureDisplayBridge exports as TemperatureDisplay, and
-    // an earlier version of this test looked the QML name up as a class name and reported the
-    // type as absent when it was registered correctly.
-    void singletonsAreRegistered_data()
+    //   - The macros put the TYPE in Decenza.qmltypes.
+    //   - A publish call in main.cpp supplies the INSTANCE the singleton resolves to, for the
+    //     singletons that wrap an object main() already owns. Delete a publish line and the
+    //     build is green, Decenza.qmltypes is still correct, qmllint is still green, and every
+    //     binding through that singleton resolves to null at runtime.
+    //
+    // This used to be two tests over two hand-maintained row lists, which meant a future
+    // singleton whose row nobody added was invisible to both. The distinguishing signal is
+    // mechanical, so it is read from the headers instead: a class needs a publish call IFF it
+    // declares `static void setQmlInstance(`. Engine-constructed singletons — stateless, no
+    // create(), nothing for main() to hand over — declare no such thing, and are asserted to
+    // have NO publish call, so converting one to the published shape without wiring main.cpp
+    // fails here rather than in the field.
+    //
+    // Settings is the one irregular shape: QML_FOREIGN over a type it cannot annotate, so it
+    // publishes by assigning SettingsForeign::s_singletonInstance rather than calling a setter.
+    // That is detected from the header too, not exempted by name.
+    void everyQmlSingletonIsRegisteredAndPublished_data()
     {
-        QTest::addColumn<QString>("className");
+        QTest::addColumn<QString>("header");
+        QTest::addColumn<QString>("cppName");
+        QTest::addColumn<QString>("registryName");
         QTest::addColumn<QString>("qmlName");
-        QTest::newRow("Settings") << "Settings" << "Settings";
-        QTest::newRow("TranslationManager") << "TranslationManager" << "TranslationManager";
-        QTest::newRow("AccessibilityManager") << "AccessibilityManager" << "AccessibilityManager";
-        QTest::newRow("MainController") << "MainController" << "MainController";
-        QTest::newRow("ProfileManager") << "ProfileManager" << "ProfileManager";
-        QTest::newRow("MachineState") << "MachineState" << "MachineState";
-        QTest::newRow("EmojiAssets") << "EmojiAssets" << "EmojiAssets";
-        QTest::newRow("MarkdownRenderer") << "MarkdownRenderer" << "MarkdownRenderer";
-        QTest::newRow("TemperatureDisplay") << "TemperatureDisplayBridge" << "TemperatureDisplay";
+        QTest::addColumn<QString>("publishExpr");
+        const auto decls = scanSingletons();
+        // A scan that finds nothing would pass every row vacuously — the exact shape of failure
+        // this file exists to prevent.
+        QVERIFY2(decls.size() >= 9,
+                 qPrintable(QStringLiteral("only %1 QML_SINGLETON declarations found under src/; "
+                            "the scan is broken, not the code").arg(decls.size())));
+        for (const auto& d : decls)
+            QTest::newRow(qPrintable(d.qmlName))
+                << d.header << d.cppName << d.registryName << d.qmlName << d.publishExpr;
     }
 
-    void singletonsAreRegistered()
+    void everyQmlSingletonIsRegisteredAndPublished()
     {
-        QFETCH(QString, className);
+        QFETCH(QString, header);
+        QFETCH(QString, cppName);
+        QFETCH(QString, registryName);
         QFETCH(QString, qmlName);
+        QFETCH(QString, publishExpr);
+
         const auto components = componentsByName(m_qmltypes);
-        QVERIFY2(components.contains(className),
-                 qPrintable(className + " is absent from Decenza.qmltypes. QML will resolve it to "
-                                        "undefined at every call site, and nothing else in the "
-                                        "build will report it."));
-        const QString& block = components.value(className);
+        QVERIFY2(components.contains(registryName),
+                 qPrintable(registryName + " (" + header + ") is absent from "
+                            "Decenza.qmltypes. QML will resolve it to undefined at every call "
+                            "site, and nothing else in the build will report it."));
+
+        const QString& block = components.value(registryName);
         QVERIFY2(block.contains(QStringLiteral("isSingleton: true")),
-                 qPrintable(className + " is in Decenza.qmltypes but not as a singleton — "
-                                        "QML_SINGLETON is missing, so `" + qmlName
-                            + ".x` is a type reference rather than an instance."));
-        // The exported NAME, not just the URI: a QML_NAMED_ELEMENT typo compiles, registers, and
-        // exports under the wrong name, which reads as undefined at every call site.
-        QVERIFY2(block.contains(QStringLiteral("exports: [\"Decenza/") + qmlName + QLatin1Char(' ')),
-                 qPrintable(className + " is not exported as Decenza/" + qmlName
+                 qPrintable(registryName + " is in Decenza.qmltypes but not as a singleton, "
+                            "so `" + qmlName + ".x` is a type reference rather than an "
+                            "instance."));
+
+        // The exported NAME, with its trailing space, not just the URI: a QML_NAMED_ELEMENT typo
+        // compiles, registers, and exports under the wrong name, which reads as undefined at
+        // every call site. The space also stops `Settings` matching a `SettingsApp` export.
+        QVERIFY2(block.contains(QStringLiteral("exports: [\"Decenza/") + qmlName
+                                + QLatin1Char(' ')),
+                 qPrintable(registryName + " is not exported as Decenza/" + qmlName
                             + ", so `" + qmlName + ".x` does not resolve. Exports line: "
                             + block.section(QStringLiteral("exports:"), 1, 1).section('\n', 0, 0)));
+
+        const QString main = readOrEmpty(QStringLiteral(DECENZA_SOURCE_DIR) + "/src/main.cpp");
+        QVERIFY2(!main.isEmpty(), "cannot read src/main.cpp");
+
+        if (publishExpr.isEmpty()) {
+            // Engine-constructed. If someone gives this class a create()/setQmlInstance() pair,
+            // the branch above starts requiring the publish call and this assertion stops
+            // applying — so the two directions cannot both be satisfied by accident.
+            QVERIFY2(!main.contains(cppName + QStringLiteral("::setQmlInstance(")),
+                     qPrintable(cppName + " declares no setQmlInstance() but main.cpp calls "
+                                "one. Either the declaration was removed and the call left "
+                                "behind, or this header and main.cpp disagree about which shape "
+                                "this singleton is."));
+            return;
+        }
+
+        const qsizetype publishAt = main.indexOf(publishExpr);
+        QVERIFY2(publishAt >= 0,
+                 qPrintable(QStringLiteral("main.cpp never has `%1`. The type is still registered, "
+                            "so the build, qmllint and the rest of this file all stay green — and "
+                            "every QML binding through %2 resolves to null.")
+                            .arg(publishExpr, qmlName)));
+
+        // Ordering is the one thing about create()'s null branch that is checkable from here.
+        //
+        // This compares BYTE OFFSETS in main.cpp, not execution order. It holds because main() is
+        // straight-line and every publish call sits in one block above engine.load(). A publish
+        // moved into a conditional or a lambda that appears earlier but runs later — or never —
+        // would still pass. Tightening that needs the engine, not the text.
+        const qsizetype loadAt = main.indexOf(QStringLiteral("engine.load("));
+        QVERIFY2(loadAt >= 0, "cannot find engine.load() in main.cpp");
+        QVERIFY2(publishAt < loadAt,
+                 qPrintable(QStringLiteral("`%1` appears AFTER engine.load(). Any QML evaluated "
+                            "during load resolves the singleton before the instance exists, and "
+                            "create() hands back null.").arg(publishExpr)));
+    }
+
+    // Every MachineState.Phase.X that QML actually types must exist in the registered enum.
+    //
+    // This became load-bearing with this change. `MachineStateType` was a separate uncreatable
+    // type, and Qt resolves enums on a non-singleton type name with no instance at all
+    // (qqmltypewrapper.cpp, the `else` branch). MachineState is a singleton now, and there the
+    // enum lookup sits INSIDE the `if (QObject *qobjectSingleton = ...)` guard — so all 153 of
+    // these sites depend on the published instance in a way they previously did not.
+    //
+    // What that buys an attacker of this code: rename a Phase enumerator in machinestate.h,
+    // leave QML naming the old one, and `phase === MachineState.Phase.Gone` is `undefined` on
+    // the right-hand side. It does not throw. It is silently false, forever, on whichever
+    // operation page used it. qmllint catches it only for files that are lintable and in the
+    // baseline, which is not all of them.
+    void qmlOnlyNamesPhaseEnumeratorsThatExist()
+    {
+        const QString block = componentsByName(m_qmltypes).value(QStringLiteral("MachineState"));
+        QVERIFY2(!block.isEmpty(), "MachineState absent from Decenza.qmltypes");
+
+        // The Enum block for Phase, then the names inside its `values:` list.
+        const qsizetype phaseAt = block.indexOf(QStringLiteral("name: \"Phase\""));
+        QVERIFY2(phaseAt >= 0, "MachineState has no Phase enum in Decenza.qmltypes");
+        const QString valuesTail = block.mid(phaseAt);
+        const qsizetype valuesAt = valuesTail.indexOf(QStringLiteral("values:"));
+        QVERIFY2(valuesAt >= 0, "Phase enum has no values: list");
+
+        // qmltyperegistrar writes `values: [ "Disconnected", "Sleep", ... ]` — a bare list, not
+        // name:value pairs. Bound the scan at the closing bracket so a later enum in the same
+        // Component cannot leak in.
+        const qsizetype valuesEnd = valuesTail.indexOf(QLatin1Char(']'), valuesAt);
+        QVERIFY2(valuesEnd > valuesAt, "Phase values: list is not terminated");
+        QSet<QString> declared;
+        static const QRegularExpression valueRe(QStringLiteral("\"(\\w+)\""));
+        auto vit = valueRe.globalMatch(valuesTail.mid(valuesAt, valuesEnd - valuesAt));
+        while (vit.hasNext())
+            declared.insert(vit.next().captured(1));
+        QVERIFY2(declared.size() >= 10,
+                 qPrintable(QStringLiteral("parsed only %1 Phase enumerators from the qmltypes; "
+                            "the parser is broken, not the code").arg(declared.size())));
+
+        static const QRegularExpression useRe(
+            QStringLiteral("MachineState\\.Phase\\.(\\w+)"));
+        QSet<QString> used;
+        QDirIterator it(QStringLiteral(DECENZA_SOURCE_DIR) + QStringLiteral("/qml"),
+                        {QStringLiteral("*.qml")}, QDir::Files, QDirIterator::Subdirectories);
+        while (it.hasNext()) {
+            auto m = useRe.globalMatch(readOrEmpty(it.next()));
+            while (m.hasNext())
+                used.insert(m.next().captured(1));
+        }
+        QVERIFY2(!used.isEmpty(), "found no MachineState.Phase.X uses in qml/; the scan is broken");
+
+        const QSet<QString> unknown = used - declared;
+        if (!unknown.isEmpty()) {
+            QStringList names(unknown.cbegin(), unknown.cend());
+            names.sort();
+            QFAIL(qPrintable(QStringLiteral(
+                "qml/ names Phase enumerators that do not exist: %1. Each one is `undefined` on "
+                "the right of a comparison — silently false, no error, on whatever page uses it.")
+                .arg(names.join(QStringLiteral(", ")))));
+        }
     }
 
     // Every domain sub-object declared on Settings must also be a QML-known type, or chained
@@ -246,50 +427,11 @@ private slots:
                      "every static tool.").arg(missing.join(QStringLiteral(", ")))));
     }
 
-    // REGISTRATION AND PUBLICATION ARE TWO INDEPENDENT HALVES, and only one of them is visible
-    // to any static tool. The macros put the TYPE in the registry; a setQmlInstance() call in
-    // main.cpp supplies the INSTANCE the singleton resolves to. Delete a publish line and the
-    // build is green, Decenza.qmltypes is still correct, qmllint is still green, and every
-    // binding through that singleton resolves to null at runtime.
-    //
-    // This file asserted the registration half from the day it was written and left the
-    // publication half on the honour system — found in review, by two reviewers independently.
-    // The risk is not theoretical: these calls sit in the middle of ~40 setContextProperty lines
-    // that this migration is deleting one at a time, so an odd-looking non-setContextProperty
-    // line in that block is exactly what gets tidied away.
-    void everySingletonInstanceIsPublished_data()
-    {
-        QTest::addColumn<QString>("publishCall");
-        QTest::newRow("MainController")       << "MainController::setQmlInstance(";
-        QTest::newRow("ProfileManager")       << "ProfileManager::setQmlInstance(";
-        QTest::newRow("MachineState")         << "MachineState::setQmlInstance(";
-        QTest::newRow("TranslationManager")   << "TranslationManager::setQmlInstance(";
-        QTest::newRow("AccessibilityManager") << "AccessibilityManager::setQmlInstance(";
-        QTest::newRow("Settings")             << "SettingsForeign::s_singletonInstance =";
-    }
-
-    void everySingletonInstanceIsPublished()
-    {
-        QFETCH(QString, publishCall);
-        const QString main = readOrEmpty(QStringLiteral(DECENZA_SOURCE_DIR) + "/src/main.cpp");
-        QVERIFY2(!main.isEmpty(), "cannot read src/main.cpp");
-
-        const qsizetype publishAt = main.indexOf(publishCall);
-        QVERIFY2(publishAt >= 0,
-                 qPrintable(QStringLiteral("main.cpp never calls `%1`. The type is still registered, "
-                            "so the build, qmllint and the rest of this file all stay green — and "
-                            "every QML binding through that singleton resolves to null.")
-                            .arg(publishCall)));
-
-        // Ordering is the one thing about create()'s null branch that IS checkable from here:
-        // publishing after the engine has loaded means QML may resolve the singleton first.
-        const qsizetype loadAt = main.indexOf(QStringLiteral("engine.load("));
-        QVERIFY2(loadAt >= 0, "cannot find engine.load() in main.cpp");
-        QVERIFY2(publishAt < loadAt,
-                 qPrintable(QStringLiteral("`%1` happens AFTER engine.load(). Any QML evaluated "
-                            "during load resolves the singleton before the instance exists, and "
-                            "create() hands back null.").arg(publishCall)));
-    }
+    // everySingletonInstanceIsPublished used to live here, over a hand-written list of the six
+    // publish calls. everyQmlSingletonIsRegisteredAndPublished above subsumes it and derives the
+    // same set from the headers, so a singleton added without a row is no longer invisible —
+    // which was the whole gap. It also asserts the negative direction, which the hand list could
+    // not: an engine-constructed singleton must have NO publish call.
 
     // Qt registers a module's declarative types only `if (!module)` — see the file header. Our
     // runtime registrations create "Decenza" first, so without the explicit call NOTHING declared

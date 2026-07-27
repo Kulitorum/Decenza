@@ -126,11 +126,13 @@ IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 # QML that is deliberately outside the module. Kept to exactly the files that have a reason,
 # because the check this suppresses — a .qml on disk that nothing bundles or lints — is one of
 # the failure modes this gate exists to catch, and a loose pattern here would switch it off.
-NOT_IN_MODULE_BY_DESIGN = {
-    # Design-time stubs for the C++ backend, read by Qt Design Studio via de1-qt.qmlproject.
-    # Bundling them would ship placeholder values that shadow the real backend types.
-    "qml/designer/DE1AppStubs.qml",
-}
+# Deliberately empty. It held qml/designer/DE1AppStubs.qml, the Qt Design Studio backend stubs,
+# until that whole scaffold was deleted — it had been unresolvable since the #338 rename, so the
+# reason for the exemption no longer exists. Left in place rather than removed because the check
+# it suppresses ("this .qml is on disk but not in the module") is one of the failure modes this
+# gate exists to catch, and a future exemption should have to be added deliberately, with its
+# reason, rather than by re-introducing the mechanism.
+NOT_IN_MODULE_BY_DESIGN: set[str] = set()
 
 # Files a RELEASED qmllint cannot analyse at all — not "slowly", not "with false positives",
 # but never finishing. Dropped from the run only when --skip-unlintable is passed, which is for

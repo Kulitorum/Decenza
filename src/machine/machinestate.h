@@ -22,9 +22,19 @@ class MachineState : public QObject {
     // and the qmlRegisterUncreatableType<MachineState>(…, "MachineStateType") that main.cpp used
     // to do. The two existed because a context property shadows a type of the same name, so the
     // enums had to be reached under a second, invented name. A QML_SINGLETON needs no such
-    // split: `MachineState.Phase.Pouring` resolves through the singleton's own metaobject, and
-    // unlike either of the runtime calls it is visible to qmllint, qmlcachegen and the language
-    // server. Full rationale in src/controllers/maincontroller.h.
+    // split: `MachineState.Phase.Pouring` resolves through the singleton, and unlike either of
+    // the runtime calls it is visible to qmllint, qmlcachegen and the language server. Full
+    // rationale in src/controllers/maincontroller.h.
+    //
+    // ONE REAL BEHAVIOURAL CHANGE, and it is not obvious from the macros. Qt resolves enums on a
+    // singleton INSIDE the instance guard — qqmltypewrapper.cpp: `if (QObject *qobjectSingleton
+    // = enginePrivate->singletonInstance<QObject*>(type))`, with the enum branch within it. The
+    // old uncreatable-type registration took the `else` branch a few lines below, which needs no
+    // instance at all. So the ~153 `MachineState.Phase.X` sites in qml/ used to be
+    // instance-independent constants and now depend on setQmlInstance() having run. Miss that
+    // call and they are all `undefined` — which on the right of a `===` or a `>=` is silently
+    // false rather than an error. tst_qmlregistration asserts the publish call for exactly this
+    // reason, and cross-checks the enumerator names QML uses against the registered enum.
     QML_ELEMENT
     QML_SINGLETON
 

@@ -59,8 +59,8 @@ QString format(const QVector<double>& stepTemps, double anchorTemp,
 } // namespace TemperatureDisplay
 
 // Thin QML bridge for the conversion primitives above, registered as the
-// "TemperatureDisplay" context property so qml/Theme.qml delegates to the same
-// unit-tested math instead of mirroring it in JS. `fahrenheit` is an explicit
+// "TemperatureDisplay" QML singleton (see the macros below) so qml/Theme.qml
+// delegates to the same unit-tested math instead of mirroring it in JS. `fahrenheit` is an explicit
 // argument (not read from Settings here) because the QML binding engine cannot
 // track property reads inside C++ methods — the Theme wrappers read
 // Settings.app.temperatureUnit in JS so bindings re-evaluate on unit toggle.

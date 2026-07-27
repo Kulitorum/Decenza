@@ -247,7 +247,49 @@ evaluates — the same silent, delayed shape as the bug this change exists to pr
     carries both names per row and asserts the exported NAME rather than just the Decenza URI —
     the old check would have passed a `QML_NAMED_ELEMENT` typo that registered under the wrong
     name.
-- [ ] 3.11 After each of the above: launch the app and check the log for QML TypeErrors. Building is not evidence
+- [x] 3.11 Launch the app and check the log for QML TypeErrors. Building is not evidence — and
+  this task earned its wording. With the DE1 simulator on (Ctrl+D), driving the app over MCP:
+  - `FlushPage: isFlushing changed to true phase= 11`. That binding is
+    `MachineState.phase === MachineState.Phase.Flushing`, and phase 11 IS Flushing — so the
+    migrated enum resolved through the singleton at runtime, not merely in qmllint. Navigation
+    in (`currentPage=flushPage`) and back out (`phase= 4`, Ready) both fired.
+  - SteamPage and HotWaterPage both rendered live and phase-driven ("Steam - Pouring",
+    "Hot Water - Pouring") and returned to Idle on stop.
+  - Log filtered for TypeError / ReferenceError / undefined / "asked for the singleton":
+    **zero lines** across the session.
+  - Not exercised: Espresso, Transport, Descaling. The mechanism is proven on three independent
+    pages in both directions; those three are covered statically only.
+- [x] 3.14 Review round on PR #1678. Findings verified before acting, all of them real:
+  - **`qml/Theme.qml` still guarded on `typeof EmojiAssets === "undefined"`** and its warning told
+    the maintainer to `setContextProperty("EmojiAssets", ...)`. Unreachable now, and the advice
+    was actively dangerous: a context property of that name SHADOWS the singleton, which is #1661
+    in the very file #1661 happened in. Guard and warning deleted, with a note saying not to
+    reinstate them.
+  - `src/profile/temperaturedisplay.h` class comment still said "registered as the
+    TemperatureDisplay context property", contradicted eight lines lower by its own macros.
+  - `scripts/qmllint_report.py` still exempted `qml/designer/DE1AppStubs.qml` from the
+    in-the-module check, citing a `de1-qt.qmlproject` that 3.13 deleted.
+  - `de1-qt.qmlproject.qtds` was missed by 3.13 — the scaffold deletion was incomplete.
+  - `docs/accessibility/phase4.md` and `phase5.md` handed out 17 `MachineStateType.Phase.*`
+    samples for the #736 implementation plan. Anyone following them would have written a
+    ReferenceError.
+  - "Stateless" was the wrong word for `EmojiAssets` — it has a lazily-built ~4,000-entry cache.
+    The conclusion (a second engine instance is harmless) survives; the reasoning was wrong.
+- [x] 3.15 Close the last honour-system gap in `tst_qmlregistration`. Both singleton tests were
+  hand-written row lists, so a future singleton whose row nobody added was invisible: build green,
+  qmltypes green, qmllint green, bindings null at runtime. Replaced with one test that DERIVES the
+  set by scanning `src/**/*.h` for `QML_SINGLETON`, resolving `QML_FOREIGN`/`QML_NAMED_ELEMENT` to
+  the registry and QML names, and requiring a publish call IFF the header declares
+  `static void setQmlInstance(` — asserting the negative direction too, which no hand list could.
+  - Added `qmlOnlyNamesPhaseEnumeratorsThatExist`, because this change made those 153 sites newly
+    instance-dependent (see the note in `machinestate.h`). Rename an enumerator and leave QML
+    naming the old one and the comparison is silently false forever.
+  - **Both verified by breaking them.** Removing `MachineState::setQmlInstance()` from main.cpp
+    and renaming one QML enumerator to `FlushingTypo` compiled clean with ZERO warnings, and both
+    tests failed with the right message. That clean build is the whole argument for these tests.
+  - The parser was wrong on first run and its own sanity guard said so
+    (`parsed only 0 Phase enumerators; the parser is broken, not the code`) rather than passing
+    vacuously — the lesson from the six mis-measurements in 1.11, applied.
 - [x] 3.13 Delete the dead Qt Design Studio scaffold: `qml/Decenza/{qmldir,plugins.qmltypes}`,
   `de1-qt.qrc`, `de1-qt.qmlproject`, `qml/designer/DE1AppStubs.qml`. Found while migrating
   MachineState — `plugins.qmltypes` still listed `MachineStateType` after this change deleted it.

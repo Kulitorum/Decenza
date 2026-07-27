@@ -56,23 +56,17 @@ QtObject {
     // EmojiAssets.has() is an invokable, and non-reactive on purpose: the bundled set is
     // fixed at build time, so unlike Settings.theme.effectiveFontSizes there is nothing for
     // a binding to re-evaluate. See src/core/emojiassets.h.
-    property bool _warnedNoEmojiAssets: false
+    //
+    // This used to guard on `typeof EmojiAssets === "undefined"` and warn that main.cpp had to
+    // call setContextProperty("EmojiAssets", ...) on the engine. Both the guard and the advice
+    // are gone deliberately. EmojiAssets is a QML_SINGLETON reached through this file's own
+    // `import Decenza`, so it cannot be missing from an engine that loaded this file at all —
+    // which also fixes what that warning was written for: the GHC window's second engine, which
+    // genuinely did lack the context property. Do NOT reinstate a setContextProperty here. A
+    // context property of the same name SHADOWS the singleton and is invisible to qmllint,
+    // qmlcachegen and the language server — that is #1661, in this exact file.
     function _emojiAssetPath(cps) {
         if (!cps || cps.length === 0) return ""
-        if (typeof EmojiAssets === "undefined") {
-            // Distinct from "this emoji isn't bundled". If the context property is missing,
-            // EVERY emoji in this QML engine silently vanishes — and an app with no emoji
-            // looks deliberate. The C++ warning in emojiassets.cpp cannot fire here, because
-            // has() is never reached. Secondary engines are the real risk: main.cpp creates
-            // one for the GHC window that does not set this property.
-            if (!_warnedNoEmojiAssets) {
-                _warnedNoEmojiAssets = true
-                console.warn("[Emoji] EmojiAssets context property missing — every emoji in "
-                           + "this QML engine will be stripped. main.cpp must call "
-                           + "setContextProperty(\"EmojiAssets\", ...) on this engine.")
-            }
-            return ""
-        }
         var key = cps.join("-")
         if (!EmojiAssets.has(key)) return ""
         return "qrc:/emoji/" + key + ".svg"
