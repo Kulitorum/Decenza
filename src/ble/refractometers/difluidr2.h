@@ -87,7 +87,7 @@ private:
     // "The device just spoke" — the single chokepoint for restarting the liveness
     // watchdog, and therefore the only place the absolute run ceiling can be
     // enforced. Returns false if the run was abandoned, so callers stop processing.
-    bool noteDeviceProgress();
+    [[nodiscard]] bool noteDeviceProgress();
     // Instrumentation: log the refractive index (Data3-6) carried alongside the
     // concentration in pack 2/3. RI is the device's ground-truth optical reading and
     // the cross-check for whether the concentration field is coffee TDS or raw Brix.
@@ -132,6 +132,16 @@ private:
     // the Read TDS button while measuring, so the user's only escape was to leave the
     // page. Generous: a measured 3-test averaged run took 22s.
     static constexpr int MAX_RUN_MS = 180000;
+    // Held as a member rather than used directly so a test can exercise the ceiling
+    // without waiting three minutes. Never changed at runtime.
+    int m_maxRunMs = MAX_RUN_MS;
     QElapsedTimer m_runElapsed;
+    // Whether the run in flight has delivered a usable reading. A run whose every
+    // result was rejected mid-run would otherwise end reporting success.
+    bool m_runDeliveredReading = false;
+    // Whether a run is actually under way. Distinct from m_measuring, which is a
+    // REQUEST-side flag and stays false for device-initiated runs (Auto Test, the
+    // physical button) — those need the empty-run check just as much.
+    bool m_runInFlight = false;
     QTimer m_initTimer;
 };

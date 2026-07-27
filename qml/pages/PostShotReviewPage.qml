@@ -214,13 +214,15 @@ Page {
     property bool r2CommitPending: false
 
     Connections {
-        // The BLEManager reference is load-bearing for the same reason it is on the
-        // tdsChanged block below: `Refractometer` is a context property swapped from
-        // null with no notify signal, so a target binding that captured null at
-        // page-load would stay stuck and none of these handlers would ever fire.
-        target: BLEManager.refractometerConnected
-                && (typeof Refractometer !== "undefined") && Refractometer
-                ? Refractometer : null
+        // Deliberately NOT gated on BLEManager.refractometerConnected, unlike the
+        // tdsChanged block below. That block must re-attach when the R2 connects after
+        // the page opens. This one must keep firing while it DISconnects: the driver
+        // emits connectedChanged before measuringChanged, and connectedChanged drives
+        // refractometerConnectedChanged synchronously — so the extra term would
+        // re-evaluate this target to null and the measuringChanged that ends the run
+        // would be delivered to nothing, stranding the progress label and the pending
+        // commit. The device object itself stays non-null across a disconnect.
+        target: (typeof Refractometer !== "undefined" && Refractometer) ? Refractometer : null
 
         function onAverageProgress(completed, total) {
             postShotReviewPage.avgDone = completed
@@ -547,9 +549,17 @@ Page {
             // not when a value arrives: a settling or averaged run delivers a reading
             // every few seconds, and committing each one wrote the shot record five
             // times in a measured 16-second loop, every write but the last superseded.
+            // Deferred unconditionally. An earlier version committed immediately when
+            // `measuring` was false — but `measuring` is a REQUEST-side flag, set only
+            // by requestMeasurement()/requestAveragedMeasurement(), so it is false
+            // throughout a device-initiated run. Auto Test and the physical button are
+            // exactly that, and an Auto Test loop is where the five-writes-in-16s
+            // measurement came from, so the guard exempted the case it was written for.
+            //
+            // Nothing is lost by always deferring: finishMeasurement() emits
+            // measurementComplete and measuringChanged on every terminal path
+            // regardless of who started the run.
             postShotReviewPage.r2CommitPending = true
-            if (typeof Refractometer === "undefined" || !Refractometer || !Refractometer.measuring)
-                postShotReviewPage.commitPendingR2Reading()
         }
     }
 

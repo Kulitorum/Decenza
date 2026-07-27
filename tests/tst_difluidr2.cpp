@@ -812,7 +812,10 @@ private slots:
     }
 
     void unrecognisedActionCodeStillDeliversAReading() {
-        // We do not know what action code a physical-button measurement carries. An
+        // A physical-button read is Cmd 0 (verified on hardware), so it already lands
+        // on the single-test path. This covers codes we have not seen — and it is not
+        // hypothetical: Cmd 3 (loop test) would have gone silent under an exhaustive
+        // dispatch before we knew it existed. An
         // unrecognised one must behave as it did before the dispatch existed — a reading —
         // never silence.
         DiFluidR2 r2(nullptr);
@@ -1029,6 +1032,9 @@ private slots:
     // watchdog so a test can outlive it in a few hundred milliseconds.
     static void beginMeasuringWithShortWatchdog(DiFluidR2& r2, int intervalMs) {
         r2.m_measuring = true;
+        r2.m_runInFlight = true;
+        r2.m_runDeliveredReading = true;  // suppress the empty-run error unless a test wants it
+        r2.m_runElapsed.start();
         r2.m_measurementTimer.setInterval(intervalMs);
         r2.m_measurementTimer.start();
     }
@@ -1071,6 +1077,55 @@ private slots:
         QTest::qWait(60);
 
         QVERIFY(r2.isMeasuring());
+    }
+
+    // The run ceiling was the headline of its commit and had no coverage at all:
+    // m_runElapsed was never started by the test helper, so the MAX_RUN_MS branch never
+    // executed. An inverted comparison would have shipped green.
+    void anEndlesslyProgressingRunIsAbandoned() {
+        DiFluidR2 r2(nullptr);
+        QSignalSpy errorSpy(&r2, &DiFluidR2::errorOccurred);
+        beginMeasuringWithShortWatchdog(r2, 5000);   // watchdog must not be what fires
+
+        // Pretend the run started long ago. A loop test on a prism that never settles
+        // emits progress every ~3s forever, which restarts the watchdog indefinitely —
+        // and the review page disables the Read TDS button while measuring, so the
+        // user's only escape was leaving the page.
+        r2.m_maxRunMs = 1;          // three minutes is not a unit-test timescale
+        r2.m_runElapsed.start();
+        QTest::qWait(20);
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("still reporting progress"));
+        r2.handlePacket(buildStatusPacket(8));  // Loop test ongoing — progress
+
+        QVERIFY2(!r2.isMeasuring(), "an endlessly-progressing run was never abandoned");
+        QCOMPARE(errorSpy.count(), 1);
+    }
+
+    void aRunWhoseEveryReadingIsRejectedTellsTheUser() {
+        // Mid-run rejections deliberately do not raise an error — the device is still
+        // measuring. But the run then ended cleanly with the spinner stopping, the
+        // field unchanged, and nothing said at all.
+        DiFluidR2 r2(nullptr);
+        QSignalSpy errorSpy(&r2, &DiFluidR2::errorOccurred);
+        QSignalSpy tdsSpy(&r2, &DiFluidR2::tdsChanged);
+        beginMeasuringWithShortWatchdog(r2, 5000);
+        r2.m_runDeliveredReading = false;
+
+        QByteArray sentinel;
+        sentinel.append(static_cast<char>(0xFF));
+        sentinel.append(static_cast<char>(0xE5));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("out of range"));
+        r2.handlePacket(buildLoopRunPacket(2, sentinel));
+        QCOMPARE(errorSpy.count(), 0);          // mid-run: stays quiet, run continues
+        QVERIFY(r2.isMeasuring());
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("without a usable reading"));
+        r2.handlePacket(buildLoopRunPacket(0, QByteArray(1, char(9))));  // loop finished
+
+        QCOMPARE(tdsSpy.count(), 0);
+        QCOMPARE(errorSpy.count(), 1);
+        QVERIFY(!r2.isMeasuring());
     }
 
     void silenceStillTimesOut() {

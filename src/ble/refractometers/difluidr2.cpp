@@ -229,6 +229,9 @@ void DiFluidR2::connectToDevice(const QBluetoothDeviceInfo& device) {
         m_autoTest = false;
         emit autoTestChanged();
     }
+    // Also an outstanding request — otherwise a dropped echo lets a stale one be
+    // compared against a DIFFERENT R2's state, warning about a write never made to it.
+    m_autoTestRequested = -1;
     if (nameChange) emit nameChanged();
 
     R2_LOG(QString("Connecting to %1 (%2)")
@@ -260,6 +263,8 @@ void DiFluidR2::requestMeasurement() {
     }
 
     m_measuring = true;
+    m_runDeliveredReading = false;
+    m_runInFlight = true;
     emit measuringChanged();
     R2_LOG("Requesting single test from R2");
 
@@ -358,6 +363,8 @@ void DiFluidR2::requestAveragedMeasurement(int testCount) {
     }
 
     m_measuring = true;
+    m_runDeliveredReading = false;
+    m_runInFlight = true;
     emit measuringChanged();
     R2_LOG(QString("Requesting averaged test (%1 tests) from R2").arg(clamped));
 
@@ -601,6 +608,8 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
                 R2_WARN(QString("Error packet truncated (dataLen=%1, need 2): %2 — "
                                 "cannot classify, clearing the measurement")
                             .arg(dataLen).arg(QString(packet.toHex(' '))));
+                emit errorOccurred("The refractometer reported a failure that could not "
+                                   "be identified. Try the measurement again.");
                 finishMeasurement(/*complete=*/false);
                 return;
             }
@@ -628,6 +637,8 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
         }
 
         // Test result packets: Data0 = package number.
+        // Every malformed-packet path in this switch warns; a reading dropped in
+        // silence is the one that costs a user their measurement with a clean log.
         //
         // Which packet is THE reading depends on the action this response belongs to.
         // During an averaged run the R2 emits a full packet set per constituent test,
@@ -648,7 +659,11 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
         // ones. Treating each reading as terminal fired measurementComplete five times
         // in a 16s run and let a mid-loop save persist a superseded value.
         const bool loopRun = (cmd == 3);
-        if (dataLen < 1) return;
+        if (dataLen < 1) {
+            R2_WARN(QString("Action packet carried no pack number: %1")
+                        .arg(QString(packet.toHex(' '))));
+            return;
+        }
         uint8_t packNo = static_cast<uint8_t>(packet[5]);
 
         switch (packNo) {
@@ -669,6 +684,11 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
                 name.isEmpty() ? QString("Status %1 (no name for this code)").arg(status)
                                : QString("Status %1: %2").arg(status).arg(name);
             R2_LOG(statusLine);
+            // A start status is the only marker a device-initiated run gives us.
+            if (status == 4 || status == 7 || status == 11) {
+                if (!m_runInFlight) m_runDeliveredReading = false;
+                m_runInFlight = true;
+            }
             // The device is telling us it is still working — keep the run alive.
             if (r2StatusIsProgress(status) && !noteDeviceProgress())
                 break;
@@ -725,9 +745,12 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
             };
             const double prismC = toCelsius(prismTemp / 10.0);
             const double tankC = toCelsius(tankTemp / 10.0);
-            m_temperature = prismC;
-            // A temperature packet lands per test, so it is progress too.
+            // A temperature packet lands per test, so it is progress too. Note the
+            // ordering: m_temperature must not be assigned before this, or a run that
+            // trips the ceiling commits the member and then skips the notify below —
+            // leaving every binding rendering a stale value with no way to know.
             if (!noteDeviceProgress()) break;
+            m_temperature = prismC;
             R2_LOG(QString("Temperature: prism=%1°C tank=%2°C (unit: %3)")
                 .arg(prismC, 0, 'f', 1).arg(tankC, 0, 'f', 1)
                 .arg(unit == Unit::Celsius      ? QStringLiteral("°C, reported by device")
@@ -748,7 +771,9 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
                 // averaging exists to smooth — but it is not the reading.
                 R2_LOG(QString("Individual test in averaged run: %1%% (raw=%2) — not emitted")
                            .arg(tdsRaw / 100.0, 0, 'f', 2).arg(tdsRaw));
-                noteDeviceProgress();
+                // Nothing follows in this branch, so an abandoned run needs no
+                // further action here — finishMeasurement has already run.
+                (void)noteDeviceProgress();
                 break;
             }
             // In a loop run the reading is real and must reach consumers — latest wins,
@@ -795,7 +820,7 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
                 R2_LOG(QString("Average temp/count packet (no counter, %1 data bytes)")
                            .arg(dataLen));
             }
-            noteDeviceProgress();
+            (void)noteDeviceProgress();  // nothing follows; see note above
             break;
         }
         default:
@@ -848,7 +873,7 @@ void DiFluidR2::handleSerialNumberPart(const QByteArray& data) {
 
 bool DiFluidR2::noteDeviceProgress() {
     if (!m_measuring) return true;
-    if (m_runElapsed.isValid() && m_runElapsed.elapsed() > MAX_RUN_MS) {
+    if (m_runElapsed.isValid() && m_runElapsed.elapsed() > m_maxRunMs) {
         R2_WARN(QString("Run still reporting progress after %1 s — abandoning. The prism "
                         "may not be settling; wipe it and let the R2 rest.")
                     .arg(m_runElapsed.elapsed() / 1000));
@@ -862,6 +887,17 @@ bool DiFluidR2::noteDeviceProgress() {
 }
 
 void DiFluidR2::finishMeasurement(bool complete) {
+    // A run can end cleanly having delivered nothing — every reading rejected mid-run
+    // by the plausibility gate, which deliberately does not surface an error while the
+    // device is still measuring. Without this the spinner just stops, the field keeps
+    // its old value, and the user is told nothing.
+    if (complete && m_runInFlight && !m_runDeliveredReading) {
+        R2_WARN("Run finished without a usable reading — every result was rejected");
+        emit errorOccurred("The refractometer finished without a usable reading. "
+                           "Wipe the prism, re-load the sample and try again.");
+        complete = false;
+    }
+    m_runInFlight = false;
     m_runElapsed.invalidate();
     m_measurementTimer.stop();
     if (complete) emit measurementComplete();
@@ -891,7 +927,8 @@ void DiFluidR2::emitTdsResult(quint16 tdsRaw, bool isAverage, bool terminal) {
         // gets an error dialog and then a good reading seconds later, and can start a
         // second run on top of the first. Skip the bad reading and let the run finish.
         if (!terminal) {
-            noteDeviceProgress();
+            // Reading skipped, run left alive. Nothing follows either way.
+            (void)noteDeviceProgress();
             return;
         }
         emit errorOccurred("R2 reported an out-of-range value");
@@ -900,6 +937,7 @@ void DiFluidR2::emitTdsResult(quint16 tdsRaw, bool isAverage, bool terminal) {
     }
 
     m_tds = tds;
+    m_runDeliveredReading = true;
     // A non-terminal reading means something different in the two multi-reading runs:
     // an averaged run is converging on a mean, a loop test is re-measuring the same
     // sample until it settles. Saying "running average" for a loop test would describe
@@ -913,8 +951,9 @@ void DiFluidR2::emitTdsResult(quint16 tdsRaw, bool isAverage, bool terminal) {
     emit tdsChanged(m_tds);
 
     if (!terminal) {
-        // A converging average: the value is delivered, but the run continues.
-        noteDeviceProgress();
+        // A converging average: the value is delivered, but the run continues. The
+        // value has already been emitted, so an abandoned run needs nothing more here.
+        (void)noteDeviceProgress();
         return;
     }
     finishMeasurement(/*complete=*/true);
