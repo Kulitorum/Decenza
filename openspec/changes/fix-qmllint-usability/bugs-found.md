@@ -431,3 +431,42 @@ because it compares files on disk against the module list rather than trusting t
 alone. The remaining conditional append — Quick3D screensavers, under
 `if(ENABLE_QUICK3D AND Qt6Quick3D_FOUND)` — has the same shape; it did not fire because the Linux
 runner does find Quick3D, which is luck rather than design.
+
+---
+
+## Migrating a context property makes its `typeof … !== "undefined"` guard permanently true
+
+Flagged independently by two reviewers on PR #1680, and it extends a gap this document already
+recorded for `MachineState`/`ProfileManager`. Writing it down properly because the reasoning is
+counter-intuitive in a way that makes it easy to "clean up" wrongly in either direction.
+
+A context property that was never set resolves to `undefined`, so `typeof X !== "undefined"` is a
+real guard. A registered singleton type is **always** defined, so after migration the guard can
+never be false — but the failure it was written for did not disappear, it changed shape and got
+slightly worse:
+
+| | before (context property) | after (`QML_SINGLETON`) |
+|---|---|---|
+| name never published | `undefined` — guard catches it, fallback branch runs | `create()` returns `nullptr`, name is `null`, `typeof null === "object"` — guard **passes**, `X.member` throws a TypeError in the binding |
+
+So the guard now reads as protection that is not there. PR #1680 adds `DE1Device`, `BLEManager`
+and `BatteryManager` to the singleton set, and `qml/components/layout/items/CustomItem.qml`
+carries ~19 more guards on those names (lines 154-476) that join the ~11 already noted for
+`MachineState`, plus `SteamItem.qml:124`.
+
+**Practical risk here is low and that is not an accident**: all three are constructed
+unconditionally in `main()` with no `#ifdef` around the declaration and published before
+`engine.load()`, so these particular guards were already vacuously true while they were context
+properties. Nothing regressed at runtime.
+
+**Do not sweep these by deleting them wholesale.** `Theme.qml`'s `EmojiAssets` guard looks
+identically dead and is not — the deletion was made and reverted during this change once review
+showed why. `qml_register_types_Decenza()` is a second, independent registration path that has
+failed wholesale before (1,081 ReferenceErrors against a green build), and in *that* failure the
+type genuinely is `undefined` and the guard genuinely fires. The correct sweep replaces the
+`typeof` test with one that distinguishes all three states — absent, published, and registered but
+null — not one that assumes the middle case.
+
+Blocked on the same thing as before: `CustomItem.qml` is the file a released qmllint cannot
+analyse at all (`UNLINTABLE_BY_TOOL_BUG`), so the sweep wants the patched binary as the CI default
+first.

@@ -785,6 +785,38 @@ def main() -> int:
             file=sys.stderr,
         )
 
+    # Refuse the run that cannot succeed, instead of discovering it ten minutes in.
+    #
+    # A released qmllint cannot finish the UNLINTABLE_BY_TOOL_BUG files — it grows to hundreds of
+    # gigabytes and is OOM-killed, which on a laptop takes the desktop down with it. The only
+    # binary that can is a local build carrying the Gerrit fix, and there is no way to detect one
+    # from the outside: same --version, same path layout. So the proxy is intent. Passing
+    # --qmllint means you chose a binary deliberately; letting find_qmllint() pick means you got
+    # whatever Qt installed, which is by definition not the patched build.
+    #
+    # This existed only as prose in a developer's private notes, which is why the first person to
+    # run the documented command lost ten minutes to a hang. A footgun the script knows how to
+    # detect should be refused by the script.
+    if not args.from_raw and not args.qmllint:
+        blocked = sorted(set(files) & set(UNLINTABLE_BY_TOOL_BUG))
+        if blocked:
+            sys.exit(
+                "refusing to start: this run includes {n} file(s) that a released qmllint cannot "
+                "analyse, and no --qmllint was given, so the binary is Qt's own:\n{detail}\n"
+                "It would climb to hundreds of GB and be OOM-killed after roughly ten minutes, "
+                "having written nothing.\n\n"
+                "Either lint the whole tree with a patched build:\n"
+                "  {argv0} {rest} --qmllint <path-to-patched-qmllint>\n\n"
+                "or skip those files — note --skip-unlintable is refused with --update-baseline "
+                "on purpose, since a partial run must never ratchet the baseline:\n"
+                "  {argv0} {rest} --skip-unlintable".format(
+                    n=len(blocked),
+                    detail="".join(f"  {f}\n    {UNLINTABLE_BY_TOOL_BUG[f]}\n" for f in blocked),
+                    argv0=Path(sys.argv[0]).name,
+                    rest=" ".join(a for a in sys.argv[1:] if a != "--skip-unlintable"),
+                )
+            )
+
     if args.from_raw:
         output = Path(args.from_raw).read_text(errors="replace")
         # Guard the exact failure that produced this option: output covering only part of the

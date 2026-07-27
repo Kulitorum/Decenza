@@ -4328,12 +4328,20 @@ int main(int argc, char *argv[])
         // Stop the timer first (belt) and disconnect only connectedChanged
         // (suspenders). Do NOT use the wildcard form
         // QObject::disconnect(&de1Device, nullptr, nullptr, nullptr) here:
-        // de1Device is exposed to QML via setContextProperty, so QQmlEngine
-        // holds an internal connection on de1Device::destroyed for lifetime
-        // tracking. The wildcard disconnect form acquires receiver locks in
-        // a different order than the per-signal pointer form, and on Android
-        // shutdown that contends with the QML engine and hard-deadlocks the
-        // main thread (#877). The per-signal form has no such problem.
+        // de1Device is reachable from QML, so QQmlEngine holds internal
+        // bookkeeping tied to its lifetime. The wildcard disconnect form
+        // acquires receiver locks in a different order than the per-signal
+        // pointer form, and on Android shutdown that contends with the QML
+        // engine and hard-deadlocks the main thread (#877). The per-signal
+        // form has no such problem.
+        //
+        // This said "exposed to QML via setContextProperty" until DE1Device
+        // became a QML_SINGLETON (contextsingletons_qml.h). The mechanism
+        // changed — the engine now tracks it through QQmlData and
+        // addOwnedObject rather than a context property's destroyed()
+        // connection — but the hazard and the fix are unchanged, so do not
+        // read the new registration as a reason to relax this back to the
+        // wildcard form.
         de1ReconnectTimer.stop();
         QObject::disconnect(&de1Device, &DE1Device::connectedChanged, nullptr, nullptr);
 

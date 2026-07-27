@@ -462,13 +462,6 @@ private slots:
                                            "the regex has drifted from the header, so this test is "
                                            "checking less than it claims").arg(types.size())));
 
-        // Deferred to their own migration, with a reason and an expiry rather than a silent gap.
-        // Both are ALSO published as context properties in main.cpp today, and registering them
-        // early forces `#include "fastlinerenderer.h"` (for the Q_INVOKABLE registerFastSeries
-        // parameter type) which pulls <QQuickItem> into every target that transitively includes
-        // maincontroller.h — tst_mqttclient among them, and it does not link Qt6::Quick. Spreading
-        // QtQuick across test targets to satisfy a registration that isn't due yet is the wrong
-        // trade. Delete each entry when that name's own migration lands.
         // There was a `deferredToOwnMigration` allowlist here holding ShotDataModel and
         // SteamDataModel, which were MainController property types still published as context
         // properties. Both are now QML_FOREIGN singletons (src/core/contextsingletons_qml.h), so

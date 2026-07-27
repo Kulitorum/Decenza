@@ -934,6 +934,7 @@ set(HEADERS
     src/mcp/mcpsession.h
     src/mcp/mcptoolregistry.h
     src/mcp/mcpresourceregistry.h
+    src/mcp/mcpremoteaccess.h
     src/core/settingsserializer.h
     src/core/datamigrationclient.h
     src/core/databasebackupmanager.h

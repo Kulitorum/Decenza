@@ -19,9 +19,15 @@
 // ---------------------------------------------
 // A context property is invisible to qmllint, qmlcachegen and the language server: the name
 // resolves at runtime and at no other time. Every QML reference to one counts as an unqualified
-// access, which is 943 warnings across these names — and, worse, is indistinguishable from a
-// typo, because nothing in the build can tell the two apart. #1661 is what that costs when it
-// goes wrong.
+// access — and, worse, is indistinguishable from a typo, because nothing in the build can tell
+// the two apart. #1661 is what that costs when it goes wrong.
+//
+// The 30 context properties still live when this file was written account for 943 of those
+// warnings; the names registered BELOW are 660 of the 943. The rest are listed in
+// openspec/changes/fix-qmllint-usability/tasks.md 2.4, each blocked on something specific —
+// runtime swaps needing a façade, declaration-order hoists, or types already registered
+// uncreatable in their own headers, where a QML_FOREIGN here would be a second registration of
+// the same C++ type.
 //
 // LIFETIME — READ BEFORE ADDING AN ENTRY
 // --------------------------------------
