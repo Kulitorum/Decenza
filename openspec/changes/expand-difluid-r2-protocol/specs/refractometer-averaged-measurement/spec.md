@@ -133,22 +133,26 @@ The measurement liveness watchdog exists to recover from a device that stops res
 - **THEN** the measuring state is cleared and a timeout is logged
 - **AND** the UI is not left waiting indefinitely
 
-### Requirement: The user can choose an averaged read
+### Requirement: Averaging is a driver capability, not a user-facing feature
 
-The TDS capture affordance SHALL let the user take an averaged reading rather than a single one, and SHALL indicate while a multi-test run is in progress that more than one test is being taken. The choice SHALL default to the existing single-test behaviour, so an untouched installation behaves exactly as before.
+The averaged-measurement entry point SHALL exist and behave as specified above, but SHALL NOT be offered as a user action. The TDS capture control SHALL take a single test.
 
-#### Scenario: Averaged read from the review page
+This is a judgement about magnitude, not about whether averaging works. Measured on a physical R2 across three runs (7.82/7.83/7.85, 8.04/8.05/8.05, 8.10/8.08/8.08), single-reading scatter is σ ≈ 0.011% TDS — genuine random scatter, which averaging does reduce, to σ ≈ 0.007%. But the ≈0.005% gained is smaller than the 0.01% step the device reports in, so it cannot be represented in the answer at all, and it is an order of magnitude below sample-prep variance. The cost is 12–22 seconds against ~3.5 for a single test.
 
-- **WHEN** the user chooses an averaged read on the post-shot review page
-- **THEN** an averaged measurement is requested
-- **AND** the resulting averaged TDS populates the review page's TDS field under the existing active-page and threshold gating
+The device also refuses to report until the prism is thermally settled, so a single reading is already a settled reading.
 
-#### Scenario: Progress is visible during a multi-test run
+#### Scenario: The TDS control takes a single test
 
-- **WHEN** an averaged run of N tests is in progress and the device reports completing test M of N
-- **THEN** the interface reflects that a multi-test measurement is underway rather than appearing hung
-
-#### Scenario: Default is unchanged
-
-- **WHEN** a user who has never chosen averaging presses the TDS read control
+- **WHEN** the user presses the TDS read control on the post-shot review page
 - **THEN** a single test is performed
+- **AND** no averaged measurement is requested
+
+#### Scenario: The capability remains reachable
+
+- **WHEN** an averaged measurement is requested through the driver interface
+- **THEN** it behaves exactly as specified in the requirements above
+
+#### Scenario: Device-initiated multi-reading runs still show progress
+
+- **WHEN** the device performs a multi-reading run of its own accord and reports its progress
+- **THEN** the interface reflects that a measurement is underway rather than appearing hung

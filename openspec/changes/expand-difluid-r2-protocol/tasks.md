@@ -48,8 +48,8 @@
 
 ## 7. Documentation and verification
 
-- [ ] 7.1 Update the wiki manual's refractometer section for averaged reads (and Auto Test, if it ships with UI) — averaging is user-visible and the manual entry is part of this change, not a follow-up
-- [ ] 7.2 Note in `docs/CLAUDE_MD/BLE_PROTOCOL.md` which parts of the R2 command set are now implemented and which remain deliberately unimplemented (calibration, loop test, remaining settings)
-- [ ] 7.3 Run the full suite through the Qt Creator MCP (`run_tests`, scope `all`) and clear every warning
-- [ ] 7.4 Verify on physical R2 hardware: an averaged run completes, exceeds the old 15s ceiling without aborting, and reports a plausible averaged TDS. This has never run against a device — do not merge on test-suite green alone
+- [x] 7.1 Wiki manual updated: Auto Test, and why a reading can take 15-20s. Averaging needed no entry — it did not ship as a user feature
+- [x] 7.2 Note in `docs/CLAUDE_MD/BLE_PROTOCOL.md` which parts of the R2 command set are now implemented and which remain deliberately unimplemented (calibration, loop test, remaining settings)
+- [x] 7.3 Run the full suite through the Qt Creator MCP (`run_tests`, scope `all`) and clear every warning
+- [x] 7.4 Verified on a physical R2 (DFT-R102, fw V230): averaged run completed at 22.0s, exceeding the old 15s ceiling without aborting, reporting 7.83%. Also verified the temperature unit byte, serial reassembly, Auto Test round-trip, loop-test handling, and that a physical-button read is Cmd 0. Three findings came out of it that are in nobody's docs
 - [ ] 7.5 Archive this change with `openspec archive expand-difluid-r2-protocol` as the last commit on the feature branch
