@@ -27,6 +27,9 @@ FocusScope {
     // recipe pills' drink-type icon, add-recipe-wizard-tea). Presets without
     // one render exactly as before. Colorized to match the pill text.
     readonly property real pillIconSize: Theme.scaled(20)
+    // Width of the selected-pill ring. It is drawn OUTSIDE the pill, so it costs
+    // no interior space and never changes what fits on the label (#1673).
+    readonly property real selectionRingWidth: Theme.scaled(3)
 
     // Optional pagination (add-idle-pill-pagination). Opt-in: a caller that owns a
     // longer list passes a windowed slice as `presets` plus the page metadata, and
@@ -432,13 +435,18 @@ FocusScope {
                         // colour — lighter in dark mode, darker in light mode — so the active
                         // preset reads clearly as selected against both the fill and the page
                         // background, matching the active action-button highlight.
+                        // Drawn OUTSIDE the pill (negative margins, like the focus ring
+                        // below): a Rectangle border paints INWARD, so anchoring it flush
+                        // put the ring inside the pill and stole 3px of interior from the
+                        // label on every side (#1673).
                         Rectangle {
                             anchors.fill: parent
+                            anchors.margins: -root.selectionRingWidth
                             visible: pill.isSelected && !pill.isDisabled
                             color: "transparent"
-                            border.width: Theme.scaled(3)
+                            border.width: root.selectionRingWidth
                             border.color: Settings.theme.isDarkMode ? Qt.lighter(pill.color, 1.6) : Qt.darker(pill.color, 1.5)
-                            radius: parent.radius
+                            radius: parent.radius + root.selectionRingWidth
                         }
 
                         // Focus indicator

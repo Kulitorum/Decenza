@@ -297,6 +297,9 @@ Page {
     // and paged; the full list also lives on the Recipes page.
     property var inventoryRecipes: []
     property int recipePageIndex: 0
+    // Tracks the open/closed edge of the recipe row so onActivePresetFunctionChanged
+    // can lift the order freeze exactly once, on close (PillFit.keepOrder, #1673).
+    property bool recipeRowWasOpen: false
     readonly property var _recipePageSizes: {
         var w = []
         for (var i = 0; i < inventoryRecipes.length; ++i)
@@ -311,7 +314,13 @@ Page {
     Connections {
         target: MainController.recipeStorage
         function onInventoryReady(recipes) {
-            idlePage.inventoryRecipes = recipes
+            // While the row is open, hold the order the user is looking at: an
+            // activation bumps last_used, and re-sorting mid-interaction moves
+            // the pills out from under the finger (#1673). The freeze lifts on
+            // close, where a fresh request adopts the real MRU order.
+            idlePage.inventoryRecipes = (idlePage.activePresetFunction === "recipes")
+                ? PillFit.keepOrder(idlePage.inventoryRecipes, recipes, "id")
+                : recipes
             // Keep the page valid if recipes were added/removed/reordered.
             idlePage.recipePageIndex = Math.max(0, Math.min(idlePage.recipePageIndex, idlePage.recipePageCount - 1))
         }
@@ -656,6 +665,12 @@ Page {
     // Auto-tare scale and announce presets when activePresetFunction changes
     onActivePresetFunctionChanged: {
         _publishOperationMode()
+        // The recipe row just closed → lift the order freeze (see the
+        // recipeStorage onInventoryReady below) and adopt the real MRU order.
+        if (recipeRowWasOpen && activePresetFunction !== "recipes")
+            MainController.recipeStorage.requestInventory()
+        recipeRowWasOpen = (activePresetFunction === "recipes")
+
         // Paged pill rows always (re)open on the first page — the most-recent items.
         if (activePresetFunction === "recipes") recipePageIndex = 0
         else if (activePresetFunction === "beans") beanPageIndex = 0

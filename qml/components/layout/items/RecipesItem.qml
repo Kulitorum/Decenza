@@ -111,7 +111,12 @@ Item {
     Connections {
         target: MainController.recipeStorage
         function onInventoryReady(recipes) {
-            root.inventoryRecipes = recipes
+            // While the popup is open, hold the order the user is looking at —
+            // activating a recipe bumps last_used and a re-sort would move the
+            // pills mid-tap (#1673). Lifted on close (see presetPopup.onClosed).
+            root.inventoryRecipes = presetPopup.visible
+                ? PillFit.keepOrder(root.inventoryRecipes, recipes, "id")
+                : recipes
             root.recipePageIndex = Math.max(0, Math.min(root.recipePageIndex, root.recipePageCount - 1))
         }
         function onRecipesChanged() {
@@ -211,7 +216,12 @@ Item {
         // full-mode path, which announces via IdlePage).
         onAboutToShow: root.recipePageIndex = 0  // Always open on the most-recent five.
 
-        onClosed: { if (root.idlePage) root.idlePage.releasePanelClearance() }
+        onClosed: {
+            if (root.idlePage) root.idlePage.releasePanelClearance()
+            // Lift the order freeze held while open (#1673) — this request comes
+            // back in true MRU order, so the next open shows the fresh order.
+            MainController.recipeStorage.requestInventory()
+        }
         onOpened: {
             if (root.idlePage) {
                 var rootTopInPage = root.mapToItem(root.idlePage, 0, 0).y

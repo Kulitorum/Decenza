@@ -62,3 +62,44 @@ function packPageSizes(widths, spacing, availWidth, maxRows) {
     }
     return pages
 }
+
+// Keep the pill order the user is currently looking at (#1673).
+//
+// Every inventory query is ordered by last_used DESC, and activating a pill
+// touches last_used — so the next inventoryReady re-sorts the list and the row
+// REPACKS, moving pills (and re-wrapping the two rows) under the user's finger.
+// Activation itself emits no change signal, but the writes that settle right
+// after an apply do, which is why it only happens sometimes.
+//
+// While the row is open, callers pass the list they are showing as `prev`: rows
+// already on screen keep their positions, genuinely new rows are appended, and
+// removed rows drop out. The caller lifts the freeze on close (a fresh
+// requestInventory then adopts the real MRU order).
+//
+//   prev:  the list currently displayed (may be empty on first load)
+//   next:  the freshly loaded list, in true MRU order
+//   idKey: the identity field to match rows on ("id")
+function keepOrder(prev, next, idKey) {
+    if (!prev || prev.length === 0 || !next || next.length === 0)
+        return next
+    var position = ({})
+    for (var p = 0; p < prev.length; ++p) {
+        var prevId = prev[p][idKey]
+        if (prevId !== undefined)
+            position[prevId] = p
+    }
+    var known = []
+    var added = []
+    for (var n = 0; n < next.length; ++n) {
+        var id = next[n][idKey]
+        if (id !== undefined && position[id] !== undefined)
+            known.push({ order: position[id], row: next[n] })
+        else
+            added.push(next[n])   // new since the row opened — append, don't shuffle
+    }
+    known.sort(function(a, b) { return a.order - b.order })
+    var out = []
+    for (var k = 0; k < known.length; ++k)
+        out.push(known[k].row)
+    return out.concat(added)
+}
