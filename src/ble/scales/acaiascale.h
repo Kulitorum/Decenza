@@ -54,6 +54,12 @@ private:
     bool m_characteristicsReady = false;
     bool m_receivingNotifications = false;
     bool m_weightReceived = false;  // Track if we've received weight data
+    // One-shot latches so a persistently malformed stream can't flood the log
+    // ring (AsyncLogger drops on overflow, so a flood destroys the evidence).
+    // All three are reset per connection attempt in connectToDevice().
+    bool m_resyncLogged = false;
+    bool m_badBatteryLogged = false;
+    int m_infoFrameCount = 0;  // msgType 7 frames — reported on init failure
 
     // Timers
     QTimer* m_heartbeatTimer = nullptr;

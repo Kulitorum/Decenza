@@ -820,13 +820,14 @@ add_decenza_test(tst_shotimportdedupe
 target_link_libraries(tst_shotimportdedupe PRIVATE decenza_shotlib)
 target_include_directories(tst_shotimportdedupe PRIVATE ${CMAKE_BINARY_DIR})
 
-# --- tst_scaleprotocol: Scale BLE packet parsing (Decent, Bookoo, DiFluid) ---
+# --- tst_scaleprotocol: Scale BLE packet parsing (Decent, Bookoo, DiFluid, Acaia) ---
 add_decenza_test(tst_scaleprotocol
     tst_scaleprotocol.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/transport/scalebletransport.h
     ${CMAKE_SOURCE_DIR}/src/ble/scales/decentscale.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/scales/bookooscale.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/scales/difluidscale.cpp
+    ${CMAKE_SOURCE_DIR}/src/ble/scales/acaiascale.cpp
 )
 
 # --- tst_decentscalewifi: WiFi scale driver (WebSocket protocol) ---
