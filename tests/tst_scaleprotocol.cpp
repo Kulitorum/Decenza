@@ -42,12 +42,19 @@ public:
     void readCharacteristic(const QBluetoothUuid&, const QBluetoothUuid&) override {}
     bool isConnected() const override { return m_isConnected; }
 
-    // Drive the discovery handshake from a test (signals are protected on the base).
+    // Drive the discovery handshake from a test. Qt's `signals` macro expands to
+    // `public`, so these are not strictly necessary — they exist because
+    // `transport->fakeServiceDiscovered(x)` reads as "the transport reported x",
+    // which is the thing under test, rather than as a test emitting a signal.
     void fakeServiceDiscovered(const QBluetoothUuid& s) { emit serviceDiscovered(s); }
     void fakeServicesDiscoveryFinished() { emit servicesDiscoveryFinished(); }
     void fakeCharacteristicsDiscoveryFinished(const QBluetoothUuid& s) {
         emit characteristicsDiscoveryFinished(s);
     }
+    void fakeCharacteristicChanged(const QBluetoothUuid& c, const QByteArray& v) {
+        emit characteristicChanged(c, v);
+    }
+    void fakeDisconnected() { emit disconnected(); }
 
     int m_notifyEnableCount = 0;
     int m_disconnectCount = 0;
@@ -930,6 +937,130 @@ private slots:
         QVERIFY(transport->m_notifyEnableCount >= 1);
     }
 
+    // === DiFluid Microbalance / Microbalance Ti ===
+
+    // The service-selection tests below feed a constant in and assert the same
+    // constant comes out, and production compares that symbol to itself in between —
+    // so they cannot catch a wrong UUID. This is the assertion that ties the suite to
+    // the actual protocol fact the Ti support rests on.
+    void difluidServiceUuidsMatchTheProtocol() {
+        QCOMPARE(Scale::DiFluid::SERVICE.toString(),
+                 QString("{000000ee-0000-1000-8000-00805f9b34fb}"));
+        QCOMPARE(Scale::DiFluid::SERVICE_TI.toString(),
+                 QString("{000000dd-0000-1000-8000-00805f9b34fb}"));
+        QCOMPARE(Scale::DiFluid::CHARACTERISTIC.toString(),
+                 QString("{0000aa01-0000-1000-8000-00805f9b34fb}"));
+        QVERIFY2(Scale::DiFluid::SERVICE != Scale::DiFluid::SERVICE_TI,
+                 "the two models must not share a service, or Ti support is a no-op");
+    }
+
+    // DiFluid's worked example from protocolMicrobalance.md. Weight is bytes 5-8,
+    // signed, x10 grams: 0x000002F8 = 760 -> 76.0 g.
+    static QByteArray difluidWeightFrame(qint32 rawWeight) {
+        QByteArray f = QByteArray::fromHex("dfdf03000d");
+        f.append(static_cast<char>((rawWeight >> 24) & 0xFF));
+        f.append(static_cast<char>((rawWeight >> 16) & 0xFF));
+        f.append(static_cast<char>((rawWeight >> 8) & 0xFF));
+        f.append(static_cast<char>(rawWeight & 0xFF));
+        f.append(QByteArray::fromHex("00000000000a27b000a9"));  // timer + trailer
+        return f;
+    }
+
+    void difluidParsesTheDocumentedWeightFrame() {
+        auto* transport = new MockScaleBleTransport;
+        DifluidScale scale(transport);
+        QSignalSpy weightSpy(&scale, &ScaleDevice::weightChanged);
+
+        // Verbatim from the vendor doc, checksum byte included.
+        const QByteArray doc = QByteArray::fromHex(
+            "dfdf03000d000002f800000000000a27b000a9");
+        QCOMPARE(doc.size(), 19);
+        transport->fakeCharacteristicChanged(Scale::DiFluid::CHARACTERISTIC, doc);
+
+        QVERIFY2(!weightSpy.isEmpty(), "the vendor's own weight frame produced no reading");
+        QCOMPARE(scale.weight(), 76.0);
+    }
+
+    void difluidWeightGoesNegativeAfterTare() {
+        // The field is signed. Read unsigned, -0.5 g became 4294967291 and was
+        // discarded by the range gate, freezing the display at its last value.
+        auto* transport = new MockScaleBleTransport;
+        DifluidScale scale(transport);
+
+        transport->fakeCharacteristicChanged(Scale::DiFluid::CHARACTERISTIC,
+                                             difluidWeightFrame(-5));
+        QCOMPARE(scale.weight(), -0.5);
+    }
+
+    void difluidRejectsImplausibleAndShortFrames() {
+        auto* transport = new MockScaleBleTransport;
+        DifluidScale scale(transport);
+        QSignalSpy weightSpy(&scale, &ScaleDevice::weightChanged);
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Short notification"));
+        transport->fakeCharacteristicChanged(Scale::DiFluid::CHARACTERISTIC,
+                                             QByteArray::fromHex("dfdf030001"));
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Weight out of range"));
+        transport->fakeCharacteristicChanged(Scale::DiFluid::CHARACTERISTIC,
+                                             difluidWeightFrame(999999));
+
+        QVERIFY(weightSpy.isEmpty());
+    }
+
+    void difluidPrefersTheFirstServiceWhenBothAreAdvertised() {
+        // A vendor keeping the old service for compatibility is exactly the shape of
+        // this change, and BLE discovery order is not guaranteed — so this must not
+        // be a coin toss.
+        auto* transport = new MockScaleBleTransport;
+        DifluidScale scale(transport);
+
+        transport->fakeServiceDiscovered(Scale::DiFluid::SERVICE);
+        transport->fakeServiceDiscovered(Scale::DiFluid::SERVICE_TI);
+        transport->fakeServicesDiscoveryFinished();
+
+        QCOMPARE(transport->m_characteristicDiscoveries.size(), 1);
+        QCOMPARE(transport->m_characteristicDiscoveries.at(0), Scale::DiFluid::SERVICE);
+    }
+
+    void difluidCommandsAreRefusedAndLoggedBeforeDiscovery() {
+        auto* transport = new MockScaleBleTransport;
+        DifluidScale scale(transport);
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Dropping command"));
+        scale.tare();
+
+        QVERIFY2(transport->m_writes.isEmpty(), "a command was written before any service was adopted");
+    }
+
+    void difluidDisconnectClearsLinkState() {
+        auto* transport = new MockScaleBleTransport;
+        DifluidScale scale(transport);
+
+        transport->fakeServiceDiscovered(Scale::DiFluid::SERVICE_TI);
+        transport->fakeServicesDiscoveryFinished();
+        transport->fakeCharacteristicsDiscoveryFinished(Scale::DiFluid::SERVICE_TI);
+        QVERIFY(scale.isConnected());
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("DISCONNECTED"));
+        transport->fakeDisconnected();
+
+        // The 100ms notification-enable timer armed by characteristic discovery is
+        // still pending. It must not enable notifications on a dropped link — and it
+        // returns on the characteristicsReady check before reaching the m_service
+        // guard, so it does so silently. Let it fire to prove it stays quiet.
+        QTest::qWait(200);
+        QVERIFY2(transport->m_notifyEnableCount == 0,
+                 "notifications were enabled after the link dropped");
+
+        // Without the reset, sendCommand's guards still pass and every later write
+        // goes to a torn-down transport.
+        transport->m_writes.clear();
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Dropping command"));
+        scale.tare();
+        QVERIFY(transport->m_writes.isEmpty());
+    }
+
     // === DiFluid Microbalance / Microbalance Ti service selection ===
     //
     // The two models are the same protocol on different services (0x00EE vs
@@ -987,7 +1118,8 @@ private slots:
         // A Decent Scale service on a device we routed here by name must not be
         // mistaken for a DiFluid one.
         transport->fakeServiceDiscovered(Scale::Decent::SERVICE);
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Neither DiFluid service.*"));
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression("advertises neither DiFluid service"));
         transport->fakeServicesDiscoveryFinished();
 
         QVERIFY(transport->m_characteristicDiscoveries.isEmpty());

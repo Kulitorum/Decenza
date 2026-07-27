@@ -4,6 +4,7 @@
 #include "../transport/scalebletransport.h"
 
 #include <QBluetoothUuid>
+#include <QStringList>
 
 class DifluidScale : public ScaleDevice {
     Q_OBJECT
@@ -35,6 +36,9 @@ private slots:
 
 private:
     void sendCommand(const QByteArray& cmd);
+    // Clears the per-link state so a dropped connection cannot leave sendCommand's
+    // guards passing against a torn-down transport.
+    void resetLinkState();
     void enableNotifications();
     void setToGrams();
 
@@ -44,7 +48,10 @@ private:
     // original Microbalance, 0x00DD on the Ti. Null until discovery finds one,
     // so it doubles as the "service found" flag. Everything downstream
     // (characteristic discovery, notifications, writes) uses this rather than a
-    // hard-coded constant, because the two models differ only here.
+    // hard-coded constant, because that is where the two models differ.
     QBluetoothUuid m_service;
+    // Everything else the device advertised, so a "not a DiFluid" failure can say
+    // what it did find instead of only what it didn't.
+    QStringList m_discoveredServices;
     bool m_characteristicsReady = false;
 };

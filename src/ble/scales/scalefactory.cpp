@@ -241,9 +241,13 @@ bool ScaleFactory::isSmartChefScale(const QString& name) {
 bool ScaleFactory::isDifluidScale(const QString& name) {
     // Exclude R2 refractometer — it advertises with "difluid" in its name
     if (name.contains("r2")) return false;
-    // "mb ti" is the short form the Microbalance Ti can advertise under, which
-    // carries neither "difluid" nor "microbalance" (Beanconqueror matches the
-    // same two names). Without it a Ti is never routed to DifluidScale at all.
+    // "mb ti" is a short form the Microbalance Ti may advertise under, carrying
+    // neither "difluid" nor "microbalance". Beanconqueror's DifluidMicrobalanceTi
+    // matches "microbalance ti" and "mb ti", which is where this string comes from
+    // — neither DiFluid's docs nor ours records the Ti's actual advertised name, so
+    // it is unconfirmed against hardware. A Ti advertising the long form already
+    // matched via "microbalance"; this only adds the short one. NB: callers
+    // lowercase before calling, this function does not.
     return name.contains("difluid") ||
            name.contains("microbalance") ||
            name.contains("mb ti");
