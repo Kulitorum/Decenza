@@ -36,11 +36,17 @@ DiFluidR2::DiFluidR2(ScaleBleTransport* transport, QObject* parent)
     m_measurementTimer.setSingleShot(true);
     m_measurementTimer.setInterval(15000);
     connect(&m_measurementTimer, &QTimer::timeout, this, [this]() {
-        if (m_measuring) {
-            R2_WARN("Measurement timeout");
-            m_measuring = false;
-            emit measuringChanged();
-        }
+        if (!m_measuring) return;
+        // Every other failure in this driver reaches the error dialog. This is the
+        // most common real one — R2 out of range, asleep, or a write that never
+        // landed — and it used to stop the spinner with no message at all, leaving
+        // the user to conclude the button was broken.
+        R2_WARN(QString("Measurement timeout — no packet from the R2 for %1 ms")
+                    .arg(m_measurementTimer.interval()));
+        emit errorOccurred("The refractometer stopped responding. Check it is "
+                           "switched on and in range, then try again.");
+        m_measuring = false;
+        emit measuringChanged();
     });
 
     // BLE stack constraint: Qt's BLE layer (Android BluetoothLE + iOS CoreBluetooth)
@@ -59,20 +65,15 @@ DiFluidR2::DiFluidR2(ScaleBleTransport* transport, QObject* parent)
         emit connectedChanged();
         R2_LOG("Connected and ready for measurements");
 
-        // Send "get temperature unit" as init handshake (Func=1, Cmd=0, DataLen=0)
-        // This benign query confirms the BLE link is working and may wake the R2
-        QByteArray initCmd;
-        initCmd.append(static_cast<char>(0xDF));
-        initCmd.append(static_cast<char>(0xDF));
-        initCmd.append(static_cast<char>(0x01));  // Func: Settings
-        initCmd.append(static_cast<char>(0x00));  // Cmd: Temperature Unit
-        initCmd.append(static_cast<char>(0x00));  // DataLen: 0 (query)
-        uint8_t checksum = 0;
-        for (qsizetype i = 0; i < initCmd.size(); ++i)
-            checksum += static_cast<uint8_t>(initCmd[i]);
-        initCmd.append(static_cast<char>(checksum));
-        R2_LOG(QString("Sending init query: %1").arg(QString(initCmd.toHex(' '))));
-        sendCommand(initCmd);
+        // Put the R2 into Celsius (Func=1 Settings, Cmd=0 Temperature Unit, Data=0).
+        // Doubles as the init handshake the connect path has always sent — it
+        // confirms the BLE link and may wake the R2 — but as a write rather than a
+        // query, so the device also stops reporting in whatever unit it was left in.
+        // Belt and braces with the pack-1 Data5 conversion below, which stays: the
+        // set is not instantaneous, packets from a device-initiated measurement can
+        // already be in flight, and Data5 is authoritative for the packet carrying it.
+        R2_LOG("Setting device temperature unit to Celsius");
+        sendCommand(QByteArray::fromHex("DFDF01000100C0"));  // Set Temperature Unit = °C
 
         // Instrumentation: identify the unit. Per DiFluid's official protocolR2.md, a
         // genuine R2 Extract (model "DFT-R102") transmits coffee *TDS* in pack 2, while
@@ -316,6 +317,25 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
         return;
     }
 
+    // Func 1 = Device Settings. The R2 echoes the setting back, so the response to
+    // the connect-time "set Celsius" write is the confirmation that it took. Worth
+    // logging on its own line: if a reading ever looks unit-shifted, this says
+    // whether the device was actually switched or the write went missing.
+    if (func == 1 && cmd == 0) {
+        // Absent data must not be printed as data: defaulting to 0 made a
+        // zero-length response log a confident "°C", and this line is exactly what
+        // someone will trust when diagnosing a unit-shifted reading.
+        if (dataLen < 1) {
+            R2_WARN(QString("Temperature-unit response carried no data byte: %1")
+                        .arg(QString(packet.toHex(' '))));
+            return;
+        }
+        const uint8_t unit = static_cast<uint8_t>(packet[5]);
+        R2_LOG(QString("Temperature unit now: %1")
+                   .arg(unit == 1 ? QStringLiteral("°F") : QStringLiteral("°C")));
+        return;
+    }
+
     // Func 3 = Device Action (test results)
     if (func == 3) {
         // Instrumentation: full raw bytes of every result packet, so a Brix-vs-TDS
@@ -323,9 +343,21 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
         R2_LOG(QString("Action packet raw: %1").arg(QString(packet.toHex(' '))));
 
         if (cmd == 254) {
-            // Error response
-            uint8_t errClass = dataLen > 0 ? static_cast<uint8_t>(packet[5]) : 0;
-            uint8_t errCode = dataLen > 1 ? static_cast<uint8_t>(packet[6]) : 0;
+            // Error response. class=0 code=0 is a real pair, so substituting zeros for
+            // absent bytes both fabricates a plausible code and skips the class-2
+            // branch below — a truncated "No liquid detected" would reach the user as
+            // nothing at all.
+            if (dataLen < 2) {
+                R2_WARN(QString("Error packet truncated (dataLen=%1, need 2): %2 — "
+                                "cannot classify, clearing the measurement")
+                            .arg(dataLen).arg(QString(packet.toHex(' '))));
+                m_measurementTimer.stop();
+                m_measuring = false;
+                emit measuringChanged();
+                return;
+            }
+            uint8_t errClass = static_cast<uint8_t>(packet[5]);
+            uint8_t errCode = static_cast<uint8_t>(packet[6]);
             R2_WARN(QString("R2 error: class=%1 code=%2").arg(errClass).arg(errCode));
             // Surface ONLY the user-actionable measurement failures. Class-2 are
             // the measurement errors; other class/code combos (notably 0/2) are
@@ -356,7 +388,14 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
         switch (packNo) {
         case 0: {
             // Status: Data1 = status code
-            uint8_t status = dataLen >= 2 ? static_cast<uint8_t>(packet[6]) : 0;
+            // Status 0 is "Test finished", so defaulting an absent byte to 0 turned a
+            // truncated packet into a confident claim that the measurement completed.
+            if (dataLen < 2) {
+                R2_WARN(QString("Status packet carried no status byte: %1")
+                            .arg(QString(packet.toHex(' '))));
+                return;
+            }
+            uint8_t status = static_cast<uint8_t>(packet[6]);
             R2_LOG(QString("Status: %1").arg(status));
             if (status == 0) {
                 R2_LOG("Test finished");
@@ -366,15 +405,56 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
             break;
         }
         case 1: {
-            // Temperature: Data1-2 = prism temp * 10, Data3-4 = tank temp * 10
-            if (dataLen < 5) return;
+            // Temperature: Data1-2 = prism temp * 10, Data3-4 = tank temp * 10,
+            // Data5 = the unit those two are expressed in (0 = °C, 1 = °F).
+            //
+            // The unit is a device setting the user flips on the R2 itself, and it
+            // changes the wire values — DiFluid's own worked example in protocolR2.md
+            // is a °F packet (`... 03 17 03 14 01` = 79.1/78.8 °F). Ignoring Data5
+            // meant an R2 set to Fahrenheit reported 79.1 as if it were Celsius.
+            // RefractometerDevice::temperature() is Celsius (DiFluidR1 emits °C), so
+            // convert here rather than let a unit-tagged number escape the driver.
+            if (dataLen < 5) {
+                // Every neighbouring malformed-packet path warns; this one used to
+                // return in silence, so a framing change would show up as the
+                // temperature simply never updating against a clean log.
+                R2_WARN(QString("Temperature packet too short (dataLen=%1, need 5): %2")
+                            .arg(dataLen).arg(QString(packet.toHex(' '))));
+                return;
+            }
             uint16_t prismTemp = static_cast<uint16_t>(
                 (static_cast<uint8_t>(packet[6]) << 8) | static_cast<uint8_t>(packet[7]));
             uint16_t tankTemp = static_cast<uint16_t>(
                 (static_cast<uint8_t>(packet[8]) << 8) | static_cast<uint8_t>(packet[9]));
-            m_temperature = prismTemp / 10.0;
-            R2_LOG(QString("Temperature: prism=%1°C tank=%2°C")
-                .arg(prismTemp / 10.0, 0, 'f', 1).arg(tankTemp / 10.0, 0, 'f', 1));
+
+            // Unit provenance matters as much as the unit. A packet with no Data5 and
+            // a packet that says "Celsius" used to log identically, so the one case
+            // where we know the unit and the one where we are guessing were
+            // indistinguishable in the only record that exists.
+            enum class Unit { Celsius, Fahrenheit, Unreported, Unrecognised };
+            Unit unit = Unit::Unreported;
+            if (dataLen >= 6) {
+                const uint8_t raw = static_cast<uint8_t>(packet[10]);
+                unit = raw == 0 ? Unit::Celsius
+                     : raw == 1 ? Unit::Fahrenheit
+                                : Unit::Unrecognised;
+                if (unit == Unit::Unrecognised)
+                    R2_WARN(QString("Unrecognised temperature unit byte 0x%1 — treating as °C")
+                                .arg(raw, 2, 16, QLatin1Char('0')));
+            }
+            const bool fahrenheit = (unit == Unit::Fahrenheit);
+            const auto toCelsius = [fahrenheit](double t) {
+                return fahrenheit ? (t - 32.0) * 5.0 / 9.0 : t;
+            };
+            const double prismC = toCelsius(prismTemp / 10.0);
+            const double tankC = toCelsius(tankTemp / 10.0);
+            m_temperature = prismC;
+            R2_LOG(QString("Temperature: prism=%1°C tank=%2°C (unit: %3)")
+                .arg(prismC, 0, 'f', 1).arg(tankC, 0, 'f', 1)
+                .arg(unit == Unit::Celsius      ? QStringLiteral("°C, reported by device")
+                   : unit == Unit::Fahrenheit   ? QStringLiteral("°F, converted")
+                   : unit == Unit::Unreported   ? QStringLiteral("not reported — assuming °C")
+                                                : QStringLiteral("unrecognised — assuming °C")));
             emit temperatureChanged(m_temperature);
             break;
         }
@@ -469,7 +549,17 @@ bool DiFluidR2::validateChecksum(const QByteArray& packet) const {
 }
 
 void DiFluidR2::sendCommand(const QByteArray& cmd) {
-    if (!m_transport || !m_characteristicsReady) return;
+    // Silence here is the empty-catch-block of BLE drivers: requestMeasurement()
+    // has already set the measuring state and armed the watchdog by this point, so
+    // a dropped write shows up as a spinner that runs to timeout with nothing in
+    // the log to say the request never left.
+    if (!m_transport || !m_characteristicsReady) {
+        R2_WARN(QString("Dropping command %1 — %2")
+                    .arg(QString(cmd.toHex(' ')),
+                         m_transport ? QStringLiteral("characteristics not ready")
+                                     : QStringLiteral("no transport")));
+        return;
+    }
     m_transport->writeCharacteristic(Refractometer::DiFluidR2::SERVICE,
                                      Refractometer::DiFluidR2::CHARACTERISTIC, cmd);
 }

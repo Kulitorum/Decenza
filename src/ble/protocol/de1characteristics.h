@@ -255,9 +255,23 @@ namespace Generic {
     const QBluetoothUuid CMD(QString("0000FFF2-0000-1000-8000-00805F9B34FB"));
 }
 
-// DiFluid
+// DiFluid Microbalance / Microbalance Ti
+//
+// The Ti speaks the same DF-DF command protocol but advertises a *different*
+// 16-bit service: the original Microbalance uses 0x00EE, the Ti 0x00DD
+// (protocolMicrobalance.md, updated Dec 2024). Matching only 0x00EE meant a Ti
+// reached service discovery, matched nothing, warned, and never became a
+// connected scale. Both are accepted; DifluidScale remembers which one the
+// connected device actually exposed.
+//
+// On the characteristic, the cited document is self-inconsistent: it lists AA01
+// for both models, then directs FF01 as the communication channel for the
+// original Microbalance and AA01 for the Ti. AA01 is what Beanconqueror uses for
+// both (difluidMicrobalance.ts, difluidMicrobalanceTi.ts) and what has shipped
+// here, so AA01 it is — but that is a working-practice claim, not a spec one.
 namespace DiFluid {
     const QBluetoothUuid SERVICE(QString("000000EE-0000-1000-8000-00805F9B34FB"));
+    const QBluetoothUuid SERVICE_TI(QString("000000DD-0000-1000-8000-00805F9B34FB"));
     const QBluetoothUuid CHARACTERISTIC(QString("0000AA01-0000-1000-8000-00805F9B34FB"));
 }
 

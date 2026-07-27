@@ -79,15 +79,19 @@ private:
     }
 
     // Build a temperature packet: Func=3, Cmd=0, PackNo=1
-    // Prism temp = tempC * 10, tank temp = tempC * 10
-    static QByteArray buildTemperaturePacket(double tempC) {
-        uint16_t raw = static_cast<uint16_t>(qRound(tempC * 10.0));
+    // Prism temp = temp * 10, tank temp = temp * 10, both in the DEVICE's unit.
+    // unit: -1 omits Data5 entirely (firmware predating the unit byte, dataLen 5),
+    //        0 = °C, 1 = °F.
+    static QByteArray buildTemperaturePacket(double temp, int unit = -1) {
+        uint16_t raw = static_cast<uint16_t>(qRound(temp * 10.0));
         QByteArray data;
         data.append(static_cast<char>(0x01));  // PackNo = 1 (temperature)
         data.append(static_cast<char>((raw >> 8) & 0xFF));  // Prism temp high
         data.append(static_cast<char>(raw & 0xFF));          // Prism temp low
         data.append(static_cast<char>((raw >> 8) & 0xFF));  // Tank temp high
         data.append(static_cast<char>(raw & 0xFF));          // Tank temp low
+        if (unit >= 0)
+            data.append(static_cast<char>(unit));            // Data5: 0 = °C, 1 = °F
         return buildR2Packet(0x03, 0x00, data);
     }
 
@@ -331,6 +335,52 @@ private slots:
         // Temperature is prism temp / 10.0, encoded as tempC * 10
         QCOMPARE(spy.at(0).at(0).toDouble(), 23.50);
         QCOMPARE(r2.temperature(), 23.50);
+    }
+
+    // Data5 = 0: the device is already reporting Celsius, pass through unchanged.
+    void parseTemperaturePacketCelsiusUnit() {
+        DiFluidR2 r2(nullptr);
+        QSignalSpy spy(&r2, &DiFluidR2::temperatureChanged);
+
+        r2.handlePacket(buildTemperaturePacket(23.50, /*unit=*/0));
+
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(spy.at(0).at(0).toDouble(), 23.50);
+        QCOMPARE(r2.temperature(), 23.50);
+    }
+
+    // Data5 = 1: the device is reporting Fahrenheit and the driver must convert.
+    // Values are DiFluid's own worked example from protocolR2.md (79.1 °F prism).
+    // Before Data5 was honoured this surfaced as "79.1 °C".
+    void parseTemperaturePacketFahrenheitConverted() {
+        DiFluidR2 r2(nullptr);
+        QSignalSpy spy(&r2, &DiFluidR2::temperatureChanged);
+
+        r2.handlePacket(buildTemperaturePacket(79.1, /*unit=*/1));
+
+        QCOMPARE(spy.count(), 1);
+        const double expectedC = (79.1 - 32.0) * 5.0 / 9.0;  // ≈ 26.17
+        QVERIFY(qAbs(spy.at(0).at(0).toDouble() - expectedC) < 0.001);
+        QVERIFY(qAbs(r2.temperature() - expectedC) < 0.001);
+        // Guard the actual regression: never report the raw Fahrenheit number.
+        QVERIFY(qAbs(r2.temperature() - 79.1) > 1.0);
+    }
+
+    // The R2 echoes a settings write back (Func 1, Cmd 0 = temperature unit).
+    // That echo is log-only — it must not be mistaken for measurement data.
+    void settingsEchoIsNotTreatedAsMeasurement() {
+        DiFluidR2 r2(nullptr);
+        QSignalSpy tempSpy(&r2, &DiFluidR2::temperatureChanged);
+        QSignalSpy tdsSpy(&r2, &DiFluidR2::tdsChanged);
+
+        QByteArray data;
+        data.append(static_cast<char>(0x00));  // 0 = °C
+        r2.handlePacket(buildR2Packet(0x01, 0x00, data));
+
+        QCOMPARE(tempSpy.count(), 0);
+        QCOMPARE(tdsSpy.count(), 0);
+        QCOMPARE(r2.temperature(), 0.0);
+        QCOMPARE(r2.tds(), 0.0);
     }
 
     // === Status packet parsing ===
