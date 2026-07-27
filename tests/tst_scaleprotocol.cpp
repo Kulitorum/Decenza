@@ -997,13 +997,46 @@ private slots:
         DifluidScale scale(transport);
         QSignalSpy weightSpy(&scale, &ScaleDevice::weightChanged);
 
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Short notification"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Sensor frame too short"));
         transport->fakeCharacteristicChanged(Scale::DiFluid::CHARACTERISTIC,
                                              QByteArray::fromHex("dfdf030001"));
 
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Weight out of range"));
         transport->fakeCharacteristicChanged(Scale::DiFluid::CHARACTERISTIC,
                                              difluidWeightFrame(999999));
+
+        QVERIFY(weightSpy.isEmpty());
+    }
+
+    void difluidIgnoresSettingsEchoesQuietly() {
+        // AA01 is also the characteristic the driver WRITES to, and the DF-DF family
+        // echoes settings back — so enableNotifications() and setToGrams() each drew a
+        // "too short" warning on every connect, calling healthy traffic malformed. At
+        // 5Hz a format mismatch would also evict the 1000-entry scale log, destroying
+        // the artifact someone would be asked to share.
+        auto* transport = new MockScaleBleTransport;
+        DifluidScale scale(transport);
+        QSignalSpy weightSpy(&scale, &ScaleDevice::weightChanged);
+
+        // Func 1 Cmd 0 echo — no warning, and failOnWarning() enforces that.
+        transport->fakeCharacteristicChanged(Scale::DiFluid::CHARACTERISTIC,
+                                             QByteArray::fromHex("dfdf01000101c1"));
+        QVERIFY(weightSpy.isEmpty());
+    }
+
+    void difluidExtremeWeightBytesDoNotTripUndefinedBehaviour() {
+        // 80 00 00 00 is INT32_MIN, the canonical "invalid reading" sentinel and the
+        // shape an unrecognised frame produces. qAbs() asserts on it in debug builds
+        // and is signed-overflow UB in release, so the range check must not use it.
+        auto* transport = new MockScaleBleTransport;
+        DifluidScale scale(transport);
+        QSignalSpy weightSpy(&scale, &ScaleDevice::weightChanged);
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Weight out of range"));
+        transport->fakeCharacteristicChanged(
+            Scale::DiFluid::CHARACTERISTIC,
+            QByteArray::fromHex("dfdf03000d") + QByteArray::fromHex("80000000")
+                + QByteArray::fromHex("00000000000a27b000a9"));
 
         QVERIFY(weightSpy.isEmpty());
     }

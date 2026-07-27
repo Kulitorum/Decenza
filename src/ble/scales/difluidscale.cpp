@@ -47,7 +47,6 @@ void DifluidScale::connectToDevice(const QBluetoothDeviceInfo& device) {
 
     m_name = device.name();
     resetLinkState();
-    m_discoveredServices.clear();
 
     DIFLUID_LOG(QString("Connecting to %1 (%2)")
                 .arg(device.name())
@@ -73,6 +72,7 @@ void DifluidScale::resetLinkState() {
     // subsequent tare/timer write goes to a torn-down transport.
     m_service = QBluetoothUuid();
     m_characteristicsReady = false;
+    m_discoveredServices.clear();
 }
 
 void DifluidScale::onTransportError(const QString& message) {
@@ -152,13 +152,9 @@ void DifluidScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& serv
     // de1app uses 100ms delay for Difluid
     DIFLUID_LOG("Scheduling notification enable in 100ms (de1app timing)");
     QTimer::singleShot(100, this, [this]() {
+        // resetLinkState() clears m_characteristicsReady and m_service together, so
+        // this one check covers a link that dropped inside the 100ms window.
         if (!m_transport || !m_characteristicsReady) return;
-        // The link can drop inside this 100ms window, and resetLinkState() nulls
-        // m_service — without this guard we would enable notifications on a null UUID.
-        if (m_service.isNull()) {
-            DIFLUID_WARN("Notification enable aborted — link dropped during setup");
-            return;
-        }
         DIFLUID_LOG("Enabling notifications (100ms)");
         m_transport->enableNotifications(m_service, Scale::DiFluid::CHARACTERISTIC);
 
@@ -185,8 +181,17 @@ void DifluidScale::onCharacteristicChanged(const QBluetoothUuid& characteristicU
     // reached only when the weight was exactly zero, and then it was parsing the
     // timer bytes. The comment already said "bytes 5-8" (four bytes); the code
     // took a character count for a byte count.
+    // Sensor frames only. This characteristic also carries the device's echoes of our
+    // own settings writes (Func 1), which are 6-7 bytes — warning about those would
+    // describe healthy traffic as malformed, and at 5Hz a mismatched format would
+    // evict the whole 1000-entry scale log, destroying the artifact a diagnostician
+    // asks for. Anything that is not a sensor frame is logged quietly and dropped.
+    if (!value.startsWith(QByteArray::fromHex("dfdf0300"))) {
+        DIFLUID_LOG(QString("Non-sensor notification: %1").arg(QString(value.toHex(' '))));
+        return;
+    }
     if (value.size() < 19) {
-        DIFLUID_WARN(QString("Short notification (%1 bytes, need 19): %2")
+        DIFLUID_WARN(QString("Sensor frame too short (%1 bytes, need 19): %2")
                          .arg(value.size()).arg(QString(value.toHex(' '))));
         return;
     }
@@ -200,7 +205,7 @@ void DifluidScale::onCharacteristicChanged(const QBluetoothUuid& characteristicU
         | (static_cast<quint32>(static_cast<quint8>(value[7])) << 8)
         |  static_cast<quint32>(static_cast<quint8>(value[8])));
 
-    if (qAbs(weightRaw) >= 20000) {
+    if (weightRaw <= -20000 || weightRaw >= 20000) {
         DIFLUID_WARN(QString("Weight out of range: raw=%1 (%2 g) — ignoring")
                          .arg(weightRaw).arg(weightRaw / 10.0));
         return;
