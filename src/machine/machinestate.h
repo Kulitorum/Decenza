@@ -27,14 +27,20 @@ class MachineState : public QObject {
     // rationale in src/controllers/maincontroller.h.
     //
     // ONE REAL BEHAVIOURAL CHANGE, and it is not obvious from the macros. Qt resolves enums on a
-    // singleton INSIDE the instance guard — qqmltypewrapper.cpp: `if (QObject *qobjectSingleton
-    // = enginePrivate->singletonInstance<QObject*>(type))`, with the enum branch within it. The
-    // old uncreatable-type registration took the `else` branch a few lines below, which needs no
-    // instance at all. So the ~153 `MachineState.Phase.X` sites in qml/ used to be
-    // instance-independent constants and now depend on setQmlInstance() having run. Miss that
-    // call and they are all `undefined` — which on the right of a `===` or a `>=` is silently
-    // false rather than an error. tst_qmlregistration asserts the publish call for exactly this
-    // reason, and cross-checks the enumerator names QML uses against the registered enum.
+    // singleton INSIDE the instance guard — qqmltypewrapper.cpp:320,
+    // `if (QObject *qobjectSingleton = enginePrivate->singletonInstance<QObject*>(type))`, with
+    // the enum branch within it. The old uncreatable-type registration took the `else` at :361,
+    // which needs no instance at all. So the 155 `MachineState.Phase.X` reads in qml/ (on 153
+    // lines) used to be instance-independent constants and now depend on setQmlInstance().
+    //
+    // Miss that call and `MachineState.Phase` is `undefined`, so reading `.Pouring` off it
+    // THROWS a TypeError with a file and line — these sites are the loud ones. The quiet damage
+    // is elsewhere in the same failure: `Connections { target: MachineState }` (20+ sites)
+    // resolves its target to null and simply never connects, and plain reads like
+    // `MachineState.isReady` are `undefined`, hence falsy, so guarded actions refuse while
+    // logging only their own "cannot start" line. If you are ever debugging that, look at the
+    // Connections, not at the enums. tst_qmlregistration asserts the publish call for exactly
+    // this reason.
     QML_ELEMENT
     QML_SINGLETON
 

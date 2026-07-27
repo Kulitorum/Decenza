@@ -104,7 +104,25 @@ the gate could be built. Read task 1.1 before trusting a number in these documen
   it would have counted as clean, so the gate would have rewarded the mistake. One file is
   exempt by design (`qml/designer/DE1AppStubs.qml`, believed to be read by Qt Design Studio —
   since deleted, see 3.13).
-- [ ] 1.9 Wire the gate into CI so it runs on a branch push, not only on a release tag
+- [x] 1.9 / 1.3 Gate wired into CI as a step on `nightly-sanitizers.yml`, not a new workflow.
+  - **It costs ~8 seconds and no extra build.** `.rcc/qmllint/Decenza.rsp` is written by CMake at
+    CONFIGURE time, and `Decenza.qmltypes` plus the module qmldir come from the `Decenza` target,
+    which `ninja build_tests` already builds because `tst_qmlregistration` depends on it. That
+    dependency (added earlier in this change) is load-bearing for the cost: without it the step
+    would have to build the app itself.
+  - **It also makes the workflow's own comment stale**, and that is recorded there: `build_tests`
+    was measured at 524 steps vs `all`'s 1238 when that comment was written; it is now 1321 vs
+    1369, because of the same dependency.
+  - ubsan leg only — the lint reads QML sources and generated type info, which no sanitizer flag
+    touches, so the asan leg could only report the identical answer twice.
+  - The step FAILS rather than skips when `qmllint_check` is absent. CMake omits that target when
+    it cannot find qmllint next to Qt's bin/, and a gate that silently does not exist is the
+    failure this gate was written to end. Whether `install-qt-action` ships qmllint on Linux was
+    never confirmed by anyone; this step is what answers it, on the first night it runs.
+  - Nightly, not PR: nothing on GitHub builds a PR (`text-invariants.yml` runs per-PR but is
+    build-free by design), so a PR-time gate would mean a Qt install and a full build on a path
+    people wait on, against ~4 GB of cache headroom. The tradeoff accepted is that a regression is
+    reported the morning after it merges — the same deal ASan already has.
 - [x] 1.10 Verify the gate is green at HEAD; that it goes red when an undeclared identifier is
   added to a CLEAN file; and that it goes red when a dirty file's count increases. All three
   confirmed, and the clean-file probe re-confirmed on the `--skip-unlintable` path so that

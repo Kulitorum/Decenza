@@ -3477,8 +3477,10 @@ int main(int argc, char *argv[])
     // Register types for QML under a "…Type" name, because the context property of the plain
     // name shadows the type. MachineStateType used to be here for exactly that reason; it is
     // gone because MachineState is now a QML_SINGLETON, which needs no second name — QML reads
-    // its enums as MachineState.Phase.X straight off the singleton. DE1Device is the last one
-    // left in this shape, and it goes the same way when its context property does.
+    // its enums as MachineState.Phase.X straight off the singleton. DE1Device is the last
+    // RUNTIME qmlRegisterUncreatableType in this shape; SteamHealthTracker is still in the shape
+    // itself, via QML_NAMED_ELEMENT(SteamHealthTrackerType) in its header plus the context
+    // property set above. Both go the same way when their context properties do.
     qmlRegisterUncreatableType<DE1Device>("Decenza", 1, 0, "DE1DeviceType",
         "DE1Device is created in C++");
     // AIConversation moved to QML_ELEMENT + QML_UNCREATABLE in aiconversation.h, for the same
@@ -3698,7 +3700,11 @@ int main(int argc, char *argv[])
         ghcEngine.rootContext()->setContextProperty("GHCSimulator", &ghcSimulator);
         ghcEngine.rootContext()->setContextProperty("DE1Device", &de1Device);
         ghcEngine.rootContext()->setContextProperty("DE1Simulator", &de1Simulator);
-        ghcEngine.rootContext()->setContextProperty("Settings", &settings);
+        // No Settings line here. Settings is a QML_FOREIGN + QML_SINGLETON (settings_qml.h) and
+        // GHCSimulatorWindow.qml imports Decenza, so it resolves on this engine already. A
+        // context property of the same name would SHADOW the singleton and be invisible to
+        // qmllint, qmlcachegen and the language server — the #1661 shape. The TemperatureDisplay
+        // line that sat beside this one went for the same reason.
 
         QObject::connect(&ghcEngine, &QQmlApplicationEngine::objectCreated, &app,
             [](QObject *obj, const QUrl &objUrl) {

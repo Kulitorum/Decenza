@@ -61,7 +61,61 @@ struct SingletonDecl {
     QString publishExpr; // expected text in main.cpp; empty = must NOT appear
 };
 
-QList<SingletonDecl> scanSingletons()
+// Where a QML_SINGLETON declaration was found but could not be parsed. Never silently dropped:
+// a scan that quietly skips a class still returns a plausible count and passes every assertion,
+// which is the same green-while-blind shape this whole file exists to catch.
+struct ScanProblem { QString header; int line; QString why; };
+
+// Every line that DECLARES the macro, independent of the parse below. The two counts are compared
+// in the test, so a parse that drops one fails instead of checking N-1 of N.
+int countSingletonDeclarations(const QStringList& lines)
+{
+    int n = 0;
+    for (const QString& raw : lines) {
+        QString ln = raw.section(QStringLiteral("//"), 0, 0).trimmed();
+        if (ln == QStringLiteral("QML_SINGLETON"))
+            ++n;
+    }
+    return n;
+}
+
+// src/main.cpp with // and /* */ comments blanked out. The publish assertions below are
+// substring searches, and main.cpp documents these very calls BY NAME in its comments — so
+// searching the raw text lets a commented-out publish line satisfy the positive check, and lets
+// a comment like "EmojiAssets::setQmlInstance() is deliberately absent" fail the negative one.
+// Both directions were wrong against the raw text; neither is against this.
+QString sourceWithoutComments(const QString& src)
+{
+    QString out;
+    out.reserve(src.size());
+    bool inLine = false, inBlock = false, inStr = false;
+    for (qsizetype i = 0; i < src.size(); ++i) {
+        const QChar c = src.at(i);
+        const QChar n = (i + 1 < src.size()) ? src.at(i + 1) : QChar();
+        if (inLine) {
+            if (c == QLatin1Char('\n')) { inLine = false; out.append(c); }
+            continue;
+        }
+        if (inBlock) {
+            if (c == QLatin1Char('*') && n == QLatin1Char('/')) { inBlock = false; ++i; }
+            else if (c == QLatin1Char('\n')) { out.append(c); }
+            continue;
+        }
+        if (inStr) {
+            if (c == QLatin1Char('\\')) { out.append(c); if (i + 1 < src.size()) out.append(src.at(++i)); continue; }
+            if (c == QLatin1Char('"')) inStr = false;
+            out.append(c);
+            continue;
+        }
+        if (c == QLatin1Char('/') && n == QLatin1Char('/')) { inLine = true; ++i; continue; }
+        if (c == QLatin1Char('/') && n == QLatin1Char('*')) { inBlock = true; ++i; continue; }
+        if (c == QLatin1Char('"')) inStr = true;
+        out.append(c);
+    }
+    return out;
+}
+
+QList<SingletonDecl> scanSingletons(QList<ScanProblem>* problems, int* declaredTotal)
 {
     QList<SingletonDecl> out;
     static const QRegularExpression classRe(
@@ -77,35 +131,54 @@ QList<SingletonDecl> scanSingletons()
         const QString path = it.next();
         const QString text = readOrEmpty(path);
         const QStringList lines = text.split(QLatin1Char('\n'));
+        const QString rel = QString(path).remove(QStringLiteral(DECENZA_SOURCE_DIR) + QLatin1Char('/'));
+        *declaredTotal += countSingletonDeclarations(lines);
 
         for (qsizetype i = 0; i < lines.size(); ++i) {
-            if (!lines.at(i).contains(QStringLiteral("QML_SINGLETON")))
-                continue;
-            // Comments and doc prose mention the macro; only a bare declaration counts.
-            if (lines.at(i).trimmed() != QStringLiteral("QML_SINGLETON"))
+            // Strip a trailing // comment before matching, so `QML_SINGLETON  // engine-built`
+            // is a declaration and a sentence merely mentioning the macro is not.
+            if (lines.at(i).section(QStringLiteral("//"), 0, 0).trimmed()
+                != QStringLiteral("QML_SINGLETON"))
                 continue;
 
             SingletonDecl d;
-            d.header = QString(path).remove(QStringLiteral(DECENZA_SOURCE_DIR) + QLatin1Char('/'));
+            d.header = rel;
 
-            // Nearest preceding class/struct is the one carrying the macro.
+            // Nearest preceding class/struct is the one carrying the macro, and its body runs
+            // until the NEXT class/struct declaration. Everything below is read from inside that
+            // window, never from the whole file: settings_qml.h alone holds thirteen
+            // QML_FOREIGN/QML_NAMED_ELEMENT pairs, and a file-wide match there resolves correctly
+            // only by the accident that SettingsForeign happens to be declared first. Reorder
+            // that header, or give any header a second QML_SINGLETON, and a file-wide match
+            // silently validates the wrong type.
+            qsizetype classAt = -1;
             for (qsizetype j = i; j >= 0; --j) {
-                const auto m = classRe.match(lines.at(j));
-                if (m.hasMatch()) { d.cppName = m.captured(1); break; }
+                if (classRe.match(lines.at(j)).hasMatch()) { classAt = j; break; }
             }
-            if (d.cppName.isEmpty())
+            if (classAt < 0) {
+                problems->append({rel, int(i) + 1,
+                                  QStringLiteral("no enclosing class/struct declaration found")});
                 continue;
+            }
+            d.cppName = classRe.match(lines.at(classAt)).captured(1);
 
-            // QML_FOREIGN retargets the registration at another type, and that foreign type
-            // is what .qmltypes keys the Component by.
-            const auto fm = foreignRe.match(text);
+            qsizetype bodyEnd = lines.size();
+            for (qsizetype j = classAt + 1; j < lines.size(); ++j) {
+                if (classRe.match(lines.at(j)).hasMatch()) { bodyEnd = j; break; }
+            }
+            const QString body = QStringList(lines.mid(classAt, bodyEnd - classAt))
+                                     .join(QLatin1Char('\n'));
+
+            // QML_FOREIGN retargets the registration at another type, and that foreign type is
+            // what .qmltypes keys the Component by (Settings, not SettingsForeign).
+            const auto fm = foreignRe.match(body);
             d.registryName = fm.hasMatch() ? fm.captured(1) : d.cppName;
-            const auto nm = namedRe.match(text);
+            const auto nm = namedRe.match(body);
             d.qmlName = nm.hasMatch() ? nm.captured(1) : d.registryName;
 
-            if (text.contains(QStringLiteral("static void setQmlInstance(")))
+            if (body.contains(QStringLiteral("static void setQmlInstance(")))
                 d.publishExpr = d.cppName + QStringLiteral("::setQmlInstance(");
-            else if (text.contains(QStringLiteral("s_singletonInstance")))
+            else if (body.contains(QStringLiteral("s_singletonInstance")))
                 d.publishExpr = d.cppName + QStringLiteral("::s_singletonInstance =");
 
             out.append(d);
@@ -174,12 +247,22 @@ private slots:
         QTest::addColumn<QString>("registryName");
         QTest::addColumn<QString>("qmlName");
         QTest::addColumn<QString>("publishExpr");
-        const auto decls = scanSingletons();
-        // A scan that finds nothing would pass every row vacuously — the exact shape of failure
-        // this file exists to prevent.
-        QVERIFY2(decls.size() >= 9,
-                 qPrintable(QStringLiteral("only %1 QML_SINGLETON declarations found under src/; "
-                            "the scan is broken, not the code").arg(decls.size())));
+        QList<ScanProblem> problems;
+        int declaredTotal = 0;
+        const auto decls = scanSingletons(&problems, &declaredTotal);
+
+        // Every declaration the scan could not parse, named. A floor like `>= 9` cannot catch a
+        // TENTH singleton that the parser drops: the count stays at 9 and every row passes.
+        for (const auto& p : problems)
+            QFAIL(qPrintable(QStringLiteral("%1:%2 declares QML_SINGLETON but the scan could not "
+                             "parse it (%3), so it was checked by nothing.")
+                             .arg(p.header).arg(p.line, 0, 10).arg(p.why)));
+
+        // Independent count vs parsed count. Not a floor — an equality, so a drop fails here
+        // rather than silently checking N-1 of N.
+        QCOMPARE(qsizetype(declaredTotal), decls.size());
+        QVERIFY2(declaredTotal > 0,
+                 "no QML_SINGLETON declarations found under src/; the scan is broken, not the code");
         for (const auto& d : decls)
             QTest::newRow(qPrintable(d.qmlName))
                 << d.header << d.cppName << d.registryName << d.qmlName << d.publishExpr;
@@ -207,15 +290,19 @@ private slots:
 
         // The exported NAME, with its trailing space, not just the URI: a QML_NAMED_ELEMENT typo
         // compiles, registers, and exports under the wrong name, which reads as undefined at
-        // every call site. The space also stops `Settings` matching a `SettingsApp` export.
+        // every call site. The trailing space keeps the match anchored to a whole exported name
+        // rather than a prefix of a longer one.
         QVERIFY2(block.contains(QStringLiteral("exports: [\"Decenza/") + qmlName
                                 + QLatin1Char(' ')),
                  qPrintable(registryName + " is not exported as Decenza/" + qmlName
                             + ", so `" + qmlName + ".x` does not resolve. Exports line: "
                             + block.section(QStringLiteral("exports:"), 1, 1).section('\n', 0, 0)));
 
-        const QString main = readOrEmpty(QStringLiteral(DECENZA_SOURCE_DIR) + "/src/main.cpp");
-        QVERIFY2(!main.isEmpty(), "cannot read src/main.cpp");
+        const QString mainRaw = readOrEmpty(QStringLiteral(DECENZA_SOURCE_DIR) + "/src/main.cpp");
+        QVERIFY2(!mainRaw.isEmpty(), "cannot read src/main.cpp");
+        // Comments blanked: main.cpp names these calls in its own prose, so the raw text would
+        // let a commented-out publish line pass the positive check below.
+        const QString main = sourceWithoutComments(mainRaw);
 
         if (publishExpr.isEmpty()) {
             // Engine-constructed. If someone gives this class a create()/setQmlInstance() pair,
@@ -238,7 +325,8 @@ private slots:
 
         // Ordering is the one thing about create()'s null branch that is checkable from here.
         //
-        // This compares BYTE OFFSETS in main.cpp, not execution order. It holds because main() is
+        // This compares TEXTUAL POSITION in main.cpp (QString::indexOf returns a UTF-16 code
+        // unit index, not a byte offset — main.cpp has 265 non-ASCII lines), not execution order. It holds because main() is
         // straight-line and every publish call sits in one block above engine.load(). A publish
         // moved into a conditional or a lambda that appears earlier but runs later — or never —
         // would still pass. Tightening that needs the engine, not the text.

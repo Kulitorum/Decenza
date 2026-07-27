@@ -179,13 +179,21 @@ bool Profile::looksLikeSimplePressure() const {
 ```qml
 // In main.qml or profile navigation
 function openProfileEditor() {
-    var profile = MainController.currentProfilePtr
-
-    if (profile.isSimplePressureProfile() || profile.isSimpleFlowProfile()) {
+    // This used to read `MainController.currentProfilePtr` and call methods on the returned
+    // Profile. That never worked from QML: the property lived on ProfileManager, not
+    // MainController, and Profile is a plain C++ class with no Q_OBJECT and no Q_GADGET, so QML
+    // could not reach a single member through the pointer. The property has since been removed
+    // outright. Route on ProfileManager's own string instead — it is a real Q_PROPERTY.
+    switch (ProfileManager.currentEditorType) {
+    case "pressure":
+    case "flow":
         pageStack.push(simpleProfileEditorPage)
-    } else if (profile.isRecipeMode()) {
-        pageStack.push(recipeEditorPage)  // D-Flow
-    } else {
+        break
+    case "dflow":
+    case "aflow":
+        pageStack.push(recipeEditorPage)
+        break
+    default:
         pageStack.push(profileEditorPage)  // Advanced
     }
 }

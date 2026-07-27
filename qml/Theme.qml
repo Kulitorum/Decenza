@@ -56,17 +56,42 @@ QtObject {
     // EmojiAssets.has() is an invokable, and non-reactive on purpose: the bundled set is
     // fixed at build time, so unlike Settings.theme.effectiveFontSizes there is nothing for
     // a binding to re-evaluate. See src/core/emojiassets.h.
-    //
-    // This used to guard on `typeof EmojiAssets === "undefined"` and warn that main.cpp had to
-    // call setContextProperty("EmojiAssets", ...) on the engine. Both the guard and the advice
-    // are gone deliberately. EmojiAssets is a QML_SINGLETON reached through this file's own
-    // `import Decenza`, so it cannot be missing from an engine that loaded this file at all —
-    // which also fixes what that warning was written for: the GHC window's second engine, which
-    // genuinely did lack the context property. Do NOT reinstate a setContextProperty here. A
-    // context property of the same name SHADOWS the singleton and is invisible to qmllint,
-    // qmlcachegen and the language server — that is #1661, in this exact file.
+    property bool _warnedNoEmojiAssets: false
     function _emojiAssetPath(cps) {
         if (!cps || cps.length === 0) return ""
+        if (typeof EmojiAssets === "undefined") {
+            // Distinct from "this emoji isn't bundled". If EmojiAssets is unresolvable, EVERY
+            // emoji in this QML engine vanishes — and an app with no emoji looks deliberate. The
+            // C++ warning in emojiassets.cpp cannot fire here, because has() is never reached.
+            //
+            // THIS BRANCH LOOKS DEAD AND IS NOT. It was deleted once on the reasoning that
+            // EmojiAssets is a QML_SINGLETON reached through this file's own `import Decenza`,
+            // so an engine that loaded Theme.qml must have it. The generated qmldir disproves
+            // that: it lists QML files only (`singleton Theme 1.0 qml/Theme.qml`) and NO C++
+            // types. Types declared with QML_ELEMENT arrive by a second, independent path —
+            // qml_register_types_Decenza(), called explicitly from main.cpp — and that path has
+            // failed in this codebase before, producing 1,081 ReferenceErrors with a green
+            // build. `import Decenza` succeeding says nothing about whether it ran. See the
+            // header of tests/tst_qmlregistration.cpp.
+            //
+            // Returning "" rather than throwing is the whole point: replaceEmojiWithImg() below
+            // handles "" by dropping the emoji and keeping the surrounding text. A ReferenceError
+            // out of here instead fails the entire binding, so every bean name, AI reply and
+            // release note built through it renders BLANK rather than merely emoji-less.
+            //
+            // Do NOT "fix" this by adding setContextProperty("EmojiAssets", ...). A context
+            // property of the same name SHADOWS the singleton and is invisible to qmllint,
+            // qmlcachegen and the language server — that is #1661, in this exact file. If this
+            // warning ever fires, the thing to check is qml_register_types_Decenza().
+            if (!_warnedNoEmojiAssets) {
+                _warnedNoEmojiAssets = true
+                console.warn("[Emoji] EmojiAssets unresolvable — every emoji in this QML engine "
+                           + "will be stripped. The type is registered by "
+                           + "qml_register_types_Decenza() in main.cpp, NOT by the qmldir, so "
+                           + "check that call rather than the import.")
+            }
+            return ""
+        }
         var key = cps.join("-")
         if (!EmojiAssets.has(key)) return ""
         return "qrc:/emoji/" + key + ".svg"

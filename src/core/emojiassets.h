@@ -29,9 +29,9 @@ class EmojiAssets : public QObject {
     // No create() and no published instance, unlike the singletons that wrap objects main()
     // already owns: this class is default-constructible and holds no state anyone outside it
     // can observe, so the engine builds and owns it on first use. Two engines get two
-    // instances, which is harmless — the only state is the lazily-built m_keys cache below,
-    // derived entirely from the Qt resource system, so a second instance costs one extra
-    // :/emoji scan and nothing else.
+    // instances, which is harmless — the state is the lazily-built m_keys cache below and its
+    // m_loaded flag, both derived entirely from the Qt resource system, so a second instance
+    // costs one extra :/emoji scan and a second resident ~4,000-entry QSet. Nothing observable.
     QML_ELEMENT
     QML_SINGLETON
 

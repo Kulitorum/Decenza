@@ -62,7 +62,11 @@ Read [`docs/SHOT_REVIEW.md`](https://github.com/Kulitorum/Decenza/blob/main/docs
 
 The `cmake`/`ctest` invocations in `docs/CLAUDE_MD/TESTING.md` and `docs/CLAUDE_MD/PLATFORM_BUILD.md` are **reference for humans and CI**, not instructions for an assistant. Run their equivalent through the MCP.
 
-**There is no pull-request CI gate — run the full suite locally before opening a PR.** That is the gate — via `mcp__qtcreator__run_tests` (scope `all`). `nightly-sanitizers.yml` re-runs the suite on `main` each night under UBSan and ASan. Platform-guarded code (`#ifdef Q_OS_IOS` etc.) is compiled only by the tag-push release workflows, so verify platform-specific changes with a CI test build of that platform (see `docs/CLAUDE_MD/CI_CD.md`).
+**No CI job builds or tests a pull request — run the full suite locally before opening one.** That is the gate, via `mcp__qtcreator__run_tests` (scope `all`). Nothing on GitHub will catch a compile error or a failing test before merge.
+
+That is narrower than "there is no PR CI", which this file used to say and which is wrong: `text-invariants.yml` **does** run on `pull_request`, filtered to `qml/**`, `scripts/check_*.py` and `resources/fonts/**`. It is build-free by design — pure Python over the source, no Qt, no compile, ~1 minute — which is exactly why it can afford to run per-PR while nothing else does. Read it as the shape a new PR-time check has to fit: if a check needs the app built, it does not belong there.
+
+Everything else is post-merge or on demand. `nightly-sanitizers.yml` re-runs the suite on `main` each night under UBSan and ASan. Platform-guarded code (`#ifdef Q_OS_IOS` etc.) is compiled only by the tag-push release workflows, so verify platform-specific changes with a CI test build of that platform (see `docs/CLAUDE_MD/CI_CD.md`).
 
 **Debug builds are sanitizer-instrumented automatically** — ASan *and* UBSan on every desktop platform including macOS, so a normal local test run already reports undefined behaviour and memory errors. UBSan is in recovering mode there (it reports and continues); an explicit `-DENABLE_UBSAN=ON` gives the halting mode CI uses. Release builds are untouched.
 

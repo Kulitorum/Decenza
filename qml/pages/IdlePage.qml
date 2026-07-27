@@ -665,7 +665,7 @@ Page {
         else if (activePresetFunction === "hotwater") hotWaterPageIndex = 0
         // Auto-tare when steam pills appear so the scale starts at 0
         // before the user places the pitcher
-        if (activePresetFunction === "steam" && typeof MachineState !== "undefined") {
+        if (activePresetFunction === "steam") {
             MachineState.tareScale()
             // Fresh steam attempt: drop any milk captured but not consumed by a prior
             // (abandoned) attempt, so it can't scale this one.
