@@ -100,9 +100,12 @@ void MachineStatusSnapshot::setLastShot(double yieldG, double durationSec,
 {
     auto shot = WidgetLastShot::make(yieldG, durationSec, qualityBadge);
     if (!shot) {
-        // This setter is wired to the finalized shotSaved path, so an
-        // invalid value here means that contract was violated (e.g. a
-        // ShotDataModel sentinel like stopTime == -1). Throttle rather than
+        // This setter is wired to MainController::shotPersisted, which carries
+        // the finalized duration and yield straight from the stored row, so an
+        // invalid value here means that contract was violated. It used to be
+        // wired to ShotHistoryStorage::shotSaved with the values re-derived from
+        // ShotDataModel, which is how the -1 stopTime sentinel used to arrive
+        // here on every non-SAW shot — that path is gone (#1658). Throttle rather
         // latch-once so a later, genuinely different regression still
         // surfaces (a once-per-process bool would permanently hide it).
         static std::atomic<int> rejectCount{0};

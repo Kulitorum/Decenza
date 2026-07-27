@@ -19,6 +19,22 @@ double profileJsonToDouble(const QJsonValue& val, double defaultVal) {
         bool ok;
         double d = val.toString().toDouble(&ok);
         if (!ok) {
+            // Deliberately warns for an EMPTY string too, and that is not an
+            // oversight — an earlier revision of #1658 muted empty strings here
+            // to kill log noise, which was wrong and dangerous. This function
+            // has no idea which key it is reading, and for most of them the
+            // default it fabricates is not zero: see nonZeroDefaultKeys() below.
+            // "target_weight":"" would have become 36 g with stop-at-weight
+            // silently ON, "seconds":"" a fabricated 30-second frame — and
+            // ProfileFrame::toJson always re-emits a number, so the fabrication
+            // then PERSISTS with nothing recording that it was invented. The
+            // two comments in jsonParityErrors() below already spell out this
+            // exact hazard.
+            //
+            // The inapplicable-field case that motivated the noise complaint
+            // (a pressure frame carrying "flow":"") is silenced at its call
+            // site in ProfileFrame::fromJson, which knows the frame's pump and
+            // can tell "doesn't apply" from "lost".
             qWarning() << "profileJsonToDouble: failed to parse string" << val.toString() << "- using default" << defaultVal;
         }
         return ok ? d : defaultVal;

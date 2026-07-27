@@ -51,14 +51,22 @@ SerialTransport::~SerialTransport()
 
 void SerialTransport::write(const QBluetoothUuid& uuid, const QByteArray& data)
 {
+    // Log-only, like every other diagnostic in this file. errorOccurred on a
+    // DE1Transport raises a MODAL (BLEManager::onDe1Error → main.qml's
+    // bleErrorDialog), and neither of these is a thing a user can act on: a
+    // write against a closed port is a dropped command the reconnect path
+    // handles, and an unmapped UUID is a programming error in our own
+    // characteristic table. The second was the worse offender — it put a raw
+    // "{0000a002-0000-1000-8000-00805f9b34fb}" in a dialog box, which is the
+    // same unreportable-diagnostic failure as #1586's "Service error: 5". (#1658)
     if (!m_connected) {
-        emit errorOccurred(QStringLiteral("[USB] Serial port not open"));
+        qWarning() << "[USB] Serial port not open — dropping write to" << uuid.toString();
         return;
     }
 
     char letter = uuidToLetter(uuid);
     if (letter == '\0') {
-        emit errorOccurred(QStringLiteral("[USB] Unknown UUID for serial write: %1").arg(uuid.toString()));
+        qWarning() << "[USB] Unknown UUID for serial write:" << uuid.toString();
         return;
     }
 
@@ -97,7 +105,8 @@ void SerialTransport::subscribe(const QBluetoothUuid& uuid)
 
     char letter = uuidToLetter(uuid);
     if (letter == '\0') {
-        emit errorOccurred(QStringLiteral("[USB] Unknown UUID for serial subscribe: %1").arg(uuid.toString()));
+        // Programming error in our characteristic table, not a user condition.
+        qWarning() << "[USB] Unknown UUID for serial subscribe:" << uuid.toString();
         return;
     }
 
@@ -181,7 +190,7 @@ void SerialTransport::open()
     // On Android, AndroidUsbHelper is already open (USBManager probe opened it).
     // Just verify the connection is live.
     if (!AndroidUsbHelper::isOpen()) {
-        emit errorOccurred(QStringLiteral("[USB] Android USB connection not open"));
+        qWarning() << "[USB] Android USB connection not open — connect aborted";
         return;
     }
 
@@ -197,10 +206,26 @@ void SerialTransport::open()
     m_port->setPortName(m_portName);
 
     if (!m_port->open(QIODevice::ReadWrite)) {
-        QString err = QStringLiteral("Failed to open serial port %1: %2")
-                          .arg(m_portName, m_port->errorString());
-        qWarning() << "[USB]" << err;
-        emit errorOccurred(err);
+        // Log-only, and this is the one case in this file where that deserves
+        // an argument rather than an assertion. USBManager has just probed this
+        // exact port and confirmed a DE1 on it, so an open failure here is a
+        // narrow race (something grabbed the port in between) — EXCEPT for
+        // PermissionError, which on Linux is the recurring "user is not in the
+        // dialout group" case and IS actionable. Rather than reinstate a modal
+        // carrying an untranslated raw QSerialPort string, the advisory goes in
+        // the log naming the exact remedy: the debug log is what the issue
+        // template collects and what users' own assistants read. USBManager also
+        // discards the unopened transport and re-arms discovery, and the status
+        // bar's machineStatus widget shows the DE1 as Disconnected meanwhile, so
+        // the failure is neither invisible nor terminal. (#1658)
+        qWarning() << "[USB] Failed to open serial port" << m_portName << ":"
+                   << m_port->errorString();
+        if (m_port->error() == QSerialPort::PermissionError) {
+            qWarning() << "[USB] *** ADVISORY: the OS refused access to" << m_portName
+                       << "— on Linux add your user to the 'dialout' group "
+                          "(sudo usermod -aG dialout $USER) and log out and back in. "
+                          "Otherwise another application is holding the port.";
+        }
         return;
     }
 
@@ -242,8 +267,10 @@ void SerialTransport::onAndroidReadTimer()
 {
     // Check if connection was lost
     if (!AndroidUsbHelper::isOpen()) {
+        // The cable came out. disconnect() drops the DE1 to offline, which the
+        // status bar's machineStatus widget already says in words — a modal
+        // repeating it adds nothing to an action the user just took. (#1658)
         qWarning() << "[USB] Android USB connection lost";
-        emit errorOccurred(QStringLiteral("[USB] USB connection lost"));
         disconnect();
         return;
     }
@@ -272,14 +299,16 @@ void SerialTransport::onErrorOccurred(QSerialPort::SerialPortError error)
     QString errorStr = m_port->errorString();
     qWarning() << "[USB] Port error:" << error << errorStr;
 
-    // Resource errors (device unplugged, etc.) are fatal
+    // Resource errors (device unplugged, etc.) are fatal. Both arms are
+    // log-only: the fatal one drops the DE1 to offline, which the connection
+    // indicator shows, and the non-fatal one is a transient the link rides out.
+    // Neither produced a message a user could act on — both put a raw
+    // QSerialPort::errorString() behind a "[USB]" log prefix into a modal. (#1658)
     if (error == QSerialPort::ResourceError
         || error == QSerialPort::DeviceNotFoundError
         || error == QSerialPort::PermissionError) {
-        emit errorOccurred(QStringLiteral("[USB] Serial port lost: %1").arg(errorStr));
+        qWarning() << "[USB] Serial port lost:" << errorStr;
         disconnect();
-    } else {
-        emit errorOccurred(QStringLiteral("[USB] Serial error: %1").arg(errorStr));
     }
 }
 

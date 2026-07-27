@@ -539,8 +539,10 @@ public slots:
     // (including the "service not found … try toggling Bluetooth off/on" hint)
     // never reached the user; only scale + scan errors did. Forwarded here so
     // the same QML error dialog shows DE1 faults too, debounced to once per
-    // distinct message until the DE1 next connects (the reconnect ladder would
-    // otherwise pop the same "Connection error" dialog every ~60s).
+    // distinct message until the DE1 next connects (a failing ladder would
+    // otherwise re-pop the same dialog on every attempt). Controller errors never
+    // get this far — the transport keeps that path log-only, because the ladder
+    // recovers them and the resulting dialog said nothing useful (#1658).
     void onDe1Error(const QString& error);
     Q_INVOKABLE void scanForDevices();  // User-initiated scan for DE1, scales, and refractometers
     Q_INVOKABLE void startScan();  // Start scanning for DE1 and scales

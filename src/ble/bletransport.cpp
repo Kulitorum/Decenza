@@ -1,5 +1,6 @@
 #include "bletransport.h"
 #include "blecapability.h"
+#include "blecontrollererror.h"
 #include "bleserviceerror.h"
 #ifndef DECENZA_TESTING
 #include "blemanager.h"
@@ -553,64 +554,69 @@ void BleTransport::onControllerDisconnected() {
 }
 
 void BleTransport::onControllerError(QLowEnergyController::Error error) {
-    QString errorName;
-    QString userMessage;
-    switch (error) {
-        case QLowEnergyController::UnknownError:
-            errorName = "UnknownError"; userMessage = "Unknown error"; break;
-        case QLowEnergyController::UnknownRemoteDeviceError:
-            errorName = "UnknownRemoteDeviceError"; userMessage = "Remote device not found"; break;
-        case QLowEnergyController::NetworkError:
-            errorName = "NetworkError"; userMessage = "Network error"; break;
-        case QLowEnergyController::InvalidBluetoothAdapterError:
-            errorName = "InvalidBluetoothAdapterError"; userMessage = "Invalid Bluetooth adapter"; break;
-        case QLowEnergyController::ConnectionError:
-            errorName = "ConnectionError"; userMessage = "Connection error"; break;
-        case QLowEnergyController::AdvertisingError:
-            errorName = "AdvertisingError"; userMessage = "Advertising error"; break;
-        case QLowEnergyController::RemoteHostClosedError:
-            errorName = "RemoteHostClosedError"; userMessage = "Remote device closed connection"; break;
-        case QLowEnergyController::AuthorizationError:
-            errorName = "AuthorizationError"; userMessage = "Authorization error"; break;
-        case QLowEnergyController::MissingPermissionsError:
-            errorName = "MissingPermissionsError"; userMessage = "Missing Bluetooth permissions"; break;
-        default:
-            errorName = QString::number(static_cast<int>(error)); userMessage = "Connection error"; break;
-    }
-    QString stateName;
-    switch (m_controller ? m_controller->state() : QLowEnergyController::UnconnectedState) {
-        case QLowEnergyController::UnconnectedState: stateName = "Unconnected"; break;
-        case QLowEnergyController::ConnectingState:  stateName = "Connecting"; break;
-        case QLowEnergyController::ConnectedState:   stateName = "Connected"; break;
-        case QLowEnergyController::DiscoveringState: stateName = "Discovering"; break;
-        case QLowEnergyController::DiscoveredState:  stateName = "Discovered"; break;
-        case QLowEnergyController::ClosingState:     stateName = "Closing"; break;
-        default: stateName = QString::number(static_cast<int>(m_controller ? m_controller->state() : -1)); break;
-    }
+    const QString errorName = bleControllerErrorName(error);
+    const QString stateName = bleControllerStateName(
+        m_controller ? m_controller->state() : QLowEnergyController::UnconnectedState);
     warn(QString("!!! CONTROLLER ERROR: %1 (state=%2) !!!").arg(errorName, stateName));
 
-    // AuthorizationError on the DE1/accessory link is never a user-actionable
-    // pairing failure — these devices have no PIN. It's the OS tearing down the
-    // encrypted link under BLE contention (dual-HIGH; with the scale left at HIGH
-    // in observe mode by design), and the link auto-reconnects. Surfacing a modal
-    // "Connection Error: Authorization error" that the user can only dismiss is
-    // pure noise, so log it (warn above) and drive the wedge detector via
-    // de1LinkFault below, but don't raise a dialog. (#1093, observe-mode contention)
-    if (error != QLowEnergyController::AuthorizationError) {
-        emit errorOccurred(userMessage);
-    }
+    // A controller error never raises a modal. The whole path used to, and the
+    // dialog it produced carried no information the user could act on: a bare
+    // "Connection error" box with a single OK button, restating what the status
+    // bar's machineStatus widget already says in words — a red icon and
+    // "Disconnected" (qml/components/layout/items/MachineStatusItem.qml, present
+    // by default per settings_network.cpp and drawn on every page).
+    //
+    // In the #1658 reporter's log it fired on every app start — they switch the
+    // DE1 off overnight, and the direct-wake connect to the saved address
+    // (main.cpp's startup path) runs before the machine finishes powering up —
+    // while the reconnect ladder recovered the link 26-118 s later in every one
+    // of the 7 affected sessions. Those figures are from that one report, not a
+    // measured system property. AuthorizationError had already been carved out
+    // for the same reason (#1093), as had write-retry exhaustion (#1423); this
+    // finishes the job for the rest of the enum.
+    //
+    // Where the actionable ones go instead, stated with their real scope rather
+    // than as blanket coverage:
+    //   - permissions: BLEManager::onScanError (all platforms — the DE1 connect
+    //     path always runs a scan alongside, see tryDirectConnectToDE1) and
+    //     requestBluetoothPermission (Android/iOS only);
+    //   - an adapter that will not come back up: finishAdapterRecovery, Android
+    //     only, since that is the only platform that power-cycles the radio;
+    //   - a link that connects but yields no DE1 service: the retry-exhausted
+    //     branch below ("try toggling Bluetooth off/on"), all platforms.
+    // On desktop a controller-level MissingPermissionsError or
+    // InvalidBluetoothAdapterError is therefore log-only. That is deliberate:
+    // the scan agent raises the same condition with a better message, and the
+    // warn line above carries it into the debug log the issue template collects.
 
-    // Connection-teardown family is the dual-HIGH BLE-contention signature
-    // (#1093 AuthorizationError, #1176 ConnectionError, #1238 RemoteHostClosedError
-    // — all three checked below). Surface it to the connection-priority
-    // coordinator. Scale-agnostic: this layer does not know a scale exists; the
-    // coordinator only acts on it after a scale has requested HIGH priority.
-    if (error == QLowEnergyController::ConnectionError ||
-        error == QLowEnergyController::RemoteHostClosedError ||
-        error == QLowEnergyController::AuthorizationError) {
+    // The link-teardown family is the dual-HIGH BLE-contention signature (#1093
+    // AuthorizationError, #1176 ConnectionError, #1238 RemoteHostClosedError).
+    // Surface it to the connection-priority coordinator. Scale-agnostic: this
+    // layer does not know a scale exists; the coordinator only acts on it after
+    // a scale has requested HIGH priority.
+    if (bleControllerErrorIsLinkTeardown(error)) {
         emit de1LinkFault(QStringLiteral("controller-error"));
     }
 
+    // Both Linux diagnostics below are guarded out of test builds, for the same
+    // reason as the BLEManager block further down but with a sharper edge: they
+    // are the only two things in this function that behave differently by
+    // platform, and both are invisible on a macOS dev machine.
+    //
+    //   - logLinuxBtDiagnosticsOnce() is genuinely a no-op off Linux, but ON
+    //     Linux it spawns a detached QThread running up to three 2-second
+    //     QProcess calls, cleaned up via a queued deleteLater. A QTEST_MAIN
+    //     process returns straight after qExec, so that deleteLater never gets
+    //     an event-loop turn and the thread leaks — which only the nightly
+    //     Linux ASan job can see, since LSan does not exist on macOS.
+    //   - the setcap hint calls linuxMissing(), whose first call ALSO warns
+    //     about CAP_NET_ADMIN. Unprivileged CI runners have no CAP_NET_ADMIN,
+    //     so on Linux an UnknownRemoteDeviceError emits two extra qWarnings
+    //     that a test's QTest::failOnWarning() would fail on.
+    //
+    // Neither is behaviour — both are diagnostics for a human reading the debug
+    // log — so a test build losing them costs nothing.
+#ifndef DECENZA_TESTING
     // Dump a one-shot Linux BT diagnostics block into the debug log the
     // first time any transport error fires. The issue template attaches
     // the debug log to every bug report, so this flows to maintainers
@@ -627,6 +633,7 @@ void BleTransport::onControllerError(QLowEnergyController::Error error) {
                             "(capability is often cleared by OS updates).")
                  .arg(BleCapability::linuxSetcapCommand()));
     }
+#endif
 
     // Caps are fine but the DE1 still couldn't be resolved — almost always
     // a stale BlueZ cache after an OS upgrade. Ask BLEManager to surface

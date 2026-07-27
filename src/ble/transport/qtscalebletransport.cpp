@@ -1,5 +1,6 @@
 #include "qtscalebletransport.h"
 #include "../blecapability.h"
+#include "../blecontrollererror.h"
 #include "../bleserviceerror.h"
 #include "../blemanager.h"
 #include <QDateTime>
@@ -574,31 +575,10 @@ void QtScaleBleTransport::onControllerDisconnected() {
 }
 
 void QtScaleBleTransport::onControllerError(QLowEnergyController::Error err) {
-    QString errorName;
-    switch (err) {
-        case QLowEnergyController::NoError: errorName = "NoError"; break;
-        case QLowEnergyController::UnknownError: errorName = "UnknownError"; break;
-        case QLowEnergyController::UnknownRemoteDeviceError: errorName = "UnknownRemoteDeviceError"; break;
-        case QLowEnergyController::NetworkError: errorName = "NetworkError"; break;
-        case QLowEnergyController::InvalidBluetoothAdapterError: errorName = "InvalidBluetoothAdapterError"; break;
-        case QLowEnergyController::ConnectionError: errorName = "ConnectionError"; break;
-        case QLowEnergyController::AdvertisingError: errorName = "AdvertisingError"; break;
-        case QLowEnergyController::RemoteHostClosedError: errorName = "RemoteHostClosedError"; break;
-        case QLowEnergyController::AuthorizationError: errorName = "AuthorizationError"; break;
-        case QLowEnergyController::MissingPermissionsError: errorName = "MissingPermissionsError"; break;
-        default: errorName = QString::number(static_cast<int>(err)); break;
-    }
-    QString stateName;
-    switch (m_controller ? m_controller->state() : QLowEnergyController::UnconnectedState) {
-        case QLowEnergyController::UnconnectedState: stateName = "Unconnected"; break;
-        case QLowEnergyController::ConnectingState:  stateName = "Connecting"; break;
-        case QLowEnergyController::ConnectedState:   stateName = "Connected"; break;
-        case QLowEnergyController::DiscoveringState: stateName = "Discovering"; break;
-        case QLowEnergyController::DiscoveredState:  stateName = "Discovered"; break;
-        case QLowEnergyController::ClosingState:     stateName = "Closing"; break;
-        default: stateName = QString::number(static_cast<int>(m_controller ? m_controller->state() : -1)); break;
-    }
-    QString msg = QString("!!! CONTROLLER ERROR: %1 (state=%2) !!!").arg(errorName, stateName);
+    const QString errorName = bleControllerErrorName(err);
+    const QString stateName = bleControllerStateName(
+        m_controller ? m_controller->state() : QLowEnergyController::UnconnectedState);
+    const QString msg = QString("!!! CONTROLLER ERROR: %1 (state=%2) !!!").arg(errorName, stateName);
     QT_TRANSPORT_LOG(msg);
     emit error(msg);
 

@@ -358,6 +358,29 @@ signals:
     void shotEndedShowMetadata(qint64 shotId);
     void lastSavedShotIdChanged();
 
+    // A real espresso shot has been persisted, carrying the SAME finalized
+    // duration and yield that went into the stored row. Consumers that summarize
+    // the last shot must use these rather than re-deriving from ShotDataModel:
+    // the model's stopTime is only written on the stop-at-weight path, so on any
+    // other ending (manual stop, profile end, volume) it keeps its -1 sentinel,
+    // and its raw cumulative weight is a different source from the one the row
+    // stores — the unrounded last point of the graph series, not the timing
+    // controller's settled reading. Both are decided here in onShotEnded() —
+    // extractionDuration() excludes SAW
+    // settling, and the yield is the settled, 0.1 g-rounded value — so this
+    // signal is the only place the finalized pair is available together.
+    //
+    // Emitted only for a successful save (shotId > 0); a failed save has no row
+    // to describe. generateFakeShotData() deliberately does NOT emit it — a
+    // dev-simulated row is not a shot anyone pulled.
+    //
+    // Parameter order is (duration, yield) to match shotDiscarded() below and
+    // ShotHistoryStorage::saveShot(), the two other carriers of this same pair
+    // in onShotEnded(). Both are doubles, so a transposed call would compile and
+    // produce a plausible-looking "30.0 g in 36 s" — matching the neighbours is
+    // the only thing making that mistake visible at the call site. (#1658)
+    void shotPersisted(qint64 shotId, double durationSec, double yieldG);
+
     // Shot aborted because saved scale is not connected
     void shotAbortedNoScale();
 

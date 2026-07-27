@@ -33,6 +33,29 @@ bool USBManager::isDe1Connected() const
     return m_transport != nullptr;
 }
 
+void USBManager::discardUnopenedTransport(SerialTransport* transport, const QString& portLabel)
+{
+    qWarning() << "[USB] Transport failed to open on" << portLabel
+               << "— discarding and re-arming discovery";
+    emit logMessage(QStringLiteral("[USB] Connect failed on %1 — retrying discovery")
+                        .arg(portLabel));
+
+    // deleteLater, not delete: open() may have emitted queued signals on it.
+    transport->deleteLater();
+
+#ifdef Q_OS_ANDROID
+    // The probe deliberately left the JNI connection open for the transport to
+    // adopt (cleanupAndroidProbe(false)). Nobody adopted it, so release it or
+    // the next probe finds it already open and re-probes against a stale handle.
+    AndroidUsbHelper::close();
+#else
+    // Drop the port from the known set so the next poll's candidate filter
+    // (!m_knownPorts.contains(port)) treats it as new and re-probes it. Without
+    // this the still-plugged-in DE1 is never looked at again.
+    m_knownPorts.remove(portLabel);
+#endif
+}
+
 QString USBManager::portName() const
 {
     return m_connectedPortName;
@@ -251,14 +274,24 @@ void USBManager::onAndroidProbeRead()
         // Stop probe timers but DON'T close the connection — SerialTransport will use it
         cleanupAndroidProbe(false);
 
-        // Create SerialTransport backed by the already-open Android USB connection
-        m_transport = new SerialTransport(QStringLiteral("android-usb"), this);
-        m_transport->setSerialNumber(sn);
-        m_connectedPortName = QStringLiteral("Android USB");
-        m_connectedSerialNumber = sn;
+        // Create SerialTransport backed by the already-open Android USB
+        // connection. Built locally and only published once it is actually
+        // open — see discardUnopenedTransport() for why a dead m_transport is
+        // worse than no transport at all.
+        auto* transport = new SerialTransport(QStringLiteral("android-usb"), this);
+        transport->setSerialNumber(sn);
 
         // Open starts the read timer and subscribes (connection already open via JNI)
-        m_transport->open();
+        transport->open();
+
+        if (!transport->isConnected()) {
+            discardUnopenedTransport(transport, QStringLiteral("Android USB"));
+            return;
+        }
+
+        m_transport = transport;
+        m_connectedPortName = QStringLiteral("Android USB");
+        m_connectedSerialNumber = sn;
 
         emit de1ConnectedChanged();
         emit de1Discovered(m_transport);
@@ -462,12 +495,21 @@ void USBManager::onProbeReadyRead()
 
         cleanupProbe();
 
-        m_transport = new SerialTransport(confirmedPortName, this);
-        m_transport->setSerialNumber(sn);
+        // Built locally and only published once it is actually open — see
+        // discardUnopenedTransport() for why a dead m_transport is worse than
+        // no transport at all.
+        auto* transport = new SerialTransport(confirmedPortName, this);
+        transport->setSerialNumber(sn);
+        transport->open();
+
+        if (!transport->isConnected()) {
+            discardUnopenedTransport(transport, confirmedPortName);
+            return;
+        }
+
+        m_transport = transport;
         m_connectedPortName = confirmedPortName;
         m_connectedSerialNumber = sn;
-
-        m_transport->open();
 
         emit de1ConnectedChanged();
         emit de1Discovered(m_transport);

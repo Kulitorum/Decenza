@@ -56,6 +56,25 @@ private slots:
     void onPollTimerTick();
 
 private:
+    // A confirmed DE1 whose transport then failed to open. Deletes the
+    // half-built transport and re-arms discovery so the next poll re-probes the
+    // still-plugged-in machine.
+    //
+    // This must run BEFORE m_transport is assigned, and the callers are written
+    // that way on purpose. isDe1Connected() is `m_transport != nullptr`, and
+    // main.cpp reads it to decide whether the DE1 is being handled over USB —
+    // both on de1Discovered (skip the BLE connect) and in the reconnect ladder
+    // (skip the retry entirely). A non-null pointer to a transport that never
+    // opened therefore does not merely leak: it convinces the app that USB owns
+    // the machine, suppressing the BLE reconnect for the rest of the session.
+    // The DE1 ends up unreachable over both transports until a restart.
+    //
+    // Safe to delete here precisely because de1Discovered() has not been emitted
+    // yet, so nothing downstream holds the pointer. That is NOT true once the
+    // transport is live — see the port-disappeared path, which clears the
+    // pointer without deleting because DE1Device owns it by then.
+    void discardUnopenedTransport(SerialTransport* transport, const QString& portLabel);
+
     QTimer m_pollTimer;
     SerialTransport* m_transport = nullptr;
     bool m_userDisconnected = false;  // Suppress auto-reconnect after user-initiated disconnect

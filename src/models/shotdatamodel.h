@@ -93,7 +93,14 @@ public slots:
     void addWeightSample(double time, double weight, double flowRate);
     void addWeightSample(double time, double weight);  // Overload without flowRate (from ShotTimingController)
     void markExtractionStart(double time);
-    void markStopAt(double time);  // Mark when SAW or user stopped the shot
+    // Mark when STOP-AT-WEIGHT stopped the shot. SAW only, despite what this
+    // comment used to say ("SAW or user"): the sole caller is main.cpp's
+    // WeightProcessor::stopNow lambda, so a manual stop, a profile end or a
+    // volume stop never reaches here and stopTime() keeps its -1 sentinel.
+    // Reading stopTime() as "how long the shot ran" is what broke the Home
+    // Screen widget's last-shot tile — see MainController::shotPersisted for
+    // the finalized duration consumers should use instead (#1658).
+    void markStopAt(double time);
     void smoothWeightFlowRate(int window = 5);  // Apply centered moving average to weight flow rate
     void computeConductanceDerivative();  // Compute dC/dt with 9-point Gaussian smoothing (post-shot only)
     void trimSettlingData();  // Remove trailing zero-pressure samples recorded during SAW settling

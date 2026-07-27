@@ -52,6 +52,30 @@ private slots:
         QCOMPARE(model.temperatureMixGoalData().size(), 50);
     }
 
+    // stopTime() is SAW-only, and silently so. It is written by exactly one
+    // caller — markStopAt(), wired to WeightProcessor::stopNow — so a shot that
+    // ends any other way (manual stop, profile end, volume stop, or SAW blocked
+    // by an oscillating scale) finishes with a full data set and stopTime still
+    // at its -1 sentinel. Nothing about the getter's name says that, and the
+    // Home Screen widget was wired to it as if it meant "how long the shot
+    // ran": every non-SAW shot was rejected as non-finalized and the last-shot
+    // tile stopped updating (#1658). Consumers wanting a duration must take the
+    // finalized value from MainController::shotPersisted instead.
+    void stopTimeStaysSentinelWithoutSaw() {
+        ShotDataModel model;
+        populateWithSettlingData(model, 50, 10);
+
+        // A real shot by every other measure...
+        QVERIFY(model.rawTime() > 0.0);
+        QVERIFY(!model.cumulativeWeightData().isEmpty());
+        // ...yet this is what a widget reading stopTime() would have been handed.
+        QCOMPARE(model.stopTime(), -1.0);
+
+        // And it only becomes a duration once the SAW path marks it.
+        model.markStopAt(10.0);
+        QCOMPARE(model.stopTime(), 10.0);
+    }
+
     void trimPreservesWeightData() {
         ShotDataModel model;
         populateWithSettlingData(model, 50, 10);

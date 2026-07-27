@@ -101,8 +101,15 @@ void UsbDecentScale::open(const QString& portName)
 #ifdef Q_OS_ANDROID
     Q_UNUSED(portName);
     // On Android, AndroidUsbScaleHelper is already open (UsbScaleManager opened it)
+    // Log-only, like the DE1's SerialTransport. errorOccurred on a ScaleDevice
+    // reaches a MODAL (main.cpp wires it to BLEManager::errorOccurred), and
+    // UsbScaleManager::connectToScale() already handles every failure below:
+    // it checks isConnected() after open(), tears the half-open scale down, and
+    // re-arms discovery so the next poll re-probes. A dialog here interrupts a
+    // recovery already under way — and did it with a raw "[USB Scale]" log
+    // prefix in the message. (#1658)
     if (!AndroidUsbScaleHelper::isOpen()) {
-        emit errorOccurred(QStringLiteral("[USB Scale] Android USB connection not open"));
+        qWarning() << "[USB Scale] Android USB connection not open — open aborted";
         return;
     }
 
@@ -110,14 +117,21 @@ void UsbDecentScale::open(const QString& portName)
     m_readTimer.start(20);  // 50Hz polling
 #else
     if (portName.isEmpty()) {
-        emit errorOccurred(QStringLiteral("[USB Scale] No port name specified"));
+        // Programming error — the caller resolved a confirmed port before this.
+        qWarning() << "[USB Scale] No port name specified — open aborted";
         return;
     }
 
     m_port->setPortName(portName);
     if (!m_port->open(QIODevice::ReadWrite)) {
-        emit errorOccurred(QStringLiteral("[USB Scale] Failed to open %1: %2")
-                               .arg(portName, m_port->errorString()));
+        qWarning() << "[USB Scale] Failed to open" << portName << ":"
+                   << m_port->errorString();
+        if (m_port->error() == QSerialPort::PermissionError) {
+            qWarning() << "[USB Scale] *** ADVISORY: the OS refused access to" << portName
+                       << "— on Linux add your user to the 'dialout' group "
+                          "(sudo usermod -aG dialout $USER) and log out and back in. "
+                          "Otherwise another application is holding the port.";
+        }
         return;
     }
 
@@ -169,8 +183,10 @@ void UsbDecentScale::close()
 void UsbDecentScale::onReadTimer()
 {
     if (!AndroidUsbScaleHelper::isOpen()) {
+        // Unplugged. close() drops the scale, UsbScaleManager's poll notices and
+        // emits scaleLost(), and the UI follows — no dialog needed for an action
+        // the user just took. (#1658)
         qWarning() << "[USB Scale] Android USB connection lost";
-        emit errorOccurred(QStringLiteral("[USB Scale] USB connection lost"));
         close();
         return;
     }
@@ -200,7 +216,7 @@ void UsbDecentScale::onErrorOccurred(QSerialPort::SerialPortError error)
     if (error == QSerialPort::ResourceError
         || error == QSerialPort::DeviceNotFoundError
         || error == QSerialPort::PermissionError) {
-        emit errorOccurred(QStringLiteral("[USB Scale] Serial port lost: %1").arg(errorStr));
+        qWarning() << "[USB Scale] Serial port lost:" << errorStr;
         close();
     }
 }
