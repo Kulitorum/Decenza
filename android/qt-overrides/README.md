@@ -10,9 +10,10 @@ are unfixed upstream:
   focus, a focus trap (issue #1300).
 - **QTBUG-140490 / QTBUG-144207** — `qFatal` abort when the process-wide
   `AndroidDeadlockProtector` is contended during a surface re-create
-  (issue #1663). This has been the single largest source of Android crash
-  reports: **every** Android crash report received since the Qt 6.11.1 upgrade
-  was this abort.
+  (issue #1663). Our largest single source of Android crash reports:
+  **9 of 42** Android reports since 2026-01-18, and **2 of 2** on the Qt 6.11.1
+  builds — i.e. every Android crash reported since that upgrade, though on a
+  sample of two. Reporting is opt-in, so treat these as a floor.
 
 The a11y half spans **two** Qt artifacts and BOTH must be overridden (the crash
 fix is C++ only and needs just the `.so`):
@@ -48,7 +49,15 @@ rebuilt from the matching Qt source** or removed — a stale plugin against a
 different Qt will crash the app at startup.
 
 If the upstream bugs are fixed in the new Qt version, **delete this override**
-(the `.so` and the workflow step) instead of rebuilding.
+(the `.so`, the jar, `BUILT_AGAINST_QT`, and the workflow step) instead of
+rebuilding.
+
+**This is enforced, not just documented.** `BUILT_AGAINST_QT` records the Qt
+version the artifacts were built from, and the workflow's override step fails
+the build when it does not match `env.QT_VERSION` in `android-release.yml`. So
+bumping Qt without dealing with the override gives you a red build, not an APK
+that dies at startup on every device. After rebuilding, update
+`BUILT_AGAINST_QT` in the same commit as the new binaries.
 
 ### What to watch for the crash fix
 
@@ -63,8 +72,9 @@ the Qt version we build against — check before every Qt bump.
 ## How the `.so` is built
 
 From the fork `github.com/skialpine/qtbase`, branch
-`a11y/android-talkback-fixes` (13 commits on top of `v6.11.1`; the crash fix is
-`032d3941`, the rest a11y):
+`a11y/android-talkback-fixes` — 13 commits on top of **`59c81a3c`** (the qtbase
+commit for 6.11.1; the clone is shallow and has no tags, so use the SHA, not
+`v6.11.1`). The crash fix is `032d3941`, the rest a11y:
 
 1. Configure that qtbase for Android with Qt's own configure (matches the
    official feature flags — do NOT hand-roll a standalone CMake for a shipped
