@@ -122,6 +122,46 @@ create the module before QML imports it, so `qml_register_types_Decenza()` is ne
 Worked around the way Qt does in its own `tools/qml/main.cpp` (an explicit call). Arguably worth
 an upstream report: the failure is silent and the diagnosis took reading three Qt source files.
 
+**12. Apple's `TextToSpeech.framework` overflows a 1-byte heap buffer, so any TTS utterance
+aborts an ASan build on macOS 27.0.**
+Not ours, and not caused by this change — recorded because the next person to touch accessibility
+will hit it and lose an hour working out whose bug it is.
+
+```
+==92783==ERROR: AddressSanitizer: heap-buffer-overflow
+READ of size 4 at 0x6030003f5741 thread T74
+    #0 memcpy
+    #1 (TextToSpeech:arm64e+0x1ed17c)
+0x6030003f5741 is located 0 bytes after 1-byte region [0x…5740,0x…5741)
+allocated by thread T74 here:
+    #2 swift_slowAlloc (libswiftCore)
+    #3 (TextToSpeech:arm64e+0x65a34)
+SUMMARY: AddressSanitizer: heap-buffer-overflow (TextToSpeech:arm64e+0x1ed17c)
+```
+
+Allocation and faulting read are both inside Apple's framework; every frame from `swift_slowAlloc`
+to the `memcpy` is theirs, on their own `TTSExecutor` dispatch queue. No Decenza frame appears on
+the thread at all.
+
+**Trigger:** turning the accessibility master switch on. The toggle speaks its own confirmation
+("Accessibility enabled"), TTS runs, and the process aborts. It is not string-specific — a relaunch
+died ~4 s in while speaking "Home screen". Observed on macOS 27.0 beta (`26A5388g`), Qt 6.11.1,
+`libqtexttospeech_speechdarwin`.
+
+**Not attributable to the MainController migration**, which was in flight when it was found: the
+four rewritten `AccessibilityManager.announce()` calls in `SettingsHistoryDataTab.qml` had fired
+zero times when it crashed (`grep -c "preview= Backup"` → 0). The utterances that did fire are all
+pre-existing paths.
+
+**Consequences worth knowing.** Local ASan debug builds cannot exercise accessibility TTS on this
+OS at all, which blocks hands-on verification for
+[#736](https://github.com/Kulitorum/Decenza/issues/736). Release builds do not abort — no ASan —
+but a 4-byte read off a 1-byte allocation is real corruption there too, just silent. There is
+nothing to work around on our side; the fix is Apple's.
+
+*Unconfirmed:* that it reproduces on `main` without this branch. Expected to, since no frame is
+ours, but nobody has run that A/B yet — do not record it as confirmed until someone does.
+
 ---
 
 ## Checked and found NOT to be bugs
