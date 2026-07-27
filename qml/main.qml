@@ -1053,8 +1053,8 @@ ApplicationWindow {
             // Show count of untranslated strings
             Rectangle {
                 visible: TranslationManager.untranslatedCount > 0
-                width: untranslatedText.width + Theme.scaled(12)
-                height: Theme.scaled(22)
+                Layout.preferredWidth: untranslatedText.width + Theme.scaled(12)
+                Layout.preferredHeight: Theme.scaled(22)
                 radius: height / 2
                 color: Theme.warningColor
 

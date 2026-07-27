@@ -80,8 +80,8 @@ KeyboardAwareContainer {
                             }
 
                             Rectangle {
-                                width: Theme.scaled(30)
-                                height: Theme.scaled(14)
+                                Layout.preferredWidth: Theme.scaled(30)
+                                Layout.preferredHeight: Theme.scaled(14)
                                 radius: Theme.scaled(2)
                                 color: "transparent"
                                 border.color: Theme.textSecondaryColor
@@ -957,8 +957,8 @@ KeyboardAwareContainer {
 
                                     // Radio indicator
                                     Rectangle {
-                                        width: Theme.scaled(18)
-                                        height: Theme.scaled(18)
+                                        Layout.preferredWidth: Theme.scaled(18)
+                                        Layout.preferredHeight: Theme.scaled(18)
                                         radius: Theme.scaled(9)
                                         border.color: extractionViewContent.currentMode === model.mode
                                             ? Theme.primaryColor : Theme.textSecondaryColor
@@ -1229,8 +1229,8 @@ KeyboardAwareContainer {
 
                             // Refill kit active indicator
                             Rectangle {
-                                width: Theme.scaled(20)
-                                height: Theme.scaled(20)
+                                Layout.preferredWidth: Theme.scaled(20)
+                                Layout.preferredHeight: Theme.scaled(20)
                                 radius: Theme.scaled(10)
                                 color: Theme.successColor + "30"
                                 visible: waterLevelCard.refillKitActive

@@ -406,7 +406,7 @@ Rectangle {
             // Footer separator + buttons (desktop only — mobile uses header buttons)
             Rectangle {
                 Layout.fillWidth: true
-                height: 1
+                Layout.preferredHeight: 1
                 color: Theme.borderColor
                 visible: !root.isMobile
             }

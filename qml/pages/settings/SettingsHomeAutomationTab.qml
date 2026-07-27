@@ -72,7 +72,7 @@ KeyboardAwareContainer {
                     // Separator
                     Rectangle {
                         Layout.fillWidth: true
-                        height: 1
+                        Layout.preferredHeight: 1
                         color: Theme.borderColor
                     }
 
@@ -161,7 +161,7 @@ KeyboardAwareContainer {
                     // Connection status
                     Rectangle {
                         Layout.fillWidth: true
-                        height: Theme.scaled(40)
+                        Layout.preferredHeight: Theme.scaled(40)
                         color: Theme.insetBackgroundColor
                         radius: Theme.scaled(8)
 
@@ -170,8 +170,8 @@ KeyboardAwareContainer {
                             anchors.margins: Theme.scaled(8)
 
                             Rectangle {
-                                width: Theme.scaled(10)
-                                height: Theme.scaled(10)
+                                Layout.preferredWidth: Theme.scaled(10)
+                                Layout.preferredHeight: Theme.scaled(10)
                                 radius: width / 2
                                 color: MainController.mqttClient.connected ? Theme.successColor : Theme.textSecondaryColor
                             }
@@ -309,7 +309,7 @@ KeyboardAwareContainer {
                     // Separator
                     Rectangle {
                         Layout.fillWidth: true
-                        height: 1
+                        Layout.preferredHeight: 1
                         color: Theme.borderColor
                         Layout.topMargin: Theme.scaled(5)
                         Layout.bottomMargin: Theme.scaled(5)
@@ -363,7 +363,7 @@ KeyboardAwareContainer {
                     // Separator
                     Rectangle {
                         Layout.fillWidth: true
-                        height: 1
+                        Layout.preferredHeight: 1
                         color: Theme.borderColor
                         Layout.topMargin: Theme.scaled(5)
                         Layout.bottomMargin: Theme.scaled(5)
@@ -388,7 +388,7 @@ KeyboardAwareContainer {
 
                     Rectangle {
                         Layout.fillWidth: true
-                        height: apiColumn.height + Theme.scaled(16)
+                        Layout.preferredHeight: apiColumn.height + Theme.scaled(16)
                         color: Theme.insetBackgroundColor
                         radius: Theme.scaled(8)
                         visible: MainController.shotServer.running

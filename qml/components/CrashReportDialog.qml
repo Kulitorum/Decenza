@@ -65,8 +65,8 @@ Dialog {
                     spacing: Theme.scaled(12)
 
                     Rectangle {
-                        width: Theme.scaled(32)
-                        height: Theme.scaled(32)
+                        Layout.preferredWidth: Theme.scaled(32)
+                        Layout.preferredHeight: Theme.scaled(32)
                         radius: Theme.scaled(16)
                         color: Theme.errorColor
 
@@ -329,8 +329,8 @@ Dialog {
                     spacing: Theme.scaled(12)
 
                     Rectangle {
-                        width: Theme.scaled(32)
-                        height: Theme.scaled(32)
+                        Layout.preferredWidth: Theme.scaled(32)
+                        Layout.preferredHeight: Theme.scaled(32)
                         radius: Theme.scaled(16)
                         color: Theme.primaryColor
 
@@ -433,8 +433,8 @@ Dialog {
                     spacing: Theme.scaled(12)
 
                     Rectangle {
-                        width: Theme.scaled(32)
-                        height: Theme.scaled(32)
+                        Layout.preferredWidth: Theme.scaled(32)
+                        Layout.preferredHeight: Theme.scaled(32)
                         radius: Theme.scaled(16)
                         color: Theme.errorColor
 

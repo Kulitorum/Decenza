@@ -167,7 +167,7 @@ Item {
                 Rectangle {
                     id: sliderTrack
                     Layout.fillWidth: true
-                    height: Theme.scaled(20)
+                    Layout.preferredHeight: Theme.scaled(20)
                     radius: Theme.scaled(10)
                     border.color: Theme.borderColor
                     border.width: 1

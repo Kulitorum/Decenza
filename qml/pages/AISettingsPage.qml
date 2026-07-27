@@ -43,7 +43,7 @@ Page {
                     Layout.fillWidth: true
                 }
 
-                Item { height: Theme.spacingSmall }
+                Item { Layout.preferredHeight: Theme.spacingSmall }
 
                 // Provider Selection
                 Tr {
@@ -96,8 +96,8 @@ Page {
 
                             // Checkmark if selected
                             Rectangle {
-                                width: Theme.scaled(24)
-                                height: Theme.scaled(24)
+                                Layout.preferredWidth: Theme.scaled(24)
+                                Layout.preferredHeight: Theme.scaled(24)
                                 radius: Theme.scaled(12)
                                 visible: Settings.ai.aiProvider === modelData.id
                                 color: "transparent"
@@ -129,7 +129,7 @@ Page {
                     font.pixelSize: Theme.scaled(12)
                 }
 
-                Item { height: Theme.spacingMedium }
+                Item { Layout.preferredHeight: Theme.spacingMedium }
 
                 // API Key section (for cloud providers)
                 ColumnLayout {
@@ -188,7 +188,7 @@ Page {
                         onTextChanged: Settings.ai.ollamaEndpoint = text
                     }
 
-                    Item { height: Theme.spacingSmall }
+                    Item { Layout.preferredHeight: Theme.spacingSmall }
 
                     Tr {
                         key: "aisettings.label.model"
@@ -237,7 +237,7 @@ Page {
                     }
                 }
 
-                Item { height: Theme.spacingMedium }
+                Item { Layout.preferredHeight: Theme.spacingMedium }
 
                 // Test Connection
                 RowLayout {
@@ -265,7 +265,7 @@ Page {
                     }
                 }
 
-                Item { height: Theme.spacingLarge }
+                Item { Layout.preferredHeight: Theme.spacingLarge }
 
                 // Help text
                 Tr {
@@ -291,12 +291,12 @@ Page {
                     Layout.fillWidth: true
                 }
 
-                Item { height: Theme.spacingLarge }
+                Item { Layout.preferredHeight: Theme.spacingLarge }
 
                 // Cost info
                 Rectangle {
                     Layout.fillWidth: true
-                    height: costColumn.height + Theme.spacingMedium * 2
+                    Layout.preferredHeight: costColumn.height + Theme.spacingMedium * 2
                     radius: Theme.buttonRadius
                     color: Theme.cardBackgroundColor
 
@@ -348,7 +348,7 @@ Page {
                     }
                 }
 
-                Item { height: Theme.spacingLarge }
+                Item { Layout.preferredHeight: Theme.spacingLarge }
             }
         }
     }

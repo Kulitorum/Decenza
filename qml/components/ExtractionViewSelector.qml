@@ -129,8 +129,8 @@ Dialog {
 
                     // Selection indicator
                     Rectangle {
-                        width: Theme.scaled(20)
-                        height: Theme.scaled(20)
+                        Layout.preferredWidth: Theme.scaled(20)
+                        Layout.preferredHeight: Theme.scaled(20)
                         radius: Theme.scaled(10)
                         border.color: selectorDialog.currentMode === model.mode
                             ? Theme.primaryColor : Theme.textSecondaryColor
@@ -198,8 +198,8 @@ Dialog {
                 }
 
                 Rectangle {
-                    width: Theme.scaled(20)
-                    height: Theme.scaled(20)
+                    Layout.preferredWidth: Theme.scaled(20)
+                    Layout.preferredHeight: Theme.scaled(20)
                     radius: Theme.scaled(4)
                     color: phaseToggleCard.isChecked ? Theme.primaryColor : "transparent"
                     border.color: phaseToggleCard.isChecked ? Theme.primaryColor : Theme.textSecondaryColor
@@ -261,8 +261,8 @@ Dialog {
                 }
 
                 Rectangle {
-                    width: Theme.scaled(20)
-                    height: Theme.scaled(20)
+                    Layout.preferredWidth: Theme.scaled(20)
+                    Layout.preferredHeight: Theme.scaled(20)
                     radius: Theme.scaled(4)
                     color: statsToggleCard.isChecked ? Theme.primaryColor : "transparent"
                     border.color: statsToggleCard.isChecked ? Theme.primaryColor : Theme.textSecondaryColor
@@ -341,8 +341,8 @@ Dialog {
                 }
 
                 Rectangle {
-                    width: Theme.scaled(20)
-                    height: Theme.scaled(20)
+                    Layout.preferredWidth: Theme.scaled(20)
+                    Layout.preferredHeight: Theme.scaled(20)
                     radius: Theme.scaled(4)
                     color: advancedToggleCard.isChecked ? Theme.primaryColor : "transparent"
                     border.color: advancedToggleCard.isChecked ? Theme.primaryColor : Theme.textSecondaryColor

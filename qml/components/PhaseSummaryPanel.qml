@@ -24,7 +24,7 @@ Item {
         // Header — tap to expand/collapse
         Rectangle {
             Layout.fillWidth: true
-            height: Theme.scaled(40)
+            Layout.preferredHeight: Theme.scaled(40)
             color: "transparent"
 
             Accessible.role: Accessible.Button
@@ -140,7 +140,7 @@ Item {
             // Divider
             Rectangle {
                 Layout.fillWidth: true
-                height: Theme.scaled(1)
+                Layout.preferredHeight: Theme.scaled(1)
                 color: Theme.borderColor
                 Layout.topMargin: Theme.scaled(2)
                 Layout.bottomMargin: Theme.scaled(2)
@@ -170,7 +170,7 @@ Item {
                         spacing: Theme.scaled(3)
 
                         Rectangle {
-                            width: Theme.scaled(6); height: Theme.scaled(6); radius: Theme.scaled(3)
+                            Layout.preferredWidth: Theme.scaled(6); Layout.preferredHeight: Theme.scaled(6); radius: Theme.scaled(3)
                             color: modelData.isFlowMode ? Theme.flowColor : Theme.pressureColor
                             Accessible.ignored: true
                         }

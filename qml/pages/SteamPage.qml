@@ -709,8 +709,8 @@ Page {
                 // View toggle button (graph/timer)
                 Rectangle {
                     id: viewToggleBtn
-                    width: Theme.scaled(44)
-                    height: Theme.scaled(44)
+                    Layout.preferredWidth: Theme.scaled(44)
+                    Layout.preferredHeight: Theme.scaled(44)
                     radius: Theme.cardRadius
                     color: viewToggleMa.containsMouse ? Qt.darker(Theme.surfaceColor, 1.2) : Theme.surfaceColor
 
@@ -1631,7 +1631,7 @@ Page {
                         }
                     }
 
-                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !steamPage.currentPitcherDisabled }
+                    Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !steamPage.currentPitcherDisabled }
 
                     // Steam Flow (per-pitcher, auto-saves)
                     RowLayout {
@@ -1679,7 +1679,7 @@ Page {
                         }
                     }
 
-                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !steamPage.currentPitcherDisabled }
+                    Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !steamPage.currentPitcherDisabled }
 
                     // Temperature (global setting)
                     RowLayout {
@@ -1733,7 +1733,7 @@ Page {
                         }
                     }
 
-                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !steamPage.currentPitcherDisabled }
+                    Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !steamPage.currentPitcherDisabled }
 
                     // Milk pitcher (per-pitcher): the empty-pitcher weight, used to
                     // work out net milk (scale − pitcher) and, when a reference milk is
@@ -1829,8 +1829,8 @@ Page {
                             // Tare button
                             Rectangle {
                                 id: tareBtn
-                                width: Theme.scaled(80)
-                                height: Theme.scaled(44)
+                                Layout.preferredWidth: Theme.scaled(80)
+                                Layout.preferredHeight: Theme.scaled(44)
                                 radius: Theme.cardRadius
                                 color: tareBtnMa.pressed ? Qt.darker(Theme.surfaceColor, 1.2) : Theme.surfaceColor
                                 border.color: Theme.borderColor
@@ -1864,8 +1864,8 @@ Page {
                             Rectangle {
                                 id: savePitcherWeightBtn
                                 readonly property bool isClear: MachineState.scaleWeight < 5.0
-                                width: Theme.scaled(80)
-                                height: Theme.scaled(44)
+                                Layout.preferredWidth: Theme.scaled(80)
+                                Layout.preferredHeight: Theme.scaled(44)
                                 radius: Theme.cardRadius
                                 color: {
                                     var base = isClear ? Theme.surfaceColor : Theme.primaryColor
@@ -1922,7 +1922,7 @@ Page {
                         }
                     }
 
-                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !steamPage.currentPitcherDisabled }
+                    Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !steamPage.currentPitcherDisabled }
 
                     // ── Weight-timed steaming: section header + one-line explanation,
                     // then the master on/off, shown above the controls it governs. ──
@@ -1960,7 +1960,7 @@ Page {
                         onToggled: Settings.brew.milkAutoCaptureEnabled = checked
                     }
 
-                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !steamPage.currentPitcherDisabled }
+                    Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !steamPage.currentPitcherDisabled }
 
                     // ── Steam rate calibration (GLOBAL — applies to every pitcher).
                     // One "seconds per gram of milk" replaces the old per-pitcher
@@ -2059,7 +2059,7 @@ Page {
                         }
                     }
 
-                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !steamPage.currentPitcherDisabled }
+                    Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !steamPage.currentPitcherDisabled }
 
                     // Live expected steam time for the milk currently on the scale
                     // (only when the preset is calibrated and milk is present).
@@ -2094,7 +2094,7 @@ Page {
                         }
                     }
 
-                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !steamPage.currentPitcherDisabled && steamPage.realScaleConnected && steamPage.scaledSteamTimeout() > 0 }
+                    Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !steamPage.currentPitcherDisabled && steamPage.realScaleConnected && steamPage.scaledSteamTimeout() > 0 }
 
                     // ── Coaching (GLOBAL — not per-pitcher): live cues while steaming.
                     // Every row above changes with the selected pitcher preset; these two

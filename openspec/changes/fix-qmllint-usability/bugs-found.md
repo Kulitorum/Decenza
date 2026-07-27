@@ -97,7 +97,23 @@ control (`main.qml:1209`, `main.qml:4550`).
 | 3 | other constants | harmless |
 | 13 | `anchors` / `x` / `y` | **qmllint false positive** — see below |
 
-**197 latent, 47 harmless, 13 false positives.**
+**197 latent, 41 harmless, 19 false positives** — corrected from an earlier "13 false
+positives". The first pass counted only the `anchors`/`x`/`y` warnings as false positives and
+missed that six `width:` warnings were also on `Dialog` objects. That error was caught by the
+gate, not by review: the mechanical fix rewrote those six to `Layout.preferredWidth`, and a new
+`Quick.attached-property-type` category appeared with exactly six entries — *"Layout attached
+property must be attached to an object deriving from Item"*. Reverted; category back to 0.
+
+**FIXED.** All 238 real sites now use `Layout.preferredWidth`/`preferredHeight`, so the size is
+re-read when the binding changes instead of frozen at the first layout pass. The category went
+**257 -> 19**, and the 19 that remain are the false positives, which cannot be driven to zero
+from this side.
+
+Verified in the running app, not just by the counts: walked Settings -> History & Data (28 sites),
+the layout editor (31) and the library panel (17) — no visual change — then resized the window,
+which is what recomputes `Theme.scale` (`main.qml:970`). The library's 30x30 type-filter squares
+scaled proportionally with the window and stayed square, which is the behaviour the fix buys; the
+app log showed no binding loops or layout warnings throughout.
 
 Worked example, `qml/main.qml:1055` — the untranslated-string count badge:
 

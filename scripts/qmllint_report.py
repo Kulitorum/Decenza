@@ -80,10 +80,12 @@ BASELINE = REPO / "qml-diagnostics-baseline.json"
 CATEGORY_EXEMPTIONS: dict[str, int] = {
     # Each entry is a ceiling, not a budget.
     "missing-property": 326,
-    # Undefined behaviour, per Qt's own wording: setting width/height/anchors/y on an item a
-    # layout manages. The remedy is implicitWidth/implicitHeight or Layout.preferredWidth/
-    # Height. See bugs-found.md for the triage.
-    "Quick.layout-positioning": 257,
+    # All 19 remaining are qmllint FALSE POSITIVES and cannot be driven to zero from this side:
+    # it flags any child declared lexically inside a Layout without checking the type is an Item
+    # the layout can manage. 18 are Popup/Dialog (QQuickPopup derives from QObject) and 1 is a
+    # Translate transform. Verified in the Qt 6.11.1 source; see bugs-found.md. The 238 REAL ones
+    # were fixed by moving to Layout.preferredWidth/Height — do not "clean up" these 19.
+    "Quick.layout-positioning": 19,
     # Dead imports. Reported by qmllint at Info severity, which is why this category was
     # invisible until WARN_RE stopped matching only Warning|Error.
     "unused-imports": 36,

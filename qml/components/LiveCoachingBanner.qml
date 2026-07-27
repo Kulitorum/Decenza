@@ -64,8 +64,8 @@ Item {
             // Severity dot.
             Rectangle {
                 Layout.alignment: Qt.AlignVCenter
-                width: Theme.scaled(10)
-                height: Theme.scaled(10)
+                Layout.preferredWidth: Theme.scaled(10)
+                Layout.preferredHeight: Theme.scaled(10)
                 radius: width / 2
                 color: banner.severityColor(banner.coach ? banner.coach.cueSeverity : "info")
                 Accessible.ignored: true

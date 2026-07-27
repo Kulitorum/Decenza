@@ -228,7 +228,7 @@
     "qml/pages/settings/SettingsLayoutTab.qml"
   ],
   "observed_categories": {
-    "Quick.layout-positioning": 257,
+    "Quick.layout-positioning": 19,
     "Quick.property-changes-parsed": 5,
     "duplicate-property-binding": 2,
     "equality-type-coercion": 1,

@@ -145,7 +145,7 @@ ColumnLayout {
                     anchors.centerIn: parent
                     spacing: Theme.scaled(3)
                     Rectangle {
-                        width: Theme.scaled(6); height: Theme.scaled(6); radius: Theme.scaled(3)
+                        Layout.preferredWidth: Theme.scaled(6); Layout.preferredHeight: Theme.scaled(6); radius: Theme.scaled(3)
                         color: modelData.dotColor
                         Accessible.ignored: true
                     }
@@ -183,7 +183,7 @@ ColumnLayout {
             // Row header: line-style indicator + date, tap to toggle shot visibility
             Rectangle {
                 Layout.preferredWidth: root.shotColW
-                height: Theme.scaled(44)
+                Layout.preferredHeight: Theme.scaled(44)
                 radius: Theme.scaled(10)
                 color: Theme.surfaceColor
                 border.color: root.shotVisible(shotRow.shotIdx) ? Theme.primaryColor : Theme.borderColor
@@ -206,8 +206,8 @@ ColumnLayout {
 
                     // Line-style indicator (solid / dashed / dash-dot)
                     Item {
-                        width: Theme.scaled(16)
-                        height: parent.height
+                        Layout.preferredWidth: Theme.scaled(16)
+                        Layout.preferredHeight: parent.height
                         Accessible.ignored: true
 
                         // Shot 0: solid

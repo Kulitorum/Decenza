@@ -477,7 +477,7 @@ Page {
                 }
             }
 
-            Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderColor }
+            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.borderColor }
 
             // Global temperature (applies to all frames)
             ColumnLayout {
@@ -511,7 +511,7 @@ Page {
                 }
             }
 
-            Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderColor }
+            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.borderColor }
 
             // Recommended dose
             ColumnLayout {
@@ -1219,7 +1219,7 @@ Page {
                     }
                 }
 
-                Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderColor }
+                Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.borderColor }
 
                 // ── Section 1: Temperature ──
                 RowLayout {
@@ -1259,7 +1259,7 @@ Page {
                     }
                 }
 
-                Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderColor }
+                Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.borderColor }
 
                 // ── Section 2: Goal ──
                 RowLayout {
@@ -1343,7 +1343,7 @@ Page {
                     }
                 }
 
-                Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderColor }
+                Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.borderColor }
 
                 // ── Section 3: Maximum ──
                 RowLayout {
@@ -1379,7 +1379,7 @@ Page {
                     onValueCommitted: uploadProfile()
                 }
 
-                Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderColor }
+                Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.borderColor }
 
                 // ── Section 4: Move on if... ──
                 RowLayout {
@@ -1437,7 +1437,7 @@ Page {
                     }
                 }
 
-                Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderColor }
+                Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.borderColor }
 
                 // Popup message
                 ColumnLayout {

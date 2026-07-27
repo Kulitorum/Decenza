@@ -78,7 +78,7 @@ KeyboardAwareContainer {
                 }
                 Rectangle {
                     Layout.fillWidth: true
-                    height: 1
+                    Layout.preferredHeight: 1
                     color: Theme.borderColor
                 }
 
@@ -408,7 +408,7 @@ KeyboardAwareContainer {
                 // Divider
                 Rectangle {
                     Layout.fillWidth: true
-                    height: 1
+                    Layout.preferredHeight: 1
                     color: Theme.borderColor
                 }
 
@@ -541,7 +541,7 @@ KeyboardAwareContainer {
                 // ═══════════════════════════════════════════
                 // SECTION 2: MCP Server (AI Remote Control)
                 // ═══════════════════════════════════════════
-                Item { height: Theme.scaled(8) }
+                Item { Layout.preferredHeight: Theme.scaled(8) }
 
                 RowLayout {
                     objectName: "mcpServer"
@@ -562,7 +562,7 @@ KeyboardAwareContainer {
                 }
                 Rectangle {
                     Layout.fillWidth: true
-                    height: 1
+                    Layout.preferredHeight: 1
                     color: Theme.borderColor
                 }
 
@@ -831,7 +831,7 @@ KeyboardAwareContainer {
                 }
 
                 // ─── Remote Access (mobile connectors) subsection ───
-                Item { height: Theme.scaled(8) }
+                Item { Layout.preferredHeight: Theme.scaled(8) }
 
                 Tr {
                     key: "settings.ai.remoteMcp.title"
@@ -1063,8 +1063,8 @@ KeyboardAwareContainer {
                         }
                         Rectangle {
                             Layout.alignment: Qt.AlignHCenter
-                            width: Theme.scaled(180)
-                            height: Theme.scaled(180)
+                            Layout.preferredWidth: Theme.scaled(180)
+                            Layout.preferredHeight: Theme.scaled(180)
                             color: "#ffffff"
                             radius: Theme.scaled(8)
                             Accessible.role: Accessible.Graphic
@@ -1119,8 +1119,8 @@ KeyboardAwareContainer {
                         // QR code for configuring the connector on claude.ai
                         Rectangle {
                             Layout.alignment: Qt.AlignHCenter
-                            width: Theme.scaled(180)
-                            height: Theme.scaled(180)
+                            Layout.preferredWidth: Theme.scaled(180)
+                            Layout.preferredHeight: Theme.scaled(180)
                             color: "#ffffff"
                             radius: Theme.scaled(8)
                             Accessible.role: Accessible.Graphic
@@ -1276,7 +1276,7 @@ KeyboardAwareContainer {
 
 
                 // ─── Discuss Shot subsection ───
-                Item { height: Theme.scaled(4) }
+                Item { Layout.preferredHeight: Theme.scaled(4) }
 
                 Tr {
                     key: "settings.ai.discuss.title"
@@ -1300,7 +1300,7 @@ KeyboardAwareContainer {
                     Rectangle {
                         id: discussAppButton
                         Layout.fillWidth: true
-                        height: Theme.scaled(36)
+                        Layout.preferredHeight: Theme.scaled(36)
                         radius: Theme.scaled(6)
                         color: Theme.backgroundColor
                         border.color: Theme.borderColor
@@ -1921,7 +1921,7 @@ KeyboardAwareContainer {
                     }
                 }
 
-                Item { height: Theme.scaled(4) }
+                Item { Layout.preferredHeight: Theme.scaled(4) }
             }
         }
     }
@@ -2000,7 +2000,7 @@ KeyboardAwareContainer {
                         }
                     }
 
-                    Item { width: Theme.scaled(8) }
+                    Item { Layout.preferredWidth: Theme.scaled(8) }
 
                     StyledIconButton {
                         text: "\u00D7"

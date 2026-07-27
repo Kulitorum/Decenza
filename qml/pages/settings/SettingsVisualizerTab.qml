@@ -137,7 +137,7 @@ KeyboardAwareContainer {
                         wrapMode: Text.WordWrap
                     }
 
-                    Item { height: 5 }
+                    Item { Layout.preferredHeight: 5 }
 
                     // Username
                     ColumnLayout {
@@ -187,7 +187,7 @@ KeyboardAwareContainer {
                         }
                     }
 
-                    Item { height: 5 }
+                    Item { Layout.preferredHeight: 5 }
 
                     // Test connection button
                     RowLayout {
@@ -393,7 +393,7 @@ KeyboardAwareContainer {
                     }
                 }
 
-                Item { height: 10 }
+                Item { Layout.preferredHeight: 10 }
 
                 // Show after shot toggle
                 RowLayout {
@@ -469,7 +469,7 @@ KeyboardAwareContainer {
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.topMargin: Theme.scaled(6)
-                    height: 1
+                    Layout.preferredHeight: 1
                     color: Theme.borderColor
                 }
 

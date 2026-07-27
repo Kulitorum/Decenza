@@ -102,7 +102,7 @@ KeyboardAwareContainer {
                 // Divider
                 Rectangle {
                     Layout.fillWidth: true
-                    height: 1
+                    Layout.preferredHeight: 1
                     color: Theme.borderColor
                 }
 
@@ -244,7 +244,7 @@ KeyboardAwareContainer {
                 // Divider
                 Rectangle {
                     Layout.fillWidth: true
-                    height: 1
+                    Layout.preferredHeight: 1
                     color: Theme.borderColor
                 }
 
@@ -562,8 +562,8 @@ KeyboardAwareContainer {
                                            MainController.shotServer && MainController.shotServer.hasTotpSecret
 
                     Rectangle {
-                        width: Theme.scaled(8)
-                        height: Theme.scaled(8)
+                        Layout.preferredWidth: Theme.scaled(8)
+                        Layout.preferredHeight: Theme.scaled(8)
                         radius: Theme.scaled(4)
                         color: !parent.serverRunning ? Theme.errorColor :
                                parent.secured ? Theme.successColor : Theme.textSecondaryColor
@@ -1013,8 +1013,8 @@ KeyboardAwareContainer {
                 spacing: Theme.scaled(8)
 
                 Rectangle {
-                    width: Theme.scaled(24)
-                    height: Theme.scaled(24)
+                    Layout.preferredWidth: Theme.scaled(24)
+                    Layout.preferredHeight: Theme.scaled(24)
                     radius: Theme.scaled(12)
                     color: Theme.successColor
 
@@ -1169,8 +1169,8 @@ KeyboardAwareContainer {
         anchors.bottom: parent.bottom
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottomMargin: Theme.scaled(20)
-        width: backupStatusText.implicitWidth + Theme.scaled(20)
-        height: backupStatusText.implicitHeight + Theme.scaled(20)
+        Layout.preferredWidth: backupStatusText.implicitWidth + Theme.scaled(20)
+        Layout.preferredHeight: backupStatusText.implicitHeight + Theme.scaled(20)
         color: Theme.surfaceColor
         radius: Theme.scaled(4)
         border.color: Theme.borderColor
@@ -1381,7 +1381,7 @@ KeyboardAwareContainer {
 
                     Rectangle {
                         Layout.fillWidth: true
-                        height: 1
+                        Layout.preferredHeight: 1
                         color: Theme.borderColor
                     }
 
@@ -1603,8 +1603,8 @@ KeyboardAwareContainer {
                 // QR code — hidden when keyboard is open (user already scanned it)
                 Rectangle {
                     Layout.alignment: Qt.AlignHCenter
-                    width: Theme.scaled(200)
-                    height: Theme.scaled(200)
+                    Layout.preferredWidth: Theme.scaled(200)
+                    Layout.preferredHeight: Theme.scaled(200)
                     visible: !totpCodeField.activeFocus
                     color: "#ffffff"
                     radius: Theme.scaled(8)
@@ -1638,7 +1638,7 @@ KeyboardAwareContainer {
 
                         Rectangle {
                             Layout.fillWidth: true
-                            height: Theme.scaled(36)
+                            Layout.preferredHeight: Theme.scaled(36)
                             color: Theme.backgroundColor
                             radius: Theme.scaled(4)
                             border.color: Theme.borderColor

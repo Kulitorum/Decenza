@@ -99,7 +99,7 @@ ColumnLayout {
         spacing: Theme.spacingSmall
         Layout.bottomMargin: Theme.spacingSmall
 
-        Item { Layout.preferredWidth: root.labelColW; height: Theme.scaled(44) }
+        Item { Layout.preferredWidth: root.labelColW; Layout.preferredHeight: Theme.scaled(44) }
 
         Repeater {
             model: comparisonModel.shots
@@ -115,7 +115,7 @@ ColumnLayout {
                     spacing: Theme.scaled(6)
 
                     Item {
-                        width: Theme.scaled(20); height: Theme.scaled(12)
+                        Layout.preferredWidth: Theme.scaled(20); Layout.preferredHeight: Theme.scaled(12)
                         Rectangle {
                             visible: index % 3 === 0
                             anchors.verticalCenter: parent.verticalCenter
@@ -161,7 +161,7 @@ ColumnLayout {
     }
 
     // Separator
-    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderColor; Layout.bottomMargin: Theme.scaled(4) }
+    Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.borderColor; Layout.bottomMargin: Theme.scaled(4) }
 
     // ── Metric rows ──────────────────────────────────────────────────────────
     Repeater {

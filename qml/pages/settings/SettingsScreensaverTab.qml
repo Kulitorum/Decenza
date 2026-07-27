@@ -195,7 +195,7 @@ Item {
                     // Progress bar (indeterminate)
                     Rectangle {
                         Layout.fillWidth: true
-                        height: Theme.scaled(6)
+                        Layout.preferredHeight: Theme.scaled(6)
                         radius: Theme.scaled(3)
                         color: Qt.darker(Theme.surfaceColor, 1.3)
 
@@ -1200,7 +1200,7 @@ Item {
                 // Download progress (videos mode only)
                 Rectangle {
                     Layout.fillWidth: true
-                    height: Theme.scaled(6)
+                    Layout.preferredHeight: Theme.scaled(6)
                     radius: Theme.scaled(3)
                     color: Qt.darker(Theme.insetBackgroundColor, 1.3)
                     visible: ScreensaverManager.screensaverType === "videos" && ScreensaverManager.isDownloading

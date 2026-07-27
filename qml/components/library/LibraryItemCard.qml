@@ -563,8 +563,8 @@ Rectangle {
         // Type badge
         Rectangle {
             visible: card.showBadge
-            width: compactBadgeText.implicitWidth + Theme.scaled(6)
-            height: Theme.scaled(14)
+            Layout.preferredWidth: compactBadgeText.implicitWidth + Theme.scaled(6)
+            Layout.preferredHeight: Theme.scaled(14)
             radius: Theme.scaled(3)
             color: typeBadgeColor(entryType)
             opacity: 0.8

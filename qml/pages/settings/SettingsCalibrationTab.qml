@@ -507,7 +507,7 @@ Item {
                             // Progress bar
                             Rectangle {
                                 Layout.fillWidth: true
-                                height: Theme.scaled(6)
+                                Layout.preferredHeight: Theme.scaled(6)
                                 radius: Theme.scaled(3)
                                 color: Theme.backgroundColor
 
@@ -575,7 +575,7 @@ Item {
                             // Progress bar
                             Rectangle {
                                 Layout.fillWidth: true
-                                height: Theme.scaled(6)
+                                Layout.preferredHeight: Theme.scaled(6)
                                 radius: Theme.scaled(3)
                                 color: Theme.backgroundColor
 
@@ -620,8 +620,8 @@ Item {
                             Rectangle {
                                 id: resetBaselineBtn
                                 visible: SteamHealthTracker.sessionCount > 0
-                                width: resetBaselineText.implicitWidth + Theme.spacingMedium * 2
-                                height: Theme.scaled(28)
+                                Layout.preferredWidth: resetBaselineText.implicitWidth + Theme.spacingMedium * 2
+                                Layout.preferredHeight: Theme.scaled(28)
                                 radius: Theme.scaled(4)
                                 color: resetBaselineMa.containsMouse ? Qt.darker(Theme.surfaceColor, 1.3) : "transparent"
                                 border.color: Theme.textSecondaryColor
@@ -759,7 +759,7 @@ Item {
                     font.bold: true
                 }
 
-                Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderColor }
+                Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.borderColor }
 
                 // Heater idle temperature
                 RowLayout {
@@ -809,7 +809,7 @@ Item {
                     ValueInput { id: fanThresholdSlider; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("settings.calibration.fanThreshold", "Fan temperature threshold"); from: 0; to: 60; stepSize: 1; displayText: value === 0 ? TranslationManager.translate("settings.calibration.fanAlwaysOn", "Always on") : Theme.formatTemperature(value, 0); rangeText: TranslationManager.translate("settings.calibration.fanAlwaysOn", "Always on") + " — " + Theme.formatTemperature(60, 0); value: Settings.hardware.fanThreshold; onValueModified: function(newValue) { Settings.hardware.fanThreshold = Math.round(newValue) }; KeyNavigation.tab: defaultsButton; KeyNavigation.backtab: heaterTestTimeoutSlider }
                 }
 
-                Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderColor }
+                Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.borderColor }
 
                 // Defaults for cafe button
                 AccessibleButton {

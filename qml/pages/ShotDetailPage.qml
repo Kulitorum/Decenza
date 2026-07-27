@@ -1046,7 +1046,7 @@ Page {
                         Layout.fillWidth: true
                         Layout.topMargin: Theme.scaled(2)
                         Layout.bottomMargin: Theme.scaled(2)
-                        height: Theme.scaled(1)
+                        Layout.preferredHeight: Theme.scaled(1)
                         color: Theme.borderColor
                         Accessible.ignored: true
                     }

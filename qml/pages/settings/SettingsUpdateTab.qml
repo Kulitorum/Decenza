@@ -43,7 +43,7 @@ Item {
 
                 Rectangle {
                     Layout.fillWidth: true
-                    height: Theme.scaled(65)
+                    Layout.preferredHeight: Theme.scaled(65)
                     color: Theme.insetBackgroundColor
                     radius: Theme.scaled(8)
 
@@ -222,7 +222,7 @@ Item {
                 // Divider
                 Rectangle {
                     Layout.fillWidth: true
-                    height: 1
+                    Layout.preferredHeight: 1
                     color: Theme.borderColor
                     Layout.topMargin: Theme.spacingSmall
                     Layout.bottomMargin: Theme.spacingSmall
@@ -296,8 +296,8 @@ Item {
                         }
 
                         Rectangle {
-                            width: Theme.scaled(10)
-                            height: Theme.scaled(10)
+                            Layout.preferredWidth: Theme.scaled(10)
+                            Layout.preferredHeight: Theme.scaled(10)
                             radius: Theme.scaled(5)
                             Layout.leftMargin: Theme.scaled(4)
                             color: {
@@ -466,8 +466,8 @@ Item {
                             visible: !MainController.updateChecker.checking && !MainController.updateChecker.downloading && !MainController.updateChecker.installing
 
                             Rectangle {
-                                width: Theme.scaled(10)
-                                height: Theme.scaled(10)
+                                Layout.preferredWidth: Theme.scaled(10)
+                                Layout.preferredHeight: Theme.scaled(10)
                                 radius: Theme.scaled(5)
                                 color: MainController.updateChecker.updateAvailable ? Theme.primaryColor : Theme.successColor
                             }
@@ -775,7 +775,7 @@ Item {
             // Header
             Rectangle {
                 Layout.fillWidth: true
-                height: Theme.scaled(44)
+                Layout.preferredHeight: Theme.scaled(44)
                 color: Theme.backgroundColor
                 radius: Theme.cardRadius
 
@@ -988,8 +988,8 @@ Item {
             Image {
                 Layout.alignment: Qt.AlignHCenter
                 source: "qrc:/qrcode.png"
-                width: Theme.scaled(150)
-                height: Theme.scaled(150)
+                Layout.preferredWidth: Theme.scaled(150)
+                Layout.preferredHeight: Theme.scaled(150)
                 fillMode: Image.PreserveAspectFit
                 sourceSize.width: 150
                 sourceSize.height: 150
@@ -1006,7 +1006,7 @@ Item {
             // Donate via PayPal button
             Rectangle {
                 Layout.fillWidth: true
-                height: Theme.scaled(48)
+                Layout.preferredHeight: Theme.scaled(48)
                 radius: Theme.buttonRadius
                 color: Theme.primaryColor
 
