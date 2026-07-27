@@ -109,40 +109,40 @@ Connections {
         var announcement = ""
 
         switch (phase) {
-            case MachineStateType.Phase.Disconnected:
+            case MachineState.Phase.Disconnected:
                 announcement = "Machine disconnected"
                 break
-            case MachineStateType.Phase.Sleep:
+            case MachineState.Phase.Sleep:
                 announcement = "Machine sleeping"
                 break
-            case MachineStateType.Phase.Idle:
+            case MachineState.Phase.Idle:
                 announcement = "Machine idle"
                 break
-            case MachineStateType.Phase.Heating:
+            case MachineState.Phase.Heating:
                 announcement = "Heating"
                 break
-            case MachineStateType.Phase.Ready:
+            case MachineState.Phase.Ready:
                 announcement = "Ready"
                 break
-            case MachineStateType.Phase.EspressoPreheating:
+            case MachineState.Phase.EspressoPreheating:
                 announcement = "Preheating for espresso"
                 break
-            case MachineStateType.Phase.Preinfusion:
+            case MachineState.Phase.Preinfusion:
                 announcement = "Preinfusion started"
                 break
-            case MachineStateType.Phase.Pouring:
+            case MachineState.Phase.Pouring:
                 announcement = "Pouring"
                 break
-            case MachineStateType.Phase.Ending:
+            case MachineState.Phase.Ending:
                 announcement = "Shot complete"
                 break
-            case MachineStateType.Phase.Steaming:
+            case MachineState.Phase.Steaming:
                 announcement = "Steaming"
                 break
-            case MachineStateType.Phase.HotWater:
+            case MachineState.Phase.HotWater:
                 announcement = "Dispensing hot water"
                 break
-            case MachineStateType.Phase.Flushing:
+            case MachineState.Phase.Flushing:
                 announcement = "Flushing"
                 break
         }
@@ -304,8 +304,8 @@ Page {
         enabled: AccessibilityManager.enabled
 
         function onPhaseChanged() {
-            if (previousPhase === MachineStateType.Phase.Steaming &&
-                MachineState.phase !== MachineStateType.Phase.Steaming) {
+            if (previousPhase === MachineState.Phase.Steaming &&
+                MachineState.phase !== MachineState.Phase.Steaming) {
                 AccessibilityManager.announce("Steaming complete", true)
             }
         }

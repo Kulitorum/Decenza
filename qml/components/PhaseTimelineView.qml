@@ -21,7 +21,7 @@ Item {
 
     // Profile tracking — uses Theme.trackingColor() for consistent thresholds
     readonly property bool hasGoal: (goalPressure > 0 || goalFlow > 0) &&
-        phase !== MachineStateType.Phase.EspressoPreheating
+        phase !== MachineState.Phase.EspressoPreheating
     readonly property color trackColor: {
         if (!hasGoal) return Theme.weightColor
         var isPressure = goalPressure > 0
@@ -35,10 +35,10 @@ Item {
     // Returns -1 for non-espresso phases (shows 'waiting' state).
     readonly property int activeIndex: {
         switch (phase) {
-            case MachineStateType.Phase.EspressoPreheating: return 0
-            case MachineStateType.Phase.Preinfusion: return 1
-            case MachineStateType.Phase.Pouring: return 2
-            case MachineStateType.Phase.Ending: return 3
+            case MachineState.Phase.EspressoPreheating: return 0
+            case MachineState.Phase.Preinfusion: return 1
+            case MachineState.Phase.Pouring: return 2
+            case MachineState.Phase.Ending: return 3
             default: return -1
         }
     }

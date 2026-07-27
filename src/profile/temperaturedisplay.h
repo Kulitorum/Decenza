@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QString>
 #include <QVector>
+#include <QtQml/qqmlregistration.h>
 
 // Adaptive rendering of a profile's temperature(s) for the shot-plan widget and
 // the Brew Settings dialog. A brew temperature override shifts EVERY frame by a
@@ -58,13 +59,29 @@ QString format(const QVector<double>& stepTemps, double anchorTemp,
 } // namespace TemperatureDisplay
 
 // Thin QML bridge for the conversion primitives above, registered as the
-// "TemperatureDisplay" context property so qml/Theme.qml delegates to the same
-// unit-tested math instead of mirroring it in JS. `fahrenheit` is an explicit
+// "TemperatureDisplay" QML singleton (see the macros below) so qml/Theme.qml
+// delegates to the same unit-tested math instead of mirroring it in JS. `fahrenheit` is an explicit
 // argument (not read from Settings here) because the QML binding engine cannot
 // track property reads inside C++ methods — the Theme wrappers read
 // Settings.app.temperatureUnit in JS so bindings re-evaluate on unit toggle.
 class TemperatureDisplayBridge : public QObject {
     Q_OBJECT
+
+    // Compile-time QML registration, replacing setContextProperty("TemperatureDisplay", …). A
+    // context property is invisible to qmllint, qmlcachegen and the language server. Full
+    // rationale in src/controllers/maincontroller.h.
+    //
+    // NAMED, because the QML name has always been TemperatureDisplay while the C++ class is
+    // TemperatureDisplayBridge — the "Bridge" suffix distinguishes it from the free functions
+    // above, which QML cannot call. Renaming either side would be a larger and less useful
+    // change than keeping the two names and saying so here.
+    //
+    // Engine-constructed, like EmojiAssets: stateless and default-constructible, so there is no
+    // instance for main() to publish. That also covers the GHC simulator's second engine, which
+    // used to need its own setContextProperty line.
+    QML_NAMED_ELEMENT(TemperatureDisplay)
+    QML_SINGLETON
+
 public:
     explicit TemperatureDisplayBridge(QObject* parent = nullptr) : QObject(parent) {}
 

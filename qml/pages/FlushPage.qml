@@ -25,7 +25,7 @@ Page {
         }
     }
 
-    property bool isFlushing: MachineState.phase === MachineStateType.Phase.Flushing || root.debugLiveView
+    property bool isFlushing: MachineState.phase === MachineState.Phase.Flushing || root.debugLiveView
     property int editingPresetIndex: -1
 
     onIsFlushingChanged: {

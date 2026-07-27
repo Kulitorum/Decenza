@@ -223,8 +223,17 @@ jobs:
       # `build_tests`, not `all`. This job runs the ctest suite and nothing
       # else, and `all` is dominated by targets it never executes: the Decenza
       # app (385 C++ objects) and the tools (36) against the tests' 318.
-      # Measured with `ninja -t commands`: 1238 build steps for `all` vs 524
-      # for `build_tests` — 57.7% fewer, plus the app's link.
+      # Measured with `ninja -t commands` when this was written: 1238 build steps
+      # for `all` vs 524 for `build_tests` — 57.7% fewer, plus the app's link.
+      #
+      # THAT SAVING IS LARGELY GONE and the target choice is now about intent
+      # rather than cost: tst_qmlregistration carries
+      # add_dependencies(tst_qmlregistration Decenza) (tests/CMakeLists.txt),
+      # because it reads the Decenza.qmltypes that qmltyperegistrar generates on
+      # the app target. So `build_tests` pulls in the app. Re-measured: 1321 vs
+      # 1369. The dependency is not optional — without it that test skipped its
+      # entire class here and ctest reported a pass — and the QML diagnostics
+      # gate step below now relies on the same artifacts being present.
       #
       # No coverage is lost. Sanitizers report on code that RUNS, and nothing
       # here runs the app; the src/ sources the tests exercise are compiled into
@@ -272,6 +281,44 @@ jobs:
             ccache -s || true
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # The QML diagnostics gate — the ratchet over qml-diagnostics-baseline.json,
+      # whose per-file ceilings may fall and never rise. It lives here rather than
+      # on a PR because nothing on GitHub builds a PR, and a ratchet with no
+      # witness is not a ratchet.
+      #
+      # It costs ~8 seconds and NO extra build. Everything qmllint needs already
+      # exists by this point:
+      #   - .rcc/qmllint/Decenza.rsp is written by CMake at CONFIGURE time, not built.
+      #   - Decenza.qmltypes and the module's qmldir come from the `Decenza` target,
+      #     which `ninja build_tests` above already builds because
+      #     tst_qmlregistration depends on it (tests/CMakeLists.txt).
+      # If that test dependency is ever removed, this step starts paying for the
+      # app build itself — measured at the time of writing as 42 of the graph's
+      # 1369 steps for the qmltypes alone, so still small, but no longer free.
+      #
+      # ubsan leg only. The lint reads QML sources and generated type info, neither
+      # of which a sanitizer flag touches, so the second leg could only ever report
+      # the identical result twice.
+      - name: QML diagnostics gate
+        if: matrix.sanitizer == 'ubsan'
+        run: |
+          cd build
+          # CMake omits qmllint_check entirely when it cannot find qmllint next to
+          # Qt's bin/ — a runtime-only Qt install lacks it. Fail loudly rather than
+          # let `ninja` no-op: a gate that silently does not exist is precisely the
+          # green-while-blind failure this gate was written to end. (Whether
+          # install-qt-action ships qmllint on Linux was never confirmed; this step
+          # is what answers that, on the first night it runs.)
+          if ! ninja -t targets all | grep -q '^qmllint_check:'; then
+            echo "::error::qmllint_check target absent — qmllint was not found next to Qt's bin/ at configure time, so the QML diagnostics gate did NOT run."
+            exit 1
+          fi
+          # QMLLINT_SKIP_UNLINTABLE defaults ON, which is what CI needs: released
+          # qmllint 6.11.1 is OOM-killed on qml/components/layout/items/CustomItem.qml
+          # after ~10 minutes at a 313 GB footprint. The script prints what it skipped
+          # and refuses to update the baseline from a partial run.
+          ninja qmllint_check
 
       - name: Run tests under sanitizer
         env:

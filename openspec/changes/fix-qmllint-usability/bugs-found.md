@@ -321,3 +321,32 @@ Do not treat these as fixed or as false positives — nobody has looked.
   Not attributed to this change and not claimed as fixed by it.
 - **122 diagnostics in `CustomItem.qml`**, seen for the first time once a patched qmllint could
   finish the file. Counted, not read.
+- **`qml/Decenza/` was a stale hand-written module stub that nothing builds — now deleted**, along
+  with the rest of the dead Qt Design Studio scaffold (`de1-qt.qrc`, `de1-qt.qmlproject`,
+  `qml/designer/DE1AppStubs.qml`). See task 3.13 for the full finding. The short version is that
+  it was not merely unused: its `qmldir` declares `module Decenza` while its `plugins.qmltypes`
+  exports every type under `DE1App/`, so it has been unresolvable since the #338 rename. The
+  paragraph below is the original note, kept because its reasoning is what found the rest.
+
+- **`qml/Decenza/` is a stale hand-written module stub that nothing builds.** It contains a
+  `qmldir` declaring `module Decenza` plus a `plugins.qmltypes` listing types by hand — including
+  `MachineStateType`, whose registration this change deleted, and exporting them under a
+  `DE1App/…` module name that no longer exists anywhere else in the tree. Neither file is
+  referenced by `CMakeLists.txt`, and the real `Decenza` module is generated into the build
+  directory by `qt_add_qml_module`, which is also what qmllint imports. So it is not currently
+  doing harm — but it is a second, hand-maintained declaration of the same module name that
+  nobody updates, and it will drift further with every type this change migrates. Deleting it is
+  the obvious call; it was left alone here only because no task covers it and nothing verified
+  whether Qt Creator's QML editor reads it for design-time completion.
+
+- **~15 `typeof MachineState !== "undefined"` / `typeof ProfileManager !== "undefined"` guards are
+  now permanently true.** A context property could genuinely be absent; a registered singleton's
+  type wrapper always resolves, so every one of these fallbacks became unreachable the moment
+  those two names were migrated. That is not merely dead code: the fallback used to render `"—"`,
+  and now the guard passes and the expression behind it — `MachineState.scaleWeight.toFixed(1)`,
+  `MachineState.tareScale()` — throws instead, failing the whole binding and rendering blank or
+  stale. The two in files this change already touched were removed
+  (`ShotPlanItem.qml:65`, `IdlePage.qml:668`). The rest are in files this change does not touch:
+  `CustomItem.qml` (11 sites) and `SteamItem.qml:124`. Left alone deliberately — `CustomItem.qml`
+  is the file a released qmllint cannot analyse (see 1.11), so no static tool will flag them and
+  the edit would be unverifiable here. Worth a sweep once the patched qmllint is the CI default.

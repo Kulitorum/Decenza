@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QtQml/qqmlregistration.h>
 
 // Markdown -> HTML, so QML can render markdown AND emoji in the same block of text.
 //
@@ -32,6 +33,12 @@
 // has no syntax to size it. Going through HTML lets the emoji carry explicit dimensions.
 class MarkdownRenderer : public QObject {
     Q_OBJECT
+
+    // Compile-time QML registration, replacing setContextProperty("MarkdownRenderer", …). See
+    // EmojiAssets for why this one is engine-constructed rather than published from main().
+    // This class genuinely holds no members at all, so a per-engine instance costs nothing.
+    QML_ELEMENT
+    QML_SINGLETON
 
 public:
     explicit MarkdownRenderer(QObject* parent = nullptr) : QObject(parent) {}

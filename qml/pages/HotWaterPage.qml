@@ -37,7 +37,7 @@ Page {
     // Hidden Tr component for page title (used by root.currentPageTitle)
     Tr { id: pageTitleText; key: "hotwater.title"; fallback: "Hot Water"; visible: false }
 
-    property bool isDispensing: MachineState.phase === MachineStateType.Phase.HotWater || root.debugLiveView
+    property bool isDispensing: MachineState.phase === MachineState.Phase.HotWater || root.debugLiveView
     property int editingVesselIndex: -1
 
     property bool isVolumeMode: Settings.brew.waterVolumeMode === "volume"

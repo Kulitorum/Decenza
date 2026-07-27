@@ -21,7 +21,7 @@ Page {
         ProfileManager.uploadCurrentProfile()
     }
 
-    property bool isDescaling: MachineState.phase === MachineStateType.Phase.Descaling
+    property bool isDescaling: MachineState.phase === MachineState.Phase.Descaling
     property bool wasDescaling: false
     property bool showRinseInstructions: false
     property int descaleCycleCount: 0
@@ -39,8 +39,8 @@ Page {
         function onPhaseChanged() {
             if (wasDescaling && !isDescaling && descalingPage.visible) {
                 // Descaling just finished, show rinse instructions
-                if (MachineState.phase === MachineStateType.Phase.Idle ||
-                    MachineState.phase === MachineStateType.Phase.Ready) {
+                if (MachineState.phase === MachineState.Phase.Idle ||
+                    MachineState.phase === MachineState.Phase.Ready) {
                     showRinseInstructions = true
                     wasDescaling = false
                 }

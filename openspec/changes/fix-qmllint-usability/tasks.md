@@ -102,8 +102,27 @@ the gate could be built. Read task 1.1 before trusting a number in these documen
 - [x] 1.8 Detect QML on disk that is missing from `qt_add_qml_module` — such a file is neither
   linted nor bundled, `CLAUDE.md` names forgetting the entry as a known footgun, and without this
   it would have counted as clean, so the gate would have rewarded the mistake. One file is
-  exempt by design (`qml/designer/DE1AppStubs.qml`, read by Qt Design Studio).
-- [ ] 1.9 Wire the gate into CI so it runs on a branch push, not only on a release tag
+  exempt by design (`qml/designer/DE1AppStubs.qml`, believed to be read by Qt Design Studio —
+  since deleted, see 3.13).
+- [x] 1.9 / 1.3 Gate wired into CI as a step on `nightly-sanitizers.yml`, not a new workflow.
+  - **It costs ~8 seconds and no extra build.** `.rcc/qmllint/Decenza.rsp` is written by CMake at
+    CONFIGURE time, and `Decenza.qmltypes` plus the module qmldir come from the `Decenza` target,
+    which `ninja build_tests` already builds because `tst_qmlregistration` depends on it. That
+    dependency (added earlier in this change) is load-bearing for the cost: without it the step
+    would have to build the app itself.
+  - **It also makes the workflow's own comment stale**, and that is recorded there: `build_tests`
+    was measured at 524 steps vs `all`'s 1238 when that comment was written; it is now 1321 vs
+    1369, because of the same dependency.
+  - ubsan leg only — the lint reads QML sources and generated type info, which no sanitizer flag
+    touches, so the asan leg could only report the identical answer twice.
+  - The step FAILS rather than skips when `qmllint_check` is absent. CMake omits that target when
+    it cannot find qmllint next to Qt's bin/, and a gate that silently does not exist is the
+    failure this gate was written to end. Whether `install-qt-action` ships qmllint on Linux was
+    never confirmed by anyone; this step is what answers it, on the first night it runs.
+  - Nightly, not PR: nothing on GitHub builds a PR (`text-invariants.yml` runs per-PR but is
+    build-free by design), so a PR-time gate would mean a Qt install and a full build on a path
+    people wait on, against ~4 GB of cache headroom. The tradeoff accepted is that a regression is
+    reported the morning after it merges — the same deal ASan already has.
 - [x] 1.10 Verify the gate is green at HEAD; that it goes red when an undeclared identifier is
   added to a CLEAN file; and that it goes red when a dirty file's count increases. All three
   confirmed, and the clean-file probe re-confirmed on the `--skip-unlintable` path so that
@@ -186,7 +205,7 @@ evaluates — the same silent, delayed shape as the bug this change exists to pr
   not optional once `Settings` is a type rather than a context property: a context property is
   globally visible, a singleton needs the module imported. 12 files (`Theme.qml`, `CrtOverlay.qml`,
   `ThemedPageBackground.qml`, …); the 13th, `qml/designer/DE1AppStubs.qml`, is deliberately outside
-  the module and stays out. Missing this produced `ReferenceError: Settings is not defined`
+  the module and stays out — and has since been deleted outright (3.13). Missing this produced `ReferenceError: Settings is not defined`
   throughout `Theme.qml` — the same shape as #1661, which was also `Theme.qml` failing to resolve
   a `Decenza` singleton.
 - [x] 3.4 `AccessibilityManager` — unlocked 5 files (58 → 63 clean, unqualified 7,612 → 7,265).
@@ -221,18 +240,96 @@ evaluates — the same silent, delayed shape as the bug this change exists to pr
   - Bare-basename include dirs needed for this: `src/controllers`, `src/ai`, `src/history`,
     `src/machine`, `src/models`, `src/network`, `src/profile`. Basename ambiguity re-checked after
     adding them — still none.
-- [ ] 3.6 `ProfileManager` — unlocks 3 files (→ 99). **Read the `currentProfilePtr` note in
-  bugs-found.md before starting.** `ProfileManager` carries `Q_PROPERTY(Profile* currentProfilePtr)`
-  where `Profile` is a plain C++ class (no Q_OBJECT, no Q_GADGET), so registering ProfileManager
-  will surface it as `unresolved-type` the same way MainController's 21 sub-objects did. The fix is
-  a `Q_GADGET` on `Profile`, never an opaque pointer — or delete the property, since no QML
-  references it.
-- [ ] 3.7 `MachineState` — unlocks 1 file (→ 100)
-- [ ] 3.8 `MachineStateType` — unlocks 1 file (→ 101). This is a `qmlRegisterUncreatableType`, not a context property; establish why it is unresolved before changing anything
-- [ ] 3.9 `MarkdownRenderer` — unlocks 1 file (→ 102)
-- [ ] 3.10 `EmojiAssets` and `TemperatureDisplay` — 0 files each alone, but together with `Settings` they are what unlocks `qml/Theme.qml` (→ 103). Greedy single-name ordering misses files blocked by combinations; this pair is the one that matters, because `Theme.qml` is the file whose silent `ReferenceError` shipped in 2.0.1
-- [ ] 3.11 After each of the above: launch the app and check the log for QML TypeErrors. Building is not evidence
-- [ ] 3.12 Move each unlocked file onto the clean list in the same commit that unlocks it
+- [x] 3.6 `ProfileManager` — **unlocked 5 files, not the 3 predicted** (clean 75 -> 80).
+  Took the third option on `currentProfilePtr`: deleted the `Q_PROPERTY`, kept the C++ accessor.
+  A `Q_GADGET` on `Profile` would have meant annotating ~50 accessors to expose something no
+  caller wants — nothing in `qml/` referenced the property, and QML could never have read a
+  member through the pointer anyway.
+- [x] 3.7 + 3.8 `MachineState` / `MachineStateType` — done together, because they are one object.
+  MachineStateType existed ONLY because a context property named MachineState shadows a type of
+  the same name, so the enums needed a second, invented name. A QML_SINGLETON needs no such
+  split: `MachineState.Phase.X` resolves through the singleton's own metaobject. 155 call sites
+  across 13 QML files rewritten, the `qmlRegisterUncreatableType` deleted. That the enums resolve
+  is verified, not assumed — an unknown enum member is a `missing-property` diagnostic, and all
+  155 lint clean. Unlocked 3 files (clean 80 -> 83).
+- [x] 3.9 + 3.10 `MarkdownRenderer`, `EmojiAssets`, `TemperatureDisplay` — done together.
+  **`qml/Theme.qml` is clean**, which is task 5.3's acceptance test. Clean 83 -> 85 (also
+  ConversationOverlay.qml).
+  - These three take a different registration shape from every earlier one: stateless and
+    default-constructible, so there is no object `main()` owns and nothing to publish.
+    `QML_SINGLETON` alone, engine-constructed and engine-owned. That also covered the GHC
+    simulator's separate engine for free — it had needed its own `setContextProperty` line.
+  - `TemperatureDisplayBridge` exports as `TemperatureDisplay` via `QML_NAMED_ELEMENT`. This
+    broke `tst_qmlregistration`, which looked the QML name up as a class name: a .qmltypes
+    Component is keyed by the C++ class name and the QML name is only in `exports`. The test now
+    carries both names per row and asserts the exported NAME rather than just the Decenza URI —
+    the old check would have passed a `QML_NAMED_ELEMENT` typo that registered under the wrong
+    name.
+- [x] 3.11 Launch the app and check the log for QML TypeErrors. Building is not evidence — and
+  this task earned its wording. With the DE1 simulator on (Ctrl+D), driving the app over MCP:
+  - `FlushPage: isFlushing changed to true phase= 11`. That binding is
+    `MachineState.phase === MachineState.Phase.Flushing`, and phase 11 IS Flushing — so the
+    migrated enum resolved through the singleton at runtime, not merely in qmllint. Navigation
+    in (`currentPage=flushPage`) and back out (`phase= 4`, Ready) both fired.
+  - SteamPage and HotWaterPage both rendered live and phase-driven ("Steam - Pouring",
+    "Hot Water - Pouring") and returned to Idle on stop.
+  - Log filtered for TypeError / ReferenceError / undefined / "asked for the singleton":
+    **zero lines** across the session.
+  - Not exercised: Espresso, Transport, Descaling. The mechanism is proven on three independent
+    pages in both directions; those three are covered statically only.
+- [x] 3.14 Review round on PR #1678. Findings verified before acting, all of them real:
+  - **`qml/Theme.qml` still guarded on `typeof EmojiAssets === "undefined"`** and its warning told
+    the maintainer to `setContextProperty("EmojiAssets", ...)`. Unreachable now, and the advice
+    was actively dangerous: a context property of that name SHADOWS the singleton, which is #1661
+    in the very file #1661 happened in. Guard and warning deleted, with a note saying not to
+    reinstate them.
+  - `src/profile/temperaturedisplay.h` class comment still said "registered as the
+    TemperatureDisplay context property", contradicted eight lines lower by its own macros.
+  - `scripts/qmllint_report.py` still exempted `qml/designer/DE1AppStubs.qml` from the
+    in-the-module check, citing a `de1-qt.qmlproject` that 3.13 deleted.
+  - `de1-qt.qmlproject.qtds` was missed by 3.13 — the scaffold deletion was incomplete.
+  - `docs/accessibility/phase4.md` and `phase5.md` handed out 17 `MachineStateType.Phase.*`
+    samples for the #736 implementation plan. Anyone following them would have written a
+    ReferenceError.
+  - "Stateless" was the wrong word for `EmojiAssets` — it has a lazily-built ~4,000-entry cache.
+    The conclusion (a second engine instance is harmless) survives; the reasoning was wrong.
+- [x] 3.15 Close the last honour-system gap in `tst_qmlregistration`. Both singleton tests were
+  hand-written row lists, so a future singleton whose row nobody added was invisible: build green,
+  qmltypes green, qmllint green, bindings null at runtime. Replaced with one test that DERIVES the
+  set by scanning `src/**/*.h` for `QML_SINGLETON`, resolving `QML_FOREIGN`/`QML_NAMED_ELEMENT` to
+  the registry and QML names, and requiring a publish call IFF the header declares
+  `static void setQmlInstance(` — asserting the negative direction too, which no hand list could.
+  - Added `qmlOnlyNamesPhaseEnumeratorsThatExist`, because this change made those 153 sites newly
+    instance-dependent (see the note in `machinestate.h`). Rename an enumerator and leave QML
+    naming the old one and the comparison is silently false forever.
+  - **Both verified by breaking them.** Removing `MachineState::setQmlInstance()` from main.cpp
+    and renaming one QML enumerator to `FlushingTypo` compiled clean with ZERO warnings, and both
+    tests failed with the right message. That clean build is the whole argument for these tests.
+  - The parser was wrong on first run and its own sanity guard said so
+    (`parsed only 0 Phase enumerators; the parser is broken, not the code`) rather than passing
+    vacuously — the lesson from the six mis-measurements in 1.11, applied.
+- [x] 3.13 Delete the dead Qt Design Studio scaffold: `qml/Decenza/{qmldir,plugins.qmltypes}`,
+  `de1-qt.qrc`, `de1-qt.qmlproject`, `qml/designer/DE1AppStubs.qml`. Found while migrating
+  MachineState — `plugins.qmltypes` still listed `MachineStateType` after this change deleted it.
+  - It was not merely unused, it was **broken since #338** (the Decenza rename). The qmldir
+    declares `module Decenza` while every type inside `plugins.qmltypes` exports under `DE1App/`:
+    the directory was renamed, its contents were not, so Design Studio would resolve
+    `Decenza/DE1Device` against an export named `DE1App/DE1Device` and find nothing. Nobody can
+    have opened this and had it work.
+  - `de1-qt.qrc` is the only thing that referenced the qmldir, and `CMakeLists.txt` does not
+    reference `de1-qt.qrc` (it lists only `resources/*.qrc`). Both it and `de1-qt.qmlproject`
+    also name a `qtquickcontrols2.conf` that no longer exists.
+  - `DE1AppStubs.qml` is never instantiated and is not in the `qt_add_qml_module` file list. It
+    had also gone stale in a way that would mislead rather than help: it stubs `settings.<prop>`
+    flat, when Settings has had 12 domain sub-objects for some time, and puts
+    `availableProfiles` on MainController, where it no longer lives.
+  - This is exactly the drift the change is about, in a second form: a hand-maintained parallel
+    declaration of the same module that nothing verifies. If Design Studio support is wanted
+    later, the generated `Decenza.qmltypes` is now good enough to be the real answer, and this
+    scaffold would not have been a starting point.
+- [x] 3.12 Move each unlocked file onto the clean list in the same commit that unlocks it —
+  done for 3.6, 3.7/3.8 and 3.9/3.10; the baseline was regenerated with the patched qmllint in
+  each commit, and each run confirmed no file left the clean list and no ceiling rose.
 
 ## 4. Deferred: the runtime-swapped devices
 

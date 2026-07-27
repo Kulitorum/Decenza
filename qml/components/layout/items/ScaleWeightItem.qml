@@ -46,7 +46,7 @@ Item {
         if (root.dataMode === "netMilk")
             return Math.max(0, w - root._pitcherWeight())
         if (root.dataMode === "contextAware") {
-            var steaming = MachineState.phase === MachineStateType.Phase.Steaming
+            var steaming = MachineState.phase === MachineState.Phase.Steaming
             return Math.max(0, w - (steaming ? root._pitcherWeight() : Settings.brew.doseCupTareWeight))
         }
         if (root.dataMode === "expectedYield")

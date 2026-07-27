@@ -25,7 +25,7 @@ Item {
 
     // Tracking color: green = on track, yellow = drifting, red = way off
     readonly property bool hasGoal: (goalPressure > 0 || goalFlow > 0) &&
-        phase !== MachineStateType.Phase.EspressoPreheating
+        phase !== MachineState.Phase.EspressoPreheating
     readonly property color trackColor: {
         if (!hasGoal) return Theme.textSecondaryColor
         var isPressure = goalPressure > 0
@@ -44,8 +44,8 @@ Item {
         interval: 33
         repeat: true
         running: root.currentFlow > 0.1 ||
-                 (root.currentWeight > 0 && root.phase >= MachineStateType.Phase.EspressoPreheating
-                                         && root.phase <= MachineStateType.Phase.Ending)
+                 (root.currentWeight > 0 && root.phase >= MachineState.Phase.EspressoPreheating
+                                         && root.phase <= MachineState.Phase.Ending)
         onTriggered: {
             if (root.currentFlow > 0.1) {
                 root.wavePhase += 0.15
@@ -84,16 +84,16 @@ Item {
         // EspressoPreheating render empty regardless of currentWeight — the
         // stale-residual case is solved at the source in MachineState
         // (see m_hotWaterFrozenWeight clearing on cycle entry).
-        var hasExtraction = root.phase === MachineStateType.Phase.Preinfusion
-                         || root.phase === MachineStateType.Phase.Pouring
-                         || root.phase === MachineStateType.Phase.Ending
+        var hasExtraction = root.phase === MachineState.Phase.Preinfusion
+                         || root.phase === MachineState.Phase.Pouring
+                         || root.phase === MachineState.Phase.Ending
         var fillRatio = (root.targetWeight > 0 && hasExtraction)
             ? Math.min(root.currentWeight / root.targetWeight, 1.0) : 0
         var interiorH = cupH * 0.8  // 100% fill reaches 80% of cup height
         var fillH = fillRatio * interiorH
         var fillTopY = botCy - fillH
-        var isPouring = root.phase === MachineStateType.Phase.Preinfusion ||
-                        root.phase === MachineStateType.Phase.Pouring
+        var isPouring = root.phase === MachineState.Phase.Preinfusion ||
+                        root.phase === MachineState.Phase.Pouring
 
         return {
             cx: cx, rimCy: rimCy, botCy: botCy,

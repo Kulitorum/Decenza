@@ -114,8 +114,6 @@ extern "C" const char* __ubsan_default_options()
 
 #include "core/asynclogger.h"
 #include "core/btlogfilter.h"
-#include "core/emojiassets.h"
-#include "core/markdownrenderer.h"
 #include "core/appsettings.h"
 #include "core/settings.h"
 #include "core/settings_qml.h"   // SettingsForeign — QML singleton registration
@@ -169,8 +167,8 @@ extern "C" const char* __ubsan_default_options()
 #include "models/steamdatamodel.h"
 #include "machine/steamhealthtracker.h"
 #include "controllers/maincontroller.h"
+#include "controllers/profilemanager.h"
 #include "controllers/shottimingcontroller.h"
-#include "profile/temperaturedisplay.h"
 #include "ai/aimanager.h"
 #include "ai/aiconversation.h"
 #include "screensaver/screensavervideomanager.h"
@@ -1946,10 +1944,6 @@ int main(int argc, char *argv[])
 
     checkpoint("Pre-QML setup done");
 
-    // Declared before the engine (like the other context-property backing objects)
-    // so it outlives the engine at scope unwind.
-    TemperatureDisplayBridge temperatureDisplayBridge;
-
     // Same rule, and this one was learned the hard way. The refractometer is
     // wired up ~950 lines below, next to the rest of its BLE handling, but the
     // unique_ptr lives HERE so the device outlives the engine. Declared down
@@ -3415,21 +3409,15 @@ int main(int argc, char *argv[])
     // Without this every translated string in the app evaluates to undefined. create() repeats
     // this for engines that reach the singleton by another route. See translationmanager.h.
     translationManager.setJsEngine(&engine);
-    // Lets Theme.qml ask whether an emoji asset exists before emitting a path to it —
-    // without this an emoji outside the bundled set becomes an unresolvable image
-    // reference (drawn as neither the emoji nor nothing). See emojiassets.h.
-    static EmojiAssets emojiAssets;
-    context->setContextProperty("EmojiAssets", &emojiAssets);
-    // Markdown -> HTML so emoji can be injected AFTER the parse. Rewriting emoji to <img>
-    // before it truncates the document at the first emoji. See markdownrenderer.h.
-    static MarkdownRenderer markdownRenderer;
-    context->setContextProperty("MarkdownRenderer", &markdownRenderer);
-    context->setContextProperty("TemperatureDisplay", &temperatureDisplayBridge);
+    // EmojiAssets, MarkdownRenderer and TemperatureDisplay used to be context properties over
+    // objects declared here. They are QML_SINGLETONs now, engine-constructed and engine-owned,
+    // so there is nothing left for main() to declare or publish. What they are for is on the
+    // classes: emojiassets.h, markdownrenderer.h, temperaturedisplay.h.
     context->setContextProperty("BLEManager", &bleManager);
     context->setContextProperty("DE1Device", &de1Device);
     context->setContextProperty("ScaleDevice", &flowScale);  // FlowScale initially, updated when physical scale connects
     context->setContextProperty("FlowScale", &flowScale);  // Always available for diagnostics
-    context->setContextProperty("MachineState", &machineState);
+    MachineState::setQmlInstance(&machineState);
     context->setContextProperty("ShotDataModel", &shotDataModel);
     context->setContextProperty("SteamDataModel", &steamDataModel);
     context->setContextProperty("SteamHealthTracker", &steamHealthTracker);
@@ -3442,7 +3430,7 @@ int main(int argc, char *argv[])
     // build, qmllint and the whole suite stay green while every MainController.* binding in the
     // app resolves to null. tst_qmlregistration asserts this call exists, for that reason.
     MainController::setQmlInstance(&mainController);
-    context->setContextProperty("ProfileManager", mainController.profileManager());
+    ProfileManager::setQmlInstance(mainController.profileManager());
     context->setContextProperty("ScreensaverManager", &screensaverManager);
     context->setContextProperty("AutoWakeManager", &autoWakeManager);
     context->setContextProperty("BatteryManager", &batteryManager);
@@ -3486,11 +3474,15 @@ int main(int argc, char *argv[])
     context->setContextProperty("GHCSimulator", &ghcSimulator);
 #endif
 
-    // Register types for QML (use different names to avoid conflict with context properties)
+    // Register types for QML under a "…Type" name, because the context property of the plain
+    // name shadows the type. MachineStateType used to be here for exactly that reason; it is
+    // gone because MachineState is now a QML_SINGLETON, which needs no second name — QML reads
+    // its enums as MachineState.Phase.X straight off the singleton. DE1Device is the last
+    // RUNTIME qmlRegisterUncreatableType in this shape; SteamHealthTracker is still in the shape
+    // itself, via QML_NAMED_ELEMENT(SteamHealthTrackerType) in its header plus the context
+    // property set above. Both go the same way when their context properties do.
     qmlRegisterUncreatableType<DE1Device>("Decenza", 1, 0, "DE1DeviceType",
         "DE1Device is created in C++");
-    qmlRegisterUncreatableType<MachineState>("Decenza", 1, 0, "MachineStateType",
-        "MachineState is created in C++");
     // AIConversation moved to QML_ELEMENT + QML_UNCREATABLE in aiconversation.h, for the same
     // reason as the three named just below: a runtime registration is invisible to qmltyperegistrar, so
     // qmllint could not resolve the type behind AIManager's conversation properties.
@@ -3708,8 +3700,11 @@ int main(int argc, char *argv[])
         ghcEngine.rootContext()->setContextProperty("GHCSimulator", &ghcSimulator);
         ghcEngine.rootContext()->setContextProperty("DE1Device", &de1Device);
         ghcEngine.rootContext()->setContextProperty("DE1Simulator", &de1Simulator);
-        ghcEngine.rootContext()->setContextProperty("Settings", &settings);
-        ghcEngine.rootContext()->setContextProperty("TemperatureDisplay", &temperatureDisplayBridge);
+        // No Settings line here. Settings is a QML_FOREIGN + QML_SINGLETON (settings_qml.h) and
+        // GHCSimulatorWindow.qml imports Decenza, so it resolves on this engine already. A
+        // context property of the same name would SHADOW the singleton and be invisible to
+        // qmllint, qmlcachegen and the language server — the #1661 shape. The TemperatureDisplay
+        // line that sat beside this one went for the same reason.
 
         QObject::connect(&ghcEngine, &QQmlApplicationEngine::objectCreated, &app,
             [](QObject *obj, const QUrl &objUrl) {

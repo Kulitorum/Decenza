@@ -27,44 +27,44 @@ Item {
 
     readonly property color statusColor: {
         switch (MachineState.phase) {
-            case MachineStateType.Phase.Disconnected:       return Theme.errorColor
-            case MachineStateType.Phase.Sleep:               return Theme.textSecondaryColor
-            case MachineStateType.Phase.Idle:                return Theme.textSecondaryColor
-            case MachineStateType.Phase.Heating:             return Theme.errorColor
-            case MachineStateType.Phase.Ready:               return Theme.successColor
-            case MachineStateType.Phase.EspressoPreheating:  return Theme.warningColor
-            case MachineStateType.Phase.Preinfusion:         return Theme.accentColor
-            case MachineStateType.Phase.Pouring:             return Theme.accentColor
-            case MachineStateType.Phase.Ending:              return Theme.textSecondaryColor
-            case MachineStateType.Phase.Steaming:            return Theme.accentColor
-            case MachineStateType.Phase.HotWater:            return Theme.accentColor
-            case MachineStateType.Phase.Flushing:            return Theme.accentColor
-            case MachineStateType.Phase.Refill:              return Theme.warningColor
-            case MachineStateType.Phase.Descaling:           return Theme.accentColor
-            case MachineStateType.Phase.Cleaning:            return Theme.accentColor
-            case MachineStateType.Phase.Transport:           return Theme.accentColor
+            case MachineState.Phase.Disconnected:       return Theme.errorColor
+            case MachineState.Phase.Sleep:               return Theme.textSecondaryColor
+            case MachineState.Phase.Idle:                return Theme.textSecondaryColor
+            case MachineState.Phase.Heating:             return Theme.errorColor
+            case MachineState.Phase.Ready:               return Theme.successColor
+            case MachineState.Phase.EspressoPreheating:  return Theme.warningColor
+            case MachineState.Phase.Preinfusion:         return Theme.accentColor
+            case MachineState.Phase.Pouring:             return Theme.accentColor
+            case MachineState.Phase.Ending:              return Theme.textSecondaryColor
+            case MachineState.Phase.Steaming:            return Theme.accentColor
+            case MachineState.Phase.HotWater:            return Theme.accentColor
+            case MachineState.Phase.Flushing:            return Theme.accentColor
+            case MachineState.Phase.Refill:              return Theme.warningColor
+            case MachineState.Phase.Descaling:           return Theme.accentColor
+            case MachineState.Phase.Cleaning:            return Theme.accentColor
+            case MachineState.Phase.Transport:           return Theme.accentColor
             default:                                         return Theme.textSecondaryColor
         }
     }
 
     readonly property string statusText: {
         switch (MachineState.phase) {
-            case MachineStateType.Phase.Disconnected:       return TranslationManager.translate("machineStatus.disconnected", "Disconnected")
-            case MachineStateType.Phase.Sleep:               return TranslationManager.translate("machineStatus.sleep", "Sleep")
-            case MachineStateType.Phase.Idle:                return TranslationManager.translate("machineStatus.idle", "Idle")
-            case MachineStateType.Phase.Heating:             return TranslationManager.translate("machineStatus.heating", "Heating")
-            case MachineStateType.Phase.Ready:               return TranslationManager.translate("machineStatus.ready", "Ready")
-            case MachineStateType.Phase.EspressoPreheating:  return TranslationManager.translate("machineStatus.preheating", "Preheating")
-            case MachineStateType.Phase.Preinfusion:         return TranslationManager.translate("machineStatus.preinfusion", "Preinfusion")
-            case MachineStateType.Phase.Pouring:             return TranslationManager.translate("machineStatus.pouring", "Pouring")
-            case MachineStateType.Phase.Ending:              return TranslationManager.translate("machineStatus.ending", "Ending")
-            case MachineStateType.Phase.Steaming:            return TranslationManager.translate("machineStatus.steaming", "Steaming")
-            case MachineStateType.Phase.HotWater:            return TranslationManager.translate("machineStatus.hotWater", "Hot Water")
-            case MachineStateType.Phase.Flushing:            return TranslationManager.translate("machineStatus.flushing", "Flushing")
-            case MachineStateType.Phase.Refill:              return TranslationManager.translate("machineStatus.refill", "Refill")
-            case MachineStateType.Phase.Descaling:           return TranslationManager.translate("machineStatus.descaling", "Descaling")
-            case MachineStateType.Phase.Cleaning:            return TranslationManager.translate("machineStatus.cleaning", "Cleaning")
-            case MachineStateType.Phase.Transport:           return TranslationManager.translate("machineStatus.transport", "Transport")
+            case MachineState.Phase.Disconnected:       return TranslationManager.translate("machineStatus.disconnected", "Disconnected")
+            case MachineState.Phase.Sleep:               return TranslationManager.translate("machineStatus.sleep", "Sleep")
+            case MachineState.Phase.Idle:                return TranslationManager.translate("machineStatus.idle", "Idle")
+            case MachineState.Phase.Heating:             return TranslationManager.translate("machineStatus.heating", "Heating")
+            case MachineState.Phase.Ready:               return TranslationManager.translate("machineStatus.ready", "Ready")
+            case MachineState.Phase.EspressoPreheating:  return TranslationManager.translate("machineStatus.preheating", "Preheating")
+            case MachineState.Phase.Preinfusion:         return TranslationManager.translate("machineStatus.preinfusion", "Preinfusion")
+            case MachineState.Phase.Pouring:             return TranslationManager.translate("machineStatus.pouring", "Pouring")
+            case MachineState.Phase.Ending:              return TranslationManager.translate("machineStatus.ending", "Ending")
+            case MachineState.Phase.Steaming:            return TranslationManager.translate("machineStatus.steaming", "Steaming")
+            case MachineState.Phase.HotWater:            return TranslationManager.translate("machineStatus.hotWater", "Hot Water")
+            case MachineState.Phase.Flushing:            return TranslationManager.translate("machineStatus.flushing", "Flushing")
+            case MachineState.Phase.Refill:              return TranslationManager.translate("machineStatus.refill", "Refill")
+            case MachineState.Phase.Descaling:           return TranslationManager.translate("machineStatus.descaling", "Descaling")
+            case MachineState.Phase.Cleaning:            return TranslationManager.translate("machineStatus.cleaning", "Cleaning")
+            case MachineState.Phase.Transport:           return TranslationManager.translate("machineStatus.transport", "Transport")
             default:                                         return TranslationManager.translate("machineStatus.unknown", "Unknown")
         }
     }
