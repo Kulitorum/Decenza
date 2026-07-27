@@ -6,6 +6,7 @@
 #include "ble/scales/decentscale.h"
 #include "ble/scales/bookooscale.h"
 #include "ble/scales/difluidscale.h"
+#include "ble/scales/acaiascale.h"
 #include "ble/transport/scalebletransport.h"
 #include "ble/protocol/de1characteristics.h"
 #include "ble/protocol/decentscaleprotocol.h"
@@ -24,7 +25,7 @@ class MockScaleBleTransport : public ScaleBleTransport {
 public:
     explicit MockScaleBleTransport(QObject* parent = nullptr) : ScaleBleTransport(parent) {}
 
-    void connectToDevice(const QString&, const QString&) override {}
+    void connectToDevice(const QString&, const QString&) override { m_connectCount++; }
     void disconnectFromDevice() override { m_disconnectCount++; }
     void discoverServices() override {}
     void discoverCharacteristics(const QBluetoothUuid& service) override {
@@ -58,6 +59,7 @@ public:
 
     int m_notifyEnableCount = 0;
     int m_disconnectCount = 0;
+    int m_connectCount = 0;
     bool m_isConnected = true;
     QList<QByteArray> m_writes;
     QList<QBluetoothUuid> m_characteristicDiscoveries;
@@ -1157,6 +1159,240 @@ private slots:
 
         QVERIFY(transport->m_characteristicDiscoveries.isEmpty());
         QVERIFY(!scale.isConnected());
+    }
+
+    // --- Acaia (issues #1669, #1670) --------------------------------------
+    //
+    // Frames are `EF DD <msgType> <length> <payload…>`, length counting from the
+    // length byte itself, so a frame occupies ACAIA_METADATA_LEN(5) + length
+    // bytes. AcaiaScale defaults to the IPS protocol, so feeding
+    // Scale::AcaiaIPS::CHARACTERISTIC reaches parseResponse() with no discovery
+    // handshake.
+    //
+    // Byte layouts are asserted against pyacaia (decode/Settings), Beanconqueror
+    // (decoder.ts) and reaprime (acaia_scale.dart), which agree; de1app parses
+    // weight only and never reads a 0x08 settings frame.
+
+    // 0x08 settings frame. Battery is payload[1] = buf[4]; buf[5] is the units
+    // byte (2 = grams). Defaults are chosen to discriminate: reverting the fix to
+    // buf[5] yields 2 — the exact "always 2%" symptom reported in #1670.
+    static QByteArray buildAcaiaSettings(uint8_t battery, uint8_t units = 2) {
+        QByteArray pkt;
+        pkt.append(static_cast<char>(0xEF));
+        pkt.append(static_cast<char>(0xDD));
+        pkt.append(static_cast<char>(0x08));
+        pkt.append(static_cast<char>(0x0D));            // length
+        pkt.append(static_cast<char>(battery));         // buf[4]
+        pkt.append(static_cast<char>(units));           // buf[5]
+        pkt.append(QByteArray(12, '\0'));               // rest of the frame
+        return pkt.left(5 + 0x0D);
+    }
+
+    // 0x0C / eventType 5 weight frame. Body is 3-byte LE value, then a decimal
+    // exponent at payload[4] and a sign flag at payload[5].
+    static QByteArray buildAcaiaWeight(double grams) {
+        const uint32_t raw = static_cast<uint32_t>(qRound(qAbs(grams) * 10.0));
+        QByteArray pkt;
+        pkt.append(static_cast<char>(0xEF));
+        pkt.append(static_cast<char>(0xDD));
+        pkt.append(static_cast<char>(0x0C));
+        pkt.append(static_cast<char>(0x06));            // length
+        pkt.append(static_cast<char>(0x05));            // eventType
+        pkt.append(static_cast<char>(raw & 0xFF));
+        pkt.append(static_cast<char>((raw >> 8) & 0xFF));
+        pkt.append(static_cast<char>((raw >> 16) & 0xFF));
+        pkt.append(static_cast<char>(0x00));
+        pkt.append(static_cast<char>(0x01));            // one decimal place
+        pkt.append(static_cast<char>(grams < 0 ? 0x02 : 0x00));
+        return pkt;
+    }
+
+    static void feedAcaia(MockScaleBleTransport* t, const QByteArray& bytes) {
+        t->fakeCharacteristicChanged(Scale::AcaiaIPS::CHARACTERISTIC, bytes);
+    }
+
+    void acaiaBatteryComesFromPayloadByteOne() {
+        auto* transport = new MockScaleBleTransport;
+        AcaiaScale scale(transport);
+        QSignalSpy spy(&scale, &ScaleDevice::batteryLevelChanged);
+
+        feedAcaia(transport, buildAcaiaSettings(90));
+
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(spy.at(0).at(0).toInt(), 90);
+        QCOMPARE(scale.batteryLevel(), 90);
+    }
+
+    void acaiaBatteryIsNotTheUnitsByte() {
+        // The #1670 regression guard. Units is grams(2) here while the battery is
+        // 77, so reading the wrong byte cannot coincidentally pass.
+        auto* transport = new MockScaleBleTransport;
+        AcaiaScale scale(transport);
+
+        feedAcaia(transport, buildAcaiaSettings(77, /*units=*/2));
+
+        QCOMPARE(scale.batteryLevel(), 77);
+        QVERIFY(scale.batteryLevel() != 2);
+    }
+
+    void acaiaBatteryHighBitIsMasked() {
+        // pyacaia and Beanconqueror mask 0x80 off; reaprime does not. Masking
+        // keeps a set high bit from reading as an out-of-range battery.
+        auto* transport = new MockScaleBleTransport;
+        AcaiaScale scale(transport);
+
+        feedAcaia(transport, buildAcaiaSettings(0x80 | 64));
+
+        QCOMPARE(scale.batteryLevel(), 64);
+    }
+
+    void acaiaDecodesSecondFrameInSameNotification() {
+        // The frame-carrying fix: a settings frame followed by a weight frame in
+        // one notification. The old parser decoded the first and cleared the rest.
+        auto* transport = new MockScaleBleTransport;
+        AcaiaScale scale(transport);
+        QSignalSpy weightSpy(&scale, &ScaleDevice::weightChanged);
+        QSignalSpy batterySpy(&scale, &ScaleDevice::batteryLevelChanged);
+
+        feedAcaia(transport, buildAcaiaSettings(90) + buildAcaiaWeight(100.0));
+
+        QCOMPARE(batterySpy.count(), 1);
+        QCOMPARE(batterySpy.at(0).at(0).toInt(), 90);
+        QCOMPARE(weightSpy.count(), 1);
+        QCOMPARE(weightSpy.at(0).at(0).toDouble(), 100.0);
+    }
+
+    void acaiaDecodesSettingsBehindWeight() {
+        // Reverse order — the comment in parseResponse claims this is the common
+        // shape on the wire, so pin both orderings.
+        auto* transport = new MockScaleBleTransport;
+        AcaiaScale scale(transport);
+        QSignalSpy weightSpy(&scale, &ScaleDevice::weightChanged);
+        QSignalSpy batterySpy(&scale, &ScaleDevice::batteryLevelChanged);
+
+        feedAcaia(transport, buildAcaiaWeight(18.5) + buildAcaiaSettings(42));
+
+        QCOMPARE(weightSpy.count(), 1);
+        QCOMPARE(weightSpy.at(0).at(0).toDouble(), 18.5);
+        QCOMPARE(batterySpy.count(), 1);
+        QCOMPARE(batterySpy.at(0).at(0).toInt(), 42);
+    }
+
+    void acaiaShortFrameDoesNotReadIntoItsNeighbour() {
+        // A weight frame whose length byte is too short for its own body must be
+        // dropped, not completed from the following frame's bytes. Before the
+        // frame-bounded reads this decoded `AA BB EF DD 0C 06` as a weight with
+        // unit=12 and emitted a spurious sample ahead of the real one.
+        auto* transport = new MockScaleBleTransport;
+        AcaiaScale scale(transport);
+        QSignalSpy weightSpy(&scale, &ScaleDevice::weightChanged);
+
+        QByteArray truncated = QByteArray::fromHex("EFDD0C0205AABB");
+        feedAcaia(transport, truncated + buildAcaiaWeight(100.0));
+
+        QCOMPARE(weightSpy.count(), 1);
+        QCOMPARE(weightSpy.at(0).at(0).toDouble(), 100.0);
+    }
+
+    void acaiaHeartbeatTimerBodyIsNotAWeight() {
+        // eventType 11 carries a selector at buf[7]: 5 = weight, 7 = timer.
+        // Decoding a timer body as a weight is what the selector check prevents.
+        auto* transport = new MockScaleBleTransport;
+        AcaiaScale scale(transport);
+        QSignalSpy weightSpy(&scale, &ScaleDevice::weightChanged);
+
+        feedAcaia(transport, QByteArray::fromHex("EFDD0C090B000007123456789ABC"));
+        QCOMPARE(weightSpy.count(), 0);
+
+        // The weight-bodied variant of the same event still decodes.
+        feedAcaia(transport, QByteArray::fromHex("EFDD0C090B000005E80300000100"));
+        QCOMPARE(weightSpy.count(), 1);
+        QCOMPARE(weightSpy.at(0).at(0).toDouble(), 100.0);
+    }
+
+    void acaiaResyncsPastBogusLength() {
+        auto* transport = new MockScaleBleTransport;
+        AcaiaScale scale(transport);
+        QSignalSpy weightSpy(&scale, &ScaleDevice::weightChanged);
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Frame resync"));
+        feedAcaia(transport, QByteArray::fromHex("EFDD0CFF0500") + buildAcaiaWeight(100.0));
+
+        QCOMPARE(weightSpy.count(), 1);
+        QCOMPARE(weightSpy.at(0).at(0).toDouble(), 100.0);
+    }
+
+    void acaiaCarriesFrameSplitAcrossNotifications() {
+        auto* transport = new MockScaleBleTransport;
+        AcaiaScale scale(transport);
+        QSignalSpy weightSpy(&scale, &ScaleDevice::weightChanged);
+
+        const QByteArray whole = buildAcaiaWeight(100.0);
+        feedAcaia(transport, whole.left(6));
+        QCOMPARE(weightSpy.count(), 0);
+        feedAcaia(transport, whole.mid(6));
+
+        QCOMPARE(weightSpy.count(), 1);
+        QCOMPARE(weightSpy.at(0).at(0).toDouble(), 100.0);
+    }
+
+    void acaiaCarriesHeaderSplitAcrossNotifications() {
+        // The trailing-0xEF hold-back. The old parser found no header, cleared
+        // the buffer, and the next notification then began with a stray 0xDD —
+        // losing the frame entirely.
+        auto* transport = new MockScaleBleTransport;
+        AcaiaScale scale(transport);
+        QSignalSpy weightSpy(&scale, &ScaleDevice::weightChanged);
+
+        const QByteArray whole = buildAcaiaWeight(100.0);
+        feedAcaia(transport, QByteArray::fromHex("1122") + whole.left(1));
+        feedAcaia(transport, whole.mid(1));
+
+        QCOMPARE(weightSpy.count(), 1);
+        QCOMPARE(weightSpy.at(0).at(0).toDouble(), 100.0);
+    }
+
+    void acaiaOutOfRangeBatteryIsReportedNotSwallowed() {
+        // 101..127 survives the 0x7F mask and means buf[4] is not a battery byte
+        // — the evidence #1670 lacked. It must warn rather than vanish, and the
+        // level must stay at the unknown sentinel.
+        auto* transport = new MockScaleBleTransport;
+        AcaiaScale scale(transport);
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Battery byte out of range"));
+        feedAcaia(transport, buildAcaiaSettings(120));
+
+        QCOMPARE(scale.batteryLevel(), -1);
+    }
+
+    void acaiaReconnectIsNotRefusedAfterAFailedAttempt() {
+        // #1669. The first attempt dies without a disconnected() callback — the
+        // shape BLEManager's direct-connect abort produces by severing the
+        // controller's signals. The next ladder tick must still reach the
+        // transport; the old latched m_isConnecting swallowed it forever.
+        auto* transport = new MockScaleBleTransport;
+        transport->m_isConnected = false;   // mock defaults to connected
+        AcaiaScale scale(transport);
+
+        scale.connectToDevice(QBluetoothDeviceInfo());
+        QCOMPARE(transport->m_connectCount, 1);
+
+        scale.connectToDevice(QBluetoothDeviceInfo());
+        QCOMPARE(transport->m_connectCount, 2);
+    }
+
+    void acaiaConnectIsRefusedOnALiveLink() {
+        // The complement: a stray scaleDiscovered for a scale we are already
+        // talking to must not run the reset block, which would stop the heartbeat
+        // and clear m_characteristicsReady (blocking every later write).
+        auto* transport = new MockScaleBleTransport;
+        AcaiaScale scale(transport);
+        feedAcaia(transport, buildAcaiaWeight(12.0));   // first weight → connected
+        QVERIFY(scale.isConnected());
+
+        scale.connectToDevice(QBluetoothDeviceInfo());
+
+        QCOMPARE(transport->m_connectCount, 0);
     }
 };
 

@@ -57,9 +57,38 @@ void AcaiaScale::connectToDevice(const QBluetoothDeviceInfo& device) {
         return;
     }
 
-    // Prevent duplicate connection attempts
-    if (m_isConnecting) {
-        ACAIA_LOG("Already connecting, ignoring duplicate request");
+    // Don't tear down an established link. A stray scaleDiscovered for a scale
+    // we're already talking to would otherwise run the reset below on a live
+    // connection — stopping the heartbeat and clearing m_characteristicsReady,
+    // which blocks every subsequent write.
+    //
+    // Note what this deliberately does NOT guard: a duplicate connect while the
+    // link is still coming up. QtScaleBleTransport::connectToDevice debounces
+    // that on the controller's live state, and unlike a flag here it recovers
+    // once the controller is gone. (CoreBluetoothScaleBleTransport has no such
+    // check — on iOS/macOS a duplicate mid-handshake still runs the reset below.)
+    //
+    // This was a latched m_isConnecting bool until #1669. It read live-ish state
+    // nowhere: it was cleared from the transport callbacks and the init timer,
+    // none of which run when BLEManager's direct-connect abort severs the
+    // controller's signals before deleting it — and startInitSequence() never
+    // armed that timer, because characteristics never became ready. So the flag
+    // stayed set for the life of the process and every later attempt was refused,
+    // leaving the scale reachable only by forgetting and re-pairing it. The bug
+    // was that it latched, not merely that it was redundant with the transport
+    // debounce that landed two weeks after it. reaprime guards on live transport
+    // state for the same reason (acaia_scale.dart onConnect).
+    if (isConnected()) {
+        ACAIA_LOG("Already connected, ignoring duplicate request");
+        return;
+    }
+    if (m_transport && m_transport->isConnected()) {
+        // Linked but no weight has ever arrived, so the handshake is wedged
+        // rather than healthy. WARN, not LOG: a repeat here is the fingerprint of
+        // a scale that connects and stays mute, and "Already connected" at debug
+        // level reads as reassurance while the ladder spins.
+        ACAIA_WARN("Connect requested while the link is up but no weight has arrived; "
+                   "ignoring. Repeats here mean the handshake is wedged.");
         return;
     }
 
@@ -73,8 +102,10 @@ void AcaiaScale::connectToDevice(const QBluetoothDeviceInfo& device) {
     m_characteristicsReady = false;
     m_receivingNotifications = false;
     m_weightReceived = false;
-    m_isConnecting = true;
     m_identRetryCount = 0;
+    m_infoFrameCount = 0;
+    m_resyncLogged = false;
+    m_badBatteryLogged = false;
     m_buffer.clear();
 
     m_name = device.name();
@@ -91,14 +122,26 @@ void AcaiaScale::onTransportDisconnected() {
     stopAllTimers();
     m_weightReceived = false;
     m_characteristicsReady = false;
-    m_isConnecting = false;
+    m_buffer.clear();   // the buffer outlives a notification now; don't carry a
+                        // partial frame into the next session
     setConnected(false);
 }
 
 void AcaiaScale::onTransportError(const QString& message) {
     ACAIA_WARN(QString("Transport error: %1").arg(message));
     stopAllTimers();
-    m_isConnecting = false;
+    m_buffer.clear();
+
+    // Drop the link, don't just mark ourselves disconnected. Both transports can
+    // emit error() with the link still up and their own m_connected still true —
+    // QtScaleBleTransport::onControllerError returns without touching it, and Qt
+    // does not backfill a disconnected() for an error in the Discovered state.
+    // Leaving that mismatch in place would strand connectToDevice()'s guard on a
+    // transport that claims to be connected while this driver knows it is not:
+    // the same permanent-refusal shape as #1669, just with a different flag.
+    if (m_transport) {
+        m_transport->disconnectFromDevice();
+    }
     setConnected(false);
 }
 
@@ -191,7 +234,6 @@ void AcaiaScale::onInitTimer() {
     if (m_receivingNotifications) {
         ACAIA_LOG("Scale responded, stopping init sequence and starting heartbeat");
         m_initTimer->stop();
-        m_isConnecting = false;
 
         // Start heartbeat sequence
         sendConfig();
@@ -205,9 +247,28 @@ void AcaiaScale::onInitTimer() {
 
     // Check retry limit
     if (m_identRetryCount >= MAX_IDENT_RETRIES) {
-        ACAIA_WARN(QString("Init sequence failed after %1 retries").arg(MAX_IDENT_RETRIES));
+        // Drop the link on the way out. The scale is linked but has never
+        // answered, so leaving the transport connected strands us: this driver
+        // never reaches setConnected(true) (that waits on a first weight), while
+        // the transport still reports connected — and connectToDevice()'s guard
+        // then refuses every tick of the 60s reconnect ladder forever. The old
+        // m_isConnecting latch happened to clear itself here, so this exit has to
+        // do it explicitly now that the guard reads transport state instead.
+        //
+        // infoFrames distinguishes the two failures worth telling apart: a scale
+        // spamming msgType 7 is alive and rejecting our ident (wrong protocol or
+        // write characteristic), whereas zero frames means notifications never
+        // came up at all.
+        ACAIA_WARN(QString("Init sequence failed after %1 retries "
+                           "(infoFrames=%2, protocol=%3) — dropping the link so the "
+                           "reconnect ladder can retry")
+                       .arg(MAX_IDENT_RETRIES).arg(m_infoFrameCount)
+                       .arg(m_isPyxis ? "Pyxis" : "IPS"));
         m_initTimer->stop();
-        m_isConnecting = false;
+        if (m_transport) {
+            m_transport->disconnectFromDevice();
+        }
+        setConnected(false);
         return;
     }
 
@@ -298,66 +359,145 @@ void AcaiaScale::parseResponse(const QByteArray& data) {
     // Append to buffer
     m_buffer.append(data);
 
-    // Need at least 6 bytes for a valid message
-    if (m_buffer.size() < 6) return;
+    // One notification can carry several concatenated frames — commonly a weight
+    // frame with a 0x08 settings frame behind it. Decode every complete frame and
+    // keep the trailing partial for the next notification.
+    //
+    // This used to decode the first frame and then clear the whole buffer, which
+    // silently dropped whatever followed it. de1app scans forward past
+    // uninteresting frames to reach a weight frame, but then clears its buffer
+    // just the same (bluetooth.tcl acaia_scan_buffer_for_msg /
+    // acaia_parse_response) — it picks a better frame, it does not carry the
+    // rest. pyacaia (`bytes[messageEnd:]`), Beanconqueror (`bytes.slice(messageEnd)`)
+    // and reaprime (`sublist(msgLen)`) all carry the remainder; this matches them.
+    while (true) {
+        const uint8_t* buf = reinterpret_cast<const uint8_t*>(m_buffer.constData());
 
-    const uint8_t* buf = reinterpret_cast<const uint8_t*>(m_buffer.constData());
-
-    // Find message start (0xEF 0xDD)
-    int msgStart = -1;
-    for (int i = 0; i < m_buffer.size() - 1; i++) {
-        if (buf[i] == 0xEF && buf[i + 1] == 0xDD) {
-            msgStart = i;
-            break;
+        // Find message start (0xEF 0xDD)
+        qsizetype msgStart = -1;
+        for (qsizetype i = 0; i + 1 < m_buffer.size(); i++) {
+            if (buf[i] == 0xEF && buf[i + 1] == 0xDD) {
+                msgStart = i;
+                break;
+            }
         }
-    }
 
-    if (msgStart < 0) {
-        m_buffer.clear();
-        return;
-    }
-
-    // Skip bytes before message start
-    if (msgStart > 0) {
-        m_buffer = m_buffer.mid(msgStart);
-        buf = reinterpret_cast<const uint8_t*>(m_buffer.constData());
-    }
-
-    // Check if we have enough data for metadata
-    if (m_buffer.size() < ACAIA_METADATA_LEN + 1) return;
-
-    uint8_t msgType = buf[2];
-    uint8_t length = buf[3];
-    uint8_t eventType = buf[4];
-
-    // Mark that we're receiving notifications (not just info messages)
-    if (msgType != 7) {
-        m_receivingNotifications = true;
-    }
-
-    // Check if we have the complete message
-    int msgEnd = ACAIA_METADATA_LEN + length;
-    if (m_buffer.size() < msgEnd) return;
-
-    // Weight messages (msgType 0x0C, eventType 5 or 11)
-    if (msgType == 0x0C && (eventType == 5 || eventType == 11)) {
-        int payloadOffset = (eventType == 5) ? ACAIA_METADATA_LEN : ACAIA_METADATA_LEN + 3;
-        decodeWeight(m_buffer, payloadOffset);
-    }
-
-    // Settings response (msgType 0x08): contains battery level
-    // Unlike 0x0C event messages, 0x08 has no eventType byte — payload starts at buf[4]:
-    //   buf[4]=payload[0] (unknown), buf[5]=payload[1] (battery), buf[6]=payload[2] (units), ...
-    // Battery masked with 0x7F gives 0-100%
-    if (msgType == 0x08 && m_buffer.size() >= 6) {
-        int batteryLevel = buf[5] & 0x7F;
-        if (batteryLevel >= 0 && batteryLevel <= 100) {
-            setBatteryLevel(batteryLevel);
+        if (msgStart < 0) {
+            // No header in flight. A trailing 0xEF may be the first byte of a
+            // header split across two notifications, so hold it back.
+            if (!m_buffer.isEmpty() && static_cast<uint8_t>(m_buffer.back()) == 0xEF) {
+                m_buffer = m_buffer.right(1);
+            } else {
+                m_buffer.clear();
+            }
+            return;
         }
-    }
 
-    // Clear buffer after processing
-    m_buffer.clear();
+        // Skip bytes before message start
+        if (msgStart > 0) {
+            m_buffer = m_buffer.mid(msgStart);
+            buf = reinterpret_cast<const uint8_t*>(m_buffer.constData());
+        }
+
+        // Check if we have enough data for metadata
+        if (m_buffer.size() < ACAIA_METADATA_LEN + 1) return;
+
+        uint8_t msgType = buf[2];
+        uint8_t length = buf[3];
+        uint8_t eventType = buf[4];
+
+        // Mark that we're receiving notifications (not just info messages)
+        if (msgType != 7) {
+            m_receivingNotifications = true;
+        } else {
+            // Counted, never logged per-frame: the scale spams these hardest
+            // exactly when the handshake is failing, and the log ring drops on
+            // overflow. The count is what the init-failure warning reports.
+            m_infoFrameCount++;
+        }
+
+        // A bogus length would park the buffer forever waiting on bytes that
+        // never arrive, now that the buffer survives across notifications.
+        // 64 is de1app's ceiling too (bluetooth.tcl acaia_scan_buffer_for_msg,
+        // whose own comment calls the threshold arbitrary), though it skips by
+        // the untrusted length where we resync by 2 — resyncing on a length we
+        // have just rejected is how one corrupt byte becomes a permanent desync.
+        //
+        // Worth a warning because this is the only desync-recovery path, and a
+        // sustained run of it presents to the user as "connects, no weight".
+        // One-shot: it sits inside the loop and could fire repeatedly per packet.
+        if (length > MAX_ACAIA_PAYLOAD_LEN) {
+            if (!m_resyncLogged) {
+                m_resyncLogged = true;
+                ACAIA_WARN(QString("Frame resync: length %1 exceeds the %2-byte ceiling "
+                                   "(msgType=%3, buffered=%4)")
+                               .arg(length).arg(MAX_ACAIA_PAYLOAD_LEN)
+                               .arg(msgType).arg(m_buffer.size()));
+            }
+            m_buffer = m_buffer.mid(2);
+            continue;
+        }
+
+        // Check if we have the complete message
+        const qsizetype msgEnd = ACAIA_METADATA_LEN + length;
+        if (m_buffer.size() < msgEnd) return;   // wait for the rest of the frame
+
+        // Everything below indexes within THIS frame, so bound reads by msgEnd and
+        // not by m_buffer.size(). The buffer now carries following frames, so a
+        // frame whose length byte is too short for the body it claims would
+        // otherwise read its neighbour's bytes and publish a garbage weight —
+        // which feeds stop-at-weight.
+        if (msgType == 0x0C && eventType == 5) {
+            if (msgEnd >= ACAIA_METADATA_LEN + 6) {
+                decodeWeight(m_buffer.left(msgEnd), ACAIA_METADATA_LEN);
+            }
+        } else if (msgType == 0x0C && eventType == 11) {
+            // Heartbeat response. buf[7] (payload[2] counting from buf[5], the
+            // base this file's weight path uses) selects the body: 5 = weight,
+            // 7 = timer. de1app and reaprime decode the weight unconditionally;
+            // pyacaia and Beanconqueror check the selector. A timer body decoded
+            // as a weight is garbage, so follow the stricter pair.
+            if (msgEnd > 7 && buf[7] == 5 && msgEnd >= ACAIA_METADATA_LEN + 3 + 6) {
+                decodeWeight(m_buffer.left(msgEnd), ACAIA_METADATA_LEN + 3);
+            }
+        }
+
+        // Settings response (msgType 0x08): contains battery level.
+        //
+        // Absolute offsets, because this block and the weight path above number
+        // their payloads from different bases — the weight path from buf[5]
+        // (ACAIA_METADATA_LEN), this one from buf[3] to match pyacaia's slice:
+        //   buf[3] = the frame length, already consumed as `length` above
+        //   buf[4] = battery
+        //   buf[5] = units (2 = grams, 5 = ounces)
+        //
+        // This read buf[5] until issue #1670 — the units byte, so a scale set to
+        // grams reported a permanent "2%" battery (ounces would have read 5%).
+        // de1app parses no 0x08 frame at all, but three references land on buf[4]:
+        // pyacaia (`Settings(bytes[messageStart+3:])`, `payload[1] & 0x7F`),
+        // Beanconqueror (`parseSettings(bytes.slice(messageStart+3))`,
+        // `payload[1] & 127`) and reaprime (`_commandBuffer[4]`, unmasked).
+        if (msgType == 0x08) {
+            // 0x7F yields 0-127; the <= 100 test below is what bounds it to a
+            // percentage. Keep them separate — 101..127 means buf[4] is not a
+            // battery byte, i.e. the offset above is wrong for this model, and
+            // that is exactly the evidence #1670 lacked for months. One-shot so a
+            // wrong offset cannot flood the log.
+            const int batteryLevel = buf[4] & 0x7F;
+            if (batteryLevel <= 100) {
+                setBatteryLevel(batteryLevel);
+            } else if (!m_badBatteryLogged) {
+                m_badBatteryLogged = true;
+                ACAIA_WARN(QString("Battery byte out of range: %1 (buf[3..5]=%2 %3 %4, "
+                                   "protocol=%5) — payload offset likely wrong for this model")
+                               .arg(batteryLevel).arg(buf[3]).arg(buf[4]).arg(buf[5])
+                               .arg(m_isPyxis ? "Pyxis" : "IPS"));
+            }
+        }
+
+        // Consume the frame and look for the next one in the same buffer
+        m_buffer = m_buffer.mid(msgEnd);
+    }
 }
 
 void AcaiaScale::decodeWeight(const QByteArray& data, int payloadOffset) {

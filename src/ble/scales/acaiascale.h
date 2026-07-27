@@ -54,7 +54,12 @@ private:
     bool m_characteristicsReady = false;
     bool m_receivingNotifications = false;
     bool m_weightReceived = false;  // Track if we've received weight data
-    bool m_isConnecting = false;  // Track if connection is in progress
+    // One-shot latches so a persistently malformed stream can't flood the log
+    // ring (AsyncLogger drops on overflow, so a flood destroys the evidence).
+    // All three are reset per connection attempt in connectToDevice().
+    bool m_resyncLogged = false;
+    bool m_badBatteryLogged = false;
+    int m_infoFrameCount = 0;  // msgType 7 frames — reported on init failure
 
     // Timers
     QTimer* m_heartbeatTimer = nullptr;
@@ -66,6 +71,7 @@ private:
 
     // Constants
     static constexpr int ACAIA_METADATA_LEN = 5;
+    static constexpr int MAX_ACAIA_PAYLOAD_LEN = 64;  // Sanity ceiling, same as de1app
     static constexpr int MAX_IDENT_RETRIES = 10;  // Same as de1app
     static constexpr int INIT_TIMER_INTERVAL_MS = 500;  // Ident + config every 500ms
 };
