@@ -34,6 +34,8 @@ Item {
     // the Equipment page.
     property var inventoryEquipment: []
     property int equipmentPageIndex: 0
+    // Set while the close-time re-request is in flight — see onInventoryReady.
+    property bool equipmentOrderLiftPending: false
 
     function equipmentLabel(pkg) {
         if (!pkg) return ""
@@ -74,7 +76,16 @@ Item {
     Connections {
         target: MainController.equipmentStorage
         function onInventoryReady(packages) {
-            root.inventoryEquipment = packages
+            // While the popup is open, hold the order the user is looking at —
+            // selecting a package bumps last_used and a re-sort would move the
+            // pills mid-tap (#1673). Lifted on close (see presetPopup.onClosed);
+            // that lift wins even if the popup is already open again, because a
+            // fast close→reopen can beat the async inventory reply.
+            const freeze = presetPopup.visible && !root.equipmentOrderLiftPending
+            root.equipmentOrderLiftPending = false
+            root.inventoryEquipment = freeze
+                ? PillFit.keepOrder(root.inventoryEquipment, packages, "id")
+                : packages
             root.equipmentPageIndex = Math.max(0, Math.min(root.equipmentPageIndex, root.equipmentPageCount - 1))
         }
         function onPackagesChanged() {
@@ -185,6 +196,10 @@ Item {
         }
         onClosed: {
             if (root.idlePage) root.idlePage.releasePanelClearance()
+            // Lift the order freeze held while open (#1673) — this request comes
+            // back in true MRU order, so the next open shows the fresh order.
+            root.equipmentOrderLiftPending = true
+            MainController.equipmentStorage.requestInventory()
         }
 
         function _announceOnOpen() {

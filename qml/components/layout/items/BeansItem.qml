@@ -30,6 +30,8 @@ Item {
     // page.
     property var inventoryBags: []
     property int beanPageIndex: 0
+    // Set while the close-time re-request is in flight — see onInventoryReady.
+    property bool bagOrderLiftPending: false
 
     // Live two-row fit (descriptive-recipe-names) — same approach as
     // RecipesItem: pack the MRU list into pages of AT MOST TWO ROWS at the pill
@@ -77,7 +79,16 @@ Item {
     Connections {
         target: MainController.bagStorage
         function onInventoryReady(bags) {
-            root.inventoryBags = bags
+            // While the popup is open, hold the order the user is looking at —
+            // selecting a bag bumps last_used and a re-sort would move the pills
+            // mid-tap (#1673). Lifted on close (see presetPopup.onClosed); that
+            // lift wins even if the popup is already open again, because a fast
+            // close→reopen can beat the async inventory reply.
+            const freeze = presetPopup.visible && !root.bagOrderLiftPending
+            root.bagOrderLiftPending = false
+            root.inventoryBags = freeze
+                ? PillFit.keepOrder(root.inventoryBags, bags, "id")
+                : bags
             root.beanPageIndex = Math.max(0, Math.min(root.beanPageIndex, root.beanPageCount - 1))
         }
         function onBagsChanged() {
@@ -184,7 +195,13 @@ Item {
         // announce here directly to keep feature parity for screen-reader users.
         onAboutToShow: root.beanPageIndex = 0  // Always open on the most-recent five.
 
-        onClosed: { if (root.idlePage) root.idlePage.releasePanelClearance() }
+        onClosed: {
+            if (root.idlePage) root.idlePage.releasePanelClearance()
+            // Lift the order freeze held while open (#1673) — this request comes
+            // back in true MRU order, so the next open shows the fresh order.
+            root.bagOrderLiftPending = true
+            MainController.bagStorage.requestInventory()
+        }
         onOpened: {
             if (root.idlePage) {
                 var rootTopInPage = root.mapToItem(root.idlePage, 0, 0).y
