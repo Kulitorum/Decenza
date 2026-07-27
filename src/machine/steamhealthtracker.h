@@ -21,14 +21,20 @@ struct SteamSessionSummary {
 class SteamHealthTracker : public QObject {
     Q_OBJECT
 
-    // Reached from QML as a MainController property, never constructed there. Registered at
-    // COMPILE time so qmllint, qmlcachegen and the language server can follow the property
-    // through to this class; a runtime qmlRegister* call is invisible to all three.
+    // Compile-time QML registration, so qmllint, qmlcachegen and the language server can
+    // follow MainController's property through to this class. A runtime qmlRegister* call is
+    // invisible to all three. Full rationale in src/controllers/maincontroller.h.
     //
-    // NAMED SteamHealthTrackerType, not the bare class name: main.cpp still publishes an INSTANCE under the
-    // class name as a context property, and a context property resolves ahead of a type
-    // name. Registering the bare name would shadow-collide and make qmllint read SteamHealthTracker
-    // as the type where QML means the instance. Matches the existing ...Type convention.
+    // NAMED, unlike its 21 siblings, and the name is load-bearing twice over:
+    //   - main.cpp still publishes an INSTANCE called "SteamHealthTracker" as a context property,
+    //     and a context property resolves ahead of a type name. Registering the bare class name
+    //     would shadow-collide, so qmllint would read the type where QML means the instance.
+    //   - SettingsCalibrationTab.qml reads the enum as SteamHealthTrackerType.EstablishingAfterReset
+    //     (and .EstablishingInitial). Renaming this to a plain QML_ELEMENT leaves the class in
+    //     Decenza.qmltypes under its C++ name, so the build and the registration test both stay
+    //     green while those two comparisons silently become `=== undefined` — i.e. false, and the
+    //     calibration screen shows the wrong baseline message. tst_qmlregistration asserts the
+    //     EXPORT name for exactly this reason; do not "tidy" this to QML_ELEMENT.
     QML_NAMED_ELEMENT(SteamHealthTrackerType)
     QML_UNCREATABLE("SteamHealthTracker is created in C++ and reached via MainController.steamHealthTracker")
 

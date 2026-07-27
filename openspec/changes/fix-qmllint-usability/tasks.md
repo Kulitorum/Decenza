@@ -198,12 +198,15 @@ evaluates — the same silent, delayed shape as the bug this change exists to pr
   ReferenceError, and TTS initialised (i.e. the object is genuinely live, not undefined).
   Predicted 8 files, delivered 5 — the shortfall is D2's stale anchor, not a miss; see the note
   on that table.
-- [x] 3.5 `MainController` — unlocked 9 files (66 → 75 clean), `unqualified` 7,251 → 6,337 (−914,
-  exactly the predicted count). Used the SIMPLE direct-macro shape per the maintainer's call: Qt
+- [x] 3.5 `MainController` — unlocked 9 files (66 → 75 clean), `unqualified` 7,251 → 6,335 (−916;
+  design.md predicted 879 for this name, so the anchor was stale — the same stale-anchor note as
+  3.4. The number quoted here was originally 6,337/−914, read off an intermediate run before the
+  dead announce sites were fixed and AIConversation registered; it disagreed with the baseline
+  committed in the same PR. Caught in review — plausible is not the same as correct). Used the SIMPLE direct-macro shape per the maintainer's call: Qt
   recommends it for types you own, and that was the tiebreaker over the `QML_FOREIGN` wrapper.
   Three things this taught that the earlier migrations did not:
   - **Registering the parent exposes the children.** `unresolved-type` went 2 → **763** the moment
-    qmllint could read MainController's property list and found 21 sub-object types unregistered.
+    qmllint could read MainController's property list and found 22 sub-object types unregistered.
     Registering those (plus `AIConversation`) took it back to 2. Landing MainController without
     them would have meant a 763-entry exemption of known-unverifiable accesses — progress by count
     with none in findability, which the proposal names as the failure mode to avoid.

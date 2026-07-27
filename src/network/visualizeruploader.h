@@ -15,8 +15,8 @@
 // must either point to fully-defined types...").
 //
 // This surfaced a latent defect rather than creating one: uploadShot() has been Q_INVOKABLE all
-// along with `const Profile*` incomplete, so QML could never actually have called it — the
-// marshalling had no metatype to work with. Registering the type is what made that visible.
+// along with `const Profile*` incomplete, so a QML call would have failed to marshal —
+// deduced, not observed, because nothing calls it. Registering the type is what made that visible.
 // Q_DECLARE_OPAQUE_POINTER would silence this and reintroduce the runtime failure; see
 // src/core/settings.h for why that escape hatch is banned here.
 #include "../profile/profile.h"
@@ -81,10 +81,9 @@ struct ShotMetadata {
 class VisualizerUploader : public QObject {
     Q_OBJECT
 
-    // Reached from QML only as a MainController property (e.g. MainController.visualizerUploader),
-    // never constructed there. Registered at COMPILE time so qmllint, qmlcachegen and the
-    // language server can follow the property through to this class; a runtime
-    // qmlRegister* call is invisible to all three.
+    // Compile-time QML registration, so qmllint, qmlcachegen and the language server can
+    // follow MainController's property through to this class. A runtime qmlRegister* call is
+    // invisible to all three. Full rationale in src/controllers/maincontroller.h.
     QML_ELEMENT
     QML_UNCREATABLE("VisualizerUploader is created in C++ and reached via MainController")
 

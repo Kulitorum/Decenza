@@ -23,10 +23,9 @@ struct ShotEvent {
 class ShotReporter : public QObject {
     Q_OBJECT
 
-    // Reached from QML only as a MainController property (e.g. MainController.shotReporter),
-    // never constructed there. Registered at COMPILE time so qmllint, qmlcachegen and the
-    // language server can follow the property through to this class; a runtime
-    // qmlRegister* call is invisible to all three.
+    // Compile-time QML registration, so qmllint, qmlcachegen and the language server can
+    // follow MainController's property through to this class. A runtime qmlRegister* call is
+    // invisible to all three. Full rationale in src/controllers/maincontroller.h.
     QML_ELEMENT
     QML_UNCREATABLE("ShotReporter is created in C++ and reached via MainController")
 

@@ -57,17 +57,32 @@ class MainController : public QObject {
     // A compile-time-registered QML singleton. The macros are what put the type in the module's
     // generated Decenza.qmltypes — the only place qmllint, qmlcachegen and the language server
     // learn about C++ types. This replaced a setContextProperty, which exists only at runtime and
-    // is therefore invisible to all three: it was the single largest source of unresolvable names
-    // in the QML tree at 914 flagged identifiers.
+    // is therefore invisible to all three: it was the largest source of unresolvable names
+    // REMAINING once TranslationManager and Settings had migrated (design.md records those at
+    // 3,459 and 1,335 against this one's 879 — and the 879 anchor was itself stale; the measured
+    // reduction was 916).
     //
     // Registering the type is necessary but NOT sufficient: main.cpp must also call
     // qml_register_types_Decenza() explicitly, or no declarative type in this module reaches the
     // runtime registry at all. See the comment at that call site.
     //
-    // Direct macros rather than the QML_FOREIGN wrapper Settings needs: every target that
-    // compiles this header links Qt::Qml (the Decenza target, and decenza_testlib which links
-    // Qt6::Qml PUBLIC). The CLI tools that forced the wrapper for settings.h — saw_parity and
-    // friends — do not include this header. Check which case a name is before copying either.
+    // Direct macros rather than the QML_FOREIGN wrapper Settings uses.
+    //
+    // Be careful with the reason, because the rule as written in settings_qml.h does not hold.
+    // That file says a <QtQml/...> include in a header compiled by saw_parity "is a build break".
+    // Measured on this branch: it is not. saw_parity compiles coffeebagstorage.cpp and
+    // equipmentstorage.cpp, shot_eval reaches shothistorystorage.h, all three headers now carry
+    // qqmlregistration.h, and both tools link and run — QML_ELEMENT/QML_UNCREATABLE expand to
+    // Q_CLASSINFO plus friend declarations, which need no Qml symbols, and the header resolves
+    // through Qt6::Core's own include paths. So the wrapper was not forced by what that comment
+    // claims forced it. Recorded in bugs-found.md rather than rewritten here: settings_qml.h is a
+    // merged, reviewed decision and re-deciding it is not this change's business.
+    //
+    // What IS true and worth checking before copying either shape: a class registered directly
+    // needs a complete type for every pointer parameter of its Q_INVOKABLE/signal/slot signatures,
+    // because moc must build a metatype for each. That is what forced real #includes into
+    // visualizeruploader.h, and what defers ShotDataModel/SteamDataModel (their registerFastSeries
+    // would drag <QQuickItem> into every consumer of this header).
     QML_ELEMENT
     QML_SINGLETON
 

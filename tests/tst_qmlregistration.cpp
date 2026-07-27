@@ -150,8 +150,8 @@ private slots:
     // Same contract one level out: every type reachable as a MainController property must itself
     // be registered, or QML resolves MainController, follows the property, and finds nothing —
     // which qmllint reports as unresolved-type and the app renders as undefined. Registering
-    // MainController alone took that category from 2 to 763; registering its 21 sub-object types
-    // took it back to 2. Derived from the header so a 22nd added without QML_ELEMENT fails here.
+    // MainController alone took that category from 2 to 763; registering its 22 sub-object types
+    // took it back to 2. Derived from the header so a 23rd added without QML_ELEMENT fails here.
     void everyMainControllerSubObjectIsRegistered()
     {
         const QString header =
@@ -186,14 +186,35 @@ private slots:
         const auto components = componentsByName(m_qmltypes);
         QStringList missing;
         for (const QString& t : types) {
-            // QObject itself is Qt's, always known; skip anything Qt owns rather than us.
+            // A name-prefix approximation of "Qt owns this type", NOT a real ownership test.
+            // No project class currently starts with Q, so this skips nothing real today — but
+            // a future Decenza `QrCodeGenerator` would be silently exempted from the very check
+            // this test exists to provide. Narrow it to a known-Qt list if that day comes.
             if (t == QStringLiteral("QObject") || t.startsWith(QStringLiteral("Q")))
                 continue;
             if (deferredToOwnMigration.contains(t))
                 continue;
-            if (!components.contains(t))
+            if (!components.contains(t)) {
                 missing << t;
+                continue;
+            }
+            // Presence is not enough. qmltyperegistrar emits un-exported Component blocks for
+            // base classes (QAbstractItemModel, QAbstractListModel are both in there), so a type
+            // that lost QML_ELEMENT can still appear as some sibling's prototype. QML only sees
+            // what is EXPORTED under the module URI.
+            if (!components.value(t).contains(QStringLiteral("exports: [\"Decenza/")))
+                missing << (t + QStringLiteral(" (present but not exported under Decenza/)"));
         }
+        // Assert the negative, so the exemption cannot outlive its reason: the day one of these
+        // is registered, this fails and tells you to delete the entry. An allowlist nobody is
+        // forced to revisit decays into a permanent blind spot.
+        for (const QString& t : deferredToOwnMigration) {
+            QVERIFY2(!components.contains(t),
+                     qPrintable(t + QStringLiteral(" is now registered — delete its "
+                                "deferredToOwnMigration entry in this file so it is checked "
+                                "like every other MainController property type.")));
+        }
+
         QVERIFY2(missing.isEmpty(),
                  qPrintable(QStringLiteral(
                      "these MainController property types are absent from Decenza.qmltypes: %1.\n"
@@ -201,6 +222,49 @@ private slots:
                      "bare-basename include list in CMakeLists.txt). Without it, "
                      "MainController.<prop>.<member> is undefined at runtime and unverifiable by "
                      "every static tool.").arg(missing.join(QStringLiteral(", ")))));
+    }
+
+    // REGISTRATION AND PUBLICATION ARE TWO INDEPENDENT HALVES, and only one of them is visible
+    // to any static tool. The macros put the TYPE in the registry; a setQmlInstance() call in
+    // main.cpp supplies the INSTANCE the singleton resolves to. Delete a publish line and the
+    // build is green, Decenza.qmltypes is still correct, qmllint is still green, and every
+    // binding through that singleton resolves to null at runtime.
+    //
+    // This file asserted the registration half from the day it was written and left the
+    // publication half on the honour system — found in review, by two reviewers independently.
+    // The risk is not theoretical: these calls sit in the middle of ~40 setContextProperty lines
+    // that this migration is deleting one at a time, so an odd-looking non-setContextProperty
+    // line in that block is exactly what gets tidied away.
+    void everySingletonInstanceIsPublished_data()
+    {
+        QTest::addColumn<QString>("publishCall");
+        QTest::newRow("MainController")       << "MainController::setQmlInstance(";
+        QTest::newRow("TranslationManager")   << "TranslationManager::setQmlInstance(";
+        QTest::newRow("AccessibilityManager") << "AccessibilityManager::setQmlInstance(";
+        QTest::newRow("Settings")             << "SettingsForeign::s_singletonInstance =";
+    }
+
+    void everySingletonInstanceIsPublished()
+    {
+        QFETCH(QString, publishCall);
+        const QString main = readOrEmpty(QStringLiteral(DECENZA_SOURCE_DIR) + "/src/main.cpp");
+        QVERIFY2(!main.isEmpty(), "cannot read src/main.cpp");
+
+        const qsizetype publishAt = main.indexOf(publishCall);
+        QVERIFY2(publishAt >= 0,
+                 qPrintable(QStringLiteral("main.cpp never calls `%1`. The type is still registered, "
+                            "so the build, qmllint and the rest of this file all stay green — and "
+                            "every QML binding through that singleton resolves to null.")
+                            .arg(publishCall)));
+
+        // Ordering is the one thing about create()'s null branch that IS checkable from here:
+        // publishing after the engine has loaded means QML may resolve the singleton first.
+        const qsizetype loadAt = main.indexOf(QStringLiteral("engine.load("));
+        QVERIFY2(loadAt >= 0, "cannot find engine.load() in main.cpp");
+        QVERIFY2(publishAt < loadAt,
+                 qPrintable(QStringLiteral("`%1` happens AFTER engine.load(). Any QML evaluated "
+                            "during load resolves the singleton before the instance exists, and "
+                            "create() hands back null.").arg(publishCall)));
     }
 
     // Qt registers a module's declarative types only `if (!module)` — see the file header. Our

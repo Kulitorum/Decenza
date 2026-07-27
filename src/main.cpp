@@ -3434,8 +3434,13 @@ int main(int argc, char *argv[])
     context->setContextProperty("SteamDataModel", &steamDataModel);
     context->setContextProperty("SteamHealthTracker", &steamHealthTracker);
     // Compile-time QML singleton (QML_ELEMENT + QML_SINGLETON in maincontroller.h), not a
-    // context property — same reason as AccessibilityManager below. This one is the largest
-    // single win in the QML tree: 914 flagged identifiers, more than any other name.
+    // context property — same reason as AccessibilityManager below. The largest win remaining
+    // after TranslationManager and Settings; measured reduction 916 unqualified warnings.
+    //
+    // BOTH halves are load-bearing and only one of them is visible to static tooling: the macros
+    // put the TYPE in the registry, this call publishes the INSTANCE. Delete this line and the
+    // build, qmllint and the whole suite stay green while every MainController.* binding in the
+    // app resolves to null. tst_qmlregistration asserts this call exists, for that reason.
     MainController::setQmlInstance(&mainController);
     context->setContextProperty("ProfileManager", mainController.profileManager());
     context->setContextProperty("ScreensaverManager", &screensaverManager);
@@ -3487,7 +3492,7 @@ int main(int argc, char *argv[])
     qmlRegisterUncreatableType<MachineState>("Decenza", 1, 0, "MachineStateType",
         "MachineState is created in C++");
     // AIConversation moved to QML_ELEMENT + QML_UNCREATABLE in aiconversation.h, for the same
-    // reason as the three above: a runtime registration is invisible to qmltyperegistrar, so
+    // reason as the three named just below: a runtime registration is invisible to qmltyperegistrar, so
     // qmllint could not resolve the type behind AIManager's conversation properties.
     // CoffeeBagStorage, EquipmentStorage and UnifiedBeanSearchModel used to be registered here as
     // ...Type. They now carry QML_ELEMENT + QML_UNCREATABLE in their own headers, which is what

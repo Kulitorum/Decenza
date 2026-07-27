@@ -90,7 +90,7 @@ running the app, because the guard is exactly what stops it from throwing.
 
 Fixed by calling the `AccessibilityManager` singleton directly.
 
-**11. Three `Q_INVOKABLE` methods carry parameter types QML has no metatype for.**
+**11. Three `Q_INVOKABLE` methods carry pointer parameter types that were only forward-declared.**
 `VisualizerUploader::uploadShot()` takes `const Profile*`, and `Profile` was only forward-declared.
 Registering the class made moc demand a complete type ("Pointer Meta Types must either point to
 fully-defined types..."). Fixed by including the header — but note what it means: `Profile` is not
