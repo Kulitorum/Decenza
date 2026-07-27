@@ -3414,7 +3414,7 @@ int main(int argc, char *argv[])
     // objects declared here. They are QML_SINGLETONs now, engine-constructed and engine-owned,
     // so there is nothing left for main() to declare or publish. What they are for is on the
     // classes: emojiassets.h, markdownrenderer.h, temperaturedisplay.h.
-    context->setContextProperty("BLEManager", &bleManager);
+    BLEManagerForeign::s_singletonInstance = &bleManager;
     // DE1Device is a QML_FOREIGN + QML_SINGLETON (contextsingletons_qml.h), not a context
     // property. Published here rather than at the declaration because the ordering that matters
     // is "before engine.load()", and this is where that is obvious.
@@ -3426,8 +3426,8 @@ int main(int argc, char *argv[])
     // not free: a context property is invisible to qmllint, so it cannot be told apart from a
     // typo at the call sites that never came.
     MachineState::setQmlInstance(&machineState);
-    context->setContextProperty("ShotDataModel", &shotDataModel);
-    context->setContextProperty("SteamDataModel", &steamDataModel);
+    ShotDataModelForeign::s_singletonInstance = &shotDataModel;
+    SteamDataModelForeign::s_singletonInstance = &steamDataModel;
     context->setContextProperty("SteamHealthTracker", &steamHealthTracker);
     // Compile-time QML singleton (QML_ELEMENT + QML_SINGLETON in maincontroller.h), not a
     // context property — same reason as AccessibilityManager below. The largest win remaining
@@ -3441,22 +3441,22 @@ int main(int argc, char *argv[])
     ProfileManager::setQmlInstance(mainController.profileManager());
     // ScreensaverManager: QML's name for ScreensaverVideoManager. See contextsingletons_qml.h.
     ScreensaverManagerForeign::s_singletonInstance = &screensaverManager;
-    context->setContextProperty("AutoWakeManager", &autoWakeManager);
-    context->setContextProperty("BatteryManager", &batteryManager);
-    context->setContextProperty("MemoryMonitor", &memoryMonitor);
+    AutoWakeManagerForeign::s_singletonInstance = &autoWakeManager;
+    BatteryManagerForeign::s_singletonInstance = &batteryManager;
+    MemoryMonitorForeign::s_singletonInstance = &memoryMonitor;
     memoryMonitor.setEngine(&engine);
     // Compile-time QML singleton (QML_ELEMENT + QML_SINGLETON in accessibilitymanager.h),
     // not a context property: only a compile-time registration reaches qmllint,
     // qmlcachegen and the language server. main owns the instance and publishes it.
     AccessibilityManager::setQmlInstance(&accessibilityManager);
     context->setContextProperty("ProfileStorage", &profileStorage);
-    context->setContextProperty("WeatherManager", &weatherManager);
-    context->setContextProperty("CrashReporter", &crashReporter);
-    context->setContextProperty("WidgetLibrary", &widgetLibrary);
+    WeatherManagerForeign::s_singletonInstance = &weatherManager;
+    CrashReporterForeign::s_singletonInstance = &crashReporter;
+    WidgetLibraryForeign::s_singletonInstance = &widgetLibrary;
     context->setContextProperty("McpServer", &mcpServer);
-    context->setContextProperty("RemoteMcpAccess", &remoteMcpAccess);
-    context->setContextProperty("LibrarySharing", &librarySharing);
-    context->setContextProperty("ShotHistoryExporter", &shotHistoryExporter);
+    RemoteMcpAccessForeign::s_singletonInstance = &remoteMcpAccess;
+    LibrarySharingForeign::s_singletonInstance = &librarySharing;
+    ShotHistoryExporterForeign::s_singletonInstance = &shotHistoryExporter;
 #ifndef Q_OS_IOS
     context->setContextProperty("USBManager", &usbManager);
     context->setContextProperty("UsbScaleManager", &usbScaleManager);

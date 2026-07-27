@@ -41,6 +41,18 @@
 
 #include "../ble/de1device.h"
 #include "../screensaver/screensavervideomanager.h"
+#include "../ble/blemanager.h"
+#include "../core/widgetlibrary.h"
+#include "../network/librarysharing.h"
+#include "../weather/weathermanager.h"
+#include "../core/batterymanager.h"
+#include "../mcp/mcpremoteaccess.h"
+#include "../models/shotdatamodel.h"
+#include "../network/crashreporter.h"
+#include "../models/steamdatamodel.h"
+#include "../core/memorymonitor.h"
+#include "../core/autowakemanager.h"
+#include "../history/shothistoryexporter.h"
 
 // Shared body of every create() below. The QML_* and Q_GADGET macros have to appear literally in
 // each struct — moc does not expand preprocessor macros when it looks for them, so the structs
@@ -100,5 +112,198 @@ public:
     static ScreensaverVideoManager* create(QQmlEngine*, QJSEngine* engine)
     {
         return decenzaPublishedSingleton(s_singletonInstance, engine, "ScreensaverManager");
+    }
+};
+
+
+// 76 references across 6 QML files.
+struct BLEManagerForeign
+{
+    Q_GADGET
+    QML_FOREIGN(BLEManager)
+    QML_SINGLETON
+    QML_NAMED_ELEMENT(BLEManager)
+
+public:
+    inline static BLEManager* s_singletonInstance = nullptr;
+    static BLEManager* create(QQmlEngine*, QJSEngine* engine)
+    {
+        return decenzaPublishedSingleton(s_singletonInstance, engine, "BLEManager");
+    }
+};
+
+// 38 references across 3 QML files.
+struct WidgetLibraryForeign
+{
+    Q_GADGET
+    QML_FOREIGN(WidgetLibrary)
+    QML_SINGLETON
+    QML_NAMED_ELEMENT(WidgetLibrary)
+
+public:
+    inline static WidgetLibrary* s_singletonInstance = nullptr;
+    static WidgetLibrary* create(QQmlEngine*, QJSEngine* engine)
+    {
+        return decenzaPublishedSingleton(s_singletonInstance, engine, "WidgetLibrary");
+    }
+};
+
+// 29 references across 2 QML files.
+struct LibrarySharingForeign
+{
+    Q_GADGET
+    QML_FOREIGN(LibrarySharing)
+    QML_SINGLETON
+    QML_NAMED_ELEMENT(LibrarySharing)
+
+public:
+    inline static LibrarySharing* s_singletonInstance = nullptr;
+    static LibrarySharing* create(QQmlEngine*, QJSEngine* engine)
+    {
+        return decenzaPublishedSingleton(s_singletonInstance, engine, "LibrarySharing");
+    }
+};
+
+// 27 references across 1 QML file.
+struct WeatherManagerForeign
+{
+    Q_GADGET
+    QML_FOREIGN(WeatherManager)
+    QML_SINGLETON
+    QML_NAMED_ELEMENT(WeatherManager)
+
+public:
+    inline static WeatherManager* s_singletonInstance = nullptr;
+    static WeatherManager* create(QQmlEngine*, QJSEngine* engine)
+    {
+        return decenzaPublishedSingleton(s_singletonInstance, engine, "WeatherManager");
+    }
+};
+
+// 23 references across 4 QML files.
+struct BatteryManagerForeign
+{
+    Q_GADGET
+    QML_FOREIGN(BatteryManager)
+    QML_SINGLETON
+    QML_NAMED_ELEMENT(BatteryManager)
+
+public:
+    inline static BatteryManager* s_singletonInstance = nullptr;
+    static BatteryManager* create(QQmlEngine*, QJSEngine* engine)
+    {
+        return decenzaPublishedSingleton(s_singletonInstance, engine, "BatteryManager");
+    }
+};
+
+// 22 references across 1 QML file. NOTE the name inversion: the C++ class is McpRemoteAccess and QML says RemoteMcpAccess.
+struct RemoteMcpAccessForeign
+{
+    Q_GADGET
+    QML_FOREIGN(McpRemoteAccess)
+    QML_SINGLETON
+    QML_NAMED_ELEMENT(RemoteMcpAccess)
+
+public:
+    inline static McpRemoteAccess* s_singletonInstance = nullptr;
+    static McpRemoteAccess* create(QQmlEngine*, QJSEngine* engine)
+    {
+        return decenzaPublishedSingleton(s_singletonInstance, engine, "RemoteMcpAccess");
+    }
+};
+
+// 16 references across 1 QML file.
+struct ShotDataModelForeign
+{
+    Q_GADGET
+    QML_FOREIGN(ShotDataModel)
+    QML_SINGLETON
+    QML_NAMED_ELEMENT(ShotDataModel)
+
+public:
+    inline static ShotDataModel* s_singletonInstance = nullptr;
+    static ShotDataModel* create(QQmlEngine*, QJSEngine* engine)
+    {
+        return decenzaPublishedSingleton(s_singletonInstance, engine, "ShotDataModel");
+    }
+};
+
+// 5 references across 1 QML file.
+struct CrashReporterForeign
+{
+    Q_GADGET
+    QML_FOREIGN(CrashReporter)
+    QML_SINGLETON
+    QML_NAMED_ELEMENT(CrashReporter)
+
+public:
+    inline static CrashReporter* s_singletonInstance = nullptr;
+    static CrashReporter* create(QQmlEngine*, QJSEngine* engine)
+    {
+        return decenzaPublishedSingleton(s_singletonInstance, engine, "CrashReporter");
+    }
+};
+
+// 4 references across 1 QML file.
+struct SteamDataModelForeign
+{
+    Q_GADGET
+    QML_FOREIGN(SteamDataModel)
+    QML_SINGLETON
+    QML_NAMED_ELEMENT(SteamDataModel)
+
+public:
+    inline static SteamDataModel* s_singletonInstance = nullptr;
+    static SteamDataModel* create(QQmlEngine*, QJSEngine* engine)
+    {
+        return decenzaPublishedSingleton(s_singletonInstance, engine, "SteamDataModel");
+    }
+};
+
+// 3 references across 1 QML file.
+struct MemoryMonitorForeign
+{
+    Q_GADGET
+    QML_FOREIGN(MemoryMonitor)
+    QML_SINGLETON
+    QML_NAMED_ELEMENT(MemoryMonitor)
+
+public:
+    inline static MemoryMonitor* s_singletonInstance = nullptr;
+    static MemoryMonitor* create(QQmlEngine*, QJSEngine* engine)
+    {
+        return decenzaPublishedSingleton(s_singletonInstance, engine, "MemoryMonitor");
+    }
+};
+
+// 1 reference across 1 QML file.
+struct AutoWakeManagerForeign
+{
+    Q_GADGET
+    QML_FOREIGN(AutoWakeManager)
+    QML_SINGLETON
+    QML_NAMED_ELEMENT(AutoWakeManager)
+
+public:
+    inline static AutoWakeManager* s_singletonInstance = nullptr;
+    static AutoWakeManager* create(QQmlEngine*, QJSEngine* engine)
+    {
+        return decenzaPublishedSingleton(s_singletonInstance, engine, "AutoWakeManager");
+    }
+};
+
+// 1 reference across 1 QML file.
+struct ShotHistoryExporterForeign
+{
+    Q_GADGET
+    QML_FOREIGN(ShotHistoryExporter)
+    QML_SINGLETON
+    QML_NAMED_ELEMENT(ShotHistoryExporter)
+
+public:
+    inline static ShotHistoryExporter* s_singletonInstance = nullptr;
+    static ShotHistoryExporter* create(QQmlEngine*, QJSEngine* engine)
+    {
+        return decenzaPublishedSingleton(s_singletonInstance, engine, "ShotHistoryExporter");
     }
 };
