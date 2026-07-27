@@ -5,6 +5,7 @@
 #include <QBluetoothDeviceInfo>
 #include <QBluetoothUuid>
 #include <QByteArray>
+#include <QElapsedTimer>
 #include <QTimer>
 
 class ScaleBleTransport;
@@ -42,7 +43,6 @@ public:
     bool autoTest() const override { return m_autoTest; }
     void setAutoTest(bool enabled) override;
     bool supportsAutoTest() const override { return true; }
-    bool supportsAveraging() const override { return true; }
     void setDeviceTestCount(int count) override;
 
     void connectToDevice(const QBluetoothDeviceInfo& device) override;
@@ -84,6 +84,10 @@ private:
     // Ends a run: stops the watchdog, clears the measuring state, and (on success)
     // emits measurementComplete. Safe to call when no run is outstanding.
     void finishMeasurement(bool complete);
+    // "The device just spoke" — the single chokepoint for restarting the liveness
+    // watchdog, and therefore the only place the absolute run ceiling can be
+    // enforced. Returns false if the run was abandoned, so callers stop processing.
+    bool noteDeviceProgress();
     // Instrumentation: log the refractive index (Data3-6) carried alongside the
     // concentration in pack 2/3. RI is the device's ground-truth optical reading and
     // the cross-check for whether the concentration field is coffee TDS or raw Brix.
@@ -118,5 +122,12 @@ private:
     // false, which matches the device's factory default and errs toward "off".
     bool m_autoTest = false;
     QTimer m_measurementTimer;
+    // Absolute ceiling on a run, alongside the liveness watchdog. A loop test on a
+    // prism that never settles emits progress every ~3s, which restarts the watchdog
+    // forever — the measuring state would stay true, and PostShotReviewPage disables
+    // the Read TDS button while measuring, so the user's only escape was to leave the
+    // page. Generous: a measured 3-test averaged run took 22s.
+    static constexpr int MAX_RUN_MS = 180000;
+    QElapsedTimer m_runElapsed;
     QTimer m_initTimer;
 };

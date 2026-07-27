@@ -94,12 +94,12 @@ Reference: [DiFluid's `protocolR2.md`](https://github.com/DiFluid/difluid-sdk-de
 
 ### What the docs do not tell you
 
-All of the following was read off a physical R2 (model `DFT-R102`, firmware `V230`) and appears in **neither** DiFluid's documentation nor Beanconqueror's enum. Do not "correct" these back to what the spec implies.
+All of the following was read off a physical R2 (model `DFT-R102`, firmware `V230`). None of it is stated in DiFluid's documentation or Beanconqueror's enum, though the loop test gets one oblique mention (quoted below). Do not "correct" these back to what the spec implies.
 
 - **`Cmd 3` is a loop test.** DiFluid's action table stops at `Cmd 2`. `Cmd 3` re-measures one sample every ~3 s until the reading stops moving, then ends with status 9. It is what the R2 escalates to whenever the prism is not thermally settled — refractive index is temperature-dependent, so the device refuses to answer while the temperature is still moving. The doc's only hint is the line "The respond of loop test when temperature is not stable".
 - **A physical-button read uses `Cmd 0`** — byte-for-byte identical to an app-requested single test. This was an open question for a long time and is now settled.
 - **Loop or not is about prism stability, not about who asked.** Auto Test always loops because it fires the moment the sample is loaded (the worst thermal moment); a manual read on a settled prism completes in ~3.5 s with no loop, and a manual read on a fresh sample loops just the same.
-- **In the averaged-result packet (pack 3), `Data3-6` is NOT the refractive index.** It occupies the same offsets as the RI in pack 2, but on a run whose per-test RI read 1.34689 this field read 782332 alongside a 7.83% average — i.e. the averaged concentration at higher precision. Logging it as an RI puts a wrong number in the record.
+- **In the averaged-result packet (pack 3), `Data3-6` is NOT the refractive index.** It occupies the same offsets as the RI in pack 2, but on a run whose per-test RI read 1.34689 this field read 782332 — 7.82332% at the x100000 scale, i.e. a concentration, not an RI (which is ~1.3). It is the running average at higher precision, and the value quoted here was captured mid-run, so it does not match that run's final 7.83%. Logging it as an RI puts a wrong number in the record.
 
 ### Which packet is the reading
 
@@ -118,11 +118,11 @@ The Func-3 response carries the action it belongs to, and that decides which pac
 
 `m_measurementTimer` is a **liveness** watchdog, not a bound on how long a measurement may take, and it is the documented exception to the project's no-timers-as-guards rule (a silent device emits no event, so no event-based mechanism can see it). It is restarted by any packet indicating progress, including status 10, which the R2 emits precisely because an individual test is running long.
 
-This is not theoretical: a measured 3-test averaged run took **22.0 s**. Armed once at request time, the old fixed 15 s deadline would have aborted it ~5 s before the result arrived.
+This is not theoretical: a measured 3-test averaged run took **22.0 s**. Armed once at request time, the old fixed 15 s deadline would have aborted it ~7 s before the result arrived.
 
 ### Averaging is driver-level only
 
-`requestAveragedMeasurement()` and `setDeviceTestCount()` are implemented and hardware-verified, but **nothing calls them** and the device's own test count stays at 1. Three measured runs put single-reading scatter at σ ≈ 0.011% TDS; averaging three reduces that to ≈ 0.007%, and the ~0.005% gained is smaller than the 0.01% step the device reports in — so it cannot be represented in the answer, and it is an order of magnitude under sample-prep variance. The cost was 12–22 s against ~3.5 s. Keep them for coverage; do not wire them to a button without new evidence.
+`requestAveragedMeasurement()` is implemented and hardware-verified; `setDeviceTestCount()` is spec-only and has never been exercised against a device. **Nothing calls either** and the device's own test count stays at 1. Three measured runs put single-reading scatter at σ ≈ 0.011% TDS; averaging three reduces that to ≈ 0.007%, and the ~0.005% gained is smaller than the 0.01% step the device reports in — so it cannot be represented in the answer, and it is an order of magnitude under sample-prep variance. The cost was 12–22 s against ~3.5 s. Keep them for coverage; do not wire them to a button without new evidence.
 
 ## Battery Management
 

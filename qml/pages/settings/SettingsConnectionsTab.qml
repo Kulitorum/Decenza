@@ -1466,7 +1466,19 @@ Item {
                             AccessibleButton {
                                 id: autoTestButton
                                 readonly property bool autoTestOn: Settings.app.refractometerAutoTest
+                                // An R1 has no Auto Test. Offering the toggle anyway
+                                // persisted a setting that the device never honoured and
+                                // that main.cpp never even wired up, with no feedback.
+                                // While disconnected the saved name is the only evidence
+                                // of which model is paired.
+                                readonly property bool deviceSupports:
+                                    (BLEManager.refractometerConnected
+                                     && typeof Refractometer !== "undefined" && Refractometer)
+                                        ? Refractometer.supportsAutoTest
+                                        : (Settings.savedRefractometerName || "")
+                                              .toLowerCase().indexOf("dft_tdj") !== 0
 
+                                visible: deviceSupports
                                 text: autoTestOn
                                     ? TranslationManager.translate("connections.autoTestOn", "Auto Test: On")
                                     : TranslationManager.translate("connections.autoTestOff", "Auto Test: Off")

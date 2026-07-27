@@ -23,10 +23,16 @@ class RefractometerDevice : public QObject {
     Q_PROPERTY(double temperature READ temperature NOTIFY temperatureChanged)
     Q_PROPERTY(bool measuring READ isMeasuring NOTIFY measuringChanged)
     Q_PROPERTY(QString name READ name NOTIFY nameChanged)
-    // Whether the device starts a measurement by itself. Reflects the DEVICE's own
-    // stored setting, read back from it — not a Decenza preference. Devices with no
+    // Whether the device starts a measurement by itself. Reflects the device's echo of
+    // its own stored setting — never assumed from our write. The value it settles on is
+    // driven by Settings.app.refractometerAutoTest, pushed on connect. Devices with no
     // such feature report false and ignore attempts to set it.
     Q_PROPERTY(bool autoTest READ autoTest NOTIFY autoTestChanged)
+    // Bindable from QML so the declarative layer can hide a control the device cannot
+    // honour. As a Q_INVOKABLE-only method this was invisible to bindings, and the
+    // Connections-page toggle was offered for an R1 — which persisted the setting and
+    // did nothing on the device, forever, with no feedback.
+    Q_PROPERTY(bool supportsAutoTest READ supportsAutoTest CONSTANT)
 
 public:
     using QObject::QObject;
@@ -46,17 +52,13 @@ public:
 
     // Auto Test: the device starts a measurement itself when it detects the sample
     // being loaded. Off by default on devices that support it; a device that does not
-    // reports false and silently ignores setAutoTest(). The setting lives on the
-    // device and persists there, so enabling it is a one-time action, not a Decenza
-    // preference we have to store and re-apply.
+    // reports false and ignores setAutoTest(). The device persists the setting, but
+    // Decenza owns the intent — Settings.app.refractometerAutoTest is pushed on every
+    // connect, because the R2 is only connected while the review page is open.
     virtual bool autoTest() const { return false; }
     Q_INVOKABLE virtual void setAutoTest(bool enabled) { Q_UNUSED(enabled); }
     // Whether this device supports Auto Test at all — drives whether UI offers it.
     Q_INVOKABLE virtual bool supportsAutoTest() const { return false; }
-    // Whether the device can average in firmware. The base falls back to a single
-    // measurement, which is a safe answer but not an honest label — UI offering an
-    // "average" that silently takes one reading would be a lie, so it asks first.
-    Q_INVOKABLE virtual bool supportsAveraging() const { return false; }
 
     // How many tests a DEVICE-INITIATED measurement takes. Distinct from
     // requestAveragedMeasurement(), which averages a run we asked for: this governs
@@ -69,8 +71,10 @@ public:
     Q_INVOKABLE virtual void requestMeasurement() = 0;
 
     // Averaged measurement over `testCount` tests, where the device supports it.
-    // Averaging several readings is standard practice for refractometry — a single
-    // reading on espresso carries real run-to-run scatter.
+    // Nothing calls this. Measured on an R2, averaging three readings buys about
+    // 0.005% TDS — less than the 0.01% step the device reports in — for 12-22s against
+    // ~3.5s. Read docs/CLAUDE_MD/BLE_PROTOCOL.md "Averaging is driver-level only"
+    // before wiring it to anything.
     //
     // The base implementation falls back to a single measurement, so a device with no
     // averaging (DiFluidR1) needs no code and a caller always gets a reading rather

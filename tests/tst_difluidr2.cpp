@@ -4,6 +4,7 @@
 
 #include "ble/refractometers/difluidr2.h"
 #include "ble/protocol/de1characteristics.h"
+#include "ble/transport/scalebletransport.h"
 
 // Test DiFluid R2 refractometer BLE packet parsing, checksum validation,
 // and device name matching.
@@ -27,6 +28,26 @@ public:
     void requestMeasurement() override { ++m_singleRequests; }
 
     int m_singleRequests = 0;
+};
+
+// Records what the driver actually writes, so command tests assert transmitted bytes
+// rather than re-deriving the expected ones.
+class MockR2Transport : public ScaleBleTransport {
+    Q_OBJECT
+public:
+    void connectToDevice(const QString&, const QString&) override {}
+    void disconnectFromDevice() override {}
+    void discoverServices() override {}
+    void discoverCharacteristics(const QBluetoothUuid&) override {}
+    void enableNotifications(const QBluetoothUuid&, const QBluetoothUuid&) override {}
+    void writeCharacteristic(const QBluetoothUuid&, const QBluetoothUuid&,
+                             const QByteArray& value, WriteType = WriteType::WithResponse) override {
+        m_writes.append(value);
+    }
+    void readCharacteristic(const QBluetoothUuid&, const QBluetoothUuid&) override {}
+    bool isConnected() const override { return true; }
+
+    QList<QByteArray> m_writes;
 };
 
 class tst_DiFluidR2 : public QObject {
@@ -654,29 +675,84 @@ private slots:
         return buildAveragedRunPacket(0, p);
     }
 
+    // Put a driver in the state a connected one is in, so the bytes it writes can be
+    // asserted. Previously these tests built the expected bytes and compared them to a
+    // literal without ever calling the driver, which verified only their own arithmetic.
+    static DiFluidR2* connectedDriver(MockR2Transport* transport) {
+        auto* r2 = new DiFluidR2(transport);
+        r2->m_connected = true;
+        r2->m_characteristicsReady = true;
+        return r2;
+    }
+
     void averagedRequestSendsTheDocumentedBytes() {
-        // DF DF 03 01 01 <count> <checksum>, per protocolR2.md.
-        QByteArray expected = QByteArray::fromHex("DFDF03010103");
-        uint8_t sum = 0;
-        for (qsizetype i = 0; i < expected.size(); ++i) sum += static_cast<uint8_t>(expected[i]);
-        expected.append(static_cast<char>(sum));
-        QCOMPARE(expected.toHex(), QByteArray("dfdf030101 03c6").replace(" ", ""));
+        auto* transport = new MockR2Transport;
+        QScopedPointer<DiFluidR2> r2(connectedDriver(transport));
+
+        r2->requestAveragedMeasurement(3);
+
+        // DF DF 03 01 01 03 C6 — verbatim from protocolR2.md's Average Test example.
+        QVERIFY(!transport->m_writes.isEmpty());
+        QCOMPARE(transport->m_writes.last().toHex(), QByteArray("dfdf03010103c6"));
     }
 
     void averagedTestCountIsClampedToTheDeviceRange() {
-        // Not connected, so nothing is written — the clamp is asserted through the
-        // warning, which is the only observable without a transport.
-        DiFluidR2 low(nullptr);
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Cannot read"));
-        low.requestAveragedMeasurement(0);
+        auto* transport = new MockR2Transport;
+        QScopedPointer<DiFluidR2> r2(connectedDriver(transport));
 
-        DiFluidR2 high(nullptr);
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Cannot read"));
-        high.requestAveragedMeasurement(25);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("outside the device range"));
+        r2->requestAveragedMeasurement(25);
+        QCOMPARE(transport->m_writes.last().toHex(), QByteArray("dfdf0301010acd"));  // 10
 
-        // Range constants are what the command builder clamps against.
-        QCOMPARE(DiFluidR2::MIN_TEST_COUNT, 1);
-        QCOMPARE(DiFluidR2::MAX_TEST_COUNT, 10);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("outside the device range"));
+        r2->requestAveragedMeasurement(0);
+        QCOMPARE(transport->m_writes.last().toHex(), QByteArray("dfdf03010101c4"));  // 1
+    }
+
+    void singleTestRequestSendsTheDocumentedBytes() {
+        auto* transport = new MockR2Transport;
+        QScopedPointer<DiFluidR2> r2(connectedDriver(transport));
+
+        r2->requestMeasurement();
+
+        QCOMPARE(transport->m_writes.last().toHex(), QByteArray("dfdf030000c1"));
+    }
+
+    void deviceTestCountSendsTheDocumentedBytes() {
+        auto* transport = new MockR2Transport;
+        QScopedPointer<DiFluidR2> r2(connectedDriver(transport));
+
+        r2->setDeviceTestCount(1);
+        // DF DF 01 03 01 01 C4 — protocolR2.md's Set Number of Tests example.
+        QCOMPARE(transport->m_writes.last().toHex(), QByteArray("dfdf01030101c4"));
+
+        r2->setDeviceTestCount(99);
+        QCOMPARE(transport->m_writes.last().toHex(), QByteArray("dfdf0103010acd"));  // clamped to 10
+    }
+
+    void autoTestSendsTheDocumentedBytes() {
+        auto* transport = new MockR2Transport;
+        QScopedPointer<DiFluidR2> r2(connectedDriver(transport));
+
+        r2->setAutoTest(true);
+        QCOMPARE(transport->m_writes.last().toHex(), QByteArray("dfdf01010101c2"));
+        r2->setAutoTest(false);
+        QCOMPARE(transport->m_writes.last().toHex(), QByteArray("dfdf01010100c1"));
+    }
+
+    void aNonProgressStatusDoesNotKeepTheRunAlive() {
+        // r2StatusIsProgress could `return true` unconditionally and every other test
+        // still passes — which would defeat the watchdog entirely, the one thing the
+        // no-timers-as-guards exception was granted to preserve.
+        DiFluidR2 r2(nullptr);
+        beginMeasuringWithShortWatchdog(r2, 60);
+
+        QTest::qWait(40);
+        r2.handlePacket(buildStatusPacket(1));  // Calibration finished — not progress
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Measurement timeout"));
+        QTest::qWait(200);
+        QVERIFY2(!r2.isMeasuring(), "a non-progress status kept the watchdog alive");
     }
 
     void perTestResultDuringAveragedRunIsNotAReading() {
@@ -802,6 +878,26 @@ private slots:
         payload.append(static_cast<char>(0xE5));
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("out of range"));
         r2.handlePacket(buildAveragedRunPacket(3, payload));
+
+        // Rejected, but mid-run the run continues: ending our side while the R2 keeps
+        // measuring would show an error dialog and then a good reading seconds later,
+        // with the button re-enabled so a second run could be stacked on the first.
+        QCOMPARE(tdsSpy.count(), 0);
+        QCOMPARE(errorSpy.count(), 0);
+        QVERIFY2(r2.isMeasuring(), "a bad mid-run reading ended the run");
+    }
+
+    void terminalOutOfRangeReadingEndsTheRunWithAnError() {
+        DiFluidR2 r2(nullptr);
+        QSignalSpy tdsSpy(&r2, &DiFluidR2::tdsChanged);
+        QSignalSpy errorSpy(&r2, &DiFluidR2::errorOccurred);
+        beginMeasuringWithShortWatchdog(r2, 500);
+
+        QByteArray payload;
+        payload.append(static_cast<char>(0xFF));
+        payload.append(static_cast<char>(0xE5));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("out of range"));
+        r2.handlePacket(buildR2Packet(0x03, 0x00, QByteArray(1, char(2)) + payload));
 
         QCOMPARE(tdsSpy.count(), 0);
         QCOMPARE(errorSpy.count(), 1);
