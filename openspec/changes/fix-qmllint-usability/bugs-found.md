@@ -63,6 +63,22 @@ Recorded so they are not re-investigated.
 
 ---
 
+## Fixed: 36 dead imports
+
+An entire category that no count had ever included, because qmllint reports `unused-imports` at
+**Info** severity and the report's regex matched only `Warning|Error`. Dead imports are minor in
+themselves; the reason this is recorded is that they were *invisible*, which is the failure mode
+this change exists to remove.
+
+17 `QtQuick.Controls`, 9 `QtQuick.Layouts`, 5 `Decenza`, 3 relative-directory imports,
+1 `QtQuick.Effects`, 1 `QtGraphs` — 34 files. Removing them left `unqualified` (7,612),
+`missing-property` (326) and `unresolved-type` (2) all unchanged, which is the evidence that
+nothing lost a type it actually needed. Category now **0** and its exemption entry deleted.
+
+A cross-check against type names in each file flagged 8 as suspicious; all 8 were the check being
+crude — `Accessible.Button` is a QtQuick enum, and the rest were mentions in comments. qmllint was
+right in every case.
+
 ## Triaged: the 257 `Quick.layout-positioning` warnings
 
 Qt's message calls this *undefined behaviour*, which undersells it. Read from the Qt source

@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Window
-import QtQuick.Effects
 import Decenza
 import "components"
 import "components/library"

@@ -1,7 +1,5 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Window
-import Decenza
 
 // Container that shifts content up when a text field has focus.
 // Uses focus state (not Qt.inputMethod which is unreliable on Android).

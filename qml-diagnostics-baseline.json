@@ -236,7 +236,6 @@
     "incompatible-type": 1,
     "missing-property": 326,
     "unqualified": 7612,
-    "unresolved-type": 2,
-    "unused-imports": 36
+    "unresolved-type": 2
   }
 }

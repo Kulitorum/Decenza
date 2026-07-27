@@ -86,9 +86,6 @@ CATEGORY_EXEMPTIONS: dict[str, int] = {
     # Translate transform. Verified in the Qt 6.11.1 source; see bugs-found.md. The 238 REAL ones
     # were fixed by moving to Layout.preferredWidth/Height — do not "clean up" these 19.
     "Quick.layout-positioning": 19,
-    # Dead imports. Reported by qmllint at Info severity, which is why this category was
-    # invisible until WARN_RE stopped matching only Warning|Error.
-    "unused-imports": 36,
     "import": 23,
     "Quick.property-changes-parsed": 5,
     "duplicate-property-binding": 2,

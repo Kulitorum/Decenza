@@ -1,5 +1,4 @@
 import QtQuick
-import Decenza
 
 // A text label that announces itself when tapped (for accessibility)
 Text {
