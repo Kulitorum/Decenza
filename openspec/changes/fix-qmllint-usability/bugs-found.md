@@ -123,7 +123,8 @@ Worked around the way Qt does in its own `tools/qml/main.cpp` (an explicit call)
 an upstream report: the failure is silent and the diagnosis took reading three Qt source files.
 
 **12. Apple's `TextToSpeech.framework` overflows a 1-byte heap buffer, so any TTS utterance
-aborts an ASan build on macOS 27.0.**
+aborts an ASan build on macOS 27.0.** Tracked as
+[#1675](https://github.com/Kulitorum/Decenza/issues/1675).
 Not ours, and not caused by this change — recorded because the next person to touch accessibility
 will hit it and lose an hour working out whose bug it is.
 
