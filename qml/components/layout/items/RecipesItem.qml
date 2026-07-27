@@ -64,6 +64,8 @@ Item {
     // live-fit block below). The full list also lives on the Recipes page.
     property var inventoryRecipes: []
     property int recipePageIndex: 0
+    // Set while the close-time re-request is in flight — see onInventoryReady.
+    property bool recipeOrderLiftPending: false
 
     // Live two-row fit (descriptive-recipe-names): the longer bean+type+profile
     // names made a fixed "5 per page" spill past two rows, so instead pack the
@@ -113,8 +115,12 @@ Item {
         function onInventoryReady(recipes) {
             // While the popup is open, hold the order the user is looking at —
             // activating a recipe bumps last_used and a re-sort would move the
-            // pills mid-tap (#1673). Lifted on close (see presetPopup.onClosed).
-            root.inventoryRecipes = presetPopup.visible
+            // pills mid-tap (#1673). Lifted on close (see presetPopup.onClosed);
+            // that lift wins even if the popup is already open again, because a
+            // fast close→reopen can beat the async inventory reply.
+            const freeze = presetPopup.visible && !root.recipeOrderLiftPending
+            root.recipeOrderLiftPending = false
+            root.inventoryRecipes = freeze
                 ? PillFit.keepOrder(root.inventoryRecipes, recipes, "id")
                 : recipes
             root.recipePageIndex = Math.max(0, Math.min(root.recipePageIndex, root.recipePageCount - 1))
@@ -220,6 +226,7 @@ Item {
             if (root.idlePage) root.idlePage.releasePanelClearance()
             // Lift the order freeze held while open (#1673) — this request comes
             // back in true MRU order, so the next open shows the fresh order.
+            root.recipeOrderLiftPending = true
             MainController.recipeStorage.requestInventory()
         }
         onOpened: {
