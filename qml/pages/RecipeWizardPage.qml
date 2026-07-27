@@ -1136,6 +1136,17 @@ Page {
         fVesselTemperatureC = preset.temperature || 0
     }
 
+    // Tile artwork for a water vessel, chosen by how much it holds: a cup for
+    // an espresso-sized pour, a mug for a normal one, a tall glass above that.
+    // The thresholds are deliberately coarse — this is a glance-level cue, and
+    // the name and amount underneath carry the actual information.
+    function vesselTileIcon(preset) {
+        var v = preset.volume || 0
+        if (v > 0 && v <= 120) return "qrc:/icons/cup.svg"
+        if (v > 320) return "qrc:/icons/glass-full.svg"
+        return "qrc:/icons/mug.svg"
+    }
+
     // Compact "220ml · 96°C" metadata line for a water vessel preset tile.
     function vesselTileMeta(preset) {
         var parts = []
@@ -2032,21 +2043,38 @@ Page {
         property string title: ""
         property string meta: ""
         property bool selected: false
+        // Optional leading artwork (a qrc:/icons/… SVG). Purely a visual aid:
+        // the title carries the meaning, and the accessible name below is built
+        // from the text alone, so a tile with no icon loses nothing.
+        property string iconSource: ""
         signal chosen()
         width: Math.min(Theme.scaled(240),
             (parent && parent.width > 0) ? parent.width : Theme.scaled(240))
-        implicitHeight: choiceTileCol.implicitHeight + 2 * Theme.spacingMedium
+        implicitHeight: Math.max(choiceTileRow.implicitHeight, Theme.scaled(30))
+            + 2 * Theme.spacingMedium
         radius: Theme.cardRadius
         color: selected ? Qt.alpha(Theme.primaryColor, 0.12) : Theme.cardBackgroundColor
         border.color: selected ? Theme.primaryColor : Theme.borderColor
         border.width: selected ? 2 : 1
-        ColumnLayout {
-            id: choiceTileCol
+        RowLayout {
+            id: choiceTileRow
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             anchors.leftMargin: Theme.spacingMedium
             anchors.rightMargin: Theme.spacingMedium
+            spacing: Theme.spacingSmall
+            ThemedIcon {
+                visible: choiceTile.iconSource !== ""
+                Layout.alignment: Qt.AlignVCenter
+                source: choiceTile.iconSource
+                iconSize: Theme.scaled(26)
+                // Tinted with the selection colour so the artwork tracks the
+                // tile's state instead of sitting at a fixed grey.
+                color: choiceTile.selected ? Theme.primaryColor : Theme.iconColor
+            }
+            ColumnLayout {
+            Layout.fillWidth: true
             spacing: Theme.scaled(2)
             Label {
                 Layout.fillWidth: true
@@ -2066,6 +2094,7 @@ Page {
                 color: Theme.textSecondaryColor
                 elide: Text.ElideRight
                 Accessible.ignored: true
+            }
             }
         }
         AccessibleMouseArea {
@@ -3297,6 +3326,7 @@ Page {
                                     delegate: ChoiceTile {
                                         title: modelData.name || ""
                                         meta: wizardPage.pitcherTileMeta(modelData)
+                                        iconSource: "qrc:/icons/pitcher.svg"
                                         selected: (modelData.name || "") === wizardPage.fPitcherName
                                         onChosen: {
                                             wizardPage.selectPitcher(modelData)
@@ -3365,6 +3395,7 @@ Page {
                                     delegate: ChoiceTile {
                                         title: modelData.name || ""
                                         meta: wizardPage.vesselTileMeta(modelData)
+                                        iconSource: wizardPage.vesselTileIcon(modelData)
                                         selected: (modelData.name || "") === wizardPage.fVesselName
                                         onChosen: {
                                             wizardPage.selectVessel(modelData)

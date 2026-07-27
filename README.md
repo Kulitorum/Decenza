@@ -220,6 +220,8 @@ This means:
 - **Qt Framework**: LGPL-3.0 / Commercial ([qt.io/licensing](https://www.qt.io/licensing))
 - **FFmpeg** (via Qt Multimedia): LGPL-2.1+
 - **Twemoji** (emoji graphics): CC-BY 4.0 ([github.com/twitter/twemoji](https://github.com/twitter/twemoji))
+- **Tabler Icons** (cup / mug / glass icons): MIT ([github.com/tabler/tabler-icons](https://github.com/tabler/tabler-icons)) — licence text in `resources/icons/MIT-TablerIcons.txt`
+- **Noto Sans Math** (symbol fallback font): SIL OFL 1.1 — licence text in `resources/fonts/OFL-NotoSansMath.txt`
 
 ### DE1 Protocol
 
@@ -232,6 +234,7 @@ This application implements the DE1 Bluetooth LE protocol based on publicly avai
 - The open-source coffee community for protocol documentation
 - [Pexels](https://pexels.com/) for screensaver videos
 - [Twemoji](https://github.com/twitter/twemoji) by Twitter/X for emoji graphics (CC-BY 4.0)
+- [Tabler Icons](https://github.com/tabler/tabler-icons) by Paweł Kuna for the drinkware icons (MIT)
 
 ## Disclaimer
 

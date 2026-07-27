@@ -38,6 +38,15 @@
         <file alias="icons/espresso.svg">icons/espresso 8mm.svg</file>
         <file>icons/steam.svg</file>
         <file>icons/water.svg</file>
+        <!-- Drinkware, on the recipe wizard's steam and hot-water tiles.
+             pitcher.svg is drawn for this project; cup/mug/glass-full come
+             from Tabler Icons (MIT) — licence text in
+             icons/MIT-TablerIcons.txt, credited in the README. All four
+             are 24-unit, stroke-width 2, matching the stroked icons above. -->
+        <file>icons/pitcher.svg</file>
+        <file>icons/cup.svg</file>
+        <file>icons/mug.svg</file>
+        <file>icons/glass-full.svg</file>
         <file alias="icons/flush.svg">icons/flush 8mm.svg</file>
         <file>icons/settings.svg</file>
         <file>icons/back.svg</file>
