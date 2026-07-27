@@ -283,9 +283,12 @@ void BLEManager::noteDe1Connected(bool connected)
 
 void BLEManager::onDe1Error(const QString& error)
 {
-    // Debounce: the reconnect ladder emits the same "Connection error" on every
-    // failed attempt (~once/60s during a wedge), so show each distinct message
-    // only once until the DE1 reconnects. Mirrors the onScanError debounce.
+    // Debounce: a failing reconnect ladder re-raises the same message on every
+    // attempt, so show each distinct message only once until the DE1 reconnects.
+    // Mirrors the onScanError debounce. Controller errors no longer reach here at
+    // all — the transport keeps that whole path log-only (#1658) — so what lands
+    // here is the service-layer kind that can actually tell the user something,
+    // e.g. "DE1 service not found … try toggling Bluetooth off/on".
     if (error.isEmpty() || error == m_lastDe1ErrorShown) return;
     m_lastDe1ErrorShown = error;
     emit errorOccurred(error);

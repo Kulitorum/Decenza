@@ -119,7 +119,11 @@ signals:
      * (via BLEManager), so only for errors that need user awareness or action.
      * Write-retry exhaustion is deliberately NOT routed here — it marks a dead
      * link that the reconnect ladder handles, and is reported via de1LinkFault
-     * instead (#1423).
+     * instead (#1423). Controller errors are excluded wholesale for the same
+     * reason: they describe a link that went away — a DE1 switched off, out of
+     * range, or dropped by the OS under BLE contention — which the ladder brings
+     * back, and the only message they could produce ("Connection error") tells
+     * the user nothing they can act on (#1093, #1658).
      * @param message Human-readable error description.
      */
     void errorOccurred(const QString& message);

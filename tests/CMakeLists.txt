@@ -684,6 +684,12 @@ add_decenza_test(tst_bleserviceerror
     tst_bleserviceerror.cpp
 )
 
+# --- tst_blecontrollererror: QLowEnergyController::Error naming + which errors
+#     may interrupt the user vs. belong to the reconnect ladder (#1658) ---
+add_decenza_test(tst_blecontrollererror
+    tst_blecontrollererror.cpp
+)
+
 # --- tst_blefidelity: BLE encode round-trip for all built-in profiles ---
 add_decenza_test(tst_blefidelity
     tst_blefidelity.cpp

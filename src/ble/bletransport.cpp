@@ -1,5 +1,6 @@
 #include "bletransport.h"
 #include "blecapability.h"
+#include "blecontrollererror.h"
 #include "bleserviceerror.h"
 #ifndef DECENZA_TESTING
 #include "blemanager.h"
@@ -553,61 +554,36 @@ void BleTransport::onControllerDisconnected() {
 }
 
 void BleTransport::onControllerError(QLowEnergyController::Error error) {
-    QString errorName;
-    QString userMessage;
-    switch (error) {
-        case QLowEnergyController::UnknownError:
-            errorName = "UnknownError"; userMessage = "Unknown error"; break;
-        case QLowEnergyController::UnknownRemoteDeviceError:
-            errorName = "UnknownRemoteDeviceError"; userMessage = "Remote device not found"; break;
-        case QLowEnergyController::NetworkError:
-            errorName = "NetworkError"; userMessage = "Network error"; break;
-        case QLowEnergyController::InvalidBluetoothAdapterError:
-            errorName = "InvalidBluetoothAdapterError"; userMessage = "Invalid Bluetooth adapter"; break;
-        case QLowEnergyController::ConnectionError:
-            errorName = "ConnectionError"; userMessage = "Connection error"; break;
-        case QLowEnergyController::AdvertisingError:
-            errorName = "AdvertisingError"; userMessage = "Advertising error"; break;
-        case QLowEnergyController::RemoteHostClosedError:
-            errorName = "RemoteHostClosedError"; userMessage = "Remote device closed connection"; break;
-        case QLowEnergyController::AuthorizationError:
-            errorName = "AuthorizationError"; userMessage = "Authorization error"; break;
-        case QLowEnergyController::MissingPermissionsError:
-            errorName = "MissingPermissionsError"; userMessage = "Missing Bluetooth permissions"; break;
-        default:
-            errorName = QString::number(static_cast<int>(error)); userMessage = "Connection error"; break;
-    }
-    QString stateName;
-    switch (m_controller ? m_controller->state() : QLowEnergyController::UnconnectedState) {
-        case QLowEnergyController::UnconnectedState: stateName = "Unconnected"; break;
-        case QLowEnergyController::ConnectingState:  stateName = "Connecting"; break;
-        case QLowEnergyController::ConnectedState:   stateName = "Connected"; break;
-        case QLowEnergyController::DiscoveringState: stateName = "Discovering"; break;
-        case QLowEnergyController::DiscoveredState:  stateName = "Discovered"; break;
-        case QLowEnergyController::ClosingState:     stateName = "Closing"; break;
-        default: stateName = QString::number(static_cast<int>(m_controller ? m_controller->state() : -1)); break;
-    }
+    const QString errorName = bleControllerErrorName(error);
+    const QString stateName = bleControllerStateName(
+        m_controller ? m_controller->state() : QLowEnergyController::UnconnectedState);
     warn(QString("!!! CONTROLLER ERROR: %1 (state=%2) !!!").arg(errorName, stateName));
 
-    // AuthorizationError on the DE1/accessory link is never a user-actionable
-    // pairing failure — these devices have no PIN. It's the OS tearing down the
-    // encrypted link under BLE contention (dual-HIGH; with the scale left at HIGH
-    // in observe mode by design), and the link auto-reconnects. Surfacing a modal
-    // "Connection Error: Authorization error" that the user can only dismiss is
-    // pure noise, so log it (warn above) and drive the wedge detector via
-    // de1LinkFault below, but don't raise a dialog. (#1093, observe-mode contention)
-    if (error != QLowEnergyController::AuthorizationError) {
-        emit errorOccurred(userMessage);
-    }
+    // A controller error never raises a modal. The whole path used to, and the
+    // dialog it produced carried no information the user could act on: a bare
+    // "Connection error" box with a single OK button, restating what the offline
+    // ConnectionIndicator was already showing. It fired on every app start for
+    // anyone who switches their DE1 off overnight — the direct-wake connect to
+    // the saved address beats the machine to readiness — while the reconnect
+    // ladder quietly recovered the link 26–118 s later, every single time in the
+    // reporter's log (#1658). AuthorizationError had already been carved out for
+    // the same reason (#1093), as had write-retry exhaustion (#1423); this
+    // finishes the job for the rest of the enum.
+    //
+    // The errors a user CAN act on are surfaced by the layers that own them and
+    // can say something useful: BLEManager for permissions ("Bluetooth
+    // permission required. Please enable in Settings.") and for an adapter that
+    // won't come back up, and the service-discovery path below for a link that
+    // connects but yields no DE1 service ("try toggling Bluetooth off/on").
+    // Everything a controller error knows is in the warn line above, which goes
+    // to the debug log the issue template already collects.
 
-    // Connection-teardown family is the dual-HIGH BLE-contention signature
-    // (#1093 AuthorizationError, #1176 ConnectionError, #1238 RemoteHostClosedError
-    // — all three checked below). Surface it to the connection-priority
-    // coordinator. Scale-agnostic: this layer does not know a scale exists; the
-    // coordinator only acts on it after a scale has requested HIGH priority.
-    if (error == QLowEnergyController::ConnectionError ||
-        error == QLowEnergyController::RemoteHostClosedError ||
-        error == QLowEnergyController::AuthorizationError) {
+    // The link-teardown family is the dual-HIGH BLE-contention signature (#1093
+    // AuthorizationError, #1176 ConnectionError, #1238 RemoteHostClosedError).
+    // Surface it to the connection-priority coordinator. Scale-agnostic: this
+    // layer does not know a scale exists; the coordinator only acts on it after
+    // a scale has requested HIGH priority.
+    if (bleControllerErrorIsLinkTeardown(error)) {
         emit de1LinkFault(QStringLiteral("controller-error"));
     }
 
