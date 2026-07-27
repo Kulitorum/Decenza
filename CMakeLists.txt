@@ -1124,6 +1124,18 @@ endif()
 target_include_directories(Decenza PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_BINARY_DIR}  # For version.h
+    # Needed by QML_ELEMENT types, whose headers must be reachable by BARE BASENAME.
+    # qmltyperegistrar generates decenza_qmltyperegistrations.cpp from moc's JSON and emits
+    # `#if __has_include(<translationmanager.h>)` around the include — moc records `inputFile`
+    # as the basename alone, and no path prefix changes that (AUTOMOC_PATH_PREFIX does prefix
+    # the include moc writes into moc_*.cpp, but not the JSON field this is generated from).
+    # When the basename does not resolve, the guarded include expands to nothing and the build
+    # fails on `use of undeclared identifier` in generated code — three tools away from the
+    # cause. Qt's own modules do not hit this because their headers sit flat in one include dir.
+    #
+    # Add the directory of each new QML_ELEMENT header here. There are currently no duplicate
+    # header basenames anywhere under src/, so this cannot make an include ambiguous.
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/core
 )
 if(ANDROID)
     # SYSTEM: mjansson/mdns is vendored third-party code, and it is header-only,

@@ -73,13 +73,13 @@ BASELINE = REPO / "qml-diagnostics-baseline.json"
 CATEGORY_EXEMPTIONS: dict[str, int] = {
     # Measured on the first full-tree run that completed and accounted for every diagnostic
     # line it produced. Each entry is a ceiling, not a budget.
-    "missing-property": 323,
+    "missing-property": 318,
     # Undefined behaviour, per Qt's own wording: setting width/height/anchors/y on an item a
     # layout manages. The remedy is implicitWidth/implicitHeight or Layout.preferredWidth/
     # Height. These were invisible until the parser stopped dropping dotted category names,
     # so they have never been triaged — treat the number as unexamined, not as accepted.
     "Quick.layout-positioning": 255,
-    "import": 22,
+    "import": 21,
     "Quick.property-changes-parsed": 5,
     "duplicate-property-binding": 2,
     "unresolved-type": 2,

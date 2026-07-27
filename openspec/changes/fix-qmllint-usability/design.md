@@ -44,8 +44,46 @@ before `QQmlApplicationEngine engine` (line 1958), so they already outlive the e
 
 ### D1: Migrate context properties to QML singletons, rather than teaching the linter about them
 
-**Chosen:** register the affected objects with `qmlRegisterSingletonInstance` under the `Decenza`
-URI. D2 narrows *which* — ten of them, not all 39.
+**Chosen:** declare the affected classes with `QML_ELEMENT` + `QML_SINGLETON` under the `Decenza`
+URI, **plus one explicit `qml_register_types_Decenza()` call in `main.cpp`**. D2 narrows *which*
+— ten of them, not all 39.
+
+**CORRECTED after implementing 3.1. The original text of this decision said "register with
+`qmlRegisterSingletonInstance`", and that cannot work.** Both halves were wrong, and each failed
+silently in a different way:
+
+- **`qmlRegisterSingletonInstance` is a runtime call, so `qmltyperegistrar` never sees it.** It
+  therefore cannot put the type in the module's generated `Decenza.qmltypes`, which is qmllint's
+  only source of truth about C++ types — that file was literally `Module {}` before this change.
+  A migration built on it would have moved zero warnings, which is the entire point of the change.
+  Only the `QML_*` macros, read out of the moc output at build time, reach the linter.
+- **The macros alone then fail at RUNTIME in this app**, and produce no error of any kind. Qt
+  registers a module's declarative types lazily on first import, behind this guard
+  (`qqmltypeloader.cpp:783`, identically `qqmlimport.cpp:920`):
+
+      auto module = QQmlMetaType::typeModule(qmldir.typeNamespace(), import->version);
+      if (!module)
+          QQmlMetaType::qmlRegisterModuleTypes(qmldir.typeNamespace());
+      // else: If the module already exists, the types must have been already registered
+
+  `main.cpp` calls `qmlRegisterUncreatableType<…>("Decenza", 1, 0, …)` twenty-odd times *before*
+  QML imports the module. Those create a type module for the URI, so at import time
+  `typeModule()` returns non-null, the guard short-circuits, and the generated registration
+  function is never invoked. Qt's comment asserts the types "must have been already registered";
+  for a module that mixes runtime and declarative registrations that is false. Note the lookup
+  ignores the version when the import is unversioned (`import Decenza`), so *any* pre-existing
+  registration for the URI is enough to suppress it.
+
+The explicit `qml_register_types_Decenza()` call is the idiom Qt uses for the same situation in
+`qtdeclarative/tools/qml/main.cpp`. It is a **one-time** cost: it is already in place, and the
+remaining nine names in group 3 need only their macros.
+
+**What this cost, and the lesson for the rest of group 3.** The macros-only version built clean,
+passed qmllint, and passed all 104 tests — while every translated string in the app was
+`undefined` and the log carried 1,081 `ReferenceError: TranslationManager is not defined`. Green
+build + green linter + green suite proved nothing here. Task 3.11 ("launch the app and check the
+log; building is not evidence") is the only check that caught it, and it must be run for every
+one of the remaining names.
 
 Alternatives considered:
 
@@ -68,10 +106,18 @@ It also removes a real runtime cost — context-property lookups walk the contex
 Ranking the registrations greedily by how many files each one takes to zero unqualified warnings
 gives a sharply different answer from ranking them by usage:
 
-| # | Name | Files unlocked | Cumulative clean |
+**The "cumulative clean" column is anchored to a wrong number and the "files unlocked" column is
+not.** The 52 came from a run that was OOM-killed partway and counted every file it never reached
+as clean (see tasks.md 1.11); the real pre-migration figure, measured with a qmllint that can
+finish the tree, is **28 of 218**. The per-name deltas were measured differently and survived
+contact: `TranslationManager` was predicted to unlock 12 files and unlocked exactly 12 (28 → 40),
+with `unqualified` falling 12,251 → 8,604. So read the middle column as load-bearing and the
+right-hand one as **28 + the running total**, not as absolutes.
+
+| # | Name | Files unlocked | Cumulative clean (stale anchor) |
 |---|---|---:|---:|
-| — | (today) | — | 52 |
-| 1 | `TranslationManager` | 12 | 64 |
+| — | (then) | — | 52 |
+| 1 | `TranslationManager` ✅ done, 28 → 40 | 12 | 64 |
 | 2 | `Settings` | 15 | 79 |
 | 3 | `AccessibilityManager` | 8 | 87 |
 | 4 | `MainController` | 9 | 96 |

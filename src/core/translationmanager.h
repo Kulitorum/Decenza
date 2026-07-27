@@ -7,11 +7,24 @@
 #include <QMap>
 #include <QVariantMap>
 #include <QStringList>
+#include <QtQml/qqmlregistration.h>
 
+class QQmlEngine;
 class Settings;
 
 class TranslationManager : public QObject {
     Q_OBJECT
+
+    // Registered as a QML singleton at COMPILE time, which is what lets qmllint (and
+    // qmlcachegen, and the language server) resolve `TranslationManager` in the 3,668 QML
+    // references to it. The macros are the load-bearing part: qmltyperegistrar reads them out
+    // of the moc output and writes the type into the module's generated Decenza.qmltypes, and
+    // that file is qmllint's only source of truth about C++ types. A runtime
+    // qmlRegisterSingletonInstance() call is invisible to all three tools — before this, that
+    // .qmltypes contained nothing but `Module {}` and every use of a C++ name in QML was an
+    // unqualified-access warning.
+    QML_ELEMENT
+    QML_SINGLETON
 
     // Current language settings
     Q_PROPERTY(QString currentLanguage READ currentLanguage WRITE setCurrentLanguage NOTIFY currentLanguageChanged)
@@ -69,6 +82,14 @@ class TranslationManager : public QObject {
 public:
     explicit TranslationManager(QNetworkAccessManager* networkManager, Settings* settings, QObject* parent = nullptr);
 
+    // QML_SINGLETON hooks. The engine does NOT create this object: main.cpp owns it on the
+    // stack and wires it into eight other subsystems (BLE, MCP, AI, backup, accessibility …)
+    // long before the engine exists, so there is no way to hand construction to QML. Instead
+    // main.cpp publishes the instance with setQmlInstance() and create() hands that same object
+    // back — the pattern Qt provides for exactly this case.
+    static void setQmlInstance(TranslationManager* instance);
+    static TranslationManager* create(QQmlEngine* qmlEngine, QJSEngine* jsEngine);
+
     // Properties
     QString currentLanguage() const;
     void setCurrentLanguage(const QString& lang);
@@ -95,9 +116,11 @@ public:
     Q_INVOKABLE QString translateString(const QString& key, const QString& fallback);
     Q_INVOKABLE bool hasTranslation(const QString& key) const;
 
-    // Must be called once, after the QML engine exists and before QML loads. TranslationManager
-    // is exposed with setContextProperty rather than being created by the engine, so
-    // qmlEngine(this) is null and the engine has to be handed in explicitly.
+    // Must be called once, after the QML engine exists and before QML loads. The engine does not
+    // construct this object (see create() above), so qmlEngine(this) is null and the engine has
+    // to be handed in explicitly — `translate` is a QJSValue property and needs one to build the
+    // callable it returns. create() also calls this, which covers engines that resolve the
+    // singleton without main.cpp's wiring; calling it twice is harmless.
     void setJsEngine(QJSEngine* engine);
     QJSValue translateFn();
 
@@ -254,6 +277,10 @@ private slots:
     void onTranslationUploaded(QNetworkReply* reply);
 
 private:
+    // The instance create() hands to the engine. Not owned here — main.cpp's stack object
+    // outlives the engine, which is why create() must also pin CppOwnership.
+    static TranslationManager* s_qmlInstance;
+
     void loadTranslations();
     // Every verdict-returning helper below is [[nodiscard]], and CMake promotes a discarded
     // verdict to a hard build error (-Werror=unused-result / MSVC /we4834). This is not

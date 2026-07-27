@@ -22,6 +22,34 @@
 #include <functional>
 #include <memory>
 
+TranslationManager* TranslationManager::s_qmlInstance = nullptr;
+
+void TranslationManager::setQmlInstance(TranslationManager* instance)
+{
+    s_qmlInstance = instance;
+}
+
+TranslationManager* TranslationManager::create(QQmlEngine* qmlEngine, QJSEngine* jsEngine)
+{
+    Q_UNUSED(qmlEngine)
+    if (!s_qmlInstance) {
+        // Reached only if QML resolves the singleton before main.cpp published the instance.
+        // Say which call is missing: the symptom otherwise is every translated string in the
+        // app rendering as undefined, which looks like a translation-data problem and is not.
+        qCritical("TranslationManager: QML asked for the singleton before "
+                  "TranslationManager::setQmlInstance() was called. Every translated string "
+                  "will be undefined. Publish the instance before QQmlEngine::load().");
+        return nullptr;
+    }
+    // The engine would otherwise take ownership of what it is handed and delete a stack object
+    // owned by main().
+    QJSEngine::setObjectOwnership(s_qmlInstance, QJSEngine::CppOwnership);
+    // Harmless if main.cpp already did it, and it is what makes the singleton usable in an
+    // engine that was not set up by main.cpp — `translate` needs an engine to build its callable.
+    s_qmlInstance->setJsEngine(jsEngine);
+    return s_qmlInstance;
+}
+
 TranslationManager::TranslationManager(QNetworkAccessManager* networkManager, Settings* settings, QObject* parent)
     : QObject(parent)
     , m_settings(settings)

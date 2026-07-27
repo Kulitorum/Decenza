@@ -143,8 +143,21 @@ One commit per name, each verified before the next. The failure mode being guard
 name that fails to register, resolves to `undefined` in QML, and throws only when its binding
 evaluates — the same silent, delayed shape as the bug this change exists to prevent.
 
-- [ ] 3.1 `TranslationManager` — 3,459 sites, unlocks 12 files (52 → 64)
-- [ ] 3.2 Confirm a language change still re-evaluates bindings and `tests/tst_translationreactivity.cpp` is green — `translate` is a `Q_PROPERTY` holding a callable and its reactivity has broken before
+- [x] 3.1 `TranslationManager` — 3,668 QML references, unlocked exactly the 12 files predicted:
+  **28 → 40 clean, `unqualified` 12,251 → 8,604**, `missing-property` 323 → 318, `import` 22 → 21.
+  Baseline and both category ceilings lowered in the same commit.
+  - The mechanism is **`QML_ELEMENT` + `QML_SINGLETON` + an explicit `qml_register_types_Decenza()`
+    call**, not `qmlRegisterSingletonInstance` as design D1 originally said. D1 has been corrected
+    with the Qt source that proves it; read it before starting 3.3, because the same trap is
+    waiting for every remaining name.
+  - `TranslationManager` is not engine-constructed (main.cpp owns it and wires it into eight
+    subsystems before the engine exists), so it publishes the instance via `setQmlInstance()` and
+    a static `create()` hands it back with `CppOwnership` pinned.
+  - The explicit registration call is a **one-time** cost now paid; 3.4–3.10 need only their macros.
+  - **This passed build, qmllint AND all 104 tests while completely broken** — 1,081
+    `ReferenceError: TranslationManager is not defined`, every translated string `undefined`.
+    Only 3.11 caught it. Do not skip 3.11 for any subsequent name.
+- [x] 3.2 Confirm a language change still re-evaluates bindings and `tests/tst_translationreactivity.cpp` is green — `translate` is a `Q_PROPERTY` holding a callable and its reactivity has broken before. Green (104/104, including that test); the `translate` `Q_PROPERTY` is untouched by the migration.
 - [ ] 3.3 `Settings` — 1,335 sites, unlocks 15 files (→ 79). Verify all 7 domain sub-objects still resolve as `Settings.<domain>.<prop>`
 - [ ] 3.4 `AccessibilityManager` — unlocks 8 files (→ 87)
 - [ ] 3.5 `MainController` — 879 sites, unlocks 9 files (→ 96)
