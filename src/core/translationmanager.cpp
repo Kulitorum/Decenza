@@ -44,9 +44,24 @@ TranslationManager* TranslationManager::create(QQmlEngine* qmlEngine, QJSEngine*
     // The engine would otherwise take ownership of what it is handed and delete a stack object
     // owned by main().
     QJSEngine::setObjectOwnership(s_qmlInstance, QJSEngine::CppOwnership);
-    // Harmless if main.cpp already did it, and it is what makes the singleton usable in an
-    // engine that was not set up by main.cpp — `translate` needs an engine to build its callable.
-    s_qmlInstance->setJsEngine(jsEngine);
+    // Do NOT call setJsEngine() unconditionally here. `translate` is a QJSValue bound to exactly
+    // one engine, and setJsEngine() qFatal()s when handed a different one rather than rebind —
+    // bindings already hold a callable from the first engine and there is no migration path.
+    //
+    // This app really does run a second QQmlApplicationEngine: the GHC simulator window in
+    // desktop debug builds (main.cpp), whose QML does `import Decenza`. It happens not to
+    // reference TranslationManager today, so an unconditional call would not fire yet — but one
+    // `Tr {}` added to that window would turn startup into an abort. Report and decline instead.
+    QJSEngine* const bound = s_qmlInstance->boundJsEngine();
+    if (bound && bound != jsEngine) {
+        qCritical("TranslationManager: a second QQmlEngine asked for this singleton. `translate` "
+                  "is bound to the engine main.cpp wired and cannot be rebound, so this engine "
+                  "gets no TranslationManager and its translated strings will be undefined. "
+                  "A second engine needing translations needs its own instance.");
+        return nullptr;
+    }
+    if (!bound)
+        s_qmlInstance->setJsEngine(jsEngine);
     return s_qmlInstance;
 }
 

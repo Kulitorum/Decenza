@@ -122,6 +122,12 @@ public:
     // callable it returns. create() also calls this, which covers engines that resolve the
     // singleton without main.cpp's wiring; calling it twice is harmless.
     void setJsEngine(QJSEngine* engine);
+
+    // Which engine `translate` is currently bound to, or null. create() needs this because
+    // setJsEngine() deliberately qFatal()s rather than rebind, so it must not be called
+    // speculatively for a second engine.
+    QJSEngine* boundJsEngine() const { return m_jsEngine; }
+
     QJSValue translateFn();
 
     // Translation editing

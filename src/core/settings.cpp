@@ -426,10 +426,6 @@ Settings::Settings(QObject* parent)
     }
 }
 
-// Domain sub-object QML accessors. Each sub-object IS-A QObject; the upcast
-// requires the full type to be visible, hence these live in the .cpp where
-// the headers are already included for construction.
-
 // Machine settings
 QString Settings::machineAddress() const {
     return m_settings.value("machine/address", "").toString();

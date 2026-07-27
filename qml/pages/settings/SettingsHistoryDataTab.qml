@@ -1169,8 +1169,12 @@ KeyboardAwareContainer {
         anchors.bottom: parent.bottom
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottomMargin: Theme.scaled(20)
-        Layout.preferredWidth: backupStatusText.implicitWidth + Theme.scaled(20)
-        Layout.preferredHeight: backupStatusText.implicitHeight + Theme.scaled(20)
+        // NOT Layout.preferred*: this is reparented to Overlay.overlay and positioned with
+        // anchors, so no Layout manages it and the attached properties would be inert — the
+        // pill would collapse to 0x0 (Rectangle's implicit size). qmllint flags it as
+        // layout-positioning because it is DECLARED inside one; that is a false positive.
+        width: backupStatusText.implicitWidth + Theme.scaled(20)
+        height: backupStatusText.implicitHeight + Theme.scaled(20)
         color: Theme.surfaceColor
         radius: Theme.scaled(4)
         border.color: Theme.borderColor

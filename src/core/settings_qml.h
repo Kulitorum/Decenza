@@ -2,11 +2,10 @@
 
 // QML registration for Settings, kept OUT of settings.h on purpose.
 //
-// settings.h is included by roughly a hundred translation units and by CLI tools that do not
-// link Qt::Qml at all — `saw_parity` compiles settings.cpp against Core/Sql/Network/Gui/Bluetooth
-// only, so a <QtQml/...> include in that header is a build break, not a style question. The
-// header also documents that it forward-declares its twelve domain sub-objects specifically to
-// keep the recompile blast down; pulling QtQml into it would work against the same goal.
+// settings.h sits at the base of a wide include graph, and some of its consumers do not link
+// Qt::Qml at all — `saw_parity` compiles settings.cpp against Core/Sql/Network/Gui/Bluetooth
+// only (CMakeLists.txt), so a <QtQml/...> include in that header is a build break, not a style
+// question.
 //
 // QML_FOREIGN exists for exactly this: annotate the type from somewhere else. Only the Decenza
 // target compiles this file, so the QtQml dependency stops here.
@@ -44,9 +43,24 @@ public:
 
     static Settings* create(QQmlEngine*, QJSEngine* engine)
     {
-        // The instance must already exist; this cannot construct or replace it.
-        Q_ASSERT(s_singletonInstance);
-        Q_ASSERT(engine->thread() == s_singletonInstance->thread());
+        // Checked, not asserted. QT_FORCE_ASSERTS is only defined for sanitizer builds
+        // (CMakeLists.txt), so Q_ASSERT compiles out of a shipped Release — and this is the one
+        // condition where that matters: with the instance unpublished, create() returns null,
+        // every Settings.<domain>.<prop> in the app reads undefined, and nothing says why.
+        // TranslationManager::create() and AccessibilityManager::create() report the same fault
+        // the same way; three copies of this pattern should not have three failure policies.
+        if (!s_singletonInstance) {
+            qCritical("Settings: QML asked for the singleton before "
+                      "SettingsForeign::s_singletonInstance was published. Every "
+                      "Settings.<domain>.<prop> binding will be undefined. Publish it before "
+                      "QQmlEngine::load().");
+            return nullptr;
+        }
+        if (engine->thread() != s_singletonInstance->thread()) {
+            qCritical("Settings: the QML engine and the Settings instance are on different "
+                      "threads; QML property access would be unsafe.");
+            return nullptr;
+        }
 
         // Qt's own example additionally asserts that only ONE engine ever reaches the singleton.
         // Deliberately omitted: this app runs a second QQmlEngine for the GHC simulator window in

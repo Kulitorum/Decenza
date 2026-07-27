@@ -80,12 +80,14 @@ BASELINE = REPO / "qml-diagnostics-baseline.json"
 CATEGORY_EXEMPTIONS: dict[str, int] = {
     # Each entry is a ceiling, not a budget.
     "missing-property": 326,
-    # All 19 remaining are qmllint FALSE POSITIVES and cannot be driven to zero from this side:
-    # it flags any child declared lexically inside a Layout without checking the type is an Item
-    # the layout can manage. 18 are Popup/Dialog (QQuickPopup derives from QObject) and 1 is a
-    # Translate transform. Verified in the Qt 6.11.1 source; see bugs-found.md. The 238 REAL ones
-    # were fixed by moving to Layout.preferredWidth/Height — do not "clean up" these 19.
-    "Quick.layout-positioning": 19,
+    # All 21 remaining are qmllint FALSE POSITIVES and cannot be driven to zero from this side:
+    # it flags any child DECLARED lexically inside a Layout without checking that a Layout will
+    # actually manage it. Two shapes — objects that are not Items at all (Popup/Dialog derive
+    # from QObject; one Translate transform), and one Item reparented out of the layout at
+    # runtime (`parent: Overlay.overlay` + anchors, SettingsHistoryDataTab.qml). Verified in the
+    # Qt 6.11.1 source; see bugs-found.md. The real ones were fixed by moving to
+    # Layout.preferredWidth/Height — do not "clean up" these 21.
+    "Quick.layout-positioning": 21,
     "import": 23,
     "Quick.property-changes-parsed": 5,
     "duplicate-property-binding": 2,
@@ -189,7 +191,11 @@ def default_import_path() -> str:
 
 
 def qml_files() -> list[str]:
-    return sorted(str(p.relative_to(REPO)) for p in (REPO / "qml").rglob("*.qml"))
+    # .as_posix(), never str(): on Windows str() yields backslashes while every key
+    # recovered from qmllint output is normalised to forward slashes by
+    # relative_to_repo(). Mismatched keys mean zero warnings attach to any file and
+    # the whole tree reads as clean — a silently green gate on a supported platform.
+    return sorted(p.relative_to(REPO).as_posix() for p in (REPO / "qml").rglob("*.qml"))
 
 
 def response_file(import_path: str) -> Path | None:
@@ -298,16 +304,23 @@ def run(qmllint: str, import_path: str, files: list[str], rsp: Path | None,
                     f"files listed in UNLINTABLE_BY_TOOL_BUG and check the rest of the tree."
                 )
             fh.flush()
-            # Negative on POSIX means killed by a signal — SIGKILL here is the OOM killer, and
-            # it is exactly the case that must never reach the baseline. A positive code just
-            # means "found warnings", which is the normal state of this codebase.
-            if proc.returncode < 0:
+            # ANY non-zero exit is a failed run, not a finding. Measured on qmllint 6.11.1:
+            # a clean file exits 0, a file with warnings ALSO exits 0 (10,910 diagnostics over
+            # this tree, exit 0), an unknown flag exits 1, an unopenable file exits 255. An
+            # earlier version of this check only caught negative codes on the theory that "a
+            # positive code just means found warnings" — that theory is wrong, and it let a
+            # qmllint which analysed NOTHING report all 218 files clean and invite
+            # --update-baseline to lock that in. One unsupported flag appearing in a future Qt's
+            # generated .rsp is all it would take.
+            if proc.returncode != 0:
+                why = (f"killed by signal {-proc.returncode}" if proc.returncode < 0
+                       else f"exited {proc.returncode}")
                 sys.exit(
-                    f"qmllint was killed by signal {-proc.returncode} on batch {n}/{len(chunks)} "
-                    f"({chunk[0]} ...).\n"
+                    f"qmllint {why} on batch {n}/{len(chunks)} ({chunk[0]} ...).\n"
                     f"Only {done} of {len(all_files)} files were analysed, so any count from this "
                     f"run understates the tree and any file not reached would look clean.\n"
-                    f"Retry with a smaller --batch."
+                    f"qmllint exits 0 even when it finds warnings, so this is a real failure — "
+                    f"check the flags in the generated .rsp and the raw output above."
                 )
             done += len(chunk)
             print(f"\r  linted {done}/{len(all_files)} files", end="", file=sys.stderr, flush=True)
@@ -334,6 +347,10 @@ GLUED_RE = re.compile(r"(?<!^)(?=(?:Warning|Error|Info): )", re.MULTILINE)
 DIAGNOSTIC_LINE_RE = re.compile(
     r"^(?:Warning|Error|Info): .*\[[A-Za-z0-9._-]+\]$")
 
+# The same shape, unanchored, for check_accounting()'s independent count — see there.
+DIAGNOSTIC_ANYWHERE_RE = re.compile(
+    r"(?:Warning|Error|Info): [^\n]*? \[[A-Za-z0-9._-]+\](?=\n|$)")
+
 
 def check_accounting(output: str, parsed: int) -> None:
     """Hard-error if the parser accounted for fewer diagnostics than the output contains.
@@ -344,8 +361,11 @@ def check_accounting(output: str, parsed: int) -> None:
     parser that quietly sees less than it was given is the same defect as a linter that quietly
     analyses fewer files than it was asked to, and this script exists to make that impossible.
     """
-    expected = sum(1 for ln in GLUED_RE.sub("\n", output).split("\n")
-                   if DIAGNOSTIC_LINE_RE.match(ln))
+    # Counted WITHOUT GLUED_RE, on purpose. Applying the same split to both sides would make
+    # this check blind to the exact bug it was written for: if the splitting regex stops
+    # matching, both numbers fall together and agree. Matching the diagnostic shape anywhere in
+    # the text — not line-anchored — counts glued diagnostics whether or not the split works.
+    expected = len(DIAGNOSTIC_ANYWHERE_RE.findall(output))
     if expected != parsed:
         sys.exit(
             f"Parser accounting mismatch: the output holds {expected} diagnostic line(s) but "
@@ -609,6 +629,13 @@ def main() -> int:
     g.add_argument("--update-baseline", action="store_true")
     args = ap.parse_args()
 
+    if args.from_raw and args.update_baseline:
+        sys.exit(
+            "--update-baseline refuses --from-raw. Captured output carries no proof of how it "
+            "was produced: a raw file from a --skip-unlintable run promotes every skipped file "
+            "into the clean list and locks it at zero, and the staleness check cannot run "
+            "against it either. Regenerate the baseline from a live run."
+        )
     if args.skip_unlintable and args.update_baseline:
         sys.exit(
             "--update-baseline refuses --skip-unlintable. The baseline records what every file "

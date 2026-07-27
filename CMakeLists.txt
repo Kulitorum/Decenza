@@ -1487,8 +1487,7 @@ add_dependencies(Decenza validate_kb)
 #
 # Deliberately NOT part of the default build and NOT a dependency of Decenza:
 # a full-tree qmllint run takes minutes, and a gate slow enough that people
-# route around it stops being a gate. It is an explicit target, which is what
-# CI invokes:
+# route around it stops being a gate. It is an explicit target:
 #
 #     cmake --build <dir> --target qmllint_check     # the gate
 #     cmake --build <dir> --target qmllint_report    # what is actually in there
@@ -1574,11 +1573,12 @@ if(QMLLINT_EXECUTABLE)
     add_dependencies(qmllint_report Decenza)
 else()
     # Not fatal: qmllint ships with Qt's QML tooling, which a runtime-only Qt
-    # install can lack. CI has it, so the gate still runs where it decides
-    # whether a change merges — a local build without it is degraded, not broken.
+    # install can lack.
     message(STATUS
         "qmllint not found next to ${_qt_bin_dir} — the qmllint_check/qmllint_report "
-        "targets are unavailable locally. CI still enforces the gate.")
+        "targets are unavailable. NOTE: the gate is not wired into CI yet (see "
+        "openspec/changes/fix-qmllint-usability/tasks.md 1.9), so nothing else is "
+        "checking this for you.")
 endif()
 
 # Force QML resource rebuild when source files change
