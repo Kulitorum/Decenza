@@ -302,6 +302,10 @@ private:
     void clearBackgroundPreset(const char* reason);
     // The ONE place the stored source key is written; emits nothing.
     void storeBackgroundSource(const QString& source);
+    // The raw stored source, WITHOUT the backing-value derivation backgroundSource()
+    // applies. The write paths need to know what is on disk — asking the public getter
+    // there is useless, because it has already derived the inconsistency away.
+    QString storedBackgroundSource() const;
     // The other half: emit iff the DERIVED source differs from `before`. Split because the
     // stored key and the derived value move independently — see the definition.
     void notifyBackgroundSourceChanged(const QString& before);

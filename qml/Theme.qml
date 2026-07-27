@@ -544,9 +544,26 @@ QtObject {
     // (it has no parameter), so on a fresh install with no shots the source says shot while
     // BackgroundSurface paints a flat colour — and scrimming chrome over a flat colour is
     // the exact elevation-cancelling failure chromeFill()'s own comment documents.
+    //
+    // Set by main.qml from the background of the page on TOP of the stack — see the note
+    // there. Not read from LastShotChartSource: that singleton lives in qml/components/ and
+    // a file in qml/ cannot see a type from another directory, so referencing it here
+    // compiled clean and threw "ReferenceError: LastShotChartSource is not defined" on
+    // every evaluation, pinning hasBackgroundImage false for the whole shot case. Theme is
+    // also the lowest-level singleton in the app and deliberately depends on nothing but
+    // context properties; importing the module here to reach one component would trade a
+    // runtime error for a dependency cycle waiting to happen.
+    //
+    // Per-PAGE, unlike the image below, because the chart is the one background a page can
+    // refuse: ThemedPageBackground.suppressShotChart turns it off wherever the page draws a
+    // graph of its own, and those pages then paint a flat colour. A global "a render
+    // exists" answer would claim a picture is behind the chrome there too — which is the
+    // elevation-cancelling failure chromeFill() documents below, and which collapses
+    // insetBackgroundColor onto backgroundColor so the control disappears entirely.
+    property bool shotChartOnCurrentPage: false
+
     readonly property bool hasBackgroundImage: Settings.theme.backgroundSource === "image"
-                                               || (Settings.theme.backgroundSource === "shot"
-                                                   && LastShotChartSource.imageSource.length > 0)
+                                               || shotChartOnCurrentPage
 
     // The fill a piece of chrome should actually paint.
     //

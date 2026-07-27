@@ -1136,6 +1136,32 @@ ApplicationWindow {
         source: "components/LastShotChartRenderer.qml"
     }
 
+    // Whether the page on TOP of the stack is actually drawing the last shot's chart.
+    //
+    // Theme.hasBackgroundImage gates the app-wide glass chrome, and for a photo that is a
+    // fair app-wide question — every page shows it. The chart is not: ThemedPageBackground
+    // .suppressShotChart turns it off on the pages that draw a graph of their own, which
+    // then paint a flat colour. Answering "a render exists" app-wide told the chrome a
+    // picture was behind it on those pages too, and chrome scrimmed over a flat colour is
+    // the elevation-cancelling failure chromeFill() documents — insetBackgroundColor in
+    // particular becomes 40% of backgroundColor over itself, which is backgroundColor, and
+    // text fields and switch tracks drawn straight on the page vanish.
+    //
+    // A binding rather than a push from the surface: several ThemedPageBackgrounds are
+    // alive at once in the stack, so whichever one wrote last would win regardless of which
+    // page you are looking at. currentItem answers for the one on top, and re-evaluates
+    // both on navigation and when a late render lands. It costs no extra work either —
+    // paintsShotChart is the surface's own drawing state, which it computes anyway, and its
+    // `shotChart &&` short-circuits before touching LastShotChartSource when this
+    // background is not selected, so the singleton's load guard still holds.
+    Binding {
+        target: Theme
+        property: "shotChartOnCurrentPage"
+        value: !!(pageStack.currentItem
+                  && pageStack.currentItem.background
+                  && pageStack.currentItem.background.paintsShotChart)
+    }
+
     // Page stack for navigation
     StackView {
         id: pageStack

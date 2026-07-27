@@ -503,6 +503,40 @@ private slots:
         }
     }
 
+    void releasingAParameterOnItsOwnMovesTheStoredKey() {
+        // Clearing a colour WITHOUT going through clearBackground() — which is what the
+        // chooser's "no colour" does, and what clearBackgroundPreset() does on behalf of
+        // other actions. clearBackground() writes the key explicitly as its last step, so
+        // clearingReturnsToNone() passed while this path left the pair inconsistent for
+        // good: source "colour", preset empty.
+        //
+        // Nothing looked wrong, which is why it survived a release — backgroundSource()
+        // derives "none" and the right background draws. But the stored key never
+        // converged, so every launch logged "not backed by a value this build can draw":
+        // 152 times in one machine's log. Asserting the DERIVED getter here would pass
+        // against the bug; the stored key is the thing that was broken.
+        {
+            SettingsTheme theme;
+            theme.setBackgroundPreset("walnut");
+            theme.setBackgroundPreset(QString());
+            QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+            QCOMPARE(raw.value("theme/backgroundSource").toString(), QString("none"));
+        }
+        {
+            // Same store across blocks, so start clean — see the note in
+            // anInstallPredatingTheSourceKeepsItsBackground().
+            QSettings wipe(Settings::testQSettingsPath(), QSettings::IniFormat);
+            wipe.remove("theme");
+            wipe.sync();
+
+            SettingsTheme theme;
+            theme.setBackgroundImagePath("/tmp/a-photo.jpg");
+            theme.setBackgroundImagePath(QString());
+            QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+            QCOMPARE(raw.value("theme/backgroundSource").toString(), QString("none"));
+        }
+    }
+
     void clearingOneSourceDoesNotDisturbAnother() {
         // Choosing an image clears the colour as a SIDE EFFECT, and that clear arrives
         // after the source is already "image". If releasing a source were unconditional

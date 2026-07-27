@@ -61,6 +61,17 @@ Item {
     readonly property bool _hasPattern: _pattern.id !== undefined && !_hasShotChart
     readonly property bool _hasImage: !_hasPreset && (_hasShotChart || imagePath.length > 0)
 
+    // The same fact under a public name, because one reader outside this file needs it and
+    // reaching for an underscore across a file boundary is how a private becomes an API
+    // nobody meant to publish. main.qml binds Theme.shotChartOnCurrentPage to this for the
+    // page on top of the stack — see the note there for why the app-wide glass chrome has
+    // to ask a PAGE whether a chart is behind it, rather than asking the setting.
+    //
+    // Deliberately the drawn state and not the stored one: it is false while the render is
+    // still pending, false when a preset overrides, and false on a page that suppresses the
+    // chart. Those are exactly the cases where the chrome must stay opaque.
+    readonly property bool paintsShotChart: _hasShotChart
+
     // The flat colour actually being painted, and the ink that will read on it.
     //
     // Derived per instance, NOT taken from Theme.textColor. Theme's value follows the
