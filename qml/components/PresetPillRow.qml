@@ -63,7 +63,12 @@ FocusScope {
     // appears/disappears. No gutter when not paginating → the ≤5 layout is
     // pixel-identical to before. calculateRows() flows pills into pillsAvailableWidth.
     readonly property real arrowGutter: pageCount > 1 ? Theme.scaled(48) : 0
-    readonly property real pillsAvailableWidth: Math.max(0, effectiveMaxWidth - 2 * arrowGutter)
+    // ringOutset is reserved on both sides as well: a row that packed to exactly
+    // effectiveMaxWidth would put its end pills flush against the host's edge,
+    // and the outward ring on a selected end pill would be clipped away by hosts
+    // that clip to this width (IdlePage's inline preset-row Item does).
+    readonly property real pillsAvailableWidth:
+        Math.max(0, effectiveMaxWidth - 2 * arrowGutter - 2 * ringOutset)
 
     signal presetSelected(int index)
     signal presetLongPressed(int index)

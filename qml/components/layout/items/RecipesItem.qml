@@ -65,7 +65,7 @@ Item {
     property var inventoryRecipes: []
     property int recipePageIndex: 0
     // Set while the close-time re-request is in flight — see onInventoryReady.
-    property bool recipeOrderLiftPending: false
+    property bool _recipeOrderLiftPending: false
 
     // Live two-row fit (descriptive-recipe-names): the longer bean+type+profile
     // names made a fixed "5 per page" spill past two rows, so instead pack the
@@ -74,8 +74,9 @@ Item {
     // page to page. Widths are measured with metrics that MIRROR PresetPillRow's
     // pill metrics (font 16 bold, icon 20+6, padding 40, spacing 12) — keep in
     // sync with PresetPillRow.qml / PillFit.js. Only the width formula is
-    // mirrored; the available width comes from the row's real effectiveMaxWidth.
-    readonly property real _pillFitAvail: recipesPillRow ? recipesPillRow.effectiveMaxWidth : Theme.scaled(600)
+    // mirrored; the available width comes from the row's real effectiveMaxWidth,
+    // less the ring allowance the row itself reserves (PresetPillRow.ringOutset).
+    readonly property real _pillFitAvail: recipesPillRow ? recipesPillRow.effectiveMaxWidth - 2 * recipesPillRow.ringOutset : Theme.scaled(600)
     // FontMetrics.advanceWidth() (not a mutated TextMetrics.text/.width) so
     // measuring inside a reactive binding doesn't self-trigger a binding loop.
     FontMetrics { id: recipePillMetrics; font.pixelSize: Theme.scaled(16); font.bold: true }
@@ -118,8 +119,8 @@ Item {
             // pills mid-tap (#1673). Lifted on close (see presetPopup.onClosed);
             // that lift wins even if the popup is already open again, because a
             // fast close→reopen can beat the async inventory reply.
-            const freeze = presetPopup.visible && !root.recipeOrderLiftPending
-            root.recipeOrderLiftPending = false
+            const freeze = presetPopup.visible && !root._recipeOrderLiftPending
+            root._recipeOrderLiftPending = false
             root.inventoryRecipes = freeze
                 ? PillFit.keepOrder(root.inventoryRecipes, recipes, "id")
                 : recipes
@@ -226,7 +227,7 @@ Item {
             if (root.idlePage) root.idlePage.releasePanelClearance()
             // Lift the order freeze held while open (#1673) — this request comes
             // back in true MRU order, so the next open shows the fresh order.
-            root.recipeOrderLiftPending = true
+            root._recipeOrderLiftPending = true
             MainController.recipeStorage.requestInventory()
         }
         onOpened: {

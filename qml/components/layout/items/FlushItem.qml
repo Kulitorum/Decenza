@@ -29,7 +29,7 @@ Item {
     // _flushPageStart. No icon. Widths MIRROR PresetPillRow's metrics (font 16
     // bold, padding 40, spacing 12) — keep in sync (see PillFit.js).
     property int flushPageIndex: 0
-    readonly property real _pillFitAvail: flushPillRow ? flushPillRow.effectiveMaxWidth : Theme.scaled(600)
+    readonly property real _pillFitAvail: flushPillRow ? flushPillRow.effectiveMaxWidth - 2 * flushPillRow.ringOutset : Theme.scaled(600)
     // FontMetrics.advanceWidth() (not a mutated TextMetrics.text/.width) so
     // measuring inside a reactive binding doesn't self-trigger a binding loop.
     FontMetrics { id: flushPillMetrics; font.pixelSize: Theme.scaled(16); font.bold: true }

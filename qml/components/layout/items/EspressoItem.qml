@@ -42,7 +42,7 @@ Item {
     // PresetPillRow's pill metrics (font 16 bold, padding 40, spacing 12);
     // profile pills carry no icon. Keep in sync with PresetPillRow.qml/PillFit.js.
     property int profilePageIndex: 0
-    readonly property real _pillFitAvail: profilesPillRow ? profilesPillRow.effectiveMaxWidth : Theme.scaled(600)
+    readonly property real _pillFitAvail: profilesPillRow ? profilesPillRow.effectiveMaxWidth - 2 * profilesPillRow.ringOutset : Theme.scaled(600)
     // FontMetrics.advanceWidth() (not a mutated TextMetrics.text/.width) so
     // measuring inside a reactive binding doesn't self-trigger a binding loop.
     FontMetrics { id: profilePillMetrics; font.pixelSize: Theme.scaled(16); font.bold: true }

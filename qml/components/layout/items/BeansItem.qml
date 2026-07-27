@@ -31,7 +31,7 @@ Item {
     property var inventoryBags: []
     property int beanPageIndex: 0
     // Set while the close-time re-request is in flight — see onInventoryReady.
-    property bool bagOrderLiftPending: false
+    property bool _bagOrderLiftPending: false
 
     // Live two-row fit (descriptive-recipe-names) — same approach as
     // RecipesItem: pack the MRU list into pages of AT MOST TWO ROWS at the pill
@@ -39,7 +39,7 @@ Item {
     // Widths MIRROR PresetPillRow's pill metrics (font 16 bold, padding 40,
     // spacing 12); bean pills carry no icon, so no icon term. Keep in sync with
     // PresetPillRow.qml / PillFit.js.
-    readonly property real _pillFitAvail: beansPillRow ? beansPillRow.effectiveMaxWidth : Theme.scaled(600)
+    readonly property real _pillFitAvail: beansPillRow ? beansPillRow.effectiveMaxWidth - 2 * beansPillRow.ringOutset : Theme.scaled(600)
     // FontMetrics.advanceWidth() (not a mutated TextMetrics.text/.width) so
     // measuring inside a reactive binding doesn't self-trigger a binding loop.
     FontMetrics { id: beanPillMetrics; font.pixelSize: Theme.scaled(16); font.bold: true }
@@ -84,8 +84,8 @@ Item {
             // mid-tap (#1673). Lifted on close (see presetPopup.onClosed); that
             // lift wins even if the popup is already open again, because a fast
             // close→reopen can beat the async inventory reply.
-            const freeze = presetPopup.visible && !root.bagOrderLiftPending
-            root.bagOrderLiftPending = false
+            const freeze = presetPopup.visible && !root._bagOrderLiftPending
+            root._bagOrderLiftPending = false
             root.inventoryBags = freeze
                 ? PillFit.keepOrder(root.inventoryBags, bags, "id")
                 : bags
@@ -199,7 +199,7 @@ Item {
             if (root.idlePage) root.idlePage.releasePanelClearance()
             // Lift the order freeze held while open (#1673) — this request comes
             // back in true MRU order, so the next open shows the fresh order.
-            root.bagOrderLiftPending = true
+            root._bagOrderLiftPending = true
             MainController.bagStorage.requestInventory()
         }
         onOpened: {
