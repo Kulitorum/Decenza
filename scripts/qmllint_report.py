@@ -37,6 +37,12 @@ only automated detector for an undeclared QML identifier, which compiles clean a
 when its binding is first evaluated. That exact failure shipped in 2.0.1 (#1661).
 """
 
+# PEP 604 annotations (`Path | None`) are used below and are 3.10+ syntax, but CMake's
+# Python3_EXECUTABLE on macOS is Xcode's python3.9 — which evaluates annotations eagerly and
+# raises TypeError at import, before argparse ever runs. Deferring them keeps the CMake targets
+# working on the oldest interpreter that can be picked to run this.
+from __future__ import annotations
+
 import argparse
 import json
 import re
@@ -104,6 +110,35 @@ NOT_IN_MODULE_BY_DESIGN = {
     # Bundling them would ship placeholder values that shadow the real backend types.
     "qml/designer/DE1AppStubs.qml",
 }
+
+# Files a RELEASED qmllint cannot analyse at all — not "slowly", not "with false positives",
+# but never finishing. Dropped from the run only when --skip-unlintable is passed, which is for
+# CI; a developer with a fixed qmllint lints them like anything else and the baseline holds
+# their real numbers. Each entry names the upstream fix, so the entry has an expiry condition
+# rather than becoming permanent by inattention.
+#
+# This is the one place where the gate knowingly looks at less than the whole tree, so it is a
+# flag and a named set rather than something inferred: a run that silently analysed fewer files
+# than it was asked to is the exact failure this script was rewritten to make impossible.
+UNLINTABLE_BY_TOOL_BUG: dict[str, str] = {
+    "qml/components/layout/items/CustomItem.qml":
+        "QQmlJSTypeResolver::merge() is exponential, so qmllint 6.11.1 reaches a 313 GB "
+        "footprint on this file and is OOM-killed. Fixed by "
+        "https://codereview.qt-project.org/c/qt/qtdeclarative/+/755657 — delete this entry "
+        "once CI's Qt carries it.",
+}
+
+
+def relative_to_repo(path: str) -> str:
+    """Normalise a path qmllint printed (or Qt's response file listed) to a repo-relative key.
+
+    Qt's response file names sources absolutely, so qmllint echoes absolute paths. The baseline
+    is committed and read on other machines and in CI, where the checkout lives somewhere else
+    entirely — keys have to be repo-relative or nothing ever matches.
+    """
+    path = path.replace("\\", "/")
+    prefix = str(REPO) + "/"
+    return path[len(prefix):] if path.startswith(prefix) else path
 
 
 def find_qmllint() -> str:
@@ -184,7 +219,7 @@ def files_from_response(rsp: Path) -> list[str]:
 
 
 def run(qmllint: str, import_path: str, files: list[str], rsp: Path | None,
-        raw_out: str | None, batch: int, timeout: int) -> str:
+        raw_out: str | None, batch: int, timeout: int, skip: set[str]) -> str:
     """Lint the tree and return everything qmllint printed. Aborts rather than under-report.
 
     IN BATCHES, NOT ONE PROCESS, because qmllint 6.11.1 leaks on this corpus: measured at about
@@ -208,6 +243,12 @@ def run(qmllint: str, import_path: str, files: list[str], rsp: Path | None,
         flags, all_files = split_response(rsp)
     else:
         flags, all_files = ["-I", import_path], list(files)
+    # The response file names sources absolutely and is the authority on what gets linted, so a
+    # skip has to be applied HERE and not only to the caller's list — filtering `files` alone
+    # would drop the file from the accounting while still handing it to qmllint, which is the
+    # worst of both.
+    if skip:
+        all_files = [f for f in all_files if relative_to_repo(f) not in skip]
 
     out_path = Path(raw_out) if raw_out else Path(tempfile.gettempdir()) / "qmllint_raw.txt"
     size = batch if batch > 0 else len(all_files)
@@ -237,8 +278,9 @@ def run(qmllint: str, import_path: str, files: list[str], rsp: Path | None,
                     f"QQmlJSTypeResolver is exponential, and qml/components/layout/items/"
                     f"CustomItem.qml crosses the threshold — stock qmllint 6.11.1 reaches a "
                     f"313 GB footprint and is OOM-killed on it.\n"
-                    f"Use a qmllint with the memoization fix: "
-                    f"--qmllint <path> or -DQMLLINT_EXECUTABLE=<path>."
+                    f"Either lint with a fixed qmllint (--qmllint <path>, or "
+                    f"-DQMLLINT_EXECUTABLE=<path>), or pass --skip-unlintable to exclude the "
+                    f"files listed in UNLINTABLE_BY_TOOL_BUG and check the rest of the tree."
                 )
             fh.flush()
             # Negative on POSIX means killed by a signal — SIGKILL here is the OOM killer, and
@@ -277,12 +319,7 @@ def parse(output: str) -> tuple[Counter, dict[str, Counter], Counter]:
             # Singleton mismatch). Still counted per category, which is where it gets enforced;
             # there is simply no per-file ceiling to charge it against.
             continue
-        path = path.replace("\\", "/")
-        # Qt's response file names sources absolutely, so qmllint echoes absolute paths. The
-        # baseline is committed and read on other machines and in CI, where the checkout lives
-        # somewhere else entirely — keys have to be repo-relative or nothing ever matches.
-        if path.startswith(str(REPO) + "/"):
-            path = path[len(str(REPO)) + 1:]
+        path = relative_to_repo(path)
         per_file[path] += 1
         if category != "unqualified":
             continue
@@ -371,9 +408,15 @@ def check_fresh(import_path: str, files: list[str]) -> None:
         )
 
 
-def cmd_report(state: dict, categories: Counter, unqualified: dict, files: list[str]) -> int:
+def cmd_report(state: dict, categories: Counter, unqualified: dict, files: list[str],
+               skipped: set[str]) -> int:
     total_unq = sum(sum(c.values()) for c in unqualified.values())
     print(f"QML files: {len(files)}")
+    # Every total below is a total OF THE FILES LINTED. Saying so on the same screen as the
+    # numbers, rather than only in a note on stderr that a redirect would drop.
+    if skipped:
+        print(f"NOT LINTED ({len(skipped)}, this qmllint cannot finish them): "
+              f"{', '.join(sorted(skipped))}")
     print(f"clean (zero unqualified): {len(state['clean'])}  |  dirty: {len(state['ceilings'])}\n")
     print("by category:")
     for cat, n in categories.most_common():
@@ -390,13 +433,18 @@ def cmd_report(state: dict, categories: Counter, unqualified: dict, files: list[
     return 0
 
 
-def cmd_check(state: dict) -> int:
+def cmd_check(state: dict, skipped: set[str]) -> int:
     if not BASELINE.exists():
         sys.exit(f"No baseline at {BASELINE}. Run with --update-baseline first.")
     base = json.loads(BASELINE.read_text())
     failures: list[str] = []
 
-    base_clean = set(base["clean"])
+    # A skipped file produced no diagnostics because it was never linted, so every comparison
+    # against its baseline entry would read as an improvement. Drop it from the baseline side
+    # too. Note this can only ever weaken the gate, never fire it: nothing below can fail
+    # because a file was skipped.
+    base_clean = set(base["clean"]) - skipped
+    base_ceilings = {f: n for f, n in base["ceilings"].items() if f not in skipped}
     now_ceilings = state["ceilings"]
 
     # A file on the clean list must stay at zero. This is the rule that would have caught #1661.
@@ -412,7 +460,7 @@ def cmd_check(state: dict) -> int:
         failures.append(f"{f}: new QML file with {now_ceilings[f]} unqualified warning(s); new files must be clean.")
 
     # Ceilings are ceilings, not budgets.
-    for f, limit in sorted(base["ceilings"].items()):
+    for f, limit in sorted(base_ceilings.items()):
         now = now_ceilings.get(f, 0)
         if now > limit:
             failures.append(f"{f}: unqualified rose {limit} -> {now}.")
@@ -441,10 +489,21 @@ def cmd_check(state: dict) -> int:
         )
         return 1
 
-    improved = sum(
-        max(0, limit - now_ceilings.get(f, 0)) for f, limit in base["ceilings"].items()
-    ) + len(set(base["ceilings"]) - set(now_ceilings))
     print(f"QML diagnostics gate passed. clean: {len(state['clean'])}/{len(state['clean']) + len(now_ceilings)}")
+    if skipped:
+        # Everything below tells the reader a count has FALLEN and should be locked in. None of
+        # it can be said from a partial run: the missing files took their diagnostics with them,
+        # so a category that "fell" may not have moved at all. Ratcheting the baseline down on
+        # that would hand the next complete run a limit nobody's code ever met.
+        print(
+            f"{len(skipped)} file(s) skipped ({', '.join(sorted(skipped))}), so this run cannot "
+            f"say whether any count improved. Re-run without --skip-unlintable to find out."
+        )
+        return 0
+
+    improved = sum(
+        max(0, limit - now_ceilings.get(f, 0)) for f, limit in base_ceilings.items()
+    ) + len(set(base_ceilings) - set(now_ceilings))
     if improved:
         print(f"{improved} improvement(s) not yet in the baseline — run --update-baseline to lock them in.")
     # An exemption whose count has reached zero is finished work that nobody has noticed.
@@ -472,7 +531,8 @@ def main() -> int:
                          "re-count is worth avoiding.")
     ap.add_argument("--timeout", type=int, default=600,
                     help="seconds before a qmllint process is treated as hung (default 600). "
-                         "A stock qmllint never finishes this tree; see run().")
+                         "A released qmllint never finishes this tree unless --skip-unlintable "
+                         "is also passed; see run().")
     ap.add_argument("--batch", type=int, default=0,
                     help="files per qmllint process; 0 (the default) means one process for the "
                          "whole tree, which is how Qt's own Decenza_qmllint target runs it. "
@@ -483,11 +543,24 @@ def main() -> int:
                          "cannot finish the tree in one process — see the note in run().")
     ap.add_argument("--allow-stale", action="store_true",
                     help="skip the staleness check (for debugging only)")
+    ap.add_argument("--skip-unlintable", action="store_true",
+                    help="drop the files in UNLINTABLE_BY_TOOL_BUG from the run. For a qmllint "
+                         "that cannot finish them at all (CI, until the upstream fix ships); a "
+                         "developer with a fixed qmllint should not pass this, and "
+                         "--update-baseline refuses it.")
     g = ap.add_mutually_exclusive_group()
     g.add_argument("--report", action="store_true", help="human-readable summary (default)")
     g.add_argument("--check", action="store_true", help="gate: fail on regression")
     g.add_argument("--update-baseline", action="store_true")
     args = ap.parse_args()
+
+    if args.skip_unlintable and args.update_baseline:
+        sys.exit(
+            "--update-baseline refuses --skip-unlintable. The baseline records what every file "
+            "in the module measures; writing it from a run that omitted files would drop their "
+            "entries, and the next complete run would then see them as new files carrying a "
+            "backlog. Regenerate the baseline with a qmllint that can lint the whole tree."
+        )
 
     on_disk = qml_files()
     if not on_disk:
@@ -520,6 +593,17 @@ def main() -> int:
             f"argument list, which may not match how the module is really compiled.",
             file=sys.stderr,
         )
+    # After the unlisted check, which is about the module definition and must still see the file,
+    # and before anything that counts.
+    skipped = sorted(set(files) & set(UNLINTABLE_BY_TOOL_BUG)) if args.skip_unlintable else []
+    if skipped:
+        files = [f for f in files if f not in set(skipped)]
+        print(
+            f"note: skipping {len(skipped)} file(s) this qmllint cannot analyse:\n"
+            + "".join(f"  {f}\n    {UNLINTABLE_BY_TOOL_BUG[f]}\n" for f in skipped),
+            file=sys.stderr,
+        )
+
     if args.from_raw:
         output = Path(args.from_raw).read_text(errors="replace")
         # Guard the exact failure that produced this option: output covering only part of the
@@ -527,10 +611,10 @@ def main() -> int:
         # prove coverage — a genuinely clean file prints nothing — so the honest check is that
         # the LAST file of the input list was reached. Files after the truncation point are the
         # ones at risk, and the last one is always among them.
-        reported = {m.group(1).replace("\\", "/") for m in
-                    (WARN_RE.match(ln) for ln in output.split("\n")) if m}
-        reported = {p[len(str(REPO)) + 1:] if p.startswith(str(REPO) + "/") else p
-                    for p in reported}
+        # `m["path"]` is None for module-level findings (the location group is optional), and
+        # this tree produces those — 22 [import] warnings have no file to point at.
+        reported = {relative_to_repo(m["path"]) for m in
+                    (WARN_RE.match(ln) for ln in output.split("\n")) if m and m["path"]}
         analysed = sorted(reported & set(files))
         if analysed and files and analysed[-1] != files[-1] and files[-1] not in reported:
             tail = files[files.index(analysed[-1]) + 1:]
@@ -543,12 +627,12 @@ def main() -> int:
             )
     else:
         output = run(args.qmllint or find_qmllint(), import_path, files, rsp,
-                     args.raw_out, args.batch, args.timeout)
+                     args.raw_out, args.batch, args.timeout, set(skipped))
     categories, unqualified, _ = parse(output)
     state = build_state(categories, unqualified, files)
 
     if args.check:
-        return cmd_check(state)
+        return cmd_check(state, set(skipped))
     if args.update_baseline:
         BASELINE.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
         print(
@@ -556,7 +640,7 @@ def main() -> int:
             f"{len(state['ceilings'])} with ceilings, {len(state['observed_categories'])} categories."
         )
         return 0
-    return cmd_report(state, categories, unqualified, files)
+    return cmd_report(state, categories, unqualified, files, set(skipped))
 
 
 if __name__ == "__main__":

@@ -29,10 +29,14 @@ the gate could be built. Read task 1.1 before trusting a number in these documen
   seconds.** Every larger figure this change previously quoted (2 minutes, then 7–10) was one
   pathological file, not the corpus; see 1.11. What remains expensive is the *build* the lint
   depends on: it needs the generated qmldir, the type registrations and the response file, so it
-  cannot be a build-free script job like `text-invariants.yml`. Options: (a) an extra step on a
-  workflow that already builds, (b) its own workflow building only Qt's `Decenza_qmllint`
-  prerequisites, which stop short of linking the app. Cache headroom is tight; that, not the
-  8 seconds, is what to weigh.
+  cannot be a build-free script job like `text-invariants.yml`. Cache headroom is tight; that,
+  not the 8 seconds, is what to weigh.
+
+  Likeliest host when this is picked up: a step on `nightly-sanitizers.yml`, which already builds
+  the app on `ubuntu-24.04` and takes 12–16 min that nobody waits on, so it needs no new cache
+  entry. Not decided, and deliberately not built yet — CI is working, and the gate is useful
+  locally before it is useful there. Whoever wires it should confirm rather than assume that
+  `install-qt-action` puts a `qmllint` in Qt's `bin/` on Linux.
 
 - [ ] 1.11 **`qml/components/layout/items/CustomItem.qml` cannot be linted by stock qmllint
   6.11.1**, and that is a Qt bug, not a problem with the file.
@@ -66,16 +70,31 @@ the gate could be built. Read task 1.1 before trusting a number in these documen
   - Stock qmllint does not merely lint worse — it never finishes. The script therefore has a
     `--timeout` (default 600s) that fails with a message naming this bug and the remedy, because
     the symptom in CI would otherwise be an unexplained hang on an unrelated change.
-  - Open: how CI gets a patched qmllint (build the `qmllint` target from a pinned qtdeclarative
-    checkout — 2m44s here — or cache the ~5.5 MB of artifacts), and that it must be rebuilt from
-    the matching tag on every Qt bump.
+  - **Submitted upstream**: [qtdeclarative/+/755657](https://codereview.qt-project.org/c/qt/qtdeclarative/+/755657),
+    `Pick-to: 6.12 6.11`.
+  - **How CI gets a patched qmllint: it does not.** Building one per CI run (2m44s) or caching
+    5.5 MB of artifacts, both needing a rebuild on every Qt bump, is a large standing cost to
+    check *one file*. CI runs stock with `--skip-unlintable`, which drops exactly the files named
+    in `UNLINTABLE_BY_TOOL_BUG` and lints the other 217 in 8.3s. Developers with the patched
+    binary lint all 218; the baseline holds CustomItem's real 118 either way, so nothing about
+    the recorded numbers depends on which side ran.
+  - **"But it worked for months" — it never did, and nothing regressed.** The natural hypothesis,
+    that earlier runs survived because they passed fewer flags, is **disproven**: stock times out
+    on this file with a bare `-I <build>` too. What actually happened is that no earlier run
+    completed *and said so*. Before the exit-status check, a file qmllint never reached printed no
+    warnings and therefore counted as **clean** — the "103 clean files" from an early run was the
+    shape of a truncated run, not a measurement. Everything before that was per-file linting of
+    files being edited, which never included this one. Hence 122 diagnostics in it that nobody had
+    ever seen. Filed here because the plausible explanation was wrong and the wrong one is the
+    memorable one.
 - [x] 1.4 Add the category exemption block. It is hand-edited in the script and
   `--update-baseline` never writes it — an earlier version regenerated it from the current run,
   which would have silently blessed a diagnostic category nobody had ever seen the next time
   anyone refreshed the baseline. An unknown category now fails on first occurrence, with no count
   comparison. `unqualified` is not in the block and is not eligible for it.
-- [ ] 1.5 Generate the per-file `unqualified` state: a clean list of files at zero (held at zero)
-  and recorded ceilings for the rest. Measured PRE-migration
+- [x] 1.5 Generate the per-file `unqualified` state: a clean list of files at zero (held at zero)
+  and recorded ceilings for the rest. Measured PRE-migration, with a patched qmllint so all 218
+  files are real numbers: 28 clean, 190 ceilings, 12,251 `unqualified`.
 - [x] 1.6 New QML files default to the clean list, so new code cannot start with a budget
 - [x] 1.7 Record the scope backlog's remedy (`pragma ComponentBehavior: Bound` plus required
   properties on delegates) in the generated baseline itself, so someone opening that file learns
@@ -85,8 +104,27 @@ the gate could be built. Read task 1.1 before trusting a number in these documen
   it would have counted as clean, so the gate would have rewarded the mistake. One file is
   exempt by design (`qml/designer/DE1AppStubs.qml`, read by Qt Design Studio).
 - [ ] 1.9 Wire the gate into CI so it runs on a branch push, not only on a release tag
-- [ ] 1.10 Verify the gate is green at HEAD; that it goes red when an undeclared identifier is
-  added to a CLEAN file; and that it goes red when a dirty file's count increases
+- [x] 1.10 Verify the gate is green at HEAD; that it goes red when an undeclared identifier is
+  added to a CLEAN file; and that it goes red when a dirty file's count increases. All three
+  confirmed, and the clean-file probe re-confirmed on the `--skip-unlintable` path so that
+  skipping cannot quietly disarm the gate (`ColorSwatch.qml: 1 unqualified warning(s) in a file
+  that had none`, exit 1). Probes reverted.
+- [x] 1.12 **The CMake targets had never run.** `--target qmllint_check` invokes
+  `${Python3_EXECUTABLE}`, which on macOS is Xcode's **python3.9**, and the script used PEP 604
+  `Path | None` annotations — 3.10+ syntax that 3.9 evaluates eagerly and dies on at import,
+  before argparse. Every verification of 1.1–1.10 had been run by hand with the shell's
+  python3.14, so the failure was invisible. CI would not have caught it either: ubuntu-24.04
+  ships 3.12. Fixed with `from __future__ import annotations`; the whole gate re-verified under
+  3.9. **Verify a target by running the target, not the command you believe it runs** — this is
+  the seventh way a plausible-looking result here turned out to be measuring something else.
+- [x] 1.13 Let a released qmllint run the gate: `--skip-unlintable` drops the files in
+  `UNLINTABLE_BY_TOOL_BUG` (one, with its Gerrit link as the expiry condition) and lints the
+  other 217 in 8.3s. It prints what it skipped on stdout, refuses `--update-baseline` outright,
+  and suppresses every "count fell, lock it in" line — a partial run must never ratchet the
+  baseline down. Removing a file can only weaken the gate, never fire it. The CMake option
+  `QMLLINT_SKIP_UNLINTABLE` defaults **ON**, because the default has to be the one that does not
+  hang for ten minutes; it cannot be inferred from `QMLLINT_EXECUTABLE`, since pointing at
+  another binary says nothing about whether it is patched.
 
 ## 2. Classify the registrations
 

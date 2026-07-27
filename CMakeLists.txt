@@ -1501,11 +1501,37 @@ find_program(QMLLINT_EXECUTABLE
     HINTS "${_qt_bin_dir}"
     DOC "qmllint from the Qt build this project targets"
 )
+
+# qmllint 6.11.1 cannot analyse every file in this tree. QQmlJSTypeResolver::merge() is
+# exponential, and one layout item crosses the threshold: the linter grows to a 313 GB
+# footprint and is OOM-killed after ~10 minutes rather than reporting anything. So the
+# default here is to SKIP that file (the script names it, and says so on every run) —
+# a target that hangs a CI runner is worse than one that checks 217 of 218 files and
+# admits it.
+#
+# Turn this OFF when qmllint carries the upstream fix
+# (https://codereview.qt-project.org/c/qt/qtdeclarative/+/755657), which is also when the
+# whole option should be deleted:
+#
+#     cmake -DQMLLINT_EXECUTABLE=<fixed qmllint> -DQMLLINT_SKIP_UNLINTABLE=OFF <dir>
+#
+# It cannot be inferred from QMLLINT_EXECUTABLE — pointing at another binary says nothing
+# about whether that binary is patched — so it is an explicit switch.
+option(QMLLINT_SKIP_UNLINTABLE
+    "Exclude files a released qmllint cannot finish (see UNLINTABLE_BY_TOOL_BUG in scripts/qmllint_report.py)"
+    ON)
+if(QMLLINT_SKIP_UNLINTABLE)
+    set(_qmllint_skip --skip-unlintable)
+else()
+    set(_qmllint_skip "")
+endif()
+
 if(QMLLINT_EXECUTABLE)
     add_custom_target(qmllint_check
         COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_SOURCE_DIR}/scripts/qmllint_report.py
             --check
+            ${_qmllint_skip}
             --qmllint ${QMLLINT_EXECUTABLE}
             --import-path ${CMAKE_BINARY_DIR}
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
@@ -1516,6 +1542,7 @@ if(QMLLINT_EXECUTABLE)
         COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_SOURCE_DIR}/scripts/qmllint_report.py
             --report
+            ${_qmllint_skip}
             --qmllint ${QMLLINT_EXECUTABLE}
             --import-path ${CMAKE_BINARY_DIR}
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
