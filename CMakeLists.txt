@@ -811,6 +811,10 @@ set(HEADERS
     # qmltyperegistrar sees the type; it is compiled by no other target, which is the point
     # (settings.h stays free of QtQml — see the file's own comment).
     src/core/settings_qml.h
+    # Same reason, for the objects main() owns and used to publish with setContextProperty():
+    # their class headers are compiled by test and tool targets that link no Qt6::Qml, so the
+    # registration lives in a file only this target compiles.
+    src/core/contextsingletons_qml.h
     src/core/settings_mqtt.h
     src/core/settings_autowake.h
     src/core/settings_hardware.h

@@ -117,6 +117,7 @@ extern "C" const char* __ubsan_default_options()
 #include "core/appsettings.h"
 #include "core/settings.h"
 #include "core/settings_qml.h"   // SettingsForeign — QML singleton registration
+#include "core/contextsingletons_qml.h"  // *Foreign — singletons replacing setContextProperty()
 #include "core/settingsstoremigration.h"
 #include "core/settings_mqtt.h"
 #include "core/settings_autowake.h"
@@ -3414,7 +3415,10 @@ int main(int argc, char *argv[])
     // so there is nothing left for main() to declare or publish. What they are for is on the
     // classes: emojiassets.h, markdownrenderer.h, temperaturedisplay.h.
     context->setContextProperty("BLEManager", &bleManager);
-    context->setContextProperty("DE1Device", &de1Device);
+    // DE1Device is a QML_FOREIGN + QML_SINGLETON (contextsingletons_qml.h), not a context
+    // property. Published here rather than at the declaration because the ordering that matters
+    // is "before engine.load()", and this is where that is obvious.
+    DE1DeviceForeign::s_singletonInstance = &de1Device;
     context->setContextProperty("ScaleDevice", &flowScale);  // FlowScale initially, updated when physical scale connects
     // No "FlowScale" property. It was published "always available for diagnostics" and no QML
     // ever read it — the only occurrences of the name in qml/ are three comments in main.qml
@@ -3435,7 +3439,8 @@ int main(int argc, char *argv[])
     // app resolves to null. tst_qmlregistration asserts this call exists, for that reason.
     MainController::setQmlInstance(&mainController);
     ProfileManager::setQmlInstance(mainController.profileManager());
-    context->setContextProperty("ScreensaverManager", &screensaverManager);
+    // ScreensaverManager: QML's name for ScreensaverVideoManager. See contextsingletons_qml.h.
+    ScreensaverManagerForeign::s_singletonInstance = &screensaverManager;
     context->setContextProperty("AutoWakeManager", &autoWakeManager);
     context->setContextProperty("BatteryManager", &batteryManager);
     context->setContextProperty("MemoryMonitor", &memoryMonitor);
@@ -3701,7 +3706,11 @@ int main(int argc, char *argv[])
         ghcEnginePtr = std::make_unique<QQmlApplicationEngine>();
         auto& ghcEngine = *ghcEnginePtr;
         ghcEngine.rootContext()->setContextProperty("GHCSimulator", &ghcSimulator);
-        ghcEngine.rootContext()->setContextProperty("DE1Device", &de1Device);
+        // No "DE1Device" line either: it is now a QML_SINGLETON, and a singleton is per-type,
+        // not per-engine — GHCSimulatorWindow.qml imports Decenza, so this engine resolves the
+        // same instance main published. A context property of the same name would SHADOW it and
+        // be invisible to qmllint, which is the shape #1661 took.
+        //
         // No "DE1Simulator" property. GHCSimulatorWindow.qml is the only file this engine loads
         // and it never reads that name; nothing else in qml/ does either.
         // No Settings line here. Settings is a QML_FOREIGN + QML_SINGLETON (settings_qml.h) and
