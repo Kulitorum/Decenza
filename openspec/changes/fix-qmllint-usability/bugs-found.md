@@ -175,6 +175,26 @@ Recorded so they are not re-investigated.
   reaching *across* directories, which is the case that fails. Of the 12 import-less files, only
   these two referenced module singletons at all, and both resolved.
 
+- **`ProfileManager.currentProfilePtr` is an opaque pointer property — loaded, but nothing is
+  pulling the trigger.** `Q_PROPERTY(Profile* currentProfilePtr READ currentProfilePtr CONSTANT)`
+  on `ProfileManager`, where `Profile` is a **plain C++ class**: no `Q_OBJECT`, no `Q_GADGET`.
+  QML therefore receives a value it cannot see into, and the natural-looking
+  `ProfileManager.currentProfilePtr.title` would evaluate to `undefined` — the same failure the
+  `Q_DECLARE_OPAQUE_POINTER` experiment produced for `Settings` (design D2a), arrived at from the
+  other direction.
+
+  **Checked, and currently harmless: no QML file references `currentProfilePtr`**, and qmllint
+  reports nothing against it. It is an unexercised API surface, not a live defect, which is why it
+  is recorded here rather than filed.
+
+  It matters for **task 3.6 (`ProfileManager`)**, the next migration after this one. Registering
+  `ProfileManager` will make qmllint able to read its property list, and this property will surface
+  as `unresolved-type` exactly the way MainController's 21 sub-objects did. **The fix is to give
+  `Profile` a `Q_GADGET` and register it** (it is a value type with no identity, so a gadget is the
+  right shape), *not* to declare it opaque and not to drop the property. Whoever does 3.6 should
+  also decide whether QML has any business holding a `Profile` at all — nothing uses it today, so
+  deleting the property is a legitimate third option.
+
 ---
 
 ## Fixed: 36 dead imports

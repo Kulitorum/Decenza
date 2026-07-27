@@ -218,7 +218,12 @@ evaluates — the same silent, delayed shape as the bug this change exists to pr
   - Bare-basename include dirs needed for this: `src/controllers`, `src/ai`, `src/history`,
     `src/machine`, `src/models`, `src/network`, `src/profile`. Basename ambiguity re-checked after
     adding them — still none.
-- [ ] 3.6 `ProfileManager` — unlocks 3 files (→ 99)
+- [ ] 3.6 `ProfileManager` — unlocks 3 files (→ 99). **Read the `currentProfilePtr` note in
+  bugs-found.md before starting.** `ProfileManager` carries `Q_PROPERTY(Profile* currentProfilePtr)`
+  where `Profile` is a plain C++ class (no Q_OBJECT, no Q_GADGET), so registering ProfileManager
+  will surface it as `unresolved-type` the same way MainController's 21 sub-objects did. The fix is
+  a `Q_GADGET` on `Profile`, never an opaque pointer — or delete the property, since no QML
+  references it.
 - [ ] 3.7 `MachineState` — unlocks 1 file (→ 100)
 - [ ] 3.8 `MachineStateType` — unlocks 1 file (→ 101). This is a `qmlRegisterUncreatableType`, not a context property; establish why it is unresolved before changing anything
 - [ ] 3.9 `MarkdownRenderer` — unlocks 1 file (→ 102)
