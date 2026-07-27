@@ -102,7 +102,8 @@ the gate could be built. Read task 1.1 before trusting a number in these documen
 - [x] 1.8 Detect QML on disk that is missing from `qt_add_qml_module` — such a file is neither
   linted nor bundled, `CLAUDE.md` names forgetting the entry as a known footgun, and without this
   it would have counted as clean, so the gate would have rewarded the mistake. One file is
-  exempt by design (`qml/designer/DE1AppStubs.qml`, read by Qt Design Studio).
+  exempt by design (`qml/designer/DE1AppStubs.qml`, believed to be read by Qt Design Studio —
+  since deleted, see 3.13).
 - [ ] 1.9 Wire the gate into CI so it runs on a branch push, not only on a release tag
 - [x] 1.10 Verify the gate is green at HEAD; that it goes red when an undeclared identifier is
   added to a CLEAN file; and that it goes red when a dirty file's count increases. All three
@@ -186,7 +187,7 @@ evaluates — the same silent, delayed shape as the bug this change exists to pr
   not optional once `Settings` is a type rather than a context property: a context property is
   globally visible, a singleton needs the module imported. 12 files (`Theme.qml`, `CrtOverlay.qml`,
   `ThemedPageBackground.qml`, …); the 13th, `qml/designer/DE1AppStubs.qml`, is deliberately outside
-  the module and stays out. Missing this produced `ReferenceError: Settings is not defined`
+  the module and stays out — and has since been deleted outright (3.13). Missing this produced `ReferenceError: Settings is not defined`
   throughout `Theme.qml` — the same shape as #1661, which was also `Theme.qml` failing to resolve
   a `Decenza` singleton.
 - [x] 3.4 `AccessibilityManager` — unlocked 5 files (58 → 63 clean, unqualified 7,612 → 7,265).
@@ -247,6 +248,25 @@ evaluates — the same silent, delayed shape as the bug this change exists to pr
     the old check would have passed a `QML_NAMED_ELEMENT` typo that registered under the wrong
     name.
 - [ ] 3.11 After each of the above: launch the app and check the log for QML TypeErrors. Building is not evidence
+- [x] 3.13 Delete the dead Qt Design Studio scaffold: `qml/Decenza/{qmldir,plugins.qmltypes}`,
+  `de1-qt.qrc`, `de1-qt.qmlproject`, `qml/designer/DE1AppStubs.qml`. Found while migrating
+  MachineState — `plugins.qmltypes` still listed `MachineStateType` after this change deleted it.
+  - It was not merely unused, it was **broken since #338** (the Decenza rename). The qmldir
+    declares `module Decenza` while every type inside `plugins.qmltypes` exports under `DE1App/`:
+    the directory was renamed, its contents were not, so Design Studio would resolve
+    `Decenza/DE1Device` against an export named `DE1App/DE1Device` and find nothing. Nobody can
+    have opened this and had it work.
+  - `de1-qt.qrc` is the only thing that referenced the qmldir, and `CMakeLists.txt` does not
+    reference `de1-qt.qrc` (it lists only `resources/*.qrc`). Both it and `de1-qt.qmlproject`
+    also name a `qtquickcontrols2.conf` that no longer exists.
+  - `DE1AppStubs.qml` is never instantiated and is not in the `qt_add_qml_module` file list. It
+    had also gone stale in a way that would mislead rather than help: it stubs `settings.<prop>`
+    flat, when Settings has had 12 domain sub-objects for some time, and puts
+    `availableProfiles` on MainController, where it no longer lives.
+  - This is exactly the drift the change is about, in a second form: a hand-maintained parallel
+    declaration of the same module that nothing verifies. If Design Studio support is wanted
+    later, the generated `Decenza.qmltypes` is now good enough to be the real answer, and this
+    scaffold would not have been a starting point.
 - [x] 3.12 Move each unlocked file onto the clean list in the same commit that unlocks it —
   done for 3.6, 3.7/3.8 and 3.9/3.10; the baseline was regenerated with the patched qmllint in
   each commit, and each run confirmed no file left the clean list and no ceiling rose.

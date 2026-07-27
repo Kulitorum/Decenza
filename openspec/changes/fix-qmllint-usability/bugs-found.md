@@ -321,6 +321,13 @@ Do not treat these as fixed or as false positives — nobody has looked.
   Not attributed to this change and not claimed as fixed by it.
 - **122 diagnostics in `CustomItem.qml`**, seen for the first time once a patched qmllint could
   finish the file. Counted, not read.
+- **`qml/Decenza/` was a stale hand-written module stub that nothing builds — now deleted**, along
+  with the rest of the dead Qt Design Studio scaffold (`de1-qt.qrc`, `de1-qt.qmlproject`,
+  `qml/designer/DE1AppStubs.qml`). See task 3.13 for the full finding. The short version is that
+  it was not merely unused: its `qmldir` declares `module Decenza` while its `plugins.qmltypes`
+  exports every type under `DE1App/`, so it has been unresolvable since the #338 rename. The
+  paragraph below is the original note, kept because its reasoning is what found the rest.
+
 - **`qml/Decenza/` is a stale hand-written module stub that nothing builds.** It contains a
   `qmldir` declaring `module Decenza` plus a `plugins.qmltypes` listing types by hand — including
   `MachineStateType`, whose registration this change deleted, and exporting them under a
