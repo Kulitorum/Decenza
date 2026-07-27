@@ -1466,6 +1466,78 @@ add_custom_target(validate_kb ALL
 )
 add_dependencies(Decenza validate_kb)
 
+# ---------------------------------------------------------------------------
+# QML diagnostics gate (qmllint)
+#
+# Deliberately NOT part of the default build and NOT a dependency of Decenza:
+# a full-tree qmllint run takes minutes, and a gate slow enough that people
+# route around it stops being a gate. It is an explicit target, which is what
+# CI invokes:
+#
+#     cmake --build <dir> --target qmllint_check     # the gate
+#     cmake --build <dir> --target qmllint_report    # what is actually in there
+#
+# Why it exists: an undeclared QML identifier compiles clean and throws only
+# when its binding is first evaluated — possibly on a screen nobody opened
+# during review. That is not hypothetical here. It shipped in 2.0.1 (#1661),
+# where Theme.qml referenced a singleton living in another directory, so
+# hasBackgroundImage stayed false forever and every user who chose the
+# shot-chart background silently lost its scrim.
+#
+# The import path is the BUILD directory, not the source tree, because that is
+# where the generated Decenza/qmldir lives and it points at the build's own
+# copies of the QML. Lint against a stale build and the numbers describe
+# whatever was last compiled rather than what is on disk — the script hard-errors
+# on that rather than reporting a plausible wrong answer.
+#
+# Policy (per-file clean list, category ceilings) lives in the script, next to
+# the parser that produces the numbers it enforces. This target only wires the
+# two together.
+# ---------------------------------------------------------------------------
+get_target_property(_qt_qmake_location Qt6::qmake IMPORTED_LOCATION)
+get_filename_component(_qt_bin_dir "${_qt_qmake_location}" DIRECTORY)
+find_program(QMLLINT_EXECUTABLE
+    NAMES qmllint
+    HINTS "${_qt_bin_dir}"
+    DOC "qmllint from the Qt build this project targets"
+)
+if(QMLLINT_EXECUTABLE)
+    add_custom_target(qmllint_check
+        COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/scripts/qmllint_report.py
+            --check
+            --qmllint ${QMLLINT_EXECUTABLE}
+            --import-path ${CMAKE_BINARY_DIR}
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        COMMENT "Checking QML diagnostics against the baseline..."
+        VERBATIM
+    )
+    add_custom_target(qmllint_report
+        COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/scripts/qmllint_report.py
+            --report
+            --qmllint ${QMLLINT_EXECUTABLE}
+            --import-path ${CMAKE_BINARY_DIR}
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        COMMENT "Summarising QML diagnostics by category and file..."
+        VERBATIM
+    )
+    # Both targets need the module built: qmllint resolves Decenza types through the generated
+    # qmldir, which points at the build's own copies of the QML, and Qt's generated argument
+    # file (.rcc/qmllint/Decenza.rsp) does not exist until then. The script refuses to run
+    # against a stale build rather than report numbers for whatever was last compiled — this
+    # dependency turns that refusal into a rebuild instead of an error message.
+    add_dependencies(qmllint_check Decenza)
+    add_dependencies(qmllint_report Decenza)
+else()
+    # Not fatal: qmllint ships with Qt's QML tooling, which a runtime-only Qt
+    # install can lack. CI has it, so the gate still runs where it decides
+    # whether a change merges — a local build without it is degraded, not broken.
+    message(STATUS
+        "qmllint not found next to ${_qt_bin_dir} — the qmllint_check/qmllint_report "
+        "targets are unavailable locally. CI still enforces the gate.")
+endif()
+
 # Force QML resource rebuild when source files change
 # NOTE: Disabled - defeats QML caching which slows page loads
 # Re-enable temporarily if QML changes aren't being picked up
