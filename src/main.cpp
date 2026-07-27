@@ -169,6 +169,7 @@ extern "C" const char* __ubsan_default_options()
 #include "models/steamdatamodel.h"
 #include "machine/steamhealthtracker.h"
 #include "controllers/maincontroller.h"
+#include "controllers/profilemanager.h"
 #include "controllers/shottimingcontroller.h"
 #include "profile/temperaturedisplay.h"
 #include "ai/aimanager.h"
@@ -3442,7 +3443,7 @@ int main(int argc, char *argv[])
     // build, qmllint and the whole suite stay green while every MainController.* binding in the
     // app resolves to null. tst_qmlregistration asserts this call exists, for that reason.
     MainController::setQmlInstance(&mainController);
-    context->setContextProperty("ProfileManager", mainController.profileManager());
+    ProfileManager::setQmlInstance(mainController.profileManager());
     context->setContextProperty("ScreensaverManager", &screensaverManager);
     context->setContextProperty("AutoWakeManager", &autoWakeManager);
     context->setContextProperty("BatteryManager", &batteryManager);

@@ -5,12 +5,15 @@
 #include <QVariantList>
 #include <QMap>
 #include <QHash>
+#include <QtQml/qqmlregistration.h>
 #include "../profile/profile.h"
 
 class Settings;
 class DE1Device;
 class MachineState;
 class ProfileStorage;
+class QQmlEngine;
+class QJSEngine;
 
 // Profile source enumeration (moved from maincontroller.h)
 enum class ProfileSource {
@@ -46,6 +49,13 @@ struct ProfileInfo {
 class ProfileManager : public QObject {
     Q_OBJECT
 
+    // Compile-time QML registration, replacing the setContextProperty("ProfileManager", …) that
+    // main.cpp used to do. A context property is invisible to qmllint, qmlcachegen and the
+    // language server, so every `ProfileManager.x` in QML was unchecked. Full rationale in
+    // src/controllers/maincontroller.h.
+    QML_ELEMENT
+    QML_SINGLETON
+
     Q_PROPERTY(QString currentProfileName READ currentProfileName NOTIFY currentProfileChanged)
     Q_PROPERTY(QString baseProfileName READ baseProfileName NOTIFY currentProfileChanged)
     Q_PROPERTY(bool profileModified READ isProfileModified NOTIFY profileModifiedChanged)
@@ -60,7 +70,14 @@ class ProfileManager : public QObject {
     Q_PROPERTY(QVariantList downloadedProfiles READ downloadedProfiles NOTIFY profilesChanged)
     Q_PROPERTY(QVariantList userCreatedProfiles READ userCreatedProfiles NOTIFY profilesChanged)
     Q_PROPERTY(QVariantList allProfilesList READ allProfilesList NOTIFY profilesChanged)
-    Q_PROPERTY(Profile* currentProfilePtr READ currentProfilePtr CONSTANT)
+    // No Q_PROPERTY for currentProfilePtr. `Profile` is a plain C++ class — no Q_OBJECT, no
+    // Q_GADGET — so QML could never have read a member through the pointer; the property
+    // resolved to an opaque handle and nothing in qml/ ever referenced it (verified by grep,
+    // and tst_profilemanager already lists the name among the identifiers that must NOT appear
+    // as MainController.x). Registering this class turns that dead property into an
+    // `unresolved-type` diagnostic, and giving Profile a Q_GADGET to satisfy it would mean
+    // annotating ~50 accessors to expose something no caller wants. The accessor below stays:
+    // it is used from maincontroller.cpp, in C++ only.
     Q_PROPERTY(bool isCurrentProfileRecipe READ isCurrentProfileRecipe NOTIFY currentProfileChanged)
     Q_PROPERTY(QString currentEditorType READ currentEditorType NOTIFY currentProfileChanged)
     Q_PROPERTY(double profileTargetTemperature READ profileTargetTemperature NOTIFY currentProfileChanged)
@@ -86,6 +103,11 @@ class ProfileManager : public QObject {
     Q_PROPERTY(bool isCurrentProfileReadOnly READ isCurrentProfileReadOnly NOTIFY currentProfileChanged)
 
 public:
+    // QML_SINGLETON hooks. The engine does not create this object: MainController owns it and
+    // main.cpp publishes the pointer before QQmlEngine::load(). See maincontroller.h.
+    static void setQmlInstance(ProfileManager *instance);
+    static ProfileManager *create(QQmlEngine *qmlEngine, QJSEngine *jsEngine);
+
     explicit ProfileManager(Settings* settings, DE1Device* device,
                            MachineState* machineState,
                            ProfileStorage* profileStorage = nullptr,
@@ -372,6 +394,8 @@ signals:
     void autoLoadStaleCleared();
 
 private:
+    static ProfileManager *s_qmlInstance;
+
     // Current profile's frames with every temperature shifted so the reference
     // temperature (espressoTemperature) becomes targetTemp. Single source of truth
     // for the override delta, shared by the live-brew and save-to-profile paths.

@@ -89,6 +89,7 @@ private slots:
         QTest::newRow("TranslationManager") << "TranslationManager";
         QTest::newRow("AccessibilityManager") << "AccessibilityManager";
         QTest::newRow("MainController") << "MainController";
+        QTest::newRow("ProfileManager") << "ProfileManager";
     }
 
     void singletonsAreRegistered()
@@ -239,6 +240,7 @@ private slots:
     {
         QTest::addColumn<QString>("publishCall");
         QTest::newRow("MainController")       << "MainController::setQmlInstance(";
+        QTest::newRow("ProfileManager")       << "ProfileManager::setQmlInstance(";
         QTest::newRow("TranslationManager")   << "TranslationManager::setQmlInstance(";
         QTest::newRow("AccessibilityManager") << "AccessibilityManager::setQmlInstance(";
         QTest::newRow("Settings")             << "SettingsForeign::s_singletonInstance =";
