@@ -172,7 +172,9 @@ jobs:
           echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > $RUNNER_TEMP/keystore.jks
           echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/keystore.jks" >> $GITHUB_ENV
 
-      - name: Override Qt Android platform plugin (a11y #1300, EGL crash #1663)
+      # Quoted: an unquoted '#' after whitespace starts a YAML comment, which
+      # silently truncated this step name in the Actions UI.
+      - name: "Override Qt Android platform plugin (a11y #1300, EGL crash #1663)"
         run: |
           # Patched qtforandroid plugin fixing QTBUG-118858 (TalkBack typing echo),
           # QTBUG-145786 (keyboard-on-focus), and QTBUG-140490/QTBUG-144207 (qFatal
