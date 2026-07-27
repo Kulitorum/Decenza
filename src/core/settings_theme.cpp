@@ -76,6 +76,10 @@ void SettingsTheme::setBackgroundImagePath(const QString& path) {
     if (!path.isEmpty()) {
         storeBackgroundSource(kBackgroundSourceImage);
         clearBackgroundPreset("a background image was chosen instead");
+    } else if (storedBackgroundSource() == kBackgroundSourceImage) {
+        // Clearing the path the stored source NAMES. Without this the key kept pointing at
+        // an image that is gone — see the note in setBackgroundPreset.
+        storeBackgroundSource(QString::fromLatin1(kBackgroundSourceNone));
     }
     notifyBackgroundSourceChanged(before);
 }
@@ -123,6 +127,21 @@ void SettingsTheme::setBackgroundPreset(const QString& id) {
     if (!id.isEmpty()) {
         storeBackgroundSource(kBackgroundSourceColour);
         setBackgroundImagePath(QString());
+    } else if (storedBackgroundSource() == kBackgroundSourceColour) {
+        // Clearing the colour the stored source NAMES, so the key has to move with it.
+        //
+        // Without this the pair went permanently inconsistent — source "colour", preset
+        // empty — and stayed that way, because the guard above only ever wrote the key when
+        // a colour was SET. backgroundSource() derived "none" correctly so nothing looked
+        // wrong on screen, but it logged "not backed by a value this build can draw" on
+        // every launch for the life of the install: 152 times in one dev machine's log.
+        // That message exists to make an override diagnosable; one that fires forever on a
+        // state that can never resolve trains the reader to skip it.
+        //
+        // This is the write path recording the user's own action, not the read path
+        // rewriting stored data — backgroundSource() still derives and still rewrites
+        // nothing, which is what keeps an install predating the key working.
+        storeBackgroundSource(QString::fromLatin1(kBackgroundSourceNone));
     }
     notifyBackgroundSourceChanged(before);
 }
@@ -137,8 +156,12 @@ void SettingsTheme::setBackgroundPreset(const QString& id) {
 //
 // Nothing is rewritten on read. The derivation is unambiguous, and rewriting stored
 // user-set values is a thing this project deliberately does not do.
+QString SettingsTheme::storedBackgroundSource() const {
+    return m_settings.value("theme/backgroundSource", "").toString();
+}
+
 QString SettingsTheme::backgroundSource() const {
-    const QString stored = m_settings.value("theme/backgroundSource", "").toString();
+    const QString stored = storedBackgroundSource();
     if (stored == kBackgroundSourceShot)
         return stored;
     if (stored == kBackgroundSourceColour && !backgroundPreset().isEmpty())
