@@ -4,6 +4,7 @@
 #include <QPointer>
 #include <QTimer>
 #include <QElapsedTimer>
+#include <QtQml/qqmlregistration.h>
 #include "../ble/protocol/de1characteristics.h"
 
 class DE1Device;
@@ -11,9 +12,21 @@ class ScaleDevice;
 class Profile;
 class Settings;
 class ShotTimingController;
+class QQmlEngine;
+class QJSEngine;
 
 class MachineState : public QObject {
     Q_OBJECT
+
+    // Compile-time QML registration, replacing BOTH the setContextProperty("MachineState", …)
+    // and the qmlRegisterUncreatableType<MachineState>(…, "MachineStateType") that main.cpp used
+    // to do. The two existed because a context property shadows a type of the same name, so the
+    // enums had to be reached under a second, invented name. A QML_SINGLETON needs no such
+    // split: `MachineState.Phase.Pouring` resolves through the singleton's own metaobject, and
+    // unlike either of the runtime calls it is visible to qmllint, qmlcachegen and the language
+    // server. Full rationale in src/controllers/maincontroller.h.
+    QML_ELEMENT
+    QML_SINGLETON
 
     Q_PROPERTY(Phase phase READ phase NOTIFY phaseChanged)
     Q_PROPERTY(bool isFlowing READ isFlowing NOTIFY phaseChanged)
@@ -75,6 +88,11 @@ public:
     double cumulativeVolume() const { return m_cumulativeVolume; }
     double preinfusionVolume() const { return m_preinfusionVolume; }
     double pourVolume() const { return m_pourVolume; }
+    // QML_SINGLETON hooks. The engine does not create this object: main.cpp builds it on the
+    // stack and publishes the pointer before QQmlEngine::load(). See maincontroller.h.
+    static void setQmlInstance(MachineState *instance);
+    static MachineState *create(QQmlEngine *qmlEngine, QJSEngine *jsEngine);
+
     ScaleDevice* scale() const;
     void setScale(ScaleDevice* scale);
     QString activeScaleType() const;
@@ -155,6 +173,8 @@ private slots:
     void onTimingControllerTareComplete();
 
 private:
+    static MachineState *s_qmlInstance;
+
     // Install the serving-scale provider on SettingsCalibration, which resolves the SAW
     // pool key for every consumer. Called from setSettings() ONLY, and once is enough:
     // the provider is a closure over m_scale, so it follows every later setScale() and

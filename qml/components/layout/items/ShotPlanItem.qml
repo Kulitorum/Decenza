@@ -62,7 +62,7 @@ Item {
     readonly property bool _steamContext: showSteamPlan && (
         Theme.currentOperationMode === "steam"
         || Theme.currentPageObjectName === "steamPage"
-        || (typeof MachineState !== "undefined" && MachineState.phase === MachineStateType.Phase.Steaming))
+        || (typeof MachineState !== "undefined" && MachineState.phase === MachineState.Phase.Steaming))
     // Only actually swap when the steam plan has something to say — with the "Off"
     // pitcher its text is empty, and swapping then would blank the whole widget while
     // leaving a phantom focusable a11y node. Fall back to the shot plan instead.

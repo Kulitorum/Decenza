@@ -12,7 +12,7 @@ Page {
     objectName: "transportPage"
     background: ThemedPageBackground {}
 
-    property bool isPurging: MachineState.phase === MachineStateType.Phase.Transport
+    property bool isPurging: MachineState.phase === MachineState.Phase.Transport
     property bool wasPurging: false
     property bool showComplete: false
     // Set when the user aborts via STOP, so the end-of-purge handler does NOT
@@ -25,7 +25,7 @@ Page {
     // simulation there is no firmware limitation, so the gate is bypassed for
     // testing. (Cold-machine starts are handled by a separate, on-hold change.)
     readonly property bool machineReady: DE1Device.simulationMode ||
-                                         MachineState.phase === MachineStateType.Phase.Ready
+                                         MachineState.phase === MachineState.Phase.Ready
 
     onIsPurgingChanged: {
         if (isPurging) wasPurging = true
@@ -54,9 +54,9 @@ Page {
             // in machinestate.cpp warn that a dropped link must not be treated
             // as a completion event. Whitelisting avoids that trap.
             var phase = MachineState.phase
-            if (phase !== MachineStateType.Phase.Idle &&
-                phase !== MachineStateType.Phase.Ready &&
-                phase !== MachineStateType.Phase.Heating)
+            if (phase !== MachineState.Phase.Idle &&
+                phase !== MachineState.Phase.Ready &&
+                phase !== MachineState.Phase.Heating)
                 return
             wasPurging = false
             if (userStopped) {

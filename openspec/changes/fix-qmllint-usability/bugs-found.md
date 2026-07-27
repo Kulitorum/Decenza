@@ -321,3 +321,13 @@ Do not treat these as fixed or as false positives — nobody has looked.
   Not attributed to this change and not claimed as fixed by it.
 - **122 diagnostics in `CustomItem.qml`**, seen for the first time once a patched qmllint could
   finish the file. Counted, not read.
+- **`qml/Decenza/` is a stale hand-written module stub that nothing builds.** It contains a
+  `qmldir` declaring `module Decenza` plus a `plugins.qmltypes` listing types by hand — including
+  `MachineStateType`, whose registration this change deleted, and exporting them under a
+  `DE1App/…` module name that no longer exists anywhere else in the tree. Neither file is
+  referenced by `CMakeLists.txt`, and the real `Decenza` module is generated into the build
+  directory by `qt_add_qml_module`, which is also what qmllint imports. So it is not currently
+  doing harm — but it is a second, hand-maintained declaration of the same module name that
+  nobody updates, and it will drift further with every type this change migrates. Deleting it is
+  the obvious call; it was left alone here only because no task covers it and nothing verified
+  whether Qt Creator's QML editor reads it for design-time completion.

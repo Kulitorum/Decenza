@@ -47,7 +47,7 @@ Page {
         }
     }
 
-    property bool isSteaming: MachineState.phase === MachineStateType.Phase.Steaming || root.debugLiveView
+    property bool isSteaming: MachineState.phase === MachineState.Phase.Steaming || root.debugLiveView
     property int editingPitcherIndex: -1  // For the edit popup
     property bool steamSoftStopped: false  // For two-stage stop on headless machines
     property bool wasSteaming: false  // Track if we were steaming (to turn off heater after)

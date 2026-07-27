@@ -3430,7 +3430,7 @@ int main(int argc, char *argv[])
     context->setContextProperty("DE1Device", &de1Device);
     context->setContextProperty("ScaleDevice", &flowScale);  // FlowScale initially, updated when physical scale connects
     context->setContextProperty("FlowScale", &flowScale);  // Always available for diagnostics
-    context->setContextProperty("MachineState", &machineState);
+    MachineState::setQmlInstance(&machineState);
     context->setContextProperty("ShotDataModel", &shotDataModel);
     context->setContextProperty("SteamDataModel", &steamDataModel);
     context->setContextProperty("SteamHealthTracker", &steamHealthTracker);
@@ -3487,11 +3487,13 @@ int main(int argc, char *argv[])
     context->setContextProperty("GHCSimulator", &ghcSimulator);
 #endif
 
-    // Register types for QML (use different names to avoid conflict with context properties)
+    // Register types for QML under a "…Type" name, because the context property of the plain
+    // name shadows the type. MachineStateType used to be here for exactly that reason; it is
+    // gone because MachineState is now a QML_SINGLETON, which needs no second name — QML reads
+    // its enums as MachineState.Phase.X straight off the singleton. DE1Device is the last one
+    // left in this shape, and it goes the same way when its context property does.
     qmlRegisterUncreatableType<DE1Device>("Decenza", 1, 0, "DE1DeviceType",
         "DE1Device is created in C++");
-    qmlRegisterUncreatableType<MachineState>("Decenza", 1, 0, "MachineStateType",
-        "MachineState is created in C++");
     // AIConversation moved to QML_ELEMENT + QML_UNCREATABLE in aiconversation.h, for the same
     // reason as the three named just below: a runtime registration is invisible to qmltyperegistrar, so
     // qmllint could not resolve the type behind AIManager's conversation properties.

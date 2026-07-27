@@ -564,7 +564,7 @@ Page {
         target: MachineState
         property bool wasSteaming: false
         function onPhaseChanged() {
-            if (MachineState.phase === MachineStateType.Phase.Steaming)
+            if (MachineState.phase === MachineState.Phase.Steaming)
                 wasSteaming = true
             else if (wasSteaming) {
                 idlePage.measuredMilkG = 0

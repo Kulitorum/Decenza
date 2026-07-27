@@ -391,16 +391,16 @@ ApplicationWindow {
         // auto-sleep countdown can't fire mid-upload and cut BLE.
         var fw = MainController.firmwareUpdater
         if (fw && fw.isFlashing) return true
-        return phase === MachineStateType.Phase.EspressoPreheating ||
-               phase === MachineStateType.Phase.Preinfusion ||
-               phase === MachineStateType.Phase.Pouring ||
-               phase === MachineStateType.Phase.Ending ||
-               phase === MachineStateType.Phase.Steaming ||
-               phase === MachineStateType.Phase.HotWater ||
-               phase === MachineStateType.Phase.Flushing ||
-               phase === MachineStateType.Phase.Descaling ||
-               phase === MachineStateType.Phase.Cleaning ||
-               phase === MachineStateType.Phase.Transport
+        return phase === MachineState.Phase.EspressoPreheating ||
+               phase === MachineState.Phase.Preinfusion ||
+               phase === MachineState.Phase.Pouring ||
+               phase === MachineState.Phase.Ending ||
+               phase === MachineState.Phase.Steaming ||
+               phase === MachineState.Phase.HotWater ||
+               phase === MachineState.Phase.Flushing ||
+               phase === MachineState.Phase.Descaling ||
+               phase === MachineState.Phase.Cleaning ||
+               phase === MachineState.Phase.Transport
     }
 
     // Sleep countdown timer - ticks every minute
@@ -595,13 +595,13 @@ ApplicationWindow {
         target: MachineState
         property real steamElapsedTracker: 0
         function onShotTimeChanged() {
-            if (MachineState.phase === MachineStateType.Phase.Steaming)
+            if (MachineState.phase === MachineState.Phase.Steaming)
                 steamElapsedTracker = MachineState.shotTime
         }
         function onPhaseChanged() {
             // A steam session just ended (tracker > 0 means we were steaming, so this
             // doesn't fire on steam-prep phase changes that haven't started steaming).
-            if (MachineState.phase !== MachineStateType.Phase.Steaming && steamElapsedTracker > 0) {
+            if (MachineState.phase !== MachineState.Phase.Steaming && steamElapsedTracker > 0) {
                 // Commit the (milk, time) pair only for a real session with measured
                 // milk; either way clear the latches so nothing leaks to the next one.
                 if (steamElapsedTracker >= 1 && root.sessionMeasuredMilkG > 0) {
@@ -795,7 +795,7 @@ ApplicationWindow {
                 break
             case "refill":
                 // Only show if machine is still in Refill phase
-                if (MachineState.phase === MachineStateType.Phase.Refill)
+                if (MachineState.phase === MachineState.Phase.Refill)
                     refillDialog.open()
                 else
                     showNextPendingPopup()  // Skip stale refill, show next
@@ -1911,7 +1911,7 @@ ApplicationWindow {
     Connections {
         target: MachineState
         function onPhaseChanged() {
-            if (MachineState.phase === MachineStateType.Phase.Refill) {
+            if (MachineState.phase === MachineState.Phase.Refill) {
                 if (screensaverActive) { queuePopup("refill"); return }
                 refillDialog.open()
             } else if (refillDialog.opened) {
@@ -2358,9 +2358,9 @@ ApplicationWindow {
         function onShotStarted() {
             // Track if this is an espresso operation (check current phase)
             var phase = MachineState.phase
-            root.wasEspressoOperation = (phase === MachineStateType.Phase.EspressoPreheating ||
-                                         phase === MachineStateType.Phase.Preinfusion ||
-                                         phase === MachineStateType.Phase.Pouring)
+            root.wasEspressoOperation = (phase === MachineState.Phase.EspressoPreheating ||
+                                         phase === MachineState.Phase.Preinfusion ||
+                                         phase === MachineState.Phase.Pouring)
             root.stopReason = ""
             root.stopOverlayVisible = false
             root.sawBypassedVisible = false
@@ -3303,7 +3303,7 @@ ApplicationWindow {
     }
 
     // Track previous phase to detect operation starts
-    property int previousPhase: MachineStateType.Phase.Disconnected
+    property int previousPhase: MachineState.Phase.Disconnected
 
     // Connection state handler - auto navigate based on machine state
     Connections {
@@ -3312,14 +3312,14 @@ ApplicationWindow {
         function onPhaseChanged() {
             let phase = MachineState.phase
             let currentPage = pageStack.currentItem ? pageStack.currentItem.objectName : ""
-            let wasIdle = (root.previousPhase === MachineStateType.Phase.Idle ||
-                          root.previousPhase === MachineStateType.Phase.Ready ||
-                          root.previousPhase === MachineStateType.Phase.Heating)
+            let wasIdle = (root.previousPhase === MachineState.Phase.Idle ||
+                          root.previousPhase === MachineState.Phase.Ready ||
+                          root.previousPhase === MachineState.Phase.Heating)
 
             // Suppress Sleep reactions until DE1 has been awake at least once.
             // On connect, MachineState sees default Sleep state before real state arrives.
             // Reset on disconnect so reconnections are also protected.
-            if (phase === MachineStateType.Phase.Disconnected) {
+            if (phase === MachineState.Phase.Disconnected) {
                 root.startupGracePeriod = true
                 // If we're on an operation page, navigate to idle (#575)
                 if (currentPage === "espressoPage" || currentPage === "steamPage" || currentPage === "hotWaterPage" || currentPage === "flushPage" || currentPage === "descalingPage" || currentPage === "transportPage") {
@@ -3335,13 +3335,13 @@ ApplicationWindow {
                 // don't navigate away from whatever page the user is on now.
                 if (pendingDisconnectNavigation) pendingDisconnectNavigation = false
                 if (root.startupGracePeriod &&
-                       phase !== MachineStateType.Phase.Sleep) {
+                       phase !== MachineState.Phase.Sleep) {
                     root.startupGracePeriod = false
                 }
             }
 
             // Apply settings when entering operations (to handle GHC-initiated starts)
-            if (phase === MachineStateType.Phase.Steaming && wasIdle) {
+            if (phase === MachineState.Phase.Steaming && wasIdle) {
                 // Note: the DE1Device.onStateChanged handler above already called
                 // startSteamHeating when state reached Steam, which must happen before
                 // phase can reach Steaming — so we don't re-call it here. The dedup
@@ -3349,17 +3349,17 @@ ApplicationWindow {
                 // showed it firing on every steam session for no benefit.
                 // Stop any pending auto-flush timer when starting new steam
                 steamAutoFlushTimer.stop()
-            } else if (phase === MachineStateType.Phase.HotWater && wasIdle) {
+            } else if (phase === MachineState.Phase.HotWater && wasIdle) {
                 MainController.applyHotWaterSettings()
                 console.log("Applied hot water settings on phase change")
-            } else if (phase === MachineStateType.Phase.Flushing && wasIdle) {
+            } else if (phase === MachineState.Phase.Flushing && wasIdle) {
                 MainController.applyFlushSettings()
                 console.log("Applied flush settings on phase change")
             }
 
             // Check if steaming just ended
-            let wasSteamingBefore = (root.previousPhase === MachineStateType.Phase.Steaming)
-            if (wasSteamingBefore && (phase === MachineStateType.Phase.Idle || phase === MachineStateType.Phase.Ready)) {
+            let wasSteamingBefore = (root.previousPhase === MachineState.Phase.Steaming)
+            if (wasSteamingBefore && (phase === MachineState.Phase.Idle || phase === MachineState.Phase.Ready)) {
                 // Turn off steam heater if keepSteamHeaterOn is false
                 if (!Settings.brew.keepSteamHeaterOn) {
                     console.log("Steaming ended, turning off steam heater (keepSteamHeaterOn=false)")
@@ -3375,12 +3375,12 @@ ApplicationWindow {
 
             // Cancel any pending completion overlay when a new operation starts
             // (e.g., second GHC flush within 3s of first flush ending)
-            if (phase === MachineStateType.Phase.Flushing ||
-                phase === MachineStateType.Phase.Steaming ||
-                phase === MachineStateType.Phase.HotWater ||
-                phase === MachineStateType.Phase.EspressoPreheating ||
-                phase === MachineStateType.Phase.Preinfusion ||
-                phase === MachineStateType.Phase.Pouring) {
+            if (phase === MachineState.Phase.Flushing ||
+                phase === MachineState.Phase.Steaming ||
+                phase === MachineState.Phase.HotWater ||
+                phase === MachineState.Phase.EspressoPreheating ||
+                phase === MachineState.Phase.Preinfusion ||
+                phase === MachineState.Phase.Pouring) {
                 if (completionPending) {
                     console.log("Cancelling pending completion - new operation started (phase=" + phase + ")")
                     completionPending = false
@@ -3391,12 +3391,12 @@ ApplicationWindow {
 
             // Clear scale dialog deferral when machine reaches Ready or an active phase
             if (root.scaleDialogDeferred) {
-                if (phase === MachineStateType.Phase.Idle ||
-                    phase === MachineStateType.Phase.Ready ||
-                    phase === MachineStateType.Phase.EspressoPreheating ||
-                    phase === MachineStateType.Phase.Steaming ||
-                    phase === MachineStateType.Phase.HotWater ||
-                    phase === MachineStateType.Phase.Flushing) {
+                if (phase === MachineState.Phase.Idle ||
+                    phase === MachineState.Phase.Ready ||
+                    phase === MachineState.Phase.EspressoPreheating ||
+                    phase === MachineState.Phase.Steaming ||
+                    phase === MachineState.Phase.HotWater ||
+                    phase === MachineState.Phase.Flushing) {
                     root.scaleDialogDeferred = false
                     // If a real physical scale connected during warmup, discard queued scale popups
                     // (FlowScale is always "connected" so don't let it suppress dialogs)
@@ -3405,46 +3405,46 @@ ApplicationWindow {
                     } else if (Settings.primaryScaleAddress !== "") {
                         showNextPendingPopup()  // Show deferred dialog now
                     }
-                } else if (phase === MachineStateType.Phase.Sleep) {
+                } else if (phase === MachineState.Phase.Sleep) {
                     root.scaleDialogDeferred = false
                 }
             }
 
             // Navigate to active operation pages (skip during page transition)
-            if (phase === MachineStateType.Phase.EspressoPreheating ||
-                phase === MachineStateType.Phase.Preinfusion ||
-                phase === MachineStateType.Phase.Pouring ||
-                phase === MachineStateType.Phase.Ending) {
+            if (phase === MachineState.Phase.EspressoPreheating ||
+                phase === MachineState.Phase.Preinfusion ||
+                phase === MachineState.Phase.Pouring ||
+                phase === MachineState.Phase.Ending) {
                 if (currentPage !== "espressoPage" && !pageStack.busy) {
                     pageStack.replace(null, espressoPage)
                 }
-            } else if (phase === MachineStateType.Phase.Steaming) {
+            } else if (phase === MachineState.Phase.Steaming) {
                 if (currentPage !== "steamPage" && !pageStack.busy) {
                     saveReturnToPage(currentPage)
                     pageStack.replace(null, steamPage)
                 }
-            } else if (phase === MachineStateType.Phase.HotWater) {
+            } else if (phase === MachineState.Phase.HotWater) {
                 if (currentPage !== "hotWaterPage" && !pageStack.busy) {
                     saveReturnToPage(currentPage)
                     pageStack.replace(null, hotWaterPage)
                 }
-            } else if (phase === MachineStateType.Phase.Flushing) {
+            } else if (phase === MachineState.Phase.Flushing) {
                 if (currentPage !== "flushPage" && !pageStack.busy) {
                     saveReturnToPage(currentPage)
                     pageStack.replace(null, flushPage)
                 }
-            } else if (phase === MachineStateType.Phase.Descaling) {
+            } else if (phase === MachineState.Phase.Descaling) {
                 if (currentPage !== "descalingPage" && !pageStack.busy) {
                     pageStack.replace(null, descalingPage)
                 }
-            } else if (phase === MachineStateType.Phase.Transport) {
+            } else if (phase === MachineState.Phase.Transport) {
                 if (currentPage !== "transportPage" && !pageStack.busy) {
                     pageStack.replace(null, transportPage)
                 }
-            } else if (phase === MachineStateType.Phase.Cleaning) {
+            } else if (phase === MachineState.Phase.Cleaning) {
                 // For now, cleaning uses the built-in machine routine
                 // Could navigate to a cleaning page in the future
-            } else if (phase === MachineStateType.Phase.Sleep) {
+            } else if (phase === MachineState.Phase.Sleep) {
                 // Machine was put to sleep (e.g. via GHC stop button hold) - show screensaver
                 // Skip if machine has never been awake since connecting (initial connect reports
                 // Sleep before the wake command takes effect)
@@ -3453,7 +3453,7 @@ ApplicationWindow {
                     // Scale LCD disable is handled by C++ phaseChanged handler in main.cpp
                     goToScreensaver()
                 }
-            } else if (phase === MachineStateType.Phase.Idle || phase === MachineStateType.Phase.Ready) {
+            } else if (phase === MachineState.Phase.Idle || phase === MachineState.Phase.Ready) {
                 // DE1 went to idle - if we're on an operation page, show completion.
                 // Don't check pageStack.busy: completion must be handled, except when
                 // the user explicitly exited a flush (userExitedFlush below).
@@ -4407,49 +4407,49 @@ ApplicationWindow {
             var announcement = ""
 
             switch (phase) {
-                case MachineStateType.Phase.Disconnected:
+                case MachineState.Phase.Disconnected:
                     announcement = trAnnounceDisconnected.text
                     break
-                case MachineStateType.Phase.Sleep:
+                case MachineState.Phase.Sleep:
                     announcement = trAnnounceSleeping.text
                     break
-                case MachineStateType.Phase.Idle:
+                case MachineState.Phase.Idle:
                     announcement = trAnnounceIdle.text
                     break
-                case MachineStateType.Phase.Heating:
+                case MachineState.Phase.Heating:
                     announcement = trAnnounceHeating.text
                     break
-                case MachineStateType.Phase.Ready:
+                case MachineState.Phase.Ready:
                     announcement = trAnnounceReady.text
                     break
-                case MachineStateType.Phase.EspressoPreheating:
+                case MachineState.Phase.EspressoPreheating:
                     announcement = trAnnouncePreheating.text
                     break
-                case MachineStateType.Phase.Preinfusion:
+                case MachineState.Phase.Preinfusion:
                     announcement = trAnnouncePreinfusion.text
                     break
-                case MachineStateType.Phase.Pouring:
+                case MachineState.Phase.Pouring:
                     announcement = trAnnouncePouring.text
                     break
-                case MachineStateType.Phase.Ending:
+                case MachineState.Phase.Ending:
                     announcement = trAnnounceShotComplete.text
                     break
-                case MachineStateType.Phase.Steaming:
+                case MachineState.Phase.Steaming:
                     announcement = trAnnounceSteaming.text
                     break
-                case MachineStateType.Phase.HotWater:
+                case MachineState.Phase.HotWater:
                     announcement = trAnnounceHotWater.text
                     break
-                case MachineStateType.Phase.Flushing:
+                case MachineState.Phase.Flushing:
                     announcement = trAnnounceFlushing.text
                     break
-                case MachineStateType.Phase.Descaling:
+                case MachineState.Phase.Descaling:
                     announcement = trAnnounceDescaling.text
                     break
-                case MachineStateType.Phase.Cleaning:
+                case MachineState.Phase.Cleaning:
                     announcement = trAnnounceCleaning.text
                     break
-                case MachineStateType.Phase.Transport:
+                case MachineState.Phase.Transport:
                     announcement = trAnnounceTransport.text
                     break
             }

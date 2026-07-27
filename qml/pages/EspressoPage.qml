@@ -144,13 +144,13 @@ Page {
     // Get phase announcement text
     function getPhaseAnnouncement(phase) {
         switch (phase) {
-            case MachineStateType.Phase.EspressoPreheating:
+            case MachineState.Phase.EspressoPreheating:
                 return TranslationManager.translate("espresso.accessibility.preheating", "Preheating")
-            case MachineStateType.Phase.Preinfusion:
+            case MachineState.Phase.Preinfusion:
                 return TranslationManager.translate("espresso.accessibility.preinfusion", "Preinfusion started")
-            case MachineStateType.Phase.Pouring:
+            case MachineState.Phase.Pouring:
                 return TranslationManager.translate("espresso.accessibility.pouring", "Pouring")
-            case MachineStateType.Phase.Ending:
+            case MachineState.Phase.Ending:
                 return TranslationManager.translate("espresso.accessibility.ending", "Extraction ending")
             default:
                 return ""
@@ -242,8 +242,8 @@ Page {
                  AccessibilityManager.extractionAnnouncementsEnabled &&
                  (AccessibilityManager.extractionAnnouncementMode === "timed" ||
                   AccessibilityManager.extractionAnnouncementMode === "both") &&
-                 (MachineState.phase === MachineStateType.Phase.Preinfusion ||
-                  MachineState.phase === MachineStateType.Phase.Pouring)
+                 (MachineState.phase === MachineState.Phase.Preinfusion ||
+                  MachineState.phase === MachineState.Phase.Pouring)
         onTriggered: {
             var time = MachineState.shotTime.toFixed(0)
             var weight = espressoPage.currentWeight.toFixed(1)
@@ -464,19 +464,19 @@ Page {
         radius: Theme.scaled(18)
         color: {
             switch (MachineState.phase) {
-                case MachineStateType.Phase.EspressoPreheating: return Theme.accentColor
-                case MachineStateType.Phase.Preinfusion: return Theme.pressureColor
-                case MachineStateType.Phase.Pouring: return Theme.flowColor
-                case MachineStateType.Phase.Ending: return Theme.successColor
+                case MachineState.Phase.EspressoPreheating: return Theme.accentColor
+                case MachineState.Phase.Preinfusion: return Theme.pressureColor
+                case MachineState.Phase.Pouring: return Theme.flowColor
+                case MachineState.Phase.Ending: return Theme.successColor
                 default: return "transparent"
             }
         }
         opacity: 0.85
         visible: espressoPage.showPhaseIndicator &&
-                 (MachineState.phase === MachineStateType.Phase.EspressoPreheating ||
-                  MachineState.phase === MachineStateType.Phase.Preinfusion ||
-                  MachineState.phase === MachineStateType.Phase.Pouring ||
-                  MachineState.phase === MachineStateType.Phase.Ending)
+                 (MachineState.phase === MachineState.Phase.EspressoPreheating ||
+                  MachineState.phase === MachineState.Phase.Preinfusion ||
+                  MachineState.phase === MachineState.Phase.Pouring ||
+                  MachineState.phase === MachineState.Phase.Ending)
 
         Accessible.role: Accessible.Alert
         Accessible.name: phaseLabelText.text
@@ -496,8 +496,8 @@ Page {
                 anchors.verticalCenter: parent.verticalCenter
                 opacity: 1.0
 
-                property bool animating: MachineState.phase === MachineStateType.Phase.EspressoPreheating ||
-                                         MachineState.phase === MachineStateType.Phase.Pouring
+                property bool animating: MachineState.phase === MachineState.Phase.EspressoPreheating ||
+                                         MachineState.phase === MachineState.Phase.Pouring
 
                 onAnimatingChanged: {
                     if (!animating) phaseDot.opacity = 1.0
@@ -515,19 +515,19 @@ Page {
                 id: phaseLabelText
                 text: {
                     switch (MachineState.phase) {
-                        case MachineStateType.Phase.EspressoPreheating:
+                        case MachineState.Phase.EspressoPreheating:
                             return TranslationManager.translate("espresso.phase.preheating", "Preheating")
-                        case MachineStateType.Phase.Preinfusion:
-                        case MachineStateType.Phase.Pouring:
-                        case MachineStateType.Phase.Ending:
+                        case MachineState.Phase.Preinfusion:
+                        case MachineState.Phase.Pouring:
+                        case MachineState.Phase.Ending:
                             // Show frame name if available (advanced/flow profiles),
                             // fall back to generic phase name
                             var frameName = espressoPage.displayedFrameName
                             if (frameName)
                                 return frameName
-                            if (MachineState.phase === MachineStateType.Phase.Preinfusion)
+                            if (MachineState.phase === MachineState.Phase.Preinfusion)
                                 return TranslationManager.translate("espresso.phase.preinfusion", "Pre-infusion")
-                            if (MachineState.phase === MachineStateType.Phase.Pouring)
+                            if (MachineState.phase === MachineState.Phase.Pouring)
                                 return TranslationManager.translate("espresso.phase.pouring", "Pouring")
                             return TranslationManager.translate("espresso.phase.ending", "Ending")
                         default: return ""
@@ -1003,8 +1003,8 @@ Page {
                 text: TranslationManager.translate("espresso.button.add10", "+10 g")
                 accessibleName: TranslationManager.translate("espresso.accessible.add10", "Add 10 grams to weight target")
                 visible: MachineState.targetWeight > 0 &&
-                         (MachineState.phase === MachineStateType.Phase.Preinfusion ||
-                          MachineState.phase === MachineStateType.Phase.Pouring)
+                         (MachineState.phase === MachineState.Phase.Preinfusion ||
+                          MachineState.phase === MachineState.Phase.Pouring)
 
                 activeFocusOnTab: true
                 KeyNavigation.tab: skipFrameButton
@@ -1039,8 +1039,8 @@ Page {
                 rightPadding: 0
                 text: TranslationManager.translate("espresso.button.skip", "Skip")
                 accessibleName: TranslationManager.translate("espresso.accessible.skipFrame", "Skip to next frame")
-                visible: MachineState.phase === MachineStateType.Phase.Preinfusion ||
-                         MachineState.phase === MachineStateType.Phase.Pouring
+                visible: MachineState.phase === MachineState.Phase.Preinfusion ||
+                         MachineState.phase === MachineState.Phase.Pouring
 
                 activeFocusOnTab: true
                 KeyNavigation.tab: viewModeMouseArea
