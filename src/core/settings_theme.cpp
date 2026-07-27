@@ -79,6 +79,13 @@ void SettingsTheme::setBackgroundImagePath(const QString& path) {
     } else if (storedBackgroundSource() == kBackgroundSourceImage) {
         // Clearing the path the stored source NAMES. Without this the key kept pointing at
         // an image that is gone — see the note in setBackgroundPreset.
+        //
+        // Reading the key is what makes this safe, and it depends on the ORDER above: every
+        // caller that switches source stores the new kind BEFORE clearing the old
+        // parameter, so by the time a nested clear reaches here the key already says
+        // "colour" or "shot" and this branch declines. Move the store after the clear and
+        // this silently releases a source that was just selected — clearingOneSourceDoes
+        // NotDisturbAnother is the test that would catch it.
         storeBackgroundSource(QString::fromLatin1(kBackgroundSourceNone));
     }
     notifyBackgroundSourceChanged(before);
@@ -141,6 +148,10 @@ void SettingsTheme::setBackgroundPreset(const QString& id) {
         // This is the write path recording the user's own action, not the read path
         // rewriting stored data — backgroundSource() still derives and still rewrites
         // nothing, which is what keeps an install predating the key working.
+        //
+        // Same ordering dependency as the branch in setBackgroundImagePath: this is safe
+        // only because a caller switching source stores the new kind before clearing the
+        // old parameter, so a nested clear finds a key that no longer names it.
         storeBackgroundSource(QString::fromLatin1(kBackgroundSourceNone));
     }
     notifyBackgroundSourceChanged(before);

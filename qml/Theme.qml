@@ -545,23 +545,25 @@ QtObject {
     // BackgroundSurface paints a flat colour — and scrimming chrome over a flat colour is
     // the exact elevation-cancelling failure chromeFill()'s own comment documents.
     //
-    // That fact is PUSHED in by LastShotChartSource rather than read from it. Everything
-    // else this file reads — Settings, TemperatureDisplay, EmojiAssets — is a context
-    // property, visible everywhere without an import; LastShotChartSource is a QML singleton
-    // in qml/components/, and a file in qml/ cannot see a type from another directory. This
-    // condition used to reference it directly, which compiled clean and threw
-    // "ReferenceError: LastShotChartSource is not defined" on every evaluation, pinning
-    // hasBackgroundImage to false for the whole shot case: the chart drew, and all ~70 call
-    // sites below painted chrome opaque over it — the exact inverse of the intent.
+    // Set by main.qml from the background of the page on TOP of the stack — see the note
+    // there. Not read from LastShotChartSource: that singleton lives in qml/components/ and
+    // a file in qml/ cannot see a type from another directory, so referencing it here
+    // compiled clean and threw "ReferenceError: LastShotChartSource is not defined" on
+    // every evaluation, pinning hasBackgroundImage false for the whole shot case. Theme is
+    // also the lowest-level singleton in the app and deliberately depends on nothing but
+    // context properties; importing the module here to reach one component would trade a
+    // runtime error for a dependency cycle waiting to happen.
     //
-    // Keep it a push. Theme is the lowest-level singleton in the app and deliberately
-    // depends on nothing but context properties; importing the module here to reach one
-    // component would trade a runtime error for a dependency cycle waiting to happen.
-    property bool shotChartRendered: false
+    // Per-PAGE, unlike the image below, because the chart is the one background a page can
+    // refuse: ThemedPageBackground.suppressShotChart turns it off wherever the page draws a
+    // graph of its own, and those pages then paint a flat colour. A global "a render
+    // exists" answer would claim a picture is behind the chrome there too — which is the
+    // elevation-cancelling failure chromeFill() documents below, and which collapses
+    // insetBackgroundColor onto backgroundColor so the control disappears entirely.
+    property bool shotChartOnCurrentPage: false
 
     readonly property bool hasBackgroundImage: Settings.theme.backgroundSource === "image"
-                                               || (Settings.theme.backgroundSource === "shot"
-                                                   && shotChartRendered)
+                                               || shotChartOnCurrentPage
 
     // The fill a piece of chrome should actually paint.
     //
