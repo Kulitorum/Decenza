@@ -3416,7 +3416,11 @@ int main(int argc, char *argv[])
     context->setContextProperty("BLEManager", &bleManager);
     context->setContextProperty("DE1Device", &de1Device);
     context->setContextProperty("ScaleDevice", &flowScale);  // FlowScale initially, updated when physical scale connects
-    context->setContextProperty("FlowScale", &flowScale);  // Always available for diagnostics
+    // No "FlowScale" property. It was published "always available for diagnostics" and no QML
+    // ever read it — the only occurrences of the name in qml/ are three comments in main.qml
+    // about the FlowScale *fallback*, which is a different thing. Publishing an unread name is
+    // not free: a context property is invisible to qmllint, so it cannot be told apart from a
+    // typo at the call sites that never came.
     MachineState::setQmlInstance(&machineState);
     context->setContextProperty("ShotDataModel", &shotDataModel);
     context->setContextProperty("SteamDataModel", &steamDataModel);
@@ -3463,11 +3467,10 @@ int main(int argc, char *argv[])
     context->setContextProperty("PreviousDebugLogTail", previousDebugLogTail);
     context->setContextProperty("AppVersion", VERSION_STRING);
     context->setContextProperty("AppVersionCode", versionCode());
-#ifdef QT_DEBUG
-    context->setContextProperty("IsDebugBuild", true);
-#else
-    context->setContextProperty("IsDebugBuild", false);
-#endif
+    // No "IsDebugBuild" property. It was published from a #ifdef QT_DEBUG / #else pair and read
+    // by no QML file. If a debug-only affordance is wanted later, add it back as a property on a
+    // registered singleton so qmllint can see it — not as a context property, which is exactly
+    // the shape that let this one sit unused without anything noticing.
 
 #if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
     // Make GHCSimulator available to main window for window sync
@@ -3699,7 +3702,8 @@ int main(int argc, char *argv[])
         auto& ghcEngine = *ghcEnginePtr;
         ghcEngine.rootContext()->setContextProperty("GHCSimulator", &ghcSimulator);
         ghcEngine.rootContext()->setContextProperty("DE1Device", &de1Device);
-        ghcEngine.rootContext()->setContextProperty("DE1Simulator", &de1Simulator);
+        // No "DE1Simulator" property. GHCSimulatorWindow.qml is the only file this engine loads
+        // and it never reads that name; nothing else in qml/ does either.
         // No Settings line here. Settings is a QML_FOREIGN + QML_SINGLETON (settings_qml.h) and
         // GHCSimulatorWindow.qml imports Decenza, so it resolves on this engine already. A
         // context property of the same name would SHADOW the singleton and be invisible to
