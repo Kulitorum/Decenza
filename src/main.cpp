@@ -1189,19 +1189,23 @@ int main(int argc, char *argv[])
     // Publishes machine phase/temp/last-shot to platform-shared storage for
     // the iOS/Android Home Screen widget. Reads existing accessors only.
     MachineStatusSnapshot machineStatusSnapshot(&de1Device, &machineState);
-    // shotSaved(shotId>0) fires once a shot is persisted: post SAW-settling
-    // (finalized), espresso only (steam never saves a shot), and
-    // unconditionally — unlike shotEndedShowMetadata it does not depend on
-    // the post-shot-review setting. shotId<=0 is the save-failure path.
-    QObject::connect(mainController.shotHistory(),
-                     &ShotHistoryStorage::shotSaved,
+    // shotPersisted fires once a shot is stored: post SAW-settling (finalized),
+    // espresso only (steam never saves a shot), and unconditionally — unlike
+    // shotEndedShowMetadata it does not depend on the post-shot-review setting.
+    // It only fires for a successful save, so there is no shotId<=0 case here.
+    //
+    // It carries the same yield and duration that went into the row, which is
+    // the whole point: this used to read shotDataModel.finalWeight() and
+    // .stopTime() instead, and stopTime is written ONLY by the stop-at-weight
+    // path (WeightProcessor::stopNow → markStopAt). Any other ending — manual
+    // stop, profile end, volume stop, or SAW blocked by an oscillating scale —
+    // left it at its -1 sentinel, WidgetLastShot::make() rejected it, and the
+    // widget's last-shot tile silently kept whatever it had last managed to
+    // accept. In one reporter's log that was every shot in the file (#1658).
+    QObject::connect(&mainController, &MainController::shotPersisted,
                      &machineStatusSnapshot,
-                     [&shotDataModel, &machineStatusSnapshot](qint64 shotId) {
-                         if (shotId <= 0)
-                             return;
-                         machineStatusSnapshot.setLastShot(
-                             shotDataModel.finalWeight(),
-                             shotDataModel.stopTime());
+                     [&machineStatusSnapshot](qint64, double yieldG, double durationSec) {
+                         machineStatusSnapshot.setLastShot(yieldG, durationSec);
                      });
 
     // Create and wire ShotTimingController (centralized timing and weight handling)

@@ -16,10 +16,25 @@
 // numbers as strings). Public — the ProfileManager catalog scan shares it.
 double profileJsonToDouble(const QJsonValue& val, double defaultVal) {
     if (val.isString()) {
+        const QString s = val.toString();
         bool ok;
-        double d = val.toString().toDouble(&ok);
-        if (!ok) {
-            qWarning() << "profileJsonToDouble: failed to parse string" << val.toString() << "- using default" << defaultVal;
+        double d = s.toDouble(&ok);
+        if (!ok && !s.trimmed().isEmpty()) {
+            // An empty string is "this frame doesn't use the field", not bad
+            // data, and it is how de1app and the Visualizer write a setpoint
+            // that doesn't apply — a pressure frame's `flow`, say. Warning on it
+            // was warning about a normal profile: one reporter's log carried 128
+            // of these from a single library browse, all `"flow": ""`, which is
+            // 128 lines of the debug log the issue template collects spent
+            // saying nothing (#1658). The RESULT is unchanged either way — both
+            // return defaultVal — so this is purely about what the log claims is
+            // wrong.
+            //
+            // A non-empty string that won't parse ("abc", "9,5") still warns:
+            // that is real corruption, the default silently replaces a value the
+            // profile author meant, and it is worth seeing.
+            qWarning() << "profileJsonToDouble: failed to parse string" << s
+                       << "- using default" << defaultVal;
         }
         return ok ? d : defaultVal;
     }

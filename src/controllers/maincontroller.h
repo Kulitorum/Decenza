@@ -358,6 +358,18 @@ signals:
     void shotEndedShowMetadata(qint64 shotId);
     void lastSavedShotIdChanged();
 
+    // A shot has been persisted, carrying the SAME finalized yield and duration
+    // that went into the stored row. Consumers that summarize the last shot must
+    // use these rather than re-deriving from ShotDataModel: the model's stopTime
+    // is only written on the stop-at-weight path, so on any other ending (manual
+    // stop, profile end, volume) it keeps its -1 sentinel, and its raw
+    // cumulative weight is the unrounded pre-settling reading. Both are decided
+    // here in onShotEnded() — extractionDuration() excludes SAW settling, and
+    // the yield is the settled, 0.1 g-rounded value — so this signal is the only
+    // place the finalized pair is available together. Emitted only for a
+    // successful save (shotId > 0); a failed save has no row to describe. (#1658)
+    void shotPersisted(qint64 shotId, double yieldG, double durationSec);
+
     // Shot aborted because saved scale is not connected
     void shotAbortedNoScale();
 

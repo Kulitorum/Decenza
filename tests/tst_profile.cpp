@@ -108,6 +108,17 @@ private slots:
         QCOMPARE(profileJsonToDouble(QJsonValue(), 3.0), 3.0);
     }
 
+    // An empty string means "this frame doesn't use the field" — how de1app and
+    // the Visualizer write an inapplicable setpoint (a pressure frame's `flow`).
+    // It takes the default like any other unparseable string, but it must do so
+    // SILENTLY: warning on it flooded one reporter's debug log with 128 lines
+    // from a single library browse (#1658). init()'s failOnWarning is what
+    // enforces the silence here — an unexpected qWarning fails this test.
+    void profileJsonToDoubleEmptyStringIsQuiet() {
+        QCOMPARE(profileJsonToDouble(QJsonValue(QStringLiteral("")), 2.0), 2.0);
+        QCOMPARE(profileJsonToDouble(QJsonValue(QStringLiteral("   ")), 2.0), 2.0);
+    }
+
     void jsonRoundTripAdvanced() {
         QJsonObject obj = makeAdvancedProfileJson();
         QJsonDocument doc(obj);
