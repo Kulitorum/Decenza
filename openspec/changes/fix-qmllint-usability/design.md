@@ -167,22 +167,34 @@ Two alternatives were tried or considered and rejected on evidence:
 
 **Measured cost (this machine, ASan+UBSan debug, warm ccache), touching one domain header:**
 
-| | TUs rebuilt | wall clock |
+| | ninja dirty set | wall clock |
 |---|---:|---:|
-| before (forward-declared, `QObject*`) | 310 | 25.8 s |
-| after (included, concrete types) | 439 | 60.2 s |
+| before (forward-declared, `QObject*`) | 310 | **25.8 s** |
+| after (included, concrete types) | 439 | **60.2 s** |
 
-Full build for reference: 122 s. So the marginal cost is **+129 TUs and +34 s** on a domain-header
-edit — smaller than "12 headers into 86 TUs" suggests, because 310 TUs already rebuilt on that
-edit and 49 of the 86 already included at least one domain header. The domain *split* still does
-its job: implementations stay in their own `.cpp` files, and that recompile win is untouched by
-declaring the façade's property types honestly.
+Full build for reference: 122 s. **Read the wall clock, not the counts** — those are ninja's
+pre-`restat` dirty set, and the real build executed 297 edges, not 439, because `restat` prunes
+the chain wherever regenerated content is unchanged (see
+[`BUILD_PERFORMANCE.md`](../../../docs/CLAUDE_MD/BUILD_PERFORMANCE.md)). Splitting the dirty set
+by kind: 221 C++ TUs + 218 QML cache units after, against roughly 92 + 218 before. **The 218 QML
+units are in both**, so they are not part of this change's cost — a domain header carries
+`Q_OBJECT`, and per BUILD_PERFORMANCE.md any moc-metadata change invalidates `Decenza.qmltypes`
+and with it every QML unit. The marginal cost of this decision is the **+129 C++ TUs**, ~34 s.
 
-**Open, and deliberately not blocking this change:** that 60 s is worth reducing, but only by
-restructuring, never by re-erasing the types. The obvious candidates are trimming what the domain
-headers themselves pull in, and splitting the god-header dependencies that put 310 TUs in the
-closure *before* this change — that number is the real finding here, and it says the recompile
-blast was already large and the `QObject*` trick was buying less than it appeared to.
+Two consequences worth stating, both from that doc:
+
+- 49 of the 86 `settings.h` includers already pulled in a domain header, so the blast was already
+  large. The `QObject*` trick was buying less than the rule implied.
+- BUILD_PERFORMANCE.md's lever 2 — move non-QML-facing C++ out of the QML module target — notes
+  the trade is free only for classes qmlcachegen cannot see, naming the `setContextProperty`
+  objects. This change moves those objects the *other* way, into the registry, deliberately:
+  that is what buys the linting and the AOT resolution. So it slightly widens the rebuild
+  trigger, in exchange for the type information being available at all. The two are not in
+  conflict; lever 2 applies to C++ that QML never touches, which these are not.
+
+**Open, and deliberately not blocking this change:** the 60 s is worth reducing, but only by
+restructuring, never by re-erasing the types. Candidates are trimming what the domain headers
+themselves pull in, and making more consumers narrow (`Settings<Domain>*` rather than `Settings*`).
 
 ### D3: `ScaleDevice` and `Refractometer` are deferred, not solved
 
