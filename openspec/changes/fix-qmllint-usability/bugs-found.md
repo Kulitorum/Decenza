@@ -350,3 +350,49 @@ Do not treat these as fixed or as false positives — nobody has looked.
   `CustomItem.qml` (11 sites) and `SteamItem.qml:124`. Left alone deliberately — `CustomItem.qml`
   is the file a released qmllint cannot analyse (see 1.11), so no static tool will flag them and
   the edit would be unverifiable here. Worth a sweep once the patched qmllint is the CI default.
+
+## missing-property triage (326 findings)
+
+Six causes, not 326 problems. One real bug, ~216 structural false positives, 32 unexplained.
+
+**REAL, fixed:** `Theme.dangerColor` at four sites in `SettingsDebugTab.qml`. No such property —
+Theme declares `errorColor` — so both result dialogs rendered their error state with an undefined
+border and text colour, i.e. an error looked like a success. Same shape as #1661.
+
+**Structural false positives — the code is correct and works:**
+- **88 × `Qt.inputMethod.commit/hide/show`**, reported as members missing on `QObject`. qmllint
+  types the `Qt` global's `inputMethod` loosely. `CLAUDE.md` *mandates* `Qt.inputMethod.commit()`
+  before reading a `TextField.text`, so these are the documented idiom being flagged.
+- **104 × `pageStack.currentItem.<pageProperty>`**. `StackView.currentItem` is typed `QQuickItem`,
+  so every page-specific property is "missing". Many sites already guard with
+  `typeof x !== "undefined"` — the code is deliberately duck-typed and the warning cannot know it.
+- **24 × root-window members** (`goToScreensaver`, `openBrewSettings`, `sessionMeasuredMilkG`, …)
+  reached through a reference typed `QQuickWindow`. They are declared on `main.qml`'s root.
+
+Silencing these three needs either per-line suppressions — which rebuilds the hiding problem this
+work exists to end — or typing the page/window interface properly. That is a real refactor and
+should be decided deliberately, not smuggled in.
+
+**32 UNEXPLAINED — do not exempt these until someone understands them.**
+`DrinkType` (21) and `SettingsTabs` (11) report members missing that demonstrably exist
+(`DrinkType.qml` declares `shortLabel`, `longLabel`, `icon`, `icons`, `fromRecipeMap`; every
+flagged `SettingsTabs` member is declared too). What was established, by experiment:
+
+- **It is per-singleton, not per-caller.** In `RecipesPage.qml`, one invocation: all 94 `Theme.x`
+  accesses resolve, and the 2 `DrinkType.` accesses produce 3 findings. `Theme` is declared
+  identically — `pragma Singleton`, `import QtQuick`, `import Decenza`, `QtObject { … }`.
+- **Not directory-relative.** Files in `qml/components/` — the same directory as `DrinkType.qml` —
+  are flagged exactly like files in `qml/pages/`.
+- **Not the member kind.** Functions fail, and so does `SettingsTabs.tabLabels`, a
+  `readonly property var`.
+- **Not missing type annotations.** Giving `shortLabel` an explicit `(t: string) : string`
+  signature changed nothing.
+- **A file OUTSIDE the module resolves them fine.** A scratch `.qml` importing Decenza and calling
+  `DrinkType.shortLabel(0)` and `SettingsTabs.visibleTabs()` lints clean, with `-I` and with the
+  generated `.rsp` alike. Only files that are themselves part of the module fail — yet `Theme`,
+  also part of it, resolves from those same files.
+
+That last pair is contradictory on any simple theory, which is why no root cause is claimed here.
+Next step is to reproduce against a newer qtdeclarative and, if it persists, report upstream.
+Treat as suspected tool defect; the runtime behaviour is correct (recipe cards render their drink
+labels).
