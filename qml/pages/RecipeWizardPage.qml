@@ -1106,13 +1106,26 @@ Page {
         fPitcherTemperatureC = preset.temperature || 0
     }
 
-    // The steam window's tile model: the enabled pitcher presets.
+    // The steam window's tile model: the enabled pitcher presets, plus the
+    // recipe's OWN pitcher when its preset has since been disabled, renamed or
+    // deleted — same rule as vesselTileModel() and equipmentTileModel(). The
+    // recipe carries a by-value snapshot, so the pitcher it names still exists
+    // as far as the recipe is concerned; only the preset list forgot it.
     function pitcherTileModel() {
         var arr = []
         var presets = Settings.brew.steamPitcherPresets
-        for (var i = 0; i < presets.length; ++i)
-            if (!presets[i].disabled)
-                arr.push(presets[i])
+        var found = false
+        for (var i = 0; i < presets.length; ++i) {
+            if (presets[i].disabled)
+                continue
+            arr.push(presets[i])
+            if ((presets[i].name || "") === fPitcherName)
+                found = true
+        }
+        if (!found && fPitcherName !== "") {
+            arr.push({ name: fPitcherName, duration: fPitcherDurationSec,
+                       flow: fPitcherFlow, temperature: fPitcherTemperatureC })
+        }
         return arr
     }
 
@@ -1127,27 +1140,76 @@ Page {
     }
 
     // Snapshot the chosen water vessel preset onto the recipe BY VALUE (never a
-    // preset index). Shared by the hot-water window's tiles.
+    // preset index): presets can be renamed, reordered or deleted after the
+    // recipe is saved, and an index would then silently point at someone else's
+    // vessel. Called by the hot-water window's tiles.
     function selectVessel(preset) {
         fVesselName = preset.name || ""
         fVesselVolume = preset.volume || 0
         fVesselMode = preset.mode || "weight"
-        fVesselFlowRate = preset.flowRate || 40
+        // `!== undefined`, not `|| 40`: a preset really set to 0 must survive
+        // rather than being silently rewritten to the default (the same idiom
+        // HotWaterPage uses when reading these presets).
+        fVesselFlowRate = preset.flowRate !== undefined ? preset.flowRate : 40
         fVesselTemperatureC = preset.temperature || 0
     }
 
-    // Tile artwork for a water vessel, chosen by how much it holds: a cup for
-    // an espresso-sized pour, a mug for a normal one, a tall glass above that.
-    // The thresholds are deliberately coarse — this is a glance-level cue, and
-    // the name and amount underneath carry the actual information.
-    function vesselTileIcon(preset) {
-        var v = preset.volume || 0
-        if (v > 0 && v <= 120) return "qrc:/icons/cup.svg"
-        if (v > 320) return "qrc:/icons/glass-full.svg"
-        return "qrc:/icons/mug.svg"
+    // Set the water order, keeping the drink TYPE honest with it. Americano and
+    // long black are the same drink with the water on the other side of the
+    // shot, and the order tiles say so in their own labels — so flipping the
+    // order has to flip the type, or the recipe saves as "Americano" while
+    // DrinkType.fromRecipe() reads its blocks and calls it a long black. Any
+    // other type (a tea, a milk drink that also takes water) keeps its type.
+    function setWaterOrder(order) {
+        fWaterOrder = order
+        if (fDrinkType === "americano" || fDrinkType === "long_black")
+            fDrinkType = order === "before" ? "long_black" : "americano"
     }
 
-    // Compact "220ml · 96°C" metadata line for a water vessel preset tile.
+    // The hot-water window's tile model: the saved vessel presets, plus the
+    // recipe's OWN vessel when its preset has since been renamed or deleted.
+    // Without that last tile the window shows nothing selected and no trace of
+    // what the recipe actually holds — the same reason equipmentTileModel()
+    // keeps a retired package. The snapshot on the recipe stays authoritative
+    // either way; this only decides what the window can show.
+    function vesselTileModel() {
+        var presets = Settings.brew.waterVesselPresets
+        var arr = []
+        var found = false
+        for (var i = 0; i < presets.length; ++i) {
+            arr.push(presets[i])
+            if ((presets[i].name || "") === fVesselName)
+                found = true
+        }
+        if (!found && fVesselName !== "") {
+            arr.push({ name: fVesselName, volume: fVesselVolume, mode: fVesselMode,
+                       flowRate: fVesselFlowRate, temperature: fVesselTemperatureC })
+        }
+        return arr
+    }
+
+    // Tile artwork for a water vessel, banded by how much it holds. The bands
+    // are set around the presets the app SEEDS — "Cup" at 200 and "Mug" at 350
+    // (settings_brew.cpp) — so the artwork agrees with the name on a fresh
+    // install; an earlier split at 120/320 gave the shipped Cup a mug and the
+    // shipped Mug a glass, which is worse than no icon at all.
+    //
+    // Volume and weight presets are compared with one set of numbers because
+    // water is ~1 g/ml. A preset with no usable volume gets NO icon rather than
+    // the middle one: absent artwork reads as "unknown", whereas a mug on a
+    // 0-volume preset reads as a normal vessel and hides the problem.
+    function vesselTileIcon(preset) {
+        var v = preset.volume || 0
+        if (v <= 0) return ""
+        if (v <= 250) return "qrc:/icons/cup.svg"
+        if (v <= 400) return "qrc:/icons/mug.svg"
+        return "qrc:/icons/glass-full.svg"
+    }
+
+    // The tile's metadata line: the amount in the preset's OWN mode (ml or g)
+    // and the temperature, e.g. "200g · 96°C" — never name-only, because two
+    // vessels can share a name and the numbers are what tell them apart.
+    // Temperature renders in the user's unit via Theme.formatTemperature.
     function vesselTileMeta(preset) {
         var parts = []
         if ((preset.volume || 0) > 0)
@@ -2036,8 +2098,10 @@ Page {
         }
     }
 
-    // A tap-to-select tile used by the equipment and steam windows: title +
-    // optional metadata line, highlighted when selected, emits chosen() on tap.
+    // The wizard's tap-to-select tile, used by every picker window: optional
+    // leading icon + title + optional metadata line, highlighted when selected,
+    // emits chosen() on tap. Deliberately not enumerating the call sites here —
+    // that list has been wrong once already.
     component ChoiceTile: Rectangle {
         id: choiceTile
         property string title: ""
@@ -2067,34 +2131,43 @@ Page {
             ThemedIcon {
                 visible: choiceTile.iconSource !== ""
                 Layout.alignment: Qt.AlignVCenter
+                // A bare Item publishes no implicit minimum, so without these
+                // the layout is free to shrink the icon to nothing when a long
+                // title over-constrains the row — and since the Image inside
+                // draws at a fixed sourceSize and the tile does not clip, the
+                // artwork would keep drawing at full size over the title.
+                Layout.preferredWidth: iconSize
+                Layout.minimumWidth: iconSize
                 source: choiceTile.iconSource
                 iconSize: Theme.scaled(26)
-                // Tinted with the selection colour so the artwork tracks the
-                // tile's state instead of sitting at a fixed grey.
+                // Takes the selection colour when chosen; otherwise the same
+                // Theme.iconColor every other icon uses, which on its own gives
+                // no hint of the tile's state.
                 color: choiceTile.selected ? Theme.primaryColor : Theme.iconColor
+                Accessible.ignored: true
             }
             ColumnLayout {
-            Layout.fillWidth: true
-            spacing: Theme.scaled(2)
-            Label {
                 Layout.fillWidth: true
-                text: choiceTile.title
-                font: Theme.bodyFont
-                color: Theme.textColor
-                wrapMode: Text.WordWrap
-                maximumLineCount: 2
-                elide: Text.ElideRight
-                Accessible.ignored: true
-            }
-            Label {
-                visible: choiceTile.meta !== ""
-                Layout.fillWidth: true
-                text: choiceTile.meta
-                font: Theme.captionFont
-                color: Theme.textSecondaryColor
-                elide: Text.ElideRight
-                Accessible.ignored: true
-            }
+                spacing: Theme.scaled(2)
+                Label {
+                    Layout.fillWidth: true
+                    text: choiceTile.title
+                    font: Theme.bodyFont
+                    color: Theme.textColor
+                    wrapMode: Text.WordWrap
+                    maximumLineCount: 2
+                    elide: Text.ElideRight
+                    Accessible.ignored: true
+                }
+                Label {
+                    visible: choiceTile.meta !== ""
+                    Layout.fillWidth: true
+                    text: choiceTile.meta
+                    font: Theme.captionFont
+                    color: Theme.textSecondaryColor
+                    elide: Text.ElideRight
+                    Accessible.ignored: true
+                }
             }
         }
         AccessibleMouseArea {
@@ -3327,7 +3400,8 @@ Page {
                                         title: modelData.name || ""
                                         meta: wizardPage.pitcherTileMeta(modelData)
                                         iconSource: "qrc:/icons/pitcher.svg"
-                                        selected: (modelData.name || "") === wizardPage.fPitcherName
+                                        selected: wizardPage.fPitcherName !== ""
+                                            && (modelData.name || "") === wizardPage.fPitcherName
                                         onChosen: {
                                             wizardPage.selectPitcher(modelData)
                                             wizardPage.detailsContinue()
@@ -3345,13 +3419,19 @@ Page {
                             title: TranslationManager.translate("recipes.composer.sectionHotWater", "Hot water")
                             // Order BEFORE the vessel: the vessel tile is the
                             // terminal choice and moves on by itself, so the
-                            // order (a modifier, template-defaulted) has to be
-                            // settled first.
+                            // order — a modifier that arrives template-defaulted
+                            // — is offered first, while the user is still here.
+                            // Nothing forces that sequence; both orders are
+                            // valid whenever this block is shown.
                             ColumnLayout {
-                                // Latte + Water fixes the order (water before the
-                                // espresso) — no order choice is offered for it.
+                                // A drink carrying BOTH milk and water pours the
+                                // water first, so it gets no order choice. Gated
+                                // on the blocks rather than on fDrinkType: the
+                                // summary's "Add milk" button adds the milk block
+                                // without rewriting the type, so an americano can
+                                // reach this window with milk on it.
                                 visible: !wizardPage.isHotWaterTea
-                                    && wizardPage.fDrinkType !== "latte_hotwater"
+                                    && !(wizardPage.fHasMilk && wizardPage.fHasWater)
                                 Layout.fillWidth: true
                                 spacing: Theme.spacingSmall
                                 Label {
@@ -3366,12 +3446,12 @@ Page {
                                     ChoiceTile {
                                         title: TranslationManager.translate("recipes.composer.waterAfter", "After espresso (Americano)")
                                         selected: wizardPage.fWaterOrder !== "before"
-                                        onChosen: wizardPage.fWaterOrder = "after"
+                                        onChosen: wizardPage.setWaterOrder("after")
                                     }
                                     ChoiceTile {
                                         title: TranslationManager.translate("recipes.composer.waterBefore", "Before espresso (long black)")
                                         selected: wizardPage.fWaterOrder === "before"
-                                        onChosen: wizardPage.fWaterOrder = "before"
+                                        onChosen: wizardPage.setWaterOrder("before")
                                     }
                                 }
                             }
@@ -3383,6 +3463,8 @@ Page {
                                 font: Theme.captionFont
                                 color: Theme.textSecondaryColor
                                 wrapMode: Text.WordWrap
+                                Accessible.role: Accessible.StaticText
+                                Accessible.name: text
                             }
                             // The vessel presets as inline, tap-to-select tiles
                             // (like the pitchers on the steam window): the chosen
@@ -3391,12 +3473,17 @@ Page {
                                 Layout.fillWidth: true
                                 spacing: Theme.spacingMedium
                                 Repeater {
-                                    model: Settings.brew.waterVesselPresets
+                                    model: wizardPage.vesselTileModel()
                                     delegate: ChoiceTile {
                                         title: modelData.name || ""
                                         meta: wizardPage.vesselTileMeta(modelData)
                                         iconSource: wizardPage.vesselTileIcon(modelData)
-                                        selected: (modelData.name || "") === wizardPage.fVesselName
+                                        // The empty-name test matters: a preset
+                                        // saved with a blank name would otherwise
+                                        // match the wizard's own empty default and
+                                        // show as chosen before anything is tapped.
+                                        selected: wizardPage.fVesselName !== ""
+                                            && (modelData.name || "") === wizardPage.fVesselName
                                         onChosen: {
                                             wizardPage.selectVessel(modelData)
                                             wizardPage.detailsContinue()
