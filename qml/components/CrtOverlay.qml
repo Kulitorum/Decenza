@@ -1,4 +1,5 @@
 import QtQuick
+import Decenza
 
 // CRT screen-surface overlay: thin scanlines drawn on top of the ENTIRE screen
 // (including status bar, dialogs, etc.) for the authentic CRT look.

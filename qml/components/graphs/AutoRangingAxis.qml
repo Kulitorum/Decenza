@@ -17,6 +17,7 @@
 
 import QtQuick
 import QtGraphs
+import Decenza
 
 ValueAxis {
     id: root

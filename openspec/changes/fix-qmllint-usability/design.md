@@ -136,6 +136,54 @@ Note the last row: greedy single-name ranking stops at 102 because it can only s
 whose silent `ReferenceError` shipped in 2.0.1, which makes it the acceptance test for the whole
 change rather than an afterthought.
 
+### D2a: `Settings`' domain sub-objects carry their concrete types, and what that cost
+
+Registering `Settings` as a singleton is only half the job. Its twelve domain sub-objects were
+declared `Q_PROPERTY(QObject* mqtt ...)` so `settings.h` could forward-declare them instead of
+including their headers. Resolving `Settings` made the consequence visible: qmllint could reach
+`Settings` and then see nothing behind it, turning **1,079** accesses into `missing-property`
+warnings. Those were never new defects — they were newly-visible blindness, and the count going
+*up* on a "successful" migration is what forced this decision.
+
+**Chosen: include the twelve headers and declare the properties with concrete types.** The
+`QObject*` erasure costs four tools, not one — qmllint cannot check the property, `qmlcachegen`
+cannot resolve the binding ahead of time, the QML language server cannot complete or navigate
+it, and a reader of the header cannot tell what is behind `Settings.brew`. Against that, the
+saving was build time, which is paid by developers and absorbed by caching, while the defects it
+hides are paid by users. #1661 is what that looks like when it reaches a release.
+
+Two alternatives were tried or considered and rejected on evidence:
+
+- **`Q_DECLARE_OPAQUE_POINTER`** (Qt's own suggested escape hatch for an incomplete pointer type)
+  compiles, satisfies qmllint, and **breaks the app**: an opaque pointer is not known to derive
+  from `QObject`, so QML receives `QVariant(SettingsBrew*)` and every property and method under
+  `Settings.<domain>` fails at runtime. Caught by `tst_settings::qmlChainsThroughDomainSubObjects`,
+  which was written for this and now pins the behaviour permanently.
+- **A separate QML-facing façade** would keep both build times and coverage, at the price of a
+  second source of truth for 281 settings. This codebase already carries an explicit
+  "keep the two surfaces in sync" rule for the ShotServer because that drift recurs; trading a
+  linter gap for a permanent drift surface is the worse long-term deal. It is also the
+  irreversible option, where typing twelve properties is not.
+
+**Measured cost (this machine, ASan+UBSan debug, warm ccache), touching one domain header:**
+
+| | TUs rebuilt | wall clock |
+|---|---:|---:|
+| before (forward-declared, `QObject*`) | 310 | 25.8 s |
+| after (included, concrete types) | 439 | 60.2 s |
+
+Full build for reference: 122 s. So the marginal cost is **+129 TUs and +34 s** on a domain-header
+edit — smaller than "12 headers into 86 TUs" suggests, because 310 TUs already rebuilt on that
+edit and 49 of the 86 already included at least one domain header. The domain *split* still does
+its job: implementations stay in their own `.cpp` files, and that recompile win is untouched by
+declaring the façade's property types honestly.
+
+**Open, and deliberately not blocking this change:** that 60 s is worth reducing, but only by
+restructuring, never by re-erasing the types. The obvious candidates are trimming what the domain
+headers themselves pull in, and splitting the god-header dependencies that put 310 TUs in the
+closure *before* this change — that number is the real finding here, and it says the recompile
+blast was already large and the `QObject*` trick was buying less than it appeared to.
+
 ### D3: `ScaleDevice` and `Refractometer` are deferred, not solved
 
 These two are **re-pointed at runtime**: `setContextProperty("ScaleDevice", …)` appears 10 times

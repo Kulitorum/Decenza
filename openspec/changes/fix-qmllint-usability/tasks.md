@@ -158,7 +158,37 @@ evaluates — the same silent, delayed shape as the bug this change exists to pr
     `ReferenceError: TranslationManager is not defined`, every translated string `undefined`.
     Only 3.11 caught it. Do not skip 3.11 for any subsequent name.
 - [x] 3.2 Confirm a language change still re-evaluates bindings and `tests/tst_translationreactivity.cpp` is green — `translate` is a `Q_PROPERTY` holding a callable and its reactivity has broken before. Green (104/104, including that test); the `translate` `Q_PROPERTY` is untouched by the migration.
-- [ ] 3.3 `Settings` — 1,335 sites, unlocks 15 files (→ 79). Verify all 7 domain sub-objects still resolve as `Settings.<domain>.<prop>`
+- [x] 3.3 `Settings` — unlocked 16 files (40 → 56 clean), 12 domain sub-objects verified resolving
+  as `Settings.<domain>.<prop>` in a real engine and in the running app. Note the task said 7
+  domains; there are 12.
+  - **Registered via `QML_FOREIGN` in a new `src/core/settings_qml.h`**, not macros on the class:
+    `settings.h` is compiled by CLI tools that link no Qt::Qml (`saw_parity`), so a `<QtQml/…>`
+    include there is a build break.
+  - **The domain sub-objects had to be fixed too, and that was the real work.** They were declared
+    `Q_PROPERTY(QObject* mqtt …)` to avoid including twelve headers. Resolving `Settings` exposed
+    the cost: qmllint could reach `Settings` and see nothing behind it, so `missing-property`
+    went 318 → 1,249. Those were not new defects, they were newly-visible blindness over 1,310
+    call sites and 281 distinct settings — a typo like `Settings.brew.slectedFlushPreset` compiled,
+    linted clean and failed at runtime. Fixed properly: concrete types, twelve includes,
+    `missing-property` back to **317**. Full reasoning and the rejected alternatives are in
+    design D2a.
+  - **`Q_DECLARE_OPAQUE_POINTER` is a trap.** It is Qt's own suggested escape hatch for an
+    incomplete pointer type, it compiles, it satisfies qmllint — and it hands QML
+    `QVariant(SettingsBrew*)` instead of an object, so every property and method under
+    `Settings.<domain>` fails at runtime. Caught by the new
+    `tst_settings::qmlChainsThroughDomainSubObjects`, which now pins the behaviour.
+  - Build cost measured both ways rather than assumed — 439 TUs / 60 s on a domain-header edit
+    against 310 / 26 s before (full build 122 s). Recorded in D2a with a reduction path that does
+    not involve erasing types again.
+  - Docs corrected where they now said the wrong thing: CLAUDE.md's Settings rule (which forbade
+    the includes) and `docs/CLAUDE_MD/SETTINGS.md`'s 8-step checklist and opening build-win claim.
+- [x] 5.1 Add `import Decenza` to the QML files that lack it — done as part of 3.3 because it is
+  not optional once `Settings` is a type rather than a context property: a context property is
+  globally visible, a singleton needs the module imported. 12 files (`Theme.qml`, `CrtOverlay.qml`,
+  `ThemedPageBackground.qml`, …); the 13th, `qml/designer/DE1AppStubs.qml`, is deliberately outside
+  the module and stays out. Missing this produced `ReferenceError: Settings is not defined`
+  throughout `Theme.qml` — the same shape as #1661, which was also `Theme.qml` failing to resolve
+  a `Decenza` singleton.
 - [ ] 3.4 `AccessibilityManager` — unlocks 8 files (→ 87)
 - [ ] 3.5 `MainController` — 879 sites, unlocks 9 files (→ 96)
 - [ ] 3.6 `ProfileManager` — unlocks 3 files (→ 99)

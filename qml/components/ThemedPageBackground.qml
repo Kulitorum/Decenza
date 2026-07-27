@@ -1,4 +1,5 @@
 import QtQuick
+import Decenza
 
 // Shared `background:` for pages that support a custom background — a built-in colour
 // preset (Settings.theme.backgroundPreset) or an image from the screensaver media

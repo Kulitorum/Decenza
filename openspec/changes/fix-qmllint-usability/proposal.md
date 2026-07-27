@@ -1,3 +1,35 @@
+## The goal
+
+**Ship fewer QML bugs. A clean qmllint run is the instrument, not the objective.**
+
+Every decision in this change is judged against that, and the two do come apart. Anything that
+makes a warning disappear without making a defect *findable* is a regression dressed as progress:
+suppression, an exemption entry that stops being examined, a per-file ceiling raised to fit
+today's number, or a registration that quiets the linter while the type stays unresolvable at
+runtime. If the count improves and the app's real failure modes are no less likely to reach a
+user, the change has failed on its own terms.
+
+The corollary, which has already cost this change real time: **do it the way Qt intends, not the
+way that reaches a green number soonest.** Where the codebase took a shortcut that traded
+verifiability for convenience, the job here is to undo it, not to build on top of it. Two worked
+examples from this change, both of which passed the build, the linter and the full test suite
+while the app was broken:
+
+- Registering a singleton so qmllint resolves the name, without the runtime registration
+  actually taking effect — 1,081 `ReferenceError`s and every translated string `undefined`.
+- Declaring `Settings`' domain sub-objects with `Q_DECLARE_OPAQUE_POINTER` so the linter could
+  see through them — QML then received `QVariant(SettingsBrew*)` instead of an object and every
+  `Settings.<domain>.<prop>` failed at runtime.
+
+Both looked like wins by the count. Neither was. **Green build + green linter + green suite is
+not evidence** for this class of work; running the app is (task 3.11), and where a behaviour is
+load-bearing it gets a test that pins it (`tst_settings::qmlChainsThroughDomainSubObjects`).
+
+Because shipped bugs are the measure, what this work actually turns up is tracked in
+[`bugs-found.md`](bugs-found.md) — confirmed defects, upstream Qt defects, things checked and
+found fine, and things observed but not yet diagnosed. That ledger, not the warning count, is
+what this change should be judged on at the end.
+
 ## Why
 
 QML's worst failure mode is that an undeclared identifier compiles clean and throws only when the

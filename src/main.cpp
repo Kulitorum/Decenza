@@ -118,6 +118,7 @@ extern "C" const char* __ubsan_default_options()
 #include "core/markdownrenderer.h"
 #include "core/appsettings.h"
 #include "core/settings.h"
+#include "core/settings_qml.h"   // SettingsForeign — QML singleton registration
 #include "core/settingsstoremigration.h"
 #include "core/settings_mqtt.h"
 #include "core/settings_autowake.h"
@@ -3374,7 +3375,11 @@ int main(int argc, char *argv[])
 
     // Expose C++ objects to QML
     QQmlContext* context = engine.rootContext();
-    context->setContextProperty("Settings", &settings);
+    // Also a compile-time singleton, registered via QML_FOREIGN in settings_qml.h rather than
+    // macros on the class — settings.h is included by CLI tools that do not link Qt::Qml, and by
+    // most of the app, so it deliberately stays free of QtQml. Same publish-the-instance shape:
+    // main owns `settings` and hands it out long before QML exists.
+    SettingsForeign::s_singletonInstance = &settings;
     // A compile-time-registered QML singleton (QML_ELEMENT + QML_SINGLETON in
     // translationmanager.h), NOT a context property. The engine does not construct it — it is
     // the stack object above, already wired into BLE, MCP, AI, backup and accessibility — so
@@ -3495,36 +3500,11 @@ int main(int argc, char *argv[])
     // through QCanvasPainter on the scene-graph render thread.
     qmlRegisterType<JsCanvasPainterItem>("Decenza", 1, 0, "JsCanvasPainterItem");
 
-    // Register Settings sub-object types so QML can introspect their properties
-    // when accessed via Settings.mqtt, Settings.theme, etc. The Q_PROPERTY
-    // accessors in settings.h return QObject* (settings.h forward-declares the
-    // sub-objects to keep the recompile-blast benefit), so without these
-    // registrations QML can't resolve the concrete type and reports e.g.
-    // `Settings.theme.customThemeColors` as `undefined`.
-    qmlRegisterUncreatableType<SettingsMqtt>("Decenza", 1, 0, "SettingsMqttType",
-        "SettingsMqtt is created in C++");
-    qmlRegisterUncreatableType<SettingsAutoWake>("Decenza", 1, 0, "SettingsAutoWakeType",
-        "SettingsAutoWake is created in C++");
-    qmlRegisterUncreatableType<SettingsHardware>("Decenza", 1, 0, "SettingsHardwareType",
-        "SettingsHardware is created in C++");
-    qmlRegisterUncreatableType<SettingsAI>("Decenza", 1, 0, "SettingsAIType",
-        "SettingsAI is created in C++");
-    qmlRegisterUncreatableType<SettingsTheme>("Decenza", 1, 0, "SettingsThemeType",
-        "SettingsTheme is created in C++");
-    qmlRegisterUncreatableType<SettingsVisualizer>("Decenza", 1, 0, "SettingsVisualizerType",
-        "SettingsVisualizer is created in C++");
-    qmlRegisterUncreatableType<SettingsMcp>("Decenza", 1, 0, "SettingsMcpType",
-        "SettingsMcp is created in C++");
-    qmlRegisterUncreatableType<SettingsBrew>("Decenza", 1, 0, "SettingsBrewType",
-        "SettingsBrew is created in C++");
-    qmlRegisterUncreatableType<SettingsDye>("Decenza", 1, 0, "SettingsDyeType",
-        "SettingsDye is created in C++");
-    qmlRegisterUncreatableType<SettingsNetwork>("Decenza", 1, 0, "SettingsNetworkType",
-        "SettingsNetwork is created in C++");
-    qmlRegisterUncreatableType<SettingsApp>("Decenza", 1, 0, "SettingsAppType",
-        "SettingsApp is created in C++");
-    qmlRegisterUncreatableType<SettingsCalibration>("Decenza", 1, 0, "SettingsCalibrationType",
-        "SettingsCalibration is created in C++");
+    // Settings sub-object types are registered at COMPILE time via QML_FOREIGN in
+    // settings_qml.h, not here. A runtime qmlRegisterUncreatableType<> is invisible to
+    // qmltyperegistrar, so qmllint could not resolve them and reported every
+    // Settings.<domain>.<prop> as a missing property — 1,079 of them. Same QML type names,
+    // same uncreatable contract, now checkable by the linter.
 
     // ShotProjection is a Q_GADGET value type used as the parameter of
     // ShotHistoryStorage::shotReady. qmlRegisterUncreatableMetaObject registers

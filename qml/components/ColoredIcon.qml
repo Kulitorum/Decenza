@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import Decenza
 
 // Display-only tinted SVG icon. Uses Button's internal IconLabel to apply
 // icon.color tinting to monochrome SVGs. Not interactive — use inside a

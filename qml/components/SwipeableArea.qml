@@ -1,4 +1,5 @@
 import QtQuick
+import Decenza
 
 // Horizontal swipe gesture detector with elastic bounce feedback
 // Place this over content that should respond to left/right swipes

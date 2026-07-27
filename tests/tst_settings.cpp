@@ -1,6 +1,10 @@
 #include <QtTest>
 #include <QSettings>
 #include <QSignalSpy>
+#include <QQmlEngine>
+#include <QQmlComponent>
+#include <QQmlContext>
+#include <memory>
 
 #include "core/settings.h"
 #include "core/settings_app.h"
@@ -2421,6 +2425,46 @@ private slots:
         theme->resetFontSizesToDefault();
         QVERIFY(theme->fontSizeOverrides().isEmpty());
         QCOMPARE(theme->effectiveFontSizes().value("headingSize").toInt(), 32);
+    }
+
+    // QML must be able to chain THROUGH a domain sub-object: `Settings.theme.themeName`,
+    // which is how roughly 1,300 call sites read settings.
+    //
+    // This is not a hypothetical. The domain Q_PROPERTYs carry their concrete type
+    // (SettingsTheme* etc.) so qmllint can resolve what is behind them, and because
+    // settings.h only forward-declares those classes, each needs Q_DECLARE_OPAQUE_POINTER to
+    // give moc a metatype at all. An opaque pointer is precisely the kind of thing that can
+    // compile, satisfy the linter, and then fail to behave as an object at runtime — leaving
+    // every `Settings.<domain>.<prop>` undefined on a screen nobody opened during review.
+    //
+    // The whole change this test belongs to exists because that failure mode shipped once
+    // already (#1661), and during this migration an equivalent break passed the build, the
+    // linter AND the full suite while the app was unusable. So assert it against a real
+    // QQmlEngine rather than trusting that it compiled.
+    void qmlChainsThroughDomainSubObjects() {
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty("Settings", &m_settings);
+
+        m_settings.theme()->setActiveThemeName("qml-chain-probe");
+
+        QQmlComponent component(&engine);
+        component.setData(
+            "import QtQml\n"
+            "QtObject {\n"
+            "    property string themeName: Settings.theme.activeThemeName\n"
+            "    property bool domainIsObject: Settings.theme !== null "
+            "&& typeof Settings.theme === 'object'\n"
+            "}\n",
+            QUrl("qrc:/tst_settings_domain_chain.qml"));
+        QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+
+        std::unique_ptr<QObject> obj(component.create());
+        QVERIFY2(obj, qPrintable(component.errorString()));
+
+        QVERIFY2(obj->property("domainIsObject").toBool(),
+                 "Settings.<domain> did not resolve to an object in QML. The opaque-pointer "
+                 "metatype is not being treated as a QObject.");
+        QCOMPARE(obj->property("themeName").toString(), QStringLiteral("qml-chain-probe"));
     }
 
 };

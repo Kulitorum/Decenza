@@ -1,5 +1,6 @@
 import QtQuick
 import "qrcode.js" as QR
+import Decenza
 
 Item {
     id: root

@@ -1,4 +1,5 @@
 import QtQuick
+import Decenza
 
 Item {
     id: root
