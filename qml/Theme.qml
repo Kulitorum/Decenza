@@ -544,9 +544,24 @@ QtObject {
     // (it has no parameter), so on a fresh install with no shots the source says shot while
     // BackgroundSurface paints a flat colour — and scrimming chrome over a flat colour is
     // the exact elevation-cancelling failure chromeFill()'s own comment documents.
+    //
+    // That fact is PUSHED in by LastShotChartSource rather than read from it. Everything
+    // else this file reads — Settings, TemperatureDisplay, EmojiAssets — is a context
+    // property, visible everywhere without an import; LastShotChartSource is a QML singleton
+    // in qml/components/, and a file in qml/ cannot see a type from another directory. This
+    // condition used to reference it directly, which compiled clean and threw
+    // "ReferenceError: LastShotChartSource is not defined" on every evaluation, pinning
+    // hasBackgroundImage to false for the whole shot case: the chart drew, and all ~70 call
+    // sites below painted chrome opaque over it — the exact inverse of the intent.
+    //
+    // Keep it a push. Theme is the lowest-level singleton in the app and deliberately
+    // depends on nothing but context properties; importing the module here to reach one
+    // component would trade a runtime error for a dependency cycle waiting to happen.
+    property bool shotChartRendered: false
+
     readonly property bool hasBackgroundImage: Settings.theme.backgroundSource === "image"
                                                || (Settings.theme.backgroundSource === "shot"
-                                                   && LastShotChartSource.imageSource.length > 0)
+                                                   && shotChartRendered)
 
     // The fill a piece of chrome should actually paint.
     //

@@ -27,6 +27,16 @@ QtObject {
     // straight into the same Image path a background photo takes.
     readonly property string imageSource: _renderedUrl
 
+    // Theme.hasBackgroundImage needs to know whether a render exists, and cannot read it
+    // from here: Theme lives in qml/ and imports nothing from the module, so this type is
+    // simply not in scope there. Pushed from the side that CAN see Theme.
+    //
+    // Not a Binding in main.qml, which can see both: reading imageSource from there would
+    // instantiate this singleton at startup for every user, which is what the load guard on
+    // shotBackgroundSelected below exists to avoid. Pushing costs nothing when the feature
+    // is off, because then nothing creates this object and false is the right answer anyway.
+    onImageSourceChanged: Theme.shotChartRendered = imageSource.length > 0
+
     // Distinguishes "no shot exists" from "not fetched yet", so the fallback does not flash
     // on a cold start: nothing is drawn until we know there is nothing to draw.
     readonly property bool ready: _loadState !== "loading"
