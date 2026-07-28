@@ -1335,7 +1335,7 @@ ApplicationWindow {
 
     // Announce page name for accessibility when page changes
     function announceCurrentPage() {
-        if (typeof AccessibilityManager === "undefined" || !AccessibilityManager.enabled) return
+        if (typeof AccessibilityManager === "undefined" || AccessibilityManager === null || !AccessibilityManager.enabled) return
         var pageName = pageStack.currentItem ? (pageStack.currentItem.objectName || "") : ""
         if (!pageName) return
 

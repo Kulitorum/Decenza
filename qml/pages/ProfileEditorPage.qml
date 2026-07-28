@@ -47,7 +47,7 @@ Page {
     onSelectedStepIndexChanged: announceFrame()
 
     function announceFrame() {
-        if (typeof AccessibilityManager === "undefined" || !AccessibilityManager.enabled) return
+        if (typeof AccessibilityManager === "undefined" || AccessibilityManager === null || !AccessibilityManager.enabled) return
         if (!profile || selectedStepIndex < 0 || selectedStepIndex >= profile.steps.length) return
 
         var step = profile.steps[selectedStepIndex]
@@ -1717,7 +1717,7 @@ Page {
     }
 
     function announceProfileInfo() {
-        if (typeof AccessibilityManager === "undefined" || !AccessibilityManager.enabled) return
+        if (typeof AccessibilityManager === "undefined" || AccessibilityManager === null || !AccessibilityManager.enabled) return
         if (!profile) return
 
         var frameCount = profile.steps ? profile.steps.length : 0

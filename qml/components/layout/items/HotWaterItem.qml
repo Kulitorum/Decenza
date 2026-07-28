@@ -163,7 +163,7 @@ Item {
                 var rootTopInPage = root.mapToItem(root.idlePage, 0, 0).y
                 root.idlePage.requestPanelClearance(rootTopInPage + presetPopup.y, presetPopup.height)
             }
-            if (typeof AccessibilityManager === "undefined" || !AccessibilityManager.enabled) return
+            if (typeof AccessibilityManager === "undefined" || AccessibilityManager === null || !AccessibilityManager.enabled) return
             // Announce the visible page (just reset to page 1), not the full list.
             var presets = root.visibleWaterVessels
             if (presets.length === 0) return

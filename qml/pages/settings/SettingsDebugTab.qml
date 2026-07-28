@@ -531,7 +531,10 @@ Item {
             Connections {
                 target: MainController.shotHistory
                 function onErrorOccurred(message) {
-                    importResultDialog.title = TranslationManager.translate("settings.debug.importFailed", "Import Failed")
+                    // Reuses SettingsHistoryDataTab's key rather than minting a settings.debug
+                    // one: same string, same dialog role, and a second key would make translators
+                    // do "Import Failed" twice with nothing keeping the two copies in step.
+                    importResultDialog.title = TranslationManager.translate("shotimporter.title.importFailed", "Import Failed")
                     importResultDialog.resultMessage = message
                     importResultDialog.isError = true
                     importResultDialog.open()

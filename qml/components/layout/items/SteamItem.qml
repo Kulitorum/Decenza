@@ -126,7 +126,7 @@ Item {
             // Full-mode steam path runs IdlePage.onActivePresetFunctionChanged which
             // announces the preset list to TalkBack. The compact-mode popup bypasses
             // that path, so announce here directly to keep feature parity.
-            if (typeof AccessibilityManager === "undefined" || !AccessibilityManager.enabled) return
+            if (typeof AccessibilityManager === "undefined" || AccessibilityManager === null || !AccessibilityManager.enabled) return
             var presets = Settings.brew.steamPitcherPresets
             if (presets.length === 0) return
             var names = []

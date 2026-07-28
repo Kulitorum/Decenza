@@ -476,12 +476,31 @@ typeof X !== "undefined" && X !== null
 
 `undefined` is false, `null` is false, a live object is true — all three states, correctly.
 
-Scope was decided by what the type actually is, not by grep. 169 `typeof … !== "undefined"` guards
+Scope was decided by what the type actually is, not by grep. 186 `typeof … !== "undefined"` guards
 exist in `qml/`; only the 153 naming a type exported in `Decenza.qmltypes` were rewritten. The
-other 16 name things that are still context properties or plain JS — `ScaleDevice`,
+other 33 name things that are still context properties or plain JS — `ScaleDevice`,
 `Refractometer`, `USBManager`, `GHCSimulator`, `McpServer`, `pageStack`, `Window` — where the
 unmodified `typeof` test is still exactly right. Rewriting those would have been wrong in the other
 direction. When `ScaleDevice` and `Refractometer` get their façade, their guards join the 153.
+
+Those two counts were first written as 186/33 → "169/16", transcribed wrong from the script's own
+output and repeated into a PR comment before two reviewers caught it independently. Left on the
+record because this file and CLAUDE.local.md both warn that a plausible-looking count is not
+evidence of a correct one, and this is the same mistake happening inside the document that says so.
+
+The rewrite was also ONE-SIDED on the first pass. The regex matched `!== "undefined"` and missed
+the inverted early-return form, which is the identical defect:
+
+```js
+if (typeof X === "undefined" || !X.enabled) return   // typeof null is "object" -> !null.enabled throws
+```
+
+10 such sites across 9 files, all on `AccessibilityManager`, all in files the sweep had already
+edited. Found by review, fixed in the same shape (`|| X === null ||`). `Theme.qml`'s `EmojiAssets`
+guard was briefly given the same treatment and then reverted: that singleton has no `create()` and
+no published instance (`emojiassets.h`), so it is engine-constructed and can never BE null — its
+only failure mode is the wholesale-registration one, which yields `undefined`. Adding a null test
+there would have been dead code contradicting the comment that explains why the guard exists.
 
 The count in the paragraph above (~19 + ~11) was what the reviewers saw in two files. The real
 distribution was dominated by something neither had looked at: `AccessibilityManager`, 106 guards

@@ -282,7 +282,7 @@ FocusScope {
     // effect — announce the position and the pills now shown so the user hears the
     // contents, not just "page 2 of 3".
     function announcePage() {
-        if (typeof AccessibilityManager === "undefined" || !AccessibilityManager.enabled) return
+        if (typeof AccessibilityManager === "undefined" || AccessibilityManager === null || !AccessibilityManager.enabled) return
         var msg = TranslationManager.translate("presets.pagination.pagePosition", "Page %1 of %2")
                     .replace("%1", (pageIndex + 1)).replace("%2", pageCount)
         if (presets.length > 0) {

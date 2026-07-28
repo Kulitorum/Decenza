@@ -46,6 +46,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shlex
 import subprocess
 import tempfile
 import sys
@@ -788,32 +789,49 @@ def main() -> int:
     # Refuse the run that cannot succeed, instead of discovering it ten minutes in.
     #
     # A released qmllint cannot finish the UNLINTABLE_BY_TOOL_BUG files — it grows to hundreds of
-    # gigabytes and is OOM-killed, which on a laptop takes the desktop down with it. The only
-    # binary that can is a local build carrying the Gerrit fix, and there is no way to detect one
-    # from the outside: same --version, same path layout. So the proxy is intent. Passing
-    # --qmllint means you chose a binary deliberately; letting find_qmllint() pick means you got
-    # whatever Qt installed, which is by definition not the patched build.
+    # gigabytes and is OOM-killed, which on a laptop takes the desktop down with it. Only a local
+    # build carrying the Gerrit fix can, and the two are indistinguishable by --version. (Not undetectable in principle — running
+    # one against the problem file tells you within ten minutes, which is the cost being avoided.)
     #
-    # This existed only as prose in a developer's private notes, which is why the first person to
-    # run the documented command lost ten minutes to a hang. A footgun the script knows how to
-    # detect should be refused by the script.
-    if not args.from_raw and not args.qmllint:
-        blocked = sorted(set(files) & set(UNLINTABLE_BY_TOOL_BUG))
+    # So the test is WHERE the binary lives, not whether --qmllint was passed. An earlier version
+    # of this guard used the flag as a proxy for intent and was dead on the path that matters:
+    # both CMake targets pass --qmllint unconditionally, filled in by find_program() from Qt's own
+    # bin/. Under `cmake -DQMLLINT_SKIP_UNLINTABLE=OFF` with QMLLINT_EXECUTABLE left at that
+    # default, the stock binary would still be handed CustomItem.qml with nothing said.
+    #
+    # Keying on the path works for both entry points because CLAUDE.local.md requires the patched
+    # build to stay in its own tree: copying it into ~/Qt breaks qmlimportscanner's code signature
+    # and with it the whole Decenza build. A binary under a Qt install is therefore a stock one.
+    if not args.from_raw:
+        effective = args.qmllint or find_qmllint()
+        looks_stock = any(
+            str(Path(effective).resolve()).startswith(str(root))
+            for root in (Path.home() / "Qt", Path("C:/Qt"), Path("/opt/Qt"), Path("/usr/lib/qt6"))
+        )
+        blocked = sorted(set(files) & set(UNLINTABLE_BY_TOOL_BUG)) if looks_stock else []
         if blocked:
+            # Rebuild the command without the flags this message is about to re-add, so the
+            # suggestions are runnable rather than self-contradictory: --update-baseline plus
+            # --skip-unlintable is a combination the script refuses outright a few lines up.
+            base = [a for a in sys.argv[1:] if a not in ("--update-baseline", "--skip-unlintable")]
+            invocation = f"python3 {sys.argv[0]}"
+            quoted = " ".join(shlex.quote(a) for a in base)
             sys.exit(
                 "refusing to start: this run includes {n} file(s) that a released qmllint cannot "
-                "analyse, and no --qmllint was given, so the binary is Qt's own:\n{detail}\n"
+                "analyse, and {which}:\n{detail}\n"
                 "It would climb to hundreds of GB and be OOM-killed after roughly ten minutes, "
                 "having written nothing.\n\n"
-                "Either lint the whole tree with a patched build:\n"
-                "  {argv0} {rest} --qmllint <path-to-patched-qmllint>\n\n"
-                "or skip those files — note --skip-unlintable is refused with --update-baseline "
-                "on purpose, since a partial run must never ratchet the baseline:\n"
-                "  {argv0} {rest} --skip-unlintable".format(
+                "Lint the whole tree with a patched build:\n"
+                "  {inv} {rest} --update-baseline --qmllint <path-to-patched-qmllint>\n\n"
+                "or skip those files, which reports but cannot rewrite the baseline — a partial "
+                "run must never ratchet it:\n"
+                "  {inv} {rest} --check --skip-unlintable".format(
                     n=len(blocked),
+                    which=(f"the binary is {effective}, which sits inside a Qt install"
+                           if args.qmllint else "no --qmllint was given, so the binary is Qt's own"),
                     detail="".join(f"  {f}\n    {UNLINTABLE_BY_TOOL_BUG[f]}\n" for f in blocked),
-                    argv0=Path(sys.argv[0]).name,
-                    rest=" ".join(a for a in sys.argv[1:] if a != "--skip-unlintable"),
+                    inv=invocation,
+                    rest=quoted,
                 )
             )
 

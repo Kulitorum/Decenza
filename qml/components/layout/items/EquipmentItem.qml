@@ -188,7 +188,7 @@ Item {
         }
 
         function _announceOnOpen() {
-            if (typeof AccessibilityManager === "undefined" || !AccessibilityManager.enabled) return
+            if (typeof AccessibilityManager === "undefined" || AccessibilityManager === null || !AccessibilityManager.enabled) return
             // Announce the visible page (just reset to page 1), not the full
             // inventory — matches every sibling pill row.
             var pkgs = root.visibleEquipment
