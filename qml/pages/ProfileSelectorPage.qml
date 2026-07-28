@@ -270,7 +270,6 @@ Page {
                     }
 
                     AccessibleButton {
-                        id: createNewProfileButton
                         visible: viewFilter.currentIndex !== 1 && viewFilter.currentIndex !== 5
                         text: "+"
                         accessibleName: TranslationManager.translate("profileSelector.createNewProfile", "Create new profile")
@@ -771,13 +770,13 @@ Page {
                             icon.source: "qrc:/icons/edit.svg"
                             icon.width: Theme.scaled(18)
                             icon.height: Theme.scaled(18)
-                            icon.color: createNewProfileButton.selected ? Theme.primaryContrastColor : Theme.textColor
-                            accessibleName: createNewProfileButton.row ? (TranslationManager.translate("profileselector.accessible.edit", "Edit") + " " + AccessibilityManager.cleanForSpeech(createNewProfileButton.row.name)) : ""
+                            icon.color: parent.selected ? Theme.primaryContrastColor : Theme.textColor
+                            accessibleName: parent.row ? (TranslationManager.translate("profileselector.accessible.edit", "Edit") + " " + AccessibilityManager.cleanForSpeech(parent.row.name)) : ""
 
                             onClicked: {
-                                if (!createNewProfileButton.row) return
-                                Settings.app.selectedFavoriteProfile = createNewProfileButton.rowIndex
-                                ProfileManager.loadProfile(createNewProfileButton.row.filename)
+                                if (!parent.row) return
+                                Settings.app.selectedFavoriteProfile = parent.rowIndex
+                                ProfileManager.loadProfile(parent.row.filename)
                                 AppShell.profileEditorRequested()
                             }
                         }

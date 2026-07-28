@@ -145,7 +145,6 @@ KeyboardAwareContainer {
                     }
 
                     ProgressBar {
-                        id: progressBar
                         Layout.fillWidth: true
                         from: 0
                         to: MainController.shotImporter ? MainController.shotImporter.totalFiles : 1
@@ -593,7 +592,7 @@ KeyboardAwareContainer {
                         Accessible.onPressAction: Qt.openUrlExternally(MainController.shotServer.url)
 
                         TapHandler {
-                            enabled: parent.progressBar.serverRunning
+                            enabled: parent.parent.serverRunning
                             onTapped: Qt.openUrlExternally(MainController.shotServer.url)
                         }
                     }
