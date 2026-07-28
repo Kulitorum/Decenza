@@ -2478,10 +2478,19 @@ Page {
                     primary: true
                     text: saveButtonText.text
                     accessibleName: TranslationManager.translate("steam.savePitcherChanges", "Save changes to pitcher preset")
+                    // Recipes snapshot the pitcher BY NAME, so a blank name is
+                    // one nothing can refer to and a duplicate makes two
+                    // pitchers indistinguishable. ignoreIndex is this preset —
+                    // keeping its own name is not a clash.
+                    enabled: editPitcherNameInput.text.trim().length > 0
+                        && !Settings.brew.steamPitcherNameTaken(editPitcherNameInput.text, editingPitcherIndex)
                     KeyNavigation.tab: editPitcherNameInput
                     KeyNavigation.backtab: editCancelButton
                     onClicked: {
                         Qt.inputMethod.commit()
+                        if (editPitcherNameInput.text.trim().length === 0
+                                || Settings.brew.steamPitcherNameTaken(editPitcherNameInput.text, editingPitcherIndex))
+                            return
                         var preset = Settings.brew.getSteamPitcherPreset(editingPitcherIndex)
                         Settings.brew.updateSteamPitcherPreset(editingPitcherIndex, editPitcherNameInput.text, preset.duration, preset.flow)
                         editPitcherPopup.close()
@@ -2594,6 +2603,8 @@ Page {
                     id: addPitcherOffButton
                     text: addOffButtonText.text
                     accessibleName: TranslationManager.translate("steam.addNewPitcherOff", "Add new preset that turns the steam heater off")
+                    enabled: newPitcherName.text.trim().length > 0
+                        && !Settings.brew.steamPitcherNameTaken(newPitcherName.text, -1)
                     KeyNavigation.tab: addPitcherConfirmButton
                     KeyNavigation.backtab: addCancelPitcherButton
                     onClicked: {
@@ -2613,6 +2624,8 @@ Page {
                     primary: true
                     text: addButtonText.text
                     accessibleName: TranslationManager.translate("steam.addNewPitcher", "Add new pitcher preset with entered name")
+                    enabled: newPitcherName.text.trim().length > 0
+                        && !Settings.brew.steamPitcherNameTaken(newPitcherName.text, -1)
                     KeyNavigation.tab: newPitcherName
                     KeyNavigation.backtab: addPitcherOffButton
                     onClicked: {

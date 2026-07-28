@@ -154,6 +154,13 @@ void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainCon
             if (!settings) { result["error"] = "Settings unavailable"; return result; }
             const QString name = args.value("name").toString().trimmed();
             if (name.isEmpty()) { result["error"] = "name is required"; return result; }
+            // Presets are addressed by name downstream (recipes snapshot the
+            // pitcher by name), so a duplicate is refused here with a message
+            // rather than silently dropped by the setter, which returns void.
+            if (settings->brew()->steamPitcherNameTaken(name)) {
+                result["error"] = "a steam pitcher named \"" + name + "\" already exists";
+                return result;
+            }
             if (args.value("disabled").toBool()) {
                 settings->brew()->addSteamPitcherPresetDisabled(name);
             } else {
@@ -206,6 +213,10 @@ void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainCon
                 ? args.value("temperatureC").toDouble()
                 : (existing.contains("temperature") ? existing.value("temperature").toDouble()
                                                      : settings->brew()->steamTemperature());
+            if (settings->brew()->steamPitcherNameTaken(name, index)) {
+                result["error"] = "a steam pitcher named \"" + name + "\" already exists";
+                return result;
+            }
             settings->brew()->updateSteamPitcherPreset(index, name, duration, flow, temp);
             // If we edited the active pitcher, re-apply so the live steam settings
             // (and the machine) reflect the change immediately.
@@ -301,6 +312,10 @@ void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainCon
             if (!settings) { result["error"] = "Settings unavailable"; return result; }
             const QString name = args.value("name").toString().trimmed();
             if (name.isEmpty()) { result["error"] = "name is required"; return result; }
+            if (settings->brew()->waterVesselNameTaken(name)) {
+                result["error"] = "a water vessel named \"" + name + "\" already exists";
+                return result;
+            }
             const int volume = args.contains("volumeMl") ? args.value("volumeMl").toInt() : 200;
             const QString mode = args.contains("mode") ? args.value("mode").toString() : QStringLiteral("weight");
             const int flowRate = args.contains("flowMlPerSec")
@@ -353,6 +368,10 @@ void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainCon
                 ? args.value("temperatureC").toDouble()
                 : (existing.contains("temperature") ? existing.value("temperature").toDouble()
                                                      : settings->brew()->waterTemperature());
+            if (settings->brew()->waterVesselNameTaken(name, index)) {
+                result["error"] = "a water vessel named \"" + name + "\" already exists";
+                return result;
+            }
             settings->brew()->updateWaterVesselPreset(index, name, volume, mode, flowRate, temp);
             // If we edited the active vessel, re-apply so the live hot water settings
             // (and the machine) reflect the change immediately.

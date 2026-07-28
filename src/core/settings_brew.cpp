@@ -249,13 +249,61 @@ void SettingsBrew::calibrateSteamFromReference(double milkG, double timeSec) {
     setMilkAutoCaptureEnabled(true);
 }
 
+bool SettingsBrew::nameTakenIn(const QJsonArray& arr, const QString& name, int ignoreIndex) {
+    const QString wanted = name.trimmed();
+    if (wanted.isEmpty()) return false;   // emptiness is rejected by the callers, separately
+    for (int i = 0; i < arr.size(); ++i) {
+        if (i == ignoreIndex) continue;   // renaming a preset to its own name is not a clash
+        if (arr.at(i).toObject().value("name").toString().trimmed()
+                .compare(wanted, Qt::CaseInsensitive) == 0)
+            return true;
+    }
+    return false;
+}
+
+bool SettingsBrew::waterVesselNameTaken(const QString& name, int ignoreIndex) const {
+    return nameTakenIn(readPresetArray(QStringLiteral("water/vesselPresets")), name, ignoreIndex);
+}
+
+bool SettingsBrew::steamPitcherNameTaken(const QString& name, int ignoreIndex) const {
+    return nameTakenIn(readPresetArray(QStringLiteral("steam/pitcherPresets")), name, ignoreIndex);
+}
+
+QJsonArray SettingsBrew::readPresetArray(const QString& key, bool* parseFailed) const {
+    if (parseFailed) *parseFailed = false;
+    const QByteArray data = m_settings.value(key).toByteArray();
+    // Genuinely unset (or explicitly emptied) — not a failure, just no presets.
+    if (data.isEmpty()) return QJsonArray();
+
+    QJsonParseError err{};
+    const QJsonDocument doc = QJsonDocument::fromJson(data, &err);
+    if (err.error != QJsonParseError::NoError) {
+        if (parseFailed) *parseFailed = true;
+        // noquote so the key reads as a settings path rather than "a/b" — this
+        // line is the only notice a user or a bug report ever gets that their
+        // presets became unreadable.
+        qWarning().noquote() << "SettingsBrew: could not parse" << key << "-" << err.errorString()
+                             << "at offset" << err.offset
+                             << "- reporting no presets and refusing to overwrite the stored value";
+        return QJsonArray();
+    }
+    // Valid JSON that is not an array is equally unusable, and equally must not
+    // be written over.
+    if (!doc.isArray()) {
+        if (parseFailed) *parseFailed = true;
+        qWarning().noquote() << "SettingsBrew:" << key << "holds valid JSON that is not an array"
+                             << "- reporting no presets and refusing to overwrite the stored value";
+        return QJsonArray();
+    }
+    return doc.array();
+}
+
 double SettingsBrew::deriveSteamRateFromLegacyPresets() const {
     // Recover a global seconds-per-gram rate from the pre-migration per-pitcher
     // (calibMilkG, duration): the first preset carrying both wins. Returns 0 when no
     // preset was calibrated. Shared by the one-time ctor migration and the backup-
     // import re-seed so both derive the rate identically.
-    QByteArray data = m_settings.value("steam/pitcherPresets").toByteArray();
-    QJsonArray arr = QJsonDocument::fromJson(data).array();
+    const QJsonArray arr = readPresetArray(QStringLiteral("steam/pitcherPresets"));
     for (const QJsonValue& v : arr) {
         QJsonObject preset = v.toObject();
         double calibMilk = preset.value("calibMilkG").toDouble(0.0);
@@ -353,9 +401,7 @@ void SettingsBrew::setSteamAutoFlushSeconds(int seconds) {
 // Steam pitcher presets
 
 QVariantList SettingsBrew::steamPitcherPresets() const {
-    QByteArray data = m_settings.value("steam/pitcherPresets").toByteArray();
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    QJsonArray arr = doc.array();
+    QJsonArray arr = readPresetArray(QStringLiteral("steam/pitcherPresets"));
 
     QVariantList result;
     for (const QJsonValue& v : arr) {
@@ -376,9 +422,24 @@ void SettingsBrew::setSelectedSteamCup(int index) {
 }
 
 void SettingsBrew::addSteamPitcherPreset(const QString& name, int duration, int flow, double temperature) {
-    QByteArray data = m_settings.value("steam/pitcherPresets").toByteArray();
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    QJsonArray arr = doc.array();
+    bool parseFailed = false;
+    QJsonArray arr = readPresetArray(QStringLiteral("steam/pitcherPresets"), &parseFailed);
+    // Refuse to append to an array we could not read: writing back would
+    // save an empty list over the user's unreadable presets.
+    if (parseFailed) return;
+
+    // A preset is addressed BY NAME by everything downstream — recipes snapshot
+    // the vessel/pitcher by name and re-select it on activation, and the recipe
+    // wizard matches its tiles on it. Two presets sharing a name therefore both
+    // light up in the wizard and activation resolves to whichever comes first,
+    // so the clash is refused at the setter, where every caller inherits it.
+    // Existing duplicates already in storage are left alone: this rejects new
+    // ones, it does not delete anyone's data.
+    if (nameTakenIn(arr, name, -1)) {
+        qWarning() << "SettingsBrew: refusing a duplicate steam pitcher named" << name
+                   << "- that name is already in use";
+        return;
+    }
 
     QJsonObject preset;
     preset["name"] = name;
@@ -392,9 +453,24 @@ void SettingsBrew::addSteamPitcherPreset(const QString& name, int duration, int 
 }
 
 void SettingsBrew::addSteamPitcherPresetDisabled(const QString& name) {
-    QByteArray data = m_settings.value("steam/pitcherPresets").toByteArray();
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    QJsonArray arr = doc.array();
+    bool parseFailed = false;
+    QJsonArray arr = readPresetArray(QStringLiteral("steam/pitcherPresets"), &parseFailed);
+    // Refuse to append to an array we could not read: writing back would
+    // save an empty list over the user's unreadable presets.
+    if (parseFailed) return;
+
+    // A preset is addressed BY NAME by everything downstream — recipes snapshot
+    // the vessel/pitcher by name and re-select it on activation, and the recipe
+    // wizard matches its tiles on it. Two presets sharing a name therefore both
+    // light up in the wizard and activation resolves to whichever comes first,
+    // so the clash is refused at the setter, where every caller inherits it.
+    // Existing duplicates already in storage are left alone: this rejects new
+    // ones, it does not delete anyone's data.
+    if (nameTakenIn(arr, name, -1)) {
+        qWarning() << "SettingsBrew: refusing a duplicate steam pitcher named" << name
+                   << "- that name is already in use";
+        return;
+    }
 
     QJsonObject preset;
     preset["name"] = name;
@@ -406,9 +482,24 @@ void SettingsBrew::addSteamPitcherPresetDisabled(const QString& name) {
 }
 
 void SettingsBrew::updateSteamPitcherPreset(int index, const QString& name, int duration, int flow, double temperature) {
-    QByteArray data = m_settings.value("steam/pitcherPresets").toByteArray();
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    QJsonArray arr = doc.array();
+    bool parseFailed = false;
+    QJsonArray arr = readPresetArray(QStringLiteral("steam/pitcherPresets"), &parseFailed);
+    // Refuse to append to an array we could not read: writing back would
+    // save an empty list over the user's unreadable presets.
+    if (parseFailed) return;
+
+    // A preset is addressed BY NAME by everything downstream — recipes snapshot
+    // the vessel/pitcher by name and re-select it on activation, and the recipe
+    // wizard matches its tiles on it. Two presets sharing a name therefore both
+    // light up in the wizard and activation resolves to whichever comes first,
+    // so the clash is refused at the setter, where every caller inherits it.
+    // Existing duplicates already in storage are left alone: this rejects new
+    // ones, it does not delete anyone's data.
+    if (nameTakenIn(arr, name, index)) {
+        qWarning() << "SettingsBrew: refusing a duplicate steam pitcher named" << name
+                   << "- that name is already in use";
+        return;
+    }
 
     if (index >= 0 && index < static_cast<int>(arr.size())) {
         QJsonObject preset = arr[index].toObject();  // Read existing to preserve pitcherWeightG / calibMilkG
@@ -424,9 +515,11 @@ void SettingsBrew::updateSteamPitcherPreset(int index, const QString& name, int 
 }
 
 void SettingsBrew::removeSteamPitcherPreset(int index) {
-    QByteArray data = m_settings.value("steam/pitcherPresets").toByteArray();
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    QJsonArray arr = doc.array();
+    bool parseFailed = false;
+    QJsonArray arr = readPresetArray(QStringLiteral("steam/pitcherPresets"), &parseFailed);
+    // Refuse to append to an array we could not read: writing back would
+    // save an empty list over the user's unreadable presets.
+    if (parseFailed) return;
 
     if (index >= 0 && index < arr.size()) {
         arr.removeAt(index);
@@ -442,9 +535,11 @@ void SettingsBrew::removeSteamPitcherPreset(int index) {
 }
 
 void SettingsBrew::moveSteamPitcherPreset(int from, int to) {
-    QByteArray data = m_settings.value("steam/pitcherPresets").toByteArray();
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    QJsonArray arr = doc.array();
+    bool parseFailed = false;
+    QJsonArray arr = readPresetArray(QStringLiteral("steam/pitcherPresets"), &parseFailed);
+    // Refuse to append to an array we could not read: writing back would
+    // save an empty list over the user's unreadable presets.
+    if (parseFailed) return;
 
     if (from >= 0 && from < arr.size() && to >= 0 && to < arr.size() && from != to) {
         QJsonValue item = arr[from];
@@ -466,9 +561,11 @@ void SettingsBrew::moveSteamPitcherPreset(int from, int to) {
 }
 
 void SettingsBrew::setSteamPitcherWeight(int index, double weightG) {
-    QByteArray data = m_settings.value("steam/pitcherPresets").toByteArray();
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    QJsonArray arr = doc.array();
+    bool parseFailed = false;
+    QJsonArray arr = readPresetArray(QStringLiteral("steam/pitcherPresets"), &parseFailed);
+    // Refuse to append to an array we could not read: writing back would
+    // save an empty list over the user's unreadable presets.
+    if (parseFailed) return;
 
     if (index >= 0 && index < static_cast<int>(arr.size())) {
         QJsonObject preset = arr[index].toObject();
@@ -480,9 +577,11 @@ void SettingsBrew::setSteamPitcherWeight(int index, double weightG) {
 }
 
 void SettingsBrew::setSteamPitcherCalibration(int index, double calibMilkG) {
-    QByteArray data = m_settings.value("steam/pitcherPresets").toByteArray();
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    QJsonArray arr = doc.array();
+    bool parseFailed = false;
+    QJsonArray arr = readPresetArray(QStringLiteral("steam/pitcherPresets"), &parseFailed);
+    // Refuse to append to an array we could not read: writing back would
+    // save an empty list over the user's unreadable presets.
+    if (parseFailed) return;
 
     if (index >= 0 && index < static_cast<int>(arr.size())) {
         QJsonObject preset = arr[index].toObject();
@@ -548,9 +647,7 @@ int SettingsBrew::effectiveSteamDurationSec(int index, double milkG) const {
 }
 
 QVariantMap SettingsBrew::getSteamPitcherPreset(int index) const {
-    QByteArray data = m_settings.value("steam/pitcherPresets").toByteArray();
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    QJsonArray arr = doc.array();
+    QJsonArray arr = readPresetArray(QStringLiteral("steam/pitcherPresets"));
 
     if (index >= 0 && index < arr.size()) {
         return arr[index].toObject().toVariantMap();
@@ -623,9 +720,7 @@ void SettingsBrew::setHotWaterSawSampleCount(int count) {
 // Hot water vessel presets
 
 QVariantList SettingsBrew::waterVesselPresets() const {
-    QByteArray data = m_settings.value("water/vesselPresets").toByteArray();
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    QJsonArray arr = doc.array();
+    QJsonArray arr = readPresetArray(QStringLiteral("water/vesselPresets"));
 
     QVariantList result;
     for (const QJsonValue& v : arr) {
@@ -646,9 +741,24 @@ void SettingsBrew::setSelectedWaterCup(int index) {
 }
 
 void SettingsBrew::addWaterVesselPreset(const QString& name, int volume, const QString& mode, int flowRate, double temperature) {
-    QByteArray data = m_settings.value("water/vesselPresets").toByteArray();
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    QJsonArray arr = doc.array();
+    bool parseFailed = false;
+    QJsonArray arr = readPresetArray(QStringLiteral("water/vesselPresets"), &parseFailed);
+    // Refuse to append to an array we could not read: writing back would
+    // save an empty list over the user's unreadable presets.
+    if (parseFailed) return;
+
+    // A preset is addressed BY NAME by everything downstream — recipes snapshot
+    // the vessel/pitcher by name and re-select it on activation, and the recipe
+    // wizard matches its tiles on it. Two presets sharing a name therefore both
+    // light up in the wizard and activation resolves to whichever comes first,
+    // so the clash is refused at the setter, where every caller inherits it.
+    // Existing duplicates already in storage are left alone: this rejects new
+    // ones, it does not delete anyone's data.
+    if (nameTakenIn(arr, name, -1)) {
+        qWarning() << "SettingsBrew: refusing a duplicate water vessel named" << name
+                   << "- that name is already in use";
+        return;
+    }
 
     QJsonObject preset;
     preset["name"] = name;
@@ -663,9 +773,24 @@ void SettingsBrew::addWaterVesselPreset(const QString& name, int volume, const Q
 }
 
 void SettingsBrew::updateWaterVesselPreset(int index, const QString& name, int volume, const QString& mode, int flowRate, double temperature) {
-    QByteArray data = m_settings.value("water/vesselPresets").toByteArray();
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    QJsonArray arr = doc.array();
+    bool parseFailed = false;
+    QJsonArray arr = readPresetArray(QStringLiteral("water/vesselPresets"), &parseFailed);
+    // Refuse to append to an array we could not read: writing back would
+    // save an empty list over the user's unreadable presets.
+    if (parseFailed) return;
+
+    // A preset is addressed BY NAME by everything downstream — recipes snapshot
+    // the vessel/pitcher by name and re-select it on activation, and the recipe
+    // wizard matches its tiles on it. Two presets sharing a name therefore both
+    // light up in the wizard and activation resolves to whichever comes first,
+    // so the clash is refused at the setter, where every caller inherits it.
+    // Existing duplicates already in storage are left alone: this rejects new
+    // ones, it does not delete anyone's data.
+    if (nameTakenIn(arr, name, index)) {
+        qWarning() << "SettingsBrew: refusing a duplicate water vessel named" << name
+                   << "- that name is already in use";
+        return;
+    }
 
     if (index >= 0 && index < arr.size()) {
         QJsonObject preset;
@@ -682,9 +807,11 @@ void SettingsBrew::updateWaterVesselPreset(int index, const QString& name, int v
 }
 
 void SettingsBrew::removeWaterVesselPreset(int index) {
-    QByteArray data = m_settings.value("water/vesselPresets").toByteArray();
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    QJsonArray arr = doc.array();
+    bool parseFailed = false;
+    QJsonArray arr = readPresetArray(QStringLiteral("water/vesselPresets"), &parseFailed);
+    // Refuse to append to an array we could not read: writing back would
+    // save an empty list over the user's unreadable presets.
+    if (parseFailed) return;
 
     if (index >= 0 && index < arr.size()) {
         arr.removeAt(index);
@@ -700,9 +827,11 @@ void SettingsBrew::removeWaterVesselPreset(int index) {
 }
 
 void SettingsBrew::moveWaterVesselPreset(int from, int to) {
-    QByteArray data = m_settings.value("water/vesselPresets").toByteArray();
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    QJsonArray arr = doc.array();
+    bool parseFailed = false;
+    QJsonArray arr = readPresetArray(QStringLiteral("water/vesselPresets"), &parseFailed);
+    // Refuse to append to an array we could not read: writing back would
+    // save an empty list over the user's unreadable presets.
+    if (parseFailed) return;
 
     if (from >= 0 && from < arr.size() && to >= 0 && to < arr.size() && from != to) {
         QJsonValue item = arr[from];
@@ -724,9 +853,7 @@ void SettingsBrew::moveWaterVesselPreset(int from, int to) {
 }
 
 QVariantMap SettingsBrew::getWaterVesselPreset(int index) const {
-    QByteArray data = m_settings.value("water/vesselPresets").toByteArray();
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    QJsonArray arr = doc.array();
+    QJsonArray arr = readPresetArray(QStringLiteral("water/vesselPresets"));
 
     if (index >= 0 && index < arr.size()) {
         return arr[index].toObject().toVariantMap();
@@ -737,9 +864,7 @@ QVariantMap SettingsBrew::getWaterVesselPreset(int index) const {
 // Flush
 
 QVariantList SettingsBrew::flushPresets() const {
-    QByteArray data = m_settings.value("flush/presets").toByteArray();
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    QJsonArray arr = doc.array();
+    QJsonArray arr = readPresetArray(QStringLiteral("flush/presets"));
 
     QVariantList result;
     for (const QJsonValue& v : arr) {
@@ -782,9 +907,11 @@ void SettingsBrew::setFlushSeconds(double seconds) {
 }
 
 void SettingsBrew::addFlushPreset(const QString& name, double flow, double seconds) {
-    QByteArray data = m_settings.value("flush/presets").toByteArray();
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    QJsonArray arr = doc.array();
+    bool parseFailed = false;
+    QJsonArray arr = readPresetArray(QStringLiteral("flush/presets"), &parseFailed);
+    // Refuse to append to an array we could not read: writing back would
+    // save an empty list over the user's unreadable presets.
+    if (parseFailed) return;
 
     QJsonObject preset;
     preset["name"] = name;
@@ -797,9 +924,11 @@ void SettingsBrew::addFlushPreset(const QString& name, double flow, double secon
 }
 
 void SettingsBrew::updateFlushPreset(int index, const QString& name, double flow, double seconds) {
-    QByteArray data = m_settings.value("flush/presets").toByteArray();
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    QJsonArray arr = doc.array();
+    bool parseFailed = false;
+    QJsonArray arr = readPresetArray(QStringLiteral("flush/presets"), &parseFailed);
+    // Refuse to append to an array we could not read: writing back would
+    // save an empty list over the user's unreadable presets.
+    if (parseFailed) return;
 
     if (index >= 0 && index < arr.size()) {
         QJsonObject preset;
@@ -814,9 +943,11 @@ void SettingsBrew::updateFlushPreset(int index, const QString& name, double flow
 }
 
 void SettingsBrew::removeFlushPreset(int index) {
-    QByteArray data = m_settings.value("flush/presets").toByteArray();
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    QJsonArray arr = doc.array();
+    bool parseFailed = false;
+    QJsonArray arr = readPresetArray(QStringLiteral("flush/presets"), &parseFailed);
+    // Refuse to append to an array we could not read: writing back would
+    // save an empty list over the user's unreadable presets.
+    if (parseFailed) return;
 
     if (index >= 0 && index < arr.size()) {
         arr.removeAt(index);
@@ -832,9 +963,11 @@ void SettingsBrew::removeFlushPreset(int index) {
 }
 
 void SettingsBrew::moveFlushPreset(int from, int to) {
-    QByteArray data = m_settings.value("flush/presets").toByteArray();
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    QJsonArray arr = doc.array();
+    bool parseFailed = false;
+    QJsonArray arr = readPresetArray(QStringLiteral("flush/presets"), &parseFailed);
+    // Refuse to append to an array we could not read: writing back would
+    // save an empty list over the user's unreadable presets.
+    if (parseFailed) return;
 
     if (from >= 0 && from < arr.size() && to >= 0 && to < arr.size() && from != to) {
         QJsonValue item = arr[from];
@@ -856,9 +989,7 @@ void SettingsBrew::moveFlushPreset(int from, int to) {
 }
 
 QVariantMap SettingsBrew::getFlushPreset(int index) const {
-    QByteArray data = m_settings.value("flush/presets").toByteArray();
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    QJsonArray arr = doc.array();
+    QJsonArray arr = readPresetArray(QStringLiteral("flush/presets"));
 
     if (index >= 0 && index < arr.size()) {
         return arr[index].toObject().toVariantMap();
