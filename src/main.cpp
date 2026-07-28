@@ -3556,13 +3556,17 @@ int main(int argc, char *argv[])
 
 #ifdef ENABLE_QUICK3D
     // The Pipe*Geometry types stay RUNTIME-registered, unlike the four above. Moving them to
-    // QML_ELEMENT was tried and reverted: it works, but it buys nothing and costs something.
-    // qmllint cannot resolve QQuick3DGeometry (their base) from the module's response file, so
-    // compile-time registration only swaps three "was not found" warnings for three "used but not
-    // resolved" ones in PipesScreensaver.qml. Meanwhile pipegeometry.h compiles only under
-    // `ENABLE_QUICK3D AND Qt6Quick3D_FOUND`, so registering it there makes Decenza.qmltypes
-    // depend on whether the host has Quick3D — the same host-dependent-registry shape that made
-    // the GHCSimulatorWindow.qml bundling bug fail the Linux gate and nothing else.
+    // QML_ELEMENT was tried and reverted, for one measured reason: it buys nothing. qmllint
+    // cannot resolve QQuick3DGeometry (their base) from the module's response file, so
+    // compile-time registration merely swaps three "was not found" warnings for three "used but
+    // not resolved" ones in PipesScreensaver.qml, and adds a category occurrence to carry them.
+    //
+    // An earlier version of this comment gave a second reason — that pipegeometry.h compiles only
+    // under `ENABLE_QUICK3D AND Qt6Quick3D_FOUND`, so registering it there would make
+    // Decenza.qmltypes host-dependent. That does not hold up: all seven release workflows install
+    // qtquick3d, so no shipped build lacks it, and a dev machine that does already diverges
+    // because pipegeometry.cpp is not compiled there at all. Revisit this if qmllint gains
+    // Quick3D resolution — at that point compile-time registration would start paying.
     qmlRegisterType<PipeCylinderGeometry>("Decenza", 1, 0, "PipeCylinderGeometry");
     qmlRegisterType<PipeElbowGeometry>("Decenza", 1, 0, "PipeElbowGeometry");
     qmlRegisterType<PipeCapGeometry>("Decenza", 1, 0, "PipeCapGeometry");
