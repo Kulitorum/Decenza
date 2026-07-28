@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
 import Decenza
-import "../.."
 
 // Layout widget: grinder dial-in quick-select (composable-brew-bar).
 // Thin wrapper over the shared GrindField (replace-grind-inputs-with-picker):

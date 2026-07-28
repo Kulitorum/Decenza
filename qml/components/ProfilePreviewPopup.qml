@@ -97,10 +97,7 @@ Dialog {
                     cursorShape: Qt.PointingHandCursor
                     onClicked: {
                         root.close()
-                        pageStack.push(Qt.resolvedUrl("../pages/ProfileInfoPage.qml"), {
-                            profileFilename: root.profileFilename,
-                            profileName: root.profileName
-                        })
+                        AppShell.profileInfoRequested(root.profileFilename, root.profileName)
                     }
                 }
             }

@@ -4,7 +4,6 @@ import QtQuick.Layouts
 import QtQuick.Effects
 import QtQuick.Window
 import Decenza
-import "../.."
 import "../PillFit.js" as PillFit
 
 // Recipes quick-switch (add-recipes): structural mirror of BeansItem. Tap
@@ -16,6 +15,13 @@ import "../PillFit.js" as PillFit
 // tap goes straight there. MRU replaces any favorite flag.
 Item {
     id: root
+
+    // `Window` is an ATTACHED property: it resolves against the current scope, so it is read here
+    // on the item itself rather than as `root.appWindow` from inside the popup below. That
+    // spelling works at runtime but is an attached lookup through an id, which qmllint cannot see
+    // — it reports `Member "Window" not found on type "RecipesItem"`. Reading it once also removes the
+    // duplicate lookups.
+    readonly property var appWindow: Window.window
     property bool isCompact: false
     property string itemId: ""
 
@@ -155,9 +161,7 @@ Item {
     }
 
     function goToRecipes() {
-        if (typeof pageStack !== "undefined") {
-            pageStack.push(Qt.resolvedUrl("../../../pages/RecipesPage.qml"))
-        }
+            AppShell.recipesRequested()
     }
 
     // --- COMPACT MODE ---
@@ -252,14 +256,14 @@ Item {
         }
 
         width: {
-            var win = root.Window.window
+            var win = root.appWindow
             var w = Theme.scaled(600) + 2 * padding
             return win ? Math.min(w, win.width) : w
         }
 
         y: {
             var _v = visible // Force re-evaluation when popup opens (mapToItem is not reactive)
-            var win = root.Window.window
+            var win = root.appWindow
             if (win) {
                 var globalY = root.mapToItem(null, 0, 0).y
                 var spaceBelow = win.height - globalY - root.height - Theme.spacingSmall
@@ -272,7 +276,7 @@ Item {
 
         x: {
             var _v = visible // Force re-evaluation when popup opens (mapToItem is not reactive)
-            var win = root.Window.window
+            var win = root.appWindow
             if (win) {
                 var globalX = root.mapToItem(null, 0, 0).x
                 var centered = -width / 2 + parent.width / 2

@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
-import "../components"
 
 Page {
     id: dialingPage
@@ -113,7 +112,7 @@ Page {
                     text: TranslationManager.translate("dialingassistant.button.goback", "Go Back")
                     accessibleName: TranslationManager.translate("dialingAssistant.returnToPreviousPage", "Return to previous page")
                     Layout.alignment: Qt.AlignHCenter
-                    onClicked: pageStack.pop()
+                    onClicked: AppShell.backRequested()
                 }
             }
         }
@@ -222,13 +221,13 @@ Page {
                              !MainController.aiManager.conversation.busy
                     onClicked: {
                         if (!MainController.aiManager || !MainController.aiManager.conversation) return
-                        Qt.inputMethod.commit()
+                        Keyboard.commit()
                         if (followUpInput.text.length === 0) return
 
                         MainController.aiManager.conversation.followUp(followUpInput.text)
                         followUpInput.text = ""
                         followUpInput.focus = false
-                        Qt.inputMethod.hide()
+                        Keyboard.hide()
                     }
                 }
             }
@@ -274,7 +273,7 @@ Page {
                 text: TranslationManager.translate("dialingAssistant.button.done", "Done")
                 accessibleName: TranslationManager.translate("dialingassistant.accessible.done", "Close recommendation")
                 Layout.fillWidth: true
-                onClicked: pageStack.pop()
+                onClicked: AppShell.backRequested()
                 background: Rectangle {
                     implicitHeight: Theme.scaled(48)
                     radius: Theme.scaled(6)

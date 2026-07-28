@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
-import "../components"
 
 // Bean bag inventory (bean-bag-inventory change): replaces the old editable
 // DYE-fields + presets page. Shows all bags with inInventory = true as cards;
@@ -168,6 +167,6 @@ Page {
 
     BottomBar {
         barColor: "transparent"
-        onBackClicked: root.goBack()
+        onBackClicked: AppShell.backRequested()
     }
 }

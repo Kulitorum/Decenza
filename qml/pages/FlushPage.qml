@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
-import "../components"
 
 Page {
     objectName: "flushPage"
@@ -25,7 +24,7 @@ Page {
         }
     }
 
-    property bool isFlushing: MachineState.phase === MachineState.Phase.Flushing || root.debugLiveView
+    property bool isFlushing: MachineState.phase === MachineState.Phase.Flushing || AppShell.debugLiveView
     property int editingPresetIndex: -1
 
     onIsFlushingChanged: {
@@ -201,8 +200,8 @@ Page {
                 border.width: Theme.scaled(2)
 
                 activeFocusOnTab: true
-                Keys.onReturnPressed: { root.userExitedFlush = true; DE1Device.stopOperation(); root.goToIdle(); event.accepted = true }
-                Keys.onSpacePressed:  { root.userExitedFlush = true; DE1Device.stopOperation(); root.goToIdle(); event.accepted = true }
+                Keys.onReturnPressed: { AppShell.userExitedFlush = true; DE1Device.stopOperation(); AppShell.idleRequested(); event.accepted = true }
+                Keys.onSpacePressed:  { AppShell.userExitedFlush = true; DE1Device.stopOperation(); AppShell.idleRequested(); event.accepted = true }
                 Keys.onTabPressed: {
                     if (livePresetRepeater.count > 0) livePresetRepeater.itemAt(0).forceActiveFocus()
                     event.accepted = true
@@ -228,9 +227,9 @@ Page {
                     accessibleName: TranslationManager.translate("flush.accessible.stopFlushing", "Stop flushing")
                     accessibleItem: flushStopButton
                     onAccessibleClicked: {
-                        root.userExitedFlush = true
+                        AppShell.userExitedFlush = true
                         DE1Device.stopOperation()
-                        root.goToIdle()
+                        AppShell.idleRequested()
                     }
                 }
             }
@@ -595,17 +594,13 @@ Page {
         title: getCurrentPresetName() || pageTitle
         onBackClicked: {
             if (isFlushing) {
-                root.userExitedFlush = true
+                AppShell.userExitedFlush = true
                 DE1Device.stopOperation()
             } else {
                 MainController.applyFlushSettings()
             }
-            // Handle both pushed (user nav) and replaced (auto nav) cases
-            if (pageStack.depth > 1) {
-                root.goBack()
-            } else {
-                root.goToIdle()
-            }
+            // Pushed (user nav) or replaced (auto nav) — the shell knows which, this page does not.
+            AppShell.dismissRequested()
         }
 
         Text {
@@ -647,9 +642,9 @@ Page {
         onClosed: editPresetPopupAtTop = false
 
         Connections {
-            target: Qt.inputMethod
+            target: Keyboard
             function onVisibleChanged() {
-                if (Qt.inputMethod.visible && editPresetPopup.opened) {
+                if (Keyboard.visible && editPresetPopup.opened) {
                     editPresetPopup.editPresetPopupAtTop = true
                 }
             }
@@ -744,7 +739,7 @@ Page {
                     KeyNavigation.tab: editPresetNameInput
                     KeyNavigation.backtab: cancelEditButton
                     onClicked: {
-                        Qt.inputMethod.commit()
+                        Keyboard.commit()
                         var preset = Settings.brew.getFlushPreset(editingPresetIndex)
                         Settings.brew.updateFlushPreset(editingPresetIndex, editPresetNameInput.text, preset.flow, preset.seconds)
                         editPresetPopup.close()
@@ -773,9 +768,9 @@ Page {
         onClosed: addPresetDialogAtTop = false
 
         Connections {
-            target: Qt.inputMethod
+            target: Keyboard
             function onVisibleChanged() {
-                if (Qt.inputMethod.visible && addPresetDialog.opened) {
+                if (Keyboard.visible && addPresetDialog.opened) {
                     addPresetDialog.addPresetDialogAtTop = true
                 }
             }
@@ -857,7 +852,7 @@ Page {
                     KeyNavigation.tab: newPresetNameInput
                     KeyNavigation.backtab: cancelAddButton
                     onClicked: {
-                        Qt.inputMethod.commit()
+                        Keyboard.commit()
                         if (newPresetNameInput.text.length > 0) {
                             Settings.brew.addFlushPreset(newPresetNameInput.text, 6.0, 5.0)
                             newPresetNameInput.text = ""

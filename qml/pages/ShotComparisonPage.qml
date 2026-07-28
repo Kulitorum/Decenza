@@ -3,7 +3,6 @@ import QtQuick.Controls
 import QtQuick.Effects
 import QtQuick.Layouts
 import Decenza
-import "../components"
 
 Page {
     id: shotComparisonPage
@@ -428,6 +427,6 @@ Page {
         id: bottomBar
         title: TranslationManager.translate("comparison.title", "Compare Shots")
         rightText: comparisonModel.shotCount + " " + TranslationManager.translate("comparison.shots", "shots")
-        onBackClicked: root.goBack()
+        onBackClicked: AppShell.backRequested()
     }
 }

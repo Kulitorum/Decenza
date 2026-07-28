@@ -3,7 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Effects
 import Decenza
-import "../components"
 
 Page {
     id: autoFavoritesPage
@@ -24,7 +23,7 @@ Page {
         function onShotMetadataLoaded(shotId, success) {
             autoFavoritesPage._waitingForShotLoad = false
             if (success)
-                pageStack.pop()
+                AppShell.backRequested()
         }
     }
 
@@ -356,7 +355,7 @@ Page {
                                 // (used to scope stats) while model.doseWeightG is the latest
                                 // shot's raw dose (shown on the card). Pass the bucket so the
                                 // Info page's averages cover the same shots the card aggregates.
-                                pageStack.push(Qt.resolvedUrl("AutoFavoriteInfoPage.qml"), {
+                                AppShell.autoFavoriteInfoRequested({
                                     shotId: model.shotId,
                                     groupBy: Settings.network.autoFavoritesGroupBy,
                                     beanBrand: model.beanBrand || "",
@@ -436,7 +435,7 @@ Page {
                                 var props = {}
                                 if (Object.keys(filter).length > 0)
                                     props.initialFilter = filter
-                                pageStack.push(Qt.resolvedUrl("ShotHistoryPage.qml"), props)
+                                AppShell.shotHistoryRequested(props)
                             }
                         }
                     }
@@ -466,7 +465,7 @@ Page {
                             accessibleItem: loadButton
                             onAccessibleClicked: {
                                 if (Settings.network.autoFavoritesOpenBrewSettings)
-                                    root.pendingBrewDialog = true
+                                    AppShell.pendingBrewDialog = true
                                 autoFavoritesPage._waitingForShotLoad = true
                                 // Pass the latest shot's raw dose so the loaded recipe matches
                                 // what the card displays (and what the user last dialled in).
@@ -501,8 +500,7 @@ Page {
                                 ". " + favoriteDelegate._groupByText
                             accessibleItem: favRecipeButton
                             onAccessibleClicked: {
-                                pageStack.push(Qt.resolvedUrl("RecipeWizardPage.qml"),
-                                               { mode: "create", promoteShotId: model.shotId })
+                                AppShell.recipeWizardRequested("create", { promoteShotId: model.shotId })
                             }
                         }
                     }
@@ -692,6 +690,6 @@ Page {
     // Bottom bar
     BottomBar {
         title: TranslationManager.translate("autofavorites.title", "Auto-Favorites")
-        onBackClicked: root.goBack()
+        onBackClicked: AppShell.backRequested()
     }
 }

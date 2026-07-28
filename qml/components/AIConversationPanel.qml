@@ -107,7 +107,7 @@ Item {
                     // Commit any pending IME composition before reading text.
                     // On mobile keyboards the last typed word stays in a "pre-edit"
                     // composing state until committed, so it won't appear in .text yet.
-                    Qt.inputMethod.commit()
+                    Keyboard.commit()
 
                     var prompt = followUpInput.visible && followUpInput.text
                         ? followUpInput.text

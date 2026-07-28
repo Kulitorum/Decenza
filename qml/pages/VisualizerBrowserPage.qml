@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
-import "../components"
 
 Page {
     id: visualizerPage
@@ -161,7 +160,7 @@ Page {
                                 MainController.visualizerImporter.importFromShareCode(text)
                             }
                             focus = false
-                            Qt.inputMethod.hide()
+                            Keyboard.hide()
                         }
                         Keys.onEnterPressed: Keys.onReturnPressed(event)
                     }
@@ -183,7 +182,7 @@ Page {
                                 ? TranslationManager.translate("visualizerBrowser.importingPleaseWait", "Importing profile, please wait")
                                 : TranslationManager.translate("visualizerBrowser.importUsingShareCode", "Import profile using the 4-character share code")
                             onClicked: {
-                                Qt.inputMethod.commit()
+                                Keyboard.commit()
                                 MainController.visualizerImporter.importFromShareCode(shareCodeInput.text)
                             }
                         }
@@ -195,7 +194,7 @@ Page {
                             text: TranslationManager.translate("visualizer.button.importShared", "Import profiles I shared")
                             accessibleName: TranslationManager.translate("visualizerBrowser.importSharedProfiles", "Import all profiles you have shared on Visualizer")
                             onClicked: {
-                                pageStack.push(Qt.resolvedUrl("VisualizerMultiImportPage.qml"))
+                                AppShell.visualizerMultiImportRequested()
                             }
                         }
                     }
@@ -351,16 +350,16 @@ Page {
                     id: keyboardResetTimer
                     interval: 100
                     onTriggered: {
-                        if (!Qt.inputMethod.visible) {
+                        if (!Keyboard.visible) {
                             nameInputPanel.keyboardOffset = 0
                         }
                     }
                 }
 
                 Connections {
-                    target: Qt.inputMethod
+                    target: Keyboard
                     function onVisibleChanged() {
-                        if (Qt.inputMethod.visible) {
+                        if (Keyboard.visible) {
                             keyboardResetTimer.stop()
                             nameInputPanel.keyboardOffset = nameInputPanel.height * 0.3
                         } else {
@@ -410,7 +409,7 @@ Page {
                             text: TranslationManager.translate("visualizer.button.save", "Save")
                             accessibleName: TranslationManager.translate("visualizerBrowser.saveWithNewName", "Save profile with the new name")
                             onClicked: {
-                                Qt.inputMethod.commit()
+                                Keyboard.commit()
                                 MainController.visualizerImporter.saveWithNewName(newNameInput.text.trim())
                                 hideDuplicateDialog()
                             }
@@ -436,6 +435,6 @@ Page {
     BottomBar {
         title: trBottomTitle.text
         rightText: trBottomHint.text
-        onBackClicked: root.goBack()
+        onBackClicked: AppShell.backRequested()
     }
 }

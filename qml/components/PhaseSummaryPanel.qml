@@ -1,3 +1,7 @@
+// Delegates below declare their model roles with `required property`; ids from this file then
+// resolve statically inside them. See PresetPillRow.qml for the full rationale.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Effects
 import QtQuick.Layouts
@@ -151,6 +155,8 @@ Item {
                 model: root.phaseSummaries
 
                 delegate: RowLayout {
+                    id: phaseRow
+
                     required property var modelData
                     required property int index
 
@@ -171,12 +177,12 @@ Item {
 
                         Rectangle {
                             Layout.preferredWidth: Theme.scaled(6); Layout.preferredHeight: Theme.scaled(6); radius: Theme.scaled(3)
-                            color: modelData.isFlowMode ? Theme.flowColor : Theme.pressureColor
+                            color: phaseRow.modelData.isFlowMode ? Theme.flowColor : Theme.pressureColor
                             Accessible.ignored: true
                         }
 
                         Text {
-                            text: modelData.name ?? ""
+                            text: phaseRow.modelData.name ?? ""
                             font: Theme.captionFont
                             color: Theme.textColor
                             elide: Text.ElideRight
@@ -187,7 +193,7 @@ Item {
 
                     Text {
                         Layout.preferredWidth: root.width * 0.16
-                        text: (modelData.duration ?? 0).toFixed(1) + "s"
+                        text: (phaseRow.modelData.duration ?? 0).toFixed(1) + "s"
                         font: Theme.captionFont
                         color: Theme.textColor
                         horizontalAlignment: Text.AlignRight
@@ -195,7 +201,7 @@ Item {
                     }
                     Text {
                         Layout.preferredWidth: root.width * 0.18
-                        text: (modelData.avgPressure ?? 0).toFixed(1) + " bar"
+                        text: (phaseRow.modelData.avgPressure ?? 0).toFixed(1) + " bar"
                         font: Theme.captionFont
                         color: Theme.textColor
                         horizontalAlignment: Text.AlignRight
@@ -203,7 +209,7 @@ Item {
                     }
                     Text {
                         Layout.preferredWidth: root.width * 0.18
-                        text: (modelData.avgFlow ?? 0).toFixed(1) + " mL/s"
+                        text: (phaseRow.modelData.avgFlow ?? 0).toFixed(1) + " mL/s"
                         font: Theme.captionFont
                         color: Theme.textColor
                         horizontalAlignment: Text.AlignRight
@@ -211,7 +217,7 @@ Item {
                     }
                     Text {
                         Layout.preferredWidth: root.width * 0.18
-                        text: (modelData.weightGained ?? 0).toFixed(1) + "g"
+                        text: (phaseRow.modelData.weightGained ?? 0).toFixed(1) + "g"
                         font: Theme.captionFont
                         color: Theme.textColor
                         horizontalAlignment: Text.AlignRight

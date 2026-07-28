@@ -36,7 +36,7 @@ TextField {
             _a11yActivated = true
         }
         control.forceActiveFocus()
-        Qt.inputMethod.show()
+        Keyboard.show()
     }
 
     // When TalkBack cursor lands on the field, Qt gives it activeFocus and auto-shows
@@ -48,7 +48,7 @@ TextField {
         target: control
         function onActiveFocusChanged() {
             if (control.activeFocus && control._accessibilityMode && !control._a11yActivated) {
-                Qt.inputMethod.hide()
+                Keyboard.hide()
             }
             if (!control.activeFocus) {
                 control._a11yActivated = false
@@ -70,11 +70,11 @@ TextField {
     // Default: dismiss keyboard on Enter (can be overridden with Keys.onReturnPressed)
     Keys.onReturnPressed: function(event) {
         control.focus = false
-        Qt.inputMethod.hide()
+        Keyboard.hide()
     }
     Keys.onEnterPressed: function(event) {
         control.focus = false
-        Qt.inputMethod.hide()
+        Keyboard.hide()
     }
 
     background: Rectangle {

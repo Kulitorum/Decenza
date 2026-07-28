@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
-import "../components"
 
 // Recipe wizard (add-recipe-wizard-tea): ONE page for all recipe creation and
 // editing, replacing RecipeComposerPage. Three entry points land here — blank
@@ -863,7 +862,7 @@ Page {
         // the token guard silently discards the first reply).
         if (_submitting)
             return
-        Qt.inputMethod.commit()  // IME: flush the in-progress word first
+        Keyboard.commit()  // IME: flush the in-progress word first
         errorMessage = ""
         var name = nameField.text.trim()
         if (name === "") {
@@ -906,7 +905,7 @@ Page {
         // reply lands anyway — never block the exit.
         if (_baselineJson === "")
             return false
-        Qt.inputMethod.commit()  // IME: flush the in-progress word first
+        Keyboard.commit()  // IME: flush the in-progress word first
         return JSON.stringify(buildSaveMap()) !== _baselineJson
     }
 
@@ -925,7 +924,7 @@ Page {
         if (hasUnsavedChanges() && (canSave || !earlyWalk))
             exitDialog.open()
         else
-            root.goBack()
+            AppShell.backRequested()
     }
 
     // A failed save must be SEEN: the pinned error label exists only on the
@@ -1821,7 +1820,7 @@ Page {
                 // and only fails to save. Leave the page instead.
                 console.warn("RecipeWizard: recipe", wizardPage.editRecipeId,
                              "no longer exists — leaving edit")
-                root.goBack()
+                AppShell.backRequested()
             }
         }
         function onRecipeCreated(recipeId, recipe) {
@@ -1834,7 +1833,7 @@ Page {
                 wizardPage._submitting = false
                 wizardPage._createToken = ""
                 if (recipeId > 0) {
-                    pageStack.pop()
+                    AppShell.backRequested()
                 } else {
                     // Name the cause when storage gave one — the generic wording
                     // leaves the user with nothing to act on, and this is the
@@ -1863,7 +1862,7 @@ Page {
                 wizardPage._submitting = false
                 if (success) {
                     wizardPage._saveFailReason = ""
-                    pageStack.pop()
+                    AppShell.backRequested()
                 } else {
                     // "busy" means the database was locked by another write — the
                     // one cause here where trying again actually works, so say so
@@ -2812,10 +2811,7 @@ Page {
                                                         buttonSize: Theme.scaled(26)
                                                         profileFilename: row.name
                                                         profileName: row.title
-                                                        onClicked: pageStack.push(
-                                                            Qt.resolvedUrl("ProfileInfoPage.qml"),
-                                                            { profileFilename: row.name,
-                                                              profileName: row.title })
+                                                        onClicked: AppShell.profileInfoRequested(row.name, row.title)
                                                     }
                                                 }
                                             }
@@ -3678,10 +3674,7 @@ Page {
                                     buttonSize: Theme.scaled(26)
                                     profileFilename: parent.profileFilename
                                     profileName: wizardPage.fProfileTitle
-                                    onClicked: pageStack.push(
-                                        Qt.resolvedUrl("ProfileInfoPage.qml"),
-                                        { profileFilename: parent.profileFilename,
-                                          profileName: wizardPage.fProfileTitle })
+                                    onClicked: AppShell.profileInfoRequested(parent.profileFilename, wizardPage.fProfileTitle)
                                 }
                             }
                         }
@@ -3839,7 +3832,7 @@ Page {
         itemType: "recipe"
         showSaveAs: false
         canSave: wizardPage.canSave
-        onDiscardClicked: root.goBack()
+        onDiscardClicked: AppShell.backRequested()
         onSaveClicked: wizardPage.save()
     }
 

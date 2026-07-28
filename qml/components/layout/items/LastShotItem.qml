@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Effects
 import Decenza
-import "../.."
 
 Item {
     id: root
@@ -60,9 +59,8 @@ Item {
     }
 
     function goToShotDetail() {
-        if (hasData && shotData.id && typeof pageStack !== "undefined") {
-            pageStack.push(Qt.resolvedUrl("../../../pages/ShotDetailPage.qml"),
-                          { shotId: shotData.id })
+        if (hasData && shotData.id) {
+            AppShell.shotDetailRequested(shotData.id, [])
         }
     }
 

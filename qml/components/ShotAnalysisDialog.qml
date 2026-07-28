@@ -1,8 +1,11 @@
+// Delegates below declare their model roles with `required property`; ids from this file then
+// resolve statically inside them. See PresetPillRow.qml for the full rationale.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
-import "."
 
 // Brief shot quality summary dialog — no AI, computed from curve data.
 // Shows only noteworthy observations + a verdict.
@@ -62,6 +65,8 @@ Dialog {
                 model: analysisDialog.analysisLines
 
                 delegate: RowLayout {
+                    id: analysisRow
+
                     required property var modelData
                     required property int index
                     Layout.fillWidth: true
@@ -73,7 +78,7 @@ Dialog {
 
                     // Colored dot for non-verdict lines
                     Rectangle {
-                        visible: modelData.type !== "verdict"
+                        visible: analysisRow.modelData.type !== "verdict"
                         Layout.preferredWidth: Theme.scaled(6)
                         Layout.preferredHeight: Theme.scaled(6)
                         radius: Theme.scaled(3)
@@ -81,20 +86,20 @@ Dialog {
                         Layout.topMargin: Theme.scaled(6)
                         Accessible.ignored: true
                         color: {
-                            if (modelData.type === "good") return Theme.successColor
-                            if (modelData.type === "caution") return Theme.warningColor
-                            if (modelData.type === "warning") return Theme.errorColor
+                            if (analysisRow.modelData.type === "good") return Theme.successColor
+                            if (analysisRow.modelData.type === "caution") return Theme.warningColor
+                            if (analysisRow.modelData.type === "warning") return Theme.errorColor
                             return Theme.textSecondaryColor
                         }
                     }
 
                     Text {
                         Layout.fillWidth: true
-                        text: modelData.text
-                        font: modelData.type === "verdict" ? Theme.subtitleFont : Theme.bodyFont
-                        color: modelData.type === "verdict" ? Theme.textColor : Theme.textSecondaryColor
+                        text: analysisRow.modelData.text
+                        font: analysisRow.modelData.type === "verdict" ? Theme.subtitleFont : Theme.bodyFont
+                        color: analysisRow.modelData.type === "verdict" ? Theme.textColor : Theme.textSecondaryColor
                         wrapMode: Text.Wrap
-                        topPadding: modelData.type === "verdict" ? Theme.spacingSmall : 0
+                        topPadding: analysisRow.modelData.type === "verdict" ? Theme.spacingSmall : 0
                         Accessible.ignored: true
                     }
                 }

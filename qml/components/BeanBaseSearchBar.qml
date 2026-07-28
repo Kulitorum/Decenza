@@ -342,7 +342,7 @@ Item {
                     // — see SuggestionField.selectSuggestion for chapter & verse).
                     Qt.callLater(function() {
                         root.forceActiveFocus()
-                        Qt.inputMethod.hide()
+                        Keyboard.hide()
                     })
                     root.entrySelected(resultDelegate.entry)
                 }
@@ -403,7 +403,7 @@ Item {
                 root.entrySelected(entry)
                 Qt.callLater(function() {
                     root.forceActiveFocus()
-                    Qt.inputMethod.hide()
+                    Keyboard.hide()
                 })
             }
         }

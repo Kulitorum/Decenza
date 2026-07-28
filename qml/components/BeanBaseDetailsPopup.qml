@@ -1,3 +1,7 @@
+// Delegates below declare their model roles with `required property`; ids from this file then
+// resolve statically inside them. See PresetPillRow.qml for the full rationale.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -219,6 +223,10 @@ Popup {
                 Repeater {
                     model: Array.isArray(root.bean.tastingTags) ? root.bean.tastingTags : []
                     delegate: Rectangle {
+                        id: tagChip
+
+                        required property var modelData
+
                         width: chipText.implicitWidth + Theme.scaled(16)
                         height: chipText.implicitHeight + Theme.scaled(8)
                         radius: height / 2
@@ -229,7 +237,7 @@ Popup {
                         Text {
                             id: chipText
                             anchors.centerIn: parent
-                            text: modelData
+                            text: tagChip.modelData
                             color: Theme.textColor
                             font.pixelSize: Theme.scaled(12)
                         }

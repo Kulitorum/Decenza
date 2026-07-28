@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
 import Decenza
-import "../../components"
 
 KeyboardAwareContainer {
     id: homeAutomationTab

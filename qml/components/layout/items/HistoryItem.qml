@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Effects
 import Decenza
-import "../.."
 
 Item {
     id: root
@@ -20,9 +19,7 @@ Item {
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
 
     function goToHistory() {
-        if (typeof pageStack !== "undefined") {
-            pageStack.push(Qt.resolvedUrl("../../../pages/ShotHistoryPage.qml"))
-        }
+            AppShell.shotHistoryRequested({})
     }
 
     // --- COMPACT MODE ---

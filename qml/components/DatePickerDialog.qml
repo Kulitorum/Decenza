@@ -29,7 +29,7 @@ Dialog {
                 win.activeFocusItem.focus = false
             }
         }
-        Qt.inputMethod.hide()
+        Keyboard.hide()
 
         dateString = DateUtils.normalizeDateString(dateString || "")
 
@@ -64,7 +64,7 @@ Dialog {
     // (e.g. the date text field the user clicked before tapping the calendar button).
     // Restoring focus to a TextField automatically shows the keyboard. Hide it here —
     // the user just used a picker and does not want to type.
-    onClosed: Qt.callLater(function() { Qt.inputMethod.hide() })
+    onClosed: Qt.callLater(function() { Keyboard.hide() })
 
     background: Rectangle {
         color: Theme.surfaceColor

@@ -1,4 +1,6 @@
 #include "ghcsimulator.h"
+
+#ifdef DECENZA_SIMULATOR
 #include "de1simulator.h"
 #include "../ble/de1device.h"
 #include <QDebug>
@@ -307,3 +309,5 @@ void GHCSimulator::updateEspressoLeds(double pressure, double flow)
 
     emit ledColorsChanged();
 }
+
+#endif  // DECENZA_SIMULATOR

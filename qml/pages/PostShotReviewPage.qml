@@ -1,9 +1,10 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Effects
 import Decenza
-import "../components"
 import "../components/DateUtils.js" as DateUtils
 import "../components/layout/ShotPlanConfig.js" as ShotPlanConfig
 
@@ -34,7 +35,7 @@ Page {
     }
 
     // Disconnect refractometer when the page is torn down. NOTE: we do NOT
-    // autosave() here — calling Qt.inputMethod.commit() / a DB write / singleton
+    // autosave() here — calling Keyboard.commit() / a DB write / singleton
     // writes during QML object destruction is unsafe (events delivered to a
     // being-destroyed TextEdit, nulled context). StackView.onDeactivating below
     // already flushes on every normal navigation exit, and handleBack() flushes
@@ -52,7 +53,7 @@ Page {
         // set, Settings.visualizer.visualizerAutoUpdate on, MainController.visualizer
         // present, and a captured _visualizerId (i.e. the shot was previously uploaded).
         // Safe here because maybeAutoUpdateVisualizer() only dispatches a network call —
-        // no DB writes or Qt.inputMethod.commit(), which are the operations flagged as
+        // no DB writes or Keyboard.commit(), which are the operations flagged as
         // unsafe during destruction. Note: any failure response arrives after this page
         // is fully destroyed, so errors are logged by the C++ uploader but cannot be
         // surfaced to the user from here.
@@ -80,7 +81,7 @@ Page {
         // Every committed edit is already persisted; just flush a possible
         // in-progress text field and leave — no confirmation prompt needed.
         autosave()
-        root.goBack()
+        AppShell.backRequested()
     }
 
     // Intercept Android system back button / Escape key; reset auto-close on any key
@@ -128,7 +129,7 @@ Page {
     // state, never this map's pin.
     RecipeResolver {
         id: recipeResolver
-        sourceRecipeId: editShotData.recipeId || -1
+        sourceRecipeId: postShotReviewPage.editShotData.recipeId || -1
     }
 
     // --- Read-only recipe-component row text (from the page's live edit state) ---
@@ -222,7 +223,7 @@ Page {
         // re-evaluate this target to null and the measuringChanged that ends the run
         // would be delivered to nothing, stranding the progress label and the pending
         // commit. The device object itself stays non-null across a disconnect.
-        target: (typeof Refractometer !== "undefined" && Refractometer) ? Refractometer : null
+        target: Refractometer
 
         function onAverageProgress(completed, total) {
             postShotReviewPage.avgDone = completed
@@ -307,7 +308,7 @@ Page {
         onTriggered: {
             // Auto-close: flush any pending edit and exit
             postShotReviewPage.autosave()
-            root.goBack()
+            AppShell.backRequested()
         }
     }
 
@@ -320,7 +321,7 @@ Page {
 
     // Detect taps anywhere on the page
     TapHandler {
-        onTapped: resetAutoCloseTimer()
+        onTapped: postShotReviewPage.resetAutoCloseTimer()
     }
     // Incremented when async distinct cache refreshes; referenced in suggestion bindings
     // to force QML re-evaluation (the >= 0 condition is always true by design)
@@ -345,70 +346,70 @@ Page {
             // moment this page opens. Re-running the block below would repopulate every
             // edit field from the database and reset the upload status, which is the same
             // clobber-an-in-progress-edit hazard onVisualizerInfoUpdated documents below.
-            if (editShotData && editShotData.id === shotId) return
-            editShotData = shot
-            _profileName = editShotData.profileName || ""
-            _visualizerId = editShotData.visualizerId || ""
+            if (postShotReviewPage.editShotData && postShotReviewPage.editShotData.id === shotId) return
+            postShotReviewPage.editShotData = shot
+            postShotReviewPage._profileName = postShotReviewPage.editShotData.profileName || ""
+            postShotReviewPage._visualizerId = postShotReviewPage.editShotData.visualizerId || ""
             // Reset upload status text when loading a new shot so stale
             // error/skip messages from a previous shot don't carry over.
-            uploadError = ""
-            uploadSkipReason = ""
-            if (editShotData.id) {
+            postShotReviewPage.uploadError = ""
+            postShotReviewPage.uploadSkipReason = ""
+            if (postShotReviewPage.editShotData.id) {
                 // Populate editing fields
-                editBeanBrand = editShotData.beanBrand || ""
-                editBeanType = editShotData.beanType || ""
-                editRoastDate = DateUtils.normalizeDateString(editShotData.roastDate || "")
-                editRoastLevel = editShotData.roastLevel || ""
-                editGrinderBrand = editShotData.grinderBrand || ""
-                editGrinderModel = editShotData.grinderModel || ""
-                editGrinderBurrs = editShotData.grinderBurrs || ""
-                editEquipmentId = editShotData.equipmentId || -1
-                editEquipmentName = editShotData.equipmentName || ""
+                postShotReviewPage.editBeanBrand = postShotReviewPage.editShotData.beanBrand || ""
+                postShotReviewPage.editBeanType = postShotReviewPage.editShotData.beanType || ""
+                postShotReviewPage.editRoastDate = DateUtils.normalizeDateString(postShotReviewPage.editShotData.roastDate || "")
+                postShotReviewPage.editRoastLevel = postShotReviewPage.editShotData.roastLevel || ""
+                postShotReviewPage.editGrinderBrand = postShotReviewPage.editShotData.grinderBrand || ""
+                postShotReviewPage.editGrinderModel = postShotReviewPage.editShotData.grinderModel || ""
+                postShotReviewPage.editGrinderBurrs = postShotReviewPage.editShotData.grinderBurrs || ""
+                postShotReviewPage.editEquipmentId = postShotReviewPage.editShotData.equipmentId || -1
+                postShotReviewPage.editEquipmentName = postShotReviewPage.editShotData.equipmentName || ""
                 // Basket + puck prep are display-only here (owned by the package,
                 // re-pointed via the picker) but shown in the equipment card.
-                editBasketBrand = editShotData.basketBrand || ""
-                editBasketModel = editShotData.basketModel || ""
-                editPuckPrep = editShotData.puckPrep || ""
-                editGrinderSetting = editShotData.grinderSetting || ""
-                editRpm = editShotData.rpm || 0
-                editBarista = editShotData.barista || ""
+                postShotReviewPage.editBasketBrand = postShotReviewPage.editShotData.basketBrand || ""
+                postShotReviewPage.editBasketModel = postShotReviewPage.editShotData.basketModel || ""
+                postShotReviewPage.editPuckPrep = postShotReviewPage.editShotData.puckPrep || ""
+                postShotReviewPage.editGrinderSetting = postShotReviewPage.editShotData.grinderSetting || ""
+                postShotReviewPage.editRpm = postShotReviewPage.editShotData.rpm || 0
+                postShotReviewPage.editBarista = postShotReviewPage.editShotData.barista || ""
                 // Fall back to last-used DYE dose when the shot has no stored dose,
                 // so EY can be computed immediately when TDS arrives.
-                editDoseWeight = (editShotData.doseWeightG > 0) ? editShotData.doseWeightG : Settings.dye.dyeBeanWeight
-                editDrinkWeight = editShotData.finalWeightG ?? 0
+                postShotReviewPage.editDoseWeight = (postShotReviewPage.editShotData.doseWeightG > 0) ? postShotReviewPage.editShotData.doseWeightG : Settings.dye.dyeBeanWeight
+                postShotReviewPage.editDrinkWeight = postShotReviewPage.editShotData.finalWeightG ?? 0
                 // Preserve any live R2 reading that arrived before the async DB load;
                 // only take the DB value when no measurement has been received yet.
-                if (editDrinkTds === 0) {
-                    editDrinkTds = editShotData.drinkTdsPct ?? 0
-                    editDrinkEy = editShotData.drinkEyPct ?? 0
+                if (postShotReviewPage.editDrinkTds === 0) {
+                    postShotReviewPage.editDrinkTds = postShotReviewPage.editShotData.drinkTdsPct ?? 0
+                    postShotReviewPage.editDrinkEy = postShotReviewPage.editShotData.drinkEyPct ?? 0
                 }
-                editEnjoyment = editShotData.enjoyment0to100 ?? 0
-                editTasteBalance = editShotData.tasteBalance || ""
-                editTasteBody = editShotData.tasteBody || ""
-                editNotes = editShotData.espressoNotes || ""
-                editBeverageType = editShotData.beverageType || "espresso"
-                editBeanBaseJson = editShotData.beanBaseJson || ""
+                postShotReviewPage.editEnjoyment = postShotReviewPage.editShotData.enjoyment0to100 ?? 0
+                postShotReviewPage.editTasteBalance = postShotReviewPage.editShotData.tasteBalance || ""
+                postShotReviewPage.editTasteBody = postShotReviewPage.editShotData.tasteBody || ""
+                postShotReviewPage.editNotes = postShotReviewPage.editShotData.espressoNotes || ""
+                postShotReviewPage.editBeverageType = postShotReviewPage.editShotData.beverageType || "espresso"
+                postShotReviewPage.editBeanBaseJson = postShotReviewPage.editShotData.beanBaseJson || ""
                 // A canonical pick persists identity immediately; if the page
                 // closed (or the network blipped) before the attribute payload
                 // arrived, the shot is stuck with a bare {id, roaster, name}
                 // blob — fields don't lock, the advisor sees nothing. Complete
                 // it: re-issue the best-effort fetch; the onCanonicalDetails
                 // merge below finishes the job.
-                if (beanBaseLinked && activeBeanBase.source === "visualizer"
-                    && activeBeanBase.origin === undefined
-                    && activeBeanBase.degree === undefined)
-                    MainController.beanbase.fetchCanonicalDetails(activeBeanBase)
+                if (postShotReviewPage.beanBaseLinked && postShotReviewPage.activeBeanBase.source === "visualizer"
+                    && postShotReviewPage.activeBeanBase.origin === undefined
+                    && postShotReviewPage.activeBeanBase.degree === undefined)
+                    MainController.beanbase.fetchCanonicalDetails(postShotReviewPage.activeBeanBase)
                 // Recompute EY now that dose/weight are loaded (covers the case where TDS
                 // arrived via R2 before the shot data was ready, or where the DB already
                 // has a non-zero TDS from a previous session).
-                calculateEy()
+                postShotReviewPage.calculateEy()
                 // Establish the autosave baseline now that every edit field
                 // mirrors the loaded record. _editLoaded gates autosave so a
                 // pre-load flush can't write empty metadata over the shot
                 // (hasUnsavedChanges is transiently true before this point —
                 // empty baseline vs. dose defaulted from Settings).
-                _committedState = captureEditState()
-                _editLoaded = true
+                postShotReviewPage._committedState = postShotReviewPage.captureEditState()
+                postShotReviewPage._editLoaded = true
                 // Quality badges already arrived recomputed in `shot` via
                 // loadShotRecordStatic, which also persists drift to the DB
                 // and emits shotBadgesUpdated when it does. onShotBadgesUpdated
@@ -417,12 +418,12 @@ Page {
         }
         function onShotBadgesUpdated(shotId, channeling, grindIssue, skipFirstFrame, pourTruncated) {
             if (shotId !== postShotReviewPage.editShotId) return
-            var updated = clonePersistedShot(editShotData)
+            var updated = postShotReviewPage.clonePersistedShot(postShotReviewPage.editShotData)
             updated.channelingDetected = channeling
             updated.grindIssueDetected = grindIssue
             updated.skipFirstFrameDetected = skipFirstFrame
             updated.pourTruncatedDetected = pourTruncated
-            editShotData = updated
+            postShotReviewPage.editShotData = updated
         }
         function onShotMetadataUpdated(shotId, success) {
             if (shotId !== postShotReviewPage.editShotId) return
@@ -449,7 +450,7 @@ Page {
                 console.warn("PostShotReviewPage: Failed to save visualizer info for shot", shotId)
         }
         function onDistinctCacheReady() {
-            _distinctCacheVersion++
+            postShotReviewPage._distinctCacheVersion++
         }
     }
 
@@ -521,28 +522,26 @@ Page {
     // page has already opened. Without this, R2 readings that arrive after
     // the page opens are silently dropped.
     Connections {
-        target: BLEManager.refractometerConnected
-            && (typeof Refractometer !== "undefined") && Refractometer
-            ? Refractometer : null
+        target: BLEManager.refractometerConnected ? Refractometer : null
         enabled: postShotReviewPage.visible
         function onTdsChanged(tds) {
-            if (!isEditMode) return
+            if (!postShotReviewPage.isEditMode) return
             if (tds < postShotReviewPage.kMinimumPlausibleTds) {
                 console.debug("[PostShotReview] R2 tds", tds.toFixed(2),
                     "dropped: below threshold", postShotReviewPage.kMinimumPlausibleTds,
-                    "shotId=", editShotId,
-                    "wasMeasuring=", (typeof Refractometer !== "undefined" && Refractometer) ? Refractometer.measuring : false)
+                    "shotId=", postShotReviewPage.editShotId,
+                    "wasMeasuring=", Refractometer.measuring)
                 return
             }
             if (tds > postShotReviewPage.kMaximumPlausibleTds) {
                 console.debug("[PostShotReview] R2 tds", tds.toFixed(2),
                     "dropped: above threshold", postShotReviewPage.kMaximumPlausibleTds,
-                    "shotId=", editShotId,
-                    "wasMeasuring=", (typeof Refractometer !== "undefined" && Refractometer) ? Refractometer.measuring : false)
+                    "shotId=", postShotReviewPage.editShotId,
+                    "wasMeasuring=", Refractometer.measuring)
                 return
             }
-            editDrinkTds = tds
-            calculateEy()
+            postShotReviewPage.editDrinkTds = tds
+            postShotReviewPage.calculateEy()
             // An R2 measurement is a committed value just like a user-entered one, and
             // without persisting it the value relied on a later manual Save and was
             // frequently lost on navigate-away. But it is committed when the RUN ends,
@@ -702,7 +701,7 @@ Page {
     // first tick, finalize on focus-loss, or a lifecycle flush). This keeps
     // one drag to ~2 DB writes instead of one per emission.
     function autosave(key, finalize) {
-        Qt.inputMethod.commit()
+        Keyboard.commit()
         var lifecycle = (key === undefined || key === "")
         if (!_editLoaded || !hasUnsavedChanges) {
             if (finalize || lifecycle) _lastEditKey = ""
@@ -739,7 +738,7 @@ Page {
     // record; the reverted state is itself persisted.
     function undoLastChange() {
         if (_undoStack.length === 0) return
-        Qt.inputMethod.commit()
+        Keyboard.commit()
         applyEditState(_undoStack.pop())
         _undoDepth = _undoStack.length
         // Force the next edit (even to the same control) to open a fresh
@@ -852,7 +851,7 @@ Page {
     }
 
     function saveEditedShot() {
-        Qt.inputMethod.commit()
+        Keyboard.commit()
         if (editShotId <= 0) return
         pendingVisualizerUpdate = true
         var metadata = {
@@ -1001,21 +1000,21 @@ Page {
             // finish while the user is already on this page — without this handler
             // the new visualizer id would not be visible until the page reopens.
             if (dbShotId !== postShotReviewPage.editShotId) return
-            if (_firstUploadInFlight)
-                _firstUploadInFlight = false
-            uploadError = ""
-            uploadSkipReason = ""
+            if (postShotReviewPage._firstUploadInFlight)
+                postShotReviewPage._firstUploadInFlight = false
+            postShotReviewPage.uploadError = ""
+            postShotReviewPage.uploadSkipReason = ""
             if (url) {
                 // clonePersistedShot (not Object.assign) so a first-time upload
                 // on an unedited shot — where editShotData is still the raw
                 // Q_GADGET wrapper from onShotReady — doesn't strip durationSec,
                 // the frame arrays, dateTime, etc. See the helper's docstring.
-                var nb = clonePersistedShot(editShotData)
+                var nb = postShotReviewPage.clonePersistedShot(postShotReviewPage.editShotData)
                 nb.visualizerId = visualizerId
                 nb.visualizerUrl = url
                 nb.hasVisualizerUpload = true
-                editShotData = nb
-                _visualizerId = visualizerId
+                postShotReviewPage.editShotData = nb
+                postShotReviewPage._visualizerId = visualizerId
             }
         }
         function onUpdateSuccess(visualizerId) {
@@ -1023,19 +1022,19 @@ Page {
             // before dispatching the PATCH; ignore PATCHes initiated elsewhere (MCP),
             // which would otherwise clear uploadError and reset _patchInFlight for a
             // request we did not dispatch — leaving the page spuriously "clean".
-            if (!_patchInFlight) return
-            _patchInFlight = false
-            uploadError = ""
-            uploadSkipReason = ""
+            if (!postShotReviewPage._patchInFlight) return
+            postShotReviewPage._patchInFlight = false
+            postShotReviewPage.uploadError = ""
+            postShotReviewPage.uploadSkipReason = ""
         }
         function onUploadFailed(error) {
             // Only surface and react when the failure belongs to a request we
             // dispatched. Without this guard, an unrelated background upload failure
             // would set uploadError on this page and leave our in-flight flag stuck.
-            if (!_firstUploadInFlight && !_patchInFlight) return
-            _firstUploadInFlight = false
-            _patchInFlight = false
-            uploadError = error
+            if (!postShotReviewPage._firstUploadInFlight && !postShotReviewPage._patchInFlight) return
+            postShotReviewPage._firstUploadInFlight = false
+            postShotReviewPage._patchInFlight = false
+            postShotReviewPage.uploadError = error
             // pendingVisualizerUpdate is already cleared by every dispatch site
             // (manual upload button onClicked, maybeAutoUpdateVisualizer above) before
             // the network request goes out, so there is nothing to roll back here.
@@ -1045,10 +1044,10 @@ Page {
             // in-flight flag the same way onUploadFailed does, but populate the
             // informational uploadSkipReason instead of uploadError so the page
             // doesn't surface a red "Upload failed" string for a deliberate skip.
-            if (!_firstUploadInFlight && !_patchInFlight) return
-            _firstUploadInFlight = false
-            _patchInFlight = false
-            uploadSkipReason = reason
+            if (!postShotReviewPage._firstUploadInFlight && !postShotReviewPage._patchInFlight) return
+            postShotReviewPage._firstUploadInFlight = false
+            postShotReviewPage._patchInFlight = false
+            postShotReviewPage.uploadSkipReason = reason
         }
     }
 
@@ -1071,8 +1070,8 @@ Page {
         contentHeight: mainColumn.height
         clip: true
         boundsBehavior: Flickable.StopAtBounds
-        onMovementStarted: resetAutoCloseTimer()
-        onContentYChanged: resetAutoCloseTimer()
+        onMovementStarted: postShotReviewPage.resetAutoCloseTimer()
+        onContentYChanged: postShotReviewPage.resetAutoCloseTimer()
 
         ColumnLayout {
             id: mainColumn
@@ -1083,7 +1082,7 @@ Page {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.spacingMedium
-                visible: !!(editShotData.pressure && editShotData.pressure.length > 0)
+                visible: !!(postShotReviewPage.editShotData.pressure && postShotReviewPage.editShotData.pressure.length > 0)
 
                 ColumnLayout {
                     Layout.fillWidth: true
@@ -1098,8 +1097,8 @@ Page {
                             // renders the <font> highlight and emoji <img> tags.
                             textFormat: Text.StyledText
                             text: {
-                                var name = Theme.escapeHtml(editShotData.profileName || "")
-                                var t = editShotData.temperatureOverrideC
+                                var name = Theme.escapeHtml(postShotReviewPage.editShotData.profileName || "")
+                                var t = postShotReviewPage.editShotData.temperatureOverrideC
                                 var result
                                 if (t !== undefined && t !== null && t > 0) {
                                     // The recorded temp is the effective brew temperature (present
@@ -1124,7 +1123,7 @@ Page {
                         }
 
                         Text {
-                            text: editShotData.dateTime || ""
+                            text: postShotReviewPage.editShotData.dateTime || ""
                             font: Theme.labelFont
                             color: Theme.textSecondaryColor
                             elide: Text.ElideRight
@@ -1132,25 +1131,25 @@ Page {
                         }
 
                         QualityBadges {
-                            visible: !!(editShotData.profileKbId
-                                        || editShotData.channelingDetected
-                                        || editShotData.grindIssueDetected
-                                        || editShotData.skipFirstFrameDetected
-                                        || editShotData.pourTruncatedDetected)
+                            visible: !!(postShotReviewPage.editShotData.profileKbId
+                                        || postShotReviewPage.editShotData.channelingDetected
+                                        || postShotReviewPage.editShotData.grindIssueDetected
+                                        || postShotReviewPage.editShotData.skipFirstFrameDetected
+                                        || postShotReviewPage.editShotData.pourTruncatedDetected)
                             Layout.fillWidth: false
                             Layout.maximumWidth: postShotReviewPage.width * 0.5
-                            channelingDetected: editShotData.channelingDetected ?? false
-                            grindIssueDetected: editShotData.grindIssueDetected ?? false
-                            skipFirstFrameDetected: editShotData.skipFirstFrameDetected ?? false
-                            pourTruncatedDetected: editShotData.pourTruncatedDetected ?? false
-                            verdictCategory: (editShotData && editShotData.detectorResults)
-                                ? (editShotData.detectorResults.verdictCategory ?? "") : ""
+                            channelingDetected: postShotReviewPage.editShotData.channelingDetected ?? false
+                            grindIssueDetected: postShotReviewPage.editShotData.grindIssueDetected ?? false
+                            skipFirstFrameDetected: postShotReviewPage.editShotData.skipFirstFrameDetected ?? false
+                            pourTruncatedDetected: postShotReviewPage.editShotData.pourTruncatedDetected ?? false
+                            verdictCategory: (postShotReviewPage.editShotData && postShotReviewPage.editShotData.detectorResults)
+                                ? (postShotReviewPage.editShotData.detectorResults.verdictCategory ?? "") : ""
                             onSummaryRequested: reviewAnalysisDialog.open()
                         }
 
                         ShotAnalysisDialog {
                             id: reviewAnalysisDialog
-                            shotData: editShotData
+                            shotData: postShotReviewPage.editShotData
                         }
                     }
                 }
@@ -1158,7 +1157,7 @@ Page {
                 // KB sparkle button — opens the profile knowledge base
                 Image {
                     id: headerSparkle
-                    visible: !!(editShotData.profileKbId)
+                    visible: !!(postShotReviewPage.editShotData.profileKbId)
                     source: "qrc:/icons/sparkle.svg"
                     sourceSize.width: Theme.scaled(18)
                     sourceSize.height: Theme.scaled(18)
@@ -1182,8 +1181,8 @@ Page {
                         accessibleName: TranslationManager.translate("profileselector.accessible.view_knowledge", "View AI knowledge base")
                         accessibleItem: headerSparkle
                         onAccessibleClicked: {
-                            shotKnowledgeDialog.profileTitle = editShotData.profileName || ""
-                            shotKnowledgeDialog.content = ProfileManager.profileKnowledgeContent(editShotData.profileName)
+                            shotKnowledgeDialog.profileTitle = postShotReviewPage.editShotData.profileName || ""
+                            shotKnowledgeDialog.content = ProfileManager.profileKnowledgeContent(postShotReviewPage.editShotData.profileName)
                             shotKnowledgeDialog.open()
                         }
                     }
@@ -1193,7 +1192,7 @@ Page {
                 Rectangle {
                     id: readTdsButton
                     property bool refConnected: BLEManager.refractometerConnected
-                    property bool refMeasuring: refConnected && typeof Refractometer !== "undefined" && Refractometer && Refractometer.measuring
+                    property bool refMeasuring: refConnected && Refractometer.measuring
                     // R1 advertises with names starting "DFT_TDJ_*" (see DiFluidR1::isR1Device).
                     property bool isR1: (Settings.savedRefractometerName || "").toLowerCase().indexOf("dft_tdj") === 0
                     visible: Settings.savedRefractometerAddress !== ""
@@ -1239,7 +1238,6 @@ Page {
                                 BLEManager.scanForDevices()
                                 return
                             }
-                            if (typeof Refractometer === "undefined" || !Refractometer) return
                             postShotReviewPage.avgDone = 0
                             postShotReviewPage.avgTotal = 0
                             // A single test, deliberately — a judgement about magnitude,
@@ -1320,43 +1318,43 @@ Page {
                 // profile + temperature are filtered out (already in the title),
                 // so no temperature bindings are needed here.
                 itemOrder: postShotReviewPage._shotPlanItemOrder
-                profileName: editShotData.profileName || ""
-                dose: editDoseWeight || 0
+                profileName: postShotReviewPage.editShotData.profileName || ""
+                dose: postShotReviewPage.editDoseWeight || 0
                 // targetWeightG is the planned target (0 for volume/timer
                 // profiles) — fall back to the edited output so a yield still shows.
                 // Override state comes from THIS shot's frozen snapshot (recorded
                 // target vs the profile snapshot's default), never the live dial.
                 profileYield: postShotReviewPage._shotProfileYield
-                targetWeight: (editShotData.targetWeightG || 0) > 0
-                    ? editShotData.targetWeightG : (editDrinkWeight || 0)
-                yieldOverridden: (editShotData.targetWeightG || 0) > 0
+                targetWeight: (postShotReviewPage.editShotData.targetWeightG || 0) > 0
+                    ? postShotReviewPage.editShotData.targetWeightG : (postShotReviewPage.editDrinkWeight || 0)
+                yieldOverridden: (postShotReviewPage.editShotData.targetWeightG || 0) > 0
                     && postShotReviewPage._shotProfileYield > 0
-                    && Math.abs(editShotData.targetWeightG - postShotReviewPage._shotProfileYield) > 0.1
+                    && Math.abs(postShotReviewPage.editShotData.targetWeightG - postShotReviewPage._shotProfileYield) > 0.1
                 // THIS shot's recorded anchor, not the live dial's. These
                 // default to Settings.brew reads, so leaving them unbound
                 // would re-render the just-pulled shot against whatever the
                 // user dials next while the review page is still open.
-                yieldAnchorMode: editShotData.yieldMode || "none"
-                yieldAnchorRatio: editShotData.yieldMode === "ratio"
-                    ? (editShotData.yieldAnchorValue || 0) : 0
+                yieldAnchorMode: postShotReviewPage.editShotData.yieldMode || "none"
+                yieldAnchorRatio: postShotReviewPage.editShotData.yieldMode === "ratio"
+                    ? (postShotReviewPage.editShotData.yieldAnchorValue || 0) : 0
                 // Temperature is filtered out of the line (it lives in the title,
                 // highlighted there when it deviated from the profile default);
                 // pin the flag off the live dial regardless.
                 tempOverridden: false
                 yieldTargetOnly: true
-                roasterBrand: editBeanBrand
-                coffeeName: editBeanType
-                roastDate: editRoastDate
+                roasterBrand: postShotReviewPage.editBeanBrand
+                coffeeName: postShotReviewPage.editBeanType
+                roastDate: postShotReviewPage.editRoastDate
                 // THIS shot's frozen recipe (resolved from editShotData.recipeId),
                 // never the live active recipe — same resolver the recipe card
                 // uses. Empty when the shot had no recipe.
                 recipeName: recipeResolver.recipe.name || ""
-                grindSize: editGrinderSetting
-                grindRpm: editRpm
+                grindSize: postShotReviewPage.editGrinderSetting
+                grindRpm: postShotReviewPage.editRpm
                 // Only show RPM for grinders that actually report it (a Niche
                 // Zero does not); a stale/spurious recorded RPM must not surface.
-                rpmCapable: editRpmCapable
-                beverageType: editBeverageType || "espresso"
+                rpmCapable: postShotReviewPage.editRpmCapable
+                beverageType: postShotReviewPage.editBeverageType || "espresso"
                 isCleaning: false
                 Accessible.role: Accessible.StaticText
                 Accessible.name: text
@@ -1372,7 +1370,7 @@ Page {
                 Layout.preferredHeight: Math.max(Theme.scaled(100), Math.min(Theme.scaled(400), postShotReviewPage.graphHeight))
                 color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
-                visible: !!(editShotData.pressure && editShotData.pressure.length > 0)
+                visible: !!(postShotReviewPage.editShotData.pressure && postShotReviewPage.editShotData.pressure.length > 0)
                 Accessible.role: Accessible.Graphic
                 Accessible.name: TranslationManager.translate("shot.graph.accessible.name", "Shot graph. Tap to inspect values")
                 Accessible.focusable: true
@@ -1385,22 +1383,22 @@ Page {
                     anchors.bottomMargin: Theme.spacingSmall + resizeHandle.height
                     advancedMode: postShotReviewPage.advancedMode
                     showPhaseLabels: postShotReviewPage.advancedMode
-                    pressureData: editShotData.pressure || []
-                    flowData: editShotData.flow || []
-                    temperatureData: editShotData.temperature || []
-                    weightData: editShotData.weight || []
-                    weightFlowRateData: editShotData.weightFlowRate || []
-                    resistanceData: editShotData.resistance || []
-                    conductanceData: editShotData.conductance || []
-                    darcyResistanceData: editShotData.darcyResistance || []
-                    conductanceDerivativeData: editShotData.conductanceDerivative || []
-                    temperatureMixData: editShotData.temperatureMix || []
-                    pressureGoalData: editShotData.pressureGoal || []
-                    flowGoalData: editShotData.flowGoal || []
-                    temperatureGoalData: editShotData.temperatureGoal || []
-                    temperatureMixGoalData: editShotData.temperatureMixGoal || []
-                    phaseMarkers: editShotData.phases || []
-                    maxTime: editShotData.durationSec || 60
+                    pressureData: postShotReviewPage.editShotData.pressure || []
+                    flowData: postShotReviewPage.editShotData.flow || []
+                    temperatureData: postShotReviewPage.editShotData.temperature || []
+                    weightData: postShotReviewPage.editShotData.weight || []
+                    weightFlowRateData: postShotReviewPage.editShotData.weightFlowRate || []
+                    resistanceData: postShotReviewPage.editShotData.resistance || []
+                    conductanceData: postShotReviewPage.editShotData.conductance || []
+                    darcyResistanceData: postShotReviewPage.editShotData.darcyResistance || []
+                    conductanceDerivativeData: postShotReviewPage.editShotData.conductanceDerivative || []
+                    temperatureMixData: postShotReviewPage.editShotData.temperatureMix || []
+                    pressureGoalData: postShotReviewPage.editShotData.pressureGoal || []
+                    flowGoalData: postShotReviewPage.editShotData.flowGoal || []
+                    temperatureGoalData: postShotReviewPage.editShotData.temperatureGoal || []
+                    temperatureMixGoalData: postShotReviewPage.editShotData.temperatureMixGoal || []
+                    phaseMarkers: postShotReviewPage.editShotData.phases || []
+                    maxTime: postShotReviewPage.editShotData.durationSec || 60
                 }
 
                 // Tap/drag-to-inspect overlay (shows crosshair, values shown above graph)
@@ -1485,14 +1483,14 @@ Page {
             GraphLegend {
                 graph: reviewGraph
                 advancedMode: postShotReviewPage.advancedMode
-                visible: !!(editShotData.pressure && editShotData.pressure.length > 0)
+                visible: !!(postShotReviewPage.editShotData.pressure && postShotReviewPage.editShotData.pressure.length > 0)
             }
 
             // Phase summary panel (advanced mode only)
             PhaseSummaryPanel {
                 Layout.fillWidth: true
-                phaseSummaries: editShotData.phaseSummaries || []
-                visible: postShotReviewPage.advancedMode && (editShotData.phaseSummaries || []).length > 0
+                phaseSummaries: postShotReviewPage.editShotData.phaseSummaries || []
+                visible: postShotReviewPage.advancedMode && (postShotReviewPage.editShotData.phaseSummaries || []).length > 0
             }
 
             RowLayout {
@@ -1529,10 +1527,10 @@ Page {
                         id: ratingInput
                         anchors.fill: parent
                         anchors.margins: Theme.scaled(4)
-                        value: editEnjoyment
+                        value: postShotReviewPage.editEnjoyment
                         accessibleName: TranslationManager.translate("rating.quick.prompt", "How was this shot?")
                         onValueModified: function(newValue) {
-                            editEnjoyment = newValue
+                            postShotReviewPage.editEnjoyment = newValue
                             postShotReviewPage.autosave("rating")
                         }
                         onActiveFocusChanged: if (!activeFocus) postShotReviewPage.finalizeEdit()
@@ -1548,14 +1546,14 @@ Page {
                 id: tastePicker
                 Layout.fillWidth: true
                 showOverall: false
-                tasteBalance: editTasteBalance
-                tasteBody: editTasteBody
+                tasteBalance: postShotReviewPage.editTasteBalance
+                tasteBody: postShotReviewPage.editTasteBody
                 onTasteBalanceModified: function(value) {
-                    editTasteBalance = value
+                    postShotReviewPage.editTasteBalance = value
                     postShotReviewPage.autosave("tasteBalance")
                 }
                 onTasteBodyModified: function(value) {
-                    editTasteBody = value
+                    postShotReviewPage.editTasteBody = value
                     postShotReviewPage.autosave("tasteBody")
                 }
             }
@@ -1578,10 +1576,10 @@ Page {
                     id: notesExpandable
                     Layout.fillWidth: true
                     inlineHeight: Theme.scaled(100)
-                    text: editNotes
+                    text: postShotReviewPage.editNotes
                     accessibleName: TranslationManager.translate("postshotreview.label.notes", "Notes")
                     textFont: Theme.bodyFont
-                    onTextChanged: editNotes = text
+                    onTextChanged: postShotReviewPage.editNotes = text
                     onEditingFinished: postShotReviewPage.autosave("notes", true)
                 }
             }
@@ -1632,12 +1630,12 @@ Page {
                             decimals: 1
                             suffix: "g"
                             valueColor: Theme.dyeDoseColor
-                            value: editDoseWeight
+                            value: postShotReviewPage.editDoseWeight
                             accessibleName: TranslationManager.translate("postshotreview.label.dose", "Dose") + " " + value + " " + TranslationManager.translate("postshotreview.unit.grams", "grams")
                             onValueModified: function(newValue) {
                                 doseInput.value = newValue
-                                editDoseWeight = newValue
-                                calculateEy()
+                                postShotReviewPage.editDoseWeight = newValue
+                                postShotReviewPage.calculateEy()
                                 postShotReviewPage.autosave("dose")
                             }
                             // valueCommitted is ValueInput's real end-of-
@@ -1648,7 +1646,7 @@ Page {
                             // covers the keyboard/tab path.
                             onValueCommitted: postShotReviewPage.finalizeEdit()
                             onActiveFocusChanged: {
-                                if (activeFocus) { Qt.inputMethod.commit(); Qt.inputMethod.hide() }
+                                if (activeFocus) { Keyboard.commit(); Keyboard.hide() }
                                 else postShotReviewPage.finalizeEdit()
                             }
                         }
@@ -1676,12 +1674,12 @@ Page {
                             decimals: 1
                             suffix: "g"
                             valueColor: Theme.dyeOutputColor
-                            value: editDrinkWeight
+                            value: postShotReviewPage.editDrinkWeight
                             accessibleName: TranslationManager.translate("postshotreview.accessible.output", "Output") + " " + value + " " + TranslationManager.translate("postshotreview.unit.grams", "grams")
                             onValueModified: function(newValue) {
                                 outInput.value = newValue
-                                editDrinkWeight = newValue
-                                calculateEy()
+                                postShotReviewPage.editDrinkWeight = newValue
+                                postShotReviewPage.calculateEy()
                                 postShotReviewPage.autosave("out")
                             }
                             // valueCommitted is ValueInput's real end-of-
@@ -1692,7 +1690,7 @@ Page {
                             // covers the keyboard/tab path.
                             onValueCommitted: postShotReviewPage.finalizeEdit()
                             onActiveFocusChanged: {
-                                if (activeFocus) { Qt.inputMethod.commit(); Qt.inputMethod.hide() }
+                                if (activeFocus) { Keyboard.commit(); Keyboard.hide() }
                                 else postShotReviewPage.finalizeEdit()
                             }
                         }
@@ -1762,7 +1760,7 @@ Page {
                                 visible: Settings.savedRefractometerAddress !== ""
                                 color: {
                                     if (!BLEManager.refractometerConnected) return Theme.textSecondaryColor
-                                    if (typeof Refractometer !== "undefined" && Refractometer && Refractometer.tds > 0) return Theme.successColor
+                                    if (Refractometer.tds > 0) return Theme.successColor
                                     return Theme.accentColor
                                 }
                                 Accessible.ignored: true
@@ -1781,11 +1779,11 @@ Page {
                                 decimals: 2
                                 suffix: ""
                                 valueColor: Theme.dyeTdsColor
-                                value: editDrinkTds
+                                value: postShotReviewPage.editDrinkTds
                                 accessibleName: TranslationManager.translate("postshotreview.label.tds", "TDS") + " " + value + " " + TranslationManager.translate("postshotreview.unit.percent", "percent")
                                 onValueModified: function(newValue) {
-                                    editDrinkTds = newValue
-                                    calculateEy()
+                                    postShotReviewPage.editDrinkTds = newValue
+                                    postShotReviewPage.calculateEy()
                                     postShotReviewPage.autosave("tds")
                                 }
                                 // valueCommitted is ValueInput's real end-of-
@@ -1796,7 +1794,7 @@ Page {
                             // covers the keyboard/tab path.
                             onValueCommitted: postShotReviewPage.finalizeEdit()
                             onActiveFocusChanged: {
-                                if (activeFocus) { Qt.inputMethod.commit(); Qt.inputMethod.hide() }
+                                if (activeFocus) { Keyboard.commit(); Keyboard.hide() }
                                 else postShotReviewPage.finalizeEdit()
                             }
                             }
@@ -1826,10 +1824,10 @@ Page {
                             decimals: 1
                             suffix: ""
                             valueColor: Theme.dyeEyColor
-                            value: editDrinkEy
+                            value: postShotReviewPage.editDrinkEy
                             accessibleName: TranslationManager.translate("postshotreview.accessible.extractionyield", "Extraction yield") + " " + value + " " + TranslationManager.translate("postshotreview.unit.percent", "percent")
                             onValueModified: function(newValue) {
-                                editDrinkEy = newValue
+                                postShotReviewPage.editDrinkEy = newValue
                                 postShotReviewPage.autosave("ey")
                             }
                             // valueCommitted is ValueInput's real end-of-
@@ -1840,7 +1838,7 @@ Page {
                             // covers the keyboard/tab path.
                             onValueCommitted: postShotReviewPage.finalizeEdit()
                             onActiveFocusChanged: {
-                                if (activeFocus) { Qt.inputMethod.commit(); Qt.inputMethod.hide() }
+                                if (activeFocus) { Keyboard.commit(); Keyboard.hide() }
                                 else postShotReviewPage.finalizeEdit()
                             }
                         }
@@ -1855,18 +1853,18 @@ Page {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.scaled(8)
-                visible: (editShotData.recipeId || -1) <= 0
+                visible: (postShotReviewPage.editShotData.recipeId || -1) <= 0
 
                 BeanSummary {
                     id: reviewBeanSummary
                     Layout.fillWidth: true
                     Layout.alignment: Qt.AlignVCenter
                     useShotData: true
-                    roasterName: editBeanBrand
-                    coffeeName: editBeanType
-                    roastDate: editRoastDate
-                    roastLevel: editRoastLevel
-                    beanBaseData: editBeanBaseJson
+                    roasterName: postShotReviewPage.editBeanBrand
+                    coffeeName: postShotReviewPage.editBeanType
+                    roastDate: postShotReviewPage.editRoastDate
+                    roastLevel: postShotReviewPage.editRoastLevel
+                    beanBaseData: postShotReviewPage.editBeanBaseJson
                     linkable: true
                     onLinkRequested: postShotReviewPage.requestBeanLink()
                 }
@@ -1890,7 +1888,7 @@ Page {
                 // "Linked to Bean Base / Tap for bean details" fallback into a
                 // zero-height box (implicitHeight is 0 when !hasData), overlapping
                 // the Barista field below with a dead tap target.
-                visible: (editShotData.recipeId || -1) <= 0 && postShotReviewPage.beanBaseLinked
+                visible: (postShotReviewPage.editShotData.recipeId || -1) <= 0 && postShotReviewPage.beanBaseLinked
                 beanBaseJson: postShotReviewPage.editBeanBaseJson
             }
 
@@ -1944,13 +1942,13 @@ Page {
                     visible: postShotReviewPage.advancedMode
                     Layout.fillWidth: true
                     label: TranslationManager.translate("postshotreview.label.barista", "Barista")
-                    text: editBarista
+                    text: postShotReviewPage.editBarista
                     suggestions: {
-                        var list = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBaristas() : []
-                        if (editBarista.length > 0 && list.indexOf(editBarista) === -1) list = [editBarista].concat(list)
+                        var list = postShotReviewPage._distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBaristas() : []
+                        if (postShotReviewPage.editBarista.length > 0 && list.indexOf(postShotReviewPage.editBarista) === -1) list = [postShotReviewPage.editBarista].concat(list)
                         return list
                     }
-                    onTextEdited: function(t) { editBarista = t }
+                    onTextEdited: function(t) { postShotReviewPage.editBarista = t }
                     onInputBlurred: postShotReviewPage.autosave("barista", true)
                 }
 
@@ -1974,7 +1972,7 @@ Page {
                     radius: Theme.cardRadius
                     border.width: 1
                     border.color: Theme.borderColor
-                    visible: (editShotData.recipeId || -1) > 0
+                    visible: (postShotReviewPage.editShotData.recipeId || -1) > 0
 
                     readonly property string recipeName: recipeResolver.recipe.name || ""
                     readonly property string recipeDrinkLabel:
@@ -2069,11 +2067,11 @@ Page {
                                     Layout.fillWidth: true
                                     Layout.alignment: Qt.AlignVCenter
                                     useShotData: true
-                                    roasterName: editBeanBrand
-                                    coffeeName: editBeanType
-                                    roastDate: editRoastDate
-                                    roastLevel: editRoastLevel
-                                    beanBaseData: editBeanBaseJson
+                                    roasterName: postShotReviewPage.editBeanBrand
+                                    coffeeName: postShotReviewPage.editBeanType
+                                    roastDate: postShotReviewPage.editRoastDate
+                                    roastLevel: postShotReviewPage.editRoastLevel
+                                    beanBaseData: postShotReviewPage.editBeanBaseJson
                                     linkable: true
                                     onLinkRequested: postShotReviewPage.requestBeanLink()
                                 }
@@ -2124,20 +2122,20 @@ Page {
                                 id: reviewRecipeEquipment
                                 Layout.fillWidth: true
                                 visible: reviewRecipeEquipment.accessibleSummary !== ""
-                                grinderName: editEquipmentName || ""
-                                grinderBrand: editGrinderBrand
-                                grinderModel: editGrinderModel
-                                grinderBurrs: editGrinderBurrs
-                                basketBrand: editBasketBrand
-                                basketModel: editBasketModel
-                                puckPrepCanonical: editPuckPrep
+                                grinderName: postShotReviewPage.editEquipmentName || ""
+                                grinderBrand: postShotReviewPage.editGrinderBrand
+                                grinderModel: postShotReviewPage.editGrinderModel
+                                grinderBurrs: postShotReviewPage.editGrinderBurrs
+                                basketBrand: postShotReviewPage.editBasketBrand
+                                basketModel: postShotReviewPage.editBasketModel
+                                puckPrepCanonical: postShotReviewPage.editPuckPrep
                             }
                             AccessibleButton {
                                 Layout.preferredHeight: Theme.scaled(36)
                                 _customFontSize: Theme.captionFont.pixelSize
                                 leftPadding: Theme.scaled(10)
                                 rightPadding: Theme.scaled(10)
-                                text: (editEquipmentName.length > 0 || editGrinderBrand.length > 0 || editGrinderModel.length > 0)
+                                text: (postShotReviewPage.editEquipmentName.length > 0 || postShotReviewPage.editGrinderBrand.length > 0 || postShotReviewPage.editGrinderModel.length > 0)
                                       ? TranslationManager.translate("postshotreview.changeEquipment", "Change Equipment")
                                       : TranslationManager.translate("postshotreview.addEquipment", "Add Equipment")
                                 accessibleName: text
@@ -2163,9 +2161,9 @@ Page {
                     Layout.fillWidth: true
                     Layout.preferredHeight: equipmentCardColumn.implicitHeight + Theme.scaled(24)
                     // With a recipe, equipment folds into the recipe card above.
-                    visible: (editShotData.recipeId || -1) <= 0
-                    readonly property bool hasEquipment: editEquipmentName.length > 0
-                                                         || editGrinderBrand.length > 0 || editGrinderModel.length > 0
+                    visible: (postShotReviewPage.editShotData.recipeId || -1) <= 0
+                    readonly property bool hasEquipment: postShotReviewPage.editEquipmentName.length > 0
+                                                         || postShotReviewPage.editGrinderBrand.length > 0 || postShotReviewPage.editGrinderModel.length > 0
                     color: Theme.cardBackgroundColor
                     radius: Theme.cardRadius
                     border.width: 1
@@ -2187,13 +2185,13 @@ Page {
                             id: equipmentSummary
                             Layout.fillWidth: true
                             visible: equipmentCard.hasEquipment
-                            grinderName: editEquipmentName || ""
-                            grinderBrand: editGrinderBrand
-                            grinderModel: editGrinderModel
-                            grinderBurrs: editGrinderBurrs
-                            basketBrand: editBasketBrand
-                            basketModel: editBasketModel
-                            puckPrepCanonical: editPuckPrep
+                            grinderName: postShotReviewPage.editEquipmentName || ""
+                            grinderBrand: postShotReviewPage.editGrinderBrand
+                            grinderModel: postShotReviewPage.editGrinderModel
+                            grinderBurrs: postShotReviewPage.editGrinderBurrs
+                            basketBrand: postShotReviewPage.editBasketBrand
+                            basketModel: postShotReviewPage.editBasketModel
+                            puckPrepCanonical: postShotReviewPage.editPuckPrep
                         }
                         Text {
                             Layout.fillWidth: true
@@ -2271,26 +2269,26 @@ Page {
         // Only the most recent shot is the "post-shot" fix path (sets
         // activeBagId too); older shots opened through this page are historical
         // — retag the shot only.
-        context: editShotId === MainController.lastSavedShotId ? "postShot" : "historicalShot"
+        context: postShotReviewPage.editShotId === MainController.lastSavedShotId ? "postShot" : "historicalShot"
         shotId: postShotReviewPage.editShotId
         onBagSelected: function(bagId, bag) {
             // The dialog already wrote the snapshot to the DB — mirror it into
             // the edit fields and advance the autosave baseline so a later
             // autosave doesn't clobber the new bag with stale values.
-            editBeanBrand = bag.roasterName || ""
-            editBeanType = bag.coffeeName || ""
-            editRoastDate = bag.roastDate || ""
-            editRoastLevel = bag.roastLevel || ""
-            editBeanBaseJson = bag.beanBaseData || ""
-            var nb = clonePersistedShot(editShotData)
-            nb.beanBrand = editBeanBrand
-            nb.beanType = editBeanType
-            nb.roastDate = editRoastDate
-            nb.roastLevel = editRoastLevel
-            nb.beanBaseJson = editBeanBaseJson
-            editShotData = nb
-            _committedState = captureEditState()
-            pendingVisualizerUpdate = true
+            postShotReviewPage.editBeanBrand = bag.roasterName || ""
+            postShotReviewPage.editBeanType = bag.coffeeName || ""
+            postShotReviewPage.editRoastDate = bag.roastDate || ""
+            postShotReviewPage.editRoastLevel = bag.roastLevel || ""
+            postShotReviewPage.editBeanBaseJson = bag.beanBaseData || ""
+            var nb = postShotReviewPage.clonePersistedShot(postShotReviewPage.editShotData)
+            nb.beanBrand = postShotReviewPage.editBeanBrand
+            nb.beanType = postShotReviewPage.editBeanType
+            nb.roastDate = postShotReviewPage.editRoastDate
+            nb.roastLevel = postShotReviewPage.editRoastLevel
+            nb.beanBaseJson = postShotReviewPage.editBeanBaseJson
+            postShotReviewPage.editShotData = nb
+            postShotReviewPage._committedState = postShotReviewPage.captureEditState()
+            postShotReviewPage.pendingVisualizerUpdate = true
         }
     }
     // Re-point this shot's grinder to a different/new package. The picker
@@ -2325,21 +2323,21 @@ Page {
     // Bottom bar (stays visible under keyboard)
     BottomBar {
         title: TranslationManager.translate("postshotreview.title", "Shot Review")
-        onBackClicked: handleBack()
+        onBackClicked: postShotReviewPage.handleBack()
 
         // Profile name + date remain visible while the user scrolls, providing context
         // when the header is off-screen. It reads as a subtitle to the page title, so
         // it lives in leftContent and stays beside it.
         leftContent: ColumnLayout {
-            visible: !!(editShotData.profileName)
+            visible: !!(postShotReviewPage.editShotData.profileName)
             spacing: 0
             Layout.alignment: Qt.AlignVCenter
             Accessible.role: Accessible.StaticText
-            Accessible.name: (editShotData.profileName || "") + (editShotData.dateTime ? ", " + editShotData.dateTime : "")
+            Accessible.name: (postShotReviewPage.editShotData.profileName || "") + (postShotReviewPage.editShotData.dateTime ? ", " + postShotReviewPage.editShotData.dateTime : "")
             Accessible.focusable: true
 
             Text {
-                text: editShotData.profileName || ""
+                text: postShotReviewPage.editShotData.profileName || ""
                 font: Theme.labelFont
                 color: Theme.textColor
                 elide: Text.ElideRight
@@ -2347,7 +2345,7 @@ Page {
                 Accessible.ignored: true
             }
             Text {
-                text: editShotData.dateTime || ""
+                text: postShotReviewPage.editShotData.dateTime || ""
                 font: Theme.captionFont
                 color: Theme.textSecondaryColor
                 elide: Text.ElideRight
@@ -2372,7 +2370,7 @@ Page {
         // Upload / Re-Upload to Visualizer button
         AccessibleButton {
             id: uploadButton
-            visible: editShotData.durationSec > 0 && !MainController.visualizer.uploading
+            visible: postShotReviewPage.editShotData.durationSec > 0 && !MainController.visualizer.uploading
 
             // Everything this shot knows is already on Visualizer: nothing to push.
             // Anything else — never uploaded, or a local edit saved but not yet
@@ -2383,7 +2381,7 @@ Page {
             // can't carry state: never-uploaded is already implied by accessibleName
             // ("Upload" vs "Re-Upload"), but a pending edit needs accessibleDescription
             // — the name reads the same either way.
-            readonly property bool inSync: !!_visualizerId && !pendingVisualizerUpdate
+            readonly property bool inSync: !!postShotReviewPage._visualizerId && !postShotReviewPage.pendingVisualizerUpdate
             primary: inSync
             warning: !inSync
 
@@ -2391,46 +2389,46 @@ Page {
             tintIcon: true
             text: TranslationManager.translate("common.button.visualizer", "Visualizer")
 
-            accessibleName: _visualizerId
+            accessibleName: postShotReviewPage._visualizerId
                 ? TranslationManager.translate("postshotreview.button.reupload", "Re-Upload to Visualizer")
                 : TranslationManager.translate("postshotreview.button.upload", "Upload to Visualizer")
-            accessibleDescription: (!!_visualizerId && pendingVisualizerUpdate)
+            accessibleDescription: (!!postShotReviewPage._visualizerId && postShotReviewPage.pendingVisualizerUpdate)
                 ? TranslationManager.translate("postshotreview.accessible.changespending", "Changes pending upload")
                 : ""
 
             onClicked: {
                 // Flush any pending edit before uploading
-                autosave()
+                postShotReviewPage.autosave()
                 // Clear the pending flag before dispatching — auto-update on destruction
                 // must not fire a second request while this one is in flight. On failure
                 // pendingVisualizerUpdate remains false (it was cleared here), so
                 // auto-update on close will not retry; the user must tap the button again.
-                pendingVisualizerUpdate = false
+                postShotReviewPage.pendingVisualizerUpdate = false
 
-                uploadError = ""
-                uploadSkipReason = ""
-                if (_visualizerId) {
+                postShotReviewPage.uploadError = ""
+                postShotReviewPage.uploadSkipReason = ""
+                if (postShotReviewPage._visualizerId) {
                     // Re-upload: PATCH metadata from current edit fields. Reuse
                     // buildVisualizerOverrides() so the manual and auto-update paths
                     // stay in sync as fields evolve.
-                    var patchOverrides = buildVisualizerOverrides()
-                    _patchInFlight = true
+                    var patchOverrides = postShotReviewPage.buildVisualizerOverrides()
+                    postShotReviewPage._patchInFlight = true
                     // editShotData may be a plain-JS clone (badges/save) or the
                     // raw gadget; the C++ method takes QVariant and coerces it,
                     // so id/duration/frame arrays survive either way. Edited
                     // fields ride in patchOverrides.
                     MainController.visualizer.updateShotOnVisualizerWithOverrides(
-                        _visualizerId, editShotData, patchOverrides)
+                        postShotReviewPage._visualizerId, postShotReviewPage.editShotData, patchOverrides)
                 } else {
                     // First upload: pass editShotData (a clone after badges/save,
                     // or the raw gadget if untouched) plus current edit-field
                     // overrides. The C++ method takes QVariant and coerces via
                     // ShotProjection::coerce(), so id, durationSec, and frame
                     // arrays survive isValid().
-                    var uploadOverrides = buildVisualizerOverrides()
-                    _firstUploadInFlight = true
+                    var uploadOverrides = postShotReviewPage.buildVisualizerOverrides()
+                    postShotReviewPage._firstUploadInFlight = true
                     MainController.visualizer.uploadShotFromHistoryWithOverrides(
-                        editShotData, uploadOverrides)
+                        postShotReviewPage.editShotData, uploadOverrides)
                 }
             }
         }
@@ -2438,17 +2436,17 @@ Page {
         // Uploading/Updating indicator
         Tr {
             visible: MainController.visualizer.uploading
-            key: _visualizerId
+            key: postShotReviewPage._visualizerId
                  ? "postshotreview.status.updating"
                  : "postshotreview.status.uploading"
-            fallback: _visualizerId ? "Updating..." : "Uploading..."
+            fallback: postShotReviewPage._visualizerId ? "Updating..." : "Uploading..."
             color: Theme.textSecondaryColor
             font: Theme.labelFont
         }
 
         Text {
-            visible: uploadError.length > 0 && !MainController.visualizer.uploading
-            text: TranslationManager.translate("postshotreview.upload.failed", "Upload failed") + ": " + uploadError
+            visible: postShotReviewPage.uploadError.length > 0 && !MainController.visualizer.uploading
+            text: TranslationManager.translate("postshotreview.upload.failed", "Upload failed") + ": " + postShotReviewPage.uploadError
             color: Theme.errorColor
             font: Theme.labelFont
             wrapMode: Text.WordWrap
@@ -2456,8 +2454,8 @@ Page {
         }
 
         Text {
-            visible: uploadSkipReason.length > 0 && !MainController.visualizer.uploading
-            text: TranslationManager.translate("postshotreview.upload.skipped", "Upload skipped") + ": " + uploadSkipReason
+            visible: postShotReviewPage.uploadSkipReason.length > 0 && !MainController.visualizer.uploading
+            text: TranslationManager.translate("postshotreview.upload.skipped", "Upload skipped") + ": " + postShotReviewPage.uploadSkipReason
             color: Theme.textSecondaryColor
             font: Theme.labelFont
             wrapMode: Text.WordWrap
@@ -2467,7 +2465,7 @@ Page {
         // AI Advice button - visible when AI is configured and we have shot data
         AccessibleButton {
             id: aiAdviceButton
-            visible: MainController.aiManager && MainController.aiManager.isConfigured && editShotData.durationSec > 0
+            visible: MainController.aiManager && MainController.aiManager.isConfigured && postShotReviewPage.editShotData.durationSec > 0
             enabled: MainController.aiManager && MainController.aiManager.isConfigured && !MainController.aiManager.isAnalyzing
             primary: true
             icon.source: "qrc:/icons/sparkle.svg"
@@ -2482,11 +2480,11 @@ Page {
                 // own intake). Hand the advisor the LIVE taste so its per-shot
                 // intake gate sees feedback the user already gave and doesn't
                 // re-ask "how did this shot taste?".
-                var shotForAdvisor = clonePersistedShot(editShotData)
-                shotForAdvisor.tasteBalance = editTasteBalance
-                shotForAdvisor.tasteBody = editTasteBody
-                shotForAdvisor.enjoyment0to100 = editEnjoyment
-                conversationOverlay.openWithShot(shotForAdvisor, editBeanBrand, editBeanType, editShotData.profileName, editShotId)
+                var shotForAdvisor = postShotReviewPage.clonePersistedShot(postShotReviewPage.editShotData)
+                shotForAdvisor.tasteBalance = postShotReviewPage.editTasteBalance
+                shotForAdvisor.tasteBody = postShotReviewPage.editTasteBody
+                shotForAdvisor.enjoyment0to100 = postShotReviewPage.editEnjoyment
+                conversationOverlay.openWithShot(shotForAdvisor, postShotReviewPage.editBeanBrand, postShotReviewPage.editBeanType, postShotReviewPage.editShotData.profileName, postShotReviewPage.editShotId)
             }
         }
 
@@ -2496,7 +2494,7 @@ Page {
             readonly property bool isClaudeDesktopReady:
                 Settings.network.discussShotApp !== Settings.network.discussAppClaudeDesktop
                 || Settings.network.claudeRcSessionUrl.length > 0
-            visible: editShotData.durationSec > 0 && Settings.network.discussShotApp !== Settings.network.discussAppNone
+            visible: postShotReviewPage.editShotData.durationSec > 0 && Settings.network.discussShotApp !== Settings.network.discussAppNone
             enabled: isClaudeDesktopReady
             primary: true
             icon.source: "qrc:/icons/sparkle.svg"
@@ -2509,7 +2507,7 @@ Page {
                     // Prose, not the JSON envelope — the user is pasting this into
                     // an external AI tool. See #1042 / ShotDetailPage clipboard
                     // path for rationale.
-                    var summary = MainController.aiManager.buildShotAnalysisProseForShot(editShotData)
+                    var summary = MainController.aiManager.buildShotAnalysisProseForShot(postShotReviewPage.editShotData)
                     if (summary.length > 0) MainController.copyToClipboard(summary)
                 }
                 // Open configured AI app
@@ -2521,7 +2519,7 @@ Page {
         // Email Prompt button - fallback for users without API keys
         AccessibleButton {
             id: emailPromptButton
-            visible: MainController.aiManager && !MainController.aiManager.isConfigured && editShotData.durationSec > 0
+            visible: MainController.aiManager && !MainController.aiManager.isConfigured && postShotReviewPage.editShotData.durationSec > 0
             icon.source: "qrc:/icons/sparkle.svg"
             tintIcon: true
             text: TranslationManager.translate("postshotreview.button.emailprompt", "Email Prompt")
@@ -2530,7 +2528,7 @@ Page {
                 // Prose, not the JSON envelope — the email body lands in the
                 // user's mail client; the JSON shape double-shipped structured
                 // fields (#1042).
-                var prompt = MainController.aiManager.buildShotAnalysisProseForShot(editShotData)
+                var prompt = MainController.aiManager.buildShotAnalysisProseForShot(postShotReviewPage.editShotData)
                 // Open mailto: with prompt in body
                 Qt.openUrlExternally("mailto:?subject=" + encodeURIComponent("Espresso Shot Analysis") +
                                     "&body=" + encodeURIComponent(prompt))
@@ -2563,17 +2561,17 @@ Page {
         // pendingVisualizerUpdate here — the overlay already synced. Empty axes
         // are left untouched.
         onTasteIntakeSubmitted: function(tasteBalance, tasteBody, overall) {
-            var s = captureEditState()
+            var s = postShotReviewPage.captureEditState()
             if (tasteBalance.length > 0) s.tasteBalance = tasteBalance
             if (tasteBody.length > 0) s.tasteBody = tasteBody
             if (overall > 0) s.enjoyment = overall
-            applyEditState(s)
-            var nb = clonePersistedShot(editShotData)
-            nb.tasteBalance = editTasteBalance
-            nb.tasteBody = editTasteBody
-            nb.enjoyment0to100 = editEnjoyment
-            editShotData = nb
-            _committedState = captureEditState()
+            postShotReviewPage.applyEditState(s)
+            var nb = postShotReviewPage.clonePersistedShot(postShotReviewPage.editShotData)
+            nb.tasteBalance = postShotReviewPage.editTasteBalance
+            nb.tasteBody = postShotReviewPage.editTasteBody
+            nb.enjoyment0to100 = postShotReviewPage.editEnjoyment
+            postShotReviewPage.editShotData = nb
+            postShotReviewPage._committedState = postShotReviewPage.captureEditState()
         }
     }
 

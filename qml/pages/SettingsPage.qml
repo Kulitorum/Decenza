@@ -3,7 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Window
 import Decenza
-import "../components"
 
 Page {
     id: settingsPage
@@ -38,6 +37,18 @@ Page {
     StackView.onActivating: {
         var idx = requestedTabId.length > 0 ? SettingsTabs.indexOf(requestedTabId) : -1
         if (idx >= 0) markTabLoaded(idx)
+    }
+
+    // Switch tabs on a page that is ALREADY on top of the stack. `requestedTabId` is consumed only
+    // by StackView.onActivated below, so assigning it to a live page does nothing — main.qml calls
+    // this instead when the user taps a settings widget from inside Settings, which must switch
+    // tabs rather than push a second copy of this page.
+    function showTab(tabId) {
+        var idx = SettingsTabs.indexOf(tabId)
+        if (idx < 0)
+            return
+        markTabLoaded(idx)
+        tabBar.currentIndex = idx
     }
 
     // Switch to requested tab after page transition completes (page is fully laid out)
@@ -256,10 +267,10 @@ Page {
                     // Machine tab's Maintenance card forwards to global navigation
                     if (tabId === "machine" && item) {
                         item.openDescaling.connect(function() {
-                            root.goToDescaling()
+                            AppShell.descalingRequested()
                         })
                         item.openTransport.connect(function() {
-                            root.goToTransport()
+                            AppShell.transportRequested()
                         })
                     }
                 }
@@ -284,9 +295,9 @@ Page {
         }
 
         Connections {
-            target: Qt.inputMethod
+            target: Keyboard
             function onVisibleChanged() {
-                if (Qt.inputMethod.visible && saveThemeDialog.visible) {
+                if (Keyboard.visible && saveThemeDialog.visible) {
                     saveThemeDialog.keyboardOffset = parent.height * 0.25
                 } else {
                     saveThemeDialog.keyboardOffset = 0
@@ -343,7 +354,7 @@ Page {
                 accessibleName: TranslationManager.translate("settings.themes.themeNamePlaceholder", "Theme name")
                 onTextChanged: saveThemeDialog.themeName = text
                 onAccepted: {
-                    Qt.inputMethod.commit()
+                    Keyboard.commit()
                     var name = saveThemeDialog.themeName.trim()
                     if (name.length > 0 && name !== "Default") {
                         saveThemeDialog.doSave(name)
@@ -369,7 +380,7 @@ Page {
                     accessibleName: TranslationManager.translate("settingsPage.saveThemeWithName", "Save current theme with entered name")
                     enabled: saveThemeDialog.themeName.trim().length > 0
                     onClicked: {
-                        Qt.inputMethod.commit()
+                        Keyboard.commit()
                         var name = saveThemeDialog.themeName.trim()
                         if (name.length > 0 && name !== "Default") {
                             saveThemeDialog.doSave(name)
@@ -390,7 +401,7 @@ Page {
                 // target on top of the Settings page, so the user can press
                 // Back to return to the search context.
                 if (externalRoute === "profileSelector") {
-                    root.goToProfileSelector()
+                    AppShell.profileSelectorRequested()
                 }
                 return
             }
@@ -522,6 +533,6 @@ Page {
     BottomBar {
         id: bottomBar
         title: TranslationManager.translate("settings.title", "Settings")
-        onBackClicked: root.goBack()
+        onBackClicked: AppShell.backRequested()
     }
 }

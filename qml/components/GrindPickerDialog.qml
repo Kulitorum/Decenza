@@ -136,7 +136,7 @@ Dialog {
             if (root._autoTextPendingHistory && root.textMode
                     && root._grindRows.length >= 2) {
                 root.textMode = false
-                Qt.inputMethod.hide()
+                Keyboard.hide()
             }
             root._autoTextPendingHistory = false   // resolved either way
             if (!root.textMode)
@@ -275,10 +275,10 @@ Dialog {
             // Text -> wheels: adopt the typed values as pending; the wheels
             // re-seed centred on them. Commit the IME's in-progress word first
             // (QML gotcha: reading .text from a handler drops it otherwise).
-            Qt.inputMethod.commit()
+            Keyboard.commit()
             root._pendingGrind = grindText.text.trim()
             root._pendingRpm = rpmText.text.trim()
-            Qt.inputMethod.hide()
+            Keyboard.hide()
             root._rebuildRows()
             root.textMode = false
             Qt.callLater(root._centerWheels)
@@ -301,7 +301,7 @@ Dialog {
     // Apply whatever the active mode shows, then close — the only commit path.
     function _applyAndClose() {
         if (root.textMode) {
-            Qt.inputMethod.commit()   // IME gotcha: flush the in-progress word
+            Keyboard.commit()   // IME gotcha: flush the in-progress word
             root.grindPicked(grindText.text.trim())
             if (root._hasRpm)
                 root.rpmPicked(rpmText.text.trim())
@@ -327,7 +327,7 @@ Dialog {
                     && rpmTumbler.currentIndex < root._rpmRows.length)
                 root.rpmPicked(String(root._rpmRows[rpmTumbler.currentIndex].value))
         }
-        Qt.inputMethod.hide()
+        Keyboard.hide()
         root.close()
     }
 
@@ -572,7 +572,7 @@ Dialog {
                 MouseArea {
                     id: cancelMa
                     anchors.fill: parent
-                    onClicked: { Qt.inputMethod.hide(); root.close() }
+                    onClicked: { Keyboard.hide(); root.close() }
                 }
             }
 

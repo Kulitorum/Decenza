@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
-import "../../components"
 
 Item {
     id: languageTab
@@ -165,7 +164,7 @@ Item {
                         text: TranslationManager.translate("language.button.add", "Add...")
                         accessibleName: TranslationManager.translate("language.accessible.add", "Add language")
                         accessibleDescription: TranslationManager.translate("language.accessible.add.description", "Add a new language for translation")
-                        onClicked: pageStack.push("AddLanguagePage.qml")
+                        onClicked: AppShell.addLanguageRequested()
                     }
 
                     // Delete button
@@ -350,7 +349,7 @@ Item {
                     accessibleName: TranslationManager.currentLanguage === "en" ? TranslationManager.translate("language.accessible.browse.en", "Browse and customize strings") : TranslationManager.translate("language.accessible.browse", "Browse and translate strings")
                     accessibleDescription: TranslationManager.currentLanguage === "en" ? TranslationManager.translate("language.accessible.browse.en.description", "Open the string browser to customize English text") : TranslationManager.translate("language.accessible.browse.description", "Open the translation browser to translate individual strings")
                     primary: true
-                    onClicked: pageStack.push("StringBrowserPage.qml")
+                    onClicked: AppShell.stringBrowserRequested()
                 }
 
                 // Submit to community button (not for English, developer mode only)

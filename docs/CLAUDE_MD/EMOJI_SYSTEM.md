@@ -32,6 +32,47 @@ Two things that reach the platform colour renderer without help, and are handled
 `Theme._isEmojiPresentation()` treats "followed by U+FE0F" as the signal, bounded to keycap bases
 and `cp >= 0xA9` so a stray selector cannot turn a letter into an image.
 
+## Using emoji well — where they earn their place
+
+Emoji are cheap, render identically on every platform, and are the one visual element that
+survives translation unchanged. Reach for them where they make a screen easier to read or more
+pleasant to use — an interface that is all grey text is not more professional, it is just
+harder to scan. CLAUDE.md carries the short version and the one hard rule (never a plain
+`Text`); this is the full guidance.
+
+**Where they earn their place:**
+- Category and section markers, where a glyph makes a list scannable at a glance.
+- Status and outcome, alongside the words rather than instead of them — `☕ Espresso`,
+  `⚠️ Tank low`, `✅ Uploaded`.
+- User-authored content: bean names, recipe names, widget labels, notes. Users already type
+  emoji here and the picker offers the full set.
+- Empty states and first-run screens, where a little warmth reads as care rather than noise.
+
+**Where they do not:**
+- **Never as the only carrier of meaning.** A screen reader announces the name, not the picture,
+  and a stripped context (plain-text fields, exports, MCP responses) drops it entirely. Always
+  pair with a word.
+- **Not on destructive or error actions** in place of clear wording. `🗑️ Delete all shots` is
+  fine; `🗑️` alone is not.
+- **Not more than one per label,** and not decorating every row of a list — repetition turns a
+  useful signal into visual noise, and a page where everything is marked marks nothing.
+- **Not in place of a themed icon** for chrome — toolbar and navigation icons are monochrome
+  SVGs that follow `Theme.iconColor` through `ThemedIcon`. Emoji carry fixed colours and will
+  not adapt to light/dark or a custom palette.
+
+**Mechanics — these are not optional:**
+- Render through `Theme.emojiToImage()` (for an `Image`) or `Theme.replaceEmojiWithImg()` (for
+  text with emoji inline). Putting an emoji in a plain `Text` lets a colour glyph reach the
+  platform renderer, which **crashes the render thread on macOS**.
+- No manual asset step. Using a new emoji needs no download and no `.qrc` edit — the full set
+  already ships. `.github/workflows/emoji-pin-check.yml` reports when upstream has a newer
+  release worth pulling in.
+- An emoji with no bundled asset is silently stripped, so a sequence from a Unicode revision
+  newer than the pin simply disappears. Don't build a layout that only makes sense if the emoji
+  renders.
+- For accessibility, give the element an `Accessible.name` with the word, not the picture.
+  `Theme.toAccessibleText()` strips emoji and tags from a rendered string for exactly this.
+
 ## Switching Emoji Sets
 
 ```bash

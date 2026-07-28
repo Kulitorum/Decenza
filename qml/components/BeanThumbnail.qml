@@ -1,6 +1,5 @@
 import QtQuick
 import Decenza
-import "."
 
 // The bean/bag photo thumbnail — ONE implementation of the on-disk image
 // cache pattern shared by BagCard, RecipeDrinkCard, and the recipe wizard's

@@ -3,8 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Window
 import Decenza
-import "components"
-import "components/library"
 
 ApplicationWindow {
     id: root
@@ -26,8 +24,9 @@ ApplicationWindow {
     leftPadding: 0
     rightPadding: 0
 
-    // Debug flag to force live view on operation pages (for development)
-    property bool debugLiveView: false
+    // debugLiveView, pendingBrewDialog, userExitedFlush, steamAutoFlushCountdown,
+    // scaleDialogDeferred and stopReason now live on the AppShell singleton, which
+    // is where the pages that share them can actually see the declaration.
 
     // True when the app is allowed to start machine operations on-screen.
     // The hardware Group Head Controller (GHC), when present and active, takes
@@ -35,8 +34,6 @@ ApplicationWindow {
     // are only valid in headless (no/inactive GHC) or simulation mode.
     readonly property bool canStartOperations: DE1Device.isHeadless || DE1Device.simulationMode
 
-    // Flag to open BrewDialog when IdlePage becomes active (set by AutoFavoritesPage)
-    property bool pendingBrewDialog: false
 
     // Single, global Brew Settings dialog — reachable from anywhere via
     // root.openBrewSettings() (home-screen content, the persistent status bar, the
@@ -61,10 +58,6 @@ ApplicationWindow {
     property string returnToPageName: ""
     property int returnToShotId: 0
 
-    // Set by FlushPage's back-arrow / STOP handlers to suppress the 1.5s "Flush
-    // Complete" overlay when the user explicitly chose to leave. Single-shot:
-    // cleared on the next Idle/Ready transition regardless of current page.
-    property bool userExitedFlush: false
 
     // True while the first-run restore dialog is active (prevents SettingsHistoryDataTab from also handling restore signals)
 
@@ -563,18 +556,16 @@ ApplicationWindow {
     // Latched by the milk auto-capture (IdlePage/SteamPage) to the milk weight
     // measured for the upcoming steam session. Committed atomically with the actual
     // duration when the session ends, so "use as baseline" never adopts a mismatched
-    // (milk, time) pair. 0 = no milk measured this session. Reset points: pitcher
-    // change and session end (both below), plus IdlePage's fresh-steam-attempt zero
-    // when steam is re-selected. Mirrored read-only by SteamPlanText and
-    // MilkWeightItem; read by SteamPage's captured-milk fallback and SteamItem's
-    // popup preset tap.
-    property real sessionMeasuredMilkG: 0
+    // (milk, time) pair. The property itself is AppShell.sessionMeasuredMilkG — see
+    // there for why it is not declared on this object. Reset points: pitcher change
+    // and session end (both below), plus IdlePage's fresh-steam-attempt zero when
+    // steam is re-selected.
     // The captured milk is specific to the selected pitcher's tare + calibration, so
     // drop it when the pitcher changes — otherwise a new pitcher's steam could scale to
     // the previous pitcher's milk.
     Connections {
         target: Settings.brew
-        function onSelectedSteamPitcherChanged() { root.sessionMeasuredMilkG = 0 }
+        function onSelectedSteamPitcherChanged() { AppShell.sessionMeasuredMilkG = 0 }
     }
 
     // Live dose-weighing state, pushed by IdlePage (Bindings next to its
@@ -604,12 +595,12 @@ ApplicationWindow {
             if (MachineState.phase !== MachineState.Phase.Steaming && steamElapsedTracker > 0) {
                 // Commit the (milk, time) pair only for a real session with measured
                 // milk; either way clear the latches so nothing leaks to the next one.
-                if (steamElapsedTracker >= 1 && root.sessionMeasuredMilkG > 0) {
-                    Settings.brew.lastSteamMilkG = root.sessionMeasuredMilkG
+                if (steamElapsedTracker >= 1 && AppShell.sessionMeasuredMilkG > 0) {
+                    Settings.brew.lastSteamMilkG = AppShell.sessionMeasuredMilkG
                     Settings.brew.lastSteamTimeS = steamElapsedTracker
                 }
                 steamElapsedTracker = 0
-                root.sessionMeasuredMilkG = 0
+                AppShell.sessionMeasuredMilkG = 0
             }
         }
     }
@@ -651,15 +642,13 @@ ApplicationWindow {
                 console.log("DE1 entered Puffing substate")
                 if (Settings.brew.steamAutoFlushSeconds > 0) {
                     console.log("Starting auto-flush countdown:", Settings.brew.steamAutoFlushSeconds, "seconds")
-                    root.steamAutoFlushCountdown = Settings.brew.steamAutoFlushSeconds
+                    AppShell.steamAutoFlushCountdown = Settings.brew.steamAutoFlushSeconds
                     steamAutoFlushTimer.restart()
                 }
             }
         }
     }
 
-    // Auto-flush countdown value (for display on SteamPage)
-    property real steamAutoFlushCountdown: 0
 
     // Handle settings changes
     Connections {
@@ -726,8 +715,6 @@ ApplicationWindow {
     property bool shuttingDown: false
 
 
-    // Defer scale dialogs until machine reaches Ready (event-driven, not timer-based)
-    property bool scaleDialogDeferred: false
     // True while a previously-connected scale is disconnected (a mid-session
     // drop). Set on scaleDisconnected, cleared on scaleConnected. Lets us defer
     // the "Scale Disconnected" notice until a reconnect actually FAILS
@@ -756,7 +743,7 @@ ApplicationWindow {
         // While scale dialogs are deferred, skip scale popups and show others
         var queue = pendingPopups.slice()
         var next
-        if (root.scaleDialogDeferred) {
+        if (AppShell.scaleDialogDeferred) {
             var idx = -1
             for (var i = 0; i < queue.length; i++) {
                 if (queue[i].id !== "flowScale" && queue[i].id !== "scaleDisconnected") {
@@ -831,9 +818,9 @@ ApplicationWindow {
         running: false
         repeat: true
         onTriggered: {
-            root.steamAutoFlushCountdown -= 0.1
-            if (root.steamAutoFlushCountdown <= 0) {
-                root.steamAutoFlushCountdown = 0
+            AppShell.steamAutoFlushCountdown -= 0.1
+            if (AppShell.steamAutoFlushCountdown <= 0) {
+                AppShell.steamAutoFlushCountdown = 0
                 steamAutoFlushTimer.stop()
                 console.log("Steam auto-flush countdown complete, requesting Idle state")
                 // Turn off steam heater if keepSteamHeaterOn is false
@@ -856,16 +843,25 @@ ApplicationWindow {
         function onScaleMultiplierChanged() { updateScale() }
         function onPageScaleMultiplierChanged() { updateScale() }
     }
-    // Raise all application windows together when this window is activated
+    // Raise all application windows together when this window is activated.
+    //
+    // Guard the MEMBER, not the name. `typeof GHCSimulator !== "undefined" && GHCSimulator` looks
+    // equivalent and is not: the type is registered wherever DECENZA_SIMULATOR is defined, but the
+    // instance exists only on a debug Windows/macOS build, and a registered-but-uninstanced
+    // singleton resolves to a TRUTHY wrapper whose member reads come back undefined. That guard
+    // therefore passed on Linux, on Windows/macOS Release and on Android/iOS Debug, and the call
+    // below threw a TypeError on every window activation. See decenzaOptionalSingleton() in
+    // src/core/contextsingletons_qml.h for the Qt sources.
     onActiveChanged: {
-        if (active && typeof GHCSimulator !== "undefined" && GHCSimulator) {
+        if (active && GHCSimulator.mainWindowActivated !== undefined) {
             GHCSimulator.mainWindowActivated()
         }
     }
 
-    // Listen for GHC window activation to raise ourselves (simulator mode only)
+    // Listen for GHC window activation to raise ourselves (simulator mode only).
+    // Same rule: a truthy-but-empty wrapper is not a valid Connections target.
     Connections {
-        target: typeof GHCSimulator !== "undefined" ? GHCSimulator : null
+        target: GHCSimulator.mainWindowActivated !== undefined ? GHCSimulator : null
         function onRaiseMainWindow() {
             root.raise()
         }
@@ -1000,7 +996,7 @@ ApplicationWindow {
         onPressed: function(mouse) {
             var textItem = findTextAt(parent, mouse.x, mouse.y)
             if (textItem && textItem.text && !isInsideInteractive(textItem)) {
-                AccessibilityManager.announceLabel(cleanForSpeech(textItem.text))
+                AccessibilityManager.announceLabel(AccessibilityManager.cleanForSpeech(textItem.text))
             }
             mouse.accepted = false
         }
@@ -1372,6 +1368,7 @@ ApplicationWindow {
     function updateCurrentPageScale() {
         var pageName = pageStack.currentItem ? (pageStack.currentItem.objectName || "") : ""
         Theme.currentPageObjectName = pageName
+        AppShell.currentPage = pageStack.currentItem
         if (pageName) {
             Theme.pageScaleMultiplier = parseFloat(Settings.value("pageScale/" + pageName, 1.0)) || 1.0
         } else {
@@ -1578,7 +1575,7 @@ ApplicationWindow {
             var popupId = root.scaleDropPending ? "scaleDisconnected" : "flowScale"
             var dialog = root.scaleDropPending ? scaleDisconnectedDialog : flowScaleDialog
             if (screensaverActive) { queuePopup(popupId); return }
-            if (root.scaleDialogDeferred) { queuePopup(popupId); return }
+            if (AppShell.scaleDialogDeferred) { queuePopup(popupId); return }
             dialog.open()
         }
         function onScaleDisconnected() {
@@ -2231,7 +2228,6 @@ ApplicationWindow {
     }
 
     // Espresso stop reason overlay (shown on top of any page)
-    property string stopReason: ""  // "manual", "weight", "machine", ""
     property bool stopOverlayVisible: false
     property bool wasEspressoOperation: false  // Track if the operation that just ended was espresso
 
@@ -2239,13 +2235,18 @@ ApplicationWindow {
     // saved shot records why it ended (manually-stopped shots have
     // arbitrary yield and must not drive dial-in advice). This single
     // handler covers every existing stop entry point that sets stopReason.
-    onStopReasonChanged: {
-        if (typeof MainController !== "undefined" && MainController !== null)
-            MainController.reportShotStopReason(stopReason)
+    // A Connections block rather than an onStopReasonChanged handler, because the
+    // property is AppShell's now, not this object's.
+    Connections {
+        target: AppShell
+        function onStopReasonChanged() {
+            if (typeof MainController !== "undefined" && MainController !== null)
+                MainController.reportShotStopReason(AppShell.stopReason)
+        }
     }
 
     function getStopReasonText() {
-        switch (stopReason) {
+        switch (AppShell.stopReason) {
             case "manual": return "Stopped manually"
             case "weight": return "Target weight reached"
             case "machine": return "Profile complete - DE1 stopped the shot"
@@ -2345,7 +2346,7 @@ ApplicationWindow {
     Connections {
         target: MachineState
         function onTargetWeightReached() {
-            root.stopReason = "weight"
+            AppShell.stopReason = "weight"
         }
         function onSawBypassed() {
             root.sawBypassedVisible = true
@@ -2361,7 +2362,7 @@ ApplicationWindow {
             root.wasEspressoOperation = (phase === MachineState.Phase.EspressoPreheating ||
                                          phase === MachineState.Phase.Preinfusion ||
                                          phase === MachineState.Phase.Pouring)
-            root.stopReason = ""
+            AppShell.stopReason = ""
             root.stopOverlayVisible = false
             root.sawBypassedVisible = false
             sawBypassedTimer.stop()
@@ -2375,8 +2376,8 @@ ApplicationWindow {
             }
 
             // If no reason set, DE1 ended the shot (profile complete or machine-initiated)
-            if (root.stopReason === "") {
-                root.stopReason = "machine"
+            if (AppShell.stopReason === "") {
+                AppShell.stopReason = "machine"
             }
             // Show the overlay with pop-in animation
             root.stopOverlayVisible = true
@@ -3367,7 +3368,7 @@ ApplicationWindow {
                 }
                 // Stop and reset auto-flush timer (steaming fully ended)
                 steamAutoFlushTimer.stop()
-                root.steamAutoFlushCountdown = 0
+                AppShell.steamAutoFlushCountdown = 0
             }
 
             // Update previous phase tracking
@@ -3390,23 +3391,23 @@ ApplicationWindow {
             }
 
             // Clear scale dialog deferral when machine reaches Ready or an active phase
-            if (root.scaleDialogDeferred) {
+            if (AppShell.scaleDialogDeferred) {
                 if (phase === MachineState.Phase.Idle ||
                     phase === MachineState.Phase.Ready ||
                     phase === MachineState.Phase.EspressoPreheating ||
                     phase === MachineState.Phase.Steaming ||
                     phase === MachineState.Phase.HotWater ||
                     phase === MachineState.Phase.Flushing) {
-                    root.scaleDialogDeferred = false
+                    AppShell.scaleDialogDeferred = false
                     // If a real physical scale connected during warmup, discard queued scale popups
                     // (FlowScale is always "connected" so don't let it suppress dialogs)
-                    if (ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale) {
+                    if (ScaleDevice.connected && !ScaleDevice.isFlowScale) {
                         removeQueuedScalePopups()
                     } else if (Settings.primaryScaleAddress !== "") {
                         showNextPendingPopup()  // Show deferred dialog now
                     }
                 } else if (phase === MachineState.Phase.Sleep) {
-                    root.scaleDialogDeferred = false
+                    AppShell.scaleDialogDeferred = false
                 }
             }
 
@@ -3464,7 +3465,7 @@ ApplicationWindow {
                 } else if (currentPage === "hotWaterPage") {
                     showCompletion(trHotWaterComplete.text, "hotwater")
                 } else if (currentPage === "flushPage") {
-                    if (root.userExitedFlush) {
+                    if (AppShell.userExitedFlush) {
                         console.log("Phase Idle/Ready: flush exited by user, skipping completion overlay")
                     } else {
                         showCompletion(trFlushComplete.text, "flush")
@@ -3477,9 +3478,63 @@ ApplicationWindow {
                 // (synchronous back-handler navigation typically changes the page
                 // before this async phase signal arrives). Without this, the flag
                 // would strand and suppress a later legitimate flush completion.
-                root.userExitedFlush = false
+                AppShell.userExitedFlush = false
             }
         }
+    }
+
+    // The shell side of the AppShell contract. Every navigation function below is
+    // unchanged — the guard, the return-to-page handling, the operation-page replace
+    // all still live here, because this object owns pageStack. All that moved is how
+    // a page asks: it emits a request on a declared type instead of finding `root` by
+    // name through the context it happened to be created in.
+    Connections {
+        target: AppShell
+        function onBackRequested() { root.goBack() }
+        function onIdleRequested() { root.goToIdle() }
+        function onIdleFromScreensaverRequested() { root.goToIdleFromScreensaver() }
+        function onProfileEditorRequested() { root.goToProfileEditor() }
+        function onProfileSelectorRequested() { root.goToProfileSelector() }
+        function onProfileImportRequested() { root.goToProfileImport() }
+        function onVisualizerBrowserRequested() { root.goToVisualizerBrowser() }
+        function onDescalingRequested() { root.goToDescaling() }
+        function onTransportRequested() { root.goToTransport() }
+        function onBrewSettingsRequested() { root.openBrewSettings() }
+        function onScreensaverRequested() { root.goToScreensaver() }
+        function onEspressoRequested() { root.goToEspresso() }
+        function onSteamRequested() { root.goToSteam() }
+        function onHotWaterRequested() { root.goToHotWater() }
+        function onFlushRequested() { root.goToFlush() }
+        function onSettingsRequested(tabId) { root.goToSettings(tabId) }
+        function onRecipeEditorRequested() { root.goToRecipeEditor() }
+        function onRecipesRequested() { root.goToRecipes() }
+        function onRecipeWizardRequested(mode, options) { root.goToRecipeWizard(mode, options) }
+        function onShotHistoryRequested(filter) { root.goToShotHistory(filter) }
+        function onShotDetailRequested(shotId, shotIds) { root.goToShotDetail(shotId, shotIds) }
+        function onShotComparisonRequested() { root.goToShotComparison() }
+        function onPostShotReviewRequested(shotId, autoClose) { root.goToPostShotReview(shotId, autoClose) }
+        function onProfileInfoRequested(profileFilename, profileName) { root.goToProfileInfo(profileFilename, profileName) }
+        function onBeanInfoRequested() { root.goToBeanInfo() }
+        function onEquipmentRequested() { root.goToEquipment() }
+        function onAutoFavoritesRequested() { root.goToAutoFavorites() }
+        function onAutoFavoriteInfoRequested(options) { root.goToAutoFavoriteInfo(options) }
+        function onCommunityBrowserRequested() { root.goToCommunityBrowser() }
+        function onVisualizerMultiImportRequested() { root.goToVisualizerMultiImport() }
+        function onFlowCalibrationRequested() { root.goToFlowCalibration() }
+        function onAiSettingsRequested() { root.goToAISettings() }
+        function onStringBrowserRequested() { root.goToStringBrowser() }
+        function onAddLanguageRequested() { root.goToAddLanguage() }
+        // Back where there is somewhere to go back to, idle otherwise. Which applies depends on
+        // whether the page was pushed or replaced, and that is the shell's business, not the
+        // page's.
+        function onDismissRequested() {
+            if (pageStack.depth > 1)
+                root.goBack()
+            else
+                root.goToIdle()
+        }
+        function onCompletionSuspendRequested() { root.suspendCompletionForDialog() }
+        function onCompletionFinishRequested() { root.finishCompletion() }
     }
 
     // Helper functions for navigation
@@ -3508,30 +3563,49 @@ ApplicationWindow {
         root.returnToShotId = 0
     }
 
+    // Push `component` unless that page is already on top of the stack.
+    //
+    // The status bar lives INSIDE pageStack at z: 600 and is visible on every page but the
+    // screensaver, so the widgets in it are tappable from their own destination. Without this
+    // guard, tapping the Settings widget while already in Settings pushed a SECOND SettingsPage
+    // and Back returned to the duplicate instead of to idle. The three operation pages always had
+    // the guard written out inline; every other destination reachable from a status-bar widget
+    // did not, and those call sites used to `replace`, which hid it.
+    //
+    // startNavigation() does not cover this: it clears via Qt.callLater, so it only blocks
+    // re-entry inside one event-loop turn, not a second deliberate tap.
+    function pushUnlessCurrent(component, pageObjectName, props) {
+        if (pageStack.currentItem && pageStack.currentItem.objectName === pageObjectName)
+            return null
+        return props ? pageStack.push(component, props) : pageStack.push(component)
+    }
+
     function goToEspresso() {
         if (!startNavigation()) return
-        if (pageStack.currentItem && pageStack.currentItem.objectName !== "espressoPage") {
-            pageStack.replace(null, espressoPage)
-        }
+        pushUnlessCurrent(espressoPage, "espressoPage")
     }
 
     function goToSteam() {
         if (!startNavigation()) return
-        if (pageStack.currentItem && pageStack.currentItem.objectName !== "steamPage") {
-            pageStack.replace(null, steamPage)
-        }
+        pushUnlessCurrent(steamPage, "steamPage")
     }
 
     function goToHotWater() {
         if (!startNavigation()) return
-        if (pageStack.currentItem && pageStack.currentItem.objectName !== "hotWaterPage") {
-            pageStack.replace(null, hotWaterPage)
-        }
+        pushUnlessCurrent(hotWaterPage, "hotWaterPage")
     }
 
     function goToSettings(tabId) {
         if (!startNavigation()) return
-        if (tabId !== undefined && tabId !== "" && SettingsTabs.indexOf(tabId) >= 0) {
+        var wantTab = (tabId !== undefined && tabId !== "" && SettingsTabs.indexOf(tabId) >= 0)
+        // Already in Settings: switch tab in place rather than stacking a second copy. Assigning
+        // requestedTabId would do nothing — the page consumes it only in StackView.onActivated.
+        if (pageStack.currentItem && pageStack.currentItem.objectName === "settingsPage") {
+            if (wantTab)
+                pageStack.currentItem.showTab(tabId)
+            return
+        }
+        if (wantTab) {
             pageStack.push(settingsPage, {requestedTabId: tabId})
         } else {
             pageStack.push(settingsPage)
@@ -3611,7 +3685,106 @@ ApplicationWindow {
 
     function goToFlush() {
         if (!startNavigation()) return
-        pageStack.push(flushPage)
+        pushUnlessCurrent(flushPage, "flushPage")
+    }
+
+    // Destinations reached from widgets and other pages. Each is the ONE implementation of
+    // "go here": the caller states intent through an AppShell signal, this decides how.
+    //
+    // They all push rather than replace, including the operation pages above. The rule is not
+    // "operation pages replace" — it is REPLACE WHEN THE MACHINE DROVE THE CHANGE, PUSH WHEN THE
+    // USER DID. The phase handler still replaces, because there the user did not navigate and
+    // there is no meaningful back. A user tapping a widget did navigate, and back to idle must
+    // work. CustomItem used to replace here by copying the phase handler's line rather than its
+    // reason, which also left pageStack.depth at 1 — so goBack()'s `depth > 1` test silently made
+    // the back control dead.
+
+    function goToRecipes() {
+        if (!startNavigation()) return
+        pushUnlessCurrent(recipesPage, "recipesPage")
+    }
+
+    // options carries the wizard's own properties (promoteShotId, editRecipeId, prefill).
+    function goToRecipeWizard(mode, options) {
+        if (!startNavigation()) return
+        var props = options ? Object.assign({}, options) : ({})
+        props.mode = mode
+        pageStack.push(recipeWizardPage, props)
+    }
+
+    function goToShotHistory(filter) {
+        if (!startNavigation()) return
+        pushUnlessCurrent(shotHistoryPage, "shotHistoryPage", filter || ({}))
+    }
+
+    function goToShotDetail(shotId, shotIds) {
+        if (!startNavigation()) return
+        pageStack.push(shotDetailPage, { shotId: shotId, shotIds: shotIds || [] })
+    }
+
+    function goToShotComparison() {
+        if (!startNavigation()) return
+        pageStack.push(shotComparisonPage)
+    }
+
+    function goToPostShotReview(shotId, autoClose) {
+        if (!startNavigation()) return
+        pageStack.push(postShotReviewPage, { editShotId: shotId, autoClose: autoClose })
+    }
+
+    function goToProfileInfo(profileFilename, profileName) {
+        if (!startNavigation()) return
+        pageStack.push(profileInfoPage, { profileFilename: profileFilename, profileName: profileName })
+    }
+
+    function goToBeanInfo() {
+        if (!startNavigation()) return
+        pushUnlessCurrent(beanInfoPage, "bagInventoryPage")
+    }
+
+    function goToEquipment() {
+        if (!startNavigation()) return
+        pushUnlessCurrent(equipmentPage, "equipmentPage")
+    }
+
+    function goToAutoFavorites() {
+        if (!startNavigation()) return
+        pushUnlessCurrent(autoFavoritesPage, "autoFavoritesPage")
+    }
+
+    function goToAutoFavoriteInfo(options) {
+        if (!startNavigation()) return
+        pageStack.push(autoFavoriteInfoPage, options || ({}))
+    }
+
+    function goToCommunityBrowser() {
+        if (!startNavigation()) return
+        pushUnlessCurrent(communityBrowserPage, "communityBrowserPage")
+    }
+
+    function goToVisualizerMultiImport() {
+        if (!startNavigation()) return
+        pageStack.push(visualizerMultiImportPage)
+    }
+
+    function goToFlowCalibration() {
+        if (!startNavigation()) return
+        pageStack.push(flowCalibrationPage)
+    }
+
+    function goToAISettings() {
+        if (!startNavigation()) return
+        pageStack.push(aiSettingsPage)
+    }
+
+    function goToStringBrowser() {
+        if (!startNavigation()) return
+        pageStack.push(stringBrowserPage)
+    }
+
+    function goToAddLanguage() {
+        if (!startNavigation()) return
+        pageStack.push(addLanguagePage)
     }
 
     function goToVisualizerBrowser() {
@@ -3639,30 +3812,6 @@ ApplicationWindow {
     }
 
     // Clean up text for TTS (replace underscores, expand units, etc.)
-    function cleanForSpeech(text) {
-        if (!text) return ""
-        var cleaned = text
-        // Remove common file extensions
-        cleaned = cleaned.replace(/\.(json|tcl|txt)$/i, "")
-        // Replace underscores and hyphens with spaces
-        cleaned = cleaned.replace(/[_-]/g, " ")
-        // Expand units for natural speech. Both the °C/°F symbols and a bare "88C"
-        // (common in Celsius-authored profile names like gagne_88C) always denote
-        // their own unit regardless of the display setting, so map them literally —
-        // the app's own converted read-outs always emit an explicit "°F"/"°C", never
-        // a bare number+C, so this never mislabels a converted value.
-        cleaned = cleaned.replace(/°F/g, " degrees Fahrenheit")
-        cleaned = cleaned.replace(/°C/g, " degrees Celsius")
-        cleaned = cleaned.replace(/(\d)\s*C\b/g, "$1 degrees Celsius")  // bare "88C" (Celsius-authored)
-        cleaned = cleaned.replace(/(\d)\s*ml\b/gi, "$1 milliliters")
-        cleaned = cleaned.replace(/(\d)\s*g\b/g, "$1 grams")
-        cleaned = cleaned.replace(/(\d)\s*bar\b/gi, "$1 bar")
-        cleaned = cleaned.replace(/(\d)\s*s\b/g, "$1 seconds")
-        cleaned = cleaned.replace(/(\d)\s*%/g, "$1 percent")
-        // Remove multiple spaces
-        cleaned = cleaned.replace(/\s+/g, " ")
-        return cleaned.trim()
-    }
 
     property bool screensaverActive: false
 
@@ -3738,6 +3887,82 @@ ApplicationWindow {
     Component {
         id: screensaverPage
         ScreensaverPage {}
+    }
+
+    // These fourteen complete a pattern this file already used for nineteen pages. They exist
+    // because widgets and pages used to reach these screens with
+    // `pageStack.push(Qt.resolvedUrl("../../../pages/X.qml"))`, which instantiates a DIFFERENT
+    // component from the one declared here — two mechanisms for one screen. Every navigation now
+    // goes through the Component declared once, in this file.
+
+    Component {
+        id: recipesPage
+        RecipesPage {}
+    }
+
+    Component {
+        id: recipeWizardPage
+        RecipeWizardPage {}
+    }
+
+    Component {
+        id: shotHistoryPage
+        ShotHistoryPage {}
+    }
+
+    Component {
+        id: shotDetailPage
+        ShotDetailPage {}
+    }
+
+    Component {
+        id: shotComparisonPage
+        ShotComparisonPage {}
+    }
+
+    Component {
+        id: equipmentPage
+        EquipmentPage {}
+    }
+
+    Component {
+        id: autoFavoritesPage
+        AutoFavoritesPage {}
+    }
+
+    Component {
+        id: autoFavoriteInfoPage
+        AutoFavoriteInfoPage {}
+    }
+
+    Component {
+        id: communityBrowserPage
+        CommunityBrowserPage {}
+    }
+
+    Component {
+        id: visualizerMultiImportPage
+        VisualizerMultiImportPage {}
+    }
+
+    Component {
+        id: flowCalibrationPage
+        FlowCalibrationPage {}
+    }
+
+    Component {
+        id: aiSettingsPage
+        AISettingsPage {}
+    }
+
+    Component {
+        id: stringBrowserPage
+        StringBrowserPage {}
+    }
+
+    Component {
+        id: addLanguagePage
+        AddLanguagePage {}
     }
 
     // Touch capture to reset sleep countdown (transparent, doesn't block input)
@@ -4480,10 +4705,12 @@ ApplicationWindow {
 
     Connections {
         target: ScaleDevice
-        enabled: AccessibilityManager.enabled && ScaleDevice !== null
+        // Not `ScaleDevice !== null`: the singleton proxy always exists, so that test was always
+        // true and guarded nothing. Gate on the state, never on the object.
+        enabled: AccessibilityManager.enabled
 
         function onConnectedChanged() {
-            if (ScaleDevice && ScaleDevice.connected) {
+            if (ScaleDevice.connected) {
                 AccessibilityManager.announce(trAnnounceScaleConnected.text + " " + ScaleDevice.name)
             }
             // Disconnection is handled by scaleDisconnectedDialog
@@ -4493,10 +4720,9 @@ ApplicationWindow {
     // Discard stale scale popups when scale reconnects
     Connections {
         target: ScaleDevice
-        enabled: ScaleDevice !== null
 
         function onConnectedChanged() {
-            if (ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale) {
+            if (ScaleDevice.connected && !ScaleDevice.isFlowScale) {
                 removeQueuedScalePopups()
             }
         }
@@ -4555,7 +4781,7 @@ ApplicationWindow {
 
     // ============ GLOBAL HIDE KEYBOARD BUTTON ============
     // Appears when a text input has focus (= keyboard should be showing).
-    // Qt.inputMethod.visible is unreliable on Android (goes false after 1s),
+    // Keyboard.visible is unreliable on Android (goes false after 1s),
     // so we check if the active focus item has a cursorPosition property
     // (present on TextInput/TextArea but not on Text or Button).
     property bool _textInputFocused: {
@@ -4610,7 +4836,7 @@ ApplicationWindow {
                 var window = globalHideKeyboardButton.Window.window
                 if (window && window.activeFocusItem)
                     window.activeFocusItem.focus = false
-                Qt.inputMethod.hide()
+                Keyboard.hide()
             }
         }
     }

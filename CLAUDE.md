@@ -26,7 +26,7 @@ Detailed documentation lives in `docs/CLAUDE_MD/`. Read these when working in th
 | `DATA_MIGRATION.md` | Device-to-device transfer architecture and REST endpoints |
 | `STEAM_CALIBRATION.md` | Postmortem on the removed steam calibration feature |
 | `CUP_FILL_VIEW.md` | CupFillView layer stack, GPU shaders, updating cup images |
-| `EMOJI_SYSTEM.md` | Twemoji SVG rendering, adding/switching emoji sets |
+| `EMOJI_SYSTEM.md` | Twemoji SVG rendering, adding/switching emoji sets, **where emoji earn their place and where they do not** |
 | `ACCESSIBILITY.md` | TalkBack/VoiceOver rules, focus order, anti-patterns, implementation plan |
 | `AUTO_FLOW_CALIBRATION.md` | Auto flow calibration algorithm, batched median updates, windowing, convergence |
 | `SAW_LEARNING.md` | Per-(profile, scale) stop-at-weight learning |
@@ -50,7 +50,9 @@ Read [`docs/SHOT_REVIEW.md`](https://github.com/Kulitorum/Decenza/blob/main/docs
 - **WiFi debugging**: `192.168.1.212:5555` (reconnect: `adb connect 192.168.1.212:5555`). The DHCP lease can rotate — if reconnect fails, plug in USB and run `adb shell ip route | grep wlan` to read the current IP, then `adb tcpip 5555` + `adb connect <ip>:5555`.
 - **Qt version**: 6.11.1
 - **Qt path**: `C:/Qt/6.11.1/msvc2022_64`
-- **Qt sources**: `~/Qt/6.11.1/Src` (macOS) — the full Qt source tree for the exact version we build against (`qtbase`, `qtwebsockets`, …). **Read it instead of guessing at Qt behaviour.** Qt's own docs routinely omit the details that decide a bug, and its error handling in particular is not inferable from the enum names — several distinct `errno` values collapse onto one `QAbstractSocket::SocketError`, and the mapping differs per platform. Worked example: `qtbase/src/network/socket/qnativesocketengine_unix.cpp` shows `EINVAL` mapping to `ConnectionRefusedError`, and `qtbase/src/network/socket/qabstractsocket.cpp` shows that `connectToHost()` with an IP literal resolves inline, so `open()`/`connectToHost()` can emit `errorOccurred` **synchronously** rather than on a later event-loop turn. Both facts change what correct code looks like, and neither is in the class documentation.
+- **Qt sources**: `~/Qt/6.11.1/Src` (macOS) — the full source tree for the exact version we build against. **Read it instead of guessing at Qt behaviour, and cite file-and-line in any comment that asserts what Qt does.** An un-sourced claim in a comment gets believed and then licenses wrong code: both bugs below were written as settled fact first and found by opening the source much later.
+  - Error handling is not inferable from the enum names — several `errno` values collapse onto one `QAbstractSocket::SocketError`, per platform, and `connectToHost()` with an IP literal can emit `errorOccurred` **synchronously** (`qtbase/src/network/socket/qnativesocketengine_unix.cpp`, `qabstractsocket.cpp`).
+  - Neither is the object model — a registered singleton with no instance is **truthy**, not `undefined` (`qtdeclarative/src/qml/jsruntime/qv4qmlcontext.cpp:229`). See `QML_GOTCHAS.md`.
 - **qtbase checkout**: `~/Development/GitHub/qtbase` — separate git clone with the Gerrit remote, for upstream patches. Not the copy to read for reference (it sits on whatever contribution branch is in flight); use `~/Qt/6.11.1/Src` for that.
 - **C++ standard**: C++17
 - **de1app source**: `C:\code\de1app` (Windows) or `/Users/jeffreyh/Development/GitHub/de1app` (macOS) — original Tcl/Tk DE1 app for reference
@@ -82,8 +84,7 @@ See `docs/CLAUDE_MD/PROJECT_STRUCTURE.md` for the full source tree, signal/slot 
 - **Never use timers as guards/workarounds.** Timers are fragile heuristics that break on slow devices and hide the real problem. Use event-based flags and conditions instead. For example, "suppress X until Y has happened" should be a boolean cleared by the Y event, not a timer. Only use timers for genuinely periodic tasks (polling, animation, heartbeats) and **UI auto-dismiss** (toasts/banners that hide after N seconds). Everything else — including debounce — should use event-based flags.
 - **Never run database or disk I/O on the main thread.** Use `QThread::create()` with a `QMetaObject::invokeMethod(..., Qt::QueuedConnection)` callback to run queries on a background thread and deliver results back to the main thread. See `ShotHistoryStorage::requestShot()` for the canonical pattern. For database connections inside background threads, always use the `withTempDb()` helper from `src/core/dbutils.h` — it handles unique connection naming, `busy_timeout`, `foreign_keys` pragmas, and cleanup. Never manually call `QSqlDatabase::addDatabase()`/`removeDatabase()` when `withTempDb` can be used instead.
 - **A configured API key is not permission to spend on it.** Any feature that calls a paid AI provider uses the provider AND model the user selected, and nothing else. Never fall back to another provider because one errored or rate-limited, and never pick a provider because it happens to have a key — a user with OpenAI selected must not get billed on Anthropic. When the selected provider fails, stop and report which provider failed at what; a run that reports success having silently used something else is worse than a run that ends. Decenza's bulk translator did exactly this for months, hard-ordering "Claude first (best quality), then OpenAI", and the silent substitution hid a retired Anthropic model that made every Anthropic request 404 — visible only to users with no second key.
-- **Settings go in their domain sub-object, not on `Settings` directly.** `Settings` is a façade that owns 12 domain classes (`SettingsMqtt`, `SettingsTheme`, etc.). Add new properties to the matching `Settings<Domain>` class, or create a new sub-object if none fits. Never add a property back to `Settings` itself — that undoes the split. A new sub-object needs three things: its header `#include`d in `settings.h`, a concrete-typed `Q_PROPERTY(Settings<Domain>* <domain> READ <domain> CONSTANT)`, and a `QML_FOREIGN` + `QML_UNCREATABLE` registration in `settings_qml.h`. Miss the last one and QML resolves `Settings.<domain>.<prop>` to `undefined` at runtime while compiling clean. QML access is **always** `Settings.<domain>.<prop>`, never the flat `Settings.<prop>`. See `docs/CLAUDE_MD/SETTINGS.md` for the full checklist.
-  - **This rule used to say "never `#include "settings_<domain>.h"` in `settings.h`", with the properties declared `QObject*` to avoid it. That was reversed deliberately** — the erasure hid 1,310 QML call sites across 281 settings from qmllint, `qmlcachegen` and the language server, which is the #1661 defect class. Do not reintroduce it, and note that `Q_DECLARE_OPAQUE_POINTER` is not a way to have both: it compiles, satisfies the linter, and hands QML a `QVariant(Settings<Domain>*)` instead of an object, breaking every access at runtime. `tst_settings::qmlChainsThroughDomainSubObjects` exists to catch that. Measured cost of the includes: a domain-header edit takes **60 s instead of 26 s** — that is +129 C++ translation units; the 218 QML cache units in the dirty set rebuild either way, because a domain header carries `Q_OBJECT` and any moc-metadata change invalidates `Decenza.qmltypes`. Full measurement and method in `openspec/changes/fix-qmllint-usability/design.md` (D2a); `docs/CLAUDE_MD/BUILD_PERFORMANCE.md` is a draft that predates this change and has not caught up. Reduce the 60 s by restructuring — narrower consumers, or trimming what the domain headers pull in — never by erasing the types again.
+- **Settings go in their domain sub-object, not on `Settings` directly.** `Settings` is a façade owning 12 domain classes (`SettingsMqtt`, `SettingsTheme`, …). Add properties to the matching `Settings<Domain>`, or add a new sub-object; never back onto `Settings` itself. QML access is **always** `Settings.<domain>.<prop>`, never the flat `Settings.<prop>`. A new sub-object needs three edits and missing the third (`QML_FOREIGN` + `QML_UNCREATABLE` in `settings_qml.h`) resolves to `undefined` at runtime while compiling clean. Two traps that cost real time — the domain types must NOT be erased to `QObject*`, and `Q_DECLARE_OPAQUE_POINTER` is not a way around it — are in `docs/CLAUDE_MD/SETTINGS.md` with the full checklist and the measured build cost. Read it before adding a domain.
 
 ### C++
 - Classes: `PascalCase`; methods/variables: `camelCase`; members: `m_` prefix; slots: `onEventName()`
@@ -104,44 +105,15 @@ See `docs/CLAUDE_MD/PROJECT_STRUCTURE.md` for the full source tree, signal/slot 
 
 ### Using emoji well
 
-The app ships the complete Twemoji set (~4,000 SVGs, MIT), resolved locally with no network
-access. Emoji are cheap, render identically on every platform, and are the one visual element
-that survives translation unchanged. **Reach for them where they make a screen easier to read
-or more pleasant to use** — an interface that is all grey text is not more professional, it is
-just harder to scan.
+The app ships the complete Twemoji set (~4,000 SVGs, MIT), resolved locally. **Reach for emoji
+where they make a screen easier to scan** — but never as the only carrier of meaning, never more
+than one per label, and never in place of a themed SVG for toolbar/navigation chrome. Full
+guidance on where they earn their place (and where they do not) is in
+`docs/CLAUDE_MD/EMOJI_SYSTEM.md`.
 
-**Where they earn their place:**
-- Category and section markers, where a glyph makes a list scannable at a glance.
-- Status and outcome, alongside the words rather than instead of them — `☕ Espresso`,
-  `⚠️ Tank low`, `✅ Uploaded`.
-- User-authored content: bean names, recipe names, widget labels, notes. Users already type
-  emoji here and the picker offers the full set.
-- Empty states and first-run screens, where a little warmth reads as care rather than noise.
-
-**Where they do not:**
-- **Never as the only carrier of meaning.** A screen reader announces the name, not the picture,
-  and a stripped context (plain-text fields, exports, MCP responses) drops it entirely. Always
-  pair with a word.
-- **Not on destructive or error actions** in place of clear wording. `🗑️ Delete all shots` is
-  fine; `🗑️` alone is not.
-- **Not more than one per label,** and not decorating every row of a list — repetition turns a
-  useful signal into visual noise, and a page where everything is marked marks nothing.
-- **Not in place of a themed icon** for chrome — toolbar and navigation icons are monochrome
-  SVGs that follow `Theme.iconColor` through `ThemedIcon`. Emoji carry fixed colours and will
-  not adapt to light/dark or a custom palette.
-
-**Mechanics — these are not optional:**
-- Render through `Theme.emojiToImage()` (for an `Image`) or `Theme.replaceEmojiWithImg()` (for
-  text with emoji inline). Putting an emoji in a plain `Text` lets a colour glyph reach the
-  platform renderer, which **crashes the render thread on macOS**.
-- No manual asset step. Using a new emoji needs no download and no `.qrc` edit — the full set
-  already ships. `.github/workflows/emoji-pin-check.yml` reports when upstream has a newer
-  release worth pulling in.
-- An emoji with no bundled asset is silently stripped, so a sequence from a Unicode revision
-  newer than the pin simply disappears. Don't build a layout that only makes sense if the emoji
-  renders.
-- For accessibility, give the element an `Accessible.name` with the word, not the picture.
-  `Theme.toAccessibleText()` strips emoji and tags from a rendered string for exactly this.
+**The one rule that is not stylistic:** render through `Theme.emojiToImage()` (for an `Image`) or
+`Theme.replaceEmojiWithImg()` (for text with emoji inline). An emoji in a plain `Text` lets a
+colour glyph reach the platform renderer, which **crashes the render thread on macOS**.
 
 ### QML Gotchas (one-liners — full samples in `docs/CLAUDE_MD/QML_GOTCHAS.md`)
 
@@ -155,9 +127,28 @@ just harder to scan.
   before calling it a regression; totals alone mislead. Likewise, many `Member "x" not found on
   type "QObject"` means an erased pointer type in C++, not a mistake in the QML.
 
+- **Never directory-import a type the module already provides.** `import Decenza` covers every file
+  in `QML_FILES`; an extra `import "../components"` re-resolves the same files as plain component
+  types and **shadows the singleton registration**, so `DrinkType.shortLabel` and
+  `SettingsTabs.indexOf` read as missing members while being plainly declared. 106 were deleted.
+- **A page never touches `pageStack` or main.qml's `root`.** It emits an `AppShell` signal and the
+  shell decides. Navigation policy: replace when the MACHINE drove the change, push when the USER
+  did. See `QML_NAVIGATION.md`. Status-bar widgets are tappable from their own destination, so a
+  destination pushes through `pushUnlessCurrent()` rather than `pageStack.push()` directly.
+- **A registered singleton with no instance is TRUTHY, not `undefined`.** `typeof X !== "undefined"
+  && X` passes and the first member call throws. Qt builds the type wrapper whether or not
+  `singletonInstance()` returned anything; only the member read degrades to `undefined`. Guard the
+  member (`X.doThing !== undefined`) or the platform, never the name. Full sources in
+  `QML_GOTCHAS.md`.
+- **`pragma ComponentBehavior: Bound` breaks delegates that take injected model roles**, at runtime
+  and silently. Check for `Repeater`/`delegate:` first; with none, the pragma alone is safe. With
+  delegates, add `required property` to each in the same edit.
+- **When qualifying identifiers, go by qmllint's line and column, never by text search.** One name
+  can be several things in a file (a function-local `var step` and a nested `property var step`),
+  and only the flagged occurrences may move.
 - **Font property conflict**: don't mix `font: Theme.bodyFont` with `font.bold: true` — assign sub-properties individually.
 - **Reserved names in JS model data**: `name`, `parent`, `children`, `data`, `state`, `enabled`, `visible`, `width`, `height`, `x`, `y`, `z`, `focus`, `clip` collide with QML properties — use `label` etc.
-- **IME last-word drop**: call `Qt.inputMethod.commit()` before reading any `TextField.text` from a button handler — otherwise the in-progress word is lost on mobile.
+- **IME last-word drop**: call `Keyboard.commit()` before reading any `TextField.text` from a button handler — otherwise the in-progress word is lost on mobile. (`Keyboard` is a compile-time singleton, `src/core/keyboard.h`. It replaced `Qt.inputMethod`, which qmllint types as a bare `QObject` — so a typo in the call was uncheckable, and its failure mode is silent.)
 - **Keyboard handling**: wrap pages with text inputs in `KeyboardAwareContainer { textFields: [...] }`.
 - **FINAL Qt properties**: don't redeclare `message`/`title` etc. on `Popup`/`Dialog` (Qt 6.10+) — pick a different name like `resultMessage`.
 - **Numeric defaults**: use `value ?? 0.6`, not `value || 0.6` — `||` treats `0` as falsy.

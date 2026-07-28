@@ -110,6 +110,16 @@ public:
     Q_INVOKABLE void playCaptureDing();
     Q_INVOKABLE void toggleEnabled();  // For backdoor gesture
 
+    // Make a machine-shaped string speakable: strip profile-file extensions, turn
+    // separators into spaces, and expand units a screen reader would otherwise
+    // spell out ("88C" -> "88 degrees Celsius", "18g" -> "18 grams").
+    //
+    // Lived in main.qml as root.cleanForSpeech() and was called from two pages by
+    // creation-context lookup, which no tool could resolve. It is a pure function of
+    // its argument with no UI state, so it belongs on the accessibility singleton —
+    // typed at every call site, and unit-testable, which the QML version was not.
+    Q_INVOKABLE QString cleanForSpeech(const QString &text) const;
+
     // Must be called before app shutdown to avoid TTS race conditions
     void shutdown();
 

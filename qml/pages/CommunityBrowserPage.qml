@@ -1,8 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
 import Decenza
-import "../components"
-import "../components/library"
 
 Item {
     id: communityBrowser
@@ -238,7 +236,7 @@ Item {
     BottomBar {
         id: communityBottomBar
         title: TranslationManager.translate("community.title", "Community")
-        onBackClicked: pageStack.pop()
+        onBackClicked: AppShell.backRequested()
 
         // Download button
         Rectangle {

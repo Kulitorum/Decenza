@@ -252,7 +252,7 @@ Rectangle {
         property real _androidKeyboardHeight: {
             if (Qt.platform.os !== "android") return 0
             if (!conversationKeyboardContainer.textFieldFocused) return 0
-            var kbh = Qt.inputMethod.keyboardRectangle.height / Screen.devicePixelRatio
+            var kbh = Keyboard.rectangle.height / Screen.devicePixelRatio
             return kbh > 0 ? kbh : overlay.height * 0.45
         }
 
@@ -683,7 +683,7 @@ Rectangle {
                         // Returns true if the message was actually sent, so callers
                         // (e.g. submitIntake) can avoid dismissing UI on a refused send.
                         function sendFollowUp() {
-                            Qt.inputMethod.commit()
+                            Keyboard.commit()
                             if (text.length === 0) return false
                             if (!MainController.aiManager || !MainController.aiManager.conversation) return false
 
@@ -734,7 +734,7 @@ Rectangle {
                                 text = ""
                                 // Dismiss keyboard after sending
                                 conversationInput.focus = false
-                                Qt.inputMethod.hide()
+                                Keyboard.hide()
                                 if (hasShotData)
                                     overlay.pendingShotSummaryCleared()
                             }
@@ -933,7 +933,7 @@ Rectangle {
         // Android uses adjustPan (window shifts), so always full height.
         property real keyboardHeight: {
             if (!inputDialogTextArea.activeFocus) return 0
-            var kbh = Qt.inputMethod.keyboardRectangle.height
+            var kbh = Keyboard.rectangle.height
             return kbh > 0 ? kbh : parent.height * 0.45
         }
 
@@ -984,7 +984,7 @@ Rectangle {
                     primary: true
                     enabled: inputDialogTextArea.text.length > 0 && inputRow.canSend
                     onClicked: {
-                        Qt.inputMethod.commit()
+                        Keyboard.commit()
                         // Stage the message and close; inputDialog.onClosed runs
                         // sendFollowUp() once the dialog + keyboard transitions
                         // are complete, so the overlay isn't being mutated on

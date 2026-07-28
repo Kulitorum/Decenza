@@ -1,8 +1,9 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
-import "../components"
 
 Page {
     id: shotHistoryPage
@@ -21,7 +22,7 @@ Page {
         onClicked: {
             if (searchField.activeFocus) {
                 searchField.focus = false
-                Qt.inputMethod.hide()
+                Keyboard.hide()
             }
         }
     }
@@ -47,7 +48,7 @@ Page {
         function onShotMetadataLoaded(shotId, success) {
             shotHistoryPage._waitingForShotLoad = false
             if (success)
-                pageStack.pop()
+                AppShell.backRequested()
         }
     }
 
@@ -146,7 +147,7 @@ Page {
     Connections {
         target: MainController.shotHistory
         function onShotsDeleted() {
-            loadShots()
+            shotHistoryPage.loadShots()
         }
     }
 
@@ -159,9 +160,9 @@ Page {
                 for (var i = 0; i < results.length; i++) {
                     shotListModel.append(results[i])
                 }
-                currentOffset += results.length
-                hasMoreShots = results.length >= pageSize
-                isLoadingMore = false
+                shotHistoryPage.currentOffset += results.length
+                shotHistoryPage.hasMoreShots = results.length >= shotHistoryPage.pageSize
+                shotHistoryPage.isLoadingMore = false
             } else {
                 // Full refresh (loadShots or reloadPreservingScroll)
                 var j
@@ -175,11 +176,11 @@ Page {
                 while (shotListModel.count > results.length) {
                     shotListModel.remove(shotListModel.count - 1)
                 }
-                currentOffset = results.length
-                hasMoreShots = results.length >= pageSize
-                if (_pendingRestoreContentY >= 0) {
-                    var targetY = _pendingRestoreContentY
-                    _pendingRestoreContentY = -1
+                shotHistoryPage.currentOffset = results.length
+                shotHistoryPage.hasMoreShots = results.length >= shotHistoryPage.pageSize
+                if (shotHistoryPage._pendingRestoreContentY >= 0) {
+                    var targetY = shotHistoryPage._pendingRestoreContentY
+                    shotHistoryPage._pendingRestoreContentY = -1
                     // Defer until the ListView has re-laid-out the refreshed
                     // model so contentHeight is final before we clamp/restore.
                     Qt.callLater(function() {
@@ -188,7 +189,7 @@ Page {
                     })
                 }
             }
-            filteredTotalCount = totalCount
+            shotHistoryPage.filteredTotalCount = totalCount
         }
     }
 
@@ -322,7 +323,7 @@ Page {
         // Sort selected shots chronologically, then batch-add in one DB load
         var sortedShots = selectedShots.slice().sort(function(a, b) { return a - b })
         MainController.shotComparison.addShots(sortedShots)
-        pageStack.push(Qt.resolvedUrl("ShotComparisonPage.qml"))
+        AppShell.shotComparisonRequested()
     }
 
     function deleteSelectedShots() {
@@ -348,10 +349,7 @@ Page {
 
     function openShotDetail(shotId) {
         var shotIds = getNavigableShotIds()
-        pageStack.push(Qt.resolvedUrl("ShotDetailPage.qml"), {
-            shotId: shotId,
-            shotIds: shotIds
-        })
+        AppShell.shotDetailRequested(shotId, shotIds)
     }
 
     ListModel {
@@ -373,10 +371,10 @@ Page {
         RowLayout {
             Layout.fillWidth: true
             spacing: Theme.spacingMedium
-            visible: selectedShots.length > 0
+            visible: shotHistoryPage.selectedShots.length > 0
 
             Text {
-                text: selectedShots.length + " " + TranslationManager.translate("shothistory.selected", "selected")
+                text: shotHistoryPage.selectedShots.length + " " + TranslationManager.translate("shothistory.selected", "selected")
                 font: Theme.labelFont
                 color: Theme.textSecondaryColor
                 Layout.fillWidth: true
@@ -385,7 +383,7 @@ Page {
             AccessibleButton {
                 text: TranslationManager.translate("shothistory.clear", "Clear")
                 accessibleName: TranslationManager.translate("shotHistory.clearSelection", "Clear shot selection")
-                onClicked: clearSelection()
+                onClicked: shotHistoryPage.clearSelection()
             }
 
             AccessibleButton {
@@ -399,8 +397,8 @@ Page {
                 text: TranslationManager.translate("shothistory.compare", "Compare")
                 accessibleName: TranslationManager.translate("shotHistory.compareShots", "Compare selected shots side by side")
                 primary: true
-                enabled: selectedShots.length >= 2
-                onClicked: openComparison()
+                enabled: shotHistoryPage.selectedShots.length >= 2
+                onClicked: shotHistoryPage.openComparison()
             }
         }
 
@@ -425,9 +423,9 @@ Page {
                     if (trimmed !== lastTriggeredText) {
                         lastTriggeredText = trimmed
                         // User edited the search field — drop exact-match filter, use FTS
-                        if (!_populatingSearch && initialFilter)
-                            initialFilter = null
-                        if (!_populatingSearch)
+                        if (!shotHistoryPage._populatingSearch && shotHistoryPage.initialFilter)
+                            shotHistoryPage.initialFilter = null
+                        if (!shotHistoryPage._populatingSearch)
                             searchTimer.restart()
                     }
                 }
@@ -496,30 +494,30 @@ Page {
 
             // Sort field button
             AccessibleButton {
-                text: sortFieldLabels[sortField] || TranslationManager.translate("shothistory.sort.date", "Date")
-                accessibleName: TranslationManager.translate("shothistory.sortBy", "Sort by %1").arg(sortFieldLabels[sortField]
+                text: shotHistoryPage.sortFieldLabels[shotHistoryPage.sortField] || TranslationManager.translate("shothistory.sort.date", "Date")
+                accessibleName: TranslationManager.translate("shothistory.sortBy", "Sort by %1").arg(shotHistoryPage.sortFieldLabels[shotHistoryPage.sortField]
                                   || TranslationManager.translate("shothistory.sort.date", "Date"))
                 onClicked: sortPickerDialog.open()
             }
 
             // Sort direction button
             AccessibleButton {
-                icon.source: sortDirection === "DESC" ? "qrc:/icons/SortDescending.svg" : "qrc:/icons/SortAscending.svg"
+                icon.source: shotHistoryPage.sortDirection === "DESC" ? "qrc:/icons/SortDescending.svg" : "qrc:/icons/SortAscending.svg"
                 tintIcon: true
-                accessibleName: sortDirection === "DESC"
+                accessibleName: shotHistoryPage.sortDirection === "DESC"
                     ? TranslationManager.translate("shothistory.sortDescending", "Sort descending, tap to sort ascending")
                     : TranslationManager.translate("shothistory.sortAscending", "Sort ascending, tap to sort descending")
                 onClicked: {
-                    sortDirection = (sortDirection === "DESC") ? "ASC" : "DESC"
-                    Settings.network.shotHistorySortDirection = sortDirection
-                    loadShots()
+                    shotHistoryPage.sortDirection = (shotHistoryPage.sortDirection === "DESC") ? "ASC" : "DESC"
+                    Settings.network.shotHistorySortDirection = shotHistoryPage.sortDirection
+                    shotHistoryPage.loadShots()
                 }
             }
 
             Timer {
                 id: searchTimer
                 interval: 300
-                onTriggered: loadShots()
+                onTriggered: shotHistoryPage.loadShots()
             }
         }
 
@@ -529,7 +527,7 @@ Page {
             Layout.preferredHeight: filterBannerRow.implicitHeight + Theme.spacingSmall * 2
             radius: Theme.scaled(8)
             color: Qt.alpha(Theme.primaryColor, 0.15)
-            visible: initialFilter !== null
+            visible: shotHistoryPage.initialFilter !== null
 
             RowLayout {
                 id: filterBannerRow
@@ -539,22 +537,22 @@ Page {
 
                 Text {
                     text: {
-                        if (!initialFilter) return ""
+                        if (!shotHistoryPage.initialFilter) return ""
                         var parts = []
-                        if (initialFilter.beanBrand) parts.push(initialFilter.beanBrand)
-                        if (initialFilter.beanType) parts.push(initialFilter.beanType)
-                        if (initialFilter.profileName) parts.push(initialFilter.profileName)
-                        if (initialFilter.grinderBrand || initialFilter.grinderModel) {
-                            var g = ((initialFilter.grinderBrand || "") + " " + (initialFilter.grinderModel || "")).trim()
-                            if (initialFilter.grinderSetting) g += " @ " + initialFilter.grinderSetting
+                        if (shotHistoryPage.initialFilter.beanBrand) parts.push(shotHistoryPage.initialFilter.beanBrand)
+                        if (shotHistoryPage.initialFilter.beanType) parts.push(shotHistoryPage.initialFilter.beanType)
+                        if (shotHistoryPage.initialFilter.profileName) parts.push(shotHistoryPage.initialFilter.profileName)
+                        if (shotHistoryPage.initialFilter.grinderBrand || shotHistoryPage.initialFilter.grinderModel) {
+                            var g = ((shotHistoryPage.initialFilter.grinderBrand || "") + " " + (shotHistoryPage.initialFilter.grinderModel || "")).trim()
+                            if (shotHistoryPage.initialFilter.grinderSetting) g += " @ " + shotHistoryPage.initialFilter.grinderSetting
                             parts.push(g)
                         }
-                        if (initialFilter.minDose !== undefined && initialFilter.maxDose !== undefined) {
-                            var mid = (initialFilter.minDose + initialFilter.maxDose) / 2
+                        if (shotHistoryPage.initialFilter.minDose !== undefined && shotHistoryPage.initialFilter.maxDose !== undefined) {
+                            var mid = (shotHistoryPage.initialFilter.minDose + shotHistoryPage.initialFilter.maxDose) / 2
                             parts.push(TranslationManager.translate("shothistory.filter.doseGrams", "%1g dose").arg(mid.toFixed(1)))
                         }
-                        if (initialFilter.targetWeight !== undefined && initialFilter.targetWeight >= 0) {
-                            parts.push(TranslationManager.translate("shothistory.filter.yieldGrams", "%1g yield").arg(initialFilter.targetWeight.toFixed(1)))
+                        if (shotHistoryPage.initialFilter.targetWeight !== undefined && shotHistoryPage.initialFilter.targetWeight >= 0) {
+                            parts.push(TranslationManager.translate("shothistory.filter.yieldGrams", "%1g yield").arg(shotHistoryPage.initialFilter.targetWeight.toFixed(1)))
                         }
                         return TranslationManager.translate("shothistory.filteredBy", "Filtered:") + " " + parts.join(" \u00B7 ")
                     }
@@ -570,7 +568,7 @@ Page {
                     text: TranslationManager.translate("shothistory.clearFilter", "Clear")
                     accessibleName: TranslationManager.translate("shothistory.clearFilterAccessible", "Clear favorites filter")
                     icon.source: "qrc:/icons/cross.svg"
-                    onClicked: clearInitialFilter()
+                    onClicked: shotHistoryPage.clearInitialFilter()
                 }
             }
         }
@@ -579,7 +577,7 @@ Page {
         Text {
             text: {
                 var loaded = shotListModel.count
-                var filtered = filteredTotalCount
+                var filtered = shotHistoryPage.filteredTotalCount
                 var total = MainController.shotHistory.totalShots
                 var countText = loaded + " " + TranslationManager.translate("shothistory.shots", "shots")
                 if (filtered > loaded) {
@@ -608,13 +606,13 @@ Page {
             onMovementStarted: {
                 if (searchField.activeFocus) {
                     searchField.focus = false
-                    Qt.inputMethod.hide()
+                    Keyboard.hide()
                 }
             }
 
             // Infinite scroll - load more when near bottom
             onContentYChanged: {
-                if (!isLoadingMore && hasMoreShots && contentHeight > 0) {
+                if (!shotHistoryPage.isLoadingMore && shotHistoryPage.hasMoreShots && contentHeight > 0) {
                     var threshold = contentHeight - height - Theme.scaled(200)
                     if (contentY > threshold) {
                         loadMoreTimer.restart()
@@ -625,17 +623,21 @@ Page {
             Timer {
                 id: loadMoreTimer
                 interval: 100
-                onTriggered: loadMoreShots()
+                onTriggered: shotHistoryPage.loadMoreShots()
             }
 
             delegate: Rectangle {
                 id: shotDelegate
+
+                // The ListView's model role object, declared rather than injected.
+                required property var model
+
                 width: shotListView.width
                 height: Math.max(Theme.scaled(90), shotContentRow.implicitHeight + Theme.spacingMedium * 2)
                 radius: Theme.cardRadius
-                color: isSelected(model.id) ? Qt.darker(Theme.cardBackgroundColor, 1.2) : Theme.cardBackgroundColor
-                border.color: isSelected(model.id) ? Theme.primaryColor : "transparent"
-                border.width: isSelected(model.id) ? 2 : 0
+                color: shotHistoryPage.isSelected(model.id) ? Qt.darker(Theme.cardBackgroundColor, 1.2) : Theme.cardBackgroundColor
+                border.color: shotHistoryPage.isSelected(model.id) ? Theme.primaryColor : "transparent"
+                border.width: shotHistoryPage.isSelected(model.id) ? 2 : 0
 
                 property int shotEnjoyment: model.enjoyment0to100 || 0
 
@@ -676,7 +678,7 @@ Page {
                     return parts.join(", ")
                 }
                 Accessible.focusable: true
-                Accessible.onPressAction: openShotDetail(model.id)
+                Accessible.onPressAction: shotHistoryPage.openShotDetail(model.id)
 
                 RowLayout {
                     id: shotContentRow
@@ -686,8 +688,8 @@ Page {
 
                     // Selection checkbox
                     CheckBox {
-                        checked: isSelected(model.id)
-                        onClicked: toggleSelection(model.id)
+                        checked: shotHistoryPage.isSelected(shotDelegate.model.id)
+                        onClicked: shotHistoryPage.toggleSelection(shotDelegate.model.id)
                         Accessible.role: Accessible.CheckBox
                         Accessible.name: TranslationManager.translate("shothistory.accessible.compare", "Compare")
                         Accessible.checked: checked
@@ -722,7 +724,7 @@ Page {
                             spacing: Theme.spacingSmall
 
                             Text {
-                                text: model.dateTime || ""
+                                text: shotDelegate.model.dateTime || ""
                                 font: Theme.subtitleFont
                                 color: Theme.textColor
                                 Accessible.ignored: true
@@ -731,8 +733,8 @@ Page {
                             Text {
                                 textFormat: Text.StyledText
                                 text: {
-                                    var name = model.profileName || ""
-                                    var tempOvr = model.temperatureOverrideC || 0
+                                    var name = shotDelegate.model.profileName || ""
+                                    var tempOvr = shotDelegate.model.temperatureOverrideC || 0
                                     var result
                                     if (tempOvr > 0) {
                                         result = name + " (" + Math.round(Theme.cToDisplay(tempOvr)) + Theme.tempUnitSuffix() + ")"
@@ -752,10 +754,10 @@ Page {
                         Text {
                             textFormat: Text.StyledText
                             text: {
-                                var bean = (model.beanBrand || "") + (model.beanType ? " " + model.beanType : "")
-                                var grind = model.grinderSetting || ""
+                                var bean = (shotDelegate.model.beanBrand || "") + (shotDelegate.model.beanType ? " " + shotDelegate.model.beanType : "")
+                                var grind = shotDelegate.model.grinderSetting || ""
                                 // Pair the RPM half when recorded (variable-RPM grinders).
-                                if (grind && model.rpm > 0) grind += " · " + model.rpm
+                                if (grind && shotDelegate.model.rpm > 0) grind += " · " + shotDelegate.model.rpm
                                 var result
                                 if (bean && grind) result = bean + " (" + grind + ")"
                                 else if (bean) result = bean
@@ -776,11 +778,11 @@ Page {
 
                             Text {
                                 text: {
-                                    var dose = (model.doseWeightG || 0).toFixed(1)
-                                    var actual = (model.finalWeightG || 0).toFixed(1)
+                                    var dose = (shotDelegate.model.doseWeightG || 0).toFixed(1)
+                                    var actual = (shotDelegate.model.finalWeightG || 0).toFixed(1)
                                     var yieldText = actual + "g"
-                                    var target = model.targetWeightG || 0
-                                    if (target > 0 && Math.abs(target - model.finalWeightG) > 0.5) {
+                                    var target = shotDelegate.model.targetWeightG || 0
+                                    if (target > 0 && Math.abs(target - shotDelegate.model.finalWeightG) > 0.5) {
                                         yieldText = actual + "g (" + Math.round(target) + "g)"
                                     }
                                     return dose + "g \u2192 " + yieldText
@@ -791,7 +793,7 @@ Page {
                             }
 
                             Text {
-                                text: (model.durationSec || 0).toFixed(1) + "s"
+                                text: (shotDelegate.model.durationSec || 0).toFixed(1) + "s"
                                 font: Theme.labelFont
                                 color: Theme.textSecondaryColor
                                 Accessible.ignored: true
@@ -806,7 +808,7 @@ Page {
                                 source: "qrc:/icons/CloudUpload.svg"
                                 iconSize: Theme.scaled(16)
                                 color: Theme.successColor
-                                visible: model.hasVisualizerUpload
+                                visible: shotDelegate.model.hasVisualizerUpload
                                 // Announced as part of the row's Accessible.name instead.
                                 Accessible.ignored: true
                             }
@@ -817,25 +819,25 @@ Page {
                             Rectangle {
                                 Layout.preferredWidth: Theme.scaled(8); Layout.preferredHeight: Theme.scaled(8); radius: Theme.scaled(4)
                                 color: Theme.errorColor
-                                visible: model.pourTruncatedDetected ?? false
+                                visible: shotDelegate.model.pourTruncatedDetected ?? false
                                 Accessible.ignored: true
                             }
                             Rectangle {
                                 Layout.preferredWidth: Theme.scaled(8); Layout.preferredHeight: Theme.scaled(8); radius: Theme.scaled(4)
                                 color: Theme.errorColor
-                                visible: model.channelingDetected ?? false
+                                visible: shotDelegate.model.channelingDetected ?? false
                                 Accessible.ignored: true
                             }
                             Rectangle {
                                 Layout.preferredWidth: Theme.scaled(8); Layout.preferredHeight: Theme.scaled(8); radius: Theme.scaled(4)
                                 color: Theme.warningColor
-                                visible: model.grindIssueDetected ?? false
+                                visible: shotDelegate.model.grindIssueDetected ?? false
                                 Accessible.ignored: true
                             }
                             Rectangle {
                                 Layout.preferredWidth: Theme.scaled(8); Layout.preferredHeight: Theme.scaled(8); radius: Theme.scaled(4)
                                 color: Theme.errorColor
-                                visible: model.skipFirstFrameDetected ?? false
+                                visible: shotDelegate.model.skipFirstFrameDetected ?? false
                                 Accessible.ignored: true
                             }
                         }
@@ -879,7 +881,7 @@ Page {
                             anchors.fill: parent
                             onClicked: {
                                 shotHistoryPage._waitingForShotLoad = true
-                                MainController.loadShotWithMetadata(model.id)
+                                MainController.loadShotWithMetadata(shotDelegate.model.id)
                             }
                         }
                     }
@@ -910,8 +912,7 @@ Page {
                             id: recipeArea
                             anchors.fill: parent
                             onClicked: {
-                                pageStack.push(Qt.resolvedUrl("RecipeWizardPage.qml"),
-                                               { mode: "create", promoteShotId: model.id })
+                                AppShell.recipeWizardRequested("create", { promoteShotId: shotDelegate.model.id })
                             }
                         }
                     }
@@ -940,7 +941,7 @@ Page {
                             id: editArea
                             anchors.fill: parent
                             onClicked: {
-                                pageStack.push(Qt.resolvedUrl("PostShotReviewPage.qml"), { editShotId: model.id, autoClose: false })
+                                AppShell.postShotReviewRequested(shotDelegate.model.id, false)
                             }
                         }
                     }
@@ -968,7 +969,7 @@ Page {
                         MouseArea {
                             id: detailArea
                             anchors.fill: parent
-                            onClicked: openShotDetail(model.id)
+                            onClicked: shotHistoryPage.openShotDetail(shotDelegate.model.id)
                         }
                     }
                 }
@@ -976,15 +977,15 @@ Page {
                 MouseArea {
                     anchors.fill: parent
                     z: -1
-                    onClicked: toggleSelection(model.id)
-                    onPressAndHold: openShotDetail(model.id)
+                    onClicked: shotHistoryPage.toggleSelection(shotDelegate.model.id)
+                    onPressAndHold: shotHistoryPage.openShotDetail(shotDelegate.model.id)
                 }
             }
 
             footer: Item {
                 width: shotListView.width
-                height: isLoadingMore ? Theme.scaled(50) : 0
-                visible: isLoadingMore
+                height: shotHistoryPage.isLoadingMore ? Theme.scaled(50) : 0
+                visible: shotHistoryPage.isLoadingMore
 
                 Text {
                     anchors.centerIn: parent
@@ -1011,7 +1012,7 @@ Page {
         id: bottomBar
         title: TranslationManager.translate("shothistory.title", "Shot History")
         rightText: MainController.shotHistory.totalShots + " " + TranslationManager.translate("shothistory.shots", "shots")
-        onBackClicked: root.goBack()
+        onBackClicked: AppShell.backRequested()
     }
 
     Dialog {
@@ -1046,7 +1047,7 @@ Page {
 
             // Message
             Text {
-                text: TranslationManager.translate("shothistory.deleteconfirmmessage", "Permanently delete %1 shot(s) from history?").arg(selectedShots.length)
+                text: TranslationManager.translate("shothistory.deleteconfirmmessage", "Permanently delete %1 shot(s) from history?").arg(shotHistoryPage.selectedShots.length)
                 font: Theme.bodyFont
                 color: Theme.textSecondaryColor
                 wrapMode: Text.Wrap
@@ -1080,7 +1081,7 @@ Page {
                     Layout.fillWidth: true
                     onClicked: {
                         bulkDeleteConfirmDialog.close()
-                        deleteSelectedShots()
+                        shotHistoryPage.deleteSelectedShots()
                     }
                 }
             }
@@ -1095,7 +1096,7 @@ Page {
         searchField.text = currentText + keyword
         searchHelpDialog.close()
         searchField.forceActiveFocus()
-        Qt.inputMethod.show()
+        Keyboard.show()
     }
 
     // Saved searches dialog
@@ -1140,6 +1141,10 @@ Page {
                 spacing: Theme.scaled(2)
 
                 delegate: Rectangle {
+                    id: savedSearchDelegate
+
+                    required property var modelData
+
                     readonly property bool _accessibilityMode: typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled
 
                     width: savedSearchesList.width
@@ -1164,7 +1169,7 @@ Page {
                             spacing: Theme.spacingSmall
 
                             Text {
-                                text: modelData
+                                text: savedSearchDelegate.modelData
                                 font: Theme.bodyFont
                                 color: Theme.textColor
                                 Layout.fillWidth: true
@@ -1174,7 +1179,7 @@ Page {
 
                             // Inline delete button (hidden in accessibility mode)
                             Rectangle {
-                                visible: !_accessibilityMode
+                                visible: !savedSearchDelegate._accessibilityMode
                                 Layout.preferredWidth: Theme.scaled(28)
                                 Layout.preferredHeight: Theme.scaled(28)
                                 radius: Theme.scaled(14)
@@ -1192,7 +1197,7 @@ Page {
                                     id: deleteArea
                                     anchors.fill: parent
                                     onClicked: {
-                                        Settings.network.removeSavedSearch(modelData)
+                                        Settings.network.removeSavedSearch(savedSearchDelegate.modelData)
                                         if (Settings.network.savedSearches.length === 0) {
                                             savedSearchesDialog.close()
                                         }
@@ -1203,16 +1208,16 @@ Page {
 
                         // Separate delete button row for accessibility mode (outside row bounds)
                         AccessibleButton {
-                            visible: _accessibilityMode
+                            visible: savedSearchDelegate._accessibilityMode
                             text: TranslationManager.translate("shothistory.delete", "Delete")
-                            accessibleName: TranslationManager.translate("shothistory.deleteSavedSearch", "Delete search: %1").arg(modelData)
+                            accessibleName: TranslationManager.translate("shothistory.deleteSavedSearch", "Delete search: %1").arg(savedSearchDelegate.modelData)
                             destructive: true
                             Layout.fillWidth: true
                             Layout.preferredHeight: Theme.scaled(36)
                             Layout.leftMargin: Theme.scaled(10)
                             Layout.rightMargin: Theme.scaled(4)
                             onClicked: {
-                                Settings.network.removeSavedSearch(modelData)
+                                Settings.network.removeSavedSearch(savedSearchDelegate.modelData)
                                 if (Settings.network.savedSearches.length === 0) {
                                     savedSearchesDialog.close()
                                 }
@@ -1225,7 +1230,7 @@ Page {
                         anchors.fill: parent
                         z: -1
                         onClicked: {
-                            searchField.text = modelData
+                            searchField.text = savedSearchDelegate.modelData
                             savedSearchesDialog.close()
                         }
                     }
@@ -1249,14 +1254,14 @@ Page {
     SelectionDialog {
         id: sortPickerDialog
         title: TranslationManager.translate("shothistory.sortByTitle", "Sort By")
-        options: sortFieldKeys.map(function(key) { return sortFieldLabels[key] || key })
-        currentIndex: sortFieldKeys.indexOf(sortField)
+        options: shotHistoryPage.sortFieldKeys.map(function(key) { return shotHistoryPage.sortFieldLabels[key] || key })
+        currentIndex: shotHistoryPage.sortFieldKeys.indexOf(shotHistoryPage.sortField)
         onSelected: function(index, value) {
-            sortField = sortFieldKeys[index]
-            sortDirection = defaultSortDirections[sortFieldKeys[index]] || "DESC"
-            Settings.network.shotHistorySortField = sortField
-            Settings.network.shotHistorySortDirection = sortDirection
-            loadShots()
+            shotHistoryPage.sortField = shotHistoryPage.sortFieldKeys[index]
+            shotHistoryPage.sortDirection = shotHistoryPage.defaultSortDirections[shotHistoryPage.sortFieldKeys[index]] || "DESC"
+            Settings.network.shotHistorySortField = shotHistoryPage.sortField
+            Settings.network.shotHistorySortDirection = shotHistoryPage.sortDirection
+            shotHistoryPage.loadShots()
         }
     }
 
@@ -1365,7 +1370,7 @@ Page {
                         Accessible.focusable: true
                         Accessible.onPressAction: ratingArea.clicked(null)
                         Text { id: ratingLabel; text: "rating:"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
-                        MouseArea { id: ratingArea; anchors.fill: parent; onClicked: insertSearchKeyword("rating:") }
+                        MouseArea { id: ratingArea; anchors.fill: parent; onClicked: shotHistoryPage.insertSearchKeyword("rating:") }
                     }
                     Text { text: TranslationManager.translate("shothistory.helprating", "Enjoyment (0-100)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
                     Text { text: "rating:70+"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
@@ -1380,7 +1385,7 @@ Page {
                         Accessible.focusable: true
                         Accessible.onPressAction: doseArea.clicked(null)
                         Text { id: doseLabel; text: "dose:"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
-                        MouseArea { id: doseArea; anchors.fill: parent; onClicked: insertSearchKeyword("dose:") }
+                        MouseArea { id: doseArea; anchors.fill: parent; onClicked: shotHistoryPage.insertSearchKeyword("dose:") }
                     }
                     Text { text: TranslationManager.translate("shothistory.helpdose", "Dose weight (g)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
                     Text { text: "dose:16-18"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
@@ -1395,7 +1400,7 @@ Page {
                         Accessible.focusable: true
                         Accessible.onPressAction: yieldArea.clicked(null)
                         Text { id: yieldLabel; text: "yield:"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
-                        MouseArea { id: yieldArea; anchors.fill: parent; onClicked: insertSearchKeyword("yield:") }
+                        MouseArea { id: yieldArea; anchors.fill: parent; onClicked: shotHistoryPage.insertSearchKeyword("yield:") }
                     }
                     Text { text: TranslationManager.translate("shothistory.helpyield", "Yield weight (g)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
                     Text { text: "yield:30-40"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
@@ -1410,7 +1415,7 @@ Page {
                         Accessible.focusable: true
                         Accessible.onPressAction: timeArea.clicked(null)
                         Text { id: timeLabel; text: "time:"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
-                        MouseArea { id: timeArea; anchors.fill: parent; onClicked: insertSearchKeyword("time:") }
+                        MouseArea { id: timeArea; anchors.fill: parent; onClicked: shotHistoryPage.insertSearchKeyword("time:") }
                     }
                     Text { text: TranslationManager.translate("shothistory.helptime", "Duration (seconds)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
                     Text { text: "time:25-35"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
@@ -1425,7 +1430,7 @@ Page {
                         Accessible.focusable: true
                         Accessible.onPressAction: tdsArea.clicked(null)
                         Text { id: tdsLabel; text: "tds:"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
-                        MouseArea { id: tdsArea; anchors.fill: parent; onClicked: insertSearchKeyword("tds:") }
+                        MouseArea { id: tdsArea; anchors.fill: parent; onClicked: shotHistoryPage.insertSearchKeyword("tds:") }
                     }
                     Text { text: TranslationManager.translate("shotHistory.label.tds", "TDS"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
                     Text { text: "tds:1.3-1.5"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
@@ -1440,7 +1445,7 @@ Page {
                         Accessible.focusable: true
                         Accessible.onPressAction: eyArea.clicked(null)
                         Text { id: eyLabel; text: "ey:"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
-                        MouseArea { id: eyArea; anchors.fill: parent; onClicked: insertSearchKeyword("ey:") }
+                        MouseArea { id: eyArea; anchors.fill: parent; onClicked: shotHistoryPage.insertSearchKeyword("ey:") }
                     }
                     Text { text: TranslationManager.translate("shothistory.helpey", "Extraction yield (%)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
                     Text { text: "ey:18-22"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
@@ -1456,7 +1461,7 @@ Page {
                         Accessible.focusable: true
                         Accessible.onPressAction: channelingArea.clicked(null)
                         Text { id: channelingLabel; text: "channeling:yes"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
-                        MouseArea { id: channelingArea; anchors.fill: parent; onClicked: insertSearchKeyword("channeling:yes") }
+                        MouseArea { id: channelingArea; anchors.fill: parent; onClicked: shotHistoryPage.insertSearchKeyword("channeling:yes") }
                     }
                     Text { text: TranslationManager.translate("shothistory.helpchanneling", "Channeling detected"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
                     Text { text: "channeling:yes"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
@@ -1471,7 +1476,7 @@ Page {
                         Accessible.focusable: true
                         Accessible.onPressAction: grindArea.clicked(null)
                         Text { id: grindLabel; text: "grind:yes"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
-                        MouseArea { id: grindArea; anchors.fill: parent; onClicked: insertSearchKeyword("grind:yes") }
+                        MouseArea { id: grindArea; anchors.fill: parent; onClicked: shotHistoryPage.insertSearchKeyword("grind:yes") }
                     }
                     Text { text: TranslationManager.translate("shothistory.helpgrind", "Grind issue"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
                     Text { text: "grind:yes"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
@@ -1486,7 +1491,7 @@ Page {
                         Accessible.focusable: true
                         Accessible.onPressAction: skipFrameArea.clicked(null)
                         Text { id: skipFrameLabel; text: "skipframe:yes"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
-                        MouseArea { id: skipFrameArea; anchors.fill: parent; onClicked: insertSearchKeyword("skipframe:yes") }
+                        MouseArea { id: skipFrameArea; anchors.fill: parent; onClicked: shotHistoryPage.insertSearchKeyword("skipframe:yes") }
                     }
                     Text { text: TranslationManager.translate("shothistory.helpskipframe", "First step skipped"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
                     Text { text: "skipframe:yes"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
@@ -1501,7 +1506,7 @@ Page {
                         Accessible.focusable: true
                         Accessible.onPressAction: puckFailedArea.clicked(null)
                         Text { id: puckFailedLabel; text: "puckfailed:yes"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
-                        MouseArea { id: puckFailedArea; anchors.fill: parent; onClicked: insertSearchKeyword("puckfailed:yes") }
+                        MouseArea { id: puckFailedArea; anchors.fill: parent; onClicked: shotHistoryPage.insertSearchKeyword("puckfailed:yes") }
                     }
                     Text { text: TranslationManager.translate("shothistory.helppuckfailed", "Puck failed"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }
                     Text { text: "puckfailed:yes"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true; Layout.fillWidth: true; elide: Text.ElideRight }

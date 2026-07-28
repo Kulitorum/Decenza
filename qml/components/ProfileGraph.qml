@@ -1,7 +1,6 @@
 import QtQuick
 import QtGraphs
 import Decenza
-import "graphs"
 
 // Profile editor preview. Pressure / flow live on the GraphsView's native left
 // axis; temperature is overlaid as a solid DashedLineSeries against a QtObject

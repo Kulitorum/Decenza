@@ -3,7 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Effects
 import Decenza
-import "."
 
 // Dialog for selecting espresso extraction view mode: Shot Chart or Cup Fill.
 Dialog {

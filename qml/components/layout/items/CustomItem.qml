@@ -1,9 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Effects
-import QtQuick.Window
 import Decenza
-import "../.."
 
 Item {
     id: root
@@ -86,9 +84,8 @@ Item {
         // stack in main.qml): fall back to the stack's current page. togglePreset
         // and the active ring then work exactly while the home screen is showing —
         // the only time the preset row exists — and stay inert elsewhere.
-        if (typeof pageStack !== "undefined" && pageStack.currentItem
-                && pageStack.currentItem.objectName === "idlePage")
-            return pageStack.currentItem
+        if (AppShell.currentPage && AppShell.currentPage.objectName === "idlePage")
+            return AppShell.currentPage
         return null
     }
     readonly property bool isActive: _toggleMode !== ""
@@ -172,7 +169,7 @@ Item {
             // %TARGET_TEMP% shows the effective brew temp (per-brew override when set)
             if (typeof Settings !== "undefined" && Settings !== null) void(Settings.brew.temperatureOverride)
         }
-        if (_needsScaleDevice && typeof ScaleDevice !== "undefined" && ScaleDevice) {
+        if (_needsScaleDevice) {
             void(ScaleDevice.name); void(ScaleDevice.connected)
         }
         if (_needsSettingsData && typeof Settings !== "undefined" && Settings !== null) {
@@ -245,7 +242,7 @@ Item {
         result = result.replace(/%RATIO%/g, typeof ProfileManager !== "undefined" && ProfileManager !== null ? ProfileManager.brewByRatio.toFixed(1) : "—")
         result = result.replace(/%DOSE%/g, typeof ProfileManager !== "undefined" && ProfileManager !== null ? ProfileManager.brewByRatioDose.toFixed(1) : "—")
         // Scale device
-        result = result.replace(/%SCALE%/g, typeof ScaleDevice !== "undefined" && ScaleDevice ? ScaleDevice.name : "—")
+        result = result.replace(/%SCALE%/g, ScaleDevice.name || "—")
         // Grinder
         result = result.replace(/%GRIND%/g, typeof Settings !== "undefined" && Settings !== null && Settings.dye.dyeGrinderSetting ? Settings.dye.dyeGrinderSetting : "—")
         result = result.replace(/%RPM%/g, typeof Settings !== "undefined" && Settings !== null && Settings.dye.dyeGrinderRpm > 0 ? String(Settings.dye.dyeGrinderRpm) : "—")
@@ -257,8 +254,8 @@ Item {
             result = result.replace(/%MACHINE_READY_COLOR%/g, machineReady ? Theme.successColor : Theme.errorColor)
         // Connection status
         var machineOn = typeof DE1Device !== "undefined" && DE1Device !== null && DE1Device.connected
-        var scaleOn = typeof ScaleDevice !== "undefined" && ScaleDevice && ScaleDevice.connected
-        var flowScale = typeof ScaleDevice !== "undefined" && ScaleDevice && ScaleDevice.isFlowScale
+        var scaleOn = ScaleDevice.connected
+        var flowScale = ScaleDevice.isFlowScale
         result = result.replace(/%CONNECTED%/g, machineOn ? TranslationManager.translate("customitem.status.online", "Online") : TranslationManager.translate("customitem.status.offline", "Offline"))
         if (result.indexOf("%CONNECTED_COLOR%") >= 0)
             result = result.replace(/%CONNECTED_COLOR%/g, machineOn ? Theme.successColor : Theme.errorColor)
@@ -311,42 +308,44 @@ Item {
                 console.warn("CustomItem: togglePreset couldn't find IdlePage ancestor; preset '" + target + "' not toggled")
             }
         } else if (category === "navigate") {
-            var pageMap = {
-                "settings": "SettingsPage.qml",
-                "history": "ShotHistoryPage.qml",
-                "profiles": "ProfileSelectorPage.qml",
-                "profileEditor": "ProfileEditorPage.qml",
-                "recipes": "RecipeEditorPage.qml",
-                "recipeList": "RecipesPage.qml",
-                "descaling": "DescalingPage.qml",
-                "ai": "AISettingsPage.qml",
-                "visualizer": "VisualizerBrowserPage.qml",
-                "autofavorites": "AutoFavoritesPage.qml",
-                "steam": "SteamPage.qml",
-                "hotwater": "HotWaterPage.qml",
-                "flush": "FlushPage.qml",
-                "beaninfo": "BeanInfoPage.qml",
-                "equipment": "EquipmentPage.qml",
-                "espresso": "EspressoPage.qml",
-                "community": "CommunityBrowserPage.qml",
-                "flowCalibration": "FlowCalibrationPage.qml",
-                "profileImport": "ProfileImportPage.qml"
-            }
-            if (target === "shotReview") {
+            // `target` is USER CONFIGURATION — the widget editor stores whichever destination the
+            // user picked — so a string key is inherent here, unlike the call sites that had one
+            // only because nobody had declared a name. It is dispatched to a named AppShell signal
+            // rather than mapped to a page FILENAME: a bad key now warns below instead of
+            // resolving to a 404 URL, and the shell decides push-vs-replace.
+            //
+            // The operation pages used to `replace(null, ...)` here, copying main.qml's phase
+            // handler. That copied the line and not the reason: the phase handler replaces because
+            // the MACHINE drove the change and there is no meaningful back, whereas this is the
+            // user tapping a widget. It also left pageStack.depth at 1, which makes goBack()'s
+            // `depth > 1` test fail and the back control silently dead. They push now, like the
+            // dedicated Steam/HotWater/Flush widgets always did.
+            switch (target) {
+            case "settings":        AppShell.settingsRequested(""); break
+            case "history":         AppShell.shotHistoryRequested({}); break
+            case "profiles":        AppShell.profileSelectorRequested(); break
+            case "profileEditor":   AppShell.profileEditorRequested(); break
+            case "recipes":         AppShell.recipeEditorRequested(); break
+            case "recipeList":      AppShell.recipesRequested(); break
+            case "descaling":       AppShell.descalingRequested(); break
+            case "ai":              AppShell.aiSettingsRequested(); break
+            case "visualizer":      AppShell.visualizerBrowserRequested(); break
+            case "autofavorites":   AppShell.autoFavoritesRequested(); break
+            case "steam":           AppShell.steamRequested(); break
+            case "hotwater":        AppShell.hotWaterRequested(); break
+            case "flush":           AppShell.flushRequested(); break
+            case "beaninfo":        AppShell.beanInfoRequested(); break
+            case "equipment":       AppShell.equipmentRequested(); break
+            case "espresso":        AppShell.espressoRequested(); break
+            case "community":       AppShell.communityBrowserRequested(); break
+            case "flowCalibration": AppShell.flowCalibrationRequested(); break
+            case "profileImport":   AppShell.profileImportRequested(); break
+            case "shotReview":
                 var shotId = MainController.lastSavedShotId
-                if (shotId > 0 && typeof pageStack !== "undefined")
-                    pageStack.push(Qt.resolvedUrl("../../../pages/PostShotReviewPage.qml"), { editShotId: shotId })
-                return
-            }
-            // Operation pages use replace (consistent with main.qml phase handler)
-            var operationPages = ["espresso", "steam", "hotwater", "flush"]
-            var page = pageMap[target]
-            if (page && typeof pageStack !== "undefined") {
-                if (operationPages.indexOf(target) >= 0)
-                    pageStack.replace(null, Qt.resolvedUrl("../../../pages/" + page))
-                else
-                    pageStack.push(Qt.resolvedUrl("../../../pages/" + page))
-            } else if (!page) {
+                if (shotId > 0)
+                    AppShell.postShotReviewRequested(shotId, false)
+                break
+            default:
                 console.warn("CustomItem: unknown navigate target '" + target + "'")
             }
         } else if (category === "command") {
@@ -358,13 +357,11 @@ Item {
                     && (DE1Device.isHeadless || DE1Device.simulationMode)
             switch (target) {
                 case "sleep":
-                    if (typeof ScaleDevice !== "undefined" && ScaleDevice && ScaleDevice.connected)
+                    if (ScaleDevice.connected)
                         ScaleDevice.disableLcd()
                     if (typeof DE1Device !== "undefined" && DE1Device !== null)
                         DE1Device.goToSleep()
-                    var win = Window.window
-                    if (win && typeof win.goToScreensaver === "function")
-                        win.goToScreensaver()
+                    AppShell.screensaverRequested()
                     break
                 case "startEspresso":
                     if (canStart)
@@ -399,8 +396,7 @@ Item {
                         BLEManager.scanForDevices()
                     break
                 case "brewSettings":
-                    var bwin = Window.window
-                    if (bwin && bwin.openBrewSettings) bwin.openBrewSettings()
+                    AppShell.brewSettingsRequested()
                     break
                 case "toggleCharging":
                     if (typeof BatteryManager !== "undefined" && BatteryManager !== null)

@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Window
 import Decenza
-import "../.."
 
 // Layout widget: measured dose weight (composable-brew-bar).
 // Shows Settings.dye.dyeBeanWeight; "—" when no dose recorded. While the idle

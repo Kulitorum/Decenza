@@ -626,6 +626,7 @@ set(SOURCES
     src/ble/de1device.cpp
     src/ble/bletransport.cpp
     src/ble/scaledevice.cpp
+    src/ble/scaledeviceproxy.cpp
     src/ble/scales/scalefactory.cpp
     src/ble/scales/scaletypeids.cpp
     src/ble/scales/decentscale.cpp
@@ -638,6 +639,7 @@ set(SOURCES
     src/ble/scales/smartchefscale.cpp
     src/ble/scales/difluidscale.cpp
     src/ble/refractometers/refractometerdevice.cpp
+    src/ble/refractometers/refractometerproxy.cpp
     src/ble/refractometers/difluidr2.cpp
     src/ble/refractometers/difluidr1.cpp
     src/ble/refractometers/aes128.cpp
@@ -749,6 +751,7 @@ set(SOURCES
     src/core/datamigrationclient.cpp
     src/core/databasebackupmanager.cpp
     src/core/documentformatter.cpp
+    src/core/keyboard.cpp
     src/weather/weathermanager.cpp
 )
 
@@ -768,23 +771,25 @@ endif()
 # every configuration. Whether any of it actually compiles is decided by
 # DECENZA_SIMULATOR (see the target_compile_definitions block below), which the
 # files themselves guard on.
+#
+# ghcsimulator is here rather than behind a platform test because what it actually
+# depends on is DE1Simulator, not a platform: it drives that class's signals and
+# cannot compile without it. Tying it to the same condition says so directly, and
+# means it is available in every build where the simulator is — all desktop
+# configurations, and Debug on Android and iOS.
+#
+# It used to be `if(WIN32 OR (APPLE AND NOT IOS))`, which had a second cost beyond
+# being the wrong condition: GHCSimulator is a registered QML singleton, and a
+# registered type only reaches Decenza.qmltypes on a platform that COMPILES it. The
+# qmllint baseline is generated on macOS and the gate runs on Linux, so a
+# macOS-and-Windows-only type produced a ceiling CI could not achieve — the exact
+# shape #1684 added detection for.
 list(APPEND SOURCES
     src/simulator/de1simulator.cpp
     src/simulator/simulatedscale.cpp
+    src/simulator/ghcsimulator.cpp
 )
 
-# GHC simulator window - desktop only. It opens a second top-level window,
-# which is meaningless on a tablet. (It is not a QWidget despite what this
-# comment said for years: GHCSimulator is a plain QObject and the window is a
-# QtQuick Window in its own QQmlApplicationEngine.)
-# NOT `if(WIN32 OR APPLE)`: APPLE is true for iOS too, so that spelling compiled
-# this into every iPad build despite the comment. It drives DE1Simulator's
-# signals, so with the simulator absent it would not even compile there.
-if(WIN32 OR (APPLE AND NOT IOS))
-    list(APPEND SOURCES
-        src/simulator/ghcsimulator.cpp
-    )
-endif()
 
 # Native CoreBluetooth transport and iOS brightness helpers
 if(APPLE)
@@ -851,6 +856,7 @@ set(HEADERS
     src/ble/de1device.h
     src/ble/bletransport.h
     src/ble/scaledevice.h
+    src/ble/scaledeviceproxy.h
     src/ble/scales/scalefactory.h
     src/ble/scales/scaletypeids.h
     src/ble/scales/decentscale.h
@@ -958,14 +964,9 @@ endif()
 list(APPEND HEADERS
     src/simulator/de1simulator.h
     src/simulator/simulatedscale.h
+    src/simulator/ghcsimulator.h
 )
 
-# GHC simulator window header - desktop only (see source section note on iOS)
-if(WIN32 OR (APPLE AND NOT IOS))
-    list(APPEND HEADERS
-        src/simulator/ghcsimulator.h
-    )
-endif()
 
 # Native CoreBluetooth transport header (iOS and macOS)
 if(APPLE)
@@ -1175,6 +1176,7 @@ if(IOS)
 endif()
 
 # QML module - mark singletons
+set_source_files_properties(qml/AppShell.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/components/SettingsTabs.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/components/layout/WidgetColor.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
@@ -1184,6 +1186,7 @@ set_source_files_properties(qml/components/LastShotChartSource.qml PROPERTIES QT
 # Define QML files list for dependency tracking
 set(QML_FILES
     qml/main.qml
+    qml/AppShell.qml
     qml/Theme.qml
     qml/pages/IdlePage.qml
     qml/pages/EspressoPage.qml

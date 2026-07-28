@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
 import Decenza
-import "../.."
 
 // Layout widget: coffee:water ratio quick-select (composable-brew-bar).
 // Shows the current ratio as a 1:X.X pill; tapping opens the ratio chooser.

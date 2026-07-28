@@ -1,7 +1,5 @@
 import QtQuick
-import QtQuick.Window
 import Decenza
-import "../.."
 import "../ShotPlanConfig.js" as ShotPlanConfig
 
 // The Shot Plan widget — page-aware: shows the brew/shot plan normally and, unless the
@@ -72,14 +70,6 @@ Item {
     readonly property bool _steamMode: _steamContext
         && (compactSteamPlan.text !== "" || fullSteamPlan.text !== "")
 
-    // Open the single global Brew Settings dialog (hosted at the app root) via the
-    // window, so this works wherever the tile is placed — including the persistent
-    // status bar, which is not a descendant of IdlePage.
-    function openBrewSettings() {
-        var win = root.Window.window
-        if (win && win.openBrewSettings) win.openBrewSettings()
-    }
-
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
 
@@ -97,7 +87,7 @@ Item {
                     : TranslationManager.translate("plan.a11y.shotPlanEmpty", "Shot plan")
     }
     Accessible.focusable: true
-    Accessible.onPressAction: if (!root._steamMode) root.openBrewSettings()
+    Accessible.onPressAction: if (!root._steamMode) AppShell.brewSettingsRequested()
 
     // --- COMPACT MODE ---
     Item {
@@ -120,7 +110,7 @@ Item {
             baselineYieldG: root._baselineYieldG
             recipeBaselineTemp: root._recipeBaselineTemp
             maxLines: 1
-            onClicked: root.openBrewSettings()
+            onClicked: AppShell.brewSettingsRequested()
         }
         SteamPlanText {
             id: compactSteamPlan
@@ -157,7 +147,7 @@ Item {
             // fragment mode's budget. (The profile-less recipe sentence needs
             // this extra line too — its detail tail stacks the same way.)
             maxLines: root.stacked && root.sentence ? 3 : 2
-            onClicked: root.openBrewSettings()
+            onClicked: AppShell.brewSettingsRequested()
         }
         SteamPlanText {
             id: fullSteamPlan

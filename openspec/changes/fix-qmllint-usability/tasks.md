@@ -547,15 +547,54 @@ new lifetime concept.
     "The tree improved" and "the measurement under-reported" produced identical evidence here, and
     only one of the two was ever considered.
 
-## 4. Deferred: the runtime-swapped devices
+## 4. The runtime-swapped devices — DONE, after being deferred
 
-Not in this change. `ScaleDevice` (102 warnings) and `Refractometer` (24) are re-pointed at runtime,
-so each needs a forwarding façade with signal re-emission and hardware testing — the highest-risk
-work in the original plan. Measurement says they unlock **zero** files, because the files using them
-are dirty for other reasons anyway. They keep their per-file ceilings.
+This section said "not in this change", and the deferral was overturned at the maintainer's
+direction: the goal is files that are actually CLEAN, because a file with a ceiling still hides
+the next bug in it, and `ScaleDevice` was the single largest name in the tree.
 
-- [ ] 4.1 Record in the design that the façade work is deferred, with the measurement that justifies it, so a later reader does not rediscover the idea and assume it was overlooked
-- [ ] 4.2 Note the latent win being left on the table: re-assigning a context property dirties every binding in the root context, so each scale connect/disconnect currently triggers an app-wide re-evaluation. That is a performance argument for doing this eventually — it is not an argument for doing it now
+**The measurement that justified deferring was correct and the conclusion was still wrong**, in a
+way worth keeping. It said the façade unlocks *zero* files because the files using `ScaleDevice`
+are dirty for other reasons anyway. That was true when measured. It stopped being true once
+sections 3–3c and the AppShell work cleared those other reasons: by the time the façade was built
+it took `SteamPage.qml` (212 warnings at the start of the change) to **clean**, plus
+`ScaleWeightItem.qml` and `ScreensaverItem.qml`. A "unlocks zero files" measurement is a statement
+about the current state of the other work, not a property of the task — re-measure before
+re-using it as a reason.
+
+- [x] 4.1 Both façades built: `ScaleDeviceProxy` (src/ble/) and `RefractometerProxy`
+  (src/ble/refractometers/). Registered `QML_FOREIGN` under the names `ScaleDevice` and
+  `Refractometer`, so all 91 QML call sites are untouched. Each holds its target in a `QPointer`,
+  mirrors every property, forwards every public slot, and re-emits every signal. The eleven
+  scale re-point sites and five refractometer ones in main.cpp are now `setTarget()`.
+  - Deliberate: `name`/`isFlowScale`/`isSimulated` are `CONSTANT` on `ScaleDevice` and are NOT
+    constant on the proxy — they are facts about *which device is attached*, which is what the
+    class changes.
+  - Deliberate: every slot forwarded, not the four QML calls today. A context property exposed the
+    whole set; forwarding a subset would silently delete the rest from QML's reach, and the calls
+    would still parse.
+  - Deliberate: `weightSampleReceived` stays distinct from `weightChanged`. Collapsing them would
+    reintroduce #1176/#1185 one layer above where they were fixed.
+- [x] 4.2 The latent win is now taken, not left: re-assigning a context property dirties every
+  binding in the root context, so each scale connect/disconnect used to trigger an app-wide
+  re-evaluation. `setTarget()` emits only this object's signals.
+- [x] 4.3 **Hardware-verified on the branch build**, 2026-07-28 session 65 (macOS, app started
+  10:47:49 against the 10:42 binary), BOTH directions, three round trips:
+  - DiFluid R2 (DFT-R102, fw V230) connected t+78 s — `refractometerProxy.setTarget(device)` —
+    and disconnected t+199 s (`connectedChanged -> FALSE, reason=transport-disconnected`).
+  - Decent Scale (fw 3.1.13) connect/disconnect at t+66/68, t+118/124 and t+198 — each logged as
+    "Scale disconnected - switched to FlowScale" / "Scale connected - switched to physical scale",
+    i.e. `scaleProxy.setTarget(&flowScale)` and `setTarget(physicalScale)`, the real re-points in
+    both directions.
+  - **Zero `TypeError`/`ReferenceError`/`Unable to assign` in the QML log across all of it.** Every
+    WARN in the session is unrelated infrastructure (MQTT CONNACK, CoreLocation/GPS, the
+    McpRemoteAccess funnel probe) plus the expected BLE `Transport disconnected` lines.
+  - This is the test the deferral was waiting for, and it is the one that mattered: 91 QML call
+    sites read these two names, and a proxy that failed to re-emit would have shown up as stale
+    bindings or a null dereference on the very first transition.
+- [ ] 4.4 Still unexercised, and honest about it: the USB scale, WiFi scale and simulated-scale
+  re-point sites. Each is the same one line in the same class as the BLE path that was exercised
+  six times, but none was run.
 
 ## 5. Imports and close-out
 

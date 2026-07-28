@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
-import "../components"
 
 /**
  * RecipeEditorPage - Simplified D-Flow style profile editor
@@ -32,7 +31,7 @@ Page {
         if (recipeModified) {
             exitDialog.open()
         } else {
-            root.goBack()
+            AppShell.backRequested()
         }
     }
 
@@ -610,7 +609,7 @@ Page {
                 if (recipeModified) {
                     exitDialog.open()
                 } else {
-                    root.goBack()
+                    AppShell.backRequested()
                 }
             }
             // White button with primary text for bottom bar
@@ -700,17 +699,17 @@ Page {
             if (originalProfileName) {
                 ProfileManager.loadProfile(originalProfileName)
             }
-            root.goBack()
+            AppShell.backRequested()
         }
         onTryClicked: {
             ProfileManager.uploadCurrentProfile()
-            root.goBack()
+            AppShell.backRequested()
         }
         onSaveAsClicked: saveAsDialog.open()
         onSaveClicked: {
             if (ProfileManager.saveProfile(originalProfileName)) {
                 AccessibilityManager.announce(TranslationManager.translate("recipeEditor.profileSaved", "Profile saved"))
-                root.goBack()
+                AppShell.backRequested()
             } else {
                 AccessibilityManager.announce(TranslationManager.translate("recipeEditor.saveFailed", "Save failed"))
                 saveErrorDialog.open()
@@ -840,7 +839,7 @@ Page {
         }
 
         function doSave() {
-            Qt.inputMethod.commit()
+            Keyboard.commit()
             if (saveAsTitleField.text.length > 0) {
                 var fullTitle = editorPrefix() + saveAsTitleField.text
                 var filename = ProfileManager.titleToFilename(fullTitle)
@@ -856,7 +855,7 @@ Page {
                     return
                 }
                 if (ProfileManager.saveProfileAs(filename, fullTitle)) {
-                    root.goBack()
+                    AppShell.backRequested()
                 } else {
                     saveErrorDialog.open()
                 }
@@ -938,7 +937,7 @@ Page {
                         overwriteDialog.close()
                         var fullTitle = editorPrefix() + saveAsTitleField.text
                         if (ProfileManager.saveProfileAs(saveAsDialog.pendingFilename, fullTitle)) {
-                            root.goBack()
+                            AppShell.backRequested()
                         } else {
                             saveErrorDialog.open()
                         }

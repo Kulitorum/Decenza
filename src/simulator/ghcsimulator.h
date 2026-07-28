@@ -1,5 +1,12 @@
 #pragma once
 
+// Whole file compiles to nothing without DECENZA_SIMULATOR — the same guard, for the same
+// reason, as de1simulator.h: this class drives DE1Simulator's signals and cannot exist without
+// it. That condition is every desktop configuration plus Debug on Android and iOS, so a tablet
+// production build has neither. (moc then reports "No relevant classes found" for this header on
+// those builds; that note is expected, not a fault.)
+#ifdef DECENZA_SIMULATOR
+
 #include <QObject>
 #include <QColor>
 #include <QVariantList>
@@ -91,3 +98,5 @@ private:
     static constexpr double MAX_PRESSURE = 12.0;  // bar
     static constexpr double MAX_FLOW = 6.0;       // ml/s
 };
+
+#endif  // DECENZA_SIMULATOR

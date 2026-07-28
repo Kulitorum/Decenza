@@ -84,7 +84,34 @@ BASELINE = REPO / "qml-diagnostics-baseline.json"
 # still includes files the run never read is an allowance, not a ceiling.
 CATEGORY_EXEMPTIONS: dict[str, int] = {
     # Each entry is a ceiling, not a budget.
-    "missing-property": 322,
+    #
+    # 322 -> 311 when the AppShell singleton replaced the pages' `root.*` reach into
+    # main.qml. Note the direction: fixing the UNQUALIFIED class lowered this one, which is
+    # the opposite of what task 3c saw. The reason is that the old code was not merely
+    # unchecked, it was untyped at the hop — `Window.window.sessionMeasuredMilkG` is a
+    # member access on QQuickWindow and was counted here, and each collapse of six
+    # `itemAt(i).focusTarget` call sites into one helper removed five more.
+    #
+    # 311 -> 303 when three widgets stopped reaching main.qml through `Window.window` with a
+    # `typeof win.X === "function"` probe and used AppShell signals instead. Same lesson as
+    # above: a duck-typed hop is counted here, so removing it lowers this ceiling.
+    # 303 -> 268 by deleting the directory imports described above. (This line read `300 ->`
+    # until the #1687 review flagged the 3-diagnostic gap against the step above. The endpoints
+    # are what the gate checks and they are right; the intermediate was a transcription slip.) A directory import resolves
+    # a singleton .qml as a plain component type, so `DrinkType.shortLabel` and
+    # `SettingsTabs.indexOf` — both real, both declared — reported as missing members. The types
+    # were being shadowed, not the members lost.
+    # 268 -> 250 by hoisting `root.Window.window` to `Window.window` read once at the item root
+    # in six layout widgets. `Window` is an ATTACHED property — it resolves against the current
+    # scope, so writing it through an id is a member access on a type that has no such member.
+    # It works at runtime, which is why it survived; it is simply not checkable in that spelling.
+    # 250 -> 145 with the Keyboard singleton (src/core/keyboard.h). QML reached the input method
+    # as `Qt.inputMethod.commit()`, and qmllint types that as a bare QObject, so 108 call sites
+    # across 36 files were unchecked. Not a bug — but `Qt.inputMethod.comit()` was
+    # indistinguishable from the correct spelling, and its failure mode is the silent one (the
+    # in-progress word is never committed). CLAUDE.md's "call commit() before reading
+    # TextField.text" rule now has a home in code rather than being a convention.
+    "missing-property": 145,
     # All 21 remaining are qmllint FALSE POSITIVES and cannot be driven to zero from this side:
     # it flags any child DECLARED lexically inside a Layout without checking that a Layout will
     # actually manage it. Two shapes — objects that are not Items at all (Popup/Dialog derive
@@ -93,14 +120,11 @@ CATEGORY_EXEMPTIONS: dict[str, int] = {
     # Qt 6.11.1 source; see bugs-found.md. The real ones were fixed by moving to
     # Layout.preferredWidth/Height — do not "clean up" these 21.
     "Quick.layout-positioning": 21,
-    # 23 -> 7 when the last runtime qmlRegisterType<> calls became QML_ELEMENT. All 16 that went
-    # were "X was not found. Did you add all imports and dependencies?" on FastLineRenderer,
-    # JsCanvasPainterItem, StrangeAttractorRenderer and DocumentFormatter — not one a real
-    # missing import, all of them a type qmltyperegistrar never saw. The Pipe*Geometry types went
-    # the same way once qt_add_qml_module gained DEPENDENCIES QtQuick3D — without that their
-    # QQuick3DGeometry prototype was unlinkable and compile-time registration just traded these
-    # warnings for 'unresolved-type' ones. The 4 left are roll-ups and unrelated.
-    "import": 4,
+    # No "import" entry: the category is CLEAR. It went 23 -> 7 when the last runtime
+    # qmlRegisterType<> calls became QML_ELEMENT, and 7 -> 0 when 106 redundant directory imports
+    # were deleted — `import "../components"` and friends, which shadowed the module's own
+    # registrations. Re-adding a directory import for a type the module already provides will
+    # bring this category back.
     "Quick.property-changes-parsed": 5,
     "duplicate-property-binding": 2,
     # No "unresolved-type" entry either — same cause, cleared the same way.
@@ -172,7 +196,12 @@ UNLINTABLE_BY_TOOL_BUG: dict[str, str] = {
 # skip-mode ceilings depend on them. `unqualified` is absent on purpose — it is never a category
 # exemption, it is enforced per file, and a skipped file simply has no ceiling checked that run.
 UNLINTABLE_CATEGORY_CONTRIBUTION: dict[str, dict[str, int]] = {
-    "qml/components/layout/items/CustomItem.qml": {"missing-property": 4},
+    # 4 -> 0. All four were duck-typed hops through `Window.window` — three
+    # `typeof win.goToScreensaver === "function"` probes and one `win.openBrewSettings` —
+    # now AppShell signals. The entry stays with an empty contribution rather than being
+    # deleted: the file is still in UNLINTABLE_BY_TOOL_BUG, and a future warning in it must
+    # be recorded here deliberately rather than by re-adding a mapping someone removed.
+    "qml/components/layout/items/CustomItem.qml": {},
 }
 
 

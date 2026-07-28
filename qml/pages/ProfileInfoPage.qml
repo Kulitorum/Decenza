@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
-import "../components"
 
 Page {
     id: profileInfoPage
@@ -308,6 +307,6 @@ Page {
     BottomBar {
         id: bottomBar
         title: TranslationManager.translate("profileinfo.title", "Profile Info")
-        onBackClicked: pageStack.pop()
+        onBackClicked: AppShell.backRequested()
     }
 }

@@ -1,9 +1,10 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Effects
 import Decenza
-import "../components"
 import "../components/layout/ShotPlanConfig.js" as ShotPlanConfig
 
 Page {
@@ -66,7 +67,7 @@ Page {
     // map's pin.
     RecipeResolver {
         id: recipeResolver
-        sourceRecipeId: shotData.recipeId || -1
+        sourceRecipeId: shotDetailPage.shotData.recipeId || -1
     }
 
     // Pick up toggle changes made on any other page sharing this setting
@@ -117,7 +118,7 @@ Page {
         target: MainController.shotHistory
         function onShotReady(id, shot) {
             if (id !== shotDetailPage.shotId) return
-            shotData = shot
+            shotDetailPage.shotData = shot
             var wasNavigating = shotDetailPage.navigating
             shotDetailPage.navigating = false
             // Defer both calls until after layout has updated: returnToBounds() needs
@@ -134,24 +135,24 @@ Page {
         }
         function onShotDeleted(deletedId) {
             if (deletedId === shotDetailPage.shotId)
-                pageStack.pop()
+                AppShell.backRequested()
         }
         function onVisualizerInfoUpdated(id, success) {
             if (id !== shotDetailPage.shotId) return
             if (success) {
-                loadShot()
+                shotDetailPage.loadShot()
             } else {
                 console.warn("ShotDetailPage: Failed to save visualizer info for shot", id)
             }
         }
         function onShotBadgesUpdated(id, channeling, grindIssue, skipFirstFrame, pourTruncated) {
             if (id !== shotDetailPage.shotId) return
-            var updated = Object.assign({}, shotData)
+            var updated = Object.assign({}, shotDetailPage.shotData)
             updated.channelingDetected = channeling
             updated.grindIssueDetected = grindIssue
             updated.skipFirstFrameDetected = skipFirstFrame
             updated.pourTruncatedDetected = pourTruncated
-            shotData = updated
+            shotDetailPage.shotData = updated
         }
     }
 
@@ -266,7 +267,7 @@ Page {
         }
         function onUpdateSuccess(visualizerId) {
             if (shotDetailPage.shotId > 0) {
-                loadShot()
+                shotDetailPage.loadShot()
             }
         }
     }
@@ -345,8 +346,8 @@ Page {
                             // renders the <font> highlight and emoji <img> tags.
                             textFormat: Text.StyledText
                             text: {
-                                var name = Theme.escapeHtml(shotData.profileName || TranslationManager.translate("shotdetail.title", "Shot Detail"))
-                                var t = shotData.temperatureOverrideC
+                                var name = Theme.escapeHtml(shotDetailPage.shotData.profileName || TranslationManager.translate("shotdetail.title", "Shot Detail"))
+                                var t = shotDetailPage.shotData.temperatureOverrideC
                                 var result
                                 if (t !== undefined && t !== null && t > 0) {
                                     // The recorded temp is the effective brew temperature (present
@@ -371,7 +372,7 @@ Page {
                         }
 
                         Text {
-                            text: shotData.dateTime || ""
+                            text: shotDetailPage.shotData.dateTime || ""
                             font: Theme.labelFont
                             color: Theme.textSecondaryColor
                             elide: Text.ElideRight
@@ -379,19 +380,19 @@ Page {
                         }
 
                         QualityBadges {
-                            visible: !!(shotData.profileKbId
-                                        || shotData.channelingDetected
-                                        || shotData.grindIssueDetected
-                                        || shotData.skipFirstFrameDetected
-                                        || shotData.pourTruncatedDetected)
+                            visible: !!(shotDetailPage.shotData.profileKbId
+                                        || shotDetailPage.shotData.channelingDetected
+                                        || shotDetailPage.shotData.grindIssueDetected
+                                        || shotDetailPage.shotData.skipFirstFrameDetected
+                                        || shotDetailPage.shotData.pourTruncatedDetected)
                             Layout.fillWidth: false
                             Layout.maximumWidth: shotDetailPage.width * 0.5
-                            channelingDetected: shotData.channelingDetected ?? false
-                            grindIssueDetected: shotData.grindIssueDetected ?? false
-                            skipFirstFrameDetected: shotData.skipFirstFrameDetected ?? false
-                            pourTruncatedDetected: shotData.pourTruncatedDetected ?? false
-                            verdictCategory: (shotData && shotData.detectorResults)
-                                ? (shotData.detectorResults.verdictCategory ?? "") : ""
+                            channelingDetected: shotDetailPage.shotData.channelingDetected ?? false
+                            grindIssueDetected: shotDetailPage.shotData.grindIssueDetected ?? false
+                            skipFirstFrameDetected: shotDetailPage.shotData.skipFirstFrameDetected ?? false
+                            pourTruncatedDetected: shotDetailPage.shotData.pourTruncatedDetected ?? false
+                            verdictCategory: (shotDetailPage.shotData && shotDetailPage.shotData.detectorResults)
+                                ? (shotDetailPage.shotData.detectorResults.verdictCategory ?? "") : ""
                             onSummaryRequested: detailAnalysisDialog.open()
                         }
 
@@ -405,7 +406,7 @@ Page {
                 // KB sparkle button — opens the profile knowledge base
                 Image {
                     id: headerSparkle
-                    visible: !!(shotData.profileKbId)
+                    visible: !!(shotDetailPage.shotData.profileKbId)
                     source: "qrc:/icons/sparkle.svg"
                     sourceSize.width: Theme.scaled(18)
                     sourceSize.height: Theme.scaled(18)
@@ -429,8 +430,8 @@ Page {
                         accessibleName: TranslationManager.translate("profileselector.accessible.view_knowledge", "View AI knowledge base")
                         accessibleItem: headerSparkle
                         onAccessibleClicked: {
-                            shotKnowledgeDialog.profileTitle = shotData.profileName || ""
-                            shotKnowledgeDialog.content = ProfileManager.profileKnowledgeContent(shotData.profileName)
+                            shotKnowledgeDialog.profileTitle = shotDetailPage.shotData.profileName || ""
+                            shotKnowledgeDialog.content = ProfileManager.profileKnowledgeContent(shotDetailPage.shotData.profileName)
                             shotKnowledgeDialog.open()
                         }
                     }
@@ -469,8 +470,7 @@ Page {
                         accessibleName: TranslationManager.translate("shotdetail.button.recipe", "Create recipe from this shot")
                         accessibleItem: parent
                         onAccessibleClicked: {
-                            pageStack.push(Qt.resolvedUrl("RecipeWizardPage.qml"),
-                                { mode: "create", promoteShotId: shotDetailPage.shotId })
+                            AppShell.recipeWizardRequested("create", { promoteShotId: shotDetailPage.shotId })
                         }
                     }
                 }
@@ -507,8 +507,7 @@ Page {
                         accessibleName: TranslationManager.translate("shotdetail.button.edit", "Edit shot")
                         accessibleItem: parent
                         onAccessibleClicked: {
-                            pageStack.push(Qt.resolvedUrl("PostShotReviewPage.qml"),
-                                { editShotId: shotDetailPage.shotId, autoClose: false })
+                            AppShell.postShotReviewRequested(shotDetailPage.shotId, false)
                         }
                     }
                 }
@@ -574,43 +573,43 @@ Page {
                 // profile + temperature are filtered out (already in the title),
                 // so no temperature bindings are needed here.
                 itemOrder: shotDetailPage._shotPlanItemOrder
-                profileName: shotData.profileName || ""
-                dose: shotData.doseWeightG || 0
+                profileName: shotDetailPage.shotData.profileName || ""
+                dose: shotDetailPage.shotData.doseWeightG || 0
                 // targetWeightG is the planned target (0 for volume/timer
                 // profiles) — fall back to the actual output so a yield still shows.
                 // Override state comes from THIS shot's frozen snapshot (recorded
                 // target vs the profile snapshot's default), never the live dial.
                 profileYield: shotDetailPage._shotProfileYield
-                targetWeight: (shotData.targetWeightG || 0) > 0
-                    ? shotData.targetWeightG : (shotData.finalWeightG || 0)
-                yieldOverridden: (shotData.targetWeightG || 0) > 0
+                targetWeight: (shotDetailPage.shotData.targetWeightG || 0) > 0
+                    ? shotDetailPage.shotData.targetWeightG : (shotDetailPage.shotData.finalWeightG || 0)
+                yieldOverridden: (shotDetailPage.shotData.targetWeightG || 0) > 0
                     && shotDetailPage._shotProfileYield > 0
-                    && Math.abs(shotData.targetWeightG - shotDetailPage._shotProfileYield) > 0.1
+                    && Math.abs(shotDetailPage.shotData.targetWeightG - shotDetailPage._shotProfileYield) > 0.1
                 // THIS shot's recorded anchor, not the live dial's. These
                 // default to Settings.brew reads, so leaving them unbound
                 // would stamp whatever ratio happens to be armed right now
                 // onto every historical shot ever pulled.
-                yieldAnchorMode: shotData.yieldMode || "none"
-                yieldAnchorRatio: shotData.yieldMode === "ratio"
-                    ? (shotData.yieldAnchorValue || 0) : 0
+                yieldAnchorMode: shotDetailPage.shotData.yieldMode || "none"
+                yieldAnchorRatio: shotDetailPage.shotData.yieldMode === "ratio"
+                    ? (shotDetailPage.shotData.yieldAnchorValue || 0) : 0
                 // Temperature is filtered out of the line (it lives in the title,
                 // highlighted there when it deviated from the profile default);
                 // pin the flag off the live dial regardless.
                 tempOverridden: false
                 yieldTargetOnly: true
-                roasterBrand: shotData.beanBrand || ""
-                coffeeName: shotData.beanType || ""
-                roastDate: shotData.roastDate || ""
+                roasterBrand: shotDetailPage.shotData.beanBrand || ""
+                coffeeName: shotDetailPage.shotData.beanType || ""
+                roastDate: shotDetailPage.shotData.roastDate || ""
                 // THIS shot's frozen recipe (resolved from shotData.recipeId),
                 // never the live active recipe — same resolver the recipe card
                 // uses. Empty when the shot had no recipe.
                 recipeName: recipeResolver.recipe.name || ""
-                grindSize: shotData.grinderSetting || ""
-                grindRpm: shotData.rpm || 0
+                grindSize: shotDetailPage.shotData.grinderSetting || ""
+                grindRpm: shotDetailPage.shotData.rpm || 0
                 // Only show RPM for grinders that actually report it (a Niche
                 // Zero does not); a stale/spurious recorded RPM must not surface.
                 rpmCapable: shotDetailPage._shotRpmCapable
-                beverageType: shotData.beverageType || "espresso"
+                beverageType: shotDetailPage.shotData.beverageType || "espresso"
                 // Maintenance shots are never saved to history, so a saved shot is
                 // always a normal plan — no "no coffee in portafilter" warning here.
                 isCleaning: false
@@ -631,7 +630,7 @@ Page {
                 clip: true
 
                 Accessible.role: Accessible.Graphic
-                Accessible.name: graphAccessibleDescription()
+                Accessible.name: shotDetailPage.graphAccessibleDescription()
                 Accessible.description: TranslationManager.translate("shotdetail.accessible.graph.swipe", "Swipe left for older shot, swipe right for newer shot.")
                 Accessible.focusable: true
                 focus: true
@@ -646,22 +645,22 @@ Page {
                     anchors.bottomMargin: Theme.spacingSmall + resizeHandle.height
                     advancedMode: shotDetailPage.advancedMode
                     showPhaseLabels: shotDetailPage.advancedMode
-                    pressureData: shotData.pressure || []
-                    flowData: shotData.flow || []
-                    temperatureData: shotData.temperature || []
-                    weightData: shotData.weight || []
-                    weightFlowRateData: shotData.weightFlowRate || []
-                    resistanceData: shotData.resistance || []
-                    conductanceData: shotData.conductance || []
-                    darcyResistanceData: shotData.darcyResistance || []
-                    conductanceDerivativeData: shotData.conductanceDerivative || []
-                    temperatureMixData: shotData.temperatureMix || []
-                    pressureGoalData: shotData.pressureGoal || []
-                    flowGoalData: shotData.flowGoal || []
-                    temperatureGoalData: shotData.temperatureGoal || []
-                    temperatureMixGoalData: shotData.temperatureMixGoal || []
-                    phaseMarkers: shotData.phases || []
-                    maxTime: shotData.durationSec || 60
+                    pressureData: shotDetailPage.shotData.pressure || []
+                    flowData: shotDetailPage.shotData.flow || []
+                    temperatureData: shotDetailPage.shotData.temperature || []
+                    weightData: shotDetailPage.shotData.weight || []
+                    weightFlowRateData: shotDetailPage.shotData.weightFlowRate || []
+                    resistanceData: shotDetailPage.shotData.resistance || []
+                    conductanceData: shotDetailPage.shotData.conductance || []
+                    darcyResistanceData: shotDetailPage.shotData.darcyResistance || []
+                    conductanceDerivativeData: shotDetailPage.shotData.conductanceDerivative || []
+                    temperatureMixData: shotDetailPage.shotData.temperatureMix || []
+                    pressureGoalData: shotDetailPage.shotData.pressureGoal || []
+                    flowGoalData: shotDetailPage.shotData.flowGoal || []
+                    temperatureGoalData: shotDetailPage.shotData.temperatureGoal || []
+                    temperatureMixGoalData: shotDetailPage.shotData.temperatureMixGoal || []
+                    phaseMarkers: shotDetailPage.shotData.phases || []
+                    maxTime: shotDetailPage.shotData.durationSec || 60
                     Accessible.ignored: true
                 }
 
@@ -670,11 +669,11 @@ Page {
                     id: graphSwipeArea
                     anchors.fill: parent
                     anchors.bottomMargin: resizeHandle.height
-                    canSwipeLeft: canGoNext()
-                    canSwipeRight: canGoPrevious()
+                    canSwipeLeft: shotDetailPage.canGoNext()
+                    canSwipeRight: shotDetailPage.canGoPrevious()
 
-                    onSwipedLeft: { shotGraph.dismissInspect(); navigateToShot(currentIndex + 1) }
-                    onSwipedRight: { shotGraph.dismissInspect(); navigateToShot(currentIndex - 1) }
+                    onSwipedLeft: { shotGraph.dismissInspect(); shotDetailPage.navigateToShot(shotDetailPage.currentIndex + 1) }
+                    onSwipedRight: { shotGraph.dismissInspect(); shotDetailPage.navigateToShot(shotDetailPage.currentIndex - 1) }
                     onTapped: function(x, y) {
                         var graphPos = mapToItem(shotGraph, x, y)
                         if (graphPos.x > shotGraph.plotArea.x + shotGraph.plotArea.width) {
@@ -755,7 +754,7 @@ Page {
 
             // Shot navigation buttons (list is newest-first, so lower index = newer)
             RowLayout {
-                visible: shotIds.length > 1
+                visible: shotDetailPage.shotIds.length > 1
                 Layout.fillWidth: true
                 spacing: Theme.spacingMedium
 
@@ -764,15 +763,15 @@ Page {
                     text: TranslationManager.translate("shotdetail.newershot", "Newer Shot")
                     accessibleName: TranslationManager.translate("shotdetail.accessible.newershot",
                         "Newer shot") + ", " + TranslationManager.translate("shotdetail.accessible.position",
-                        "Shot %1 of %2").arg(currentIndex + 1).arg(shotIds.length)
+                        "Shot %1 of %2").arg(shotDetailPage.currentIndex + 1).arg(shotDetailPage.shotIds.length)
                     Layout.fillWidth: true
                     Layout.preferredWidth: 10  // Equal base for both buttons
-                    enabled: canGoPrevious()
-                    onClicked: navigateToShot(currentIndex - 1)
+                    enabled: shotDetailPage.canGoPrevious()
+                    onClicked: shotDetailPage.navigateToShot(shotDetailPage.currentIndex - 1)
                 }
 
                 Text {
-                    text: (currentIndex + 1) + " / " + shotIds.length
+                    text: (shotDetailPage.currentIndex + 1) + " / " + shotDetailPage.shotIds.length
                     font: Theme.labelFont
                     color: Theme.textSecondaryColor
                     horizontalAlignment: Text.AlignHCenter
@@ -784,11 +783,11 @@ Page {
                     text: TranslationManager.translate("shotdetail.oldershot", "Older Shot")
                     accessibleName: TranslationManager.translate("shotdetail.accessible.oldershot",
                         "Older shot") + ", " + TranslationManager.translate("shotdetail.accessible.position",
-                        "Shot %1 of %2").arg(currentIndex + 1).arg(shotIds.length)
+                        "Shot %1 of %2").arg(shotDetailPage.currentIndex + 1).arg(shotDetailPage.shotIds.length)
                     Layout.fillWidth: true
                     Layout.preferredWidth: 10  // Equal base for both buttons
-                    enabled: canGoNext()
-                    onClicked: navigateToShot(currentIndex + 1)
+                    enabled: shotDetailPage.canGoNext()
+                    onClicked: shotDetailPage.navigateToShot(shotDetailPage.currentIndex + 1)
                 }
             }
 
@@ -802,7 +801,7 @@ Page {
                     spacing: Theme.scaled(2)
                     Accessible.role: Accessible.StaticText
                     Accessible.name: TranslationManager.translate("shotdetail.duration", "Duration") + ": " +
-                        (shotData.durationSec || 0).toFixed(1) + "s"
+                        (shotDetailPage.shotData.durationSec || 0).toFixed(1) + "s"
                     Tr {
                         key: "shotdetail.duration"
                         fallback: "Duration"
@@ -811,7 +810,7 @@ Page {
                         Accessible.ignored: true
                     }
                     Text {
-                        text: (shotData.durationSec || 0).toFixed(1) + "s"
+                        text: (shotDetailPage.shotData.durationSec || 0).toFixed(1) + "s"
                         font: Theme.subtitleFont
                         color: Theme.textColor
                         Accessible.ignored: true
@@ -823,7 +822,7 @@ Page {
                     spacing: Theme.scaled(2)
                     Accessible.role: Accessible.StaticText
                     Accessible.name: TranslationManager.translate("shotdetail.dose", "Dose") + ": " +
-                        (shotData.doseWeightG || 0).toFixed(1) + "g"
+                        (shotDetailPage.shotData.doseWeightG || 0).toFixed(1) + "g"
                     Tr {
                         key: "shotdetail.dose"
                         fallback: "Dose"
@@ -832,7 +831,7 @@ Page {
                         Accessible.ignored: true
                     }
                     Text {
-                        text: (shotData.doseWeightG || 0).toFixed(1) + "g"
+                        text: (shotDetailPage.shotData.doseWeightG || 0).toFixed(1) + "g"
                         font: Theme.subtitleFont
                         color: Theme.dyeDoseColor
                         Accessible.ignored: true
@@ -849,9 +848,9 @@ Page {
                     Accessible.role: Accessible.StaticText
                     Accessible.name: {
                         var label = TranslationManager.translate("shotdetail.output", "Output") + ": " +
-                            (shotData.finalWeightG || 0).toFixed(1) + "g"
-                        var t = shotData.targetWeightG
-                        if (t !== undefined && t !== null && t > 0 && Math.abs(t - shotData.finalWeightG) > 0.5)
+                            (shotDetailPage.shotData.finalWeightG || 0).toFixed(1) + "g"
+                        var t = shotDetailPage.shotData.targetWeightG
+                        if (t !== undefined && t !== null && t > 0 && Math.abs(t - shotDetailPage.shotData.finalWeightG) > 0.5)
                             label += " (" + Math.round(t) + "g target)"
                         return label
                     }
@@ -866,18 +865,18 @@ Page {
                         spacing: Theme.scaled(4)
                         Accessible.ignored: true
                         Text {
-                            text: (shotData.finalWeightG || 0).toFixed(1) + "g"
+                            text: (shotDetailPage.shotData.finalWeightG || 0).toFixed(1) + "g"
                             font: Theme.subtitleFont
                             color: Theme.dyeOutputColor
                         }
                         Text {
                             visible: {
-                                var t = shotData.targetWeightG
+                                var t = shotDetailPage.shotData.targetWeightG
                                 return t !== undefined && t !== null && t > 0
-                                    && Math.abs(t - shotData.finalWeightG) > 0.5
+                                    && Math.abs(t - shotDetailPage.shotData.finalWeightG) > 0.5
                             }
                             text: {
-                                var t = shotData.targetWeightG
+                                var t = shotDetailPage.shotData.targetWeightG
                                 return (t !== undefined && t !== null && t > 0) ? "(" + Math.round(t) + "g)" : ""
                             }
                             font: Theme.captionFont
@@ -891,7 +890,7 @@ Page {
                 ColumnLayout {
                     spacing: Theme.scaled(2)
                     Accessible.role: Accessible.StaticText
-                    Accessible.name: TranslationManager.translate("shotdetail.ratio", "Ratio") + ": " + formatRatio()
+                    Accessible.name: TranslationManager.translate("shotdetail.ratio", "Ratio") + ": " + shotDetailPage.formatRatio()
                     Tr {
                         key: "shotdetail.ratio"
                         fallback: "Ratio"
@@ -900,7 +899,7 @@ Page {
                         Accessible.ignored: true
                     }
                     Text {
-                        text: formatRatio()
+                        text: shotDetailPage.formatRatio()
                         font: Theme.subtitleFont
                         color: Theme.textColor
                         Accessible.ignored: true
@@ -912,7 +911,7 @@ Page {
                     spacing: Theme.scaled(2)
                     Accessible.role: Accessible.StaticText
                     Accessible.name: TranslationManager.translate("shotdetail.rating", "Rating") + ": " +
-                        ((shotData.enjoyment0to100 || 0) > 0 ? shotData.enjoyment0to100 + "%" : "-")
+                        ((shotDetailPage.shotData.enjoyment0to100 || 0) > 0 ? shotDetailPage.shotData.enjoyment0to100 + "%" : "-")
                     Tr {
                         key: "shotdetail.rating"
                         fallback: "Rating"
@@ -921,7 +920,7 @@ Page {
                         Accessible.ignored: true
                     }
                     Text {
-                        text: (shotData.enjoyment0to100 || 0) > 0 ? shotData.enjoyment0to100 + "%" : "-"
+                        text: (shotDetailPage.shotData.enjoyment0to100 || 0) > 0 ? shotDetailPage.shotData.enjoyment0to100 + "%" : "-"
                         font: Theme.subtitleFont
                         color: Theme.warningColor
                         Accessible.ignored: true
@@ -932,15 +931,15 @@ Page {
             // Phase summary panel (advanced mode only)
             PhaseSummaryPanel {
                 Layout.fillWidth: true
-                phaseSummaries: shotData.phaseSummaries || []
-                visible: shotDetailPage.advancedMode && (shotData.phaseSummaries || []).length > 0
+                phaseSummaries: shotDetailPage.shotData.phaseSummaries || []
+                visible: shotDetailPage.advancedMode && (shotDetailPage.shotData.phaseSummaries || []).length > 0
             }
 
             // Notes (shown first, above bean/grinder cards)
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: Theme.spacingSmall
-                visible: !!(shotData.espressoNotes && shotData.espressoNotes !== "")
+                visible: !!(shotDetailPage.shotData.espressoNotes && shotDetailPage.shotData.espressoNotes !== "")
 
                 Tr {
                     key: "shotdetail.notes"
@@ -952,7 +951,7 @@ Page {
                 ExpandableTextArea {
                     Layout.fillWidth: true
                     inlineHeight: Theme.scaled(80)
-                    text: shotData.espressoNotes || ""
+                    text: shotDetailPage.shotData.espressoNotes || ""
                     accessibleName: TranslationManager.translate("shotdetail.notes", "Notes")
                     textFont: Theme.bodyFont
                     readOnly: true
@@ -976,7 +975,7 @@ Page {
                 radius: Theme.cardRadius
                 border.color: Theme.borderColor
                 border.width: Theme.scaled(1)
-                visible: (shotData.recipeId || -1) > 0
+                visible: (shotDetailPage.shotData.recipeId || -1) > 0
 
                 readonly property string recipeName: recipeResolver.recipe.name || ""
                 readonly property string recipeDrinkLabel:
@@ -1071,15 +1070,15 @@ Page {
                             id: detailRecipeBeanSummary
                             Layout.fillWidth: true
                             useShotData: true
-                            roasterName: shotData.beanBrand || ""
-                            coffeeName: shotData.beanType || ""
-                            roastDate: shotData.roastDate || ""
-                            roastLevel: shotData.roastLevel || ""
-                            beanBaseData: shotData.beanBaseJson || ""
+                            roasterName: shotDetailPage.shotData.beanBrand || ""
+                            coffeeName: shotDetailPage.shotData.beanType || ""
+                            roastDate: shotDetailPage.shotData.roastDate || ""
+                            roastLevel: shotDetailPage.shotData.roastLevel || ""
+                            beanBaseData: shotDetailPage.shotData.beanBaseJson || ""
                         }
                         BeanBaseDetailsRow {
                             Layout.fillWidth: true
-                            beanBaseJson: shotData.beanBaseJson || ""
+                            beanBaseJson: shotDetailPage.shotData.beanBaseJson || ""
                         }
                     }
 
@@ -1111,14 +1110,14 @@ Page {
                         EquipmentSummary {
                             id: detailRecipeEquipment
                             Layout.fillWidth: true
-                            grinderName: shotData.equipmentName || ""
-                            grinderBrand: shotData.grinderBrand || ""
-                            grinderModel: shotData.grinderModel || ""
-                            grinderBurrs: shotData.grinderBurrs || ""
-                            basketBrand: shotData.basketBrand || ""
-                            basketModel: shotData.basketModel || ""
-                            puckPrepCanonical: shotData.puckPrep || ""
-                            equipmentState: shotData.equipmentState || ""
+                            grinderName: shotDetailPage.shotData.equipmentName || ""
+                            grinderBrand: shotDetailPage.shotData.grinderBrand || ""
+                            grinderModel: shotDetailPage.shotData.grinderModel || ""
+                            grinderBurrs: shotDetailPage.shotData.grinderBurrs || ""
+                            basketBrand: shotDetailPage.shotData.basketBrand || ""
+                            basketModel: shotDetailPage.shotData.basketModel || ""
+                            puckPrepCanonical: shotDetailPage.shotData.puckPrep || ""
+                            equipmentState: shotDetailPage.shotData.equipmentState || ""
                         }
                     }
                     // Read-only: re-linking beans is an edit, available on the
@@ -1132,7 +1131,7 @@ Page {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.spacingMedium
-                visible: (shotData.recipeId || -1) <= 0
+                visible: (shotDetailPage.shotData.recipeId || -1) <= 0
 
                 // Bean info card: read-only summary of this shot's bean
                 // snapshot + a re-link action ("historicalShot" semantics:
@@ -1153,11 +1152,11 @@ Page {
                     readonly property string beanGrindLine: {
                         var _ = TranslationManager.translationVersion
                         var parts = []
-                        var g = shotData.grinderSetting || ""
+                        var g = shotDetailPage.shotData.grinderSetting || ""
                         if (g.length > 0)
                             parts.push(TranslationManager.translate("equipment.card.lastGrind", "Grind %1").arg(g))
-                        if ((shotData.rpm || 0) > 0 && shotDetailPage._shotRpmCapable)
-                            parts.push(TranslationManager.translate("equipment.card.lastRpm", "%1 rpm").arg(shotData.rpm))
+                        if ((shotDetailPage.shotData.rpm || 0) > 0 && shotDetailPage._shotRpmCapable)
+                            parts.push(TranslationManager.translate("equipment.card.lastRpm", "%1 rpm").arg(shotDetailPage.shotData.rpm))
                         return parts.join(" · ")
                     }
 
@@ -1202,11 +1201,11 @@ Page {
                             id: detailBeanSummary
                             Layout.fillWidth: true
                             useShotData: true
-                            roasterName: shotData.beanBrand || ""
-                            coffeeName: shotData.beanType || ""
-                            roastDate: shotData.roastDate || ""
-                            roastLevel: shotData.roastLevel || ""
-                            beanBaseData: shotData.beanBaseJson || ""
+                            roasterName: shotDetailPage.shotData.beanBrand || ""
+                            coffeeName: shotDetailPage.shotData.beanType || ""
+                            roastDate: shotDetailPage.shotData.roastDate || ""
+                            roastLevel: shotDetailPage.shotData.roastLevel || ""
+                            beanBaseData: shotDetailPage.shotData.beanBaseJson || ""
                         }
 
                         // Bean Base details (per-shot snapshot — shows the bean
@@ -1214,7 +1213,7 @@ Page {
                         // for unlinked/legacy shots.
                         BeanBaseDetailsRow {
                             Layout.fillWidth: true
-                            beanBaseJson: shotData.beanBaseJson || ""
+                            beanBaseJson: shotDetailPage.shotData.beanBaseJson || ""
                         }
                         // Read-only: re-linking beans is an edit, done on the
                         // Post-Shot Review page (via the header Edit button).
@@ -1234,9 +1233,9 @@ Page {
                     // Grind/rpm is a per-shot dial-in, not equipment — it lives on
                     // the recipe card (recipe used) or the bean card, never here. The
                     // gate is grinder/basket/puck identity only.
-                    visible: !!(shotData.grinderBrand || shotData.grinderModel || shotData.grinderBurrs
-                                || shotData.basketBrand || shotData.basketModel
-                                || shotData.puckPrep || shotData.equipmentName)
+                    visible: !!(shotDetailPage.shotData.grinderBrand || shotDetailPage.shotData.grinderModel || shotDetailPage.shotData.grinderBurrs
+                                || shotDetailPage.shotData.basketBrand || shotDetailPage.shotData.basketModel
+                                || shotDetailPage.shotData.puckPrep || shotDetailPage.shotData.equipmentName)
                     Accessible.role: Accessible.Grouping
                     Accessible.name: TranslationManager.translate("shotdetail.equipment", "Equipment")
                                      + ": " + equipmentSummary.accessibleSummary
@@ -1260,16 +1259,16 @@ Page {
                         EquipmentSummary {
                             id: equipmentSummary
                             Layout.fillWidth: true
-                            grinderName: shotData.equipmentName || ""
-                            grinderBrand: shotData.grinderBrand || ""
-                            grinderModel: shotData.grinderModel || ""
-                            grinderBurrs: shotData.grinderBurrs || ""
+                            grinderName: shotDetailPage.shotData.equipmentName || ""
+                            grinderBrand: shotDetailPage.shotData.grinderBrand || ""
+                            grinderModel: shotDetailPage.shotData.grinderModel || ""
+                            grinderBurrs: shotDetailPage.shotData.grinderBurrs || ""
                             // grindSetting/rpm deliberately NOT fed — grind is a
                             // dial-in, shown on the recipe or bean card, not here.
-                            basketBrand: shotData.basketBrand || ""
-                            basketModel: shotData.basketModel || ""
-                            puckPrepCanonical: shotData.puckPrep || ""
-                            equipmentState: shotData.equipmentState || ""
+                            basketBrand: shotDetailPage.shotData.basketBrand || ""
+                            basketModel: shotDetailPage.shotData.basketModel || ""
+                            puckPrepCanonical: shotDetailPage.shotData.puckPrep || ""
+                            equipmentState: shotDetailPage.shotData.equipmentState || ""
                         }
                     }
                 }
@@ -1281,7 +1280,7 @@ Page {
                 Layout.preferredHeight: analysisColumn.height + Theme.spacingLarge
                 color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
-                visible: shotDetailPage.advancedMode && (shotData.drinkTdsPct > 0 || shotData.drinkEyPct > 0)
+                visible: shotDetailPage.advancedMode && (shotDetailPage.shotData.drinkTdsPct > 0 || shotDetailPage.shotData.drinkEyPct > 0)
                 Accessible.role: Accessible.Grouping
                 Accessible.name: TranslationManager.translate("shotdetail.analysis", "Analysis")
 
@@ -1307,13 +1306,13 @@ Page {
                         ColumnLayout {
                             spacing: Theme.scaled(2)
                             Tr { key: "shotdetail.tds"; fallback: "TDS"; font: Theme.captionFont; color: Theme.textSecondaryColor }
-                            Text { text: (shotData.drinkTdsPct || 0).toFixed(2) + "%"; font: Theme.bodyFont; color: Theme.dyeTdsColor }
+                            Text { text: (shotDetailPage.shotData.drinkTdsPct || 0).toFixed(2) + "%"; font: Theme.bodyFont; color: Theme.dyeTdsColor }
                         }
 
                         ColumnLayout {
                             spacing: Theme.scaled(2)
                             Tr { key: "shotdetail.ey"; fallback: "EY"; font: Theme.captionFont; color: Theme.textSecondaryColor }
-                            Text { text: (shotData.drinkEyPct || 0).toFixed(1) + "%"; font: Theme.bodyFont; color: Theme.dyeEyColor }
+                            Text { text: (shotDetailPage.shotData.drinkEyPct || 0).toFixed(1) + "%"; font: Theme.bodyFont; color: Theme.dyeEyColor }
                         }
                     }
                 }
@@ -1325,9 +1324,9 @@ Page {
                 Layout.preferredHeight: baristaRow.height + Theme.spacingLarge
                 color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
-                visible: !!shotData.barista && shotData.barista !== ""
+                visible: !!shotDetailPage.shotData.barista && shotDetailPage.shotData.barista !== ""
                 Accessible.role: Accessible.Grouping
-                Accessible.name: TranslationManager.translate("shotdetail.barista", "Barista:") + " " + (shotData.barista || "")
+                Accessible.name: TranslationManager.translate("shotdetail.barista", "Barista:") + " " + (shotDetailPage.shotData.barista || "")
 
                 RowLayout {
                     id: baristaRow
@@ -1348,7 +1347,7 @@ Page {
                     Text {
                         // StyledText so elide works (Qt ignores elide on RichText)
                         textFormat: Text.StyledText
-                        text: Theme.replaceEmojiWithImg(shotData.barista || "", Theme.labelFont.pixelSize)
+                        text: Theme.replaceEmojiWithImg(shotDetailPage.shotData.barista || "", Theme.labelFont.pixelSize)
                         font: Theme.labelFont
                         color: Theme.textColor
                         Layout.fillWidth: true
@@ -1386,10 +1385,10 @@ Page {
                 Layout.preferredHeight: Theme.scaled(50)
                 color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
-                visible: !!shotData.visualizerId && shotData.visualizerId !== ""
+                visible: !!shotDetailPage.shotData.visualizerId && shotDetailPage.shotData.visualizerId !== ""
                 Accessible.role: Accessible.StaticText
                 Accessible.name: TranslationManager.translate("shotdetail.uploadedtovisualizer",
-                    "Uploaded to Visualizer") + ": " + (shotData.visualizerId || "")
+                    "Uploaded to Visualizer") + ": " + (shotDetailPage.shotData.visualizerId || "")
 
                 RowLayout {
                     anchors.fill: parent
@@ -1416,7 +1415,7 @@ Page {
                     Item { Layout.fillWidth: true }
 
                     Text {
-                        text: shotData.visualizerId || ""
+                        text: shotDetailPage.shotData.visualizerId || ""
                         font: Theme.captionFont
                         color: Theme.textSecondaryColor
                         Layout.maximumWidth: parent.width * 0.5
@@ -1470,7 +1469,7 @@ Page {
                 contentWidth: availableWidth
 
                 TextArea {
-                    text: shotData.debugLog || TranslationManager.translate("shotdetail.nodebuglog", "No debug log available")
+                    text: shotDetailPage.shotData.debugLog || TranslationManager.translate("shotdetail.nodebuglog", "No debug log available")
                     font.family: Theme.monoFontFamily
                     font.pixelSize: Theme.scaled(12)
                     color: Theme.textColor
@@ -1561,7 +1560,7 @@ Page {
                     Layout.fillWidth: true
                     onClicked: {
                         deleteConfirmDialog.close()
-                        MainController.shotHistory.requestDeleteShot(shotId)
+                        MainController.shotHistory.requestDeleteShot(shotDetailPage.shotId)
                     }
                 }
             }
@@ -1595,21 +1594,21 @@ Page {
     BottomBar {
         id: bottomBar
         title: TranslationManager.translate("shotdetail.title", "Shot Detail")
-        onBackClicked: root.goBack()
+        onBackClicked: AppShell.backRequested()
 
         // Profile name + date in the bottom bar remain visible while the user scrolls,
         // providing context when the header is off-screen. It reads as a subtitle to
         // the page title, so it lives in leftContent and stays beside it.
         leftContent: ColumnLayout {
-            visible: !!(shotData.profileName)
+            visible: !!(shotDetailPage.shotData.profileName)
             spacing: 0
             Layout.alignment: Qt.AlignVCenter
             Accessible.role: Accessible.StaticText
-            Accessible.name: (shotData.profileName || "") + (shotData.dateTime ? ", " + shotData.dateTime : "")
+            Accessible.name: (shotDetailPage.shotData.profileName || "") + (shotDetailPage.shotData.dateTime ? ", " + shotDetailPage.shotData.dateTime : "")
             Accessible.focusable: true
 
             Text {
-                text: shotData.profileName || ""
+                text: shotDetailPage.shotData.profileName || ""
                 font: Theme.labelFont
                 color: Theme.textColor
                 elide: Text.ElideRight
@@ -1618,7 +1617,7 @@ Page {
             }
 
             Text {
-                text: shotData.dateTime || ""
+                text: shotDetailPage.shotData.dateTime || ""
                 font: Theme.captionFont
                 color: Theme.textSecondaryColor
                 elide: Text.ElideRight
@@ -1635,14 +1634,14 @@ Page {
         // AI Advice button
         AccessibleButton {
             id: aiButton
-            visible: MainController.aiManager && MainController.aiManager.isConfigured && shotData.durationSec > 0
+            visible: MainController.aiManager && MainController.aiManager.isConfigured && shotDetailPage.shotData.durationSec > 0
             primary: true
             icon.source: "qrc:/icons/sparkle.svg"
             tintIcon: true
             text: TranslationManager.translate("shotdetail.aiadvice", "AI Advice")
             accessibleName: TranslationManager.translate("shotdetail.aiadvice", "AI Advice")
             onClicked: {
-                conversationOverlay.openWithShot(shotData, shotData.beanBrand, shotData.beanType, shotData.profileName, shotDetailPage.shotId)
+                conversationOverlay.openWithShot(shotDetailPage.shotData, shotDetailPage.shotData.beanBrand, shotDetailPage.shotData.beanType, shotDetailPage.shotData.profileName, shotDetailPage.shotId)
             }
         }
 
@@ -1652,7 +1651,7 @@ Page {
             readonly property bool isClaudeDesktopReady:
                 Settings.network.discussShotApp !== Settings.network.discussAppClaudeDesktop
                 || Settings.network.claudeRcSessionUrl.length > 0
-            visible: shotData.durationSec > 0 && Settings.network.discussShotApp !== Settings.network.discussAppNone
+            visible: shotDetailPage.shotData.durationSec > 0 && Settings.network.discussShotApp !== Settings.network.discussAppNone
             enabled: isClaudeDesktopReady
             primary: true
             icon.source: "qrc:/icons/sparkle.svg"
@@ -1664,7 +1663,7 @@ Page {
                     // Prose, not the JSON envelope — the user is pasting this into
                     // an external AI tool, where prose is more readable and avoids
                     // double-shipping the structured fields.
-                    var summary = MainController.aiManager.buildShotAnalysisProseForShot(shotData)
+                    var summary = MainController.aiManager.buildShotAnalysisProseForShot(shotDetailPage.shotData)
                     if (summary.length > 0) MainController.copyToClipboard(summary)
                 }
                 var url = Settings.network.discussShotUrl()
@@ -1675,7 +1674,7 @@ Page {
         // Email Prompt button - fallback for users without API keys
         AccessibleButton {
             id: emailButton
-            visible: MainController.aiManager && !MainController.aiManager.isConfigured && shotData.durationSec > 0
+            visible: MainController.aiManager && !MainController.aiManager.isConfigured && shotDetailPage.shotData.durationSec > 0
             icon.source: "qrc:/icons/sparkle.svg"
             tintIcon: true
             text: TranslationManager.translate("shotdetail.email", "Email")
@@ -1684,8 +1683,8 @@ Page {
                 // Prose, not the JSON envelope — the email body lands in the
                 // user's mail client; prose is readable and the prior JSON shape
                 // double-shipped structured fields (#1042).
-                var prompt = MainController.aiManager.buildShotAnalysisProseForShot(shotData)
-                var subject = "Espresso AI Analysis - " + (shotData.profileName || "Shot")
+                var prompt = MainController.aiManager.buildShotAnalysisProseForShot(shotDetailPage.shotData)
+                var subject = "Espresso AI Analysis - " + (shotDetailPage.shotData.profileName || "Shot")
                 Qt.openUrlExternally("mailto:?subject=" + encodeURIComponent(subject) + "&body=" + encodeURIComponent(prompt))
             }
         }

@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
-import "../../components"
 
 Item {
     id: calibrationTab
@@ -111,7 +110,7 @@ Item {
                                 text: TranslationManager.translate("settings.preferences.calibrate", "Calibrate")
                                 primary: true
                                 enabled: !Settings.calibration.autoFlowCalibration
-                                onClicked: pageStack.push(Qt.resolvedUrl("../FlowCalibrationPage.qml"))
+                                onClicked: AppShell.flowCalibrationRequested()
                             }
                         }
                     }

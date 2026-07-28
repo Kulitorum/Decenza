@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
-import "../components"
 
 Page {
     id: descalingPage
@@ -393,7 +392,7 @@ Page {
                         _customFontWeight: Font.Bold
                         onClicked: {
                             showRinseInstructions = false
-                            root.goToIdle()
+                            AppShell.idleRequested()
                         }
                     }
                 }
@@ -748,7 +747,7 @@ Page {
         title: TranslationManager.translate("descaling.title", "Descaling")
         onBackClicked: {
             showRinseInstructions = false
-            root.goBack()
+            AppShell.backRequested()
         }
     }
 }

@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
-import "../../components"
 
 Dialog {
     id: migrationDialog
@@ -301,7 +300,7 @@ Dialog {
                         primary: true
                         enabled: manualIpField.text.trim().length > 0
                         onClicked: {
-                            Qt.inputMethod.commit()
+                            Keyboard.commit()
                             var address = manualIpField.text.trim()
                             // If user didn't include http://, add it
                             if (!address.startsWith("http://") && !address.startsWith("https://")) {
@@ -398,7 +397,7 @@ Dialog {
                         "Submit authenticator code to connect to remote device")
                     enabled: migrationTotpField.text.length === 6 && !MainController.dataMigration.isConnecting
                     onClicked: {
-                        Qt.inputMethod.commit()
+                        Keyboard.commit()
                         MainController.dataMigration.authenticate(migrationTotpField.text)
                     }
                 }

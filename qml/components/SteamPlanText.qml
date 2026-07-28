@@ -1,7 +1,5 @@
 import QtQuick
-import QtQuick.Window
 import Decenza
-import "../"
 
 // The steam analogue of ShotPlanText: a one-line sentence summarising what the
 // next steam will do — "Steam 300g of milk, using the Large pitcher for 30s" — with the live
@@ -21,38 +19,19 @@ Item {
     readonly property bool _presetOff: !!(_preset && _preset.disabled)
     readonly property string _pitcherName: (_preset && _preset.name) ? String(_preset.name) : ""
 
-    // The milk weight measured this session. Owned by main.qml's sessionMeasuredMilkG —
-    // see that property for the full write/reset lifecycle. Mirrored from the window
-    // root: seeded on completion / when the window resolves, and refreshed on its
-    // sessionMeasuredMilkGChanged signal. (Rename-fragile: if that root property is ever
-    // renamed, the ignoreUnknownSignals Connections silently no-ops and this freezes on
-    // its last value — hence the one-time warn below to make that failure greppable.)
-    readonly property var winRoot: root.Window.window
-    property real _sessionMilk: 0
-    property bool _warnedMissingMilkProp: false
-    function _refreshMilk() {
-        if (winRoot && winRoot.sessionMeasuredMilkG === undefined && !_warnedMissingMilkProp) {
-            _warnedMissingMilkProp = true
-            console.warn("SteamPlanText: window root has no sessionMeasuredMilkG — steam plan milk will not update")
-        }
-        root._sessionMilk = winRoot ? (winRoot.sessionMeasuredMilkG || 0) : 0
-    }
-    onWinRootChanged: _refreshMilk()
-    Component.onCompleted: _refreshMilk()
-    Connections {
-        target: root.winRoot
-        ignoreUnknownSignals: true
-        function onSessionMeasuredMilkGChanged() { root._refreshMilk() }
-    }
-
     // Target milk for the plan: the weight just measured this session (after the bell) if
     // there is one, else the last measured milk. (The old per-pitcher calibMilkG is no
     // longer consulted — weight-timing is now a global rate, and calibMilkG has no UI
     // left to edit, so it would freeze the plan on a stale reference weight.)
-    readonly property real _targetMilk: {
-        if (_sessionMilk > 0) return _sessionMilk
-        return Settings.brew.lastSteamMilkG || 0
-    }
+    //
+    // AppShell.sessionMeasuredMilkG is a plain reactive binding. It used to be main.qml's
+    // property, reached through `Window.window` — an untyped hop that needed a winRoot
+    // mirror, a manual refresh on two events, an `ignoreUnknownSignals` Connections, and
+    // a one-time console.warn to make a rename greppable. All of that is gone: a rename
+    // now fails the build here instead of silently freezing the plan on a stale value.
+    readonly property real _targetMilk:
+        AppShell.sessionMeasuredMilkG > 0 ? AppShell.sessionMeasuredMilkG
+                                          : (Settings.brew.lastSteamMilkG || 0)
     // The SELECTED preset's effective time (scaled when weight-timing has milk to work
     // with, else its base duration) — not Settings.brew.steamTimeout, which holds
     // whatever the last pill tap computed and can be stale for a fresh selection.

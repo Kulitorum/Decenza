@@ -45,7 +45,11 @@ Other reserved names to avoid in model data: `parent`, `children`, `data`, `stat
 
 ## IME last-word drop on mobile
 
-On Android/iOS virtual keyboards, the last typed word is held in a composing/pre-edit state and is NOT reflected in `TextField.text` until committed. When a button's `onClicked` reads a text field's `.text` directly (to send, save, or pass to a C++ method), always call `Qt.inputMethod.commit()` first — otherwise the last word is silently dropped. This is a no-op on desktop so it is safe to always include.
+`Keyboard` is a compile-time singleton (`src/core/keyboard.h`) wrapping QInputMethod. Use it
+rather than `Qt.inputMethod`, which qmllint types as a bare `QObject` — every member access on
+it is unchecked, so a misspelling is invisible until a user hits it.
+
+On Android/iOS virtual keyboards, the last typed word is held in a composing/pre-edit state and is NOT reflected in `TextField.text` until committed. When a button's `onClicked` reads a text field's `.text` directly (to send, save, or pass to a C++ method), always call `Keyboard.commit()` first — otherwise the last word is silently dropped. This is a no-op on desktop so it is safe to always include.
 
 ```qml
 // BAD - last word may be missing on mobile
@@ -55,7 +59,7 @@ onClicked: {
 
 // GOOD - commit pending IME composition first
 onClicked: {
-    Qt.inputMethod.commit()
+    Keyboard.commit()
     doSomething(myField.text)
 }
 ```
@@ -266,6 +270,24 @@ Two mechanical traps when adding `QML_ELEMENT` to a header:
   registered types *inherit*. Without `DEPENDENCIES QtQuick3D`, `PipeCylinderGeometry`'s
   `QQuick3DGeometry` prototype is unlinkable and every use reports `used but it is not resolved` —
   with `Quick3D.qmltypes` shipped and already on the import path.
+- **Migrating a `#ifdef`-guarded context property silently breaks every `typeof X !== "undefined"`
+  guard around it.** This is the one migration hazard that does not announce itself: it compiles
+  clean, the gate reports only improvements, and it breaks at runtime on the platform you did not
+  build. A context property that `main()` never publishes is genuinely absent, so `typeof` returns
+  `"undefined"` and the guard holds. Register the same name as a `QML_SINGLETON` and **the type
+  always exists** — on a platform where `create()` returns null, `typeof X` is `"object"`, the
+  guard passes, and the next member access dereferences null. `USBManager` and `UsbScaleManager`
+  hit exactly this: three bindings in `SettingsConnectionsTab.qml` would have thrown on iOS, and
+  a `visible:` gate does not save you, because an invisible element's bindings still evaluate.
+  - Fix: guard on the **condition**, not on the name's existence — the file's own
+    `readonly property bool usbAvailable: Qt.platform.os !== "ios"`, or a plain truthiness test
+    (`X ? X.member : ...`), both of which are correct for a null singleton *and* an absent one.
+  - Use `decenzaOptionalSingleton()` (not `decenzaPublishedSingleton()`) for a name whose instance
+    legitimately does not exist on some builds; the loud helper would `qCritical` on every launch
+    of the platform that is behaving correctly.
+  - Grep for `typeof <Name>` before migrating. If there are none, check anyway for
+    `Qt.platform.os` tests near the uses — those are the same guard written a different way, and
+    they are the ones that stay correct.
 
 ## Reading the qmllint gate — four things that will save you a day
 
@@ -292,3 +314,145 @@ Two mechanical traps when adding `QML_ELEMENT` to a header:
    which looks exactly like an improvement — that is how #1680 shipped three ceilings the tree
    could not meet. `check_registry_fresh()` and `--allow-ceiling-rise` exist because of it; do not
    route around either.
+
+## Never directory-import a type the module already provides
+
+`qt_add_qml_module` registers every file in `QML_FILES` as a type of the `Decenza` module,
+singletons included. So `import Decenza` is all any file needs, and an extra directory import is
+not merely redundant — it **shadows the registration**:
+
+```qml
+import Decenza
+import "../components"   // WRONG: re-resolves the same files as plain component types
+```
+
+A `pragma Singleton` .qml resolved through a directory import is a *component*, not the singleton
+instance, so its members are simply absent. That is why `DrinkType.shortLabel`,
+`DrinkType.icon`, `DrinkType.fromRecipeMap` and `SettingsTabs.indexOf` all reported as missing
+members while being plainly declared in their own files. `Theme` never showed it only because it
+lives in `qml/` and nothing directory-imports that.
+
+106 such imports were deleted across 98 files; it cleared the entire `import` category and 32
+`missing-property` findings. Keep `import "..." as Namespace` (used as a real namespace) and `.js`
+imports. Add nothing else.
+
+## `pragma ComponentBehavior: Bound` — and the delegate it will break
+
+Ids from an enclosing file are not statically resolvable inside a nested component (a delegate, a
+`layer.effect`, an inline `Component`). `pragma ComponentBehavior: Bound` makes them resolvable —
+this is Qt's own prescription, see qtdeclarative's "Exposing State from C++ to QML".
+
+**It also stops delegates receiving injected model roles.** A delegate that uses `modelData`,
+`model` or `index` without declaring them breaks **at runtime, with nothing at build time to say
+so**. So:
+
+1. `grep -c 'Repeater\|delegate:\|model:'` the file first. **No delegates → the pragma alone is
+   safe**, and that covers most component files (their warnings are usually
+   `layer.effect: MultiEffect { colorizationColor: root.x }`).
+2. With delegates, add `required property var modelData` / `required property int index` to each
+   delegate root in the same edit, and give it an `id` so nested children can qualify against it.
+3. Re-lint. Any remaining `modelData`/`index` warning is a delegate you missed — the linter will
+   name it, and that check is why this is safe to do at scale.
+
+## Qualify by qmllint's line and column, never by text search
+
+The same identifier can be several different things in one file, and only the flagged occurrences
+should move:
+
+- `ProfileEditorPage.qml` has a function-local `var step` **and** `stepEditorScroll`'s
+  `property var step`. Only the latter is flagged; a `sed` on `step` would have rewritten the
+  local too.
+- `ValueInput.qml` has `gear` on a delegate. A bulk pass prefixed it with the component root,
+  which has no such member — every gear tap would have assigned `undefined`. It survived exactly
+  one relint (`Member "gear" not found on type "ValueInput"`), which is the argument for doing
+  this work with the linter rather than around it.
+
+Recover the identifier from the source line at the reported column, assert the token before
+rewriting it, and re-lint after every pass.
+
+**Insert right-to-left when one line has two insertions, and do not trust the relint to catch it
+if you don't.** Every insertion shifts the columns after it, so the second prefix on a line lands
+in the wrong place if you computed its column against the original text. That is how
+`currentOffset += results.length` became:
+
+```qml
+shotHistoryPage.currentOffset += results.shotHistoryPage.length   // undefined; += makes it NaN
+```
+
+which broke Shot History pagination — every later fetch asked for a NaN offset. **qmllint reported
+nothing**, because `results` is a signal-handler parameter typed `var` and the linter does no
+member checking on that chain. The `gear` case above survived exactly one relint; this one would
+have survived any number of them. The relint is a backstop for mis-qualification onto a *typed*
+receiver and for nothing else.
+
+So verify this class mechanically, on the diff rather than the tree — and note the check is
+paired-line, not textual:
+
+> For each changed line, if removing any one segment from a dotted chain in the NEW line yields a
+> chain present in the OLD line, the insertion landed mid-chain.
+
+Run over a whole branch diff that is a few seconds and it is exhaustive; it found this occurrence
+and confirmed there were no others.
+
+## `Window` is an attached property — do not write it through an id
+
+```qml
+var win = root.Window.window     // works at runtime, uncheckable
+readonly property var appWindow: Window.window   // read where it actually attaches
+```
+
+`Window` resolves against the *current scope*; it is not a member of the object whose id you
+write it on. Reading it once at the item root is both checkable and removes the duplicate
+lookups. Same for any attached type.
+
+## A runtime-swapped object becomes a proxy singleton, not a context property
+
+`ScaleDevice` is re-pointed at a FlowScale, a BLE scale, a USB scale or a simulated scale as
+hardware comes and goes — eleven sites in `main.cpp`. A context property can be re-pointed; a
+`QML_SINGLETON` is created once and cannot be. So the singleton is a **proxy** and the proxy is
+what moves: `ScaleDeviceProxy` (and `RefractometerProxy`) hold the target in a `QPointer`, mirror
+every property, forward every public slot and re-emit every signal. QML says `ScaleDevice.connected`
+exactly as before.
+
+Three rules when writing one:
+
+- Forward **every** public slot, not the ones QML calls today. A context property exposed the
+  whole set; forwarding a subset silently removes the rest from QML's reach and the calls still
+  parse.
+- Properties that are `CONSTANT` on the target are **not** constant on the proxy — `name`,
+  `isFlowScale` and `isSimulated` are facts about *which device is attached*, which is exactly
+  what the proxy changes.
+- The proxy is never null, so guards that test the OBJECT (`ScaleDevice !== null`,
+  `typeof ScaleDevice !== "undefined"`) stop guarding anything. Test the STATE:
+  `ScaleDevice.connected`.
+
+"Forward every public slot" is the rule and it was broken on its first outing: `ScaleDeviceProxy`
+shipped with 9 of `ScaleDevice`'s 12 forwarded, and nothing caught it because the three omitted
+are called only from C++. Diff the two `public slots:` blocks when you write one.
+
+## A registered singleton with no instance is TRUTHY, not `undefined`
+
+This is the trap behind `decenzaOptionalSingleton()`, and the guard everyone writes is wrong:
+
+```qml
+if (typeof GHCSimulator !== "undefined" && GHCSimulator) GHCSimulator.doThing()  // passes, THROWS
+if (GHCSimulator.doThing !== undefined) GHCSimulator.doThing()                   // correct
+```
+
+A singleton whose **type** is registered but whose **instance** was never published does not make
+the name read as `undefined`. Per Qt 6.11.1: `qv4qmlcontext.cpp:229` resolves the name with
+`QQmlTypeWrapper::create(v4, nullptr, r.type)` — it calls `singletonInstance<QObject*>()` and
+**discards the result**, so the wrapper is built either way — and `QQmlTypeWrapper` has no
+`virtualToBoolean` override, so that wrapper is a truthy `Object` with `typeof === "object"`. Only
+the *member read* degrades: `qqmltypewrapper.cpp:319` fails its `if (QObject *singleton = ...)` and
+falls through to `Object::virtualGet`, yielding `undefined`.
+
+So the name passes both halves of the usual guard and the first method call throws
+`TypeError: Property '...' of object [object Object] is not a function`.
+
+**Guard the member you are about to use, or use a platform check** (`Qt.platform.os !== "ios"`),
+which short-circuits before the member read — that is why `USBManager`'s call sites were never
+affected while `GHCSimulator`'s were. `GHCSimulator` is registered wherever `DECENZA_SIMULATOR` is
+defined (every desktop config) but instanced only on a **debug** Windows/macOS build, so the broken
+guard passed — and threw on every window activation — on Linux, on Release desktop and on mobile
+Debug, while working on exactly the two configurations it gets tested on.

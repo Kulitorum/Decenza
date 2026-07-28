@@ -3,7 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Effects
 import Decenza
-import "../components"
 
 Page {
     id: profileSelectorPage
@@ -252,7 +251,7 @@ Page {
                         Layout.preferredHeight: Theme.scaled(44)
                         leftPadding: Theme.scaled(10)
                         rightPadding: Theme.scaled(10)
-                        onClicked: root.goToVisualizerBrowser()
+                        onClicked: AppShell.visualizerBrowserRequested()
                     }
 
                     AccessibleButton {
@@ -267,7 +266,7 @@ Page {
                         Layout.preferredHeight: Theme.scaled(44)
                         leftPadding: Theme.scaled(10)
                         rightPadding: Theme.scaled(10)
-                        onClicked: root.goToProfileImport()
+                        onClicked: AppShell.profileImportRequested()
                     }
 
                     AccessibleButton {
@@ -493,10 +492,7 @@ Page {
                                 profileName: modelData.title
 
                                 onClicked: {
-                                    pageStack.push(Qt.resolvedUrl("ProfileInfoPage.qml"), {
-                                        profileFilename: modelData.name,
-                                        profileName: modelData.title
-                                    })
+                                    AppShell.profileInfoRequested(modelData.name, modelData.title)
                                 }
                             }
 
@@ -716,7 +712,7 @@ Page {
 
                             onClicked: {
                                 // Profile is already loaded, just open editor
-                                root.goToProfileEditor()
+                                AppShell.profileEditorRequested()
                             }
                         }
                     }
@@ -727,7 +723,7 @@ Page {
                         z: -1
                         onClicked: {
                             // Already selected, open editor
-                            root.goToProfileEditor()
+                            AppShell.profileEditorRequested()
                         }
                     }
                 }
@@ -759,12 +755,12 @@ Page {
                         var status = index === Settings.app.selectedFavoriteProfile
                             ? ", " + TranslationManager.translate("profileselector.accessible.selected_favorite", "selected favorite")
                             : ", " + TranslationManager.translate("profileselector.accessible.favorite", "favorite")
-                        return root.cleanForSpeech(row.name) + modified + status
+                        return AccessibilityManager.cleanForSpeech(row.name) + modified + status
                     }
                     deleteAccessibleNameFn: function(row, index) {
                         if (!row) return ""
                         return TranslationManager.translate("profileselector.accessible.remove", "Remove") + " " +
-                               root.cleanForSpeech(row.name) + " " +
+                               AccessibilityManager.cleanForSpeech(row.name) + " " +
                                TranslationManager.translate("profileselector.accessible.from_favorites", "from favorites")
                     }
 
@@ -775,13 +771,13 @@ Page {
                             icon.width: Theme.scaled(18)
                             icon.height: Theme.scaled(18)
                             icon.color: parent.selected ? Theme.primaryContrastColor : Theme.textColor
-                            accessibleName: parent.row ? (TranslationManager.translate("profileselector.accessible.edit", "Edit") + " " + root.cleanForSpeech(parent.row.name)) : ""
+                            accessibleName: parent.row ? (TranslationManager.translate("profileselector.accessible.edit", "Edit") + " " + AccessibilityManager.cleanForSpeech(parent.row.name)) : ""
 
                             onClicked: {
                                 if (!parent.row) return
                                 Settings.app.selectedFavoriteProfile = parent.rowIndex
                                 ProfileManager.loadProfile(parent.row.filename)
-                                root.goToProfileEditor()
+                                AppShell.profileEditorRequested()
                             }
                         }
                     }
@@ -791,7 +787,7 @@ Page {
                         if (!fav) return
                         Settings.app.selectedFavoriteProfile = index
                         ProfileManager.loadProfile(fav.filename)
-                        root.goToProfileEditor()
+                        AppShell.profileEditorRequested()
                     }
                     onRowSelected: function(index) {
                         var fav = Settings.app.favoriteProfiles[index]
@@ -800,14 +796,14 @@ Page {
                             ProfileManager.loadProfile(fav.filename)
                             Settings.app.selectedFavoriteProfile = index
                             if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
-                                AccessibilityManager.announce(root.cleanForSpeech(fav.name) + " " + TranslationManager.translate("profileSelector.selected", "selected"))
+                                AccessibilityManager.announce(AccessibilityManager.cleanForSpeech(fav.name) + " " + TranslationManager.translate("profileSelector.selected", "selected"))
                             }
                         }
                     }
                     onRowMoved: function(from, to) { Settings.app.moveFavoriteProfile(from, to) }
                     onRowDeleted: function(index) {
                         var fav = Settings.app.favoriteProfiles[index]
-                        var name = fav ? root.cleanForSpeech(fav.name) : ""
+                        var name = fav ? AccessibilityManager.cleanForSpeech(fav.name) : ""
                         Settings.app.removeFavoriteProfile(index)
                         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
                             AccessibilityManager.announce(name + " " + TranslationManager.translate("profileselector.accessible.removed_from_favorites", "removed from favorites"))
@@ -874,7 +870,7 @@ Page {
                 onClicked: {
                     profileActionsDialog.close()
                     ProfileManager.loadProfile(profileActionsDialog.profileFilename)
-                    root.goToProfileEditor()
+                    AppShell.profileEditorRequested()
                 }
             }
 
@@ -1130,19 +1126,19 @@ Page {
                             var profileType = modelData.type
                             if (profileType === "pressure") {
                                 ProfileManager.createNewPressureProfile("New Pressure Profile")
-                                root.goToProfileEditor()
+                                AppShell.profileEditorRequested()
                             } else if (profileType === "flow") {
                                 ProfileManager.createNewFlowProfile("New Flow Profile")
-                                root.goToProfileEditor()
+                                AppShell.profileEditorRequested()
                             } else if (profileType === "dflow") {
                                 ProfileManager.createNewRecipe("D-Flow / New Recipe")
-                                root.goToProfileEditor()
+                                AppShell.profileEditorRequested()
                             } else if (profileType === "aflow") {
                                 ProfileManager.createNewAFlowRecipe("A-Flow / New Recipe")
-                                root.goToProfileEditor()
+                                AppShell.profileEditorRequested()
                             } else {
                                 ProfileManager.createNewProfile("New Profile")
-                                root.goToProfileEditor()
+                                AppShell.profileEditorRequested()
                             }
                         }
                     }
@@ -1235,7 +1231,7 @@ Page {
                     placeholder: TranslationManager.translate("profileselector.copyProfile.placeholder", "Profile name")
 
                     Keys.onReturnPressed: {
-                        Qt.inputMethod.commit()
+                        Keyboard.commit()
                         if (copyProfileNameField.displayText.trim() !== "") {
                             copyProfileButton.clicked()
                         }
@@ -1267,7 +1263,7 @@ Page {
                         enabled: copyProfileNameField.displayText.trim() !== ""
                         Layout.preferredHeight: Theme.scaled(40)
                         onClicked: {
-                            Qt.inputMethod.commit()
+                            Keyboard.commit()
                             var newTitle = copyProfileNameField.text.trim()
                             if (newTitle !== "") {
                                 if (ProfileManager.duplicateProfile(copyProfileDialog.sourceFilename, newTitle)) {
@@ -1368,7 +1364,7 @@ Page {
                     placeholder: TranslationManager.translate("profileselector.renameProfile.placeholder", "Profile name")
 
                     Keys.onReturnPressed: {
-                        Qt.inputMethod.commit()
+                        Keyboard.commit()
                         // Mirror the button's enabled condition so Enter on an
                         // empty or unchanged title is a no-op without surprises.
                         if (renameProfileButton.enabled) {
@@ -1403,7 +1399,7 @@ Page {
                                  && renameProfileNameField.displayText.trim() !== renameProfileDialog.currentTitle
                         Layout.preferredHeight: Theme.scaled(40)
                         onClicked: {
-                            Qt.inputMethod.commit()
+                            Keyboard.commit()
                             var newTitle = renameProfileNameField.text.trim()
                             if (newTitle !== "" && newTitle !== renameProfileDialog.currentTitle) {
                                 if (ProfileManager.renameProfile(renameProfileDialog.profileFilename, newTitle)) {
@@ -1468,6 +1464,6 @@ Page {
     BottomBar {
         title: TranslationManager.translate("profileselector.title", "Profiles")
         rightText: TranslationManager.translate("profileselector.current_prefix", "Current:") + " " + ProfileManager.currentProfileName
-        onBackClicked: root.goBack()
+        onBackClicked: AppShell.backRequested()
     }
 }

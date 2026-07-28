@@ -1,8 +1,11 @@
+// Delegates below declare their model roles with `required property`; ids from this file then
+// resolve statically inside them. See PresetPillRow.qml for the full rationale.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Effects
 import Decenza
-import "../.."
 
 // Layout widget with 5 buttons to control DE1 machine operations:
 // Espresso, Steam, Hot Water, Flush, and Stop.
@@ -47,6 +50,8 @@ Item {
 
                 Rectangle {
                     id: compactBtn
+
+                    required property var modelData
                     width: Theme.scaled(32)
                     height: Theme.scaled(32)
                     radius: Theme.scaled(6)
@@ -55,7 +60,7 @@ Item {
 
                     Image {
                         anchors.centerIn: parent
-                        source: modelData.icon
+                        source: compactBtn.modelData.icon
                         sourceSize.width: Theme.scaled(18)
                         sourceSize.height: Theme.scaled(18)
                         Accessible.ignored: true
@@ -69,9 +74,9 @@ Item {
                     AccessibleMouseArea {
                         id: compactArea
                         anchors.fill: parent
-                        accessibleName: TranslationManager.translate(modelData.nameKey, modelData.label)
+                        accessibleName: TranslationManager.translate(compactBtn.modelData.nameKey, compactBtn.modelData.label)
                         accessibleItem: compactBtn
-                        onAccessibleClicked: modelData.action()
+                        onAccessibleClicked: compactBtn.modelData.action()
                     }
                 }
             }

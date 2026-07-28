@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Window
+import Decenza
 
 // Container that shifts content up when a text field has focus.
 // Uses focus state (not Qt.inputMethod which is unreliable on Android).
@@ -74,7 +75,7 @@ Item {
         }
 
         // Use real keyboard height if available; estimate only on mobile
-        var kbHeight = Qt.inputMethod.keyboardRectangle.height
+        var kbHeight = Keyboard.rectangle.height
         if (kbHeight <= 0) {
             if (Qt.platform.os === "android" || Qt.platform.os === "ios")
                 kbHeight = root.height * 0.5
@@ -176,7 +177,7 @@ Item {
             var focusedField = root.getActiveFocusField()
             if (focusedField) {
                 focusedField.focus = false
-                Qt.inputMethod.hide()
+                Keyboard.hide()
             }
         }
     }

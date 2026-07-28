@@ -2,9 +2,6 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
-import "../../components"
-import "../../components/layout"
-import "../../components/library"
 
 Item {
     objectName: "layoutEditor"

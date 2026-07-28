@@ -1,10 +1,19 @@
+// The two vessel Repeaters below declare their model roles with `required property`
+// instead of taking them from an injected delegate context, so `page` and the file's
+// other ids resolve statically inside them. See PresetPillRow.qml for the same
+// treatment. `root` is NOT this file's id — it is main.qml's, reached through the
+// creation context StackView pushed this page with, and neither the pragma nor a
+// required property can make that statically resolvable from here.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
-import "../components"
 
 Page {
+    id: page
+
     objectName: "hotWaterPage"
 
     // Declarative so it re-evaluates on a language change. This used to be an
@@ -19,15 +28,15 @@ Page {
     // Skip the preset-reset, settings push, and tare while dispensing so a
     // re-activation mid-session doesn't clobber in-progress state.
     StackView.onActivated: {
-        if (!isDispensing) {
+        if (!page.isDispensing) {
             // Sync Settings with selected preset
-            Settings.brew.waterVolume = getCurrentVesselVolume()
-            Settings.brew.waterVolumeMode = getCurrentVesselMode()
-            Settings.hardware.hotWaterFlowRate = getCurrentVesselFlowRate()
-            Settings.brew.waterTemperature = getCurrentVesselTemperature()
+            Settings.brew.waterVolume = page.getCurrentVesselVolume()
+            Settings.brew.waterVolumeMode = page.getCurrentVesselMode()
+            Settings.hardware.hotWaterFlowRate = page.getCurrentVesselFlowRate()
+            Settings.brew.waterTemperature = page.getCurrentVesselTemperature()
             MainController.applyHotWaterSettings()
             // Tare immediately so display shows 0g instead of current scale weight.
-            if (!isVolumeMode) {
+            if (!page.isVolumeMode) {
                 MachineState.tareScale()
             }
             volumeInput.forceActiveFocus()
@@ -37,7 +46,7 @@ Page {
     // Hidden Tr component for page title (used by root.currentPageTitle)
     Tr { id: pageTitleText; key: "hotwater.title"; fallback: "Hot Water"; visible: false }
 
-    property bool isDispensing: MachineState.phase === MachineState.Phase.HotWater || root.debugLiveView
+    property bool isDispensing: MachineState.phase === MachineState.Phase.HotWater || AppShell.debugLiveView
     property int editingVesselIndex: -1
 
     property bool isVolumeMode: Settings.brew.waterVolumeMode === "volume"
@@ -71,11 +80,25 @@ Page {
     // Save current vessel with all parameters. Temperature defaults to the
     // current temperature input so callers that only change volume/flow keep it.
     function saveCurrentVessel(volume, flowRate, temperature) {
-        var name = getCurrentVesselName()
+        var name = page.getCurrentVesselName()
         if (name) {
             var temp = (temperature !== undefined) ? temperature : temperatureInput.value
             Settings.brew.updateWaterVesselPreset(Settings.brew.selectedWaterVessel, name, volume, Settings.brew.waterVolumeMode, flowRate, temp)
         }
+    }
+
+    // Repeater.itemAt() is typed QQuickItem, so the delegate's own `focusTarget`
+    // is not statically known and every call site was an unchecked member access.
+    // Kept to this one place rather than repeated at the six sites that need it.
+    function vesselFocusTarget(i: int): Item {
+        var it = vesselRepeater.itemAt(i)
+        return it ? it.focusTarget : null
+    }
+
+    function focusVesselAt(i: int) {
+        var target = page.vesselFocusTarget(i)
+        if (target)
+            target.forceActiveFocus()
     }
 
     // Select a vessel preset and load all of its parameters into the inputs.
@@ -107,7 +130,7 @@ Page {
 
         // === DISPENSING VIEW ===
         ColumnLayout {
-            visible: isDispensing
+            visible: page.isDispensing
             Layout.fillWidth: true
             Layout.fillHeight: true
             spacing: Theme.scaled(20)
@@ -122,42 +145,47 @@ Page {
                     model: Settings.brew.waterVesselPresets
 
                     Rectangle {
+                        id: liveVesselPill
+
+                        required property int index
+                        required property var modelData
+
                         width: liveVesselText.implicitWidth + 24
                         height: Theme.scaled(36)
                         radius: Theme.scaled(18)
-                        color: index === Settings.brew.selectedWaterVessel ? Theme.primaryColor : Theme.cardBackgroundColor
-                        border.color: index === Settings.brew.selectedWaterVessel ? Theme.primaryColor : Theme.textSecondaryColor
+                        color: liveVesselPill.index === Settings.brew.selectedWaterVessel ? Theme.primaryColor : Theme.cardBackgroundColor
+                        border.color: liveVesselPill.index === Settings.brew.selectedWaterVessel ? Theme.primaryColor : Theme.textSecondaryColor
                         border.width: 1
 
                         activeFocusOnTab: true
                         Accessible.role: Accessible.Button
-                        Accessible.name: modelData.name + " " + TranslationManager.translate("hotwater.accessibility.vessel", "vessel") +
-                                         (index === Settings.brew.selectedWaterVessel ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
+                        Accessible.name: liveVesselPill.modelData.name + " " + TranslationManager.translate("hotwater.accessibility.vessel", "vessel") +
+                                         (liveVesselPill.index === Settings.brew.selectedWaterVessel ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
                         Accessible.focusable: true
                         Accessible.onPressAction: liveVesselArea.clicked(null)
 
-                        Keys.onReturnPressed: { liveVesselArea.clicked(null); event.accepted = true }
-                        Keys.onSpacePressed:  { liveVesselArea.clicked(null); event.accepted = true }
-                        Keys.onLeftPressed: {
-                            if (index > 0) liveVesselRepeater.itemAt(index - 1).forceActiveFocus()
+                        Keys.onReturnPressed: function(event) { liveVesselArea.clicked(null); event.accepted = true }
+                        Keys.onSpacePressed:  function(event) { liveVesselArea.clicked(null); event.accepted = true }
+                        Keys.onLeftPressed: function(event) {
+                            if (liveVesselPill.index > 0) liveVesselRepeater.itemAt(liveVesselPill.index - 1).forceActiveFocus()
                             event.accepted = true
                         }
-                        Keys.onRightPressed: {
-                            if (index < liveVesselRepeater.count - 1) liveVesselRepeater.itemAt(index + 1).forceActiveFocus()
+                        Keys.onRightPressed: function(event) {
+                            if (liveVesselPill.index < liveVesselRepeater.count - 1) liveVesselRepeater.itemAt(liveVesselPill.index + 1).forceActiveFocus()
                             event.accepted = true
                         }
-                        Keys.onTabPressed: {
-                            if (index < liveVesselRepeater.count - 1)
-                                liveVesselRepeater.itemAt(index + 1).forceActiveFocus()
+                        Keys.onTabPressed: function(event) {
+                            if (liveVesselPill.index < liveVesselRepeater.count - 1)
+                                liveVesselRepeater.itemAt(liveVesselPill.index + 1).forceActiveFocus()
                             else if (hotWaterStopButton.visible)
                                 hotWaterStopButton.forceActiveFocus()
                             else
                                 liveVesselRepeater.itemAt(0).forceActiveFocus()
                             event.accepted = true
                         }
-                        Keys.onBacktabPressed: {
-                            if (index > 0)
-                                liveVesselRepeater.itemAt(index - 1).forceActiveFocus()
+                        Keys.onBacktabPressed: function(event) {
+                            if (liveVesselPill.index > 0)
+                                liveVesselRepeater.itemAt(liveVesselPill.index - 1).forceActiveFocus()
                             else if (hotWaterStopButton.visible)
                                 hotWaterStopButton.forceActiveFocus()
                             else
@@ -168,8 +196,8 @@ Page {
                         Text {
                             id: liveVesselText
                             anchors.centerIn: parent
-                            text: modelData.name
-                            color: index === Settings.brew.selectedWaterVessel ? Theme.primaryContrastColor : Theme.textColor
+                            text: liveVesselPill.modelData.name
+                            color: liveVesselPill.index === Settings.brew.selectedWaterVessel ? Theme.primaryContrastColor : Theme.textColor
                             font: Theme.bodyFont
                             Accessible.ignored: true
                         }
@@ -178,11 +206,11 @@ Page {
                             id: liveVesselArea
                             anchors.fill: parent
                             onClicked: {
-                                Settings.brew.selectedWaterVessel = index
-                                Settings.brew.waterVolume = modelData.volume
-                                Settings.brew.waterVolumeMode = (modelData.mode ?? "weight")
-                                Settings.hardware.hotWaterFlowRate = (modelData.flowRate !== undefined) ? modelData.flowRate : 40
-                                Settings.brew.waterTemperature = (modelData.temperature !== undefined) ? modelData.temperature : Settings.brew.waterTemperature
+                                Settings.brew.selectedWaterVessel = liveVesselPill.index
+                                Settings.brew.waterVolume = liveVesselPill.modelData.volume
+                                Settings.brew.waterVolumeMode = (liveVesselPill.modelData.mode ?? "weight")
+                                Settings.hardware.hotWaterFlowRate = (liveVesselPill.modelData.flowRate !== undefined) ? liveVesselPill.modelData.flowRate : 40
+                                Settings.brew.waterTemperature = (liveVesselPill.modelData.temperature !== undefined) ? liveVesselPill.modelData.temperature : Settings.brew.waterTemperature
                                 MainController.applyHotWaterSettings()
                             }
                         }
@@ -204,7 +232,7 @@ Page {
                     // Weight mode: show live weight progress
                     Text {
                         id: hotWaterProgressText
-                        visible: !isVolumeMode
+                        visible: !page.isVolumeMode
                         anchors.horizontalCenter: parent.horizontalCenter
                         text: Math.max(0, MachineState.scaleWeight).toFixed(0) + "g / " + Settings.brew.waterVolume + "g"
                         color: Theme.textColor
@@ -214,7 +242,7 @@ Page {
                     // Volume mode: show target
                     Text {
                         id: hotWaterVolumeText
-                        visible: isVolumeMode
+                        visible: page.isVolumeMode
                         anchors.horizontalCenter: parent.horizontalCenter
                         text: Settings.brew.waterVolume + " ml"
                         color: Theme.textColor
@@ -222,7 +250,7 @@ Page {
                     }
 
                     Tr {
-                        visible: isVolumeMode
+                        visible: page.isVolumeMode
                         anchors.horizontalCenter: parent.horizontalCenter
                         key: "hotwater.dispensing.flowmeter"
                         fallback: "Dispensing (flowmeter)"
@@ -232,7 +260,7 @@ Page {
 
                     // Progress bar (weight mode only — scale provides live data)
                     Rectangle {
-                        visible: !isVolumeMode
+                        visible: !page.isVolumeMode
                         anchors.horizontalCenter: parent.horizontalCenter
                         width: hotWaterProgressText.width
                         height: Theme.scaled(8)
@@ -294,13 +322,13 @@ Page {
                 border.width: Theme.scaled(2)
 
                 activeFocusOnTab: true
-                Keys.onReturnPressed: { DE1Device.stopOperation(); root.goToIdle(); event.accepted = true }
-                Keys.onSpacePressed:  { DE1Device.stopOperation(); root.goToIdle(); event.accepted = true }
-                Keys.onTabPressed: {
+                Keys.onReturnPressed: function(event) { DE1Device.stopOperation(); AppShell.idleRequested(); event.accepted = true }
+                Keys.onSpacePressed:  function(event) { DE1Device.stopOperation(); AppShell.idleRequested(); event.accepted = true }
+                Keys.onTabPressed: function(event) {
                     if (liveVesselRepeater.count > 0) liveVesselRepeater.itemAt(0).forceActiveFocus()
                     event.accepted = true
                 }
-                Keys.onBacktabPressed: {
+                Keys.onBacktabPressed: function(event) {
                     if (liveVesselRepeater.count > 0) liveVesselRepeater.itemAt(liveVesselRepeater.count - 1).forceActiveFocus()
                     event.accepted = true
                 }
@@ -322,7 +350,7 @@ Page {
                     accessibleItem: hotWaterStopButton
                     onAccessibleClicked: {
                         DE1Device.stopOperation()
-                        root.goToIdle()
+                        AppShell.idleRequested()
                     }
                 }
             }
@@ -332,7 +360,7 @@ Page {
 
         // === SETTINGS VIEW ===
         ColumnLayout {
-            visible: !isDispensing
+            visible: !page.isDispensing
             Layout.fillWidth: true
             Layout.fillHeight: true
             spacing: Theme.scaled(12)
@@ -369,10 +397,14 @@ Page {
 
                             Item {
                                 id: vesselDelegate
+
+                                required property int index
+                                required property var modelData
+
                                 width: vesselPill.width
                                 height: Theme.scaled(36)
 
-                                property int vesselIndex: index
+                                property int vesselIndex: vesselDelegate.index
                                 property Item focusTarget: vesselPill
 
                                 Rectangle {
@@ -387,41 +419,41 @@ Page {
 
                                     activeFocusOnTab: true
                                     Accessible.role: Accessible.Button
-                                    Accessible.name: modelData.name + " " + TranslationManager.translate("hotwater.accessibility.preset", "preset") +
+                                    Accessible.name: vesselDelegate.modelData.name + " " + TranslationManager.translate("hotwater.accessibility.preset", "preset") +
                                                      (vesselDelegate.vesselIndex === Settings.brew.selectedWaterVessel ?
                                                       ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
                                     Accessible.description: TranslationManager.translate("hotwater.accessibility.presetHint", "Double-tap or long-press to rename.")
                                     Accessible.focusable: true
                                     Accessible.onPressAction: {
-                                        selectVessel(vesselDelegate.vesselIndex, modelData)
+                                        page.selectVessel(vesselDelegate.vesselIndex, vesselDelegate.modelData)
                                     }
 
-                                    Keys.onReturnPressed: {
-                                        selectVessel(vesselDelegate.vesselIndex, modelData)
+                                    Keys.onReturnPressed: function(event) {
+                                        page.selectVessel(vesselDelegate.vesselIndex, vesselDelegate.modelData)
                                         event.accepted = true
                                     }
-                                    Keys.onSpacePressed: {
-                                        selectVessel(vesselDelegate.vesselIndex, modelData)
+                                    Keys.onSpacePressed: function(event) {
+                                        page.selectVessel(vesselDelegate.vesselIndex, vesselDelegate.modelData)
                                         event.accepted = true
                                     }
-                                    Keys.onLeftPressed: {
-                                        if (index > 0) vesselRepeater.itemAt(index - 1).focusTarget.forceActiveFocus()
+                                    Keys.onLeftPressed: function(event) {
+                                        if (vesselDelegate.index > 0) page.focusVesselAt(vesselDelegate.index - 1)
                                         event.accepted = true
                                     }
-                                    Keys.onRightPressed: {
-                                        if (index < vesselRepeater.count - 1) vesselRepeater.itemAt(index + 1).focusTarget.forceActiveFocus()
+                                    Keys.onRightPressed: function(event) {
+                                        if (vesselDelegate.index < vesselRepeater.count - 1) page.focusVesselAt(vesselDelegate.index + 1)
                                         event.accepted = true
                                     }
-                                    Keys.onTabPressed: {
-                                        if (index < vesselRepeater.count - 1)
-                                            vesselRepeater.itemAt(index + 1).focusTarget.forceActiveFocus()
+                                    Keys.onTabPressed: function(event) {
+                                        if (vesselDelegate.index < vesselRepeater.count - 1)
+                                            page.focusVesselAt(vesselDelegate.index + 1)
                                         else
                                             addVesselButton.forceActiveFocus()
                                         event.accepted = true
                                     }
-                                    Keys.onBacktabPressed: {
-                                        if (index > 0)
-                                            vesselRepeater.itemAt(index - 1).focusTarget.forceActiveFocus()
+                                    Keys.onBacktabPressed: function(event) {
+                                        if (vesselDelegate.index > 0)
+                                            page.focusVesselAt(vesselDelegate.index - 1)
                                         else
                                             flowRateInput.forceActiveFocus()
                                         event.accepted = true
@@ -441,7 +473,7 @@ Page {
                                     Text {
                                         id: vesselText
                                         anchors.centerIn: parent
-                                        text: modelData.name
+                                        text: vesselDelegate.modelData.name
                                         color: vesselDelegate.vesselIndex === Settings.brew.selectedWaterVessel ? Theme.primaryContrastColor : Theme.textColor
                                         font: Theme.bodyFont
                                         Accessible.ignored: true
@@ -457,33 +489,33 @@ Page {
                                         property bool moved: false
 
                                         onPressed: {
-                                            held = false
-                                            moved = false
+                                            dragArea.held = false
+                                            dragArea.moved = false
                                             holdTimer.start()
                                         }
 
                                         onReleased: {
                                             holdTimer.stop()
-                                            if (!moved && !held) {
+                                            if (!dragArea.moved && !dragArea.held) {
                                                 // Simple click - select the vessel
-                                                selectVessel(vesselDelegate.vesselIndex, modelData)
+                                                page.selectVessel(vesselDelegate.vesselIndex, vesselDelegate.modelData)
                                             }
                                             vesselPill.Drag.drop()
                                             vesselPresetsRow.draggedIndex = -1
                                         }
 
                                         onPositionChanged: {
-                                            if (drag.active) {
-                                                moved = true
+                                            if (dragArea.drag.active) {
+                                                dragArea.moved = true
                                                 vesselPresetsRow.draggedIndex = vesselDelegate.vesselIndex
                                             }
                                         }
 
                                         onDoubleClicked: {
                                             holdTimer.stop()
-                                            held = true  // Prevent single-click selection on release
-                                            editingVesselIndex = vesselDelegate.vesselIndex
-                                            editVesselNameInput.text = modelData.name
+                                            dragArea.held = true  // Prevent single-click selection on release
+                                            page.editingVesselIndex = vesselDelegate.vesselIndex
+                                            editVesselNameInput.text = vesselDelegate.modelData.name
                                             editVesselPopup.open()
                                         }
 
@@ -493,8 +525,8 @@ Page {
                                             onTriggered: {
                                                 if (!dragArea.moved) {
                                                     dragArea.held = true
-                                                    editingVesselIndex = vesselDelegate.vesselIndex
-                                                    editVesselNameInput.text = modelData.name
+                                                    page.editingVesselIndex = vesselDelegate.vesselIndex
+                                                    editVesselNameInput.text = vesselDelegate.modelData.name
                                                     editVesselPopup.open()
                                                 }
                                             }
@@ -528,10 +560,10 @@ Page {
                             activeFocusOnTab: true
                             KeyNavigation.tab: volumeInput
                             KeyNavigation.backtab: vesselRepeater.count > 0
-                                ? vesselRepeater.itemAt(vesselRepeater.count - 1).focusTarget
+                                ? page.vesselFocusTarget(vesselRepeater.count - 1)
                                 : volumeInput
-                            Keys.onReturnPressed: { addVesselDialog.open(); event.accepted = true }
-                            Keys.onSpacePressed:  { addVesselDialog.open(); event.accepted = true }
+                            Keys.onReturnPressed: function(event) { addVesselDialog.open(); event.accepted = true }
+                            Keys.onSpacePressed:  function(event) { addVesselDialog.open(); event.accepted = true }
 
                             Text {
                                 anchors.centerIn: parent
@@ -588,18 +620,18 @@ Page {
                                 width: weightModeText.implicitWidth + Theme.scaled(20)
                                 height: Theme.scaled(36)
                                 radius: Theme.scaled(18)
-                                color: !isVolumeMode ? Theme.primaryColor : Theme.insetBackgroundColor
-                                border.color: !isVolumeMode ? Theme.primaryColor : Theme.textSecondaryColor
+                                color: !page.isVolumeMode ? Theme.primaryColor : Theme.insetBackgroundColor
+                                border.color: !page.isVolumeMode ? Theme.primaryColor : Theme.textSecondaryColor
                                 border.width: 1
 
                                 activeFocusOnTab: true
                                 Accessible.role: Accessible.Button
                                 Accessible.name: TranslationManager.translate("hotwater.mode.weight", "Weight (g)") +
-                                                 (!isVolumeMode ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
+                                                 (!page.isVolumeMode ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
                                 Accessible.focusable: true
                                 Accessible.onPressAction: weightModeArea.clicked(null)
-                                Keys.onReturnPressed: { weightModeArea.clicked(null); event.accepted = true }
-                                Keys.onSpacePressed:  { weightModeArea.clicked(null); event.accepted = true }
+                                Keys.onReturnPressed: function(event) { weightModeArea.clicked(null); event.accepted = true }
+                                Keys.onSpacePressed:  function(event) { weightModeArea.clicked(null); event.accepted = true }
                                 KeyNavigation.tab: volumeModeButton
                                 KeyNavigation.backtab: temperatureInput
 
@@ -607,7 +639,7 @@ Page {
                                     id: weightModeText
                                     anchors.centerIn: parent
                                     text: TranslationManager.translate("hotwater.mode.weight", "Weight (g)")
-                                    color: !isVolumeMode ? Theme.primaryContrastColor : Theme.textColor
+                                    color: !page.isVolumeMode ? Theme.primaryContrastColor : Theme.textColor
                                     font: Theme.bodyFont
                                     Accessible.ignored: true
                                 }
@@ -617,7 +649,7 @@ Page {
                                     anchors.fill: parent
                                     onClicked: {
                                         Settings.brew.waterVolumeMode = "weight"
-                                        saveCurrentVessel(volumeInput.value, flowRateInput.value)
+                                        page.saveCurrentVessel(volumeInput.value, flowRateInput.value)
                                         MainController.applyHotWaterSettings()
                                     }
                                 }
@@ -628,18 +660,18 @@ Page {
                                 width: volumeModeText.implicitWidth + Theme.scaled(20)
                                 height: Theme.scaled(36)
                                 radius: Theme.scaled(18)
-                                color: isVolumeMode ? Theme.primaryColor : Theme.insetBackgroundColor
-                                border.color: isVolumeMode ? Theme.primaryColor : Theme.textSecondaryColor
+                                color: page.isVolumeMode ? Theme.primaryColor : Theme.insetBackgroundColor
+                                border.color: page.isVolumeMode ? Theme.primaryColor : Theme.textSecondaryColor
                                 border.width: 1
 
                                 activeFocusOnTab: true
                                 Accessible.role: Accessible.Button
                                 Accessible.name: TranslationManager.translate("hotwater.mode.volume", "Volume (ml)") +
-                                                 (isVolumeMode ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
+                                                 (page.isVolumeMode ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
                                 Accessible.focusable: true
                                 Accessible.onPressAction: volumeModeArea.clicked(null)
-                                Keys.onReturnPressed: { volumeModeArea.clicked(null); event.accepted = true }
-                                Keys.onSpacePressed:  { volumeModeArea.clicked(null); event.accepted = true }
+                                Keys.onReturnPressed: function(event) { volumeModeArea.clicked(null); event.accepted = true }
+                                Keys.onSpacePressed:  function(event) { volumeModeArea.clicked(null); event.accepted = true }
                                 KeyNavigation.tab: volumeInput
                                 KeyNavigation.backtab: weightModeButton
 
@@ -647,7 +679,7 @@ Page {
                                     id: volumeModeText
                                     anchors.centerIn: parent
                                     text: TranslationManager.translate("hotwater.mode.volume", "Volume (ml)")
-                                    color: isVolumeMode ? Theme.primaryContrastColor : Theme.textColor
+                                    color: page.isVolumeMode ? Theme.primaryContrastColor : Theme.textColor
                                     font: Theme.bodyFont
                                     Accessible.ignored: true
                                 }
@@ -661,9 +693,9 @@ Page {
                                         if (volumeInput.value > 255) {
                                             volumeInput.value = 255
                                             Settings.brew.waterVolume = 255
-                                            saveCurrentVessel(255, flowRateInput.value)
+                                            page.saveCurrentVessel(255, flowRateInput.value)
                                         } else {
-                                            saveCurrentVessel(volumeInput.value, flowRateInput.value)
+                                            page.saveCurrentVessel(volumeInput.value, flowRateInput.value)
                                         }
                                         MainController.applyHotWaterSettings()
                                     }
@@ -676,14 +708,14 @@ Page {
                         ValueInput {
                             id: volumeInput
                             Layout.preferredWidth: Theme.scaled(180)
-                            value: getCurrentVesselVolume()
+                            value: page.getCurrentVesselVolume()
                             from: 10
-                            to: isVolumeMode ? 255 : 500
+                            to: page.isVolumeMode ? 255 : 500
                             stepSize: 10
                             fineStepSize: 1
-                            suffix: isVolumeMode ? " ml" : " g"
+                            suffix: page.isVolumeMode ? " ml" : " g"
                             valueColor: Theme.primaryColor
-                            accessibleName: isVolumeMode
+                            accessibleName: page.isVolumeMode
                                 ? TranslationManager.translate("hotwater.label.volume", "Volume")
                                 : TranslationManager.translate("hotwater.label.weight", "Weight")
                             KeyNavigation.tab: temperatureInput
@@ -692,7 +724,7 @@ Page {
                             onValueModified: function(newValue) {
                                 volumeInput.value = newValue
                                 Settings.brew.waterVolume = newValue
-                                saveCurrentVessel(newValue, flowRateInput.value)
+                                page.saveCurrentVessel(newValue, flowRateInput.value)
                             }
                             onValueCommitted: MainController.applyHotWaterSettings()
                         }
@@ -733,7 +765,7 @@ Page {
                                 // the bound value re-derives from the setting via cToDisplay.
                                 var celsius = Theme.displayToC(newValue)
                                 Settings.brew.waterTemperature = celsius
-                                saveCurrentVessel(volumeInput.value, flowRateInput.value, celsius)
+                                page.saveCurrentVessel(volumeInput.value, flowRateInput.value, celsius)
                             }
                             onValueCommitted: MainController.applyHotWaterSettings()
                         }
@@ -758,7 +790,7 @@ Page {
                         ValueInput {
                             id: flowRateInput
                             Layout.preferredWidth: Theme.scaled(180)
-                            value: getCurrentVesselFlowRate()
+                            value: page.getCurrentVesselFlowRate()
                             from: 5
                             to: 100
                             stepSize: 5
@@ -766,14 +798,14 @@ Page {
                             valueColor: Theme.flowColor
                             accessibleName: TranslationManager.translate("hotwater.label.flowRate", "Flow Rate")
                             KeyNavigation.tab: vesselRepeater.count > 0
-                                ? vesselRepeater.itemAt(0).focusTarget
+                                ? page.vesselFocusTarget(0)
                                 : addVesselButton
                             KeyNavigation.backtab: temperatureInput
 
                             onValueModified: function(newValue) {
                                 flowRateInput.value = Math.round(newValue)
                                 Settings.hardware.hotWaterFlowRate = Math.round(newValue)
-                                saveCurrentVessel(volumeInput.value, Math.round(newValue))
+                                page.saveCurrentVessel(volumeInput.value, Math.round(newValue))
                             }
                         }
                     }
@@ -790,15 +822,15 @@ Page {
     // Bottom bar
     BottomBar {
         id: hotWaterBottomBar
-        visible: !isDispensing
-        title: getCurrentVesselName() || noVesselText.text
+        visible: !page.isDispensing
+        title: page.getCurrentVesselName() || noVesselText.text
         onBackClicked: {
             MainController.applyHotWaterSettings()
-            root.goToIdle()
+            AppShell.idleRequested()
         }
 
         Text {
-            text: volumeInput.value.toFixed(0) + (isVolumeMode ? " ml" : " g")
+            text: volumeInput.value.toFixed(0) + (page.isVolumeMode ? " ml" : " g")
             color: hotWaterBottomBar.contentColor
             font: Theme.bodyFont
         }
@@ -821,7 +853,7 @@ Page {
     Dialog {
         id: editVesselPopup
         x: (parent.width - width) / 2
-        y: editVesselPopupAtTop ? Theme.scaled(40) : (parent.height - height) / 2
+        y: editVesselPopup.editVesselPopupAtTop ? Theme.scaled(40) : (parent.height - height) / 2
         padding: 20
         modal: true
         focus: true
@@ -829,15 +861,15 @@ Page {
 
         property bool editVesselPopupAtTop: false
         onOpened: {
-            editVesselPopupAtTop = false
+            editVesselPopup.editVesselPopupAtTop = false
             editVesselNameInput.forceActiveFocus()
         }
-        onClosed: editVesselPopupAtTop = false
+        onClosed: editVesselPopup.editVesselPopupAtTop = false
 
         Connections {
-            target: Qt.inputMethod
+            target: Keyboard
             function onVisibleChanged() {
-                if (Qt.inputMethod.visible && editVesselPopup.opened) {
+                if (Keyboard.visible && editVesselPopup.opened) {
                     editVesselPopup.editVesselPopupAtTop = true
                 }
             }
@@ -908,7 +940,7 @@ Page {
                     KeyNavigation.tab: cancelEditVesselButton
                     KeyNavigation.backtab: editVesselNameInput
                     onClicked: {
-                        Settings.brew.removeWaterVesselPreset(editingVesselIndex)
+                        Settings.brew.removeWaterVesselPreset(page.editingVesselIndex)
                         editVesselPopup.close()
                     }
                 }
@@ -939,14 +971,14 @@ Page {
                     // dialog. ignoreIndex is this preset: keeping its own name is
                     // not a clash.
                     enabled: editVesselNameInput.text.trim().length > 0
-                        && !Settings.brew.waterVesselNameTaken(editVesselNameInput.text, editingVesselIndex)
+                        && !Settings.brew.waterVesselNameTaken(editVesselNameInput.text, page.editingVesselIndex)
                     onClicked: {
-                        Qt.inputMethod.commit()
+                        Keyboard.commit()
                         if (editVesselNameInput.text.trim().length === 0
-                                || Settings.brew.waterVesselNameTaken(editVesselNameInput.text, editingVesselIndex))
+                                || Settings.brew.waterVesselNameTaken(editVesselNameInput.text, page.editingVesselIndex))
                             return
-                        var preset = Settings.brew.getWaterVesselPreset(editingVesselIndex)
-                        Settings.brew.updateWaterVesselPreset(editingVesselIndex, editVesselNameInput.text, preset.volume, preset.mode || "weight", (preset.flowRate !== undefined) ? preset.flowRate : 40, (preset.temperature !== undefined) ? preset.temperature : Settings.brew.waterTemperature)
+                        var preset = Settings.brew.getWaterVesselPreset(page.editingVesselIndex)
+                        Settings.brew.updateWaterVesselPreset(page.editingVesselIndex, editVesselNameInput.text, preset.volume, preset.mode || "weight", (preset.flowRate !== undefined) ? preset.flowRate : 40, (preset.temperature !== undefined) ? preset.temperature : Settings.brew.waterTemperature)
                         editVesselPopup.close()
                     }
                 }
@@ -958,7 +990,7 @@ Page {
     Dialog {
         id: addVesselDialog
         x: (parent.width - width) / 2
-        y: addVesselDialogAtTop ? Theme.scaled(40) : (parent.height - height) / 2
+        y: addVesselDialog.addVesselDialogAtTop ? Theme.scaled(40) : (parent.height - height) / 2
         padding: 20
         modal: true
         focus: true
@@ -966,16 +998,16 @@ Page {
 
         property bool addVesselDialogAtTop: false
         onOpened: {
-            addVesselDialogAtTop = false
+            addVesselDialog.addVesselDialogAtTop = false
             newVesselNameInput.text = ""
             newVesselNameInput.forceActiveFocus()
         }
-        onClosed: addVesselDialogAtTop = false
+        onClosed: addVesselDialog.addVesselDialogAtTop = false
 
         Connections {
-            target: Qt.inputMethod
+            target: Keyboard
             function onVisibleChanged() {
-                if (Qt.inputMethod.visible && addVesselDialog.opened) {
+                if (Keyboard.visible && addVesselDialog.opened) {
                     addVesselDialog.addVesselDialogAtTop = true
                 }
             }
@@ -1075,14 +1107,14 @@ Page {
                     KeyNavigation.tab: newVesselNameInput
                     KeyNavigation.backtab: cancelAddVesselButton
                     onClicked: {
-                        Qt.inputMethod.commit()
+                        Keyboard.commit()
                         if (newVesselNameInput.text.length > 0) {
                             Settings.brew.addWaterVesselPreset(newVesselNameInput.text, 200, "weight", 40, Settings.brew.waterTemperature)
                             // Select the just-added preset (appended at the end) and load its
                             // values into the inputs, so edits apply to the new preset rather
                             // than the previously-selected one.
                             var newIndex = Settings.brew.waterVesselPresets.length - 1
-                            selectVessel(newIndex, Settings.brew.getWaterVesselPreset(newIndex))
+                            page.selectVessel(newIndex, Settings.brew.getWaterVesselPreset(newIndex))
                             newVesselNameInput.text = ""
                             addVesselDialog.close()
                         }

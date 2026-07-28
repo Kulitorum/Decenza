@@ -2,8 +2,6 @@ import QtQuick
 import QtQuick.Controls
 import QtMultimedia
 import Decenza
-import "../components"
-import "../components/layout/items"
 
 // Screensaver modes:
 // "disabled"  - Dims backlight to minimum with black overlay (keeps screen on to avoid EGL surface issues)
@@ -271,9 +269,9 @@ Page {
                 // Qt's FFmpeg/VideoToolbox backend leaks ~5-10 MB per video transition
                 // on macOS (CVPixelBufferPool not fully released). Restart the screensaver
                 // when RSS grows too high to prevent eventual SIGBUS crash.
-                if (liveRss > root.videoRssCeilingMB && videoTransitionCount > 5) {
+                if (liveRss > screensaverPage.videoRssCeilingMB && screensaverPage.videoTransitionCount > 5) {
                     console.warn("[Screensaver] RSS ceiling exceeded (" + liveRss.toFixed(0) +
-                                 " MB of " + root.videoRssCeilingMB +
+                                 " MB of " + screensaverPage.videoRssCeilingMB +
                                  " MB at transition #" + videoTransitionCount +
                                  ") — stopping video playback (Qt FFmpeg leak is unrecoverable)" +
                                  (MemoryMonitor.instrumentedBuild
@@ -827,17 +825,17 @@ Page {
         }
 
         // Wake the scale (enable LCD) or try to reconnect
-        if (ScaleDevice && ScaleDevice.connected) {
+        if (ScaleDevice.connected) {
             ScaleDevice.wake()
         } else {
             BLEManager.tryDirectConnectToScale()
         }
 
         // Defer scale dialogs until machine reaches Ready
-        root.scaleDialogDeferred = true
+        AppShell.scaleDialogDeferred = true
 
         // Navigate back to idle
-        root.goToIdleFromScreensaver()
+        AppShell.idleFromScreensaverRequested()
     }
 
     // Clean up media when page is being removed
@@ -862,15 +860,15 @@ Page {
         function onStateChanged() {
             var state = DE1Device.stateString
             if (state !== "Sleep" && state !== "GoingToSleep") {
-                if (ScaleDevice && ScaleDevice.connected) {
+                if (ScaleDevice.connected) {
                     ScaleDevice.wake()
                 } else {
                     BLEManager.tryDirectConnectToScale()
                 }
                 // Defer scale dialogs until machine reaches Ready
-                root.scaleDialogDeferred = true
+                AppShell.scaleDialogDeferred = true
                 // Navigate back to idle
-                root.goToIdleFromScreensaver()
+                AppShell.idleFromScreensaverRequested()
             }
         }
     }

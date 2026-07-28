@@ -1,9 +1,12 @@
+// `layer.effect` declares an inline component, so ids from this file are not statically
+// resolvable inside it without this pragma. No delegate in this file takes model roles,
+// so no `required property` is needed — see PresetPillRow.qml for the case that does.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Effects
-import QtQuick.Window
 import Decenza
-import "../.."
 
 Item {
     id: root
@@ -35,14 +38,7 @@ Item {
             ScaleDevice.disableLcd()
         }
         DE1Device.goToSleep()
-        root.goToScreensaver()
-    }
-
-    function goToScreensaver() {
-        var win = Window.window
-        if (win && typeof win.goToScreensaver === "function") {
-            win.goToScreensaver()
-        }
+        AppShell.screensaverRequested()
     }
 
     // --- COMPACT MODE ---

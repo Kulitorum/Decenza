@@ -584,7 +584,7 @@ Dialog {
                     text: TranslationManager.translate("brewDialog.ok", "OK")
                     accessibleName: TranslationManager.translate("brewDialog.confirmBrewSettings", "Confirm brew settings")
                     onClicked: {
-                        Qt.inputMethod.commit()
+                        Keyboard.commit()
                         // lastUsedRatio survives only as PRESET MEMORY (which
                         // pick is highlighted; a fresh brew's seed) — it is
                         // never an authority a yield derives from, so only a

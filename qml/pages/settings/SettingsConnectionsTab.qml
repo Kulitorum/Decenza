@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
-import "../../components"
 
 Item {
     id: connectionsTab
@@ -225,7 +224,7 @@ Item {
         }
 
         function submitWifiScale() {
-            Qt.inputMethod.commit()  // flush in-progress IME word before reading text
+            Keyboard.commit()  // flush in-progress IME word before reading text
             var host = wifiScaleHostField.text.trim()
             if (host.length === 0)
                 return
@@ -570,17 +569,17 @@ Item {
 
                     // Port info
                     Text {
-                        text: TranslationManager.translate("settings.connections.port", "Port:") + " " + (typeof USBManager !== "undefined" ? USBManager.portName : "")
+                        text: TranslationManager.translate("settings.connections.port", "Port:") + " " + (usbAvailable ? USBManager.portName : "")
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(13)
                     }
 
                     // Serial number
                     Text {
-                        text: TranslationManager.translate("settings.connections.serial", "Serial:") + " " + (typeof USBManager !== "undefined" ? USBManager.serialNumber : "")
+                        text: TranslationManager.translate("settings.connections.serial", "Serial:") + " " + (usbAvailable ? USBManager.serialNumber : "")
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(13)
-                        visible: typeof USBManager !== "undefined" && USBManager.serialNumber !== ""
+                        visible: usbAvailable && USBManager.serialNumber !== ""
                     }
 
                     // Firmware version
@@ -1472,8 +1471,7 @@ Item {
                                 // While disconnected the saved name is the only evidence
                                 // of which model is paired.
                                 readonly property bool deviceSupports:
-                                    (BLEManager.refractometerConnected
-                                     && typeof Refractometer !== "undefined" && Refractometer)
+                                    BLEManager.refractometerConnected
                                         ? Refractometer.supportsAutoTest
                                         : (Settings.savedRefractometerName || "")
                                               .toLowerCase().indexOf("dft_tdj") !== 0

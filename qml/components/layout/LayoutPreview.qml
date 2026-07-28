@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
 import Decenza
-import ".."
 
 // Live, scaled-down preview of the home screen built from the current layout
 // configuration. Mirrors the real StatusBar.qml + IdlePage.qml structure (same

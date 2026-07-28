@@ -193,7 +193,12 @@ extern "C" const char* __ubsan_default_options()
 #include "simulator/de1simulator.h"
 #include "simulator/simulatedscale.h"
 #endif
-#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
+// DECENZA_SIMULATOR is part of the condition, not decoration: GHCSimulator guards its own
+// contents on it (it drives DE1Simulator and cannot compile without it), so every site that
+// names the class has to agree. Desktop defines it unconditionally, which is why the two used to
+// look interchangeable — until `-DDECENZA_SIMULATOR_OVERRIDE=0`, the flag that exists precisely
+// so the tablet-production shape can be built on a desktop, made them differ.
+#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG) && defined(DECENZA_SIMULATOR)
 #include "simulator/ghcsimulator.h"
 #endif
 
@@ -1961,6 +1966,21 @@ int main(int argc, char *argv[])
     // they were, because mainController.shotHistory() is not ready this early.
     FlowCalibrationModel flowCalibrationModel;
 
+    // The stable QML identity for whichever scale is live. Declared here for the same lifetime
+    // rule as everything else registered as a singleton; the eleven places below that used to
+    // re-point the `ScaleDevice` context property now call setTarget() on this.
+    ScaleDeviceProxy scaleProxy;
+    RefractometerProxy refractometerProxy;
+
+    // Hoisted for the same rule, and note it was ALREADY exposed to QML from below the engine —
+    // as a context property, which QML drops on destroyed(), so the ordering hazard was papered
+    // over rather than absent. Its constructor takes no dependencies (it just blanks the LEDs),
+    // so only the DECLARATION moves; setDE1Device()/setDE1Simulator() stay where the simulator
+    // exists, ~1750 lines below.
+#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG) && defined(DECENZA_SIMULATOR)
+    GHCSimulator ghcSimulator;
+#endif
+
     // Set up QML engine
     QQmlApplicationEngine engine;
     checkpoint("QML engine created");
@@ -2465,7 +2485,7 @@ int main(int argc, char *argv[])
 
     // Connect to any supported scale when discovered
     QObject::connect(&bleManager, &BLEManager::scaleDiscovered, handlerScope.get(),
-                     [&physicalScale, &flowScale, &machineState, &mainController, &engine, &bleManager, &settings, &timingController, &de1Device, &weightProcessor, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &scaleAutoReconnectSuppressed, &scaleLcdRestorePending
+                     [&physicalScale, &flowScale, &machineState, &mainController, &bleManager, &settings, &timingController, &de1Device, &weightProcessor, &scaleProxy, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &scaleAutoReconnectSuppressed, &scaleLcdRestorePending
                      // By value: this lambda outlives nothing, but the scale
                      // connection it makes below needs the same lifetime guard.
                      , handlerScopePtr = handlerScope.get()
@@ -2536,7 +2556,7 @@ int main(int argc, char *argv[])
                 // Re-wire to use physical scale
                 machineState.setScale(physicalScale.get());
                 timingController.setScale(physicalScale.get());
-                engine.rootContext()->setContextProperty("ScaleDevice", physicalScale.get());
+                scaleProxy.setTarget(physicalScale.get());
                 if (type == QStringLiteral("decent-wifi")) {
                     if (auto* wifi = qobject_cast<DecentScaleWifi*>(physicalScale.get())) {
                         // (Re-wire the cache callbacks each time — cheap, and
@@ -2701,7 +2721,7 @@ int main(int argc, char *argv[])
 
         // When physical scale connects/disconnects, switch between physical and FlowScale
         QObject::connect(physicalScale.get(), &ScaleDevice::connectedChanged, handlerScopePtr,
-                         [&physicalScale, &flowScale, &machineState, &engine, &bleManager, &mainController, &timingController, &weightProcessor, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &settings, &scaleAutoReconnectSuppressed, &scaleLcdRestorePending]() {
+                         [&physicalScale, &flowScale, &machineState, &bleManager, &mainController, &timingController, &weightProcessor, &scaleProxy, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &settings, &scaleAutoReconnectSuppressed, &scaleLcdRestorePending]() {
             if (physicalScale && physicalScale->isConnected()) {
                 // Scale connected - stop any pending reconnect attempts
                 scaleReconnectTimer.stop();
@@ -2725,7 +2745,7 @@ int main(int argc, char *argv[])
                 // Scale connected - use physical scale
                 machineState.setScale(physicalScale.get());
                 timingController.setScale(physicalScale.get());
-                engine.rootContext()->setContextProperty("ScaleDevice", physicalScale.get());
+                scaleProxy.setTarget(physicalScale.get());
                 // Disconnect FlowScale from graph and weight processor
                 QObject::disconnect(&flowScale, &ScaleDevice::weightChanged,
                                     &mainController, &MainController::onScaleWeightChanged);
@@ -2744,7 +2764,7 @@ int main(int argc, char *argv[])
                 // Scale disconnected - fall back to FlowScale
                 machineState.setScale(&flowScale);
                 timingController.setScale(&flowScale);
-                engine.rootContext()->setContextProperty("ScaleDevice", &flowScale);
+                scaleProxy.setTarget(&flowScale);
                 // Disconnect physical scale from weight processor
                 QObject::disconnect(physicalScale.get(), &ScaleDevice::weightSampleReceived,
                                     &weightProcessor, &WeightProcessor::processWeight);
@@ -2776,9 +2796,8 @@ int main(int argc, char *argv[])
             }
         });
 
-        // Update QML context when scale is created
-        QQmlContext* context = engine.rootContext();
-        context->setContextProperty("ScaleDevice", physicalScale.get());
+        // Point the QML-facing proxy at the scale that was just created
+        scaleProxy.setTarget(physicalScale.get());
 
         // Connect to the scale. WiFi takes a hostname; BLE takes the device info.
         if (isWifi) {
@@ -2861,7 +2880,7 @@ int main(int argc, char *argv[])
 
     // Handle disconnect request when starting a new scan
     QObject::connect(&bleManager, &BLEManager::disconnectScaleRequested, handlerScope.get(),
-                     [&physicalScale, &flowScale, &machineState, &engine, &mainController, &bleManager, &timingController, &weightProcessor, &scaleReconnectTimer, &scaleReconnectAttempt, &scaleAutoReconnectSuppressed, &wasInSleep, &scaleLcdRestorePending]() {
+                     [&physicalScale, &flowScale, &machineState, &scaleProxy, &mainController, &bleManager, &timingController, &weightProcessor, &scaleReconnectTimer, &scaleReconnectAttempt, &scaleAutoReconnectSuppressed, &wasInSleep, &scaleLcdRestorePending]() {
         // Stop any pending auto-reconnect (user is deliberately scanning for a different scale)
         scaleReconnectTimer.stop();
         // User is selecting a new scale — clear any sleep-related state for
@@ -2878,7 +2897,7 @@ int main(int argc, char *argv[])
             // Switch to FlowScale first
             machineState.setScale(&flowScale);
             timingController.setScale(&flowScale);
-            engine.rootContext()->setContextProperty("ScaleDevice", &flowScale);
+            scaleProxy.setTarget(&flowScale);
             // Reconnect FlowScale to graph and weight processor (physical scale is being destroyed).
             // Disconnect first to avoid duplicate connections if connectedChanged fires during reset().
             QObject::disconnect(&flowScale, &ScaleDevice::weightChanged,
@@ -2902,8 +2921,10 @@ int main(int argc, char *argv[])
 
     // === Refractometer (DiFluid R1 / R2) ===
     // The `refractometer` unique_ptr itself is declared up with the engine —
-    // see the note there for why the order matters.
-    engine.rootContext()->setContextProperty("Refractometer", nullptr);
+    // see the note there for why the order matters. The QML-facing proxy starts with no
+    // target, which is the normal state: a refractometer is only connected while the
+    // post-shot review page has it open.
+    RefractometerForeign::s_singletonInstance = &refractometerProxy;
 
     // Restore saved refractometer address for auto-reconnect
     if (!settings.savedRefractometerAddress().isEmpty()) {
@@ -2912,7 +2933,7 @@ int main(int argc, char *argv[])
     }
 
     QObject::connect(&bleManager, &BLEManager::refractometerDiscovered, handlerScope.get(),
-                     [&refractometer, &engine, &bleManager, &settings](const QBluetoothDeviceInfo& device) {
+                     [&refractometer, &refractometerProxy, &bleManager, &settings](const QBluetoothDeviceInfo& device) {
         qDebug().noquote() << QString("[R2-diag] refractometerDiscovered dev=%1 existingInstance=%2 existingConnected=%3")
             .arg(getDeviceIdentifier(device),
                  refractometer ? QString::number(reinterpret_cast<quintptr>(refractometer.get()), 16)
@@ -2935,7 +2956,7 @@ int main(int argc, char *argv[])
                      refractometer->isConnected() ? QStringLiteral("true") : QStringLiteral("false"));
             refractometer->disconnectFromDevice();
             bleManager.setRefractometerDevice(nullptr);
-            engine.rootContext()->setContextProperty("Refractometer", nullptr);
+            refractometerProxy.setTarget(nullptr);
         }
 
         // Create transport using the same platform selection as scales
@@ -2964,7 +2985,7 @@ int main(int argc, char *argv[])
         bleManager.setRefractometerDevice(refractometer.get());
 
         // Expose to QML
-        engine.rootContext()->setContextProperty("Refractometer", refractometer.get());
+        refractometerProxy.setTarget(refractometer.get());
 
         // Save address for auto-reconnect
         settings.setSavedRefractometerAddress(getDeviceIdentifier(device));
@@ -3013,13 +3034,13 @@ int main(int argc, char *argv[])
 
     // Handle Forget Refractometer — disconnect and clean up
     QObject::connect(&bleManager, &BLEManager::disconnectRefractometerRequested, handlerScope.get(),
-                     [&refractometer, &engine, &bleManager,
+                     [&refractometer, &refractometerProxy, &bleManager,
                       &refractometerReconnectTimer, &refractometerReconnectAttempt]() {
         if (refractometer) {
             qDebug() << "[Refractometer] Forget requested, disconnecting";
             refractometer->disconnectFromDevice();
             bleManager.setRefractometerDevice(nullptr);
-            engine.rootContext()->setContextProperty("Refractometer", nullptr);
+            refractometerProxy.setTarget(nullptr);
             refractometer.reset();
         }
         // Stop any pending/persistent reconnect — the user forgot this device.
@@ -3174,7 +3195,7 @@ int main(int argc, char *argv[])
 #ifndef Q_OS_IOS
     // When USB scale discovered: wire it as the active scale (same pattern as BLE scale)
     QObject::connect(&usbScaleManager, &UsbScaleManager::scaleDiscovered,
-                     [&physicalScale, &flowScale, &machineState, &mainController, &engine,
+                     [&physicalScale, &flowScale, &machineState, &mainController, &scaleProxy,
                       &bleManager, &timingController, &weightProcessor, &settings](UsbDecentScale* usbScale) {
         // Don't connect if we already have a connected BLE scale
         if (physicalScale && physicalScale->isConnected()) {
@@ -3193,7 +3214,7 @@ int main(int argc, char *argv[])
         // Switch to USB scale
         machineState.setScale(usbScale);
         timingController.setScale(usbScale);
-        engine.rootContext()->setContextProperty("ScaleDevice", usbScale);
+        scaleProxy.setTarget(usbScale);
 
         // Disconnect FlowScale from graph and weight processor
         QObject::disconnect(&flowScale, &ScaleDevice::weightChanged,
@@ -3245,7 +3266,7 @@ int main(int argc, char *argv[])
 
     // When USB scale lost: fall back to FlowScale (or BLE scale if available)
     QObject::connect(&usbScaleManager, &UsbScaleManager::scaleLost,
-                     [&physicalScale, &flowScale, &machineState, &mainController, &engine,
+                     [&physicalScale, &flowScale, &machineState, &mainController, &scaleProxy,
                       &timingController, &weightProcessor, &usbScaleManager, &bleManager]() {
         // Disconnect the USB scale's weight signals
         if (usbScaleManager.scale()) {
@@ -3259,12 +3280,12 @@ int main(int argc, char *argv[])
         if (physicalScale && physicalScale->isConnected()) {
             machineState.setScale(physicalScale.get());
             timingController.setScale(physicalScale.get());
-            engine.rootContext()->setContextProperty("ScaleDevice", physicalScale.get());
+            scaleProxy.setTarget(physicalScale.get());
             qDebug() << "[USB Scale] Lost — falling back to BLE scale";
         } else {
             machineState.setScale(&flowScale);
             timingController.setScale(&flowScale);
-            engine.rootContext()->setContextProperty("ScaleDevice", &flowScale);
+            scaleProxy.setTarget(&flowScale);
             // Reconnect FlowScale
             QObject::connect(&flowScale, &ScaleDevice::weightChanged,
                              &mainController, &MainController::onScaleWeightChanged);
@@ -3369,13 +3390,9 @@ int main(int argc, char *argv[])
     // FlowScale weight connection is handled by the fallback timer and scale disconnect logic
     // Don't connect here - only one scale should feed the graph at a time
 
-    // Create GHC Simulator for Windows debug builds (before engine load so it can be exposed to QML)
-#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
-    GHCSimulator ghcSimulator;
-#endif
 
-    // Expose C++ objects to QML
-    QQmlContext* context = engine.rootContext();
+    // Expose C++ objects to QML. No `QQmlContext* context` here any more: with ScaleDevice
+    // migrated there is nothing left on this path that publishes by name into the root context.
     // Also a compile-time singleton, registered via QML_FOREIGN in settings_qml.h rather than
     // macros on the class — settings.h is included by CLI tools that do not link Qt::Qml, and by
     // most of the app, so it deliberately stays free of QtQml. Same publish-the-instance shape:
@@ -3425,7 +3442,8 @@ int main(int argc, char *argv[])
     // property. Published here rather than at the declaration because the ordering that matters
     // is "before engine.load()", and this is where that is obvious.
     DE1DeviceForeign::s_singletonInstance = &de1Device;
-    context->setContextProperty("ScaleDevice", &flowScale);  // FlowScale initially, updated when physical scale connects
+    ScaleDeviceForeign::s_singletonInstance = &scaleProxy;
+    scaleProxy.setTarget(&flowScale);  // FlowScale initially, re-pointed as hardware comes and goes
     // No "FlowScale" property. It was published "always available for diagnostics" and no QML
     // ever read it — the only occurrences of the name in qml/ are three comments in main.qml
     // about the FlowScale *fallback*, which is a different thing. Publishing an unread name is
@@ -3464,8 +3482,11 @@ int main(int argc, char *argv[])
     LibrarySharingForeign::s_singletonInstance = &librarySharing;
     ShotHistoryExporterForeign::s_singletonInstance = &shotHistoryExporter;
 #ifndef Q_OS_IOS
-    context->setContextProperty("USBManager", &usbManager);
-    context->setContextProperty("UsbScaleManager", &usbScaleManager);
+    // On iOS these two are never published and their create() returns null, so QML reads the name
+    // as undefined — which is what every call site there already guards for. See
+    // decenzaOptionalSingleton() in contextsingletons_qml.h for why that is not an error.
+    USBManagerForeign::s_singletonInstance = &usbManager;
+    UsbScaleManagerForeign::s_singletonInstance = &usbScaleManager;
 #endif
 
     // Declared above `engine` (see there); only the wiring is here, where its dependencies exist.
@@ -3490,9 +3511,12 @@ int main(int argc, char *argv[])
     // registered singleton so qmllint can see it — not as a context property, which is exactly
     // the shape that let this one sit unused without anything noticing.
 
-#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
+#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG) && defined(DECENZA_SIMULATOR)
     // Make GHCSimulator available to main window for window sync
-    context->setContextProperty("GHCSimulator", &ghcSimulator);
+    // Declared above `engine` (see there). Optional rather than mandatory: the declaration is
+    // inside a debug-desktop `#if`, so on every other build there is no instance and QML reads
+    // the name as undefined — which main.qml's truthy guard has always expected.
+    GHCSimulatorForeign::s_singletonInstance = &ghcSimulator;
 #endif
 
     // The "…Type" registrations that used to live here are all gone, and the reason they existed
@@ -3585,7 +3609,7 @@ int main(int argc, char *argv[])
     // loop starts, and signal connections become dangling references (use-after-free).
     std::unique_ptr<DE1Simulator> de1SimulatorPtr;
     std::unique_ptr<SimulatedScale> simulatedScalePtr;
-#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
+#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG) && defined(DECENZA_SIMULATOR)
     std::unique_ptr<QQmlApplicationEngine> ghcEnginePtr;
 #endif
 
@@ -3658,7 +3682,7 @@ int main(int argc, char *argv[])
         // Set SimulatedScale as the active scale (matching physical scale pattern)
         machineState.setScale(&simulatedScale);
         timingController.setScale(&simulatedScale);
-        context->setContextProperty("ScaleDevice", &simulatedScale);
+        scaleProxy.setTarget(&simulatedScale);
 
         // Register as a known scale so UI gated on Settings.knownScales (keepScaleOn
         // toggle, alerts toggle, known-devices picker) is reachable in simulation.
@@ -3706,18 +3730,17 @@ int main(int argc, char *argv[])
         applySimulatedScaleEnabled();
 
         // GHC Simulator window (desktop debug only — other platforms use the layout widget)
-#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
+#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG) && defined(DECENZA_SIMULATOR)
         // Configure GHC visual controller (created earlier for main window access)
         ghcSimulator.setDE1Device(&de1Device);
         ghcSimulator.setDE1Simulator(&de1Simulator);
 
         ghcEnginePtr = std::make_unique<QQmlApplicationEngine>();
         auto& ghcEngine = *ghcEnginePtr;
-        ghcEngine.rootContext()->setContextProperty("GHCSimulator", &ghcSimulator);
-        // No "DE1Device" line either: it is now a QML_SINGLETON, and a singleton is per-type,
+        // No "GHCSimulator" line: it is now a QML_SINGLETON too, and a singleton is per-type,
         // not per-engine — GHCSimulatorWindow.qml imports Decenza, so this engine resolves the
         // same instance main published. A context property of the same name would SHADOW it and
-        // be invisible to qmllint, which is the shape #1661 took.
+        // be invisible to qmllint, which is the shape #1661 took. The same goes for "DE1Device".
         //
         // No "DE1Simulator" property. GHCSimulatorWindow.qml is the only file this engine loads
         // and it never reads that name; nothing else in qml/ does either.
