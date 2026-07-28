@@ -314,3 +314,90 @@ Two mechanical traps when adding `QML_ELEMENT` to a header:
    which looks exactly like an improvement — that is how #1680 shipped three ceilings the tree
    could not meet. `check_registry_fresh()` and `--allow-ceiling-rise` exist because of it; do not
    route around either.
+
+## Never directory-import a type the module already provides
+
+`qt_add_qml_module` registers every file in `QML_FILES` as a type of the `Decenza` module,
+singletons included. So `import Decenza` is all any file needs, and an extra directory import is
+not merely redundant — it **shadows the registration**:
+
+```qml
+import Decenza
+import "../components"   // WRONG: re-resolves the same files as plain component types
+```
+
+A `pragma Singleton` .qml resolved through a directory import is a *component*, not the singleton
+instance, so its members are simply absent. That is why `DrinkType.shortLabel`,
+`DrinkType.icon`, `DrinkType.fromRecipeMap` and `SettingsTabs.indexOf` all reported as missing
+members while being plainly declared in their own files. `Theme` never showed it only because it
+lives in `qml/` and nothing directory-imports that.
+
+106 such imports were deleted across 98 files; it cleared the entire `import` category and 32
+`missing-property` findings. Keep `import "..." as Namespace` (used as a real namespace) and `.js`
+imports. Add nothing else.
+
+## `pragma ComponentBehavior: Bound` — and the delegate it will break
+
+Ids from an enclosing file are not statically resolvable inside a nested component (a delegate, a
+`layer.effect`, an inline `Component`). `pragma ComponentBehavior: Bound` makes them resolvable —
+this is Qt's own prescription, see qtdeclarative's "Exposing State from C++ to QML".
+
+**It also stops delegates receiving injected model roles.** A delegate that uses `modelData`,
+`model` or `index` without declaring them breaks **at runtime, with nothing at build time to say
+so**. So:
+
+1. `grep -c 'Repeater\|delegate:\|model:'` the file first. **No delegates → the pragma alone is
+   safe**, and that covers most component files (their warnings are usually
+   `layer.effect: MultiEffect { colorizationColor: root.x }`).
+2. With delegates, add `required property var modelData` / `required property int index` to each
+   delegate root in the same edit, and give it an `id` so nested children can qualify against it.
+3. Re-lint. Any remaining `modelData`/`index` warning is a delegate you missed — the linter will
+   name it, and that check is why this is safe to do at scale.
+
+## Qualify by qmllint's line and column, never by text search
+
+The same identifier can be several different things in one file, and only the flagged occurrences
+should move:
+
+- `ProfileEditorPage.qml` has a function-local `var step` **and** `stepEditorScroll`'s
+  `property var step`. Only the latter is flagged; a `sed` on `step` would have rewritten the
+  local too.
+- `ValueInput.qml` has `gear` on a delegate. A bulk pass prefixed it with the component root,
+  which has no such member — every gear tap would have assigned `undefined`. It survived exactly
+  one relint (`Member "gear" not found on type "ValueInput"`), which is the argument for doing
+  this work with the linter rather than around it.
+
+Recover the identifier from the source line at the reported column, assert the token before
+rewriting it, and re-lint after every pass.
+
+## `Window` is an attached property — do not write it through an id
+
+```qml
+var win = root.Window.window     // works at runtime, uncheckable
+readonly property var appWindow: Window.window   // read where it actually attaches
+```
+
+`Window` resolves against the *current scope*; it is not a member of the object whose id you
+write it on. Reading it once at the item root is both checkable and removes the duplicate
+lookups. Same for any attached type.
+
+## A runtime-swapped object becomes a proxy singleton, not a context property
+
+`ScaleDevice` is re-pointed at a FlowScale, a BLE scale, a USB scale or a simulated scale as
+hardware comes and goes — eleven sites in `main.cpp`. A context property can be re-pointed; a
+`QML_SINGLETON` is created once and cannot be. So the singleton is a **proxy** and the proxy is
+what moves: `ScaleDeviceProxy` (and `RefractometerProxy`) hold the target in a `QPointer`, mirror
+every property, forward every public slot and re-emit every signal. QML says `ScaleDevice.connected`
+exactly as before.
+
+Three rules when writing one:
+
+- Forward **every** public slot, not the ones QML calls today. A context property exposed the
+  whole set; forwarding a subset silently removes the rest from QML's reach and the calls still
+  parse.
+- Properties that are `CONSTANT` on the target are **not** constant on the proxy — `name`,
+  `isFlowScale` and `isSimulated` are facts about *which device is attached*, which is exactly
+  what the proxy changes.
+- The proxy is never null, so guards that test the OBJECT (`ScaleDevice !== null`,
+  `typeof ScaleDevice !== "undefined"`) stop guarding anything. Test the STATE:
+  `ScaleDevice.connected`.

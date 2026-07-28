@@ -155,6 +155,19 @@ just harder to scan.
   before calling it a regression; totals alone mislead. Likewise, many `Member "x" not found on
   type "QObject"` means an erased pointer type in C++, not a mistake in the QML.
 
+- **Never directory-import a type the module already provides.** `import Decenza` covers every file
+  in `QML_FILES`; an extra `import "../components"` re-resolves the same files as plain component
+  types and **shadows the singleton registration**, so `DrinkType.shortLabel` and
+  `SettingsTabs.indexOf` read as missing members while being plainly declared. 106 were deleted.
+- **A page never touches `pageStack` or main.qml's `root`.** It emits an `AppShell` signal and the
+  shell decides. Navigation policy: replace when the MACHINE drove the change, push when the USER
+  did. See `QML_NAVIGATION.md`.
+- **`pragma ComponentBehavior: Bound` breaks delegates that take injected model roles**, at runtime
+  and silently. Check for `Repeater`/`delegate:` first; with none, the pragma alone is safe. With
+  delegates, add `required property` to each in the same edit.
+- **When qualifying identifiers, go by qmllint's line and column, never by text search.** One name
+  can be several things in a file (a function-local `var step` and a nested `property var step`),
+  and only the flagged occurrences may move.
 - **Font property conflict**: don't mix `font: Theme.bodyFont` with `font.bold: true` — assign sub-properties individually.
 - **Reserved names in JS model data**: `name`, `parent`, `children`, `data`, `state`, `enabled`, `visible`, `width`, `height`, `x`, `y`, `z`, `focus`, `clip` collide with QML properties — use `label` etc.
 - **IME last-word drop**: call `Keyboard.commit()` before reading any `TextField.text` from a button handler — otherwise the in-progress word is lost on mobile. (`Keyboard` is a compile-time singleton, `src/core/keyboard.h`. It replaced `Qt.inputMethod`, which qmllint types as a bare `QObject` — so a typo in the call was uncheckable, and its failure mode is silent.)
