@@ -75,7 +75,6 @@
     "qml/pages/FlushPage.qml": 117,
     "qml/pages/IdlePage.qml": 95,
     "qml/pages/PostShotReviewPage.qml": 301,
-    "qml/pages/ProfileEditorPage.qml": 404,
     "qml/pages/ProfileImportPage.qml": 14,
     "qml/pages/ProfileInfoPage.qml": 32,
     "qml/pages/ProfileSelectorPage.qml": 54,
@@ -87,7 +86,6 @@
     "qml/pages/ShotComparisonPage.qml": 27,
     "qml/pages/ShotDetailPage.qml": 171,
     "qml/pages/ShotHistoryPage.qml": 156,
-    "qml/pages/SimpleProfileEditorPage.qml": 189,
     "qml/pages/TransportPage.qml": 21,
     "qml/pages/VisualizerBrowserPage.qml": 14,
     "qml/pages/VisualizerMultiImportPage.qml": 97,
@@ -220,6 +218,8 @@
     "qml/pages/FlowEditorPage.qml",
     "qml/pages/HotWaterPage.qml",
     "qml/pages/PressureEditorPage.qml",
+    "qml/pages/ProfileEditorPage.qml",
+    "qml/pages/SimpleProfileEditorPage.qml",
     "qml/pages/SteamPage.qml",
     "qml/pages/settings/DeviceMigrationDialog.qml",
     "qml/pages/settings/SettingsCalibrationTab.qml",
@@ -235,6 +235,6 @@
     "equality-type-coercion": 1,
     "import": 4,
     "missing-property": 300,
-    "unqualified": 4091
+    "unqualified": 3498
   }
 }
