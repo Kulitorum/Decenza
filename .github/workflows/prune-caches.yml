@@ -111,33 +111,28 @@ jobs:
                 fi
               done
 
-      # Compiler caches parked on superseded release tags.
+      # Compiler caches left behind by release tags that have SHIPPED.
       #
-      # ONE-TIME CLEANUP PLUS A BACKSTOP, not an ongoing policy. Tag refs no
-      # longer save a cache at all — see the `save:` expression and its note in
-      # .github/actions/setup-compiler-cache/action.yml — so nothing new can
-      # enter this set. What it collects is the backlog written before that
-      # landed, and anything a future change to that expression lets through.
-      #
-      # The step above keeps one copy per (prefix, ref) and is right to, but a
-      # release tag is a ref that never builds again once the next one ships,
-      # so its whole set is one-copy-of-dead-weight. GitHub scopes restores to
-      # the entry's own ref (a tag build cannot read another tag's cache), which
-      # is what makes an older tag's set unreachable rather than merely stale.
+      # The step above keeps one copy per (prefix, ref) and is right to. What it
+      # cannot see is that a shipped tag stops being a ref anyone builds: the
+      # release process re-tags and force-pushes the SAME tag while iterating,
+      # so that tag's cache is hot (nine v2.0.0 macOS builds in three days, each
+      # restoring the last), and then the next version takes over and the old
+      # tag's whole set goes cold at once. GitHub scopes restores to the entry's
+      # own ref, so no other tag can ever read it — cold here means unreachable,
+      # not merely stale.
       #
       # Measured 2026-07-28: v2.0.0 held 3045 MB — macOS 1870, iOS 467, Linux
-      # x64 457, Windows 251 — while v2.0.1 was the shipped release. Four
+      # x64 457, Windows 251 — while v2.0.1 was the current release. Four
       # entries because that is what v2.0.0 happened to leave; six workflows use
       # the cache action and v2.0.1 left six, 1.48 GB. Either way it is ~30% of
       # the 10 GB cap held by a tag nothing will build again, and it was pushing
       # the nightly sanitizer job into its cold-build yield every night.
       #
-      # The NEWEST tag is kept so a re-tag at HEAD — the standard fix when main
-      # moves past a tag — does not have its in-flight set collected mid-release.
-      # Note this no longer preserves warmth for that rebuild: with saving off on
-      # tags there is nothing to restore, and the retry reads main's scope. The
-      # newest set therefore ages out on GitHub's own 7-day unaccessed eviction
-      # rather than being collected here, which is the intended end state.
+      # The NEWEST tag is kept, and that is the whole point rather than a
+      # caveat: it is the release currently being iterated on, and collecting it
+      # would make the next re-tag rebuild from scratch. Ordering is by build
+      # time for the same reason — see the note on NEWEST below.
       #
       # Scoped tightly, since the surrounding steps are conservative about tags
       # for good reason: only timestamped ccache/sccache keys, only on tag refs,
@@ -187,12 +182,13 @@ jobs:
           fi
 
           # Newest by BUILD TIME, not by version sort. What this step protects is
-          # the most recently built release, and `sort -V` answers a different
-          # question — it ranks a hotfix released after a higher version as older
-          # (v1.9.5 after v2.0.0) and, under GNU filevercmp, ranks v2.1.0-beta
-          # ABOVE v2.1.0, so it would keep the beta and collect the shipped tag.
-          # createdAt has neither failure and needs no assumption about the tag
-          # scheme.
+          # the tag currently being rebuilt, which is a question about when it
+          # last built, not about how its name sorts. `sort -V` gets both real
+          # cases wrong: it ranks a hotfix released after a higher version as
+          # older (v1.9.5 after v2.0.0) and, under GNU filevercmp, ranks
+          # v2.1.0-beta ABOVE v2.1.0, so it would keep the beta and collect the
+          # shipped tag mid-release. createdAt has neither failure and needs no
+          # assumption about the tag scheme.
           #
           # Self-contained on purpose: a tag whose build is still running cannot
           # appear here anyway, because the gate step skips the whole workflow
@@ -254,11 +250,12 @@ jobs:
       #   - branches: only if `git ls-remote` says the ref is gone
       #   - PRs: only if the PR is CLOSED or MERGED
       #   - refs/tags/* and anything unrecognised: never touched HERE. The
-      #     original reason — tag caches warm release builds — no longer holds
-      #     (a tag cannot read another tag's cache, and tag refs no longer save
-      #     one), so superseded tags are collected by the step above instead.
-      #     What survives is the caution: this step deletes on a liveness signal
-      #     and a tag is always live, so a misfire here would be silent.
+      #     original reason still holds for the CURRENT tag, whose cache warms
+      #     the repeated rebuilds of a release in progress. What it did not
+      #     cover is a tag that has shipped, whose set no other ref can read;
+      #     the step above collects those. The caution survives either way: this
+      #     step deletes on a liveness signal and a tag is always live, so a
+      #     misfire here would be silent.
       - name: Drop caches for deleted branches and closed PRs
         if: ${{ steps.gate.outputs.skip == 'false' }}
         env:
@@ -320,19 +317,20 @@ jobs:
 
       # Is main's compiler cache still being re-seeded?
       #
-      # Since tag builds stopped saving (setup-compiler-cache's `save:`), main's
-      # scope is the ONLY thing any release build can restore from, and the only
-      # thing that writes it is warm-main-cache.yml — which fires on
-      # `release: released` alone. A release left as a prerelease, which is this
-      # project's normal intermediate state, never triggers it. Nothing else
-      # would report that: builds would just quietly get slower, which is the
-      # same invisible degradation as an inert cache.
+      # Main's scope is what the FIRST build of a new tag restores from — the
+      # tag's own scope is empty until that build saves it. It is written only
+      # by warm-main-cache.yml, on `release: released`, an event this project
+      # usually never reaches because releases tend to stay prereleases: four
+      # firings ever (2026-05-28, 06-17, 07-10, 07-24) against far more
+      # releases. So main drifts a release or more behind and the first build of
+      # each new tag pays for it, silently — nothing else would report this, the
+      # builds just get slower.
       #
       # Compares against the latest published release rather than a fixed age,
       # so a quiet month between releases raises nothing. Runs regardless of the
       # gate — it reads, deletes nothing, and the daily cron makes it a daily
-      # check. A warning, not an error: a stale main cache costs build minutes,
-      # it does not make a build wrong.
+      # check. A warning, not an error: a stale main cache costs build minutes
+      # on one build per release, it does not make a build wrong.
       - name: Check main's cache is still being seeded
         env:
           GH_TOKEN: ${{ github.token }}

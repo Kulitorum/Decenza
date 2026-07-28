@@ -67,31 +67,30 @@ runs:
         # workflows pass `${{ inputs.use_cache }}`, which is an empty string on
         # a tag push, and empty is not 'false'.
         key: ${{ inputs.use_cache == 'false' && format('cold-no-restore-{0}', github.run_id) || inputs.key }}
-        # Restore on a tag, never save on one.
+        # Tags save. Do not "optimise" this by suppressing saves on refs/tags/*.
         #
-        # GitHub scopes caches by REF, not by key: a run reads its own ref's
-        # scope plus the default branch's, and writes only into its own. So a
-        # tag build already restores main's entries — what warm-main-cache.yml
-        # seeds — while the copy it saves lands in a scope only that same tag
-        # could ever read. Tags do not build twice, so those copies are
-        # write-only. v2.0.0 held 3045 MB of them with v2.0.1 already shipped
-        # (measured 2026-07-28), ~30% of the 10 GB cap on a ref nothing would
-        # run again.
+        # That was tried and reverted the same day. The reasoning looked sound:
+        # GitHub scopes caches by REF (a run reads its own ref's scope plus the
+        # default branch's, and writes only into its own), so a tag's entry is
+        # readable by nothing except that same tag — which sounds write-only,
+        # and v2.0.0 was holding 3045 MB of it.
         #
-        # Main's scope is now the ONLY thing seeding these, and warm-main-cache
-        # fires on `release: released` alone — not on a release left as a
-        # prerelease, which is this project's normal intermediate state. Main's
-        # entries were a release behind on the day this was written. If release
-        # builds start reading cold, check main's entry dates before suspecting
-        # this expression.
+        # The premise "a tag builds once" is false here. The release process
+        # re-tags at HEAD and force-pushes to fold in late content, so the same
+        # tag ref builds repeatedly: v2.0.0 ran NINE macOS builds between
+        # 2026-07-22 and 07-24, v2.0.1 two. Every one after the first restored
+        # the previous attempt's cache. The sizes show it — v2.0.0's macOS entry
+        # reached 1870 MB across nine builds against v2.0.1's 569 MB across two,
+        # which is accumulation, not a cold build's footprint.
         #
-        # No key can widen this — two tags cannot share a scope, and a tag
-        # cannot write into main's. Not saving is the only lever.
+        # So the tag scope is the HOTTEST cache in the repo, not dead weight.
+        # Suppressing it would push all nine of those rebuilds onto main's
+        # scope, which is seeded only by warm-main-cache.yml on
+        # `release: released` — an event this project usually never reaches,
+        # since releases tend to stay prereleases.
         #
-        # What this gives up: re-tagging at HEAD and force-pushing reuses the
-        # ref, so today a second attempt restores the first attempt's own cache.
-        # It now restores main's instead — previous release rather than the
-        # identical tree, so a lower hit rate but not a cold build. A re-tag at
-        # HEAD means the source moved anyway, which is most of that difference.
-        save: ${{ inputs.use_cache != 'false' && !startsWith(github.ref, 'refs/tags/') }}
+        # The real cost was never the live tag's set; it was the sets left
+        # behind by tags that HAVE shipped. prune-caches.yml collects those,
+        # keeping the newest tag — the one currently being iterated on.
+        save: ${{ inputs.use_cache != 'false' }}
         max-size: ${{ inputs.max-size }}
