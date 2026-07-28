@@ -223,7 +223,7 @@ Page {
         // re-evaluate this target to null and the measuringChanged that ends the run
         // would be delivered to nothing, stranding the progress label and the pending
         // commit. The device object itself stays non-null across a disconnect.
-        target: (typeof Refractometer !== "undefined" && Refractometer) ? Refractometer : null
+        target: Refractometer
 
         function onAverageProgress(completed, total) {
             postShotReviewPage.avgDone = completed
@@ -522,9 +522,7 @@ Page {
     // page has already opened. Without this, R2 readings that arrive after
     // the page opens are silently dropped.
     Connections {
-        target: BLEManager.refractometerConnected
-            && (typeof Refractometer !== "undefined") && Refractometer
-            ? Refractometer : null
+        target: BLEManager.refractometerConnected ? Refractometer : null
         enabled: postShotReviewPage.visible
         function onTdsChanged(tds) {
             if (!postShotReviewPage.isEditMode) return
@@ -532,14 +530,14 @@ Page {
                 console.debug("[PostShotReview] R2 tds", tds.toFixed(2),
                     "dropped: below threshold", postShotReviewPage.kMinimumPlausibleTds,
                     "shotId=", postShotReviewPage.editShotId,
-                    "wasMeasuring=", (typeof Refractometer !== "undefined" && Refractometer) ? Refractometer.measuring : false)
+                    "wasMeasuring=", Refractometer.measuring)
                 return
             }
             if (tds > postShotReviewPage.kMaximumPlausibleTds) {
                 console.debug("[PostShotReview] R2 tds", tds.toFixed(2),
                     "dropped: above threshold", postShotReviewPage.kMaximumPlausibleTds,
                     "shotId=", postShotReviewPage.editShotId,
-                    "wasMeasuring=", (typeof Refractometer !== "undefined" && Refractometer) ? Refractometer.measuring : false)
+                    "wasMeasuring=", Refractometer.measuring)
                 return
             }
             postShotReviewPage.editDrinkTds = tds
@@ -1194,7 +1192,7 @@ Page {
                 Rectangle {
                     id: readTdsButton
                     property bool refConnected: BLEManager.refractometerConnected
-                    property bool refMeasuring: refConnected && typeof Refractometer !== "undefined" && Refractometer && Refractometer.measuring
+                    property bool refMeasuring: refConnected && Refractometer.measuring
                     // R1 advertises with names starting "DFT_TDJ_*" (see DiFluidR1::isR1Device).
                     property bool isR1: (Settings.savedRefractometerName || "").toLowerCase().indexOf("dft_tdj") === 0
                     visible: Settings.savedRefractometerAddress !== ""
@@ -1240,7 +1238,6 @@ Page {
                                 BLEManager.scanForDevices()
                                 return
                             }
-                            if (typeof Refractometer === "undefined" || !Refractometer) return
                             postShotReviewPage.avgDone = 0
                             postShotReviewPage.avgTotal = 0
                             // A single test, deliberately — a judgement about magnitude,
@@ -1763,7 +1760,7 @@ Page {
                                 visible: Settings.savedRefractometerAddress !== ""
                                 color: {
                                     if (!BLEManager.refractometerConnected) return Theme.textSecondaryColor
-                                    if (typeof Refractometer !== "undefined" && Refractometer && Refractometer.tds > 0) return Theme.successColor
+                                    if (Refractometer.tds > 0) return Theme.successColor
                                     return Theme.accentColor
                                 }
                                 Accessible.ignored: true

@@ -39,6 +39,18 @@ Page {
         if (idx >= 0) markTabLoaded(idx)
     }
 
+    // Switch tabs on a page that is ALREADY on top of the stack. `requestedTabId` is consumed only
+    // by StackView.onActivated below, so assigning it to a live page does nothing — main.qml calls
+    // this instead when the user taps a settings widget from inside Settings, which must switch
+    // tabs rather than push a second copy of this page.
+    function showTab(tabId) {
+        var idx = SettingsTabs.indexOf(tabId)
+        if (idx < 0)
+            return
+        markTabLoaded(idx)
+        tabBar.currentIndex = idx
+    }
+
     // Switch to requested tab after page transition completes (page is fully laid out)
     StackView.onActivated: {
         var idx = requestedTabId.length > 0 ? SettingsTabs.indexOf(requestedTabId) : -1

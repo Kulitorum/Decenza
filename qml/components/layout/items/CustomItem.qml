@@ -169,7 +169,7 @@ Item {
             // %TARGET_TEMP% shows the effective brew temp (per-brew override when set)
             if (typeof Settings !== "undefined" && Settings !== null) void(Settings.brew.temperatureOverride)
         }
-        if (_needsScaleDevice && typeof ScaleDevice !== "undefined" && ScaleDevice) {
+        if (_needsScaleDevice) {
             void(ScaleDevice.name); void(ScaleDevice.connected)
         }
         if (_needsSettingsData && typeof Settings !== "undefined" && Settings !== null) {
@@ -242,7 +242,7 @@ Item {
         result = result.replace(/%RATIO%/g, typeof ProfileManager !== "undefined" && ProfileManager !== null ? ProfileManager.brewByRatio.toFixed(1) : "—")
         result = result.replace(/%DOSE%/g, typeof ProfileManager !== "undefined" && ProfileManager !== null ? ProfileManager.brewByRatioDose.toFixed(1) : "—")
         // Scale device
-        result = result.replace(/%SCALE%/g, typeof ScaleDevice !== "undefined" && ScaleDevice ? ScaleDevice.name : "—")
+        result = result.replace(/%SCALE%/g, ScaleDevice.name || "—")
         // Grinder
         result = result.replace(/%GRIND%/g, typeof Settings !== "undefined" && Settings !== null && Settings.dye.dyeGrinderSetting ? Settings.dye.dyeGrinderSetting : "—")
         result = result.replace(/%RPM%/g, typeof Settings !== "undefined" && Settings !== null && Settings.dye.dyeGrinderRpm > 0 ? String(Settings.dye.dyeGrinderRpm) : "—")
@@ -254,8 +254,8 @@ Item {
             result = result.replace(/%MACHINE_READY_COLOR%/g, machineReady ? Theme.successColor : Theme.errorColor)
         // Connection status
         var machineOn = typeof DE1Device !== "undefined" && DE1Device !== null && DE1Device.connected
-        var scaleOn = typeof ScaleDevice !== "undefined" && ScaleDevice && ScaleDevice.connected
-        var flowScale = typeof ScaleDevice !== "undefined" && ScaleDevice && ScaleDevice.isFlowScale
+        var scaleOn = ScaleDevice.connected
+        var flowScale = ScaleDevice.isFlowScale
         result = result.replace(/%CONNECTED%/g, machineOn ? TranslationManager.translate("customitem.status.online", "Online") : TranslationManager.translate("customitem.status.offline", "Offline"))
         if (result.indexOf("%CONNECTED_COLOR%") >= 0)
             result = result.replace(/%CONNECTED_COLOR%/g, machineOn ? Theme.successColor : Theme.errorColor)
@@ -357,7 +357,7 @@ Item {
                     && (DE1Device.isHeadless || DE1Device.simulationMode)
             switch (target) {
                 case "sleep":
-                    if (typeof ScaleDevice !== "undefined" && ScaleDevice && ScaleDevice.connected)
+                    if (ScaleDevice.connected)
                         ScaleDevice.disableLcd()
                     if (typeof DE1Device !== "undefined" && DE1Device !== null)
                         DE1Device.goToSleep()

@@ -1471,8 +1471,7 @@ Item {
                                 // While disconnected the saved name is the only evidence
                                 // of which model is paired.
                                 readonly property bool deviceSupports:
-                                    (BLEManager.refractometerConnected
-                                     && typeof Refractometer !== "undefined" && Refractometer)
+                                    BLEManager.refractometerConnected
                                         ? Refractometer.supportsAutoTest
                                         : (Settings.savedRefractometerName || "")
                                               .toLowerCase().indexOf("dft_tdj") !== 0

@@ -37,6 +37,13 @@
 // tool would report, since the calls would parse and simply do nothing. The surface is preserved
 // deliberately, and the gate now checks every one of them.
 //
+// This claim was FALSE when first written, and the #1687 review caught it: three of ScaleDevice's
+// twelve public slots — resetFlowCalculation(), addFlowSample() and hasIndependentTimerReset() —
+// were not forwarded. No call site broke, because all three are reached only from C++ through a
+// direct ScaleDevice*, but the omission is exactly the silent hole the paragraph above warns
+// about, and QML_GOTCHAS.md cites this class as the worked example of getting it right. They are
+// forwarded now. If you add a public slot to ScaleDevice, add it here in the same edit.
+//
 // LIFETIME
 // --------
 // m_target is a QPointer: the concrete scale objects are owned elsewhere and outlive nothing in
@@ -95,6 +102,13 @@ public slots:
     void disableLcd();
     void sendKeepAlive();
     void disconnectFromScale();
+    void resetFlowCalculation();
+    void addFlowSample(double flowRate, double deltaTime);
+
+    // Not a command — a query, and the one member here that needs a defined answer with no target.
+    // MachineState uses it to decide whether resetTimer() may be sent on its own; with no scale
+    // attached there is nothing to send either way, and `true` is ScaleDevice's own base default.
+    bool hasIndependentTimerReset() const;
 
 signals:
     void connectedChanged();

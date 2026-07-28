@@ -161,7 +161,13 @@ just harder to scan.
   `SettingsTabs.indexOf` read as missing members while being plainly declared. 106 were deleted.
 - **A page never touches `pageStack` or main.qml's `root`.** It emits an `AppShell` signal and the
   shell decides. Navigation policy: replace when the MACHINE drove the change, push when the USER
-  did. See `QML_NAVIGATION.md`.
+  did. See `QML_NAVIGATION.md`. Status-bar widgets are tappable from their own destination, so a
+  destination pushes through `pushUnlessCurrent()` rather than `pageStack.push()` directly.
+- **A registered singleton with no instance is TRUTHY, not `undefined`.** `typeof X !== "undefined"
+  && X` passes and the first member call throws. Qt builds the type wrapper whether or not
+  `singletonInstance()` returned anything; only the member read degrades to `undefined`. Guard the
+  member (`X.doThing !== undefined`) or the platform, never the name. Full sources in
+  `QML_GOTCHAS.md`.
 - **`pragma ComponentBehavior: Bound` breaks delegates that take injected model roles**, at runtime
   and silently. Check for `Repeater`/`delegate:` first; with none, the pragma alone is safe. With
   delegates, add `required property` to each in the same edit.

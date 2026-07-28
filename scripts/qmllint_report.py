@@ -95,7 +95,9 @@ CATEGORY_EXEMPTIONS: dict[str, int] = {
     # 311 -> 303 when three widgets stopped reaching main.qml through `Window.window` with a
     # `typeof win.X === "function"` probe and used AppShell signals instead. Same lesson as
     # above: a duck-typed hop is counted here, so removing it lowers this ceiling.
-    # 300 -> 268 by deleting the directory imports described above. A directory import resolves
+    # 303 -> 268 by deleting the directory imports described above. (This line read `300 ->`
+    # until the #1687 review flagged the 3-diagnostic gap against the step above. The endpoints
+    # are what the gate checks and they are right; the intermediate was a transcription slip.) A directory import resolves
     # a singleton .qml as a plain component type, so `DrinkType.shortLabel` and
     # `SettingsTabs.indexOf` — both real, both declared — reported as missing members. The types
     # were being shadowed, not the members lost.
@@ -105,7 +107,7 @@ CATEGORY_EXEMPTIONS: dict[str, int] = {
     # It works at runtime, which is why it survived; it is simply not checkable in that spelling.
     # 250 -> 145 with the Keyboard singleton (src/core/keyboard.h). QML reached the input method
     # as `Qt.inputMethod.commit()`, and qmllint types that as a bare QObject, so 108 call sites
-    # across 27 files were unchecked. Not a bug — but `Qt.inputMethod.comit()` was
+    # across 36 files were unchecked. Not a bug — but `Qt.inputMethod.comit()` was
     # indistinguishable from the correct spelling, and its failure mode is the silent one (the
     # in-progress word is never committed). CLAUDE.md's "call commit() before reading
     # TextField.text" rule now has a home in code rather than being a convention.

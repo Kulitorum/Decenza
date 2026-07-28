@@ -2,8 +2,6 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Window
 import Decenza
-import "../layout" as LayoutComponents
-import "../layout/items" as LayoutItems
 
 Rectangle {
     id: card
@@ -336,7 +334,7 @@ Rectangle {
             active: entryType === "item" && (livePreview || !hasThumbnail)
             anchors.fill: parent
             sourceComponent: Component {
-                LayoutItems.CustomItem {
+                CustomItem {
                     isCompact: false
                     modelData: card.previewModelData
                 }
@@ -350,7 +348,7 @@ Rectangle {
             sourceComponent: Component {
                 Item {
                     clip: true
-                    LayoutComponents.LayoutCenterZone {
+                    LayoutCenterZone {
                         visible: !card.isBarZone
                         width: Theme.scaled(800)
                         anchors.centerIn: parent
@@ -359,7 +357,7 @@ Rectangle {
                         scale: Math.min(parent.width / Math.max(1, width), 1.0)
                         transformOrigin: Item.Center
                     }
-                    LayoutComponents.LayoutBarZone {
+                    LayoutBarZone {
                         visible: card.isBarZone
                         anchors.centerIn: parent
                         zoneName: card.entryZoneName
@@ -407,7 +405,7 @@ Rectangle {
 
                                 Repeater {
                                     model: card.layoutStatusBarItems
-                                    delegate: LayoutComponents.LayoutItemDelegate {
+                                    delegate: LayoutItemDelegate {
                                         zoneName: "statusBar"
                                         Layout.fillWidth: modelData.type === "spacer"
                                     }
@@ -425,12 +423,12 @@ Rectangle {
                             anchors.rightMargin: Theme.scaled(8)
                             spacing: Theme.scaled(20)
 
-                            LayoutComponents.LayoutBarZone {
+                            LayoutBarZone {
                                 zoneName: "topLeft"
                                 items: card.layoutTopLeftItems
                             }
                             Item { Layout.fillWidth: true }
-                            LayoutComponents.LayoutBarZone {
+                            LayoutBarZone {
                                 zoneName: "topRight"
                                 items: card.layoutTopRightItems
                             }
@@ -445,18 +443,18 @@ Rectangle {
                             anchors.rightMargin: Theme.scaled(8)
                             spacing: Theme.scaled(10)
 
-                            LayoutComponents.LayoutCenterZone {
+                            LayoutCenterZone {
                                 Layout.fillWidth: true
                                 zoneName: "centerStatus"
                                 items: card.layoutCenterStatusItems
                                 visible: card.layoutCenterStatusItems.length > 0
                             }
-                            LayoutComponents.LayoutCenterZone {
+                            LayoutCenterZone {
                                 Layout.fillWidth: true
                                 zoneName: "centerTop"
                                 items: card.layoutCenterTopItems
                             }
-                            LayoutComponents.LayoutCenterZone {
+                            LayoutCenterZone {
                                 Layout.fillWidth: true
                                 zoneName: "centerMiddle"
                                 items: card.layoutCenterMiddleItems
@@ -477,13 +475,13 @@ Rectangle {
                                 anchors.rightMargin: Theme.spacingMedium
                                 spacing: Theme.spacingMedium
 
-                                LayoutComponents.LayoutBarZone {
+                                LayoutBarZone {
                                     zoneName: "bottomLeft"
                                     items: card.layoutBottomLeftItems
                                     Layout.fillHeight: true
                                 }
                                 Item { Layout.fillWidth: true }
-                                LayoutComponents.LayoutBarZone {
+                                LayoutBarZone {
                                     zoneName: "bottomRight"
                                     items: card.layoutBottomRightItems
                                     Layout.fillHeight: true
@@ -543,7 +541,7 @@ Rectangle {
             active: livePreview || !hasThumbnail
             anchors.fill: parent
             sourceComponent: Component {
-                LayoutItems.CustomItem {
+                CustomItem {
                     isCompact: true
                     modelData: card.previewModelData
                 }

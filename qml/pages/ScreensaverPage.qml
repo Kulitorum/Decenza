@@ -825,7 +825,7 @@ Page {
         }
 
         // Wake the scale (enable LCD) or try to reconnect
-        if (ScaleDevice && ScaleDevice.connected) {
+        if (ScaleDevice.connected) {
             ScaleDevice.wake()
         } else {
             BLEManager.tryDirectConnectToScale()
@@ -860,7 +860,7 @@ Page {
         function onStateChanged() {
             var state = DE1Device.stateString
             if (state !== "Sleep" && state !== "GoingToSleep") {
-                if (ScaleDevice && ScaleDevice.connected) {
+                if (ScaleDevice.connected) {
                     ScaleDevice.wake()
                 } else {
                     BLEManager.tryDirectConnectToScale()

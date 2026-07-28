@@ -843,16 +843,25 @@ ApplicationWindow {
         function onScaleMultiplierChanged() { updateScale() }
         function onPageScaleMultiplierChanged() { updateScale() }
     }
-    // Raise all application windows together when this window is activated
+    // Raise all application windows together when this window is activated.
+    //
+    // Guard the MEMBER, not the name. `typeof GHCSimulator !== "undefined" && GHCSimulator` looks
+    // equivalent and is not: the type is registered wherever DECENZA_SIMULATOR is defined, but the
+    // instance exists only on a debug Windows/macOS build, and a registered-but-uninstanced
+    // singleton resolves to a TRUTHY wrapper whose member reads come back undefined. That guard
+    // therefore passed on Linux, on Windows/macOS Release and on Android/iOS Debug, and the call
+    // below threw a TypeError on every window activation. See decenzaOptionalSingleton() in
+    // src/core/contextsingletons_qml.h for the Qt sources.
     onActiveChanged: {
-        if (active && typeof GHCSimulator !== "undefined" && GHCSimulator) {
+        if (active && GHCSimulator.mainWindowActivated !== undefined) {
             GHCSimulator.mainWindowActivated()
         }
     }
 
-    // Listen for GHC window activation to raise ourselves (simulator mode only)
+    // Listen for GHC window activation to raise ourselves (simulator mode only).
+    // Same rule: a truthy-but-empty wrapper is not a valid Connections target.
     Connections {
-        target: typeof GHCSimulator !== "undefined" ? GHCSimulator : null
+        target: GHCSimulator.mainWindowActivated !== undefined ? GHCSimulator : null
         function onRaiseMainWindow() {
             root.raise()
         }
@@ -987,7 +996,7 @@ ApplicationWindow {
         onPressed: function(mouse) {
             var textItem = findTextAt(parent, mouse.x, mouse.y)
             if (textItem && textItem.text && !isInsideInteractive(textItem)) {
-                AccessibilityManager.announceLabel(cleanForSpeech(textItem.text))
+                AccessibilityManager.announceLabel(AccessibilityManager.cleanForSpeech(textItem.text))
             }
             mouse.accepted = false
         }
@@ -3554,27 +3563,49 @@ ApplicationWindow {
         root.returnToShotId = 0
     }
 
+    // Push `component` unless that page is already on top of the stack.
+    //
+    // The status bar lives INSIDE pageStack at z: 600 and is visible on every page but the
+    // screensaver, so the widgets in it are tappable from their own destination. Without this
+    // guard, tapping the Settings widget while already in Settings pushed a SECOND SettingsPage
+    // and Back returned to the duplicate instead of to idle. The three operation pages always had
+    // the guard written out inline; every other destination reachable from a status-bar widget
+    // did not, and those call sites used to `replace`, which hid it.
+    //
+    // startNavigation() does not cover this: it clears via Qt.callLater, so it only blocks
+    // re-entry inside one event-loop turn, not a second deliberate tap.
+    function pushUnlessCurrent(component, pageObjectName, props) {
+        if (pageStack.currentItem && pageStack.currentItem.objectName === pageObjectName)
+            return null
+        return props ? pageStack.push(component, props) : pageStack.push(component)
+    }
+
     function goToEspresso() {
         if (!startNavigation()) return
-        if (pageStack.currentItem && pageStack.currentItem.objectName !== "espressoPage")
-            pageStack.push(espressoPage)
+        pushUnlessCurrent(espressoPage, "espressoPage")
     }
 
     function goToSteam() {
         if (!startNavigation()) return
-        if (pageStack.currentItem && pageStack.currentItem.objectName !== "steamPage")
-            pageStack.push(steamPage)
+        pushUnlessCurrent(steamPage, "steamPage")
     }
 
     function goToHotWater() {
         if (!startNavigation()) return
-        if (pageStack.currentItem && pageStack.currentItem.objectName !== "hotWaterPage")
-            pageStack.push(hotWaterPage)
+        pushUnlessCurrent(hotWaterPage, "hotWaterPage")
     }
 
     function goToSettings(tabId) {
         if (!startNavigation()) return
-        if (tabId !== undefined && tabId !== "" && SettingsTabs.indexOf(tabId) >= 0) {
+        var wantTab = (tabId !== undefined && tabId !== "" && SettingsTabs.indexOf(tabId) >= 0)
+        // Already in Settings: switch tab in place rather than stacking a second copy. Assigning
+        // requestedTabId would do nothing — the page consumes it only in StackView.onActivated.
+        if (pageStack.currentItem && pageStack.currentItem.objectName === "settingsPage") {
+            if (wantTab)
+                pageStack.currentItem.showTab(tabId)
+            return
+        }
+        if (wantTab) {
             pageStack.push(settingsPage, {requestedTabId: tabId})
         } else {
             pageStack.push(settingsPage)
@@ -3654,7 +3685,7 @@ ApplicationWindow {
 
     function goToFlush() {
         if (!startNavigation()) return
-        pageStack.push(flushPage)
+        pushUnlessCurrent(flushPage, "flushPage")
     }
 
     // Destinations reached from widgets and other pages. Each is the ONE implementation of
@@ -3670,7 +3701,7 @@ ApplicationWindow {
 
     function goToRecipes() {
         if (!startNavigation()) return
-        pageStack.push(recipesPage)
+        pushUnlessCurrent(recipesPage, "recipesPage")
     }
 
     // options carries the wizard's own properties (promoteShotId, editRecipeId, prefill).
@@ -3683,7 +3714,7 @@ ApplicationWindow {
 
     function goToShotHistory(filter) {
         if (!startNavigation()) return
-        pageStack.push(shotHistoryPage, filter || ({}))
+        pushUnlessCurrent(shotHistoryPage, "shotHistoryPage", filter || ({}))
     }
 
     function goToShotDetail(shotId, shotIds) {
@@ -3708,17 +3739,17 @@ ApplicationWindow {
 
     function goToBeanInfo() {
         if (!startNavigation()) return
-        pageStack.push(beanInfoPage)
+        pushUnlessCurrent(beanInfoPage, "bagInventoryPage")
     }
 
     function goToEquipment() {
         if (!startNavigation()) return
-        pageStack.push(equipmentPage)
+        pushUnlessCurrent(equipmentPage, "equipmentPage")
     }
 
     function goToAutoFavorites() {
         if (!startNavigation()) return
-        pageStack.push(autoFavoritesPage)
+        pushUnlessCurrent(autoFavoritesPage, "autoFavoritesPage")
     }
 
     function goToAutoFavoriteInfo(options) {
@@ -3728,7 +3759,7 @@ ApplicationWindow {
 
     function goToCommunityBrowser() {
         if (!startNavigation()) return
-        pageStack.push(communityBrowserPage)
+        pushUnlessCurrent(communityBrowserPage, "communityBrowserPage")
     }
 
     function goToVisualizerMultiImport() {

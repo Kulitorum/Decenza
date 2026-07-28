@@ -63,6 +63,20 @@ void ScaleDeviceProxy::wake()                { if (m_target) m_target->wake(); }
 void ScaleDeviceProxy::disableLcd()          { if (m_target) m_target->disableLcd(); }
 void ScaleDeviceProxy::sendKeepAlive()       { if (m_target) m_target->sendKeepAlive(); }
 void ScaleDeviceProxy::disconnectFromScale() { if (m_target) m_target->disconnectFromScale(); }
+void ScaleDeviceProxy::resetFlowCalculation() { if (m_target) m_target->resetFlowCalculation(); }
+
+void ScaleDeviceProxy::addFlowSample(double flowRate, double deltaTime)
+{
+    if (m_target)
+        m_target->addFlowSample(flowRate, deltaTime);
+}
+
+// `true` with no target is ScaleDevice's own base-class default, not a guess: a caller asking
+// "may I send resetTimer() alone?" when there is no scale to send it to is answered either way.
+bool ScaleDeviceProxy::hasIndependentTimerReset() const
+{
+    return m_target ? m_target->hasIndependentTimerReset() : true;
+}
 
 void ScaleDeviceProxy::sleep()
 {

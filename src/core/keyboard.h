@@ -10,7 +10,7 @@
 // ---------------
 // QML reached the input method as `Qt.inputMethod.commit()`. That works, and it is not a bug —
 // but qmllint types the `Qt` object's `inputMethod` as a bare QObject, so every one of the 108
-// call sites across 27 files was an unchecked member access. `Qt.inputMethod.comit()` would have
+// call sites across 36 files was an unchecked member access. `Qt.inputMethod.comit()` would have
 // been indistinguishable from the correct spelling until a user hit the line, and the failure
 // mode is the quiet one: the in-progress word is simply not committed.
 //

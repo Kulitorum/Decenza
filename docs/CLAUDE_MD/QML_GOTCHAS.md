@@ -401,3 +401,34 @@ Three rules when writing one:
 - The proxy is never null, so guards that test the OBJECT (`ScaleDevice !== null`,
   `typeof ScaleDevice !== "undefined"`) stop guarding anything. Test the STATE:
   `ScaleDevice.connected`.
+
+"Forward every public slot" is the rule and it was broken on its first outing: `ScaleDeviceProxy`
+shipped with 9 of `ScaleDevice`'s 12 forwarded, and nothing caught it because the three omitted
+are called only from C++. Diff the two `public slots:` blocks when you write one.
+
+## A registered singleton with no instance is TRUTHY, not `undefined`
+
+This is the trap behind `decenzaOptionalSingleton()`, and the guard everyone writes is wrong:
+
+```qml
+if (typeof GHCSimulator !== "undefined" && GHCSimulator) GHCSimulator.doThing()  // passes, THROWS
+if (GHCSimulator.doThing !== undefined) GHCSimulator.doThing()                   // correct
+```
+
+A singleton whose **type** is registered but whose **instance** was never published does not make
+the name read as `undefined`. Per Qt 6.11.1: `qv4qmlcontext.cpp:229` resolves the name with
+`QQmlTypeWrapper::create(v4, nullptr, r.type)` — it calls `singletonInstance<QObject*>()` and
+**discards the result**, so the wrapper is built either way — and `QQmlTypeWrapper` has no
+`virtualToBoolean` override, so that wrapper is a truthy `Object` with `typeof === "object"`. Only
+the *member read* degrades: `qqmltypewrapper.cpp:319` fails its `if (QObject *singleton = ...)` and
+falls through to `Object::virtualGet`, yielding `undefined`.
+
+So the name passes both halves of the usual guard and the first method call throws
+`TypeError: Property '...' of object [object Object] is not a function`.
+
+**Guard the member you are about to use, or use a platform check** (`Qt.platform.os !== "ios"`),
+which short-circuits before the member read — that is why `USBManager`'s call sites were never
+affected while `GHCSimulator`'s were. `GHCSimulator` is registered wherever `DECENZA_SIMULATOR` is
+defined (every desktop config) but instanced only on a **debug** Windows/macOS build, so the broken
+guard passed — and threw on every window activation — on Linux, on Release desktop and on mobile
+Debug, while working on exactly the two configurations it gets tested on.
