@@ -35,8 +35,8 @@ class StrangeAttractorRenderer : public QQuickPaintedItem {
     Q_OBJECT
     // Compile-time registration. A runtime qmlRegisterType<>() in main.cpp is invisible to
     // qmltyperegistrar, so the type never reaches Decenza.qmltypes and qmllint reports every
-    // use of it as "was not found. Did you add all imports and dependencies?" — 21 such
-    // warnings across the tree, all from this one cause.
+    // use of it as "was not found. Did you add all imports and dependencies?" — 16 such
+    // warnings across four QML files for these four types, all from this one cause.
     QML_ELEMENT
 
     Q_PROPERTY(bool running READ running WRITE setRunning NOTIFY runningChanged)

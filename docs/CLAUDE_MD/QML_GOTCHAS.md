@@ -241,10 +241,18 @@ what that costs.
 | A type QML instantiates | `QML_ELEMENT` in its header |
 | Enums QML compares against | Nothing extra — a singleton exposes them as `Singleton.Enumerator` |
 
-The `*Foreign` indirection exists for **one** reason: some class headers are compiled into test and
-tool targets, and a `<QtQml/...>` include reaching a target that links no `Qt6::Qml` is a build
-break. If the class already derives from a Quick type, that constraint does not apply and the
-macro belongs in its own header. Check before adding indirection you do not need.
+**When does a class need the `*Foreign` indirection rather than the macro in its own header?**
+Answer it per target, not by inheritance. The rule is only: *does every target that compiles this
+.cpp link `Qt6::Qml`?* Today the answer is almost always yes — `decenza_testlib` links `Qt6::Qml`
+PUBLIC, so every `add_decenza_test()` binary gets it transitively, and the four targets that do
+not (`profile_sync`, `shot_eval`, `saw_replay`, `saw_parity`) compile none of the wrapped classes.
+
+`contextsingletons_qml.h` states the constraint as "test and tool targets link no Qt6::Qml", and as
+written that is **no longer true** — `decenza_testlib` gained `Qt6::Qml` in #1617, before that
+comment was written. Do not use it as the reason for reaching for `*Foreign` on a new class; check
+the actual link line. (Whether the pattern still earns its keep for a *different* reason — keeping
+`<QtQml/...>` out of widely-included class headers, so a registration change does not invalidate
+every TU that includes them — is plausible and **unmeasured**. Do not assert it as fact either.)
 
 Two mechanical traps when adding `QML_ELEMENT` to a header:
 
@@ -265,9 +273,11 @@ Two mechanical traps when adding `QML_ELEMENT` to a header:
 `--skip-unlintable`). `--report` prints the breakdown; `--update-baseline` records it.
 
 1. **A count going UP after a fix is usually the fix working.** Better type resolution reaches
-   expressions qmllint previously abandoned, so it finds more. This has happened three times in
-   this codebase and looked like a regression every time. Diff the per-file and per-category sets
-   before concluding anything — totals alone will mislead you.
+   expressions qmllint previously abandoned, so it finds more. Three recorded instances, each of
+   which looked like a regression: the `MainController` migration (`unresolved-type` 2 -> 763),
+   the #1680 stale-baseline correction (three files' `unqualified` rose), and the `CupFillView`
+   case below (`missing-property` 322 -> 388). Diff the per-file and per-category sets before
+   concluding anything — totals alone will mislead you.
 2. **An unresolvable type hides every defect behind it.** Fixing `JsCanvasPainterItem`'s
    registration surfaced 66 warnings in `CupFillView.qml` that had never been reachable: the
    `paint()` signal declared `QObject *ctx` while emitting a `JsCanvasContext*`, and the gradient

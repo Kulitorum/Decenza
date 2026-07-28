@@ -176,12 +176,6 @@ extern "C" const char* __ubsan_default_options()
 #if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
 #include "screensaver/iosbrightness.h"
 #endif
-#include "screensaver/strangeattractorrenderer.h"
-#include "rendering/fastlinerenderer.h"
-#include "ui/jscanvaspainteritem.h"
-#ifdef ENABLE_QUICK3D
-#include "screensaver/pipegeometry.h"
-#endif
 #include "network/webdebuglogger.h"
 #include "core/widgetlibrary.h"
 #include "history/shothistoryexporter.h"
@@ -190,7 +184,6 @@ extern "C" const char* __ubsan_default_options()
 #include "mcp/mcpremoteaccess.h"
 #include "network/librarysharing.h"
 #include "network/relayclient.h"
-#include "core/documentformatter.h"
 #include "weather/weathermanager.h"
 #include "models/flowcalibrationmodel.h"
 
@@ -3531,10 +3524,15 @@ int main(int argc, char *argv[])
     // contract, and for the same reason the uncreatable ones moved: a runtime qmlRegisterType<>
     // is invisible to qmltyperegistrar, so the type never reached Decenza.qmltypes and qmllint
     // reported every USE of it as "was not found. Did you add all imports and dependencies?" —
-    // 19 warnings across five QML files, none of them a real missing import.
+    // 19 warnings across six QML files, none of them a real missing import.
     //
-    // Safe in their headers, unlike the classes in contextsingletons_qml.h: every one already
-    // derives from a Quick or Quick3D type, so any target compiling them links Qt6::Qml anyway.
+    // Safe in their headers, and the reason is per-TARGET, not per-base-class. An earlier draft
+    // said "every one already derives from a Quick or Quick3D type" — false: DocumentFormatter,
+    // and the JsCanvasContext/JsCanvasGradient pair registered alongside them, all derive from
+    // plain QObject. What actually holds is that documentformatter.cpp and jscanvas*.cpp are
+    // compiled ONLY by the Decenza target, and the one of these that is compiled elsewhere,
+    // fastlinerenderer.cpp, goes into decenza_shotlib, which links Qt6::Quick. Apply that test to
+    // the next header, not the inheritance one.
 
     // Settings sub-object types are registered at COMPILE time via QML_FOREIGN in
     // settings_qml.h, not here. A runtime qmlRegisterUncreatableType<> is invisible to
