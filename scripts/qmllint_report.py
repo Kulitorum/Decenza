@@ -810,10 +810,27 @@ def main() -> int:
         )
         blocked = sorted(set(files) & set(UNLINTABLE_BY_TOOL_BUG)) if looks_stock else []
         if blocked:
-            # Rebuild the command without the flags this message is about to re-add, so the
+            # Rebuild the command without anything this message is about to re-add, so both
             # suggestions are runnable rather than self-contradictory: --update-baseline plus
-            # --skip-unlintable is a combination the script refuses outright a few lines up.
-            base = [a for a in sys.argv[1:] if a not in ("--update-baseline", "--skip-unlintable")]
+            # --skip-unlintable is a combination the script refuses outright a few lines up, and a
+            # mode flag or --qmllint left in here would simply appear twice. Every mode goes, not
+            # just --update-baseline: each suggestion below supplies its own.
+            drop_flags = {"--check", "--report", "--update-baseline", "--skip-unlintable"}
+            base = []
+            skip_next = False
+            for a in sys.argv[1:]:
+                if skip_next:
+                    skip_next = False
+                    continue
+                if a in drop_flags:
+                    continue
+                # --qmllint takes a value; drop both halves, in either spelling.
+                if a == "--qmllint":
+                    skip_next = True
+                    continue
+                if a.startswith("--qmllint="):
+                    continue
+                base.append(a)
             invocation = f"python3 {sys.argv[0]}"
             quoted = " ".join(shlex.quote(a) for a in base)
             sys.exit(

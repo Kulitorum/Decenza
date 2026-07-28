@@ -422,6 +422,71 @@ evaluates — the same silent, delayed shape as the bug this change exists to pr
   done for 3.6, 3.7/3.8 and 3.9/3.10; the baseline was regenerated with the patched qmllint in
   each commit, and each run confirmed no file left the clean list and no ceiling rose.
 
+## 3b. Second migration batch — the four that needed no façade
+
+Follows the 14 names migrated in PR #1680. Picked as the set where the blocker was mechanical
+rather than a design question: 103 of the 283 warnings still outstanding, no forwarding façade, no
+new lifetime concept.
+
+- [x] 3b.1 `SteamHealthTracker` (40 warnings, 2 files) — the largest of the four, and the one with
+  a wrinkle. It already carried `QML_NAMED_ELEMENT(SteamHealthTrackerType)` + `QML_UNCREATABLE` in
+  its own header, and the `…Type` suffix existed **only** because a context property named
+  `SteamHealthTracker` resolves ahead of a type of the same name. The singleton removes the
+  collision rather than routing around it, exactly as `MachineState` did when `MachineStateType`
+  went away: no context property remains, and QML reads the enums off the singleton as
+  `SteamHealthTracker.EstablishingAfterReset`. Registration moved to `contextsingletons_qml.h`, so
+  the class header drops its `<QtQml/...>` include and is clean for the test targets again.
+  - The removed header comment claimed *"tst_qmlregistration asserts the EXPORT name for exactly
+    this reason; do not tidy this to QML_ELEMENT"*. **It does not** — nothing under `tests/` ever
+    referenced `SteamHealthTrackerType`, so the rename that comment warned against would have gone
+    green. The guard is now structural instead: the singleton and the enums share one name, so
+    losing the registration breaks the property reads and the enum reads together and loudly.
+- [x] 3b.2 `FlowCalibrationModel` (37, 1 file) — declaration hoisted above `engine` per the
+  lifetime rule; only the declaration moved, because `mainController.shotHistory()` is not ready
+  that early, so the three setters stay where they were.
+- [x] 3b.3 `ProfileStorage` (5) and `McpServer` (5) — plain migrations, identical to the 14.
+  Neither had any QML registration; the earlier note calling them "already registered, would
+  conflict" was wrong, and only `SteamHealthTracker` was ever in that shape.
+- [x] 3b.4 `AppVersion`, `AppVersionCode`, `PreviousCrashLog`, `PreviousDebugLogTail` (16) — four
+  loose values with no object to hang off, so they get one: a new `AppInfo` singleton
+  (`src/core/appinfo.h`), read as `AppInfo.version` / `.versionCode` / `.previousCrashLog` /
+  `.previousDebugLogTail`. All four properties are `CONSTANT`: every value is known before
+  `QQmlEngine::load()` and none can change afterwards.
+- [x] 3b.5 Dead registration removed: `qmlRegisterUncreatableType<DE1Device>(… "DE1DeviceType")`.
+  It existed for the same shadowing reason as the others, `DE1Device` became a singleton in
+  PR #1680, and nothing in `qml/` or `tests/` referenced the name.
+- [x] 3b.6 `decenzaPublishedSingleton()` extracted from `contextsingletons_qml.h` to
+  `src/core/qmlsingletonpublish.h`, now that `appinfo.h` is a second caller. That file's own
+  comment records that three hand-written copies previously diverged; a fourth was not the move.
+- [x] 3b.7 **`GHCSimulator` (15) deliberately NOT in this batch**, and not for the lifetime reason
+  the old note gave. Its declaration sits inside `#if (Q_OS_WIN || Q_OS_MACOS) && QT_DEBUG`, so on
+  every other build the instance legitimately does not exist. QML is already safe with that —
+  `main.qml:861` truthy-guards the name and `:868` yields `null` either way — but
+  `decenzaPublishedSingleton()` treats "asked for before main() published it" as always a defect
+  and would `qCritical` on every Android, iOS and Linux launch. Registering it needs an explicit
+  optional-singleton path in the helper. That is a real decision, not an oversight, and it is not
+  worth taking for 15 warnings.
+
+- [x] 3b.8 **Two real defects surfaced by the migration, both in `FlowCalibrationPage.qml`** — the
+  one file whose singleton this batch added, and neither reachable before, because a context
+  property has no type for qmllint to check a member against:
+  - `FlowCalibrationModel?.errorMessage?.length` — `errorMessage` is a `QString`, so the inner `?.`
+    is redundant optional chaining. The outer one still short-circuits.
+  - `(FlowCalibrationModel?.multiplier ?? 1.0).toFixed(2)` — qmllint models the `??` result as
+    `QJSPrimitiveValue`, which has no `toFixed`. Wrapped in `Number()`, which keeps the defensive
+    default and gives the expression a type.
+- [x] 3b.9 **Corrected the baseline PR #1680 shipped**, which recorded three ceilings below what the
+  tree produces and had the nightly's ubsan leg red at the `QML diagnostics gate` step. Full
+  account in `bugs-found.md`; the short version is that it was generated against a build predating
+  part of that PR's own C++ changes, so qmllint resolved less deeply and counted fewer warnings —
+  methodology error #2 from task 1.1, committed again in the change that documents it. CI's stock
+  qmllint and the patched one agree exactly on the true numbers, which also settles that a
+  patched-binary baseline is enforceable by a stock one.
+- [x] 3b.10 Measured result: gate passes, clean list **89 -> 90** of 218.
+  `SettingsCalibrationTab.qml` 40 -> 1, `FlowCalibrationPage.qml` 39 -> 2, `qml/main.qml` 159 ->
+  141, `RecipeWizardPage.qml` 159 -> 151, `SettingsAITab.qml` 37 -> 35, and
+  `SettingsUpdateTab.qml` onto the clean list.
+
 ## 4. Deferred: the runtime-swapped devices
 
 Not in this change. `ScaleDevice` (102 warnings) and `Refractometer` (24) are re-pointed at runtime,

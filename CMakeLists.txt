@@ -815,6 +815,8 @@ set(HEADERS
     # their class headers are compiled by test and tool targets that link no Qt6::Qml, so the
     # registration lives in a file only this target compiles.
     src/core/contextsingletons_qml.h
+    src/core/qmlsingletonpublish.h
+    src/core/appinfo.h
     src/core/settings_mqtt.h
     src/core/settings_autowake.h
     src/core/settings_hardware.h

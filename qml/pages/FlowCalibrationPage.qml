@@ -108,7 +108,7 @@ Page {
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.WordWrap
             visible: !(FlowCalibrationModel?.hasData ?? true)
-                     && (FlowCalibrationModel?.errorMessage?.length ?? 0) > 0
+                     && (FlowCalibrationModel?.errorMessage.length ?? 0) > 0
                      && !(FlowCalibrationModel?.loading ?? false)
         }
 
@@ -170,7 +170,9 @@ Page {
                     }
 
                     Text {
-                        text: (FlowCalibrationModel?.multiplier ?? 1.0).toFixed(2)
+                        // Number() so the ?? union resolves to a double: qmllint models the
+                        // operator's result as QJSPrimitiveValue, which has no toFixed.
+                        text: Number(FlowCalibrationModel?.multiplier ?? 1.0).toFixed(2)
                         color: Theme.primaryColor
                         font.pixelSize: Theme.scaled(18)
                         font.bold: true
