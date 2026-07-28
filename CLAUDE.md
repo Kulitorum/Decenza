@@ -157,7 +157,7 @@ just harder to scan.
 
 - **Font property conflict**: don't mix `font: Theme.bodyFont` with `font.bold: true` — assign sub-properties individually.
 - **Reserved names in JS model data**: `name`, `parent`, `children`, `data`, `state`, `enabled`, `visible`, `width`, `height`, `x`, `y`, `z`, `focus`, `clip` collide with QML properties — use `label` etc.
-- **IME last-word drop**: call `Qt.inputMethod.commit()` before reading any `TextField.text` from a button handler — otherwise the in-progress word is lost on mobile.
+- **IME last-word drop**: call `Keyboard.commit()` before reading any `TextField.text` from a button handler — otherwise the in-progress word is lost on mobile. (`Keyboard` is a compile-time singleton, `src/core/keyboard.h`. It replaced `Qt.inputMethod`, which qmllint types as a bare `QObject` — so a typo in the call was uncheckable, and its failure mode is silent.)
 - **Keyboard handling**: wrap pages with text inputs in `KeyboardAwareContainer { textFields: [...] }`.
 - **FINAL Qt properties**: don't redeclare `message`/`title` etc. on `Popup`/`Dialog` (Qt 6.10+) — pick a different name like `resultMessage`.
 - **Numeric defaults**: use `value ?? 0.6`, not `value || 0.6` — `||` treats `0` as falsy.

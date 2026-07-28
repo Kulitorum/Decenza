@@ -1437,7 +1437,7 @@ KeyboardAwareContainer {
                     text: TranslationManager.translate("common.button.save", "Save")
                     accessibleName: TranslationManager.translate("settings.ai.saveEndpointAccessible", "Save custom endpoint")
                     onClicked: {
-                        Qt.inputMethod.commit()
+                        Keyboard.commit()
                         switch(Settings.ai.aiProvider) {
                             case "openai": Settings.ai.openaiEndpoint = endpointField.text; break
                             case "anthropic": Settings.ai.anthropicEndpoint = endpointField.text; break
@@ -2124,7 +2124,7 @@ KeyboardAwareContainer {
                         Keys.onEnterPressed: sendMsg()
 
                         function sendMsg() {
-                            Qt.inputMethod.commit()
+                            Keyboard.commit()
                             if (text.length === 0) return
                             MainController.aiManager?.conversation?.followUp(text)
                             text = ""

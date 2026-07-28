@@ -27,7 +27,7 @@ Page {
             isEditing = false
             editingIndex = -1
             stringListView.forceActiveFocus()
-            Qt.inputMethod.hide()
+            Keyboard.hide()
         } else {
             AppShell.backRequested()
         }
@@ -464,7 +464,7 @@ Page {
                     if (!item) return
 
                     // Get keyboard height
-                    var kbRect = Qt.inputMethod.keyboardRectangle
+                    var kbRect = Keyboard.rectangle
                     var kbHeight = kbRect.height / Screen.devicePixelRatio
                     if (kbHeight <= 0) {
                         // Estimate keyboard at 40% of page height
@@ -807,7 +807,7 @@ Page {
                             // handler it triggers saves, which destroys this delegate, so any
                             // statement after it would run on a dead object.
                             function exitEditing() {
-                                Qt.inputMethod.hide()
+                                Keyboard.hide()
                                 focus = false
                             }
                         }

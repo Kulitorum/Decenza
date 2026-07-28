@@ -1231,7 +1231,7 @@ Page {
                     placeholder: TranslationManager.translate("profileselector.copyProfile.placeholder", "Profile name")
 
                     Keys.onReturnPressed: {
-                        Qt.inputMethod.commit()
+                        Keyboard.commit()
                         if (copyProfileNameField.displayText.trim() !== "") {
                             copyProfileButton.clicked()
                         }
@@ -1263,7 +1263,7 @@ Page {
                         enabled: copyProfileNameField.displayText.trim() !== ""
                         Layout.preferredHeight: Theme.scaled(40)
                         onClicked: {
-                            Qt.inputMethod.commit()
+                            Keyboard.commit()
                             var newTitle = copyProfileNameField.text.trim()
                             if (newTitle !== "") {
                                 if (ProfileManager.duplicateProfile(copyProfileDialog.sourceFilename, newTitle)) {
@@ -1364,7 +1364,7 @@ Page {
                     placeholder: TranslationManager.translate("profileselector.renameProfile.placeholder", "Profile name")
 
                     Keys.onReturnPressed: {
-                        Qt.inputMethod.commit()
+                        Keyboard.commit()
                         // Mirror the button's enabled condition so Enter on an
                         // empty or unchanged title is a no-op without surprises.
                         if (renameProfileButton.enabled) {
@@ -1399,7 +1399,7 @@ Page {
                                  && renameProfileNameField.displayText.trim() !== renameProfileDialog.currentTitle
                         Layout.preferredHeight: Theme.scaled(40)
                         onClicked: {
-                            Qt.inputMethod.commit()
+                            Keyboard.commit()
                             var newTitle = renameProfileNameField.text.trim()
                             if (newTitle !== "" && newTitle !== renameProfileDialog.currentTitle) {
                                 if (ProfileManager.renameProfile(renameProfileDialog.profileFilename, newTitle)) {

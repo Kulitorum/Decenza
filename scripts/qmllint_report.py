@@ -103,7 +103,13 @@ CATEGORY_EXEMPTIONS: dict[str, int] = {
     # in six layout widgets. `Window` is an ATTACHED property — it resolves against the current
     # scope, so writing it through an id is a member access on a type that has no such member.
     # It works at runtime, which is why it survived; it is simply not checkable in that spelling.
-    "missing-property": 250,
+    # 250 -> 145 with the Keyboard singleton (src/core/keyboard.h). QML reached the input method
+    # as `Qt.inputMethod.commit()`, and qmllint types that as a bare QObject, so 108 call sites
+    # across 27 files were unchecked. Not a bug — but `Qt.inputMethod.comit()` was
+    # indistinguishable from the correct spelling, and its failure mode is the silent one (the
+    # in-progress word is never committed). CLAUDE.md's "call commit() before reading
+    # TextField.text" rule now has a home in code rather than being a convention.
+    "missing-property": 145,
     # All 21 remaining are qmllint FALSE POSITIVES and cannot be driven to zero from this side:
     # it flags any child DECLARED lexically inside a Layout without checking that a Layout will
     # actually manage it. Two shapes — objects that are not Items at all (Popup/Dialog derive

@@ -224,7 +224,7 @@ Item {
         }
 
         function submitWifiScale() {
-            Qt.inputMethod.commit()  // flush in-progress IME word before reading text
+            Keyboard.commit()  // flush in-progress IME word before reading text
             var host = wifiScaleHostField.text.trim()
             if (host.length === 0)
                 return

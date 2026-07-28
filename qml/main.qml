@@ -4750,7 +4750,7 @@ ApplicationWindow {
 
     // ============ GLOBAL HIDE KEYBOARD BUTTON ============
     // Appears when a text input has focus (= keyboard should be showing).
-    // Qt.inputMethod.visible is unreliable on Android (goes false after 1s),
+    // Keyboard.visible is unreliable on Android (goes false after 1s),
     // so we check if the active focus item has a cursorPosition property
     // (present on TextInput/TextArea but not on Text or Button).
     property bool _textInputFocused: {
@@ -4805,7 +4805,7 @@ ApplicationWindow {
                 var window = globalHideKeyboardButton.Window.window
                 if (window && window.activeFocusItem)
                     window.activeFocusItem.focus = false
-                Qt.inputMethod.hide()
+                Keyboard.hide()
             }
         }
     }

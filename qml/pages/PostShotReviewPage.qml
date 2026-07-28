@@ -35,7 +35,7 @@ Page {
     }
 
     // Disconnect refractometer when the page is torn down. NOTE: we do NOT
-    // autosave() here — calling Qt.inputMethod.commit() / a DB write / singleton
+    // autosave() here — calling Keyboard.commit() / a DB write / singleton
     // writes during QML object destruction is unsafe (events delivered to a
     // being-destroyed TextEdit, nulled context). StackView.onDeactivating below
     // already flushes on every normal navigation exit, and handleBack() flushes
@@ -53,7 +53,7 @@ Page {
         // set, Settings.visualizer.visualizerAutoUpdate on, MainController.visualizer
         // present, and a captured _visualizerId (i.e. the shot was previously uploaded).
         // Safe here because maybeAutoUpdateVisualizer() only dispatches a network call —
-        // no DB writes or Qt.inputMethod.commit(), which are the operations flagged as
+        // no DB writes or Keyboard.commit(), which are the operations flagged as
         // unsafe during destruction. Note: any failure response arrives after this page
         // is fully destroyed, so errors are logged by the C++ uploader but cannot be
         // surfaced to the user from here.
@@ -703,7 +703,7 @@ Page {
     // first tick, finalize on focus-loss, or a lifecycle flush). This keeps
     // one drag to ~2 DB writes instead of one per emission.
     function autosave(key, finalize) {
-        Qt.inputMethod.commit()
+        Keyboard.commit()
         var lifecycle = (key === undefined || key === "")
         if (!_editLoaded || !hasUnsavedChanges) {
             if (finalize || lifecycle) _lastEditKey = ""
@@ -740,7 +740,7 @@ Page {
     // record; the reverted state is itself persisted.
     function undoLastChange() {
         if (_undoStack.length === 0) return
-        Qt.inputMethod.commit()
+        Keyboard.commit()
         applyEditState(_undoStack.pop())
         _undoDepth = _undoStack.length
         // Force the next edit (even to the same control) to open a fresh
@@ -853,7 +853,7 @@ Page {
     }
 
     function saveEditedShot() {
-        Qt.inputMethod.commit()
+        Keyboard.commit()
         if (editShotId <= 0) return
         pendingVisualizerUpdate = true
         var metadata = {
@@ -1649,7 +1649,7 @@ Page {
                             // covers the keyboard/tab path.
                             onValueCommitted: postShotReviewPage.finalizeEdit()
                             onActiveFocusChanged: {
-                                if (activeFocus) { Qt.inputMethod.commit(); Qt.inputMethod.hide() }
+                                if (activeFocus) { Keyboard.commit(); Keyboard.hide() }
                                 else postShotReviewPage.finalizeEdit()
                             }
                         }
@@ -1693,7 +1693,7 @@ Page {
                             // covers the keyboard/tab path.
                             onValueCommitted: postShotReviewPage.finalizeEdit()
                             onActiveFocusChanged: {
-                                if (activeFocus) { Qt.inputMethod.commit(); Qt.inputMethod.hide() }
+                                if (activeFocus) { Keyboard.commit(); Keyboard.hide() }
                                 else postShotReviewPage.finalizeEdit()
                             }
                         }
@@ -1797,7 +1797,7 @@ Page {
                             // covers the keyboard/tab path.
                             onValueCommitted: postShotReviewPage.finalizeEdit()
                             onActiveFocusChanged: {
-                                if (activeFocus) { Qt.inputMethod.commit(); Qt.inputMethod.hide() }
+                                if (activeFocus) { Keyboard.commit(); Keyboard.hide() }
                                 else postShotReviewPage.finalizeEdit()
                             }
                             }
@@ -1841,7 +1841,7 @@ Page {
                             // covers the keyboard/tab path.
                             onValueCommitted: postShotReviewPage.finalizeEdit()
                             onActiveFocusChanged: {
-                                if (activeFocus) { Qt.inputMethod.commit(); Qt.inputMethod.hide() }
+                                if (activeFocus) { Keyboard.commit(); Keyboard.hide() }
                                 else postShotReviewPage.finalizeEdit()
                             }
                         }

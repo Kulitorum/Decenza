@@ -283,9 +283,9 @@ Page {
         }
 
         Connections {
-            target: Qt.inputMethod
+            target: Keyboard
             function onVisibleChanged() {
-                if (Qt.inputMethod.visible && saveThemeDialog.visible) {
+                if (Keyboard.visible && saveThemeDialog.visible) {
                     saveThemeDialog.keyboardOffset = parent.height * 0.25
                 } else {
                     saveThemeDialog.keyboardOffset = 0
@@ -342,7 +342,7 @@ Page {
                 accessibleName: TranslationManager.translate("settings.themes.themeNamePlaceholder", "Theme name")
                 onTextChanged: saveThemeDialog.themeName = text
                 onAccepted: {
-                    Qt.inputMethod.commit()
+                    Keyboard.commit()
                     var name = saveThemeDialog.themeName.trim()
                     if (name.length > 0 && name !== "Default") {
                         saveThemeDialog.doSave(name)
@@ -368,7 +368,7 @@ Page {
                     accessibleName: TranslationManager.translate("settingsPage.saveThemeWithName", "Save current theme with entered name")
                     enabled: saveThemeDialog.themeName.trim().length > 0
                     onClicked: {
-                        Qt.inputMethod.commit()
+                        Keyboard.commit()
                         var name = saveThemeDialog.themeName.trim()
                         if (name.length > 0 && name !== "Default") {
                             saveThemeDialog.doSave(name)

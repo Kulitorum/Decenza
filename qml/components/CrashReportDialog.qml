@@ -270,7 +270,7 @@ Dialog {
                     accessibleName: TranslationManager.translate("crashReport.sendReportAccessible", "Send crash report")
                     enabled: !CrashReporter.submitting
                     onClicked: {
-                        Qt.inputMethod.commit()
+                        Keyboard.commit()
                         root.dialogState = "submitting"
                         CrashReporter.submitReport(crashLog, userNotesInput.text, debugLogTail)
                     }
@@ -516,7 +516,7 @@ Dialog {
                     accessibleName: TranslationManager.translate("crashReport.retryAccessible", "Retry sending crash report")
                     enabled: !CrashReporter.submitting
                     onClicked: {
-                        Qt.inputMethod.commit()
+                        Keyboard.commit()
                         root.dialogState = "submitting"
                         CrashReporter.submitReport(crashLog, userNotesInput.text, debugLogTail)
                     }

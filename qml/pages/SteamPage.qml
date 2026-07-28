@@ -2413,9 +2413,9 @@ Page {
         onClosed: editPitcherPopupAtTop = false
 
         Connections {
-            target: Qt.inputMethod
+            target: Keyboard
             function onVisibleChanged() {
-                if (Qt.inputMethod.visible && editPitcherPopup.opened) {
+                if (Keyboard.visible && editPitcherPopup.opened) {
                     editPitcherPopup.editPitcherPopupAtTop = true
                 }
             }
@@ -2521,7 +2521,7 @@ Page {
                     KeyNavigation.tab: editPitcherNameInput
                     KeyNavigation.backtab: editCancelButton
                     onClicked: {
-                        Qt.inputMethod.commit()
+                        Keyboard.commit()
                         if (editPitcherNameInput.text.trim().length === 0
                                 || Settings.brew.steamPitcherNameTaken(editPitcherNameInput.text, steamPage.editingPitcherIndex))
                             return
@@ -2553,9 +2553,9 @@ Page {
         onClosed: addPitcherDialogAtTop = false
 
         Connections {
-            target: Qt.inputMethod
+            target: Keyboard
             function onVisibleChanged() {
-                if (Qt.inputMethod.visible && addPitcherDialog.opened) {
+                if (Keyboard.visible && addPitcherDialog.opened) {
                     addPitcherDialog.addPitcherDialogAtTop = true
                 }
             }
@@ -2642,7 +2642,7 @@ Page {
                     KeyNavigation.tab: addPitcherConfirmButton
                     KeyNavigation.backtab: addCancelPitcherButton
                     onClicked: {
-                        Qt.inputMethod.commit()
+                        Keyboard.commit()
                         if (newPitcherName.text.trim() !== "") {
                             var presetCount = Settings.brew.steamPitcherPresets.length
                             Settings.brew.addSteamPitcherPresetDisabled(newPitcherName.text.trim())
@@ -2663,7 +2663,7 @@ Page {
                     KeyNavigation.tab: newPitcherName
                     KeyNavigation.backtab: addPitcherOffButton
                     onClicked: {
-                        Qt.inputMethod.commit()
+                        Keyboard.commit()
                         if (newPitcherName.text.trim() !== "") {
                             var presetCount = Settings.brew.steamPitcherPresets.length
                             Settings.brew.addSteamPitcherPreset(newPitcherName.text.trim(), 30, 150, Settings.brew.steamTemperature)

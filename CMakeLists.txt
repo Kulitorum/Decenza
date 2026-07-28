@@ -751,6 +751,7 @@ set(SOURCES
     src/core/datamigrationclient.cpp
     src/core/databasebackupmanager.cpp
     src/core/documentformatter.cpp
+    src/core/keyboard.cpp
     src/weather/weathermanager.cpp
 )
 

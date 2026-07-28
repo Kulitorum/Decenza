@@ -105,7 +105,7 @@ Dialog {
     }
 
     function doSave() {
-        Qt.inputMethod.commit()
+        Keyboard.commit()
         // Extract segments from document and compile to HTML
         var segments = formatter.toSegments()
         var html = formatter.segmentsToHtml(segments)
@@ -217,7 +217,7 @@ Dialog {
                             return  // Tap inside text input, don't dismiss
                         }
                         contentInput.focus = false
-                        Qt.inputMethod.hide()
+                        Keyboard.hide()
                     }
                 }
             }
@@ -383,7 +383,7 @@ Dialog {
                             rightPadding: 0
 
                             // Selection is saved by DocumentFormatter.savedSelectionStart/End
-                            onActiveFocusChanged: if (!activeFocus) Qt.inputMethod.hide()
+                            onActiveFocusChanged: if (!activeFocus) Keyboard.hide()
 
                             DocumentFormatter {
                                 id: formatter
@@ -674,7 +674,7 @@ Dialog {
                                 id: textColorMa
                                 anchors.fill: parent
                                 onClicked: {
-                                    Qt.inputMethod.commit()
+                                    Keyboard.commit()
                                     colorPickerPopup.mode = "text"
                                     colorPickerPopup.initialColor = Qt.color(formatter.currentColor || "#ffffff")
                                     colorPickerPopup.open()
@@ -736,7 +736,7 @@ Dialog {
                                 id: bgColorMa
                                 anchors.fill: parent
                                 onClicked: {
-                                    Qt.inputMethod.commit()
+                                    Keyboard.commit()
                                     colorPickerPopup.mode = "bg"
                                     colorPickerPopup.initialColor = popup.textBackgroundColor
                                         ? Qt.color(popup.textBackgroundColor) : Qt.color("#333333")

@@ -656,7 +656,7 @@ Dialog {
     }
 
     function save() {
-        Qt.inputMethod.commit()
+        Keyboard.commit()
         var fields = {
             // Blank name -> storage derives "{brand} {model}" on create, or clears
             // the custom label (display falls back to brand+model) on edit.

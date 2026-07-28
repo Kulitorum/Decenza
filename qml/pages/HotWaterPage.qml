@@ -867,9 +867,9 @@ Page {
         onClosed: editVesselPopup.editVesselPopupAtTop = false
 
         Connections {
-            target: Qt.inputMethod
+            target: Keyboard
             function onVisibleChanged() {
-                if (Qt.inputMethod.visible && editVesselPopup.opened) {
+                if (Keyboard.visible && editVesselPopup.opened) {
                     editVesselPopup.editVesselPopupAtTop = true
                 }
             }
@@ -973,7 +973,7 @@ Page {
                     enabled: editVesselNameInput.text.trim().length > 0
                         && !Settings.brew.waterVesselNameTaken(editVesselNameInput.text, page.editingVesselIndex)
                     onClicked: {
-                        Qt.inputMethod.commit()
+                        Keyboard.commit()
                         if (editVesselNameInput.text.trim().length === 0
                                 || Settings.brew.waterVesselNameTaken(editVesselNameInput.text, page.editingVesselIndex))
                             return
@@ -1005,9 +1005,9 @@ Page {
         onClosed: addVesselDialog.addVesselDialogAtTop = false
 
         Connections {
-            target: Qt.inputMethod
+            target: Keyboard
             function onVisibleChanged() {
-                if (Qt.inputMethod.visible && addVesselDialog.opened) {
+                if (Keyboard.visible && addVesselDialog.opened) {
                     addVesselDialog.addVesselDialogAtTop = true
                 }
             }
@@ -1107,7 +1107,7 @@ Page {
                     KeyNavigation.tab: newVesselNameInput
                     KeyNavigation.backtab: cancelAddVesselButton
                     onClicked: {
-                        Qt.inputMethod.commit()
+                        Keyboard.commit()
                         if (newVesselNameInput.text.length > 0) {
                             Settings.brew.addWaterVesselPreset(newVesselNameInput.text, 200, "weight", 40, Settings.brew.waterTemperature)
                             // Select the just-added preset (appended at the end) and load its

@@ -862,7 +862,7 @@ Page {
         // the token guard silently discards the first reply).
         if (_submitting)
             return
-        Qt.inputMethod.commit()  // IME: flush the in-progress word first
+        Keyboard.commit()  // IME: flush the in-progress word first
         errorMessage = ""
         var name = nameField.text.trim()
         if (name === "") {
@@ -905,7 +905,7 @@ Page {
         // reply lands anyway — never block the exit.
         if (_baselineJson === "")
             return false
-        Qt.inputMethod.commit()  // IME: flush the in-progress word first
+        Keyboard.commit()  // IME: flush the in-progress word first
         return JSON.stringify(buildSaveMap()) !== _baselineJson
     }
 

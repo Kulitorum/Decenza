@@ -22,7 +22,7 @@ Page {
         onClicked: {
             if (searchField.activeFocus) {
                 searchField.focus = false
-                Qt.inputMethod.hide()
+                Keyboard.hide()
             }
         }
     }
@@ -606,7 +606,7 @@ Page {
             onMovementStarted: {
                 if (searchField.activeFocus) {
                     searchField.focus = false
-                    Qt.inputMethod.hide()
+                    Keyboard.hide()
                 }
             }
 
@@ -1096,7 +1096,7 @@ Page {
         searchField.text = currentText + keyword
         searchHelpDialog.close()
         searchField.forceActiveFocus()
-        Qt.inputMethod.show()
+        Keyboard.show()
     }
 
     // Saved searches dialog

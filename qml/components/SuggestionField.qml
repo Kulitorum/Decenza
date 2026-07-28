@@ -68,7 +68,7 @@ Item {
             // clearing textInput.focus, otherwise QML traverses to the next
             // text field and the keyboard reappears.
             root.forceActiveFocus()
-            Qt.inputMethod.hide()
+            Keyboard.hide()
         })
     }
 
@@ -87,7 +87,7 @@ Item {
             // want it to restore to textInput (which would re-show the
             // keyboard).
             root.forceActiveFocus()
-            Qt.inputMethod.hide()
+            Keyboard.hide()
             suggestionsDialog.open()
         })
     }

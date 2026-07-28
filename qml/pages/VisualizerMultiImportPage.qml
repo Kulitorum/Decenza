@@ -299,7 +299,7 @@ Page {
                         enabled: codeInput.text.length === 4
 
                         onClicked: {
-                            Qt.inputMethod.commit()
+                            Keyboard.commit()
                             MainController.visualizerImporter.importFromShareCode(codeInput.text)
                             showCodeInput = false
                         }
@@ -865,14 +865,14 @@ Page {
 
                 Keys.onReturnPressed: {
                     if (text.trim().length > 0) {
-                        Qt.inputMethod.hide()
+                        Keyboard.hide()
                         renameInput.focus = false
                         MainController.visualizerImporter.importFromShotIdWithName(renameProfileId, text.trim())
                         showRenameDialog = false
                     }
                 }
                 Keys.onEscapePressed: {
-                    Qt.inputMethod.hide()
+                    Keyboard.hide()
                     showRenameDialog = false
                 }
             }
@@ -886,8 +886,8 @@ Page {
                 enabled: renameInput.text.trim().length > 0
 
                 onClicked: {
-                    Qt.inputMethod.commit()
-                    Qt.inputMethod.hide()
+                    Keyboard.commit()
+                    Keyboard.hide()
                     renameInput.focus = false
                     MainController.visualizerImporter.importFromShotIdWithName(renameProfileId, renameInput.text.trim())
                     showRenameDialog = false
@@ -901,7 +901,7 @@ Page {
                 Layout.preferredHeight: Theme.scaled(44)
 
                 onClicked: {
-                    Qt.inputMethod.hide()
+                    Keyboard.hide()
                     renameInput.focus = false
                     showRenameDialog = false
                 }

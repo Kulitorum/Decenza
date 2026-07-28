@@ -1521,7 +1521,7 @@ KeyboardAwareContainer {
         y: {
             if (totpCodeField.activeFocus) {
                 // Center in the visible area above the keyboard
-                var kbHeight = Qt.inputMethod.keyboardRectangle.height;
+                var kbHeight = Keyboard.rectangle.height;
                 if (kbHeight <= 0 && (Qt.platform.os === "android" || Qt.platform.os === "ios"))
                     kbHeight = parent.height * 0.45;
                 var availableHeight = parent.height - kbHeight;
@@ -1723,7 +1723,7 @@ KeyboardAwareContainer {
                                 "Verify authenticator code to complete setup")
                             enabled: totpCodeField.text.length === 6 && !totpSetupDialog.verifying
                             onClicked: {
-                                Qt.inputMethod.commit()
+                                Keyboard.commit()
                                 totpSetupDialog.verifying = true;
                                 var success = MainController.shotServer.completeTotpSetup(
                                     totpSetupDialog.totpSecret, totpCodeField.text);

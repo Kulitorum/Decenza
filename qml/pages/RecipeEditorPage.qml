@@ -839,7 +839,7 @@ Page {
         }
 
         function doSave() {
-            Qt.inputMethod.commit()
+            Keyboard.commit()
             if (saveAsTitleField.text.length > 0) {
                 var fullTitle = editorPrefix() + saveAsTitleField.text
                 var filename = ProfileManager.titleToFilename(fullTitle)

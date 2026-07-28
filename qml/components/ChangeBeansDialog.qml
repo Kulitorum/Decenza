@@ -562,7 +562,7 @@ Dialog {
     }
 
     function confirmForm() {
-        Qt.inputMethod.commit()
+        Keyboard.commit()
         errorMessage = ""
         if (fRoaster.trim().length === 0 && fCoffee.trim().length === 0) {
             errorMessage = TranslationManager.translate(
@@ -1076,7 +1076,7 @@ Dialog {
                                     ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
                             accessibleItem: resultRow
                             onAccessibleClicked: {
-                                Qt.inputMethod.commit()
+                                Keyboard.commit()
                                 root.selectResult(MainController.beanSearch.get(index))
                             }
                         }
@@ -1133,7 +1133,7 @@ Dialog {
                                 accessibleName: TranslationManager.translate("changebeans.accessible.enterManually", "Enter bean details manually")
                                 accessibleItem: manualRow
                                 onAccessibleClicked: {
-                                    Qt.inputMethod.commit()
+                                    Keyboard.commit()
                                     root.openManualEntry()
                                 }
                             }

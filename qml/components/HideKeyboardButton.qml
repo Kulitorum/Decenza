@@ -45,7 +45,7 @@ Rectangle {
             var window = root.Window.window
             if (window && window.activeFocusItem)
                 window.activeFocusItem.focus = false
-            Qt.inputMethod.hide()
+            Keyboard.hide()
         }
     }
 }

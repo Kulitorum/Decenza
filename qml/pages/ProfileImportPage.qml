@@ -468,7 +468,7 @@ Page {
                     primary: true
                     enabled: newNameInput.text.trim().length > 0
                     onClicked: {
-                        Qt.inputMethod.commit()
+                        Keyboard.commit()
                         duplicateDialog.actionTaken = true
                         MainController.profileImporter.saveWithNewName(newNameInput.text.trim())
                         duplicateDialog.close()

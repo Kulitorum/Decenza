@@ -45,7 +45,11 @@ Other reserved names to avoid in model data: `parent`, `children`, `data`, `stat
 
 ## IME last-word drop on mobile
 
-On Android/iOS virtual keyboards, the last typed word is held in a composing/pre-edit state and is NOT reflected in `TextField.text` until committed. When a button's `onClicked` reads a text field's `.text` directly (to send, save, or pass to a C++ method), always call `Qt.inputMethod.commit()` first — otherwise the last word is silently dropped. This is a no-op on desktop so it is safe to always include.
+`Keyboard` is a compile-time singleton (`src/core/keyboard.h`) wrapping QInputMethod. Use it
+rather than `Qt.inputMethod`, which qmllint types as a bare `QObject` — every member access on
+it is unchecked, so a misspelling is invisible until a user hits it.
+
+On Android/iOS virtual keyboards, the last typed word is held in a composing/pre-edit state and is NOT reflected in `TextField.text` until committed. When a button's `onClicked` reads a text field's `.text` directly (to send, save, or pass to a C++ method), always call `Keyboard.commit()` first — otherwise the last word is silently dropped. This is a no-op on desktop so it is safe to always include.
 
 ```qml
 // BAD - last word may be missing on mobile
@@ -55,7 +59,7 @@ onClicked: {
 
 // GOOD - commit pending IME composition first
 onClicked: {
-    Qt.inputMethod.commit()
+    Keyboard.commit()
     doSomething(myField.text)
 }
 ```

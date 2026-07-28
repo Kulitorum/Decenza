@@ -642,9 +642,9 @@ Page {
         onClosed: editPresetPopupAtTop = false
 
         Connections {
-            target: Qt.inputMethod
+            target: Keyboard
             function onVisibleChanged() {
-                if (Qt.inputMethod.visible && editPresetPopup.opened) {
+                if (Keyboard.visible && editPresetPopup.opened) {
                     editPresetPopup.editPresetPopupAtTop = true
                 }
             }
@@ -739,7 +739,7 @@ Page {
                     KeyNavigation.tab: editPresetNameInput
                     KeyNavigation.backtab: cancelEditButton
                     onClicked: {
-                        Qt.inputMethod.commit()
+                        Keyboard.commit()
                         var preset = Settings.brew.getFlushPreset(editingPresetIndex)
                         Settings.brew.updateFlushPreset(editingPresetIndex, editPresetNameInput.text, preset.flow, preset.seconds)
                         editPresetPopup.close()
@@ -768,9 +768,9 @@ Page {
         onClosed: addPresetDialogAtTop = false
 
         Connections {
-            target: Qt.inputMethod
+            target: Keyboard
             function onVisibleChanged() {
-                if (Qt.inputMethod.visible && addPresetDialog.opened) {
+                if (Keyboard.visible && addPresetDialog.opened) {
                     addPresetDialog.addPresetDialogAtTop = true
                 }
             }
@@ -852,7 +852,7 @@ Page {
                     KeyNavigation.tab: newPresetNameInput
                     KeyNavigation.backtab: cancelAddButton
                     onClicked: {
-                        Qt.inputMethod.commit()
+                        Keyboard.commit()
                         if (newPresetNameInput.text.length > 0) {
                             Settings.brew.addFlushPreset(newPresetNameInput.text, 6.0, 5.0)
                             newPresetNameInput.text = ""

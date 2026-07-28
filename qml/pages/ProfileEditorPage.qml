@@ -909,7 +909,7 @@ Page {
         }
 
         function doSave() {
-            Qt.inputMethod.commit()
+            Keyboard.commit()
             if (saveAsTitleField.text.length > 0) {
                 var filename = ProfileManager.titleToFilename(saveAsTitleField.text)
                 if (ProfileManager.isBuiltInFilename(filename)) {
@@ -1541,7 +1541,7 @@ Page {
         }
 
         function doSave() {
-            Qt.inputMethod.commit()
+            Keyboard.commit()
             if (profileEditorPage.profile && nameField.text.length > 0) {
                 profileEditorPage.profile.title = nameField.text
                 profileEditorPage.updatePageTitle()

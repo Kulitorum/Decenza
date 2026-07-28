@@ -233,7 +233,7 @@
     "Quick.property-changes-parsed": 5,
     "duplicate-property-binding": 2,
     "equality-type-coercion": 1,
-    "missing-property": 250,
+    "missing-property": 145,
     "unqualified": 2738
   }
 }
