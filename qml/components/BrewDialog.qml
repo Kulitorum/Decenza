@@ -126,7 +126,7 @@ Dialog {
     function showRecipeError(msg) {
         recipeErrorText = msg
         recipeErrorTimer.restart()
-        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
             AccessibilityManager.announce(msg, true)
     }
 
@@ -345,7 +345,7 @@ Dialog {
 
     onAboutToShow: {
         // Announce dialog for accessibility
-        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
             var announcement = TranslationManager.translate("brewDialog.dialogAnnouncement", "Brew Settings dialog. Profile: ") + ProfileManager.currentProfileName
             if (Settings.dye.dyeBeanBrand.length > 0)
                 announcement += ". " + TranslationManager.translate("brewDialog.roasterAnnouncementLabel", "Roaster: ") + Settings.dye.dyeBeanBrand
@@ -811,7 +811,7 @@ Dialog {
 
                 // Announce warning when it becomes visible
                 onVisibleChanged: {
-                    if (visible && typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+                    if (visible && typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
                         AccessibilityManager.announce(TranslationManager.translate("brewDialog.warningPrefix", "Warning: ") + warningText.text)
                     }
                 }

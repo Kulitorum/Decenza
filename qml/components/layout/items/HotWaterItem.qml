@@ -260,7 +260,7 @@ Item {
                         DE1Device.startHotWater()
                     } else {
                         console.log("Cannot start hot water - machine not ready, phase:", MachineState.phase)
-                        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+                        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
                             AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
                     }
                 }

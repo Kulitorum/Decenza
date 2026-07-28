@@ -45,7 +45,7 @@ Dialog {
     // was refused, and the keys. toAccessibleText strips markup so the reader
     // speaks words rather than glyph names.
     onOpened: {
-        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
             AccessibilityManager.announce(Theme.toAccessibleText(
                 titleText.text + ". " + bodyText.text
                 + (root.hasKeyDetail ? " " + detailText.text : "")))

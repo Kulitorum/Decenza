@@ -106,7 +106,7 @@ Page {
         onCurrentIndexChanged: {
             settingsPage.markTabLoaded(currentIndex)
 
-            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
                 var tabNames = SettingsTabs.visibleTabNames()
                 if (currentIndex >= 0 && currentIndex < tabNames.length) {
                     AccessibilityManager.announce(TranslationManager.translate("settings.accessible.tabAnnounce", "%1 tab").arg(tabNames[currentIndex]))

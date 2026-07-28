@@ -116,7 +116,7 @@ Item {
                 // idle screen — "a short tap does nothing" is what keeps the
                 // gesture deliberate. AT users cannot long-press, so activation is
                 // their equivalent path.
-                if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+                if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
                     root.openSettings()
             }
         }

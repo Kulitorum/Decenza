@@ -290,7 +290,7 @@ Item {
             if (metrics.length > 0)
                 parts.push(sv.dateTime + ": " + metrics.join(", "))
         }
-        if (typeof AccessibilityManager !== "undefined" && parts.length > 1)
+        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && parts.length > 1)
             AccessibilityManager.announce(parts.join(". "), true)
     }
 

@@ -261,7 +261,7 @@ Item {
                         DE1Device.startFlush()
                     } else {
                         console.log("Cannot start flush - machine not ready, phase:", MachineState.phase)
-                        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+                        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
                             AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
                     }
                 }

@@ -390,7 +390,7 @@ Page {
         } else if (!MachineState.isReady) {
             console.log("[recipe pill] start blocked: machine not ready — recipe=" + recipe.id
                         + " phase=" + MachineState.phase)
-            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
                 AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
         } else {
             // Deferred in MainController until the recipe's profile is applied,
@@ -444,7 +444,7 @@ Page {
             idlePage.beanCaptureText = TranslationManager.translate("idle.doseCaptured", "Dose set: %1g").arg(net.toFixed(1))
             idlePage.beanCaptureShown = true
             idleBeanCaptureTimer.restart()
-            if (typeof AccessibilityManager !== "undefined") {
+            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null) {
                 if (Settings.brew.doseCaptureSoundEnabled)
                     AccessibilityManager.playCaptureDing()
                 if (AccessibilityManager.enabled)
@@ -542,7 +542,7 @@ Page {
             idlePage.milkCaptureText = TranslationManager.translate("idle.steamCaptured", "Steam time: %1s for %2g milk").arg(t).arg(milk.toFixed(0))
             idlePage.milkCaptureShown = true
             idleMilkCaptureTimer.restart()
-            if (typeof AccessibilityManager !== "undefined") {
+            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null) {
                 if (Settings.brew.doseCaptureSoundEnabled)
                     AccessibilityManager.playCaptureDing()
                 if (AccessibilityManager.enabled)
@@ -672,7 +672,7 @@ Page {
             if (Window.window) Window.window.sessionMeasuredMilkG = 0
         }
 
-        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled && activePresetFunction !== "") {
+        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled && activePresetFunction !== "") {
             var presets = []
             var selectedName = ""
             switch (activePresetFunction) {
@@ -760,7 +760,7 @@ Page {
         anchors.fill: parent
         z: -1
         enabled: activePresetFunction !== "" &&
-                 !(typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+                 !(typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
         onClicked: activePresetFunction = ""
     }
 
@@ -961,7 +961,7 @@ Page {
                                     DE1Device.startSteam()
                                 } else {
                                     console.log("Cannot start steam - machine not ready, phase:", MachineState.phase)
-                                    if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+                                    if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
                                         AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
                                 }
                             }
@@ -1054,7 +1054,7 @@ Page {
                                     DE1Device.startEspresso()
                                 } else {
                                     console.log("Cannot start espresso - machine not ready, phase:", MachineState.phase)
-                                    if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+                                    if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
                                         AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
                                 }
                             } else {
@@ -1118,7 +1118,7 @@ Page {
                                         DE1Device.startEspresso()
                                     } else {
                                         console.log("Cannot start espresso - machine not ready, phase:", MachineState.phase)
-                                        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+                                        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
                                             AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
                                     }
                                 }
@@ -1227,7 +1227,7 @@ Page {
                                 DE1Device.startHotWater()
                             } else {
                                 console.log("Cannot start hot water - machine not ready, phase:", MachineState.phase)
-                                if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+                                if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
                                     AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
                             }
                         }
@@ -1275,7 +1275,7 @@ Page {
                                 DE1Device.startFlush()
                             } else {
                                 console.log("Cannot start flush - machine not ready, phase:", MachineState.phase)
-                                if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+                                if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
                                     AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
                             }
                         }

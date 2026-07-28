@@ -28,7 +28,7 @@ Dialog {
     property bool shotPlanYieldTargetOnly: false
     property bool shotPlanShowSteamPlan: true
     // Screen-reader-only reorder fallback (drag has no assistive-tech equivalent).
-    readonly property bool _a11yEnabled: typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
+    readonly property bool _a11yEnabled: typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled
     // True while a chip drag is in progress — gates the reorder commit on
     // release and the DelegateModel rollback on cancel (styling binds to the
     // MouseArea's drag.active directly).

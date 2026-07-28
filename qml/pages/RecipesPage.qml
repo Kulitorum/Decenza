@@ -695,7 +695,7 @@ Page {
                         width: Theme.scaled(20)
                         height: Theme.scaled(20)
                         visible: searchField.displayText.length > 0
-                                 && !(typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+                                 && !(typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
                         anchors.right: parent.right
                         anchors.rightMargin: Theme.scaled(10)
                         anchors.verticalCenter: parent.verticalCenter
@@ -721,7 +721,7 @@ Page {
                 // Accessible clear button (outside the field for TalkBack discovery).
                 AccessibleButton {
                     visible: searchField.displayText.length > 0
-                             && typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
+                             && typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled
                     accessibleName: TranslationManager.translate("recipes.accessible.clearSearch", "Clear search")
                     icon.source: "qrc:/icons/cross.svg"
                     onClicked: {

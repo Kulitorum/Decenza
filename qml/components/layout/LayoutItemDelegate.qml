@@ -72,7 +72,7 @@ Item {
 
     function compileToCustom(type) {
         // Reference for translation reactivity
-        var _ = typeof TranslationManager !== "undefined" ? TranslationManager.translationVersion : 0
+        var _ = typeof TranslationManager !== "undefined" && TranslationManager !== null ? TranslationManager.translationVersion : 0
 
         switch (type) {
             case "espresso": return {

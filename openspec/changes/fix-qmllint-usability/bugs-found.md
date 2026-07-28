@@ -459,14 +459,34 @@ unconditionally in `main()` with no `#ifdef` around the declaration and publishe
 `engine.load()`, so these particular guards were already vacuously true while they were context
 properties. Nothing regressed at runtime.
 
-**Do not sweep these by deleting them wholesale.** `Theme.qml`'s `EmojiAssets` guard looks
-identically dead and is not — the deletion was made and reverted during this change once review
-showed why. `qml_register_types_Decenza()` is a second, independent registration path that has
-failed wholesale before (1,081 ReferenceErrors against a green build), and in *that* failure the
-type genuinely is `undefined` and the guard genuinely fires. The correct sweep replaces the
-`typeof` test with one that distinguishes all three states — absent, published, and registered but
-null — not one that assumes the middle case.
+**FIXED — 153 guards across 54 files**, but not the obvious way, and the obvious way is a
+regression. The tempting rewrite is `typeof X !== "undefined"` to a plain truthiness test `if (X)`.
+That throws: a bare undeclared identifier in a condition is a **ReferenceError**, and `typeof` is
+the only form that is safe on one. The wholesale-registration failure is exactly the case where
+the identifier IS undeclared — `qml_register_types_Decenza()` has failed that way before, 1,081
+ReferenceErrors against a green build — so the "dead" branch is the one that would start throwing.
+`Theme.qml`'s `EmojiAssets` guard is the same shape; it was deleted and reverted during this change
+once review showed why.
 
-Blocked on the same thing as before: `CustomItem.qml` is the file a released qmllint cannot
-analyse at all (`UNLINTABLE_BY_TOOL_BUG`), so the sweep wants the patched binary as the CI default
-first.
+The fix is therefore purely additive, and cannot regress the case the guard was written for:
+
+```js
+typeof X !== "undefined" && X !== null
+```
+
+`undefined` is false, `null` is false, a live object is true — all three states, correctly.
+
+Scope was decided by what the type actually is, not by grep. 169 `typeof … !== "undefined"` guards
+exist in `qml/`; only the 153 naming a type exported in `Decenza.qmltypes` were rewritten. The
+other 16 name things that are still context properties or plain JS — `ScaleDevice`,
+`Refractometer`, `USBManager`, `GHCSimulator`, `McpServer`, `pageStack`, `Window` — where the
+unmodified `typeof` test is still exactly right. Rewriting those would have been wrong in the other
+direction. When `ScaleDevice` and `Refractometer` get their façade, their guards join the 153.
+
+The count in the paragraph above (~19 + ~11) was what the reviewers saw in two files. The real
+distribution was dominated by something neither had looked at: `AccessibilityManager`, 106 guards
+across 50 files, registered long before this change. That is the value of counting before fixing.
+Verified with the patched qmllint, which is the only binary that can read `CustomItem.qml` at all
+(`UNLINTABLE_BY_TOOL_BUG`) and therefore the only one that could confirm its 32 rewritten guards:
+gate passed, 218/218 linted, 89 clean, no diagnostic movement in either direction. Full suite 105
+passed.

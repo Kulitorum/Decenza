@@ -12,7 +12,7 @@ Item {
     property int versionTapCount: 0
     property var lastTapTime: 0
 
-    readonly property var fw: typeof MainController !== "undefined" && MainController
+    readonly property var fw: typeof MainController !== "undefined" && MainController !== null && MainController
                               ? MainController.firmwareUpdater : null
 
 

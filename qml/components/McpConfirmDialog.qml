@@ -47,7 +47,7 @@ Dialog {
     onOpened: {
         root.userResponded = false
         root.countdown = 15
-        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
             AccessibilityManager.announce(
                 TranslationManager.translate("mcp.confirm.announce",
                     "AI assistant wants to %1. Allow or Deny. Auto-denies in 15 seconds.")

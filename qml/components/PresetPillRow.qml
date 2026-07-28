@@ -102,7 +102,7 @@ FocusScope {
     }
 
     function announceCurrentPill() {
-        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled && presets.length > 0) {
+        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled && presets.length > 0) {
             // Route through pillLayoutName so keyboard/switch-access announcements match what
             // touch/screen-reader-tap users hear (e.g. pillLabelFn's "Small Pitcher" transform).
             var name = pillLayoutName(focusedIndex)
@@ -506,7 +506,7 @@ FocusScope {
                                 // index, which the 1ms rowsModel rebuild can leave stale after
                                 // a deletion/reorder — fall back to the row's snapshot name
                                 // rather than announcing nothing.
-                                if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+                                if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
                                     var announceName = pillDisplayName(modelData.index) || modelData.preset.name
                                     AccessibilityManager.announce(announceName + " " + TranslationManager.translate("presetPill.selected", "selected"))
                                 }

@@ -367,7 +367,7 @@ Item {
         // Accessibility only - don't block flick gestures on the hourly list
         MouseArea {
             anchors.fill: parent
-            enabled: typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
+            enabled: typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled
             onClicked: {
                 var forecast = WeatherManager.hourlyForecast
                 if (forecast.length > 0) {

@@ -124,7 +124,7 @@ Button {
 
     // Clear lastAnnouncedItem when destroyed to prevent dangling pointer crash
     Component.onDestruction: {
-        if (typeof AccessibilityManager !== "undefined" &&
+        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null &&
             AccessibilityManager.lastAnnouncedItem === control) {
             AccessibilityManager.lastAnnouncedItem = null
         }
@@ -153,7 +153,7 @@ Button {
 
         onLongPressed: {
             _longPressTriggered = true
-            var accessibilityMode = typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
+            var accessibilityMode = typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled
             if (accessibilityMode)
                 control.doubleClicked()
             else
@@ -162,7 +162,7 @@ Button {
 
         onTapped: function(eventPoint, button) {
             if (_longPressTriggered) return
-            var accessibilityMode = typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
+            var accessibilityMode = typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled
             if (accessibilityMode) {
                 // Accessibility mode: first tap announces, second tap activates.
                 // Double-tap detection is disabled — TalkBack's own double-tap gesture can be misdetected.
@@ -182,14 +182,14 @@ Button {
 
         onSingleTapped: function(eventPoint, button) {
             if (_longPressTriggered || !control.supportDoubleClick) return
-            var accessibilityMode = typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
+            var accessibilityMode = typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled
             if (!accessibilityMode)
                 control.clicked()
         }
 
         onDoubleTapped: function(eventPoint, button) {
             if (_longPressTriggered || !control.supportDoubleClick) return
-            var accessibilityMode = typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
+            var accessibilityMode = typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled
             if (!accessibilityMode)
                 control.doubleClicked()
         }
@@ -219,7 +219,7 @@ Button {
 
     // Announce button name when focused via keyboard (for accessibility)
     onActiveFocusChanged: {
-        if (activeFocus && typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+        if (activeFocus && typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
             if (!control._isPressed) {
                 AccessibilityManager.lastAnnouncedItem = control
                 AccessibilityManager.announce(control.text)

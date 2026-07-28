@@ -44,7 +44,7 @@ FocusScope {
         if (newVal !== root.value) {
             root.value = newVal
             root.valueModified(newVal)
-            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
                 AccessibilityManager.announce(newVal + "%")
             }
         }
@@ -120,7 +120,7 @@ FocusScope {
                         onClicked: {
                             root.value = modelData
                             root.valueModified(modelData)
-                            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+                            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
                                 AccessibilityManager.announce(modelData + "%")
                             }
                         }

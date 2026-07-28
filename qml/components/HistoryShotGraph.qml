@@ -306,7 +306,7 @@ Item {
         }
 
         if (parts.length === 0) return
-        if (typeof AccessibilityManager !== "undefined") {
+        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null) {
             var phase = getPhaseAtTime(time)
             var header = "At " + time.toFixed(1) + " seconds"
             if (phase !== "") header += ", " + phase + " phase"

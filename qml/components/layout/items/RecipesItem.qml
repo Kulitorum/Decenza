@@ -49,7 +49,7 @@ Item {
         } else if (!MachineState.isReady) {
             console.log("[recipe pill/compact] start blocked: machine not ready — recipe=" + recipe.id
                         + " phase=" + MachineState.phase)
-            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
                 AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
         } else {
             // Deferred in MainController until the recipe's profile is applied,

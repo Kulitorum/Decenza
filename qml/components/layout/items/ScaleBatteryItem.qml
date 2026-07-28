@@ -118,7 +118,7 @@ Item {
             accessibleName: root.accessibleText
             accessibleItem: compactContent
             onAccessibleClicked: {
-                if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+                if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
                     AccessibilityManager.announceLabel(root.accessibleText)
                 }
             }
@@ -181,7 +181,7 @@ Item {
             accessibleName: root.accessibleText
             accessibleItem: fullContent
             onAccessibleClicked: {
-                if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+                if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
                     AccessibilityManager.announceLabel(root.accessibleText)
                 }
             }

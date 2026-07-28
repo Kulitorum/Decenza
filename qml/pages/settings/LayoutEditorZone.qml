@@ -23,7 +23,7 @@ Rectangle {
     property bool _dragging: false
     // Whether a screen reader is active — gates the accessible-only reorder
     // fallback buttons (drag has no assistive-tech equivalent).
-    readonly property bool _a11yEnabled: typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
+    readonly property bool _a11yEnabled: typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled
 
     signal itemTapped(string itemId)
     signal zoneTapped()

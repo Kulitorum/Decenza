@@ -350,7 +350,7 @@ Page {
         pitcherToastText.text = message
         pitcherToast.opacity = 1
         pitcherToastTimer.restart()
-        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
             AccessibilityManager.announce(message, true)
     }
     Rectangle {
@@ -2205,7 +2205,7 @@ Page {
                     .arg(t).arg(milk.toFixed(0))
             steamPage.captureBannerVisible = true
             captureBannerTimer.restart()
-            if (typeof AccessibilityManager !== "undefined") {
+            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null) {
                 if (Settings.brew.doseCaptureSoundEnabled)
                     AccessibilityManager.playCaptureDing()
                 if (AccessibilityManager.enabled)
@@ -2282,7 +2282,7 @@ Page {
         target: MachineState
         enabled: !isSteaming && !steamSoftStopped
                  && steamPage.realScaleConnected
-                 && typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
+                 && typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled
                  && AccessibilityManager.extractionAnnouncementsEnabled
         function onScaleWeightChanged() {
             var w = MachineState.scaleWeight
@@ -2305,7 +2305,7 @@ Page {
         repeat: true
         running: !isSteaming && !steamSoftStopped
                  && steamPage.realScaleConnected
-                 && typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
+                 && typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled
                  && AccessibilityManager.extractionAnnouncementsEnabled
                  && (AccessibilityManager.extractionAnnouncementMode === "timed" ||
                      AccessibilityManager.extractionAnnouncementMode === "both")

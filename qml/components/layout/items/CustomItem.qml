@@ -151,31 +151,31 @@ Item {
     readonly property string resolvedText: {
         var _c = content  // direct dependency so content changes always trigger re-evaluation
         var _tick = _refreshTick
-        if (_needsMachineData && typeof DE1Device !== "undefined") {
+        if (_needsMachineData && typeof DE1Device !== "undefined" && DE1Device !== null) {
             void(DE1Device.temperature); void(DE1Device.steamTemperature)
             void(DE1Device.pressure); void(DE1Device.flow)
             void(DE1Device.waterLevel); void(DE1Device.waterLevelMl)
             void(DE1Device.stateString); void(DE1Device.connected)
         }
-        if (_needsScaleData && typeof MachineState !== "undefined") {
+        if (_needsScaleData && typeof MachineState !== "undefined" && MachineState !== null) {
             void(MachineState.scaleWeight); void(MachineState.shotTime)
             void(MachineState.cumulativeVolume)
             void(MachineState.preinfusionVolume); void(MachineState.pourVolume)
         }
-        if ((_needsMachineData || _needsScaleData) && typeof MachineState !== "undefined") {
+        if ((_needsMachineData || _needsScaleData) && typeof MachineState !== "undefined" && MachineState !== null) {
             void(MachineState.phase)
         }
-        if (_needsControllerData && typeof ProfileManager !== "undefined") {
+        if (_needsControllerData && typeof ProfileManager !== "undefined" && ProfileManager !== null) {
             void(ProfileManager.targetWeight); void(ProfileManager.currentProfileName)
             void(ProfileManager.profileTargetTemperature)
             void(ProfileManager.brewByRatio); void(ProfileManager.brewByRatioDose)
             // %TARGET_TEMP% shows the effective brew temp (per-brew override when set)
-            if (typeof Settings !== "undefined") void(Settings.brew.temperatureOverride)
+            if (typeof Settings !== "undefined" && Settings !== null) void(Settings.brew.temperatureOverride)
         }
         if (_needsScaleDevice && typeof ScaleDevice !== "undefined" && ScaleDevice) {
             void(ScaleDevice.name); void(ScaleDevice.connected)
         }
-        if (_needsSettingsData && typeof Settings !== "undefined") {
+        if (_needsSettingsData && typeof Settings !== "undefined" && Settings !== null) {
             void(Settings.dye.dyeGrinderSetting); void(Settings.dye.dyeGrinderModel)
             void(Settings.dye.dyeGrinderRpm)
         }
@@ -219,44 +219,44 @@ Item {
         if (!text) return ""
         var result = sanitizeHtml(text)
         // Machine
-        result = result.replace(/%TEMP%/g, typeof DE1Device !== "undefined" ? Theme.cToDisplay(DE1Device.temperature).toFixed(1) : "—")
-        result = result.replace(/%STEAM_TEMP%/g, typeof DE1Device !== "undefined" ? Theme.cToDisplay(DE1Device.steamTemperature).toFixed(0) + "\u00B0" : "—")
-        result = result.replace(/%PRESSURE%/g, typeof DE1Device !== "undefined" ? DE1Device.pressure.toFixed(1) : "—")
-        result = result.replace(/%FLOW%/g, typeof DE1Device !== "undefined" ? DE1Device.flow.toFixed(1) : "—")
-        result = result.replace(/%WATER%/g, typeof DE1Device !== "undefined" ? DE1Device.waterLevel.toFixed(0) : "—")
-        result = result.replace(/%WATER_ML%/g, typeof DE1Device !== "undefined" ? DE1Device.waterLevelMl.toFixed(0) : "—")
-        result = result.replace(/%STATE%/g, typeof DE1Device !== "undefined" ? DE1Device.stateString : "—")
+        result = result.replace(/%TEMP%/g, typeof DE1Device !== "undefined" && DE1Device !== null ? Theme.cToDisplay(DE1Device.temperature).toFixed(1) : "—")
+        result = result.replace(/%STEAM_TEMP%/g, typeof DE1Device !== "undefined" && DE1Device !== null ? Theme.cToDisplay(DE1Device.steamTemperature).toFixed(0) + "\u00B0" : "—")
+        result = result.replace(/%PRESSURE%/g, typeof DE1Device !== "undefined" && DE1Device !== null ? DE1Device.pressure.toFixed(1) : "—")
+        result = result.replace(/%FLOW%/g, typeof DE1Device !== "undefined" && DE1Device !== null ? DE1Device.flow.toFixed(1) : "—")
+        result = result.replace(/%WATER%/g, typeof DE1Device !== "undefined" && DE1Device !== null ? DE1Device.waterLevel.toFixed(0) : "—")
+        result = result.replace(/%WATER_ML%/g, typeof DE1Device !== "undefined" && DE1Device !== null ? DE1Device.waterLevelMl.toFixed(0) : "—")
+        result = result.replace(/%STATE%/g, typeof DE1Device !== "undefined" && DE1Device !== null ? DE1Device.stateString : "—")
         // Scale / Shot
-        result = result.replace(/%WEIGHT%/g, typeof MachineState !== "undefined" ? MachineState.scaleWeight.toFixed(1) : "—")
-        result = result.replace(/%SHOT_TIME%/g, typeof MachineState !== "undefined" ? MachineState.shotTime.toFixed(1) : "—")
-        result = result.replace(/%VOLUME%/g, typeof MachineState !== "undefined" ? MachineState.cumulativeVolume.toFixed(0) : "—")
-        result = result.replace(/%POUR_VOLUME%/g, typeof MachineState !== "undefined" ? MachineState.pourVolume.toFixed(0) : "—")
-        result = result.replace(/%PREINFUSION_VOLUME%/g, typeof MachineState !== "undefined" ? MachineState.preinfusionVolume.toFixed(0) : "—")
+        result = result.replace(/%WEIGHT%/g, typeof MachineState !== "undefined" && MachineState !== null ? MachineState.scaleWeight.toFixed(1) : "—")
+        result = result.replace(/%SHOT_TIME%/g, typeof MachineState !== "undefined" && MachineState !== null ? MachineState.shotTime.toFixed(1) : "—")
+        result = result.replace(/%VOLUME%/g, typeof MachineState !== "undefined" && MachineState !== null ? MachineState.cumulativeVolume.toFixed(0) : "—")
+        result = result.replace(/%POUR_VOLUME%/g, typeof MachineState !== "undefined" && MachineState !== null ? MachineState.pourVolume.toFixed(0) : "—")
+        result = result.replace(/%PREINFUSION_VOLUME%/g, typeof MachineState !== "undefined" && MachineState !== null ? MachineState.preinfusionVolume.toFixed(0) : "—")
         // Profile (ProfileManager)
-        result = result.replace(/%TARGET_WEIGHT%/g, typeof ProfileManager !== "undefined" ? ProfileManager.targetWeight.toFixed(1) : "—")
-        result = result.replace(/%PROFILE%/g, typeof ProfileManager !== "undefined" ? ProfileManager.currentProfileName : "—")
+        result = result.replace(/%TARGET_WEIGHT%/g, typeof ProfileManager !== "undefined" && ProfileManager !== null ? ProfileManager.targetWeight.toFixed(1) : "—")
+        result = result.replace(/%PROFILE%/g, typeof ProfileManager !== "undefined" && ProfileManager !== null ? ProfileManager.currentProfileName : "—")
         // The EFFECTIVE brew temp — the per-brew override when set (which, with a
         // recipe active, is the recipe's own temp), else the profile default. This
         // matches %TARGET_WEIGHT% (which reads the effective ProfileManager.targetWeight)
         // so temp and yield stay aligned (recipe-baseline-not-override, #1485).
-        result = result.replace(/%TARGET_TEMP%/g, typeof Settings !== "undefined"
+        result = result.replace(/%TARGET_TEMP%/g, typeof Settings !== "undefined" && Settings !== null
             ? Theme.cToDisplay(Settings.brew.hasTemperatureOverride ? Settings.brew.temperatureOverride : ProfileManager.profileTargetTemperature).toFixed(1)
             : "—")
-        result = result.replace(/%RATIO%/g, typeof ProfileManager !== "undefined" ? ProfileManager.brewByRatio.toFixed(1) : "—")
-        result = result.replace(/%DOSE%/g, typeof ProfileManager !== "undefined" ? ProfileManager.brewByRatioDose.toFixed(1) : "—")
+        result = result.replace(/%RATIO%/g, typeof ProfileManager !== "undefined" && ProfileManager !== null ? ProfileManager.brewByRatio.toFixed(1) : "—")
+        result = result.replace(/%DOSE%/g, typeof ProfileManager !== "undefined" && ProfileManager !== null ? ProfileManager.brewByRatioDose.toFixed(1) : "—")
         // Scale device
         result = result.replace(/%SCALE%/g, typeof ScaleDevice !== "undefined" && ScaleDevice ? ScaleDevice.name : "—")
         // Grinder
-        result = result.replace(/%GRIND%/g, typeof Settings !== "undefined" && Settings.dye.dyeGrinderSetting ? Settings.dye.dyeGrinderSetting : "—")
-        result = result.replace(/%RPM%/g, typeof Settings !== "undefined" && Settings.dye.dyeGrinderRpm > 0 ? String(Settings.dye.dyeGrinderRpm) : "—")
-        result = result.replace(/%GRINDER%/g, typeof Settings !== "undefined" && Settings.dye.dyeGrinderModel ? Settings.dye.dyeGrinderModel : "—")
+        result = result.replace(/%GRIND%/g, typeof Settings !== "undefined" && Settings !== null && Settings.dye.dyeGrinderSetting ? Settings.dye.dyeGrinderSetting : "—")
+        result = result.replace(/%RPM%/g, typeof Settings !== "undefined" && Settings !== null && Settings.dye.dyeGrinderRpm > 0 ? String(Settings.dye.dyeGrinderRpm) : "—")
+        result = result.replace(/%GRINDER%/g, typeof Settings !== "undefined" && Settings !== null && Settings.dye.dyeGrinderModel ? Settings.dye.dyeGrinderModel : "—")
         // Machine ready status
-        var machineReady = typeof MachineState !== "undefined" && MachineState.isReady
+        var machineReady = typeof MachineState !== "undefined" && MachineState !== null && MachineState.isReady
         result = result.replace(/%MACHINE_READY%/g, machineReady ? TranslationManager.translate("customitem.status.ready", "Ready") : TranslationManager.translate("customitem.status.notReady", "Not ready"))
         if (result.indexOf("%MACHINE_READY_COLOR%") >= 0)
             result = result.replace(/%MACHINE_READY_COLOR%/g, machineReady ? Theme.successColor : Theme.errorColor)
         // Connection status
-        var machineOn = typeof DE1Device !== "undefined" && DE1Device.connected
+        var machineOn = typeof DE1Device !== "undefined" && DE1Device !== null && DE1Device.connected
         var scaleOn = typeof ScaleDevice !== "undefined" && ScaleDevice && ScaleDevice.connected
         var flowScale = typeof ScaleDevice !== "undefined" && ScaleDevice && ScaleDevice.isFlowScale
         result = result.replace(/%CONNECTED%/g, machineOn ? TranslationManager.translate("customitem.status.online", "Online") : TranslationManager.translate("customitem.status.offline", "Offline"))
@@ -353,14 +353,14 @@ Item {
             // The hardware Group Head Controller (GHC), when present and active, takes
             // exclusive control of starting shots/steam/etc., so on-screen start calls
             // are only valid in headless (no/inactive GHC) or simulation mode.
-            var canStart = typeof DE1Device !== "undefined"
+            var canStart = typeof DE1Device !== "undefined" && DE1Device !== null
                     && DE1Device.guiEnabled
                     && (DE1Device.isHeadless || DE1Device.simulationMode)
             switch (target) {
                 case "sleep":
                     if (typeof ScaleDevice !== "undefined" && ScaleDevice && ScaleDevice.connected)
                         ScaleDevice.disableLcd()
-                    if (typeof DE1Device !== "undefined")
+                    if (typeof DE1Device !== "undefined" && DE1Device !== null)
                         DE1Device.goToSleep()
                     var win = Window.window
                     if (win && typeof win.goToScreensaver === "function")
@@ -383,19 +383,19 @@ Item {
                         DE1Device.startFlush()
                     break
                 case "idle":
-                    if (typeof DE1Device !== "undefined")
+                    if (typeof DE1Device !== "undefined" && DE1Device !== null)
                         DE1Device.requestIdle()
                     break
                 case "tare":
-                    if (typeof MachineState !== "undefined")
+                    if (typeof MachineState !== "undefined" && MachineState !== null)
                         MachineState.tareScale()
                     break
                 case "scanDE1":
-                    if (typeof BLEManager !== "undefined")
+                    if (typeof BLEManager !== "undefined" && BLEManager !== null)
                         BLEManager.scanForDevices()
                     break
                 case "scanScale":
-                    if (typeof BLEManager !== "undefined")
+                    if (typeof BLEManager !== "undefined" && BLEManager !== null)
                         BLEManager.scanForDevices()
                     break
                 case "brewSettings":
@@ -403,11 +403,11 @@ Item {
                     if (bwin && bwin.openBrewSettings) bwin.openBrewSettings()
                     break
                 case "toggleCharging":
-                    if (typeof BatteryManager !== "undefined")
+                    if (typeof BatteryManager !== "undefined" && BatteryManager !== null)
                         BatteryManager.chargingMode = (BatteryManager.chargingMode + 1) % 3
                     break
                 case "tempToggleSteam":
-                    if (typeof Settings !== "undefined" && typeof MainController !== "undefined") {
+                    if (typeof Settings !== "undefined" && Settings !== null && typeof MainController !== "undefined" && MainController !== null) {
                         if (Settings.brew.steamDisabled)
                             MainController.startSteamHeating("custom-widget-toggle")
                         else
@@ -429,7 +429,7 @@ Item {
                     }
                     break
                 case "disconnectDE1":
-                    if (typeof DE1Device !== "undefined")
+                    if (typeof DE1Device !== "undefined" && DE1Device !== null)
                         DE1Device.disconnect()
                     break
                 case "previousProfile":
@@ -473,7 +473,7 @@ Item {
             anchors.bottomMargin: Theme.spacingSmall
             color: compactTap.isPressed ? Qt.darker(root._effectiveBackground, 1.2) : root._effectiveBackground
             radius: Theme.cardRadius
-            opacity: root.hasAction && typeof DE1Device !== "undefined" && !DE1Device.guiEnabled ? 0.5 : 1.0
+            opacity: root.hasAction && typeof DE1Device !== "undefined" && DE1Device !== null && !DE1Device.guiEnabled ? 0.5 : 1.0
             // A hairline edge whenever the page is a flat preset colour. Fill contrast
             // alone is not enough there: the tile is a lifted shade of the very colour
             // behind it, so on the lighter colours it reads as a smudge rather than a
@@ -538,7 +538,7 @@ Item {
             anchors.fill: parent
             color: fullTap.isPressed ? Qt.darker(root._effectiveBackground, 1.2) : root._effectiveBackground
             radius: Theme.cardRadius
-            opacity: root.hasAction && typeof DE1Device !== "undefined" && !DE1Device.guiEnabled ? 0.5 : 1.0
+            opacity: root.hasAction && typeof DE1Device !== "undefined" && DE1Device !== null && !DE1Device.guiEnabled ? 0.5 : 1.0
             // A hairline edge whenever the page is a flat preset colour. Fill contrast
             // alone is not enough there: the tile is a lifted shade of the very colour
             // behind it, so on the lighter colours it reads as a smudge rather than a
@@ -559,7 +559,7 @@ Item {
                 sourceSize.width: Theme.scaled(48)
                 sourceSize.height: Theme.scaled(48)
                 anchors.horizontalCenter: parent.horizontalCenter
-                opacity: root.hasAction && typeof DE1Device !== "undefined" && !DE1Device.guiEnabled ? 0.5 : 1.0
+                opacity: root.hasAction && typeof DE1Device !== "undefined" && DE1Device !== null && !DE1Device.guiEnabled ? 0.5 : 1.0
                 Accessible.ignored: true
                 // Tint SVG icons to match text color in both modes
                 layer.enabled: root.emojiIsSvg

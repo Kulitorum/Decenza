@@ -979,7 +979,7 @@ ApplicationWindow {
         id: accessibilityTapOverlay
         anchors.fill: parent
         z: 10000  // Above everything
-        enabled: typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
+        enabled: typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled
         propagateComposedEvents: true
         Accessible.ignored: true
 
@@ -1012,7 +1012,7 @@ ApplicationWindow {
     // Floating "Done Editing" button - appears when translation edit mode is active
     Rectangle {
         id: doneEditingButton
-        visible: typeof TranslationManager !== "undefined" && TranslationManager.editModeEnabled
+        visible: typeof TranslationManager !== "undefined" && TranslationManager !== null && TranslationManager.editModeEnabled
         z: 10002  // Above the translation overlay
 
         anchors.top: parent.top
@@ -2240,7 +2240,7 @@ ApplicationWindow {
     // arbitrary yield and must not drive dial-in advice). This single
     // handler covers every existing stop entry point that sets stopReason.
     onStopReasonChanged: {
-        if (typeof MainController !== "undefined")
+        if (typeof MainController !== "undefined" && MainController !== null)
             MainController.reportShotStopReason(stopReason)
     }
 
@@ -2351,7 +2351,7 @@ ApplicationWindow {
             root.sawBypassedVisible = true
             sawBypassedPopIn.start()
             sawBypassedTimer.start()
-            if (typeof AccessibilityManager !== "undefined") {
+            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null) {
                 AccessibilityManager.announce(sawBypassedText.text, true)
             }
         }
@@ -3633,7 +3633,7 @@ ApplicationWindow {
 
     // Helper to announce arbitrary text for accessibility (used for non-page announcements)
     function announceNavigation(text) {
-        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
             AccessibilityManager.announce(text)
         }
     }
@@ -3861,7 +3861,7 @@ ApplicationWindow {
         z: -1  // Behind all controls
         minimumTouchPoints: 2
         maximumTouchPoints: 2
-        enabled: typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
+        enabled: typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled
 
         property var startPoints: []
 
@@ -3874,7 +3874,7 @@ ApplicationWindow {
 
         onReleased: function(touchPoints) {
             // Check for 2-finger swipe left (back gesture) when accessibility is on
-            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled &&
+            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled &&
                 startPoints.length === 2 && touchPoints.length === 2) {
                 var deltaX1 = touchPoints[0].x - startPoints[0].x
                 var deltaX2 = touchPoints[1].x - startPoints[1].x
