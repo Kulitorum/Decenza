@@ -210,16 +210,39 @@ void UsbScaleManager::startPolling()
 void UsbScaleManager::probeNow()
 {
     qDebug() << "[USB Scale] On-demand probe requested (scan)";
-    emit logMessage(QStringLiteral("[USB Scale] Probing for USB scale (scan)"));
+    m_scanProbePending = true;
 
     onPollTimerTick();
 
-    // A pass is synchronous in the sense that matters here: it either finds an
-    // already-open scale, or it kicks off a probe whose result arrives on the
-    // normal availability signals. We report the pass as finished rather than
-    // waiting for the probe's own timeout, because the scan indicator should
-    // not sit on USB — BLE's 15 s dominates and a USB scale that answers later
-    // still appears via the background poll.
+    // A pass does not always start a probe: onPollTimerTick only probes when
+    // there is an un-probed candidate port and no scale is already connected.
+    // When it didn't, there is nothing to wait for — say so rather than leaving
+    // the scan indicator pinned on a probe that never began.
+    //
+    // An earlier version emitted probeFinished() unconditionally right here,
+    // which made the whole thing inert: the signal round-tripped through
+    // BLEManager synchronously and cleared the in-flight flag before the
+    // composite `scanning` property was ever read, so USB never actually
+    // contributed to it.
+    const bool probeRunning =
+#ifdef Q_OS_ANDROID
+        m_androidProbeTimer != nullptr;
+#else
+        m_probePort != nullptr;
+#endif
+    if (probeRunning) {
+        emit logMessage(QStringLiteral("[USB Scale] Probing for USB scale (scan)"));
+    } else {
+        emit logMessage(QStringLiteral("[USB Scale] Scan: nothing new to probe"));
+        finishScanProbe();
+    }
+}
+
+void UsbScaleManager::finishScanProbe()
+{
+    if (!m_scanProbePending)
+        return;
+    m_scanProbePending = false;
     emit probeFinished();
 }
 
@@ -409,6 +432,9 @@ void UsbScaleManager::onAndroidProbeTimeout()
 
 void UsbScaleManager::cleanupAndroidProbe(bool closeConnection)
 {
+    // Android's equivalent of cleanupProbe(): the single point a probe pass ends.
+    finishScanProbe();
+
     if (m_androidProbeTimer) {
         m_androidProbeTimer->stop();
         m_androidProbeTimer->deleteLater();
@@ -612,6 +638,10 @@ void UsbScaleManager::onProbeTimeout()
 
 void UsbScaleManager::cleanupProbe()
 {
+    // The one place a desktop probe pass ends — success, failure or timeout.
+    // A scan is waiting on this, not on the pass merely having been started.
+    finishScanProbe();
+
     if (m_probeTimer) {
         m_probeTimer->stop();
         m_probeTimer->deleteLater();

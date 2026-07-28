@@ -1855,7 +1855,7 @@ if(APPLE AND NOT IOS)
             COMMAND codesign --force
                     --sign "${DECENZA_MACOS_CODESIGN_IDENTITY}"
                     "$<TARGET_BUNDLE_DIR:Decenza>"
-            COMMENT "Re-signing with stable dev identity '${DECENZA_MACOS_CODESIGN_IDENTITY}' — keeps the Local Network grant across rebuilds"
+            COMMENT "Re-signing with stable dev identity '${DECENZA_MACOS_CODESIGN_IDENTITY}' — stable identity for the TCC/Local Network grant (see CAVEAT in CMakeLists.txt)"
             VERBATIM
         )
     endif()

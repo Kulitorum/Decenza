@@ -1,14 +1,18 @@
 #include "mdnsresolver.h"
 
-// Compiled on every platform EXCEPT Apple. macOS/iOS browse through the system
-// Bonjour APIs instead — see the header for why (multicast entitlement), and
-// keep this guard in step with the `if(NOT APPLE)` blocks in CMakeLists.txt
-// that fetch the library and add its include directory.
+// Compiled on every platform EXCEPT iOS — keep in step with the `if(NOT IOS)`
+// blocks in CMakeLists.txt that fetch the library and add its include directory.
+// iOS is the only exclusion because a raw multicast socket there needs an
+// entitlement Apple grants by application (see the header).
 //
-// Note this is wider than the guard used to be (Q_OS_ANDROID). resolveHostname()
-// is still only *called* on Android — WifiScaleDiscovery guards its call site —
-// so compiling it elsewhere changes no behaviour; it is browseService() that
-// desktop platforms need, because QHostInfo cannot enumerate services.
+// macOS builds this deliberately even though it defaults to Bonjour: it is the
+// only way to exercise the backend Android and Windows/Linux ship without
+// deploying to a device. Do NOT narrow this to Q_OS_DARWIN / `NOT APPLE`.
+//
+// Wider than the original guard (Q_OS_ANDROID). resolveHostname() is still only
+// *called* on Android — WifiScaleDiscovery guards its call site — so compiling
+// it elsewhere changes no behaviour; it is browseService() that desktop
+// platforms need, because QHostInfo cannot enumerate services.
 #ifndef Q_OS_IOS
 
 #include <QHostAddress>
@@ -373,7 +377,8 @@ QString resolveHostname(const QString& hostname, int timeoutMs)
 
 QVector<ServiceInstance> browseServiceMjansson(const QString& serviceType, int timeoutMs,
                                               const std::function<void(const ServiceInstance&)>& onResolved,
-                                              BrowseStats* stats)
+                                              BrowseStats* stats,
+                                              const std::atomic<bool>* cancel)
 {
     if (stats) stats->backend = QStringLiteral("mjansson");
     // Same ephemeral-port rationale as resolveHostname() above — binding 5353
@@ -412,6 +417,8 @@ QVector<ServiceInstance> browseServiceMjansson(const QString& serviceType, int t
     int sendOk = 0;
 
     while (deadline.elapsed() < timeoutMs) {
+        if (cancel && cancel->load(std::memory_order_relaxed))
+            break;   // scan ended or app quitting — do not hold the pool thread
         if (deadline.elapsed() >= nextSendAt) {
             // The PTR query is the browse. Responders bundle the matching SRV,
             // TXT and A records into the same packet as additional records, so
@@ -459,6 +466,12 @@ QVector<ServiceInstance> browseServiceMjansson(const QString& serviceType, int t
         int ret = select(sock + 1, &readfds, nullptr, nullptr, &tv);
         if (ret < 0) {
             if (errno == EINTR) continue;
+            // Anything else (EBADF, EINVAL, ENOMEM) aborts the browse. Without
+            // recording it the summary is indistinguishable from an empty
+            // network, which is the exact confusion BrowseStats exists to stop.
+            qWarning() << "[MdnsResolver] browse select() failed errno=" << errno;
+            if (stats && stats->error.isEmpty())
+                stats->error = QString("select() failed (errno %1) — browse aborted early").arg(errno);
             break;
         }
         if (ret == 0) continue;
@@ -769,7 +782,8 @@ namespace MdnsResolver {
 
 QVector<ServiceInstance> browseServiceBonjour(const QString& serviceType, int timeoutMs,
                                               const std::function<void(const ServiceInstance&)>& onResolved,
-                                              BrowseStats* stats)
+                                              BrowseStats* stats,
+                                              const std::atomic<bool>* cancel)
 {
     QElapsedTimer elapsed;
     elapsed.start();
@@ -818,6 +832,8 @@ QVector<ServiceInstance> browseServiceBonjour(const QString& serviceType, int ti
     // The daemon's first replies are its cache — stale instances included — and
     // its own pruning of those arrives seconds later.
     while (!deadline.hasExpired() && fd >= 0) {
+        if (cancel && cancel->load(std::memory_order_relaxed))
+            break;   // scan ended or app quitting — do not hold the pool thread
         const qint64 remaining = deadline.remainingTime();
         if (remaining <= 0) break;
 
@@ -831,11 +847,23 @@ QVector<ServiceInstance> browseServiceBonjour(const QString& serviceType, int ti
         const int ret = select(fd + 1, &readfds, nullptr, nullptr, &tv);
         if (ret < 0) {
             if (errno == EINTR) continue;
+            qWarning() << "[MdnsResolver] browse select() failed errno=" << errno;
+            if (stats && stats->error.isEmpty())
+                stats->error = QString("select() failed (errno %1) — browse aborted early").arg(errno);
             break;
         }
         if (ret == 0) continue;
-        if (DNSServiceProcessResult(ctx.connection) != kDNSServiceErr_NoError)
+        const DNSServiceErrorType procErr = DNSServiceProcessResult(ctx.connection);
+        if (procErr != kDNSServiceErr_NoError) {
+            // The mDNSResponder connection died mid-browse (daemon restart,
+            // kDNSServiceErr_ServiceNotRunning). Anything collected so far is
+            // still returned, but the caller must know the browse was cut short
+            // rather than simply finding nothing more.
+            qWarning() << "[MdnsResolver] DNSServiceProcessResult failed err=" << procErr;
+            if (stats && stats->error.isEmpty())
+                stats->error = QString("mDNSResponder connection failed mid-browse (err %1)").arg(procErr);
             break;
+        }
     }
 
     // Deallocating the shared connection tears down every child ref with it.
@@ -858,8 +886,12 @@ QVector<ServiceInstance> browseServiceBonjour(const QString& serviceType, int ti
         stats->dropped = static_cast<int>(dropped);
         stats->withdrawals = ctx.removesSeen;
         stats->elapsedMs = elapsed.elapsed();
-        if (ctx.permissionDenied)
-            stats->error = QStringLiteral("Local Network permission denied");
+        if (ctx.permissionDenied && stats->error.isEmpty()) {
+            // Same two-cause message as the synchronous path — a missing
+            // NSBonjourServices entry produces this too, and sending the user to
+            // System Settings for that would be a wild goose chase.
+            stats->error = describeBrowseError(kDNSServiceErr_NoAuth);
+        }
     }
 
     if (ctx.permissionDenied) {
@@ -894,46 +926,65 @@ namespace {
 // Not atomic on purpose: this is set from a diagnostic path before a browse
 // starts, and read by the browse worker. Making it thread-safe would imply it
 // is meant to change mid-browse, which it is not.
-BrowseBackend g_backend = BrowseBackend::Auto;
+// Atomic because it is written from the main thread (the MCP diagnostic tool)
+// and read from the browse worker. A torn enum read is unlikely in practice, but
+// this is a genuine data race and the nightly sanitizer build compiles it.
+std::atomic<BrowseBackend> g_backend{BrowseBackend::Auto};
 
+// Resolves to a backend that ACTUALLY EXISTS on this platform. Requesting one
+// that isn't compiled in must not be reported back as if it ran — the whole
+// point of the switch is comparing two backends, and silently substituting would
+// make a comparison of one backend against itself look like a match.
 BrowseBackend resolveBackend(BrowseBackend requested)
 {
-    if (requested != BrowseBackend::Auto)
-        return requested;
 #ifdef Q_OS_DARWIN
-    return BrowseBackend::Bonjour;   // ships this way on macOS and iOS
+    if (requested == BrowseBackend::Auto)
+        return BrowseBackend::Bonjour;   // ships this way on macOS and iOS
+  #ifdef Q_OS_IOS
+    return BrowseBackend::Bonjour;       // mjansson is not compiled on iOS
+  #else
+    return requested;                    // macOS has both
+  #endif
 #else
+    // Bonjour does not exist off Apple, whatever was asked for.
+    Q_UNUSED(requested);
     return BrowseBackend::Mjansson;
 #endif
 }
 }  // namespace
 
-void setBrowseBackend(BrowseBackend backend) { g_backend = backend; }
-BrowseBackend browseBackend() { return g_backend; }
+void setBrowseBackend(BrowseBackend backend)
+{
+    g_backend.store(backend, std::memory_order_relaxed);
+}
+
+BrowseBackend browseBackend() { return g_backend.load(std::memory_order_relaxed); }
 
 QString activeBrowseBackendName()
 {
-    return resolveBackend(g_backend) == BrowseBackend::Bonjour
+    return resolveBackend(g_backend.load(std::memory_order_relaxed)) == BrowseBackend::Bonjour
         ? QStringLiteral("bonjour") : QStringLiteral("mjansson");
 }
 
 QVector<ServiceInstance> browseService(const QString& serviceType, int timeoutMs,
                                        const std::function<void(const ServiceInstance&)>& onResolved,
-                                       BrowseStats* stats)
+                                       BrowseStats* stats,
+                                       const std::atomic<bool>* cancel)
 {
-    const BrowseBackend backend = resolveBackend(g_backend);
+    // Fresh stats per call: callers may reuse one object, and silently merging
+    // two browses' counters would be worse than not reporting them at all.
+    if (stats) *stats = BrowseStats{};
+
+    const BrowseBackend backend = resolveBackend(g_backend.load(std::memory_order_relaxed));
 
     if (backend == BrowseBackend::Bonjour) {
 #ifdef Q_OS_DARWIN
-        return browseServiceBonjour(serviceType, timeoutMs, onResolved, stats);
-#else
-        qWarning() << "[MdnsResolver] Bonjour backend requested but not available "
-                      "on this platform — falling back to mjansson";
+        return browseServiceBonjour(serviceType, timeoutMs, onResolved, stats, cancel);
 #endif
     }
 
 #ifndef Q_OS_IOS
-    return browseServiceMjansson(serviceType, timeoutMs, onResolved, stats);
+    return browseServiceMjansson(serviceType, timeoutMs, onResolved, stats, cancel);
 #else
     // Unreachable: iOS always resolves to Bonjour above.
     qWarning() << "[MdnsResolver] no browse backend available";

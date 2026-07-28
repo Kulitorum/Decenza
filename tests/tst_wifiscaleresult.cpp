@@ -7,8 +7,7 @@ using namespace WifiScaleResultUtil;
 // Pure discovery-result logic: TXT parsing, address dedupe, row labelling.
 //
 // These are deliberately free functions in their own TU because the mDNS
-// transport that feeds them is compiled only on non-Apple platforms — a macOS
-// run can never exercise browseService() itself. Everything decidable from data
+// transport that feeds them needs real packets on a real LAN. Everything decidable from data
 // rather than packets lives here so it IS covered on every platform.
 //
 // The TXT fixtures are the two records actually captured from live scales on
@@ -125,60 +124,128 @@ private slots:
         QCOMPARE(normalizeFirmwareVersion(raw), expected);
     }
 
-    // ===== Dedupe (task 8.1) =====
+    // ===== Upsert — the shape results actually arrive in (task 8.1) =====
+    //
+    // One at a time, from two concurrent discovery paths. An earlier version of
+    // these tests exercised a batch merge function that production never called,
+    // so they passed while the shipping dedupe did something different.
 
-    void browseAndFallbackAtSameAddressCollapse() {
-        const QVector<WifiScaleResult> browse{fromBrowseTxt(
+    static QVector<WifiScaleResult> setWith(std::initializer_list<WifiScaleResult> rs) {
+        QVector<WifiScaleResult> out;
+        for (const auto& r : rs) upsertByHostname(out, r);
+        return out;
+    }
+
+    void browseSupersedesFallbackAtSameAddress() {
+        QVector<WifiScaleResult> set;
+        QVERIFY(upsertByHostname(set, fallbackAt(QStringLiteral("hds.local"),
+                                                QStringLiteral("192.168.10.145"))));
+        QVERIFY(upsertByHostname(set, fromBrowseTxt(
             QStringLiteral("Half Decent Scale"), QStringLiteral("hds.local"),
-            QStringLiteral("192.168.10.145"), 80, txtUnrenamed())};
-        const QVector<WifiScaleResult> fallback{
-            fallbackAt(QStringLiteral("hds.local"), QStringLiteral("192.168.10.145"))};
+            QStringLiteral("192.168.10.145"), 80, txtUnrenamed())));
 
-        const QVector<WifiScaleResult> merged = mergeAndDedupe(browse, fallback);
+        QCOMPARE(set.size(), 1);
+        QCOMPARE(set.first().foundBy, WifiScaleResult::Source::Browse);
+        QCOMPARE(set.first().firmwareVersion, QStringLiteral("3.1.12"));
+    }
 
-        QCOMPARE(merged.size(), 1);
-        // Browse wins: it carries the metadata the fallback path cannot produce.
-        QCOMPARE(merged.first().foundBy, WifiScaleResult::Source::Browse);
-        QCOMPARE(merged.first().firmwareVersion, QStringLiteral("3.1.12"));
+    void fallbackNeverDowngradesABrowseEntry() {
+        QVector<WifiScaleResult> set;
+        upsertByHostname(set, fromBrowseTxt(
+            QStringLiteral("Half Decent Scale"), QStringLiteral("hds.local"),
+            QStringLiteral("192.168.10.145"), 80, txtUnrenamed()));
+        upsertByHostname(set, fallbackAt(QStringLiteral("hds.local"),
+                                        QStringLiteral("192.168.10.145")));
+
+        QCOMPARE(set.size(), 1);
+        QCOMPARE(set.first().foundBy, WifiScaleResult::Source::Browse);
+        QCOMPARE(set.first().firmwareVersion, QStringLiteral("3.1.12"));
     }
 
     void differentAddressesBothSurvive() {
-        const QVector<WifiScaleResult> browse{fromBrowseTxt(
-            QStringLiteral("Half Decent Scale"), QStringLiteral("hds.local"),
-            QStringLiteral("192.168.10.145"), 80, txtUnrenamed())};
-        const QVector<WifiScaleResult> fallback{
-            fallbackAt(QStringLiteral("hds-2.local"), QStringLiteral("192.168.10.241"))};
-
-        QCOMPARE(mergeAndDedupe(browse, fallback).size(), 2);
+        const QVector<WifiScaleResult> set = setWith({
+            fromBrowseTxt(QStringLiteral("Half Decent Scale"), QStringLiteral("hds.local"),
+                          QStringLiteral("192.168.10.145"), 80, txtUnrenamed()),
+            fallbackAt(QStringLiteral("hds-2.local"), QStringLiteral("192.168.10.241")),
+        });
+        QCOMPARE(set.size(), 2);
     }
 
-    void addresslessResultsAreDropped() {
+    void dhcpAddressChangeUpdatesInPlaceRatherThanAddingARow() {
+        // The reason identity is the hostname: a lease change must not strand
+        // the old entry and create a second one for the same scale.
+        QVector<WifiScaleResult> set;
+        upsertByHostname(set, fallbackAt(QStringLiteral("hds.local"), QStringLiteral("10.0.0.1")));
+        QVERIFY(upsertByHostname(set, fallbackAt(QStringLiteral("hds.local"), QStringLiteral("10.0.0.9"))));
+        QCOMPARE(set.size(), 1);
+        QCOMPARE(set.first().address, QStringLiteral("10.0.0.9"));
+    }
+
+    void hostnameKeyIgnoresCaseAndTrailingDot() {
+        QVector<WifiScaleResult> set;
+        upsertByHostname(set, fallbackAt(QStringLiteral("hds.local"), QStringLiteral("10.0.0.1")));
+        upsertByHostname(set, fallbackAt(QStringLiteral("HDS.local."), QStringLiteral("10.0.0.1")));
+        QCOMPARE(set.size(), 1);
+    }
+
+    void addresslessResultsAreRejected() {
         // An unresolved hit has no address, so it can neither be deduped nor
-        // connected to. It must not reach the list.
-        const QVector<WifiScaleResult> fallback{
-            fallbackAt(QStringLiteral("ghost.local"), QString())};
-        QVERIFY(mergeAndDedupe({}, fallback).isEmpty());
+        // connected to. It must never enter the set.
+        QVector<WifiScaleResult> set;
+        QVERIFY(!upsertByHostname(set, fallbackAt(QStringLiteral("ghost.local"), QString())));
+        QVERIFY(set.isEmpty());
     }
 
-    void duplicateWithinBrowseCollapses() {
-        // A scale reachable on two interfaces can answer twice at one address.
+    void repeatedIdenticalResultDoesNotGrowTheSet() {
         const WifiScaleResult a = fromBrowseTxt(
             QStringLiteral("Half Decent Scale"), QStringLiteral("hds.local"),
             QStringLiteral("192.168.10.145"), 80, txtUnrenamed());
-        QCOMPARE(mergeAndDedupe({a, a}, {}).size(), 1);
+        QVector<WifiScaleResult> set;
+        upsertByHostname(set, a);
+        upsertByHostname(set, a);
+        QCOMPARE(set.size(), 1);
     }
 
-    void mergeOrderIsBrowseThenFallback() {
-        const QVector<WifiScaleResult> browse{fromBrowseTxt(
-            QStringLiteral("B"), QStringLiteral("b.local"),
-            QStringLiteral("10.0.0.2"), 80, {})};
-        const QVector<WifiScaleResult> fallback{
-            fallbackAt(QStringLiteral("a.local"), QStringLiteral("10.0.0.1"))};
+    // ===== Set-wide labelling =====
 
-        const QVector<WifiScaleResult> merged = mergeAndDedupe(browse, fallback);
-        QCOMPARE(merged.size(), 2);
-        QCOMPARE(merged.at(0).address, QStringLiteral("10.0.0.2"));
-        QCOMPARE(merged.at(1).address, QStringLiteral("10.0.0.1"));
+    void twoUnrenamedScalesBothGetAddresses() {
+        const QVector<WifiScaleResult> set = setWith({
+            fromBrowseTxt(QStringLiteral("Half Decent Scale"), QStringLiteral("hds.local"),
+                          QStringLiteral("192.168.10.145"), 80, txtUnrenamed()),
+            fromBrowseTxt(QStringLiteral("Half Decent Scale-2"), QStringLiteral("other.local"),
+                          QStringLiteral("192.168.10.241"), 80, txtUnrenamed()),
+        });
+        const QHash<QString, QString> labels = labelsByHostname(set);
+        QCOMPARE(labels.value(QStringLiteral("hds.local")),
+                 QStringLiteral("Half Decent Scale (192.168.10.145)"));
+        QCOMPARE(labels.value(QStringLiteral("other.local")),
+                 QStringLiteral("Half Decent Scale-2 (192.168.10.241)"));
+    }
+
+    void distinctlyNamedScalesKeepPlainLabels() {
+        const QVector<WifiScaleResult> set = setWith({
+            fromBrowseTxt(QStringLiteral("Half Decent Scale (kitchen)"), QStringLiteral("kitchen.local"),
+                          QStringLiteral("10.0.0.1"), 80, {}),
+            fromBrowseTxt(QStringLiteral("Half Decent Scale (hdstest)"), QStringLiteral("hdstest.local"),
+                          QStringLiteral("10.0.0.2"), 80, {}),
+        });
+        const QHash<QString, QString> labels = labelsByHostname(set);
+        QCOMPARE(labels.value(QStringLiteral("kitchen.local")), QStringLiteral("Half Decent Scale (kitchen)"));
+        QCOMPARE(labels.value(QStringLiteral("hdstest.local")), QStringLiteral("Half Decent Scale (hdstest)"));
+    }
+
+    // The fallback list this project ships probes hds/hds-2/hds-3. Those are
+    // DIFFERENT user-chosen names, not a DNS-SD collision suffix, so they must
+    // not be collapsed — otherwise every multi-scale fallback discovery is
+    // flagged ambiguous and every row shows a bare IP.
+    void fallbackHostnamesWithDigitsAreNotTreatedAsCollisions() {
+        const QVector<WifiScaleResult> set = setWith({
+            fallbackAt(QStringLiteral("hds.local"), QStringLiteral("10.0.0.1")),
+            fallbackAt(QStringLiteral("hds-2.local"), QStringLiteral("10.0.0.2")),
+        });
+        const QHash<QString, QString> labels = labelsByHostname(set);
+        QCOMPARE(labels.value(QStringLiteral("hds.local")), QStringLiteral("hds"));
+        QCOMPARE(labels.value(QStringLiteral("hds-2.local")), QStringLiteral("hds-2"));
     }
 
     // ===== Display names (task 8.3) =====

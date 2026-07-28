@@ -215,7 +215,7 @@ add_decenza_test(tst_binarycodec
 
 # --- tst_wifiscaleresult: pure WiFi-scale discovery result logic (TXT parsing,
 # address dedupe, row labelling). Deliberately separate from the mDNS transport,
-# which is compiled only on non-Apple platforms and so cannot be covered here. ---
+# which needs real packets on a real LAN and so cannot be covered here. ---
 add_decenza_test(tst_wifiscaleresult
     tst_wifiscaleresult.cpp
     ${CMAKE_SOURCE_DIR}/src/network/wifiscaleresult.cpp

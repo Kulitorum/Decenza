@@ -1,6 +1,9 @@
 #pragma once
 
 #include <QObject>
+
+#include <atomic>
+#include <memory>
 #include <QStringList>
 #include <QString>
 
@@ -27,9 +30,12 @@ class QTimer;
  *
  * On non-Android the A-record path uses QHostInfo (the OS resolver speaks
  * mDNS); on Android it uses MdnsResolver on a worker thread, since Android's
- * getaddrinfo does not resolve ".local". The browse uses MdnsResolver
- * everywhere except Apple, which has no browse capability in QHostInfo at all —
- * see mdnsresolver.h.
+ * getaddrinfo does not resolve ".local".
+ *
+ * The browse always goes through MdnsResolver::browseService() on every
+ * platform; which backend that picks (system Bonjour vs the mjansson raw-socket
+ * implementation) is decided inside. QHostInfo cannot browse on ANY platform —
+ * it resolves a name you already know. See mdnsresolver.h.
  */
 class WifiScaleDiscovery : public QObject {
     Q_OBJECT
@@ -100,7 +106,12 @@ signals:
      */
     void probeFinished(bool ran);
 
-    /** A browse finished (deadline reached or stopBrowse() called). */
+    /**
+     * A browse finished. `ran` is false when the browse could not actually run
+     * — no backend available, socket refused, Local Network denied — as opposed
+     * to running and finding nothing. Those look identical in the device list,
+     * so the difference has to travel with the signal.
+     */
     void browseFinished(bool ran);
 
     // User-facing diagnostic stream — forwarded by BLEManager into the
@@ -120,6 +131,11 @@ private:
 
     bool m_browseInFlight = false;
     int m_browseGeneration = 0;
+    // Polled by the blocking worker so stopBrowse() can actually stop it.
+    // Without this the worker holds a QThreadPool thread for its full deadline,
+    // and ~QCoreApplication's unconditional waitForDone() turns that into a
+    // multi-second hang on quit with the UI already gone.
+    std::shared_ptr<std::atomic<bool>> m_browseCancel;
 
     // Monotonically increasing generation, bumped by cancelInFlight(), so a
     // late worker result from a cancelled or timed-out probe is dropped. The

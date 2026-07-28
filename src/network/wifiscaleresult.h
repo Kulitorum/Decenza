@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QHash>
 #include <QMap>
 #include <QMetaType>
 #include <QString>
@@ -24,15 +25,16 @@ struct WifiScaleResult {
     QString mdnsName;          // TXT "name"; OFTEN ABSENT even on a browse hit
     QString hostname;          // e.g. "hdstest.local"
     QString address;           // resolved IPv4 dotted quad
-    quint16 port = 80;         // TXT/SRV port; 80 is the firmware default
+    quint16 port = 80;         // SRV port; 80 is the firmware default
     QString path = QStringLiteral("/snapshot");  // TXT "path"
     QString firmwareVersion;   // TXT "fw", prefix stripped; may be empty
     Source foundBy = Source::Fallback;
 };
 
-// Carried across threads by queued connections (the mDNS worker posts results
-// back to the object's thread) and inspected by QSignalSpy in tests, both of
-// which need the type registered.
+// Registered for QSignalSpy, which needs a metatype to capture signal arguments.
+// NOT for cross-thread signal delivery: the worker→main hop is a lambda capture
+// inside QMetaObject::invokeMethod, and resultFound() is then emitted on the
+// main thread to a main-thread receiver, i.e. a direct connection.
 Q_DECLARE_METATYPE(WifiScaleResult)
 
 namespace WifiScaleResultUtil {
@@ -60,17 +62,42 @@ WifiScaleResult fromBrowseTxt(const QString& instanceName,
                               const QMap<QString, QString>& txt);
 
 /**
- * Merge browse and fallback results into the list the user sees.
+ * Insert `incoming` into `set`, or merge it into the existing entry for the same
+ * scale. THIS is how results actually arrive — one at a time, from two
+ * concurrent discovery paths — so this is the operation worth testing.
  *
- * Deduped on resolved address, because that is the only identity both paths
- * establish — hostnames differ in form between them, and TXT data is absent
- * from the fallback path entirely. On a collision the browse result wins.
+ * Identity is the normalized HOSTNAME, not the resolved address — DHCP moves
+ * addresses, and keying on one would strand the old entry and create a new row
+ * for the same scale after a lease change. mDNS carries no hardware address, so
+ * the hostname is the most stable identifier available.
  *
- * Order is stable: browse results first in their original order, then any
- * fallback results that were not already covered.
+ * A browse hit supersedes a fallback entry at the same address, because it
+ * carries instance name, port, path and firmware the A-record path cannot
+ * produce. A fallback hit never overwrites a browse entry; it only refreshes the
+ * address, which DHCP can move between scans.
+ *
+ * Results with no hostname or no address are rejected: an entry without an
+ * address never resolved and cannot be connected to. Returns true if `set`
+ * changed.
  */
-QVector<WifiScaleResult> mergeAndDedupe(const QVector<WifiScaleResult>& browse,
-                                        const QVector<WifiScaleResult>& fallback);
+bool upsertByHostname(QVector<WifiScaleResult>& set, const WifiScaleResult& incoming);
+
+/** Lowercased, trailing dot removed — the canonical key for a scale. */
+QString normalizeHostname(const QString& hostname);
+
+/**
+ * The display label for every result in `set`, keyed by normalized hostname.
+ *
+ * Derived across the whole set rather than per result, because ambiguity is a
+ * property of the set: DNS-SD suffixes colliding instance names, so two
+ * unrenamed scales arrive as "Half Decent Scale" and "Half Decent Scale-2" and
+ * neither label identifies a physical scale. Those get their address appended.
+ *
+ * Callers should REBUILD their rows from this rather than patching labels in
+ * place — a label that was correct when its row was created can be made
+ * ambiguous by a later arrival.
+ */
+QHash<QString, QString> labelsByHostname(const QVector<WifiScaleResult>& set);
 
 /**
  * The label for a scale's row in the discovered-devices list.

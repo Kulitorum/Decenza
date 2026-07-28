@@ -84,6 +84,11 @@ private slots:
     void onPollTimerTick();
 
 private:
+    // Emits probeFinished() exactly once per scan-initiated pass, from the point
+    // the probe actually settles rather than the point it was started.
+    void finishScanProbe();
+    bool m_scanProbePending = false;
+
     QTimer m_pollTimer;
     UsbDecentScale* m_scale = nullptr;
     bool m_hasLoggedInitialPorts = false;

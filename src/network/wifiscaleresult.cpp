@@ -31,8 +31,8 @@ WifiScaleResult fromBrowseTxt(const QString& instanceName,
     r.hostname = hostname;
     r.address = address;
 
-    // Port from SRV, but let an explicit TXT port override it if present and
-    // sane — the firmware advertises 80 in both places today.
+    // Port comes from SRV only; the firmware publishes no TXT port key. 80 is
+    // the firmware default and the fallback when SRV gave us nothing.
     r.port = port != 0 ? port : quint16(80);
 
     // Each of these is optional. Absent means "use the default", never "reject".
@@ -49,38 +49,71 @@ WifiScaleResult fromBrowseTxt(const QString& instanceName,
     return r;
 }
 
-QVector<WifiScaleResult> mergeAndDedupe(const QVector<WifiScaleResult>& browse,
-                                        const QVector<WifiScaleResult>& fallback)
+QString normalizeHostname(const QString& hostname)
 {
-    QVector<WifiScaleResult> out;
-    QSet<QString> seenAddresses;
+    QString h = hostname.trimmed().toLower();
+    while (h.endsWith(QLatin1Char('.')))
+        h.chop(1);
+    return h;
+}
 
-    // Browse first: it wins every collision, because it carries metadata the
-    // fallback path structurally cannot produce.
-    for (const WifiScaleResult& r : browse) {
-        if (r.address.isEmpty() || seenAddresses.contains(r.address))
+bool upsertByHostname(QVector<WifiScaleResult>& set, const WifiScaleResult& incoming)
+{
+    // Identity is the HOSTNAME, not the resolved address.
+    //
+    // The address is the least stable thing we have: DHCP moves it, and keying
+    // on it would make the same scale appear as a new entry after a lease
+    // change while its old entry lingered. The hostname survives that, it is
+    // what the scale answers to, and it is already what the saved-address
+    // scheme ("wifi:<hostname>") persists.
+    //
+    // A hardware address would be better still, but mDNS does not carry one —
+    // we get hostname, address, instance name and TXT, and nothing else.
+    //
+    // The two discovery paths agree on this key: the browse reports the SRV
+    // target ("hds.local") and the fallback reports the name it queried
+    // ("hds.local"). Only case and a trailing dot can differ, hence the
+    // normalization.
+    const QString key = normalizeHostname(incoming.hostname);
+    if (key.isEmpty())
+        return false;
+    // Still require an address — without one the entry cannot be connected to,
+    // which means the instance never resolved.
+    if (incoming.address.isEmpty())
+        return false;
+
+    for (WifiScaleResult& seen : set) {
+        if (normalizeHostname(seen.hostname) != key)
             continue;
-        seenAddresses.insert(r.address);
-        out.append(r);
+
+        // A browse hit supersedes anything: it carries instance name, port,
+        // path and firmware the A-record path structurally cannot produce.
+        if (incoming.foundBy == WifiScaleResult::Source::Browse) {
+            seen = incoming;
+            return true;
+        }
+        // A fallback hit for a scale we already know contributes only a fresh
+        // address — which is exactly the DHCP case worth keeping current.
+        if (seen.address != incoming.address) {
+            seen.address = incoming.address;
+            return true;
+        }
+        return false;
     }
 
-    for (const WifiScaleResult& r : fallback) {
-        // An address-less fallback hit is not usable and cannot be deduped.
-        if (r.address.isEmpty() || seenAddresses.contains(r.address))
-            continue;
-        seenAddresses.insert(r.address);
-        out.append(r);
-    }
-
-    return out;
+    set.append(incoming);
+    return true;
 }
 
 namespace {
 
 // Strip a DNS-SD collision suffix: "Half Decent Scale-2" -> "Half Decent Scale".
-// Only a trailing "-<digits>" is removed, so a scale legitimately named
-// "kitchen-2" by its owner keeps its name (that arrives via TXT `name`, and the
-// instance label would then read "Half Decent Scale (kitchen-2)").
+//
+// ONLY valid for a browse label. DNS-SD generates that suffix; a fallback hit's
+// label is a bare hostname, where a trailing "-2" is something the USER typed —
+// and this project's own fallback list probes hds/hds-2/hds-3, so stripping
+// there would collapse two genuinely different scales onto one label and mark
+// every multi-scale fallback discovery ambiguous.
 QString baseLabel(const QString& instanceName)
 {
     static const QRegularExpression suffix(QStringLiteral("-\\d+$"));
@@ -118,7 +151,30 @@ QString displayName(const WifiScaleResult& result, bool ambiguous)
 
 bool labelsCollide(const WifiScaleResult& a, const WifiScaleResult& b)
 {
-    return baseLabel(rawLabel(a)).compare(baseLabel(rawLabel(b)), Qt::CaseInsensitive) == 0;
+    // Suffix-strip only what DNS-SD could have suffixed (see baseLabel).
+    const auto norm = [](const WifiScaleResult& r) {
+        const QString raw = rawLabel(r);
+        return r.foundBy == WifiScaleResult::Source::Browse ? baseLabel(raw) : raw;
+    };
+    return norm(a).compare(norm(b), Qt::CaseInsensitive) == 0;
+}
+
+QHash<QString, QString> labelsByHostname(const QVector<WifiScaleResult>& set)
+{
+    QHash<QString, QString> out;
+    for (const WifiScaleResult& r : set) {
+        const QString key = normalizeHostname(r.hostname);
+        if (key.isEmpty())
+            continue;
+        bool ambiguous = false;
+        for (const WifiScaleResult& other : set) {
+            if (normalizeHostname(other.hostname) == key)
+                continue;
+            if (labelsCollide(r, other)) { ambiguous = true; break; }
+        }
+        out.insert(key, displayName(r, ambiguous));
+    }
+    return out;
 }
 
 }  // namespace WifiScaleResultUtil

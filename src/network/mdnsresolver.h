@@ -4,6 +4,7 @@
 #include <QString>
 #include <QVector>
 
+#include <atomic>
 #include <functional>
 
 /**
@@ -22,12 +23,16 @@
  *    platform, because QHostInfo cannot browse at all — it resolves a name you
  *    already know and has no way to ask "what services are out there".
  *
- * Apple platforms use neither: they browse through the system Bonjour APIs
- * (DNSServiceBrowse), because a raw multicast socket to 224.0.0.251 on iOS
- * requires the com.apple.developer.networking.multicast entitlement, which
- * Apple grants only by per-app application. This whole file is therefore
- * compiled out on macOS/iOS — see the guard in mdnsresolver.cpp and the
- * `if(NOT APPLE)` blocks in CMakeLists.txt.
+ * Apple platforms DEFAULT to the system Bonjour APIs (DNSServiceBrowse),
+ * because a raw multicast socket to 224.0.0.251 on iOS requires the
+ * com.apple.developer.networking.multicast entitlement, which Apple grants only
+ * by per-app application.
+ *
+ * Only iOS is compiled out — `#ifndef Q_OS_IOS` below, `if(NOT IOS)` in
+ * CMakeLists.txt. macOS deliberately builds BOTH backends so the mjansson path
+ * (what Android and Windows/Linux actually ship) can be exercised on the machine
+ * it is developed on; see BrowseBackend. Do not narrow these guards to
+ * `NOT APPLE` — that was the original shape and it removed that capability.
  *
  * Multicast reception on Android requires a held WifiManager.MulticastLock.
  * ShotServer acquires one for the whole app lifetime (start()→stop()), so the
@@ -85,26 +90,42 @@ QString resolveHostname(const QString& hostname, int timeoutMs = 2000);
  * reported at most once.
  */
 /**
- * What a browse actually did. Returned by reference because the browse runs on
- * a worker thread whose qDebug output does NOT reach the app's debug log — only
- * main-thread messages are captured — so without this the browse is invisible
- * in exactly the log a user would share. `error` is non-empty when the browse
- * could not run at all, which is otherwise indistinguishable from an empty
- * network.
+ * What a browse actually did, returned as data rather than left for a caller to
+ * scrape out of log text. `error` is non-empty when the browse could not run,
+ * which is otherwise indistinguishable from an empty network — the same list of
+ * zero scales either way.
+ *
+ * (An earlier version of this comment claimed worker-thread qDebug does not
+ * reach the app's debug log. That is false — every installed handler is
+ * mutex-guarded and thread-agnostic. The struct is still worth having for the
+ * reason above.)
  */
 struct BrowseStats {
     QString backend;        // "bonjour" or "mjansson"
     int instancesSeen = 0;  // named by the browse, resolved or not
     int resolved = 0;       // complete enough to be a result
     int dropped = 0;        // named but never resolved — stale registrations
-    int withdrawals = 0;    // reported gone mid-browse (logged, never applied)
+    // Reported gone mid-browse (logged, never applied — the list is add-only
+    // within a scan). BONJOUR ONLY: the mjansson path has no withdrawal notion,
+    // being a one-shot query rather than a live subscription, so -1 there means
+    // "not measured" and must not be rendered as "none".
+    int withdrawals = -1;
     qint64 elapsedMs = 0;
     QString error;
 };
 
+/**
+ * `cancel`, if set, is polled each loop iteration and ends the browse early.
+ *
+ * This is not a nicety: the browse blocks a QThreadPool thread for its full
+ * deadline, and ~QCoreApplication calls QThreadPool::waitForDone()
+ * unconditionally. Without a way to cut it short, quitting mid-scan holds the
+ * process open for the rest of the browse with the UI already gone.
+ */
 QVector<ServiceInstance> browseService(const QString& serviceType, int timeoutMs = 5000,
                                        const std::function<void(const ServiceInstance&)>& onResolved = {},
-                                       BrowseStats* stats = nullptr);
+                                       BrowseStats* stats = nullptr,
+                                       const std::atomic<bool>* cancel = nullptr);
 
 /**
  * Which implementation browseService() uses.
@@ -129,7 +150,12 @@ enum class BrowseBackend {
 void setBrowseBackend(BrowseBackend backend);
 BrowseBackend browseBackend();
 
-/** Human-readable name of the backend a browse would actually use right now. */
+/**
+ * Name of the backend a browse would ACTUALLY use right now — not merely the one
+ * requested. Requesting Bonjour off Apple silently runs mjansson, so reporting
+ * the request would make the diagnostic tools compare a backend against itself
+ * and label both runs "bonjour".
+ */
 QString activeBrowseBackendName();
 
 }  // namespace MdnsResolver

@@ -480,6 +480,17 @@ public:
     // no scan-initiated probe is outstanding.
     void onUsbProbeFinished();
 
+    // Set every field of the pending-WiFi-connect state together.
+    //
+    // Exists because they must move as a unit: an earlier version assigned
+    // m_pendingWifiHostname at five sites but the endpoint at only one, so four
+    // paths silently dialled the PREVIOUS connect's port and path. Funnelling
+    // through one call makes forgetting a field impossible rather than invisible.
+    void setPendingWifiConnect(const QString& hostname,
+                               const QString& resolvedIp = QString(),
+                               quint16 port = 80,
+                               const QString& path = QStringLiteral("/snapshot"));
+
     // WiFi-only discovery, without the BLE scan. Exists for the MCP diagnostic
     // tools: the mjansson browse is the backend Android and Windows/Linux use,
     // but it is developed on a Mac that ships the Bonjour backend, so being able
@@ -857,10 +868,9 @@ private:
     // result in isolation. Cleared at the start of each scan.
     QVector<WifiScaleResult> m_wifiResults;
 
-    // Re-derive the display name of every WiFi row from m_wifiResults,
-    // appending the address to any row whose label would otherwise be
-    // indistinguishable from another's.
-    void relabelWifiScales();
+    // Rebuild the WiFi rows of m_scales from m_wifiResults. The rows are a
+    // projection of that set, not a second collection kept in step with it.
+    void rebuildWifiScaleRows();
 
     // Saved DE1 for direct wake connection
     QString m_savedDE1Address;

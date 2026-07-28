@@ -10,8 +10,7 @@
 // timeout.
 //
 // The DNS-SD browse is deliberately NOT covered here: it needs real responders
-// on a real LAN, and on Apple platforms the transport isn't even compiled (see
-// mdnsresolver.h). The logic that can be tested without packets lives in
+// on a real LAN (see mdnsresolver.h). The logic that can be tested without packets lives in
 // WifiScaleResultUtil and is covered by tst_wifiscaleresult.
 class tst_WifiScaleDiscovery : public QObject {
     Q_OBJECT

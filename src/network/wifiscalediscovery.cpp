@@ -37,7 +37,12 @@ WifiScaleDiscovery::WifiScaleDiscovery(QObject* parent)
 
 WifiScaleDiscovery::~WifiScaleDiscovery() {
     cancelInFlight();
-    stopBrowse();
+    // Don't emit from a destructor; just release the worker so shutdown isn't
+    // held up by a browse running out its deadline.
+    if (m_browseCancel)
+        m_browseCancel->store(true, std::memory_order_relaxed);
+    m_browseCancel.reset();
+    m_browseInFlight = false;
 }
 
 void WifiScaleDiscovery::probe(const QString& hostname, int timeoutMs) {
@@ -141,6 +146,11 @@ void WifiScaleDiscovery::browse(int timeoutMs) {
     m_browseInFlight = true;
     const int generation = ++m_browseGeneration;
     const QString serviceType = QString::fromLatin1(kServiceType);
+    // Shared with the worker so stopBrowse() can end it early. shared_ptr, not a
+    // member pointer, so a worker outliving this object never dereferences freed
+    // memory.
+    auto cancel = std::make_shared<std::atomic<bool>>(false);
+    m_browseCancel = cancel;
 
     qDebug() << "[WifiScaleDiscovery] browse" << serviceType
              << "(timeout" << timeoutMs << "ms)";
@@ -148,7 +158,7 @@ void WifiScaleDiscovery::browse(int timeoutMs) {
                         .arg(serviceType).arg(timeoutMs));
 
     QPointer<WifiScaleDiscovery> self(this);
-    auto runnable = QRunnable::create([self, serviceType, timeoutMs, generation]() {
+    auto runnable = QRunnable::create([self, serviceType, timeoutMs, generation, cancel]() {
         // Runs on a worker thread — browseService() blocks until its deadline.
         // The onResolved callback also fires on this thread, so each result is
         // marshalled to the object's thread individually. That is what makes
@@ -172,7 +182,7 @@ void WifiScaleDiscovery::browse(int timeoutMs) {
                     emit self->resultFound(r);
                 }, Qt::QueuedConnection);
             },
-            &stats);
+            &stats, cancel.get());
 
         QMetaObject::invokeMethod(qApp, [self, generation, stats]() {
             if (!self) return;
@@ -193,12 +203,16 @@ void WifiScaleDiscovery::browse(int timeoutMs) {
                     .arg(stats.elapsedMs)
                     .arg(stats.resolved)
                     .arg(stats.dropped)
-                    .arg(stats.withdrawals));
+                    .arg(stats.withdrawals < 0 ? QStringLiteral("not measured")
+                                               : QString::number(stats.withdrawals)));
             if (!stats.error.isEmpty()) {
                 emit self->logMessage(
                     QStringLiteral("DNS-SD browse ERROR: ") + stats.error);
             }
-            emit self->browseFinished(true);
+            // `ran` is false when the browse could not actually run. Reporting
+            // true here regardless — as an earlier version did — made the flag
+            // structurally incapable of being false and defeated its purpose.
+            emit self->browseFinished(stats.error.isEmpty());
         }, Qt::QueuedConnection);
     });
     runnable->setAutoDelete(true);
@@ -208,10 +222,17 @@ void WifiScaleDiscovery::browse(int timeoutMs) {
 void WifiScaleDiscovery::stopBrowse() {
     if (!m_browseInFlight)
         return;
-    // The blocking worker cannot be interrupted; bump the generation so its
-    // remaining callbacks and its completion are dropped when they arrive.
+    // Signal the worker to stop rather than letting it run out its deadline —
+    // it holds a pool thread, and app shutdown waits on the pool.
+    if (m_browseCancel)
+        m_browseCancel->store(true, std::memory_order_relaxed);
+    m_browseCancel.reset();
+    // Bump the generation so any callbacks still in flight are dropped.
     ++m_browseGeneration;
     m_browseInFlight = false;
+    // The worker's own completion is now discarded by the generation check, so
+    // emit the terminal signal here or callers waiting on it would hang.
+    emit browseFinished(false);
 }
 
 void WifiScaleDiscovery::cancelInFlight() {

@@ -757,15 +757,11 @@ void BLEManager::connectToScale(const QString& address) {
             // dialog and no user-visible trace at all.
             m_scaleConnectionTimer->start();
             // Strip the "wifi:" prefix to get the bare hostname.
-            m_pendingWifiHostname = address.mid(QStringLiteral("wifi:").size());
-            // Hand along the IP the scan's mDNS discovery already resolved
-            // (see ScaleEntry::resolvedIp) so main.cpp can seed DecentScaleWifi's
-            // IP cache and skip Qt's own hostname resolver entirely.
-            m_pendingWifiResolvedIp = entry.resolvedIp;
-            // Endpoint the scale advertised over DNS-SD (defaults to :80/snapshot
-            // for a fallback-discovered scale, which publishes no TXT data).
-            m_pendingWifiPort = entry.wsPort;
-            m_pendingWifiPath = entry.wsPath;
+            setPendingWifiConnect(address.mid(QStringLiteral("wifi:").size()),
+                                  entry.resolvedIp, entry.wsPort, entry.wsPath);
+            // resolvedIp lets main.cpp seed DecentScaleWifi's IP cache and skip
+            // Qt's own hostname resolver; wsPort/wsPath are what the scale
+            // advertised over DNS-SD (firmware defaults for a fallback hit).
             emit scaleDiscovered(QBluetoothDeviceInfo{}, entry.type);
         } else {
             emit scaleDiscovered(entry.device, entry.type);
@@ -893,13 +889,12 @@ void BLEManager::connectToWifiScale(const QString& hostnameOrIp, const QString& 
     m_manualWifiConnect = true;
     m_wifiFallbackToBleActive = false;
     m_scaleConnectionTimer->start();
-    m_pendingWifiHostname = host;
+    setPendingWifiConnect(host, resolvedIp);
     // Callers with a fresh mDNS resolution in hand (the "Add WiFi Scale"
     // dialog's suggested-scale "Use" button) pass it along so main.cpp can
     // seed the IP cache and skip re-resolving the hostname. A genuinely typed
     // address (the dialog's text-field submit) passes nothing — resolvedIp
     // defaults to empty and there's nothing to seed.
-    m_pendingWifiResolvedIp = resolvedIp;
     emit scaleDiscovered(QBluetoothDeviceInfo{}, QStringLiteral("decent-wifi"));
 }
 
@@ -1769,7 +1764,7 @@ void BLEManager::switchToWifiPrimary() {
     m_wifiFallbackToBleActive = false;
     m_scaleConnectionTimer->start();
     emit disconnectScaleRequested();
-    m_pendingWifiHostname = hostname;
+    setPendingWifiConnect(hostname);
     // Nothing fresh to offer here — connectToHost() already dials the
     // persisted cache directly (that's what probeWifiPrimaryReachable just
     // validated), so there's no new resolution result to hand along.
@@ -2141,38 +2136,59 @@ QVariantList BLEManager::wifiScaleResults() const {
     return out;
 }
 
-void BLEManager::relabelWifiScales() {
-    if (m_wifiResults.isEmpty())
-        return;
+void BLEManager::rebuildWifiScaleRows() {
+    // Project m_wifiResults onto the WiFi rows of m_scales.
+    //
+    // Rebuild rather than patch: a label that was unambiguous when its row was
+    // created can be made ambiguous by a later arrival (the SECOND unrenamed
+    // scale is what creates the collision), and a patch pass has to find every
+    // affected row to stay correct. Deriving cannot miss one.
+    //
+    // Add-only within a scan still holds: m_wifiResults only grows until the
+    // next scan clears it, so no row a user is looking at disappears.
+    const QHash<QString, QString> labels = WifiScaleResultUtil::labelsByHostname(m_wifiResults);
 
     bool changed = false;
     for (const WifiScaleResult& r : m_wifiResults) {
-        if (r.address.isEmpty())
-            continue;
+        const QString key = WifiScaleResultUtil::normalizeHostname(r.hostname);
+        const QString address = QStringLiteral("wifi:") + key;
+        const QString name = QString("%1 (WiFi)").arg(labels.value(key, key));
 
-        // Ambiguous when some OTHER result would render the same base label.
-        // Two unrenamed scales are the real case: DNS-SD hands us "Half Decent
-        // Scale" and "Half Decent Scale-2", and the "-2" is a protocol artifact
-        // the user never chose and cannot map to a physical scale.
-        bool ambiguous = false;
-        for (const WifiScaleResult& other : m_wifiResults) {
-            if (other.address == r.address)
-                continue;
-            if (WifiScaleResultUtil::labelsCollide(r, other)) {
-                ambiguous = true;
+        // Match on the saved-address handle, which is hostname-derived and so
+        // survives a DHCP lease change. Matching on resolvedIp would strand the
+        // old row and add a second one for the same scale.
+        qsizetype existing = -1;
+        for (qsizetype i = 0; i < m_scales.size(); ++i) {
+            if (m_scales[i].transport == QStringLiteral("wifi")
+                    && m_scales[i].address == address) {
+                existing = i;
                 break;
             }
         }
 
-        const QString name = QString("%1 (WiFi)")
-                                 .arg(WifiScaleResultUtil::displayName(r, ambiguous));
-        for (ScaleEntry& entry : m_scales) {
-            if (entry.transport != QStringLiteral("wifi"))
-                continue;
-            if (entry.resolvedIp != r.address)
-                continue;
-            if (entry.name != name) {
-                entry.name = name;
+        if (existing < 0) {
+            ScaleEntry entry;
+            entry.type = QStringLiteral("decent-wifi");
+            entry.transport = QStringLiteral("wifi");
+            entry.name = name;
+            entry.address = address;
+            entry.resolvedIp = r.address;
+            entry.wsPort = r.port;
+            entry.wsPath = r.path;
+            m_scales.append(entry);
+            appendScaleLog(QString("Found %1 (%2)").arg(entry.name, entry.address));
+            changed = true;
+        } else {
+            // Refresh in place. resolvedIp deliberately tracks the latest
+            // address — DHCP moves it and connectToScale() seeds the connect
+            // from this field — while `address` (the identity) stays put.
+            ScaleEntry& e = m_scales[existing];
+            if (e.name != name || e.resolvedIp != r.address
+                    || e.wsPort != r.port || e.wsPath != r.path) {
+                e.name = name;
+                e.resolvedIp = r.address;
+                e.wsPort = r.port;
+                e.wsPath = r.path;
                 changed = true;
             }
         }
@@ -2180,6 +2196,17 @@ void BLEManager::relabelWifiScales() {
 
     if (changed)
         emit scalesChanged();
+}
+
+void BLEManager::setPendingWifiConnect(const QString& hostname, const QString& resolvedIp,
+                                       quint16 port, const QString& path) {
+    // All four move together. They were previously assigned at five separate
+    // sites and only one set the endpoint, so four paths silently dialled the
+    // previous connect's port and path.
+    m_pendingWifiHostname = hostname;
+    m_pendingWifiResolvedIp = resolvedIp;
+    m_pendingWifiPort = port;
+    m_pendingWifiPath = path;
 }
 
 void BLEManager::onUsbProbeFinished() {
@@ -2224,77 +2251,12 @@ void BLEManager::ensureWifiDiscovery() {
                      << "userInitiatedScan=" << m_userInitiatedScaleScan
                      << "saved=" << m_savedScaleAddress;
 
-            // Dedupe on the RESOLVED ADDRESS, not the hostname: the browse and
-            // the A-record fallback reach the same scale under different names
-            // (SRV target vs queried name), and the address is the only identity
-            // both establish. Matching on hostname would show one scale twice.
-            qsizetype existingIndex = -1;
-            for (qsizetype i = 0; i < m_scales.size(); ++i) {
-                if (m_scales[i].transport != QStringLiteral("wifi"))
-                    continue;
-                if (m_scales[i].address == address
-                        || (!resolvedAddress.isEmpty()
-                            && m_scales[i].resolvedIp == resolvedAddress)) {
-                    existingIndex = i;
-                    break;
-                }
-            }
-
-            // Remember the result so labels can be re-derived across the whole
-            // set — whether a row needs its address shown depends on the other
-            // rows, not on this one alone. Browse supersedes a fallback hit at
-            // the same address (it carries instance name, port and path).
-            bool mergedIntoExisting = false;
-            for (WifiScaleResult& seen : m_wifiResults) {
-                if (!resolvedAddress.isEmpty() && seen.address == resolvedAddress) {
-                    if (result.foundBy == WifiScaleResult::Source::Browse)
-                        seen = result;
-                    mergedIntoExisting = true;
-                    break;
-                }
-            }
-            if (!mergedIntoExisting)
-                m_wifiResults.append(result);
-
-            // Provisional label; relabelWifiScales() below fixes up collisions
-            // once the full set is known.
-            const QString label = WifiScaleResultUtil::displayName(result, /*ambiguous=*/false);
-
-            if (existingIndex < 0) {
-                ScaleEntry entry;
-                entry.type = QStringLiteral("decent-wifi");
-                entry.transport = QStringLiteral("wifi");
-                entry.name = QString("%1 (WiFi)").arg(label);
-                entry.address = address;
-                entry.resolvedIp = resolvedAddress;
-                entry.wsPort = result.port;
-                entry.wsPath = result.path;
-                m_scales.append(entry);
-                qDebug() << "[BLE] Added WiFi scale to discovered list; m_scales count=" << m_scales.size();
-                appendScaleLog(QString("Found %1 (%2)").arg(entry.name, entry.address));
-                emit scalesChanged();
-            } else if (result.foundBy == WifiScaleResult::Source::Browse) {
-                // A browse hit supersedes a fallback row for the same scale: it
-                // carries the instance name, port and path the A-record path
-                // cannot produce. Refresh in place rather than adding a duplicate.
-                m_scales[existingIndex].name = QString("%1 (WiFi)").arg(label);
-                m_scales[existingIndex].address = address;
-                m_scales[existingIndex].resolvedIp = resolvedAddress;
-                m_scales[existingIndex].wsPort = result.port;
-                m_scales[existingIndex].wsPath = result.path;
-                emit scalesChanged();
-            } else {
-                // Refresh the resolved IP even on a repeat find — DHCP may have
-                // moved the scale since the last scan, and connectToScale() reads
-                // this field to seed the connect.
-                m_scales[existingIndex].resolvedIp = resolvedAddress;
-                qDebug() << "[BLE] WiFi scale already in discovered list — not re-adding";
-            }
-
-            // A new result can make a previously-unambiguous label ambiguous
-            // (the second unrenamed scale is what creates the collision), so
-            // relabel the whole set rather than just this row.
-            relabelWifiScales();
+            // One authoritative collection. The rows below are DERIVED from it,
+            // never maintained alongside it — an earlier version kept both and
+            // the two dedupes drifted apart, which is what let a browse hit
+            // rewrite a row's address out from under the saved-scale matcher.
+            if (WifiScaleResultUtil::upsertByHostname(m_wifiResults, result))
+                rebuildWifiScaleRows();
 
             // Auto-connect when the discovered scale matches the saved primary,
             // including during user-initiated scans. Matching the saved primary
@@ -2304,11 +2266,10 @@ void BLEManager::ensureWifiDiscovery() {
             // user-initiated) scan that happens to find the saved scale.
             if (!m_savedScaleAddress.isEmpty()
                     && address.compare(m_savedScaleAddress, Qt::CaseInsensitive) == 0) {
-                m_pendingWifiHostname = hostname;
+                setPendingWifiConnect(hostname, resolvedAddress, result.port, result.path);
                 // This mDNS resolve just happened — hand the IP along so
                 // main.cpp can seed DecentScaleWifi's cache and dial it
                 // directly instead of re-resolving the hostname itself.
-                m_pendingWifiResolvedIp = resolvedAddress;
                 emit scaleDiscovered(QBluetoothDeviceInfo{}, QStringLiteral("decent-wifi"));
             }
         });
@@ -2396,7 +2357,7 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
         // IP is genuinely unreachable (onScaleConnectionTimeout).
         m_wifiFallbackToBleActive = false;          // Reset per attempt
         m_scaleConnectionTimer->start();            // Fires onScaleConnectionTimeout if WiFi doesn't connect
-        m_pendingWifiHostname = hostname;
+        setPendingWifiConnect(hostname);
         // No fresh resolution here — connectToHost() itself reads the
         // persisted cache (see comment above), so there's nothing new to hand along.
         m_pendingWifiResolvedIp.clear();
