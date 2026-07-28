@@ -271,9 +271,9 @@ Page {
                 // Qt's FFmpeg/VideoToolbox backend leaks ~5-10 MB per video transition
                 // on macOS (CVPixelBufferPool not fully released). Restart the screensaver
                 // when RSS grows too high to prevent eventual SIGBUS crash.
-                if (liveRss > root.videoRssCeilingMB && videoTransitionCount > 5) {
+                if (liveRss > screensaverPage.videoRssCeilingMB && screensaverPage.videoTransitionCount > 5) {
                     console.warn("[Screensaver] RSS ceiling exceeded (" + liveRss.toFixed(0) +
-                                 " MB of " + root.videoRssCeilingMB +
+                                 " MB of " + screensaverPage.videoRssCeilingMB +
                                  " MB at transition #" + videoTransitionCount +
                                  ") — stopping video playback (Qt FFmpeg leak is unrecoverable)" +
                                  (MemoryMonitor.instrumentedBuild
