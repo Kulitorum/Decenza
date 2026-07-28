@@ -337,7 +337,12 @@ void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainCon
             const QVariantList list = settings->brew()->waterVesselPresets();
             if (!indexInRange(index, list.size())) { result["error"] = "index out of range"; return result; }
             const QVariantMap existing = settings->brew()->getWaterVesselPreset(index);
-            const QString name = args.contains("name") ? args.value("name").toString() : existing.value("name").toString();
+            // A blank name is rejected here for the same reason water_vessel_add
+            // rejects it: recipes snapshot the vessel BY NAME, so a nameless
+            // preset is one nothing can refer to afterwards.
+            const QString name = args.contains("name") ? args.value("name").toString().trimmed()
+                                                       : existing.value("name").toString();
+            if (name.isEmpty()) { result["error"] = "name cannot be empty"; return result; }
             const int volume = args.contains("volumeMl") ? args.value("volumeMl").toInt() : existing.value("volume").toInt();
             const QString mode = args.contains("mode") ? args.value("mode").toString()
                 : (existing.contains("mode") ? existing.value("mode").toString() : QStringLiteral("weight"));

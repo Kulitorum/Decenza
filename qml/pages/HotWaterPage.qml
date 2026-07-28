@@ -931,8 +931,16 @@ Page {
                     accessibleName: TranslationManager.translate("hotWater.saveVesselChanges", "Save changes to water vessel preset")
                     KeyNavigation.tab: editVesselNameInput
                     KeyNavigation.backtab: cancelEditVesselButton
+                    // A vessel is identified by its NAME everywhere it is used —
+                    // recipes snapshot it by name, and the recipe wizard matches
+                    // its tiles on it. Renaming one to blank therefore produces a
+                    // vessel nothing can refer to, so the empty name is rejected
+                    // here exactly as the Add dialog rejects it.
+                    enabled: editVesselNameInput.text.trim().length > 0
                     onClicked: {
                         Qt.inputMethod.commit()
+                        if (editVesselNameInput.text.trim().length === 0)
+                            return
                         var preset = Settings.brew.getWaterVesselPreset(editingVesselIndex)
                         Settings.brew.updateWaterVesselPreset(editingVesselIndex, editVesselNameInput.text, preset.volume, preset.mode || "weight", (preset.flowRate !== undefined) ? preset.flowRate : 40, (preset.temperature !== undefined) ? preset.temperature : Settings.brew.waterTemperature)
                         editVesselPopup.close()
