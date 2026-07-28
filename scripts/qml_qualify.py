@@ -148,9 +148,29 @@ def verify(path: Path) -> int:
                         if chain in old:
                             continue
                         parts = chain.split(".")
+                        # (a) INSERTION: a segment was added into an existing chain.
+                        hit = False
                         for k in range(1, len(parts)):
                             if ".".join(parts[:k] + parts[k + 1:]) in old:
-                                print(f"  MID-CHAIN: {after.strip()}", file=sys.stderr)
+                                print(f"  MID-CHAIN INSERT: {after.strip()}", file=sys.stderr)
+                                bad += 1
+                                hit = True
+                                break
+                        if hit:
+                            continue
+                        # (b) SUBSTITUTION: same length, exactly one segment differs. This is what
+                        # replacing the seven characters `parent.` does to a `parent.parent.X`
+                        # chain — it rewrites the SECOND segment and leaves the first, so the
+                        # result reads a member off the wrong object. Five of those shipped past
+                        # the insertion check above, which cannot see them: nothing was added.
+                        for prev in old:
+                            pp = prev.split(".")
+                            if len(pp) != len(parts):
+                                continue
+                            diff = [i for i in range(len(pp)) if pp[i] != parts[i]]
+                            if len(diff) == 1 and diff[0] > 0:
+                                print(f"  MID-CHAIN SUBST: {prev.strip()} -> {chain}",
+                                      file=sys.stderr)
                                 bad += 1
                                 break
             minus = []

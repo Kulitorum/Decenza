@@ -675,7 +675,7 @@ Page {
                 implicitWidth: Math.max(Theme.scaled(80), doneText.implicitWidth + Theme.scaled(32))
                 implicitHeight: Theme.scaled(36)
                 radius: Theme.scaled(6)
-                color: accessibleButton.down ? Qt.darker(Theme.primaryContrastColor, 1.1) : Theme.primaryContrastColor
+                color: accessibleButton.down || accessibleButton.isPressed ? Qt.darker(Theme.primaryContrastColor, 1.1) : Theme.primaryContrastColor
             }
             contentItem: Text {
                 id: doneText
@@ -828,7 +828,7 @@ Page {
                     background: Rectangle {
                         implicitHeight: Theme.scaled(44)
                         radius: Theme.buttonRadius
-                        color: doneButton.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+                        color: doneButton.down || doneButton.isPressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
                     }
                     contentItem: Text {
                         text: doneButton.text
@@ -904,7 +904,7 @@ Page {
                 background: Rectangle {
                     implicitHeight: Theme.scaled(44)
                     radius: Theme.buttonRadius
-                    color: okButton.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+                    color: okButton.down || okButton.isPressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
                 }
                 contentItem: Text {
                     text: okButton.text
@@ -1055,7 +1055,7 @@ Page {
                         background: Rectangle {
                             implicitHeight: Theme.scaled(44)
                             radius: Theme.buttonRadius
-                            color: saveButton.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+                            color: saveButton.down || saveButton.isPressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
                         }
                         contentItem: Text {
                             text: saveButton.text
@@ -1194,7 +1194,7 @@ Page {
                     background: Rectangle {
                         implicitHeight: Theme.scaled(44)
                         radius: Theme.buttonRadius
-                        color: yesButton.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+                        color: yesButton.down || yesButton.isPressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
                     }
                     contentItem: Text {
                         text: yesButton.text

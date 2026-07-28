@@ -122,7 +122,7 @@ Dialog {
                 background: Rectangle {
                     implicitHeight: Theme.scaled(50)
                     radius: Theme.buttonRadius
-                    color: okButton.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+                    color: okButton.down || okButton.isPressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
                 }
                 contentItem: Text {
                     text: okButton.text

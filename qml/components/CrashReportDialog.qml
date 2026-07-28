@@ -279,7 +279,7 @@ Dialog {
                     background: Rectangle {
                         implicitHeight: Theme.scaled(60)
                         radius: Theme.buttonRadius
-                        color: sendReportButton.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+                        color: sendReportButton.down || sendReportButton.isPressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
                     }
                     contentItem: Text {
                         text: sendReportButton.text
@@ -404,7 +404,7 @@ Dialog {
                     background: Rectangle {
                         implicitHeight: Theme.scaled(60)
                         radius: Theme.buttonRadius
-                        color: okButton.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+                        color: okButton.down || okButton.isPressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
                     }
                     contentItem: Text {
                         text: okButton.text
@@ -528,7 +528,7 @@ Dialog {
                     background: Rectangle {
                         implicitHeight: Theme.scaled(60)
                         radius: Theme.buttonRadius
-                        color: retryButton.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+                        color: retryButton.down || retryButton.isPressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
                     }
                     contentItem: Text {
                         text: retryButton.text

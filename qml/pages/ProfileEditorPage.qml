@@ -360,7 +360,7 @@ Page {
                             accessibleName: TranslationManager.translate("profileEditor.openProfileSettings", "Open profile settings")
                             onClicked: profileSettingsPopup.open()
                             background: Rectangle {
-                                color: openProfileSettingsButton.down ? Qt.darker(Theme.surfaceColor, 1.2) : Qt.rgba(1, 1, 1, 0.05)
+                                color: openProfileSettingsButton.down || openProfileSettingsButton.isPressed ? Qt.darker(Theme.surfaceColor, 1.2) : Qt.rgba(1, 1, 1, 0.05)
                                 radius: Theme.scaled(8)
                                 border.width: 1
                                 border.color: Theme.textSecondaryColor
@@ -389,7 +389,7 @@ Page {
                             accessibleName: TranslationManager.translate("profileEditor.openLimits", "Open limits settings")
                             onClicked: limitsPopup.open()
                             background: Rectangle {
-                                color: openLimitsButton.down ? Qt.darker(Theme.surfaceColor, 1.2) : Qt.rgba(1, 1, 1, 0.05)
+                                color: openLimitsButton.down || openLimitsButton.isPressed ? Qt.darker(Theme.surfaceColor, 1.2) : Qt.rgba(1, 1, 1, 0.05)
                                 radius: Theme.scaled(8)
                                 border.width: 1
                                 border.color: Theme.textSecondaryColor
@@ -555,7 +555,7 @@ Page {
                 background: Rectangle {
                     implicitHeight: Theme.scaled(44)
                     radius: Theme.buttonRadius
-                    color: doneButton.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+                    color: doneButton.down || doneButton.isPressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
                 }
                 contentItem: Text {
                     text: doneButton.text
@@ -804,7 +804,7 @@ Page {
                 implicitWidth: Math.max(Theme.scaled(80), doneText.implicitWidth + Theme.scaled(32))
                 implicitHeight: Theme.scaled(36)
                 radius: Theme.scaled(6)
-                color: doneButton2.down ? Qt.darker(Theme.primaryContrastColor, 1.1) : Theme.primaryContrastColor
+                color: doneButton2.down || doneButton2.isPressed ? Qt.darker(Theme.primaryContrastColor, 1.1) : Theme.primaryContrastColor
             }
             contentItem: Text {
                 id: doneText

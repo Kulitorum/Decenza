@@ -415,7 +415,7 @@ Item {
             interval: 1000
             running: showClock && root.visible
             repeat: true
-            // `parent`, not shotMapClock: Timer is a QObject with no parent of its own, so
+            // shotMapClock, not `parent`: Timer is a QObject with no parent of its own, so
             // unqualified `parent` resolved to the FILE root's parent and the clock never
             // ticked. Same defect as ScreensaverPage.qml.
             onTriggered: shotMapClock.currentTime = new Date()

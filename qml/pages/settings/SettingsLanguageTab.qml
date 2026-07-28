@@ -288,7 +288,7 @@ Item {
 
                             contentItem: Item {
                                 Rectangle {
-                                    width: parent.progressBar.visualPosition * parent.width
+                                    width: progressBar.visualPosition * parent.width
                                     height: parent.height
                                     radius: Theme.scaled(3)
                                     color: Theme.successColor
@@ -771,7 +771,7 @@ Item {
 
             contentItem: Item {
                 Rectangle {
-                    width: parent.progressBar2.visualPosition * parent.width
+                    width: progressBar2.visualPosition * parent.width
                     height: parent.height
                     radius: Theme.scaled(4)
                     color: Theme.primaryColor

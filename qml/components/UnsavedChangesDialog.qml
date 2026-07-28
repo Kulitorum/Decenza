@@ -105,7 +105,7 @@ Dialog {
                 background: Rectangle {
                     implicitHeight: Theme.scaled(60)
                     radius: Theme.buttonRadius
-                    color: discardButton.down ? Qt.darker(Theme.errorColor, 1.2) : Theme.errorColor
+                    color: discardButton.down || discardButton.isPressed ? Qt.darker(Theme.errorColor, 1.2) : Theme.errorColor
                 }
                 contentItem: Text {
                     text: discardButton.text
@@ -184,8 +184,8 @@ Dialog {
                 background: Rectangle {
                     implicitHeight: Theme.scaled(60)
                     radius: Theme.buttonRadius
-                    color: parent.enabled
-                        ? (saveButton.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor)
+                    color: saveButton.enabled
+                        ? (saveButton.down || saveButton.isPressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor)
                         : Theme.buttonDisabled
                 }
                 contentItem: Text {

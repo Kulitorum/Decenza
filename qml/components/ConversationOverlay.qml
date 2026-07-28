@@ -1205,7 +1205,7 @@ Rectangle {
                     background: Rectangle {
                         implicitHeight: Theme.scaled(60)
                         radius: Theme.buttonRadius
-                        color: openWebButton.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+                        color: openWebButton.down || openWebButton.isPressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
                     }
                     contentItem: Text {
                         text: openWebButton.text

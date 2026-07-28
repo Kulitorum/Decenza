@@ -194,6 +194,8 @@ Item {
         }
 
         contentItem: Item {
+            id: popupContent
+
             implicitWidth: popupPillRow.implicitWidth
             implicitHeight: popupPillRow.implicitHeight
 
@@ -202,7 +204,7 @@ Item {
             Connections {
                 target: MachineState
                 function onScaleWeightChanged() {
-                    if (presetPopup.visible) popupPillRow.presetPopup.popupSuffixVersion++
+                    if (presetPopup.visible) popupContent.popupSuffixVersion++
                 }
             }
 

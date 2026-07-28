@@ -142,7 +142,11 @@ CATEGORY_EXEMPTIONS: dict[str, int] = {
     # time). A value source OVERRIDES an initial binding rather than starting from it, so in
     # both cases the initialiser was dead and the code had never done what it read as.
     # No "unresolved-type" entry either — same cause, cleared the same way.
-    # No "equality-type-coercion" entry: CLEAR. One `!=` on a string in ProfileImportPage.
+    # No "equality-type-coercion" entry: CLEAR. One `!=` in ProfileImportPage — and the fix was
+    # NOT the obvious one. The operand is a `property url`, which QML hands to JS as a UrlObject
+    # whose default virtualIsEqualTo returns false unconditionally, so a bare `!==` is ALWAYS
+    # true and silently broke the rescan fallback. Compare `.toString()`. Lint-clean and wrong
+    # is worse than lint-dirty and right.
     # No "incompatible-type" entry. Its single finding was
     # StrangeAttractorScreensaver.qml:47 binding `target: renderer`, declared QObject and actually
     # a StrangeAttractorRenderer — unresolvable while that type was registered at runtime, and

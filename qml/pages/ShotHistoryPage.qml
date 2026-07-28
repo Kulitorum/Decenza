@@ -710,7 +710,7 @@ Page {
                                 iconWidth: Theme.scaled(16)
                                 iconHeight: Theme.scaled(16)
                                 iconColor: Theme.primaryColor
-                                visible: parent.checkBox.checked
+                                visible: checkBox.checked
                             }
                         }
                     }

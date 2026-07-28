@@ -160,7 +160,7 @@ Dialog {
                 background: Rectangle {
                     implicitHeight: Theme.scaled(60)
                     radius: Theme.buttonRadius
-                    color: denyButton.down ? Qt.darker(Theme.errorColor, 1.2) : Theme.errorColor
+                    color: denyButton.down || denyButton.isPressed ? Qt.darker(Theme.errorColor, 1.2) : Theme.errorColor
                 }
                 contentItem: Text {
                     text: denyButton.text
@@ -187,7 +187,7 @@ Dialog {
                 background: Rectangle {
                     implicitHeight: Theme.scaled(60)
                     radius: Theme.buttonRadius
-                    color: allowButton.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+                    color: allowButton.down || allowButton.isPressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
                 }
                 contentItem: Text {
                     text: allowButton.text
