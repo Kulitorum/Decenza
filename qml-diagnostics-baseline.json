@@ -229,7 +229,7 @@
     "qml/pages/settings/SettingsVisualizerTab.qml"
   ],
   "observed_categories": {
-    "missing-property": 92,
+    "missing-property": 87,
     "unqualified": 2327
   }
 }
