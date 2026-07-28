@@ -51,6 +51,16 @@ Read [`docs/SHOT_REVIEW.md`](https://github.com/Kulitorum/Decenza/blob/main/docs
 - **Qt version**: 6.11.1
 - **Qt path**: `C:/Qt/6.11.1/msvc2022_64`
 - **Qt sources**: `~/Qt/6.11.1/Src` (macOS) — the full Qt source tree for the exact version we build against (`qtbase`, `qtwebsockets`, …). **Read it instead of guessing at Qt behaviour.** Qt's own docs routinely omit the details that decide a bug, and its error handling in particular is not inferable from the enum names — several distinct `errno` values collapse onto one `QAbstractSocket::SocketError`, and the mapping differs per platform. Worked example: `qtbase/src/network/socket/qnativesocketengine_unix.cpp` shows `EINVAL` mapping to `ConnectionRefusedError`, and `qtbase/src/network/socket/qabstractsocket.cpp` shows that `connectToHost()` with an IP literal resolves inline, so `open()`/`connectToHost()` can emit `errorOccurred` **synchronously** rather than on a later event-loop turn. Both facts change what correct code looks like, and neither is in the class documentation.
+
+  A second worked example, in a different category — the QML object model, not error handling. A
+  singleton whose type is registered but whose instance was never published resolves to a **truthy**
+  wrapper, not `undefined`: `qv4qmlcontext.cpp` discards the result of `singletonInstance<QObject*>()`
+  and builds the wrapper regardless, and only the member read degrades. Nothing in the API shape
+  suggests that. Note the compounding failure mode, which is the actual lesson: the wrong belief was
+  written into a header comment as settled fact, the comment then licensed a `typeof X !== "undefined"`
+  guard that could not work, and both survived review until someone opened the Qt source. **A comment
+  asserting Qt behaviour needs a file-and-line citation, or it is a guess wearing a comment's
+  clothes.**
 - **qtbase checkout**: `~/Development/GitHub/qtbase` — separate git clone with the Gerrit remote, for upstream patches. Not the copy to read for reference (it sits on whatever contribution branch is in flight); use `~/Qt/6.11.1/Src` for that.
 - **C++ standard**: C++17
 - **de1app source**: `C:\code\de1app` (Windows) or `/Users/jeffreyh/Development/GitHub/de1app` (macOS) — original Tcl/Tk DE1 app for reference

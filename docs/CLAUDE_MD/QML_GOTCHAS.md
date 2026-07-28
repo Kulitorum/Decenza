@@ -370,6 +370,30 @@ should move:
 Recover the identifier from the source line at the reported column, assert the token before
 rewriting it, and re-lint after every pass.
 
+**Insert right-to-left when one line has two insertions, and do not trust the relint to catch it
+if you don't.** Every insertion shifts the columns after it, so the second prefix on a line lands
+in the wrong place if you computed its column against the original text. That is how
+`currentOffset += results.length` became:
+
+```qml
+shotHistoryPage.currentOffset += results.shotHistoryPage.length   // undefined; += makes it NaN
+```
+
+which broke Shot History pagination — every later fetch asked for a NaN offset. **qmllint reported
+nothing**, because `results` is a signal-handler parameter typed `var` and the linter does no
+member checking on that chain. The `gear` case above survived exactly one relint; this one would
+have survived any number of them. The relint is a backstop for mis-qualification onto a *typed*
+receiver and for nothing else.
+
+So verify this class mechanically, on the diff rather than the tree — and note the check is
+paired-line, not textual:
+
+> For each changed line, if removing any one segment from a dotted chain in the NEW line yields a
+> chain present in the OLD line, the insertion landed mid-chain.
+
+Run over a whole branch diff that is a few seconds and it is exhaustive; it found this occurrence
+and confirmed there were no others.
+
 ## `Window` is an attached property — do not write it through an id
 
 ```qml
