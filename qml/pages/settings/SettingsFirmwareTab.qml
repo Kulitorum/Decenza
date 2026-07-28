@@ -15,7 +15,7 @@ import "../../components"
 Item {
     id: firmwareTab
 
-    readonly property var fw: typeof MainController !== "undefined" && MainController
+    readonly property var fw: typeof MainController !== "undefined" && MainController !== null && MainController
                               ? MainController.firmwareUpdater : null
 
     // FirmwareUpdater::State enum values (kept in sync with the C++ side

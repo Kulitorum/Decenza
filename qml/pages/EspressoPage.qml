@@ -61,7 +61,7 @@ Page {
     // Accessibility: announce next value
     function announceNextValue() {
         accessibilityValueIndex = (accessibilityValueIndex + 1) % accessibilityValueNames.length
-        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
             AccessibilityManager.announce(getAccessibilityValue(accessibilityValueIndex), true)
         }
     }
@@ -69,14 +69,14 @@ Page {
     // Accessibility: announce previous value
     function announcePreviousValue() {
         accessibilityValueIndex = (accessibilityValueIndex - 1 + accessibilityValueNames.length) % accessibilityValueNames.length
-        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
             AccessibilityManager.announce(getAccessibilityValue(accessibilityValueIndex), true)
         }
     }
 
     // Accessibility: announce full status
     function announceFullStatus() {
-        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
             var status = "Shot status. "
             status += getAccessibilityValue(0) + ". "  // Frame
             status += getAccessibilityValue(1) + ". "  // Time
@@ -102,7 +102,7 @@ Page {
 
     // Additional keyboard navigation for accessibility
     Keys.onPressed: function(event) {
-        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
             if (event.key === Qt.Key_Left) {
                 announcePreviousValue()
                 event.accepted = true
@@ -138,7 +138,7 @@ Page {
 
     // Helper to check if accessibility announcements are enabled
     function accessibilityEnabled() {
-        return typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
+        return typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled
     }
 
     // Get phase announcement text
@@ -1072,7 +1072,7 @@ Page {
         id: infoBarSwipeArea
         anchors.fill: infoBar
         anchors.leftMargin: Theme.scaled(80)  // Don't cover back button
-        enabled: typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
+        enabled: typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled
         propagateComposedEvents: true
 
         property real startX: 0
@@ -1113,7 +1113,7 @@ Page {
     MultiPointTouchArea {
         anchors.fill: infoBar
         anchors.leftMargin: Theme.scaled(80)  // Don't cover back button
-        enabled: typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
+        enabled: typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled
         minimumTouchPoints: 2
         maximumTouchPoints: 2
 
@@ -1128,7 +1128,7 @@ Page {
     MouseArea {
         id: chartTapArea
         anchors.fill: extractionViewLoader
-        enabled: typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
+        enabled: typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled
 
         property real startX: 0
         property real startY: 0
@@ -1157,7 +1157,7 @@ Page {
     // Two-finger tap on chart for full status announcement
     MultiPointTouchArea {
         anchors.fill: extractionViewLoader
-        enabled: typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
+        enabled: typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled
         minimumTouchPoints: 2
         maximumTouchPoints: 2
 

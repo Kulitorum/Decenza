@@ -60,7 +60,7 @@ MouseArea {
 
     // Clear lastAnnouncedItem when this item is destroyed to prevent dangling pointer crash
     Component.onDestruction: {
-        if (typeof AccessibilityManager !== "undefined" &&
+        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null &&
             AccessibilityManager.lastAnnouncedItem === accessibleItem) {
             AccessibilityManager.lastAnnouncedItem = null
         }
@@ -110,7 +110,7 @@ MouseArea {
         var isDoubleTap = timeSinceLastTap < doubleClickInterval && timeSinceLastTap > 50  // > 50ms to avoid bounce
         _lastTapTime = now
 
-        var accessibilityMode = typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
+        var accessibilityMode = typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled
 
         if (accessibilityMode) {
             // Accessibility mode: First tap announces, second tap (same item) activates

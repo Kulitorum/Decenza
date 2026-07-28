@@ -121,12 +121,12 @@ Item {
                 var rootTopInPage = root.mapToItem(root.idlePage, 0, 0).y
                 root.idlePage.requestPanelClearance(rootTopInPage + presetPopup.y, presetPopup.height)
             }
-            if (typeof MachineState !== "undefined") MachineState.tareScale()
+            if (typeof MachineState !== "undefined" && MachineState !== null) MachineState.tareScale()
 
             // Full-mode steam path runs IdlePage.onActivePresetFunctionChanged which
             // announces the preset list to TalkBack. The compact-mode popup bypasses
             // that path, so announce here directly to keep feature parity.
-            if (typeof AccessibilityManager === "undefined" || !AccessibilityManager.enabled) return
+            if (typeof AccessibilityManager === "undefined" || AccessibilityManager === null || !AccessibilityManager.enabled) return
             var presets = Settings.brew.steamPitcherPresets
             if (presets.length === 0) return
             var names = []
@@ -257,7 +257,7 @@ Item {
                             DE1Device.startSteam()
                         } else {
                             console.log("Cannot start steam - machine not ready, phase:", MachineState.phase)
-                            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+                            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
                                 AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
                         }
                     }

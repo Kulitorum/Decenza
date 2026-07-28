@@ -10,7 +10,7 @@ Text {
     MouseArea {
         anchors.fill: parent
         onClicked: {
-            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
                 AccessibilityManager.announce(root.announcement, true)
             }
         }

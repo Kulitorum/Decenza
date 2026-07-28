@@ -537,7 +537,7 @@ Page {
         header: Item {} // Hide default Dialog header, we use our own
 
         onOpened: {
-            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
                 AccessibilityManager.announce(TranslationManager.translate("autofavorites.settings", "Auto-Favorites Settings"))
             }
         }
@@ -597,7 +597,7 @@ Page {
                         var values = ["bean", "profile", "bean_profile", "bean_profile_grinder", "bean_profile_grinder_weight"]
                         Settings.network.autoFavoritesGroupBy = values[currentIndex]
                         loadFavorites()
-                        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+                        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
                             AccessibilityManager.announce(
                                 TranslationManager.translate("autofavorites.groupby", "Group by") +
                                 " " + displayText)

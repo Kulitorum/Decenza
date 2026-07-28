@@ -41,7 +41,7 @@ Item {
     // in this mode the typing dropdown is suppressed and the results are offered
     // through a focus-trapping SelectionDialog opened from a labelled button —
     // same dual-path SuggestionField uses for its own typing popup.
-    readonly property bool _accessibilityMode: typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
+    readonly property bool _accessibilityMode: typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled
 
     implicitHeight: headerRow.height + Theme.scaled(2) + searchInput.height
         + (a11yResultsButton.visible ? a11yResultsButton.height + Theme.scaled(4) : 0)

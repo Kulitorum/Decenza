@@ -53,7 +53,7 @@ Dialog {
     }
 
     onOpened: {
-        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
             AccessibilityManager.announce(
                 TranslationManager.translate("datepicker.opened", "Date picker. Use arrows to change month.")
             )

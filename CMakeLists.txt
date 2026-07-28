@@ -811,6 +811,10 @@ set(HEADERS
     # qmltyperegistrar sees the type; it is compiled by no other target, which is the point
     # (settings.h stays free of QtQml — see the file's own comment).
     src/core/settings_qml.h
+    # Same reason, for the objects main() owns and used to publish with setContextProperty():
+    # their class headers are compiled by test and tool targets that link no Qt6::Qml, so the
+    # registration lives in a file only this target compiles.
+    src/core/contextsingletons_qml.h
     src/core/settings_mqtt.h
     src/core/settings_autowake.h
     src/core/settings_hardware.h
@@ -930,6 +934,7 @@ set(HEADERS
     src/mcp/mcpsession.h
     src/mcp/mcptoolregistry.h
     src/mcp/mcpresourceregistry.h
+    src/mcp/mcpremoteaccess.h
     src/core/settingsserializer.h
     src/core/datamigrationclient.h
     src/core/databasebackupmanager.h
@@ -1394,7 +1399,16 @@ set(QML_FILES
 # `WIN32 OR APPLE` would include iOS, which shipped this window's compiled QML
 # in every IPA — dead weight for a window iOS never loads, and whose
 # GHCSimulator context property does not exist there at all.
-if(WIN32 OR (APPLE AND NOT IOS))
+#
+# Linux is in the list even though main.cpp never loads this window there — its load site is
+# `#if (Q_OS_WIN || Q_OS_MACOS) && QT_DEBUG`. It is here so the module's file set does not vary
+# by desktop platform, because the qmllint gate's file set is derived from it. Nightly CI is the
+# only automated lint run and it is Linux: with the file excluded there, CI linted 216 files
+# against a 217-file baseline, and this file's 57 diagnostics were checked by nobody. The gate
+# caught that on its first CI run. Cost of carrying it is a few KB of compiled QML in a Linux
+# desktop build; the alternative — NOT_IN_MODULE_BY_DESIGN in scripts/qmllint_report.py — buys
+# the same green at the price of never linting the file again.
+if(NOT ANDROID AND NOT IOS)
     list(APPEND QML_FILES
         qml/simulator/GHCSimulatorWindow.qml
     )

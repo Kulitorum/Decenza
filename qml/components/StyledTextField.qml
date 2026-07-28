@@ -16,7 +16,7 @@ TextField {
 
     // Track whether focus was granted via accessibility double-tap (onPressAction)
     property bool _a11yActivated: false
-    readonly property bool _accessibilityMode: typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
+    readonly property bool _accessibilityMode: typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled
 
     font.pixelSize: Theme.labelFont.pixelSize
     color: Theme.textColor

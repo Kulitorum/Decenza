@@ -49,7 +49,7 @@ Item {
         } else if (!MachineState.isReady) {
             console.log("[recipe pill/compact] start blocked: machine not ready — recipe=" + recipe.id
                         + " phase=" + MachineState.phase)
-            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
                 AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
         } else {
             // Deferred in MainController until the recipe's profile is applied,
@@ -235,7 +235,7 @@ Item {
                 var rootTopInPage = root.mapToItem(root.idlePage, 0, 0).y
                 root.idlePage.requestPanelClearance(rootTopInPage + presetPopup.y, presetPopup.height)
             }
-            if (typeof AccessibilityManager === "undefined" || !AccessibilityManager.enabled) return
+            if (typeof AccessibilityManager === "undefined" || AccessibilityManager === null || !AccessibilityManager.enabled) return
             var recipes = root.visibleRecipes
             if (recipes.length === 0) return
             var names = []

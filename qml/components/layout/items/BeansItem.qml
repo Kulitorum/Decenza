@@ -207,7 +207,7 @@ Item {
                 var rootTopInPage = root.mapToItem(root.idlePage, 0, 0).y
                 root.idlePage.requestPanelClearance(rootTopInPage + presetPopup.y, presetPopup.height)
             }
-            if (typeof AccessibilityManager === "undefined" || !AccessibilityManager.enabled) return
+            if (typeof AccessibilityManager === "undefined" || AccessibilityManager === null || !AccessibilityManager.enabled) return
             var bags = root.visibleBags
             if (bags.length === 0) return
             var names = []

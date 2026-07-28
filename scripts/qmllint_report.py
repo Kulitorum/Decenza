@@ -46,6 +46,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shlex
 import subprocess
 import tempfile
 import sys
@@ -83,7 +84,7 @@ BASELINE = REPO / "qml-diagnostics-baseline.json"
 # still includes files the run never read is an allowance, not a ceiling.
 CATEGORY_EXEMPTIONS: dict[str, int] = {
     # Each entry is a ceiling, not a budget.
-    "missing-property": 326,
+    "missing-property": 322,
     # All 21 remaining are qmllint FALSE POSITIVES and cannot be driven to zero from this side:
     # it flags any child DECLARED lexically inside a Layout without checking that a Layout will
     # actually manage it. Two shapes — objects that are not Items at all (Popup/Dialog derive
@@ -784,6 +785,55 @@ def main() -> int:
             + "".join(f"  {f}\n    {UNLINTABLE_BY_TOOL_BUG[f]}\n" for f in skipped),
             file=sys.stderr,
         )
+
+    # Refuse the run that cannot succeed, instead of discovering it ten minutes in.
+    #
+    # A released qmllint cannot finish the UNLINTABLE_BY_TOOL_BUG files — it grows to hundreds of
+    # gigabytes and is OOM-killed, which on a laptop takes the desktop down with it. Only a local
+    # build carrying the Gerrit fix can, and the two are indistinguishable by --version. (Not undetectable in principle — running
+    # one against the problem file tells you within ten minutes, which is the cost being avoided.)
+    #
+    # So the test is WHERE the binary lives, not whether --qmllint was passed. An earlier version
+    # of this guard used the flag as a proxy for intent and was dead on the path that matters:
+    # both CMake targets pass --qmllint unconditionally, filled in by find_program() from Qt's own
+    # bin/. Under `cmake -DQMLLINT_SKIP_UNLINTABLE=OFF` with QMLLINT_EXECUTABLE left at that
+    # default, the stock binary would still be handed CustomItem.qml with nothing said.
+    #
+    # Keying on the path works for both entry points because CLAUDE.local.md requires the patched
+    # build to stay in its own tree: copying it into ~/Qt breaks qmlimportscanner's code signature
+    # and with it the whole Decenza build. A binary under a Qt install is therefore a stock one.
+    if not args.from_raw:
+        effective = args.qmllint or find_qmllint()
+        looks_stock = any(
+            str(Path(effective).resolve()).startswith(str(root))
+            for root in (Path.home() / "Qt", Path("C:/Qt"), Path("/opt/Qt"), Path("/usr/lib/qt6"))
+        )
+        blocked = sorted(set(files) & set(UNLINTABLE_BY_TOOL_BUG)) if looks_stock else []
+        if blocked:
+            # Rebuild the command without the flags this message is about to re-add, so the
+            # suggestions are runnable rather than self-contradictory: --update-baseline plus
+            # --skip-unlintable is a combination the script refuses outright a few lines up.
+            base = [a for a in sys.argv[1:] if a not in ("--update-baseline", "--skip-unlintable")]
+            invocation = f"python3 {sys.argv[0]}"
+            quoted = " ".join(shlex.quote(a) for a in base)
+            sys.exit(
+                "refusing to start: this run includes {n} file(s) that a released qmllint cannot "
+                "analyse, and {which}:\n{detail}\n"
+                "It would climb to hundreds of GB and be OOM-killed after roughly ten minutes, "
+                "having written nothing.\n\n"
+                "Lint the whole tree with a patched build:\n"
+                "  {inv} {rest} --update-baseline --qmllint <path-to-patched-qmllint>\n\n"
+                "or skip those files, which reports but cannot rewrite the baseline — a partial "
+                "run must never ratchet it:\n"
+                "  {inv} {rest} --check --skip-unlintable".format(
+                    n=len(blocked),
+                    which=(f"the binary is {effective}, which sits inside a Qt install"
+                           if args.qmllint else "no --qmllint was given, so the binary is Qt's own"),
+                    detail="".join(f"  {f}\n    {UNLINTABLE_BY_TOOL_BUG[f]}\n" for f in blocked),
+                    inv=invocation,
+                    rest=quoted,
+                )
+            )
 
     if args.from_raw:
         output = Path(args.from_raw).read_text(errors="replace")

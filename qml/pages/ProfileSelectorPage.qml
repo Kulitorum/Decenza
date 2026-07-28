@@ -799,7 +799,7 @@ Page {
                         if (index !== Settings.app.selectedFavoriteProfile) {
                             ProfileManager.loadProfile(fav.filename)
                             Settings.app.selectedFavoriteProfile = index
-                            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+                            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
                                 AccessibilityManager.announce(root.cleanForSpeech(fav.name) + " " + TranslationManager.translate("profileSelector.selected", "selected"))
                             }
                         }
@@ -809,7 +809,7 @@ Page {
                         var fav = Settings.app.favoriteProfiles[index]
                         var name = fav ? root.cleanForSpeech(fav.name) : ""
                         Settings.app.removeFavoriteProfile(index)
-                        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+                        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
                             AccessibilityManager.announce(name + " " + TranslationManager.translate("profileselector.accessible.removed_from_favorites", "removed from favorites"))
                         }
                     }

@@ -409,7 +409,7 @@ Item {
                 }
 
                 onAccessibleClicked: {
-                    if (typeof AccessibilityManager !== "undefined") {
+                    if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null) {
                         AccessibilityManager.announce(accessibleName)
                     }
                 }

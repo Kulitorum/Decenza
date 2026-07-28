@@ -56,7 +56,7 @@ Item {
 
     property bool isFlowScale: ScaleDevice && ScaleDevice.isFlowScale
     property bool scaleConnected: ScaleDevice && ScaleDevice.connected
-    property bool accessibilityEnabled: typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
+    property bool accessibilityEnabled: typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled
 
     // Open the single global Brew Settings dialog (hosted at the app root) via the
     // window, so this works wherever the tile is placed — including the persistent

@@ -147,10 +147,101 @@ the gate could be built. Read task 1.1 before trusting a number in these documen
 
 ## 2. Classify the registrations
 
-- [ ] 2.1 List all 39 `setContextProperty()` names with their QML warning counts and their set-sites
-- [ ] 2.2 For each of the 7 names set more than once (`ScaleDevice` 10, `Refractometer` 4, `DE1Device`, `Settings`, `TemperatureDisplay`, `IsDebugBuild`, `GHCSimulator` 2 each), determine whether the sites are mutually exclusive startup paths or genuine runtime swaps — verify, do not assume; a swapped name migrated as a fixed instance freezes on the wrong backend and fails silently
-- [ ] 2.3 Confirm every object's lifetime outlives `QQmlApplicationEngine engine` (declared at `src/main.cpp:1958`) and that registration can be ordered before `engine.load()`
-- [ ] 2.4 Split the names into two lists: fixed-instance (migrate directly) and runtime-swapped (needs a façade)
+- [x] 2.1 List all 39 `setContextProperty()` names with their QML warning counts and their set-sites
+
+  30 names remain (9 migrated in section 3). Counts are unqualified-access warnings, extracted
+  through `qmllint_report.py`'s own column-based parser — never by regex over the warning line,
+  which is the trap recorded in task 1.1. **943 of the ~5,710 remaining `unqualified` warnings
+  are attributable to these 30 names**, so section 2 in full is worth roughly a sixth of the
+  category; the other ~4,767 are delegate and file-scope identifiers (`modelData` 567, `root`
+  399, `model` 187, `index` 126) whose remedy is `pragma ComponentBehavior: Bound`, out of scope
+  here.
+
+  | count | files | name | | count | files | name |
+  |---:|---:|---|---|---:|---:|---|
+  | 236 | 26 | `DE1Device` | | 22 | 1 | `RemoteMcpAccess` |
+  | 179 | 8 | `ScreensaverManager` | | 16 | 1 | `ShotDataModel` |
+  | 131 | 11 | `ScaleDevice` | | 15 | 2 | `GHCSimulator` |
+  | 76 | 6 | `BLEManager` | | 9 | 1 | `PreviousCrashLog` |
+  | 40 | 2 | `SteamHealthTracker` | | 8 | 1 | `USBManager` |
+  | 38 | 3 | `WidgetLibrary` | | 5 | 1 | `ProfileStorage` |
+  | 37 | 1 | `FlowCalibrationModel` | | 5 | 1 | `CrashReporter` |
+  | 29 | 2 | `LibrarySharing` | | 5 | 2 | `McpServer` |
+  | 27 | 1 | `WeatherManager` | | 4 | 1 | `SteamDataModel` |
+  | 24 | 2 | `Refractometer` | | 4 | 1 | `AppVersion` |
+  | 23 | 4 | `BatteryManager` | | 3 | 1 | `MemoryMonitor` |
+  | | | | | 2 | 2 | `UsbScaleManager` |
+  | | | | | 2 | 1 | `AppVersionCode` |
+  | | | | | 1 | 1 | `AutoWakeManager` |
+  | | | | | 1 | 1 | `ShotHistoryExporter` |
+  | | | | | 1 | 1 | `PreviousDebugLogTail` |
+
+  **Three names scored zero because nothing reads them.** `FlowScale`, `DE1Simulator` and
+  `IsDebugBuild` have no reference anywhere in `qml/` outside comments — verified by grepping
+  the word and discarding comment lines, not inferred from the zero. `FlowScale` was published
+  "Always available for diagnostics", `IsDebugBuild` from a `#ifdef QT_DEBUG` / `#else` pair,
+  `DE1Simulator` onto the GHC engine whose single QML file never mentions it. Deleted rather
+  than migrated. This is its own small argument for the change: a context property that no QML
+  reads is indistinguishable from one whose call sites are all typos, because neither the
+  compiler nor qmllint can see either.
+
+- [x] 2.2 For each of the 7 names set more than once, determine whether the sites are mutually
+  exclusive startup paths or genuine runtime swaps
+
+  **Only two are genuine swaps.** The other five were miscounted by this task's own premise —
+  "set more than once" conflates three different things:
+
+  - **`ScaleDevice` (10 sites) — genuine runtime swap.** Rotates between `&flowScale`,
+    `physicalScale.get()`, `usbScale` and `&simulatedScale` as scales connect and drop.
+  - **`Refractometer` (4 sites) — genuine runtime swap.** `nullptr` ↔ `refractometer.get()`.
+  - **`DE1Device` and `GHCSimulator` — not swaps.** The second site publishes the *same object*
+    to a *second engine* (`ghcEngine`, the GHC simulator window). A `QML_SINGLETON` with a
+    published static instance covers both engines by construction, so these are simpler as
+    singletons than as context properties, not harder.
+  - **`IsDebugBuild` — not a swap.** Two `#ifdef` arms, mutually exclusive at compile time. Now
+    deleted as unused (2.1).
+  - **`Settings`, `TemperatureDisplay` — already migrated** in section 3; stale entries in the
+    original task text.
+
+- [x] 2.3 Confirm every object's lifetime outlives `QQmlApplicationEngine engine`
+
+  **Three do not, and migrating them as written would reintroduce a crash this codebase has
+  already had.** `engine` is declared at `src/main.cpp:1958`. Declared *after* it, and therefore
+  destroyed *before* it: `ghcSimulator` (3367), `flowCalibrationModel` (3456), and
+  `de1SimulatorPtr` (inside the `DECENZA_SIMULATOR` block).
+
+  `main.cpp`'s own teardown comment records why this matters — a refractometer teardown crash
+  traced to exactly this ordering, "the device was declared AFTER the engine, so it died first,
+  while bindings reading it were still live". What makes the current arrangement safe is a
+  property of context properties specifically: **QML drops a context property when its object
+  emits `destroyed()`**, with the C++ side holding a `QPointer` that self-nulls at the same
+  moment.
+
+  A `QML_SINGLETON` backed by a `static` raw instance pointer has no equivalent. Nothing nulls
+  it, and nothing tells QML the object is gone. So for these three the migration is not a
+  registration change but a declaration move — hoist above `engine` first, or the singleton is
+  strictly less safe than the context property it replaces. `FlowCalibrationModel` (37 warnings,
+  1 file) is the only one of the three worth the move on lint grounds; `GHCSimulator` is 15
+  warnings in a debug-only window and `DE1Simulator` is now deleted.
+
+- [x] 2.4 Split the names into two lists: fixed-instance (migrate directly) and runtime-swapped
+
+  - **Migrate directly (20 objects, 720 warnings):** `DE1Device`, `ScreensaverManager`,
+    `BLEManager`, `SteamHealthTracker`, `WidgetLibrary`, `LibrarySharing`, `WeatherManager`,
+    `BatteryManager`, `RemoteMcpAccess`, `ShotDataModel`, `USBManager`, `ProfileStorage`,
+    `CrashReporter`, `McpServer`, `SteamDataModel`, `MemoryMonitor`, `UsbScaleManager`,
+    `AutoWakeManager`, `ShotHistoryExporter`, `GHCSimulator`.
+  - **Needs a façade — runtime-swapped (2 names, 155 warnings):** `ScaleDevice`, `Refractometer`.
+    A singleton exposing `Q_PROPERTY(... NOTIFY)` that the swap sites write, so QML binds to the
+    façade and the backend moves underneath it.
+  - **Needs a declaration move first (1 of the above, plus the façade work):**
+    `FlowCalibrationModel` — see 2.3.
+  - **Needs a value-holder singleton (4 names, 16 warnings):** `AppVersion`, `AppVersionCode`,
+    `PreviousCrashLog`, `PreviousDebugLogTail` are plain `QString`/`int`, not QObjects. One small
+    `AppInfo` singleton with `CONSTANT` properties. Note this renames the QML call sites
+    (`AppVersion` becomes `AppInfo.appVersion`), which the object migrations do not — 16 warnings
+    is a thin return for a rename, so this is the one group where doing nothing is defensible.
+  - **Deleted, not migrated (3 names, 0 warnings):** `FlowScale`, `DE1Simulator`, `IsDebugBuild`.
 
 ## 3. Migrate the ten names that matter
 

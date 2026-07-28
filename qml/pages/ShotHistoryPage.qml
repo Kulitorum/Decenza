@@ -437,7 +437,7 @@ Page {
                     id: searchClearButton
                     width: Theme.scaled(20)
                     height: Theme.scaled(20)
-                    visible: searchField.displayText.length > 0 && !(typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+                    visible: searchField.displayText.length > 0 && !(typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
                     anchors.right: parent.right
                     anchors.rightMargin: Theme.scaled(10)
                     anchors.verticalCenter: parent.verticalCenter
@@ -463,7 +463,7 @@ Page {
 
             // Accessible clear button (outside TextField bounds for TalkBack discoverability)
             AccessibleButton {
-                visible: searchField.displayText.length > 0 && typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
+                visible: searchField.displayText.length > 0 && typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled
                 accessibleName: TranslationManager.translate("shothistory.clearsearch", "Clear search")
                 icon.source: "qrc:/icons/cross.svg"
                 onClicked: {
@@ -1140,7 +1140,7 @@ Page {
                 spacing: Theme.scaled(2)
 
                 delegate: Rectangle {
-                    readonly property bool _accessibilityMode: typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
+                    readonly property bool _accessibilityMode: typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled
 
                     width: savedSearchesList.width
                     height: Theme.scaled(44) + (_accessibilityMode ? Theme.scaled(40) : 0)

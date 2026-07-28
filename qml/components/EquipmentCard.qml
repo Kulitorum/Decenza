@@ -44,7 +44,7 @@ Rectangle {
             if (!card.pkg || packageId !== card.pkg.id || success) return
             deleteRefusedText.visible = true
             deleteRefusedTimer.restart()
-            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
                 AccessibilityManager.announce(deleteRefusedText.text)
         }
     }

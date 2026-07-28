@@ -189,7 +189,7 @@ Item {
             id: fullMouseArea
             anchors.fill: parent
             onClicked: {
-                if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+                if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
                     AccessibilityManager.announceLabel(root.Accessible.name)
                 }
             }

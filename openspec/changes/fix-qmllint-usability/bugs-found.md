@@ -350,3 +350,162 @@ Do not treat these as fixed or as false positives — nobody has looked.
   `CustomItem.qml` (11 sites) and `SteamItem.qml:124`. Left alone deliberately — `CustomItem.qml`
   is the file a released qmllint cannot analyse (see 1.11), so no static tool will flag them and
   the edit would be unverifiable here. Worth a sweep once the patched qmllint is the CI default.
+
+## missing-property triage (326 findings)
+
+Six causes, not 326 problems. One real bug, ~216 structural false positives, 32 unexplained.
+
+**REAL, fixed:** `Theme.dangerColor` at four sites in `SettingsDebugTab.qml`. No such property —
+Theme declares `errorColor` — so both result dialogs rendered their error state with an undefined
+border and text colour, i.e. an error looked like a success. Same shape as #1661.
+
+**Structural false positives — the code is correct and works:**
+- **88 × `Qt.inputMethod.commit/hide/show`**, reported as members missing on `QObject`. qmllint
+  types the `Qt` global's `inputMethod` loosely. `CLAUDE.md` *mandates* `Qt.inputMethod.commit()`
+  before reading a `TextField.text`, so these are the documented idiom being flagged.
+- **104 × `pageStack.currentItem.<pageProperty>`**. `StackView.currentItem` is typed `QQuickItem`,
+  so every page-specific property is "missing". Many sites already guard with
+  `typeof x !== "undefined"` — the code is deliberately duck-typed and the warning cannot know it.
+- **24 × root-window members** (`goToScreensaver`, `openBrewSettings`, `sessionMeasuredMilkG`, …)
+  reached through a reference typed `QQuickWindow`. They are declared on `main.qml`'s root.
+
+Silencing these three needs either per-line suppressions — which rebuilds the hiding problem this
+work exists to end — or typing the page/window interface properly. That is a real refactor and
+should be decided deliberately, not smuggled in.
+
+**32 UNEXPLAINED — do not exempt these until someone understands them.**
+`DrinkType` (21) and `SettingsTabs` (11) report members missing that demonstrably exist
+(`DrinkType.qml` declares `shortLabel`, `longLabel`, `icon`, `icons`, `fromRecipeMap`; every
+flagged `SettingsTabs` member is declared too). What was established, by experiment:
+
+- **It is per-singleton, not per-caller.** In `RecipesPage.qml`, one invocation: all 94 `Theme.x`
+  accesses resolve, and the 2 `DrinkType.` accesses produce 3 findings. `Theme` is declared
+  identically — `pragma Singleton`, `import QtQuick`, `import Decenza`, `QtObject { … }`.
+- **Not directory-relative.** Files in `qml/components/` — the same directory as `DrinkType.qml` —
+  are flagged exactly like files in `qml/pages/`.
+- **Not the member kind.** Functions fail, and so does `SettingsTabs.tabLabels`, a
+  `readonly property var`.
+- **Not missing type annotations.** Giving `shortLabel` an explicit `(t: string) : string`
+  signature changed nothing.
+- **A file OUTSIDE the module resolves them fine.** A scratch `.qml` importing Decenza and calling
+  `DrinkType.shortLabel(0)` and `SettingsTabs.visibleTabs()` lints clean, with `-I` and with the
+  generated `.rsp` alike. Only files that are themselves part of the module fail — yet `Theme`,
+  also part of it, resolves from those same files.
+
+That last pair is contradictory on any simple theory, which is why no root cause is claimed here.
+Next step is to reproduce against a newer qtdeclarative and, if it persists, report upstream.
+Treat as suspected tool defect; the runtime behaviour is correct (recipe cards render their drink
+labels).
+
+---
+
+## The gate's first CI run: `GHCSimulatorWindow.qml` was linted by nobody
+
+Nightly run 30310401195 — the first execution of the `qmllint_check` step added to
+`nightly-sanitizers.yml` — failed with:
+
+> `qml/simulator/GHCSimulatorWindow.qml: exists but is not in the qt_add_qml_module list, so it
+> is neither linted nor bundled.`
+
+**Not a runtime bug**, and the first reading of it here was wrong. `DECENZA_SIMULATOR` is defined
+on every non-mobile platform including Linux, so it is tempting to conclude Linux compiles the
+simulator and then loads a QML file that is not in the resource. It does not: the load site at
+`src/main.cpp:3718` sits under `#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)`,
+so Linux never opens that window. The CMake guard and the C++ guard agreed all along.
+
+What was actually broken is **lint coverage, and only in CI**. `QML_FILES` appended the file under
+`if(WIN32 OR (APPLE AND NOT IOS))`, so the module's file set — which is what
+`.rcc/qmllint/Decenza.rsp` is generated from, and therefore what the gate lints — differed by
+platform. Local macOS runs linted 217 files; Linux CI linted 216. The missing one carries a
+baseline ceiling of **57 diagnostics** that the only automated lint run had never once evaluated.
+
+Fixed by making the file set platform-invariant: the guard is now `if(NOT ANDROID AND NOT IOS)`,
+so Linux bundles a window it will never load, purely so it lints one. The alternative —
+`NOT_IN_MODULE_BY_DESIGN` in `scripts/qmllint_report.py` — buys the same green CI at the price of
+the file never being linted anywhere automated, which is the outcome the check exists to prevent.
+
+Generalisable point: **a per-file gate is only as trustworthy as the invariance of its file set.**
+A baseline generated on one platform and enforced on another silently stops covering anything the
+second platform excludes, and the exclusion reads as a pass. The `unlisted` check caught this only
+because it compares files on disk against the module list rather than trusting the module list
+alone. The remaining conditional append — Quick3D screensavers, under
+`if(ENABLE_QUICK3D AND Qt6Quick3D_FOUND)` — has the same shape; it did not fire because the Linux
+runner does find Quick3D, which is luck rather than design.
+
+---
+
+## Migrating a context property makes its `typeof … !== "undefined"` guard permanently true
+
+Flagged independently by two reviewers on PR #1680, and it extends a gap this document already
+recorded for `MachineState`/`ProfileManager`. Writing it down properly because the reasoning is
+counter-intuitive in a way that makes it easy to "clean up" wrongly in either direction.
+
+A context property that was never set resolves to `undefined`, so `typeof X !== "undefined"` is a
+real guard. A registered singleton type is **always** defined, so after migration the guard can
+never be false — but the failure it was written for did not disappear, it changed shape and got
+slightly worse:
+
+| | before (context property) | after (`QML_SINGLETON`) |
+|---|---|---|
+| name never published | `undefined` — guard catches it, fallback branch runs | `create()` returns `nullptr`, name is `null`, `typeof null === "object"` — guard **passes**, `X.member` throws a TypeError in the binding |
+
+So the guard now reads as protection that is not there. PR #1680 adds `DE1Device`, `BLEManager`
+and `BatteryManager` to the singleton set, and `qml/components/layout/items/CustomItem.qml`
+carries ~19 more guards on those names (lines 154-476) that join the ~11 already noted for
+`MachineState`, plus `SteamItem.qml:124`.
+
+**Practical risk here is low and that is not an accident**: all three are constructed
+unconditionally in `main()` with no `#ifdef` around the declaration and published before
+`engine.load()`, so these particular guards were already vacuously true while they were context
+properties. Nothing regressed at runtime.
+
+**FIXED — 153 guards across 54 files**, but not the obvious way, and the obvious way is a
+regression. The tempting rewrite is `typeof X !== "undefined"` to a plain truthiness test `if (X)`.
+That throws: a bare undeclared identifier in a condition is a **ReferenceError**, and `typeof` is
+the only form that is safe on one. The wholesale-registration failure is exactly the case where
+the identifier IS undeclared — `qml_register_types_Decenza()` has failed that way before, 1,081
+ReferenceErrors against a green build — so the "dead" branch is the one that would start throwing.
+`Theme.qml`'s `EmojiAssets` guard is the same shape; it was deleted and reverted during this change
+once review showed why.
+
+The fix is therefore purely additive, and cannot regress the case the guard was written for:
+
+```js
+typeof X !== "undefined" && X !== null
+```
+
+`undefined` is false, `null` is false, a live object is true — all three states, correctly.
+
+Scope was decided by what the type actually is, not by grep. 186 `typeof … !== "undefined"` guards
+exist in `qml/`; only the 153 naming a type exported in `Decenza.qmltypes` were rewritten. The
+other 33 name things that are still context properties or plain JS — `ScaleDevice`,
+`Refractometer`, `USBManager`, `GHCSimulator`, `McpServer`, `pageStack`, `Window` — where the
+unmodified `typeof` test is still exactly right. Rewriting those would have been wrong in the other
+direction. When `ScaleDevice` and `Refractometer` get their façade, their guards join the 153.
+
+Those two counts were first written as 186/33 → "169/16", transcribed wrong from the script's own
+output and repeated into a PR comment before two reviewers caught it independently. Left on the
+record because this file and CLAUDE.local.md both warn that a plausible-looking count is not
+evidence of a correct one, and this is the same mistake happening inside the document that says so.
+
+The rewrite was also ONE-SIDED on the first pass. The regex matched `!== "undefined"` and missed
+the inverted early-return form, which is the identical defect:
+
+```js
+if (typeof X === "undefined" || !X.enabled) return   // typeof null is "object" -> !null.enabled throws
+```
+
+10 such sites across 9 files, all on `AccessibilityManager`, all in files the sweep had already
+edited. Found by review, fixed in the same shape (`|| X === null ||`). `Theme.qml`'s `EmojiAssets`
+guard was briefly given the same treatment and then reverted: that singleton has no `create()` and
+no published instance (`emojiassets.h`), so it is engine-constructed and can never BE null — its
+only failure mode is the wholesale-registration one, which yields `undefined`. Adding a null test
+there would have been dead code contradicting the comment that explains why the guard exists.
+
+The count in the paragraph above (~19 + ~11) was what the reviewers saw in two files. The real
+distribution was dominated by something neither had looked at: `AccessibilityManager`, 106 guards
+across 50 files, registered long before this change. That is the value of counting before fixing.
+Verified with the patched qmllint, which is the only binary that can read `CustomItem.qml` at all
+(`UNLINTABLE_BY_TOOL_BUG`) and therefore the only one that could confirm its 32 rewritten guards:
+gate passed, 218/218 linted, 89 clean, no diagnostic movement in either direction. Full suite 105
+passed.

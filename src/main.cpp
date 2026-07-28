@@ -117,6 +117,7 @@ extern "C" const char* __ubsan_default_options()
 #include "core/appsettings.h"
 #include "core/settings.h"
 #include "core/settings_qml.h"   // SettingsForeign — QML singleton registration
+#include "core/contextsingletons_qml.h"  // *Foreign — singletons replacing setContextProperty()
 #include "core/settingsstoremigration.h"
 #include "core/settings_mqtt.h"
 #include "core/settings_autowake.h"
@@ -3413,13 +3414,20 @@ int main(int argc, char *argv[])
     // objects declared here. They are QML_SINGLETONs now, engine-constructed and engine-owned,
     // so there is nothing left for main() to declare or publish. What they are for is on the
     // classes: emojiassets.h, markdownrenderer.h, temperaturedisplay.h.
-    context->setContextProperty("BLEManager", &bleManager);
-    context->setContextProperty("DE1Device", &de1Device);
+    BLEManagerForeign::s_singletonInstance = &bleManager;
+    // DE1Device is a QML_FOREIGN + QML_SINGLETON (contextsingletons_qml.h), not a context
+    // property. Published here rather than at the declaration because the ordering that matters
+    // is "before engine.load()", and this is where that is obvious.
+    DE1DeviceForeign::s_singletonInstance = &de1Device;
     context->setContextProperty("ScaleDevice", &flowScale);  // FlowScale initially, updated when physical scale connects
-    context->setContextProperty("FlowScale", &flowScale);  // Always available for diagnostics
+    // No "FlowScale" property. It was published "always available for diagnostics" and no QML
+    // ever read it — the only occurrences of the name in qml/ are three comments in main.qml
+    // about the FlowScale *fallback*, which is a different thing. Publishing an unread name is
+    // not free: a context property is invisible to qmllint, so it cannot be told apart from a
+    // typo at the call sites that never came.
     MachineState::setQmlInstance(&machineState);
-    context->setContextProperty("ShotDataModel", &shotDataModel);
-    context->setContextProperty("SteamDataModel", &steamDataModel);
+    ShotDataModelForeign::s_singletonInstance = &shotDataModel;
+    SteamDataModelForeign::s_singletonInstance = &steamDataModel;
     context->setContextProperty("SteamHealthTracker", &steamHealthTracker);
     // Compile-time QML singleton (QML_ELEMENT + QML_SINGLETON in maincontroller.h), not a
     // context property — same reason as AccessibilityManager below. The largest win remaining
@@ -3431,23 +3439,24 @@ int main(int argc, char *argv[])
     // app resolves to null. tst_qmlregistration asserts this call exists, for that reason.
     MainController::setQmlInstance(&mainController);
     ProfileManager::setQmlInstance(mainController.profileManager());
-    context->setContextProperty("ScreensaverManager", &screensaverManager);
-    context->setContextProperty("AutoWakeManager", &autoWakeManager);
-    context->setContextProperty("BatteryManager", &batteryManager);
-    context->setContextProperty("MemoryMonitor", &memoryMonitor);
+    // ScreensaverManager: QML's name for ScreensaverVideoManager. See contextsingletons_qml.h.
+    ScreensaverManagerForeign::s_singletonInstance = &screensaverManager;
+    AutoWakeManagerForeign::s_singletonInstance = &autoWakeManager;
+    BatteryManagerForeign::s_singletonInstance = &batteryManager;
+    MemoryMonitorForeign::s_singletonInstance = &memoryMonitor;
     memoryMonitor.setEngine(&engine);
     // Compile-time QML singleton (QML_ELEMENT + QML_SINGLETON in accessibilitymanager.h),
     // not a context property: only a compile-time registration reaches qmllint,
     // qmlcachegen and the language server. main owns the instance and publishes it.
     AccessibilityManager::setQmlInstance(&accessibilityManager);
     context->setContextProperty("ProfileStorage", &profileStorage);
-    context->setContextProperty("WeatherManager", &weatherManager);
-    context->setContextProperty("CrashReporter", &crashReporter);
-    context->setContextProperty("WidgetLibrary", &widgetLibrary);
+    WeatherManagerForeign::s_singletonInstance = &weatherManager;
+    CrashReporterForeign::s_singletonInstance = &crashReporter;
+    WidgetLibraryForeign::s_singletonInstance = &widgetLibrary;
     context->setContextProperty("McpServer", &mcpServer);
-    context->setContextProperty("RemoteMcpAccess", &remoteMcpAccess);
-    context->setContextProperty("LibrarySharing", &librarySharing);
-    context->setContextProperty("ShotHistoryExporter", &shotHistoryExporter);
+    RemoteMcpAccessForeign::s_singletonInstance = &remoteMcpAccess;
+    LibrarySharingForeign::s_singletonInstance = &librarySharing;
+    ShotHistoryExporterForeign::s_singletonInstance = &shotHistoryExporter;
 #ifndef Q_OS_IOS
     context->setContextProperty("USBManager", &usbManager);
     context->setContextProperty("UsbScaleManager", &usbScaleManager);
@@ -3463,11 +3472,10 @@ int main(int argc, char *argv[])
     context->setContextProperty("PreviousDebugLogTail", previousDebugLogTail);
     context->setContextProperty("AppVersion", VERSION_STRING);
     context->setContextProperty("AppVersionCode", versionCode());
-#ifdef QT_DEBUG
-    context->setContextProperty("IsDebugBuild", true);
-#else
-    context->setContextProperty("IsDebugBuild", false);
-#endif
+    // No "IsDebugBuild" property. It was published from a #ifdef QT_DEBUG / #else pair and read
+    // by no QML file. If a debug-only affordance is wanted later, add it back as a property on a
+    // registered singleton so qmllint can see it — not as a context property, which is exactly
+    // the shape that let this one sit unused without anything noticing.
 
 #if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
     // Make GHCSimulator available to main window for window sync
@@ -3698,8 +3706,13 @@ int main(int argc, char *argv[])
         ghcEnginePtr = std::make_unique<QQmlApplicationEngine>();
         auto& ghcEngine = *ghcEnginePtr;
         ghcEngine.rootContext()->setContextProperty("GHCSimulator", &ghcSimulator);
-        ghcEngine.rootContext()->setContextProperty("DE1Device", &de1Device);
-        ghcEngine.rootContext()->setContextProperty("DE1Simulator", &de1Simulator);
+        // No "DE1Device" line either: it is now a QML_SINGLETON, and a singleton is per-type,
+        // not per-engine — GHCSimulatorWindow.qml imports Decenza, so this engine resolves the
+        // same instance main published. A context property of the same name would SHADOW it and
+        // be invisible to qmllint, which is the shape #1661 took.
+        //
+        // No "DE1Simulator" property. GHCSimulatorWindow.qml is the only file this engine loads
+        // and it never reads that name; nothing else in qml/ does either.
         // No Settings line here. Settings is a QML_FOREIGN + QML_SINGLETON (settings_qml.h) and
         // GHCSimulatorWindow.qml imports Decenza, so it resolves on this engine already. A
         // context property of the same name would SHADOW the singleton and be invisible to
@@ -4315,12 +4328,20 @@ int main(int argc, char *argv[])
         // Stop the timer first (belt) and disconnect only connectedChanged
         // (suspenders). Do NOT use the wildcard form
         // QObject::disconnect(&de1Device, nullptr, nullptr, nullptr) here:
-        // de1Device is exposed to QML via setContextProperty, so QQmlEngine
-        // holds an internal connection on de1Device::destroyed for lifetime
-        // tracking. The wildcard disconnect form acquires receiver locks in
-        // a different order than the per-signal pointer form, and on Android
-        // shutdown that contends with the QML engine and hard-deadlocks the
-        // main thread (#877). The per-signal form has no such problem.
+        // de1Device is reachable from QML, so QQmlEngine holds internal
+        // bookkeeping tied to its lifetime. The wildcard disconnect form
+        // acquires receiver locks in a different order than the per-signal
+        // pointer form, and on Android shutdown that contends with the QML
+        // engine and hard-deadlocks the main thread (#877). The per-signal
+        // form has no such problem.
+        //
+        // This said "exposed to QML via setContextProperty" until DE1Device
+        // became a QML_SINGLETON (contextsingletons_qml.h). The mechanism
+        // changed — the engine now tracks it through QQmlData and
+        // addOwnedObject rather than a context property's destroyed()
+        // connection — but the hazard and the fix are unchanged, so do not
+        // read the new registration as a reason to relax this back to the
+        // wildcard form.
         de1ReconnectTimer.stop();
         QObject::disconnect(&de1Device, &DE1Device::connectedChanged, nullptr, nullptr);
 

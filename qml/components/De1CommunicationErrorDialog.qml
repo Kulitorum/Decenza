@@ -27,7 +27,7 @@ Dialog {
     }
 
     onOpened: {
-        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
             AccessibilityManager.announce(
                 TranslationManager.translate("de1CommError.announce",
                     "DE1 communication issue. The current profile could not be loaded. Please power-cycle the DE1 and reconnect."))

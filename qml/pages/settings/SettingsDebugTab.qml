@@ -312,20 +312,22 @@ Item {
                 target: MainController.profileConverter
                 function onConversionComplete(success, errors) {
                     var skipped = MainController.profileConverter.skippedCount
-                    profileConvertResultDialog.title = errors > 0 ? "Conversion Complete (with errors)" : "Conversion Complete"
-                    var msg = "Successfully converted: " + success + " profiles"
+                    profileConvertResultDialog.title = errors > 0
+                        ? TranslationManager.translate("settings.debug.convertDoneErrors", "Conversion Complete (with errors)")
+                        : TranslationManager.translate("settings.debug.convertDone", "Conversion Complete")
+                    var msg = TranslationManager.translate("settings.debug.convertCount", "Successfully converted: %1 profiles").arg(success)
                     if (skipped > 0) {
-                        msg += "\nSkipped (already exist): " + skipped
+                        msg += "\n" + TranslationManager.translate("settings.debug.convertSkipped", "Skipped (already exist): %1").arg(skipped)
                     }
                     if (errors > 0) {
-                        msg += "\nErrors: " + errors
+                        msg += "\n" + TranslationManager.translate("settings.debug.convertErrors", "Errors: %1").arg(errors)
                     }
                     profileConvertResultDialog.resultMessage = msg
                     profileConvertResultDialog.isError = errors > 0
                     profileConvertResultDialog.open()
                 }
                 function onConversionError(message) {
-                    profileConvertResultDialog.title = "Conversion Failed"
+                    profileConvertResultDialog.title = TranslationManager.translate("settings.debug.convertFailed", "Conversion Failed")
                     profileConvertResultDialog.resultMessage = message
                     profileConvertResultDialog.isError = true
                     profileConvertResultDialog.open()
@@ -348,7 +350,7 @@ Item {
                     color: Theme.surfaceColor
                     radius: Theme.cardRadius
                     border.width: 2
-                    border.color: profileConvertResultDialog.isError ? Theme.dangerColor : Theme.primaryColor
+                    border.color: profileConvertResultDialog.isError ? Theme.errorColor : Theme.primaryColor
                 }
 
                 contentItem: Column {
@@ -358,7 +360,7 @@ Item {
                     Text {
                         text: profileConvertResultDialog.title
                         font: Theme.subtitleFont
-                        color: profileConvertResultDialog.isError ? Theme.dangerColor : Theme.textColor
+                        color: profileConvertResultDialog.isError ? Theme.errorColor : Theme.textColor
                         anchors.horizontalCenter: parent.horizontalCenter
                     }
 
@@ -469,8 +471,8 @@ Item {
                 function onImportDatabaseFinished(success) {
                     if (success) {
                         console.log("Database import successful")
-                        importResultDialog.title = "Import Successful"
-                        importResultDialog.resultMessage = "Database imported successfully.\nTotal shots: " + MainController.shotHistory.totalShots
+                        importResultDialog.title = TranslationManager.translate("settings.debug.importOk", "Import Successful")
+                        importResultDialog.resultMessage = TranslationManager.translate("settings.debug.importOkDetail", "Database imported successfully.\nTotal shots: %1").arg(MainController.shotHistory.totalShots)
                         importResultDialog.isError = false
                         importResultDialog.open()
                     }
@@ -494,7 +496,7 @@ Item {
                     color: Theme.surfaceColor
                     radius: Theme.cardRadius
                     border.width: 2
-                    border.color: importResultDialog.isError ? Theme.dangerColor : Theme.primaryColor
+                    border.color: importResultDialog.isError ? Theme.errorColor : Theme.primaryColor
                 }
 
                 contentItem: Column {
@@ -504,7 +506,7 @@ Item {
                     Text {
                         text: importResultDialog.title
                         font: Theme.subtitleFont
-                        color: importResultDialog.isError ? Theme.dangerColor : Theme.textColor
+                        color: importResultDialog.isError ? Theme.errorColor : Theme.textColor
                         anchors.horizontalCenter: parent.horizontalCenter
                     }
 
@@ -529,7 +531,10 @@ Item {
             Connections {
                 target: MainController.shotHistory
                 function onErrorOccurred(message) {
-                    importResultDialog.title = "Import Failed"
+                    // Reuses SettingsHistoryDataTab's key rather than minting a settings.debug
+                    // one: same string, same dialog role, and a second key would make translators
+                    // do "Import Failed" twice with nothing keeping the two copies in step.
+                    importResultDialog.title = TranslationManager.translate("shotimporter.title.importFailed", "Import Failed")
                     importResultDialog.resultMessage = message
                     importResultDialog.isError = true
                     importResultDialog.open()

@@ -73,7 +73,7 @@ Item {
             anchors.margins: -Theme.spacingSmall
             onClicked: {
                 MachineState.tareScale()
-                if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+                if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
                     var announcement = "Group temperature: " + Theme.cToDisplay(DE1Device.temperature).toFixed(1) + " degrees, target: " + Theme.cToDisplay(root.effectiveTargetTemp).toFixed(0) + " degrees"
                     if (root.isRealOverride) announcement += " (override active)"
                     AccessibilityManager.announceLabel(announcement)
@@ -145,7 +145,7 @@ Item {
         MouseArea {
             anchors.fill: parent
             onClicked: {
-                if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+                if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
                     var announcement = "Group temperature: " + Theme.cToDisplay(DE1Device.temperature).toFixed(1) + " degrees, target: " + Theme.cToDisplay(root.effectiveTargetTemp).toFixed(0) + " degrees"
                     if (root.isRealOverride) announcement += " (override active)"
                     AccessibilityManager.announceLabel(announcement)

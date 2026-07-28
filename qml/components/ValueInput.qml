@@ -124,7 +124,7 @@ Item {
 
     // Announce value when focused (for accessibility)
     onActiveFocusChanged: {
-        if (activeFocus && typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+        if (activeFocus && typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
             var text = root.accessibleName || root.displayText || (root.value.toFixed(root.decimals) + " " + root.suffix)
             AccessibilityManager.announce(text)
         }
@@ -261,7 +261,7 @@ Item {
                         currentGear = 0
 
                         // Announce parameter name when touched (accessibility)
-                        if (root.accessibleName && typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+                        if (root.accessibleName && typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
                             var valueStr = root.displayText || (root.value.toFixed(root.decimals) + " " + root.suffix.trim())
                             AccessibilityManager.announce(root.accessibleName + ": " + valueStr)
                         }
@@ -546,7 +546,7 @@ Item {
             popupContent.currentGear = 0
             popupContent.editMode = false
             popupValueContainer.forceActiveFocus()
-            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
                 var announcement = root.accessibleName ? root.accessibleName + ". " : ""
                 var valueStr = root.displayText || (root.value.toFixed(root.decimals) + " " + root.suffix.trim())
                 announcement += TranslationManager.translate("valueinput.editor.announce", "Value editor. Current value:") + " " + valueStr
@@ -711,7 +711,7 @@ Item {
                                     // typed value differed from the prior value — typing
                                     // the same number back is a no-op.
                                     root.commitValue()
-                                    if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+                                    if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
                                         AccessibilityManager.announce(root.displayText || (parsed.toFixed(root.decimals) + (root.suffix.trim() ? " " + root.suffix.trim() : "")))
                                     }
                                 }
@@ -762,7 +762,7 @@ Item {
                                 isDragging = false
 
                                 // Announce parameter name when bubble appears (accessibility)
-                                if (root.accessibleName && typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+                                if (root.accessibleName && typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
                                     var valueStr = root.displayText || (root.value.toFixed(root.decimals) + " " + root.suffix.trim())
                                     AccessibilityManager.announce(root.accessibleName + ": " + valueStr)
                                 }
@@ -1056,7 +1056,7 @@ Item {
     }
 
     function announceGearChange(gear) {
-        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
             var effectiveStep = gearToStep(gear)
             var d = Math.max(0, -Math.floor(Math.log10(effectiveStep) + 0.0001))
             AccessibilityManager.announce(TranslationManager.translate("valueinput.gear.step", "Step") + " " + effectiveStep.toFixed(d))
@@ -1082,7 +1082,7 @@ Item {
         newVal = Math.round(newVal / roundTo) * roundTo
         if (newVal !== root.value) {
             _emitValueModified(newVal)
-            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
+            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
                 AccessibilityManager.announce(root.displayText || (newVal.toFixed(root.decimals) + (root.suffix.trim() ? " " + root.suffix.trim() : "")))
             }
         }
