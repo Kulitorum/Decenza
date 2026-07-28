@@ -1955,6 +1955,19 @@ int main(int argc, char *argv[])
     // line of defence, not a licence to move this back down.
     std::unique_ptr<RefractometerDevice> refractometer;
 
+    // Hand the previous run's crash log to the singleton QML already uses for crash reporting,
+    // replacing the bare "PreviousCrashLog"/"PreviousDebugLogTail" context properties. crashReporter
+    // is declared further up and already outlives `engine`, so this needs no hoist of its own.
+    crashReporter.setPreviousRun(previousCrashLog, previousDebugLogTail);
+
+    // Hoisted here from ~1500 lines below for that same rule, when it became a QML singleton.
+    // A context property is dropped by QML when its object emits destroyed(), so it survived
+    // being declared after `engine`; a singleton reached through a static raw pointer has no
+    // such mechanism and nothing nulls it, so the declaration has to outlive the engine.
+    // Only the DECLARATION moved: the three setters that give it its dependencies stay where
+    // they were, because mainController.shotHistory() is not ready this early.
+    FlowCalibrationModel flowCalibrationModel;
+
     // Set up QML engine
     QQmlApplicationEngine engine;
     checkpoint("QML engine created");
@@ -3428,7 +3441,7 @@ int main(int argc, char *argv[])
     MachineState::setQmlInstance(&machineState);
     ShotDataModelForeign::s_singletonInstance = &shotDataModel;
     SteamDataModelForeign::s_singletonInstance = &steamDataModel;
-    context->setContextProperty("SteamHealthTracker", &steamHealthTracker);
+    SteamHealthTrackerForeign::s_singletonInstance = &steamHealthTracker;
     // Compile-time QML singleton (QML_ELEMENT + QML_SINGLETON in maincontroller.h), not a
     // context property — same reason as AccessibilityManager below. The largest win remaining
     // after TranslationManager and Settings; measured reduction 916 unqualified warnings.
@@ -3449,11 +3462,11 @@ int main(int argc, char *argv[])
     // not a context property: only a compile-time registration reaches qmllint,
     // qmlcachegen and the language server. main owns the instance and publishes it.
     AccessibilityManager::setQmlInstance(&accessibilityManager);
-    context->setContextProperty("ProfileStorage", &profileStorage);
+    ProfileStorageForeign::s_singletonInstance = &profileStorage;
     WeatherManagerForeign::s_singletonInstance = &weatherManager;
     CrashReporterForeign::s_singletonInstance = &crashReporter;
     WidgetLibraryForeign::s_singletonInstance = &widgetLibrary;
-    context->setContextProperty("McpServer", &mcpServer);
+    McpServerForeign::s_singletonInstance = &mcpServer;
     RemoteMcpAccessForeign::s_singletonInstance = &remoteMcpAccess;
     LibrarySharingForeign::s_singletonInstance = &librarySharing;
     ShotHistoryExporterForeign::s_singletonInstance = &shotHistoryExporter;
@@ -3462,16 +3475,23 @@ int main(int argc, char *argv[])
     context->setContextProperty("UsbScaleManager", &usbScaleManager);
 #endif
 
-    FlowCalibrationModel flowCalibrationModel;
+    // Declared above `engine` (see there); only the wiring is here, where its dependencies exist.
     flowCalibrationModel.setStorage(mainController.shotHistory());
     flowCalibrationModel.setSettings(settings.calibration());
     flowCalibrationModel.setDevice(&de1Device);
-    context->setContextProperty("FlowCalibrationModel", &flowCalibrationModel);
+    FlowCalibrationModelForeign::s_singletonInstance = &flowCalibrationModel;
 
-    context->setContextProperty("PreviousCrashLog", previousCrashLog);
-    context->setContextProperty("PreviousDebugLogTail", previousDebugLogTail);
-    context->setContextProperty("AppVersion", VERSION_STRING);
-    context->setContextProperty("AppVersionCode", versionCode());
+    // No "AppVersion", "AppVersionCode", "PreviousCrashLog" or "PreviousDebugLogTail" properties.
+    // All four were bare values with no object to hang off, and the first draft of this migration
+    // invented an AppInfo singleton to hold them. Review found that three of the four already had
+    // an owner:
+    //   - AppVersion / AppVersionCode duplicated UpdateChecker::currentVersion /
+    //     currentVersionCode, which read the same VERSION_STRING and versionCode(), are already
+    //     CONSTANT and QML-registered, and are already reached as MainController.updateChecker in
+    //     the very file that displayed them. Two sources of truth for one number is the drift this
+    //     change exists to remove, so the holder was deleted rather than kept.
+    //   - PreviousCrashLog / PreviousDebugLogTail moved onto CrashReporter (set above), which is
+    //     where QML already goes to submit them.
     // No "IsDebugBuild" property. It was published from a #ifdef QT_DEBUG / #else pair and read
     // by no QML file. If a debug-only affordance is wanted later, add it back as a property on a
     // registered singleton so qmllint can see it — not as a context property, which is exactly
@@ -3482,27 +3502,28 @@ int main(int argc, char *argv[])
     context->setContextProperty("GHCSimulator", &ghcSimulator);
 #endif
 
-    // Register types for QML under a "…Type" name, because the context property of the plain
-    // name shadows the type. MachineStateType used to be here for exactly that reason; it is
-    // gone because MachineState is now a QML_SINGLETON, which needs no second name — QML reads
-    // its enums as MachineState.Phase.X straight off the singleton. DE1Device is the last
-    // RUNTIME qmlRegisterUncreatableType in this shape; SteamHealthTracker is still in the shape
-    // itself, via QML_NAMED_ELEMENT(SteamHealthTrackerType) in its header plus the context
-    // property set above. Both go the same way when their context properties do.
-    qmlRegisterUncreatableType<DE1Device>("Decenza", 1, 0, "DE1DeviceType",
-        "DE1Device is created in C++");
-    // AIConversation moved to QML_ELEMENT + QML_UNCREATABLE in aiconversation.h, for the same
-    // reason as the three named just below: a runtime registration is invisible to qmltyperegistrar, so
-    // qmllint could not resolve the type behind AIManager's conversation properties.
-    // CoffeeBagStorage, EquipmentStorage and UnifiedBeanSearchModel used to be registered here as
-    // ...Type. They now carry QML_ELEMENT + QML_UNCREATABLE in their own headers, which is what
-    // puts them in Decenza.qmltypes where qmllint can see them — a runtime call like these is
-    // invisible to qmltyperegistrar. The ...Type names are gone; nothing referenced them, because
-    // QML reaches these through MainController properties, never by type name.
-    // SteamHealthTracker moved to QML_NAMED_ELEMENT(SteamHealthTrackerType) in its own header.
-    // The QML name is unchanged, which matters: SettingsCalibrationTab.qml reads the enum as
-    // SteamHealthTrackerType.EstablishingAfterReset. Compile-time registration is what puts it
-    // in Decenza.qmltypes, so qmllint can now check those enum members too.
+    // The "…Type" registrations that used to live here are all gone, and the reason they existed
+    // is worth keeping, because it is two different reasons wearing one naming convention.
+    //
+    // MachineStateType, DE1DeviceType and SteamHealthTrackerType were genuine workarounds: a
+    // context property resolves AHEAD of a type of the same name, so a class whose instance was
+    // published as a context property could not also be registered under its plain name. Each
+    // disappeared when its instance became a singleton, which needs no second name because QML
+    // reads the enums straight off it (MachineState.Phase.X,
+    // SteamHealthTracker.EstablishingAfterReset).
+    //
+    // CoffeeBagStorageType, EquipmentStorageType and UnifiedBeanSearchModelType were NOT. No
+    // context property of those names ever existed — `git log -S 'setContextProperty("CoffeeBagStorage"'`
+    // finds nothing. They simply copied the ...Type suffix from the neighbours above, and moved
+    // for the unrelated reason in the next paragraph. An earlier draft of this comment lumped all
+    // six together as context-property workarounds, which contradicted its own next sentence.
+    //
+    // DE1DeviceType was the last runtime qmlRegisterUncreatableType in that shape and is removed
+    // here; nothing in qml/ or tests/ referenced it. AIConversation, CoffeeBagStorage,
+    // EquipmentStorage and UnifiedBeanSearchModel went earlier, to QML_ELEMENT + QML_UNCREATABLE
+    // in their own headers — a runtime registration is invisible to qmltyperegistrar, so it never
+    // reaches Decenza.qmltypes and qmllint cannot resolve the type behind the properties that
+    // return it. QML reaches those four through MainController properties, never by type name.
 
     // GPU-accelerated Canvas-like surface (CupFillView). The wrapper exposes
     // an `onPaint(ctx)` signal whose ctx replays JS-recorded draw commands
@@ -4362,8 +4383,11 @@ int main(int argc, char *argv[])
         //
         // What actually holds: most context-property backing objects are
         // declared above `engine` and so outlive it (`refractometer` now among
-        // them). Where that is not true — `de1SimulatorPtr`, see the note after
-        // app.exec(); also GHCSimulator and FlowCalibrationModel further down —
+        // them, and `flowCalibrationModel`, which moved up there when it became
+        // a singleton — a singleton has NO self-nulling mechanism, so for it
+        // declaration order is the whole of the safety, not a belt on a brace).
+        // Where that is not true — `de1SimulatorPtr`, see the note after
+        // app.exec(); also GHCSimulator further down, still a context property —
         // safety comes from QML dropping a context property itself when its
         // object emits destroyed(), plus the C++ side holding it via QPointer
         // so it self-nulls at the same moment (BLEManager::m_refractometerDevice

@@ -897,7 +897,7 @@ ApplicationWindow {
         ScreensaverManager.setKeepScreenOn(true)
 
         // Check for crash log from previous session
-        if (PreviousCrashLog && PreviousCrashLog.length > 0) {
+        if (CrashReporter.previousCrashLog && CrashReporter.previousCrashLog.length > 0) {
             // Delay showing crash dialog slightly to ensure UI is ready
             Qt.callLater(function() {
                 crashReportDialog.open()
@@ -916,7 +916,7 @@ ApplicationWindow {
             // If a crash dialog is about to open, defer the capability
             // warning until it's dismissed (see crashReportDialog handlers)
             // so the two modals don't stack on the same frame.
-            if (!(PreviousCrashLog && PreviousCrashLog.length > 0)) {
+            if (!(CrashReporter.previousCrashLog && CrashReporter.previousCrashLog.length > 0)) {
                 maybeShowLinuxBleCapabilityDialog()
             }
 
@@ -2392,8 +2392,8 @@ ApplicationWindow {
     // Crash report dialog - shown on startup if app crashed previously
     CrashReportDialog {
         id: crashReportDialog
-        crashLog: PreviousCrashLog || ""
-        debugLogTail: PreviousDebugLogTail || ""
+        crashLog: CrashReporter.previousCrashLog || ""
+        debugLogTail: CrashReporter.previousDebugLogTail || ""
 
         onDismissed: {
             // Clear the crash log file
@@ -3070,7 +3070,7 @@ ApplicationWindow {
         function onRecipesUpgradeOfferReady(willCreateStarterRecipe, milkPreselected) {
             // Don't stack on top of another modal that might still be
             // resolving (crash report, storage setup, auto-relaunch prompt).
-            if (PreviousCrashLog && PreviousCrashLog.length > 0) return
+            if (CrashReporter.previousCrashLog && CrashReporter.previousCrashLog.length > 0) return
             if (storageSetupDialog.opened || autoRelaunchPromptDialog.opened) return
             recipesUpgradeDialog.willCreateStarterRecipe = willCreateStarterRecipe
             recipesUpgradeDialog.hasMilkChoice = milkPreselected
@@ -3222,7 +3222,7 @@ ApplicationWindow {
         // stack on top of the crash report or storage setup dialog. Each of
         // those dialogs calls maybeShowAutoRelaunchPrompt() in its close
         // handler, so the prompt eventually shows.
-        if (PreviousCrashLog && PreviousCrashLog.length > 0) return
+        if (CrashReporter.previousCrashLog && CrashReporter.previousCrashLog.length > 0) return
         if (storageSetupDialog.opened) return
         autoRelaunchPromptDialog.open()
     }

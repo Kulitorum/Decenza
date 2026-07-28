@@ -3,7 +3,6 @@
 #include <QObject>
 #include <QDateTime>
 #include "core/appsettings.h"
-#include <QtQml/qqmlregistration.h>
 
 class SteamDataModel;
 
@@ -21,22 +20,22 @@ struct SteamSessionSummary {
 class SteamHealthTracker : public QObject {
     Q_OBJECT
 
-    // Compile-time QML registration, so qmllint, qmlcachegen and the language server can
-    // follow MainController's property through to this class. A runtime qmlRegister* call is
-    // invisible to all three. Full rationale in src/controllers/maincontroller.h.
+    // QML registration lives in src/core/contextsingletons_qml.h, as a QML_FOREIGN singleton
+    // named SteamHealthTracker. Not here, because this header is compiled into test targets that
+    // link no Qt6::Qml — the same constraint that keeps settings.h free of QtQml.
     //
-    // NAMED, unlike its 21 siblings, and the name is load-bearing twice over:
-    //   - main.cpp still publishes an INSTANCE called "SteamHealthTracker" as a context property,
-    //     and a context property resolves ahead of a type name. Registering the bare class name
-    //     would shadow-collide, so qmllint would read the type where QML means the instance.
-    //   - SettingsCalibrationTab.qml reads the enum as SteamHealthTrackerType.EstablishingAfterReset
-    //     (and .EstablishingInitial). Renaming this to a plain QML_ELEMENT leaves the class in
-    //     Decenza.qmltypes under its C++ name, so the build and the registration test both stay
-    //     green while those two comparisons silently become `=== undefined` — i.e. false, and the
-    //     calibration screen shows the wrong baseline message. tst_qmlregistration asserts the
-    //     EXPORT name for exactly this reason; do not "tidy" this to QML_ELEMENT.
-    QML_NAMED_ELEMENT(SteamHealthTrackerType)
-    QML_UNCREATABLE("SteamHealthTracker is created in C++ and reached via MainController.steamHealthTracker")
+    // It USED to be here, as QML_NAMED_ELEMENT(SteamHealthTrackerType) + QML_UNCREATABLE, and the
+    // suffix was needed because main.cpp published an INSTANCE called "SteamHealthTracker" as a
+    // context property, which resolves ahead of a type of the same name. The singleton deletes
+    // that collision instead of routing around it: no context property remains, and QML reads the
+    // enums off the singleton as SteamHealthTracker.EstablishingAfterReset. MachineState did the
+    // same when MachineStateType went away.
+    //
+    // The comment removed from here also claimed "tst_qmlregistration asserts the EXPORT name for
+    // exactly this reason". It did not — no test referenced SteamHealthTrackerType at all, so the
+    // rename it warned against would in fact have gone green. What guards the enum reads now is
+    // that the singleton and the enum share one name: lose the registration and the property
+    // reads break in the same place and at the same time as the enum reads, loudly.
 
 public:
     // Baseline lifecycle state surfaced to QML so the settings/calibration
