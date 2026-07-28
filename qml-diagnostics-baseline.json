@@ -60,7 +60,6 @@
     "qml/components/layout/items/WeatherItem.qml": 32,
     "qml/components/library/LibraryItemCard.qml": 66,
     "qml/components/library/LibraryPanel.qml": 95,
-    "qml/main.qml": 110,
     "qml/pages/AutoFavoriteInfoPage.qml": 77,
     "qml/pages/AutoFavoritesPage.qml": 71,
     "qml/pages/BeanInfoPage.qml": 4,
@@ -211,6 +210,7 @@
     "qml/components/layout/items/TemperatureItem.qml",
     "qml/components/layout/items/WaterLevelItem.qml",
     "qml/components/qrcode.js",
+    "qml/main.qml",
     "qml/pages/AISettingsPage.qml",
     "qml/pages/FlowEditorPage.qml",
     "qml/pages/HotWaterPage.qml",
@@ -234,6 +234,6 @@
     "duplicate-property-binding": 2,
     "equality-type-coercion": 1,
     "missing-property": 146,
-    "unqualified": 2734
+    "unqualified": 2624
   }
 }

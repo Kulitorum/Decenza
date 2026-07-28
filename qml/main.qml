@@ -400,7 +400,7 @@ ApplicationWindow {
     Timer {
         id: sleepCountdownTimer
         interval: 60 * 1000  // 1 minute
-        running: !screensaverActive && !root.operationActive && root.autoSleepMinutes > 0
+        running: !root.screensaverActive && !root.operationActive && root.autoSleepMinutes > 0
         repeat: true
         onTriggered: {
             if (root.sleepCountdownNormal > 0) root.sleepCountdownNormal--
@@ -413,7 +413,7 @@ ApplicationWindow {
                     console.log("[AutoSleep] Inactivity elapsed but inside scheduled stay-awake window — staying awake")
                 } else {
                     console.log("[AutoSleep] Inactivity elapsed, no stay-awake window — triggering sleep")
-                    triggerAutoSleep()
+                    root.triggerAutoSleep()
                 }
             }
         }
@@ -433,7 +433,7 @@ ApplicationWindow {
     Timer {
         id: autoLoadCountdownTimer
         interval: 60 * 1000  // 1 minute
-        running: root.autoLoadIdleCountdown > 0 && !screensaverActive && !root.operationActive
+        running: root.autoLoadIdleCountdown > 0 && !root.screensaverActive && !root.operationActive
         repeat: true
         onTriggered: {
             if (root.autoLoadIdleCountdown <= 0) return
@@ -544,7 +544,7 @@ ApplicationWindow {
     Connections {
         target: MachineState
         function onPhaseChanged() {
-            if (!screensaverActive && root.autoSleepMinutes > 0) {
+            if (!root.screensaverActive && root.autoSleepMinutes > 0) {
                 root.sleepCountdownNormal = root.autoSleepMinutes
                 console.log("[AutoSleep] Reset by phase change: normal=" + root.sleepCountdownNormal)
             }
@@ -630,7 +630,7 @@ ApplicationWindow {
                 // Navigate to SteamPage immediately so user sees heating progress
                 var currentPage = pageStack.currentItem ? pageStack.currentItem.objectName : ""
                 if (currentPage !== "steamPage" && !pageStack.busy) {
-                    saveReturnToPage(currentPage)
+                    root.saveReturnToPage(currentPage)
                     pageStack.replace(null, steamPage)
                 }
             }
@@ -658,7 +658,7 @@ ApplicationWindow {
                 var val = Settings.value("autoSleepMinutes", 60)
                 root.autoSleepMinutes = (val === undefined || val === null) ? 60 : parseInt(val)
                 // Update normal countdown to new value
-                if (!screensaverActive && root.autoSleepMinutes > 0) {
+                if (!root.screensaverActive && root.autoSleepMinutes > 0) {
                     root.sleepCountdownNormal = root.autoSleepMinutes
                 }
             } else if (key === "ui/configurePageScale") {
@@ -840,8 +840,8 @@ ApplicationWindow {
     onHeightChanged: updateScale()
     Connections {
         target: Theme
-        function onScaleMultiplierChanged() { updateScale() }
-        function onPageScaleMultiplierChanged() { updateScale() }
+        function onScaleMultiplierChanged() { root.updateScale() }
+        function onPageScaleMultiplierChanged() { root.updateScale() }
     }
     // Raise all application windows together when this window is activated.
     //
@@ -994,7 +994,7 @@ ApplicationWindow {
         }
 
         onPressed: function(mouse) {
-            var textItem = findTextAt(parent, mouse.x, mouse.y)
+            var textItem = root.findTextAt(parent, mouse.x, mouse.y)
             if (textItem && textItem.text && !isInsideInteractive(textItem)) {
                 AccessibilityManager.announceLabel(AccessibilityManager.cleanForSpeech(textItem.text))
             }
@@ -1090,10 +1090,10 @@ ApplicationWindow {
         target: pageStack
         function onBusyChanged() {
             if (!pageStack.busy) {
-                navigationInProgress = false
+                root.navigationInProgress = false
                 // Retry deferred disconnect navigation (#575)
-                if (pendingDisconnectNavigation) {
-                    pendingDisconnectNavigation = false
+                if (root.pendingDisconnectNavigation) {
+                    root.pendingDisconnectNavigation = false
                     console.log("Retrying deferred disconnect navigation to idle")
                     pageStack.replace(null, idlePage)
                     root.returnToPageName = ""
@@ -1171,7 +1171,7 @@ ApplicationWindow {
             if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape) {
                 if (pageStack.depth > 1) {
                     event.accepted = true
-                    goBack()
+                    root.goBack()
                 }
             }
         }
@@ -1314,8 +1314,8 @@ ApplicationWindow {
     Connections {
         target: pageStack
         function onCurrentItemChanged() {
-            updateCurrentPageScale()
-            announceCurrentPage()
+            root.updateCurrentPageScale()
+            root.announceCurrentPage()
             pageColorTimer.restart()  // Detect colors after page settles
             // Reset the auto-load countdown: clears off-Idle, full value back on Idle
             root.autoLoadResetCountdown()
@@ -1326,7 +1326,7 @@ ApplicationWindow {
     Timer {
         id: pageColorTimer
         interval: 300
-        onTriggered: updatePageColors()
+        onTriggered: root.updatePageColors()
     }
 
     // Announce page name for accessibility when page changes
@@ -1431,7 +1431,7 @@ ApplicationWindow {
         id: initPageScaleTimer
         interval: 100
         onTriggered: {
-            updateCurrentPageScale()
+            root.updateCurrentPageScale()
         }
         Component.onCompleted: start()
     }
@@ -1552,8 +1552,8 @@ ApplicationWindow {
             var msg = isLocation
                 ? "Please enable Location services.\nAndroid requires Location for Bluetooth scanning."
                 : error
-            if (screensaverActive) {
-                queuePopup("bleError", {errorMessage: msg, isLocationError: isLocation, isBluetoothError: isBluetooth})
+            if (root.screensaverActive) {
+                root.queuePopup("bleError", {errorMessage: msg, isLocationError: isLocation, isBluetoothError: isBluetooth})
                 return
             }
             bleErrorDialog.isLocationError = isLocation
@@ -1574,8 +1574,8 @@ ApplicationWindow {
             // never-connected startup shows "No scale detected".
             var popupId = root.scaleDropPending ? "scaleDisconnected" : "flowScale"
             var dialog = root.scaleDropPending ? scaleDisconnectedDialog : flowScaleDialog
-            if (screensaverActive) { queuePopup(popupId); return }
-            if (AppShell.scaleDialogDeferred) { queuePopup(popupId); return }
+            if (root.screensaverActive) { root.queuePopup(popupId); return }
+            if (AppShell.scaleDialogDeferred) { root.queuePopup(popupId); return }
             dialog.open()
         }
         function onScaleDisconnected() {
@@ -1834,8 +1834,8 @@ ApplicationWindow {
         target: BatteryManager
 
         function onChargingMismatchDetected() {
-            if (screensaverActive) {
-                queuePopup("chargingMismatch")
+            if (root.screensaverActive) {
+                root.queuePopup("chargingMismatch")
                 return
             }
             chargingMismatchDialog.open()
@@ -1845,7 +1845,7 @@ ApplicationWindow {
             chargingMismatchDialog.close()
             // Remove any queued instance so it doesn't appear after screensaver wake
             // when the condition has already cleared.
-            pendingPopups = pendingPopups.filter(function(p) { return p.id !== "chargingMismatch" })
+            root.pendingPopups = root.pendingPopups.filter(function(p) { return p.id !== "chargingMismatch" })
         }
     }
 
@@ -1909,7 +1909,7 @@ ApplicationWindow {
         target: MachineState
         function onPhaseChanged() {
             if (MachineState.phase === MachineState.Phase.Refill) {
-                if (screensaverActive) { queuePopup("refill"); return }
+                if (root.screensaverActive) { root.queuePopup("refill"); return }
                 refillDialog.open()
             } else if (refillDialog.opened) {
                 refillDialog.close()
@@ -1991,7 +1991,7 @@ ApplicationWindow {
                             MainController.updateChecker.downloadAndInstall()
                         }
                         updateDialog.close()
-                        goToSettings("about")  // About tab has the update controls
+                        root.goToSettings("about")  // About tab has the update controls
 
                     }
                 }
@@ -2005,7 +2005,7 @@ ApplicationWindow {
         enabled: MainController.updateChecker !== null
 
         function onUpdatePromptRequested() {
-            if (screensaverActive) { queuePopup("update"); return }
+            if (root.screensaverActive) { root.queuePopup("update"); return }
             updateDialog.open()
         }
     }
@@ -2053,7 +2053,7 @@ ApplicationWindow {
 
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
-                text: completionMessage
+                text: root.completionMessage
                 color: Theme.textSecondaryColor
                 font: Theme.bodyFont
             }
@@ -2061,7 +2061,7 @@ ApplicationWindow {
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
                 text: {
-                    if (completionType === "hotwater") {
+                    if (root.completionType === "hotwater") {
                         return Math.max(0, MachineState.scaleWeight).toFixed(0) + "g"
                     } else {
                         return MachineState.shotTime.toFixed(1) + "s"
@@ -2092,8 +2092,8 @@ ApplicationWindow {
         id: completionTimer
         interval: 1500  // 1.5s: short enough not to feel slow (reduced from 3s per user feedback)
         onTriggered: {
-            if (_completionSuspendedForDialog) return
-            finishCompletion()
+            if (root._completionSuspendedForDialog) return
+            root.finishCompletion()
         }
     }
 
@@ -2184,8 +2184,8 @@ ApplicationWindow {
         radius: Theme.scaled(22)
         color: Theme.errorColor
 
-        visible: sawBypassedVisible || sawBypassedFadeOut.running
-        opacity: sawBypassedVisible ? 1 : 0
+        visible: root.sawBypassedVisible || sawBypassedFadeOut.running
+        opacity: root.sawBypassedVisible ? 1 : 0
         scale: 1.0
 
         SequentialAnimation {
@@ -2203,7 +2203,7 @@ ApplicationWindow {
         }
 
         Behavior on opacity {
-            enabled: sawBypassedVisible
+            enabled: root.sawBypassedVisible
             NumberAnimation { id: sawBypassedFadeOut; duration: 2000 }
         }
 
@@ -2224,7 +2224,7 @@ ApplicationWindow {
     Timer {
         id: sawBypassedTimer
         interval: 5000
-        onTriggered: sawBypassedVisible = false
+        onTriggered: root.sawBypassedVisible = false
     }
 
     // Espresso stop reason overlay (shown on top of any page)
@@ -2266,8 +2266,8 @@ ApplicationWindow {
         radius: Theme.scaled(22)
         color: Theme.warningColor
 
-        visible: stopOverlayVisible || fadeOutAnim.running
-        opacity: stopOverlayVisible ? 1 : 0
+        visible: root.stopOverlayVisible || fadeOutAnim.running
+        opacity: root.stopOverlayVisible ? 1 : 0
         scale: 1.0
 
         // Pop-in animation (punch effect: 100% → 110% → 100%)
@@ -2295,7 +2295,7 @@ ApplicationWindow {
 
         // Fade-out animation only (pop-in is instant)
         Behavior on opacity {
-            enabled: stopOverlayVisible  // Only animate when hiding
+            enabled: root.stopOverlayVisible  // Only animate when hiding
             NumberAnimation { id: fadeOutAnim; duration: 2000 }
         }
 
@@ -2306,7 +2306,7 @@ ApplicationWindow {
         Text {
             id: stopReasonText
             anchors.centerIn: parent
-            text: getStopReasonText()
+            text: root.getStopReasonText()
             color: "black"
             font: Theme.bodyFont
             Accessible.ignored: true
@@ -2317,28 +2317,28 @@ ApplicationWindow {
         id: stopOverlayTimer
         interval: 3000
         onTriggered: {
-            stopOverlayVisible = false
+            root.stopOverlayVisible = false
             if (root.pendingMetadataNavigation) {
                 root.pendingMetadataNavigation = false
                 // Settings.value() may return string on Windows (REG_SZ), coerce to Number
                 var timeout = Number(Settings.value("postShotReviewTimeout", 31))
                 if (timeout === 0) {
                     console.log("Post-shot review timeout is Instant, skipping review page")
-                    goToIdle()
+                    root.goToIdle()
                     return
                 }
                 if (root.pendingShotId > 0) {
-                    goToShotMetadata(root.pendingShotId)
+                    root.goToShotMetadata(root.pendingShotId)
                 } else {
                     console.warn("Post-shot navigation: no valid pendingShotId, going to idle")
-                    goToIdle()
+                    root.goToIdle()
                 }
             } else {
                 // pendingMetadataNavigation is set by onShotEndedShowMetadata only when
                 // the overlay was still visible at signal time. False here means either
                 // Edit After Shot is OFF, or the shot save arrived after the overlay
                 // expired (SAW settling outlasted 3s) and was handled directly.
-                goToIdle()
+                root.goToIdle()
             }
         }
     }
@@ -2383,7 +2383,7 @@ ApplicationWindow {
             root.stopOverlayVisible = true
             popInAnim.start()
             stopOverlayTimer.start()
-            console.log("Stop overlay:", getStopReasonText())
+            console.log("Stop overlay:", root.getStopReasonText())
 
             // Reset for next operation
             root.wasEspressoOperation = false
@@ -2399,14 +2399,14 @@ ApplicationWindow {
         onDismissed: {
             // Clear the crash log file
             MainController.clearCrashLog()
-            maybeShowLinuxBleCapabilityDialog()
-            maybeShowAutoRelaunchPrompt()
+            root.maybeShowLinuxBleCapabilityDialog()
+            root.maybeShowAutoRelaunchPrompt()
         }
         onReported: {
             // Clear the crash log file after successful report
             MainController.clearCrashLog()
-            maybeShowLinuxBleCapabilityDialog()
-            maybeShowAutoRelaunchPrompt()
+            root.maybeShowLinuxBleCapabilityDialog()
+            root.maybeShowAutoRelaunchPrompt()
         }
     }
 
@@ -2724,8 +2724,8 @@ ApplicationWindow {
                     // layout — never show the upgrade offer to them.
                     Settings.network.recipesUpgradeOffered = true
                     firstRunDialog.close()
-                    checkStorageSetup()
-                    maybeShowLinuxBleCapabilityDialog()
+                    root.checkStorageSetup()
+                    root.maybeShowLinuxBleCapabilityDialog()
                 }
             }
         }
@@ -2789,8 +2789,8 @@ ApplicationWindow {
                     onClicked: {
                         ProfileStorage.skipSetup()
                         storageSetupDialog.close()
-                        startBluetoothScan()
-                        maybeShowAutoRelaunchPrompt()
+                        root.startBluetoothScan()
+                        root.maybeShowAutoRelaunchPrompt()
                     }
                 }
 
@@ -3078,7 +3078,7 @@ ApplicationWindow {
             recipesUpgradeDialog.open()
         }
         function onRecipesUpgradeApplied(recipeName, starterRecipeFailed) {
-            recipesUpgradeToastText = starterRecipeFailed
+            root.recipesUpgradeToastText = starterRecipeFailed
                 ? trRecipesUpgradeToastRecipeFailed.text
                 : (recipeName.length > 0
                     ? trRecipesUpgradeToastWithRecipe.text.arg(recipeName)
@@ -3086,7 +3086,7 @@ ApplicationWindow {
             recipesUpgradeToast.opacity = 1
             recipesUpgradeToastTimer.restart()
             if (AccessibilityManager.enabled) {
-                AccessibilityManager.announce(recipesUpgradeToastText, starterRecipeFailed)
+                AccessibilityManager.announce(root.recipesUpgradeToastText, starterRecipeFailed)
             }
         }
     }
@@ -3131,7 +3131,7 @@ ApplicationWindow {
         Text {
             id: recipesUpgradeToastLabel
             anchors.centerIn: parent
-            text: recipesUpgradeToastText
+            text: root.recipesUpgradeToastText
             color: Theme.textColor
             font.pixelSize: Theme.scaled(13)
             Accessible.ignored: true
@@ -3154,13 +3154,13 @@ ApplicationWindow {
             // A bag with no roaster/coffee text would leave a dangling
             // "moved to " — fall back to a generic phrase.
             var bagName = targetBagName !== "" ? targetBagName : trRecipesRelinkBagFallback.text
-            recipesRelinkToastText = movedRecipeIds.length === 1
+            root.recipesRelinkToastText = movedRecipeIds.length === 1
                 ? trRecipesRelinkOne.text.arg(bagName)
                 : trRecipesRelinkMany.text.arg(movedRecipeIds.length).arg(bagName)
             recipesRelinkToast.opacity = 1
             recipesRelinkToastTimer.restart()
             if (AccessibilityManager.enabled)
-                AccessibilityManager.announce(recipesRelinkToastText)
+                AccessibilityManager.announce(root.recipesRelinkToastText)
         }
     }
     Tr {
@@ -3204,7 +3204,7 @@ ApplicationWindow {
         Text {
             id: recipesRelinkToastLabel
             anchors.centerIn: parent
-            text: recipesRelinkToastText
+            text: root.recipesRelinkToastText
             color: Theme.textColor
             font.pixelSize: Theme.scaled(13)
             Accessible.ignored: true
@@ -3244,8 +3244,8 @@ ApplicationWindow {
         function onFolderSelected(success) {
             if (storageSetupDialog.opened) {
                 storageSetupDialog.close()
-                checkFirstRunRestore()
-                maybeShowAutoRelaunchPrompt()
+                root.checkFirstRunRestore()
+                root.maybeShowAutoRelaunchPrompt()
             }
         }
     }
@@ -3274,7 +3274,7 @@ ApplicationWindow {
             if (shouldOffer) {
                 emptyDatabaseDialog.open();
             } else {
-                startBluetoothScan();
+                root.startBluetoothScan();
             }
         }
     }
@@ -3328,13 +3328,13 @@ ApplicationWindow {
                     if (!pageStack.busy) {
                         pageStack.replace(null, idlePage)
                     } else {
-                        pendingDisconnectNavigation = true
+                        root.pendingDisconnectNavigation = true
                     }
                 }
             } else {
                 // Clear deferred disconnect navigation on reconnect — machine is back,
                 // don't navigate away from whatever page the user is on now.
-                if (pendingDisconnectNavigation) pendingDisconnectNavigation = false
+                if (root.pendingDisconnectNavigation) root.pendingDisconnectNavigation = false
                 if (root.startupGracePeriod &&
                        phase !== MachineState.Phase.Sleep) {
                     root.startupGracePeriod = false
@@ -3382,9 +3382,9 @@ ApplicationWindow {
                 phase === MachineState.Phase.EspressoPreheating ||
                 phase === MachineState.Phase.Preinfusion ||
                 phase === MachineState.Phase.Pouring) {
-                if (completionPending) {
+                if (root.completionPending) {
                     console.log("Cancelling pending completion - new operation started (phase=" + phase + ")")
-                    completionPending = false
+                    root.completionPending = false
                     completionTimer.stop()
                     completionOverlay.opacity = 0
                 }
@@ -3402,9 +3402,9 @@ ApplicationWindow {
                     // If a real physical scale connected during warmup, discard queued scale popups
                     // (FlowScale is always "connected" so don't let it suppress dialogs)
                     if (ScaleDevice.connected && !ScaleDevice.isFlowScale) {
-                        removeQueuedScalePopups()
+                        root.removeQueuedScalePopups()
                     } else if (Settings.primaryScaleAddress !== "") {
-                        showNextPendingPopup()  // Show deferred dialog now
+                        root.showNextPendingPopup()  // Show deferred dialog now
                     }
                 } else if (phase === MachineState.Phase.Sleep) {
                     AppShell.scaleDialogDeferred = false
@@ -3421,17 +3421,17 @@ ApplicationWindow {
                 }
             } else if (phase === MachineState.Phase.Steaming) {
                 if (currentPage !== "steamPage" && !pageStack.busy) {
-                    saveReturnToPage(currentPage)
+                    root.saveReturnToPage(currentPage)
                     pageStack.replace(null, steamPage)
                 }
             } else if (phase === MachineState.Phase.HotWater) {
                 if (currentPage !== "hotWaterPage" && !pageStack.busy) {
-                    saveReturnToPage(currentPage)
+                    root.saveReturnToPage(currentPage)
                     pageStack.replace(null, hotWaterPage)
                 }
             } else if (phase === MachineState.Phase.Flushing) {
                 if (currentPage !== "flushPage" && !pageStack.busy) {
-                    saveReturnToPage(currentPage)
+                    root.saveReturnToPage(currentPage)
                     pageStack.replace(null, flushPage)
                 }
             } else if (phase === MachineState.Phase.Descaling) {
@@ -3449,10 +3449,10 @@ ApplicationWindow {
                 // Machine was put to sleep (e.g. via GHC stop button hold) - show screensaver
                 // Skip if machine has never been awake since connecting (initial connect reports
                 // Sleep before the wake command takes effect)
-                if (!screensaverActive && !root.startupGracePeriod && !root.shuttingDown) {
+                if (!root.screensaverActive && !root.startupGracePeriod && !root.shuttingDown) {
                     console.log("Machine entered Sleep - showing screensaver")
                     // Scale LCD disable is handled by C++ phaseChanged handler in main.cpp
-                    goToScreensaver()
+                    root.goToScreensaver()
                 }
             } else if (phase === MachineState.Phase.Idle || phase === MachineState.Phase.Ready) {
                 // DE1 went to idle - if we're on an operation page, show completion.
@@ -3461,14 +3461,14 @@ ApplicationWindow {
                 console.log("Phase Idle/Ready: currentPage=" + currentPage + " completionOverlay.opacity=" + completionOverlay.opacity)
 
                 if (currentPage === "steamPage") {
-                    showCompletion(trSteamComplete.text, "steam")
+                    root.showCompletion(trSteamComplete.text, "steam")
                 } else if (currentPage === "hotWaterPage") {
-                    showCompletion(trHotWaterComplete.text, "hotwater")
+                    root.showCompletion(trHotWaterComplete.text, "hotwater")
                 } else if (currentPage === "flushPage") {
                     if (AppShell.userExitedFlush) {
                         console.log("Phase Idle/Ready: flush exited by user, skipping completion overlay")
                     } else {
-                        showCompletion(trFlushComplete.text, "flush")
+                        root.showCompletion(trFlushComplete.text, "flush")
                     }
                 } else {
                     console.log("Phase Idle/Ready: NOT on operation page, no completion shown")
@@ -3973,7 +3973,7 @@ ApplicationWindow {
         onPressed: function(mouse) {
             // Reset the inactivity countdown on user touch (the scheduled
             // stay-awake window is independent of activity)
-            if (root.autoSleepMinutes > 0 && !screensaverActive) {
+            if (root.autoSleepMinutes > 0 && !root.screensaverActive) {
                 var prev = root.sleepCountdownNormal
                 root.sleepCountdownNormal = root.autoSleepMinutes
                 if (prev <= 5) console.log("[AutoSleep] Reset by touch: " + prev + " -> " + root.sleepCountdownNormal)
@@ -4076,7 +4076,7 @@ ApplicationWindow {
                 ScaleDevice.disableLcd()
             }
             DE1Device.goToSleep()
-            goToScreensaver()
+            root.goToScreensaver()
         }
     }
 
@@ -4109,11 +4109,14 @@ ApplicationWindow {
                 if (avgDeltaX < -100) {
                     // Two-finger swipe left = go back
                     AccessibilityManager.announce(trAnnounceGoingBack.text)
-                    if (stackView.depth > 1) {
-                        stackView.pop()
-                    } else {
-                        goToIdle()
-                    }
+                    // Was `stackView.depth`/`stackView.pop()` — no such id exists in this file
+                    // (the StackView is `pageStack`), so this threw a ReferenceError and took the
+                    // whole handler with it, else-branch included. The two-finger back gesture has
+                    // never worked, and it only runs with a screen reader active, which is why
+                    // nobody hit it. goBack() is the one owner of back navigation and adds the
+                    // re-entry guard this never had; the old else-branch was unreachable in
+                    // practice anyway, since depth 1 is `initialItem: idlePage`.
+                    root.goBack()
                 }
             }
             startPoints = []
@@ -4166,9 +4169,9 @@ ApplicationWindow {
                 var timeout = Number(Settings.value("postShotReviewTimeout", 31))
                 if (timeout === 0) {
                     console.log("Post-shot review: Instant timeout, going to idle")
-                    goToIdle()
+                    root.goToIdle()
                 } else if (root.pendingShotId > 0) {
-                    goToShotMetadata(root.pendingShotId)
+                    root.goToShotMetadata(root.pendingShotId)
                 } else {
                     console.warn("Post-shot navigation: no valid pendingShotId after overlay expired")
                 }
@@ -4182,8 +4185,8 @@ ApplicationWindow {
 
         function onAutoWakeTriggered() {
             console.log("[Main] Auto-wake triggered")
-            if (screensaverActive) {
-                goToIdleFromScreensaver()
+            if (root.screensaverActive) {
+                root.goToIdleFromScreensaver()
             }
             // No stay-awake arming here: the window is evaluated live from
             // the schedule by AutoWakeManager.isWithinStayAwakeWindow(), so
@@ -4193,18 +4196,18 @@ ApplicationWindow {
 
         function onRemoteSleepRequested() {
             console.log("[Main] Remote sleep requested via MQTT/REST API")
-            if (!screensaverActive) {
-                goToScreensaver()
+            if (!root.screensaverActive) {
+                root.goToScreensaver()
             }
         }
 
         function onFlowCalibrationAutoUpdated(profileTitle, oldValue, newValue) {
-            flowCalToastText = TranslationManager.translate("main.flowCalUpdated",
+            root.flowCalToastText = TranslationManager.translate("main.flowCalUpdated",
                 "Flow cal updated for %1: %2 → %3").arg(profileTitle).arg(oldValue.toFixed(2)).arg(newValue.toFixed(2))
             flowCalToast.opacity = 1
             flowCalToastTimer.restart()
             if (AccessibilityManager.enabled) {
-                AccessibilityManager.announce(flowCalToastText)
+                AccessibilityManager.announce(root.flowCalToastText)
             }
         }
 
@@ -4310,7 +4313,7 @@ ApplicationWindow {
         Text {
             id: flowCalToastLabel
             anchors.centerIn: parent
-            text: flowCalToastText
+            text: root.flowCalToastText
             color: Theme.textColor
             font.pixelSize: Theme.scaled(13)
             Accessible.ignored: true
@@ -4351,7 +4354,7 @@ ApplicationWindow {
         Text {
             id: shotExportToastLabel
             anchors.centerIn: parent
-            text: shotExportToastText
+            text: root.shotExportToastText
             color: Theme.textColor
             font.pixelSize: Theme.scaled(13)
             Accessible.ignored: true
@@ -4378,13 +4381,13 @@ ApplicationWindow {
         function onBagPushRejected(localBagId, bagName, message) {
             // Name the bag: a 422 can arrive from the retry drain long after
             // the edit, when a bare "the bag update" identifies nothing.
-            bagPushToastText = trBagPushRejected.text.arg(bagName).arg(message)
+            root.bagPushToastText = trBagPushRejected.text.arg(bagName).arg(message)
             bagPushToast.opacity = 1
             bagPushToastTimer.restart()
             if (AccessibilityManager.enabled) {
                 // Assertive: this is the only trace that the local and remote
                 // bags have permanently diverged.
-                AccessibilityManager.announce(bagPushToastText, true)
+                AccessibilityManager.announce(root.bagPushToastText, true)
             }
         }
     }
@@ -4411,7 +4414,7 @@ ApplicationWindow {
             id: bagPushToastLabel
             anchors.centerIn: parent
             width: Math.min(implicitWidth, bagPushToast.width - Theme.scaled(32))
-            text: bagPushToastText
+            text: root.bagPushToastText
             color: Theme.textColor
             font.pixelSize: Theme.scaled(13)
             wrapMode: Text.WordWrap
@@ -4589,18 +4592,18 @@ ApplicationWindow {
                 return
             }
             if (failed > 0) {
-                shotExportToastText = TranslationManager.translate(
+                root.shotExportToastText = TranslationManager.translate(
                     "main.toast.exportShotsPartial",
                     "Exported %1 shots; %2 failed").arg(written).arg(failed)
             } else {
-                shotExportToastText = TranslationManager.translate(
+                root.shotExportToastText = TranslationManager.translate(
                     "main.toast.exportShotsDone",
                     "Exported %1 shots").arg(written)
             }
             shotExportToast.opacity = 1
             shotExportToastTimer.restart()
             if (AccessibilityManager.enabled) {
-                AccessibilityManager.announce(shotExportToastText)
+                AccessibilityManager.announce(root.shotExportToastText)
             }
         }
     }
@@ -4723,7 +4726,7 @@ ApplicationWindow {
 
         function onConnectedChanged() {
             if (ScaleDevice.connected && !ScaleDevice.isFlowScale) {
-                removeQueuedScalePopups()
+                root.removeQueuedScalePopups()
             }
         }
     }
@@ -4733,7 +4736,7 @@ ApplicationWindow {
     // Uses scaledBase() to maintain consistent size regardless of current page scale
     Rectangle {
         id: pageScaleOverlay
-        visible: root.appInitialized && Theme.configurePageScaleEnabled && !screensaverActive && Theme.currentPageObjectName !== ""
+        visible: root.appInitialized && Theme.configurePageScaleEnabled && !root.screensaverActive && Theme.currentPageObjectName !== ""
         z: 800  // Above most content, below dialogs
 
 
@@ -4802,7 +4805,7 @@ ApplicationWindow {
     }
     Rectangle {
         id: globalHideKeyboardButton
-        visible: _textInputFocused && (Qt.platform.os === "android" || Qt.platform.os === "ios")
+        visible: root._textInputFocused && (Qt.platform.os === "android" || Qt.platform.os === "ios")
         anchors.right: parent.right
         anchors.top: parent.top
         anchors.rightMargin: Theme.standardMargin
@@ -4891,10 +4894,10 @@ ApplicationWindow {
     Connections {
         target: WidgetLibrary
         function onEntryAdded(entryId) {
-            triggerLibraryThumbnailCapture(entryId)
+            root.triggerLibraryThumbnailCapture(entryId)
         }
         function onRequestThumbnailCapture(entryId) {
-            triggerLibraryThumbnailCapture(entryId)
+            root.triggerLibraryThumbnailCapture(entryId)
         }
     }
 
@@ -4960,7 +4963,7 @@ ApplicationWindow {
                     accessibleName: TranslationManager.translate("main.emptydb.skipAccessible", "Skip restore and start fresh")
                     onClicked: {
                         emptyDatabaseDialog.close();
-                        startBluetoothScan();
+                        root.startBluetoothScan();
                     }
                 }
 
@@ -4970,8 +4973,8 @@ ApplicationWindow {
                     accessibleName: TranslationManager.translate("main.emptydb.restoreAccessible", "Open restore settings")
                     onClicked: {
                         emptyDatabaseDialog.close();
-                        startBluetoothScan();
-                        goToSettings("historyData");  // History & Data tab has restore
+                        root.startBluetoothScan();
+                        root.goToSettings("historyData");  // History & Data tab has restore
                     }
                 }
             }
