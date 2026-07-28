@@ -1,3 +1,10 @@
+// Delegates below declare their model roles with `required property` rather than
+// taking them from an injected delegate context, so ids from this file (root, pill)
+// resolve statically inside the nested Repeater components instead of being looked
+// up at runtime. Without the pragma every such reference is an unqualified access:
+// it works, but nothing checks it, which is the whole point of the QML gate.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Effects
 import Decenza
@@ -192,7 +199,7 @@ FocusScope {
     Timer {
         id: recalcTimer
         interval: 1
-        onTriggered: rowsModel = calculateRows()
+        onTriggered: root.rowsModel = root.calculateRows()
     }
     Component.onCompleted: recalcTimer.start()
 
@@ -400,28 +407,36 @@ FocusScope {
             model: root.rowsModel
 
             Row {
+                id: pillRow
+
+                // One row of the calculateRows() layout: an array of pill entries.
+                required property var modelData
+
                 anchors.horizontalCenter: parent.horizontalCenter
                 spacing: root.pillSpacing
 
                 Repeater {
-                    model: modelData
+                    model: pillRow.modelData
 
                     Rectangle {
                         id: pill
 
-                        property bool isSelected: modelData.index === root.selectedIndex
-                        property bool isFocused: root.activeFocus && modelData.index === root.focusedIndex
+                        // One pill entry: { index, preset }.
+                        required property var modelData
+
+                        property bool isSelected: pill.modelData.index === root.selectedIndex
+                        property bool isFocused: root.activeFocus && pill.modelData.index === root.focusedIndex
                         // A preset may mark itself as disabled (e.g. a steam "Off" preset
                         // that stops heating instead of setting a temp/time). Render it
                         // muted so it's visibly distinct from real time/temp presets.
-                        property bool isDisabled: modelData && modelData.preset && modelData.preset.disabled === true
+                        property bool isDisabled: pill.modelData && pill.modelData.preset && pill.modelData.preset.disabled === true
                         // A preset may mark itself dimmed (e.g. a stale recipe whose
                         // linked bag is finished): rendered faded but fully tappable —
                         // an indication, never a lock (recipe-bag-lifecycle). An
                         // optional `stateHint` string carries the reason to screen
                         // readers (the dimming alone is invisible to them).
-                        property bool isDimmed: modelData && modelData.preset && modelData.preset.dimmed === true
-                        property string stateHint: (modelData && modelData.preset && modelData.preset.stateHint) || ""
+                        property bool isDimmed: pill.modelData && pill.modelData.preset && pill.modelData.preset.dimmed === true
+                        property string stateHint: (pill.modelData && pill.modelData.preset && pill.modelData.preset.stateHint) || ""
 
                         width: pillText.implicitWidth + root.pillPadding
                         height: Theme.scaled(50)
@@ -485,9 +500,9 @@ FocusScope {
                             anchors.centerIn: parent
                             spacing: Theme.scaled(6)
                             Image {
-                                visible: !!(modelData.preset && modelData.preset.icon)
+                                visible: !!(pill.modelData.preset && pill.modelData.preset.icon)
                                 anchors.verticalCenter: parent.verticalCenter
-                                source: (modelData.preset && modelData.preset.icon) || ""
+                                source: (pill.modelData.preset && pill.modelData.preset.icon) || ""
                                 sourceSize.width: root.pillIconSize
                                 sourceSize.height: root.pillIconSize
                                 fillMode: Image.PreserveAspectFit
@@ -502,7 +517,7 @@ FocusScope {
                             Text {
                                 id: pillText
                                 anchors.verticalCenter: parent.verticalCenter
-                                text: pillDisplayName(modelData.index)
+                                text: root.pillDisplayName(pill.modelData.index)
                                 color: pill.isSelected ? Theme.primaryContrastColor : Theme.textColor
                                 font.pixelSize: Theme.scaled(16)
                                 font.bold: true
@@ -517,17 +532,17 @@ FocusScope {
                             supportLongPress: root.supportLongPress
 
                             accessibleName: {
-                                if (!modelData || !modelData.preset) return ""
-                                var name = pillDisplayName(modelData.index)
-                                var modifiedText = (root.modified && modelData.index === root.selectedIndex) ? ", " + TranslationManager.translate("presets.unsaved", "unsaved changes") : ""
-                                var status = modelData.index === root.selectedIndex ? ", " + TranslationManager.translate("presets.selected", "selected") : ""
+                                if (!pill.modelData || !pill.modelData.preset) return ""
+                                var name = root.pillDisplayName(pill.modelData.index)
+                                var modifiedText = (root.modified && pill.modelData.index === root.selectedIndex) ? ", " + TranslationManager.translate("presets.unsaved", "unsaved changes") : ""
+                                var status = pill.modelData.index === root.selectedIndex ? ", " + TranslationManager.translate("presets.selected", "selected") : ""
                                 var hint = pill.stateHint !== "" ? ", " + pill.stateHint : ""
                                 return name + modifiedText + status + hint
                             }
                             accessibleItem: pill
 
                             onAccessibleClicked: {
-                                if (!modelData || !modelData.preset) return
+                                if (!pill.modelData || !pill.modelData.preset) return
                                 // Announce selection for accessibility feedback. Route through
                                 // pillDisplayName so the tap announcement matches what focus
                                 // announces (e.g. pillLabelFn's "Small Pitcher" transform).
@@ -536,15 +551,15 @@ FocusScope {
                                 // a deletion/reorder — fall back to the row's snapshot name
                                 // rather than announcing nothing.
                                 if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
-                                    var announceName = pillDisplayName(modelData.index) || modelData.preset.name
+                                    var announceName = root.pillDisplayName(pill.modelData.index) || pill.modelData.preset.name
                                     AccessibilityManager.announce(announceName + " " + TranslationManager.translate("presetPill.selected", "selected"))
                                 }
-                                root.presetSelected(modelData.index)
+                                root.presetSelected(pill.modelData.index)
                             }
 
                             onAccessibleLongPressed: {
-                                if (!modelData || !modelData.preset) return
-                                root.presetLongPressed(modelData.index)
+                                if (!pill.modelData || !pill.modelData.preset) return
+                                root.presetLongPressed(pill.modelData.index)
                             }
                         }
                     }
