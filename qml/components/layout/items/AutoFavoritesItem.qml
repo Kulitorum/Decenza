@@ -20,9 +20,7 @@ Item {
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
 
     function goToAutoFavorites() {
-        if (typeof pageStack !== "undefined") {
-            pageStack.push(Qt.resolvedUrl("../../../pages/AutoFavoritesPage.qml"))
-        }
+            AppShell.autoFavoritesRequested()
     }
 
     // --- COMPACT MODE ---

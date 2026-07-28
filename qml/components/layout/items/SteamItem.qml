@@ -45,9 +45,7 @@ Item {
     }
 
     function goToSteam() {
-        if (typeof pageStack !== "undefined") {
-            pageStack.push(Qt.resolvedUrl("../../../pages/SteamPage.qml"))
-        }
+            AppShell.steamRequested()
     }
 
     // --- COMPACT MODE ---

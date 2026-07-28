@@ -1361,6 +1361,7 @@ ApplicationWindow {
     function updateCurrentPageScale() {
         var pageName = pageStack.currentItem ? (pageStack.currentItem.objectName || "") : ""
         Theme.currentPageObjectName = pageName
+        AppShell.currentPage = pageStack.currentItem
         if (pageName) {
             Theme.pageScaleMultiplier = parseFloat(Settings.value("pageScale/" + pageName, 1.0)) || 1.0
         } else {
@@ -3493,6 +3494,38 @@ ApplicationWindow {
         function onTransportRequested() { root.goToTransport() }
         function onBrewSettingsRequested() { root.openBrewSettings() }
         function onScreensaverRequested() { root.goToScreensaver() }
+        function onEspressoRequested() { root.goToEspresso() }
+        function onSteamRequested() { root.goToSteam() }
+        function onHotWaterRequested() { root.goToHotWater() }
+        function onFlushRequested() { root.goToFlush() }
+        function onSettingsRequested(tabId) { root.goToSettings(tabId) }
+        function onRecipeEditorRequested() { root.goToRecipeEditor() }
+        function onRecipesRequested() { root.goToRecipes() }
+        function onRecipeWizardRequested(mode, options) { root.goToRecipeWizard(mode, options) }
+        function onShotHistoryRequested(filter) { root.goToShotHistory(filter) }
+        function onShotDetailRequested(shotId, shotIds) { root.goToShotDetail(shotId, shotIds) }
+        function onShotComparisonRequested() { root.goToShotComparison() }
+        function onPostShotReviewRequested(shotId, autoClose) { root.goToPostShotReview(shotId, autoClose) }
+        function onProfileInfoRequested(profileFilename, profileName) { root.goToProfileInfo(profileFilename, profileName) }
+        function onBeanInfoRequested() { root.goToBeanInfo() }
+        function onEquipmentRequested() { root.goToEquipment() }
+        function onAutoFavoritesRequested() { root.goToAutoFavorites() }
+        function onAutoFavoriteInfoRequested(options) { root.goToAutoFavoriteInfo(options) }
+        function onCommunityBrowserRequested() { root.goToCommunityBrowser() }
+        function onVisualizerMultiImportRequested() { root.goToVisualizerMultiImport() }
+        function onFlowCalibrationRequested() { root.goToFlowCalibration() }
+        function onAiSettingsRequested() { root.goToAISettings() }
+        function onStringBrowserRequested() { root.goToStringBrowser() }
+        function onAddLanguageRequested() { root.goToAddLanguage() }
+        // Back where there is somewhere to go back to, idle otherwise. Which applies depends on
+        // whether the page was pushed or replaced, and that is the shell's business, not the
+        // page's.
+        function onDismissRequested() {
+            if (pageStack.depth > 1)
+                root.goBack()
+            else
+                root.goToIdle()
+        }
         function onCompletionSuspendRequested() { root.suspendCompletionForDialog() }
         function onCompletionFinishRequested() { root.finishCompletion() }
     }
@@ -3525,23 +3558,20 @@ ApplicationWindow {
 
     function goToEspresso() {
         if (!startNavigation()) return
-        if (pageStack.currentItem && pageStack.currentItem.objectName !== "espressoPage") {
-            pageStack.replace(null, espressoPage)
-        }
+        if (pageStack.currentItem && pageStack.currentItem.objectName !== "espressoPage")
+            pageStack.push(espressoPage)
     }
 
     function goToSteam() {
         if (!startNavigation()) return
-        if (pageStack.currentItem && pageStack.currentItem.objectName !== "steamPage") {
-            pageStack.replace(null, steamPage)
-        }
+        if (pageStack.currentItem && pageStack.currentItem.objectName !== "steamPage")
+            pageStack.push(steamPage)
     }
 
     function goToHotWater() {
         if (!startNavigation()) return
-        if (pageStack.currentItem && pageStack.currentItem.objectName !== "hotWaterPage") {
-            pageStack.replace(null, hotWaterPage)
-        }
+        if (pageStack.currentItem && pageStack.currentItem.objectName !== "hotWaterPage")
+            pageStack.push(hotWaterPage)
     }
 
     function goToSettings(tabId) {
@@ -3627,6 +3657,105 @@ ApplicationWindow {
     function goToFlush() {
         if (!startNavigation()) return
         pageStack.push(flushPage)
+    }
+
+    // Destinations reached from widgets and other pages. Each is the ONE implementation of
+    // "go here": the caller states intent through an AppShell signal, this decides how.
+    //
+    // They all push rather than replace, including the operation pages above. The rule is not
+    // "operation pages replace" — it is REPLACE WHEN THE MACHINE DROVE THE CHANGE, PUSH WHEN THE
+    // USER DID. The phase handler still replaces, because there the user did not navigate and
+    // there is no meaningful back. A user tapping a widget did navigate, and back to idle must
+    // work. CustomItem used to replace here by copying the phase handler's line rather than its
+    // reason, which also left pageStack.depth at 1 — so goBack()'s `depth > 1` test silently made
+    // the back control dead.
+
+    function goToRecipes() {
+        if (!startNavigation()) return
+        pageStack.push(recipesPage)
+    }
+
+    // options carries the wizard's own properties (promoteShotId, editRecipeId, prefill).
+    function goToRecipeWizard(mode, options) {
+        if (!startNavigation()) return
+        var props = options ? Object.assign({}, options) : ({})
+        props.mode = mode
+        pageStack.push(recipeWizardPage, props)
+    }
+
+    function goToShotHistory(filter) {
+        if (!startNavigation()) return
+        pageStack.push(shotHistoryPage, filter || ({}))
+    }
+
+    function goToShotDetail(shotId, shotIds) {
+        if (!startNavigation()) return
+        pageStack.push(shotDetailPage, { shotId: shotId, shotIds: shotIds || [] })
+    }
+
+    function goToShotComparison() {
+        if (!startNavigation()) return
+        pageStack.push(shotComparisonPage)
+    }
+
+    function goToPostShotReview(shotId, autoClose) {
+        if (!startNavigation()) return
+        pageStack.push(postShotReviewPage, { editShotId: shotId, autoClose: autoClose })
+    }
+
+    function goToProfileInfo(profileFilename, profileName) {
+        if (!startNavigation()) return
+        pageStack.push(profileInfoPage, { profileFilename: profileFilename, profileName: profileName })
+    }
+
+    function goToBeanInfo() {
+        if (!startNavigation()) return
+        pageStack.push(beanInfoPage)
+    }
+
+    function goToEquipment() {
+        if (!startNavigation()) return
+        pageStack.push(equipmentPage)
+    }
+
+    function goToAutoFavorites() {
+        if (!startNavigation()) return
+        pageStack.push(autoFavoritesPage)
+    }
+
+    function goToAutoFavoriteInfo(options) {
+        if (!startNavigation()) return
+        pageStack.push(autoFavoriteInfoPage, options || ({}))
+    }
+
+    function goToCommunityBrowser() {
+        if (!startNavigation()) return
+        pageStack.push(communityBrowserPage)
+    }
+
+    function goToVisualizerMultiImport() {
+        if (!startNavigation()) return
+        pageStack.push(visualizerMultiImportPage)
+    }
+
+    function goToFlowCalibration() {
+        if (!startNavigation()) return
+        pageStack.push(flowCalibrationPage)
+    }
+
+    function goToAISettings() {
+        if (!startNavigation()) return
+        pageStack.push(aiSettingsPage)
+    }
+
+    function goToStringBrowser() {
+        if (!startNavigation()) return
+        pageStack.push(stringBrowserPage)
+    }
+
+    function goToAddLanguage() {
+        if (!startNavigation()) return
+        pageStack.push(addLanguagePage)
     }
 
     function goToVisualizerBrowser() {
@@ -3729,6 +3858,82 @@ ApplicationWindow {
     Component {
         id: screensaverPage
         ScreensaverPage {}
+    }
+
+    // These fourteen complete a pattern this file already used for nineteen pages. They exist
+    // because widgets and pages used to reach these screens with
+    // `pageStack.push(Qt.resolvedUrl("../../../pages/X.qml"))`, which instantiates a DIFFERENT
+    // component from the one declared here — two mechanisms for one screen. Every navigation now
+    // goes through the Component declared once, in this file.
+
+    Component {
+        id: recipesPage
+        RecipesPage {}
+    }
+
+    Component {
+        id: recipeWizardPage
+        RecipeWizardPage {}
+    }
+
+    Component {
+        id: shotHistoryPage
+        ShotHistoryPage {}
+    }
+
+    Component {
+        id: shotDetailPage
+        ShotDetailPage {}
+    }
+
+    Component {
+        id: shotComparisonPage
+        ShotComparisonPage {}
+    }
+
+    Component {
+        id: equipmentPage
+        EquipmentPage {}
+    }
+
+    Component {
+        id: autoFavoritesPage
+        AutoFavoritesPage {}
+    }
+
+    Component {
+        id: autoFavoriteInfoPage
+        AutoFavoriteInfoPage {}
+    }
+
+    Component {
+        id: communityBrowserPage
+        CommunityBrowserPage {}
+    }
+
+    Component {
+        id: visualizerMultiImportPage
+        VisualizerMultiImportPage {}
+    }
+
+    Component {
+        id: flowCalibrationPage
+        FlowCalibrationPage {}
+    }
+
+    Component {
+        id: aiSettingsPage
+        AISettingsPage {}
+    }
+
+    Component {
+        id: stringBrowserPage
+        StringBrowserPage {}
+    }
+
+    Component {
+        id: addLanguagePage
+        AddLanguagePage {}
     }
 
     // Touch capture to reset sleep countdown (transparent, doesn't block input)

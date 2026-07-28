@@ -155,9 +155,7 @@ Item {
     }
 
     function goToRecipes() {
-        if (typeof pageStack !== "undefined") {
-            pageStack.push(Qt.resolvedUrl("../../../pages/RecipesPage.qml"))
-        }
+            AppShell.recipesRequested()
     }
 
     // --- COMPACT MODE ---

@@ -65,7 +65,7 @@ KeyboardAwareContainer {
                     text: TranslationManager.translate("settings.history.title", "Shot History") + " →"
                     accessibleName: TranslationManager.translate("settings.history.openShotHistory", "Open Shot History")
                     primary: true
-                    onClicked: pageStack.push(Qt.resolvedUrl("../ShotHistoryPage.qml"))
+                    onClicked: AppShell.shotHistoryRequested({})
                 }
 
                 Tr {

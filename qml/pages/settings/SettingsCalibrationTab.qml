@@ -111,7 +111,7 @@ Item {
                                 text: TranslationManager.translate("settings.preferences.calibrate", "Calibrate")
                                 primary: true
                                 enabled: !Settings.calibration.autoFlowCalibration
-                                onClicked: pageStack.push(Qt.resolvedUrl("../FlowCalibrationPage.qml"))
+                                onClicked: AppShell.flowCalibrationRequested()
                             }
                         }
                     }

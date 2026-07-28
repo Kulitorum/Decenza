@@ -81,9 +81,7 @@ Item {
     }
 
     function goToFlush() {
-        if (typeof pageStack !== "undefined") {
-            pageStack.push(Qt.resolvedUrl("../../../pages/FlushPage.qml"))
-        }
+            AppShell.flushRequested()
     }
 
     // --- COMPACT MODE ---

@@ -50,7 +50,7 @@ Page {
             onTriggered: {
                 console.log("DEV: Simulating completed shot")
                 MainController.generateFakeShotData()
-                pageStack.push(Qt.resolvedUrl("EspressoPage.qml"))
+                AppShell.espressoRequested()
                 fakeShowMetadataTimer.start()
             }
         }
@@ -61,7 +61,7 @@ Page {
             onTriggered: {
                 var shotId = MainController.lastSavedShotId
                 console.log("DEV: Opening PostShotReviewPage with shotId:", shotId)
-                pageStack.push(Qt.resolvedUrl("PostShotReviewPage.qml"), { editShotId: shotId })
+                AppShell.postShotReviewRequested(shotId, true)
             }
         }
 
@@ -1042,7 +1042,7 @@ Page {
                         // milk-weight -> steam-time reference.
                         onPresetLongPressed: function(index) {
                             Settings.brew.selectedSteamPitcher = index
-                            pageStack.push(Qt.resolvedUrl("SteamPage.qml"))
+                            AppShell.steamRequested()
                         }
                     }
 
@@ -1200,10 +1200,7 @@ Page {
                             profileName: ProfileManager.currentProfileName
 
                             onClicked: {
-                                pageStack.push(Qt.resolvedUrl("ProfileInfoPage.qml"), {
-                                    profileFilename: Settings.app.currentProfile,
-                                    profileName: ProfileManager.currentProfileName
-                                })
+                                AppShell.profileInfoRequested(Settings.app.currentProfile, ProfileManager.currentProfileName)
                             }
                         }
                     }

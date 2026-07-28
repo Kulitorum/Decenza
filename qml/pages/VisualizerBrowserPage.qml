@@ -195,7 +195,7 @@ Page {
                             text: TranslationManager.translate("visualizer.button.importShared", "Import profiles I shared")
                             accessibleName: TranslationManager.translate("visualizerBrowser.importSharedProfiles", "Import all profiles you have shared on Visualizer")
                             onClicked: {
-                                pageStack.push(Qt.resolvedUrl("VisualizerMultiImportPage.qml"))
+                                AppShell.visualizerMultiImportRequested()
                             }
                         }
                     }

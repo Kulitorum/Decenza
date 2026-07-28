@@ -124,9 +124,7 @@ Item {
     }
 
     function goToBeanInfo() {
-        if (typeof pageStack !== "undefined") {
-            pageStack.push(Qt.resolvedUrl("../../../pages/BeanInfoPage.qml"))
-        }
+            AppShell.beanInfoRequested()
     }
 
     // --- COMPACT MODE ---

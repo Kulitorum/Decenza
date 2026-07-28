@@ -600,12 +600,8 @@ Page {
             } else {
                 MainController.applyFlushSettings()
             }
-            // Handle both pushed (user nav) and replaced (auto nav) cases
-            if (pageStack.depth > 1) {
-                AppShell.backRequested()
-            } else {
-                AppShell.idleRequested()
-            }
+            // Pushed (user nav) or replaced (auto nav) — the shell knows which, this page does not.
+            AppShell.dismissRequested()
         }
 
         Text {

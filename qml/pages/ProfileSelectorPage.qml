@@ -493,10 +493,7 @@ Page {
                                 profileName: modelData.title
 
                                 onClicked: {
-                                    pageStack.push(Qt.resolvedUrl("ProfileInfoPage.qml"), {
-                                        profileFilename: modelData.name,
-                                        profileName: modelData.title
-                                    })
+                                    AppShell.profileInfoRequested(modelData.name, modelData.title)
                                 }
                             }
 

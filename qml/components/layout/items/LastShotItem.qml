@@ -60,9 +60,8 @@ Item {
     }
 
     function goToShotDetail() {
-        if (hasData && shotData.id && typeof pageStack !== "undefined") {
-            pageStack.push(Qt.resolvedUrl("../../../pages/ShotDetailPage.qml"),
-                          { shotId: shotData.id })
+        if (hasData && shotData.id) {
+            AppShell.shotDetailRequested(shotData.id, [])
         }
     }
 

@@ -574,7 +574,7 @@ Rectangle {
             text: TranslationManager.translate("library.button.browseAll", "Browse All")
             accessibleName: TranslationManager.translate("library.accessibility.browseAllCommunity", "Browse all community items")
             onClicked: {
-                pageStack.push(Qt.resolvedUrl("../../pages/CommunityBrowserPage.qml"))
+                AppShell.communityBrowserRequested()
             }
         }
     }

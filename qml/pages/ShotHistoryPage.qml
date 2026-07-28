@@ -322,7 +322,7 @@ Page {
         // Sort selected shots chronologically, then batch-add in one DB load
         var sortedShots = selectedShots.slice().sort(function(a, b) { return a - b })
         MainController.shotComparison.addShots(sortedShots)
-        pageStack.push(Qt.resolvedUrl("ShotComparisonPage.qml"))
+        AppShell.shotComparisonRequested()
     }
 
     function deleteSelectedShots() {
@@ -348,10 +348,7 @@ Page {
 
     function openShotDetail(shotId) {
         var shotIds = getNavigableShotIds()
-        pageStack.push(Qt.resolvedUrl("ShotDetailPage.qml"), {
-            shotId: shotId,
-            shotIds: shotIds
-        })
+        AppShell.shotDetailRequested(shotId, shotIds)
     }
 
     ListModel {
@@ -910,8 +907,7 @@ Page {
                             id: recipeArea
                             anchors.fill: parent
                             onClicked: {
-                                pageStack.push(Qt.resolvedUrl("RecipeWizardPage.qml"),
-                                               { mode: "create", promoteShotId: model.id })
+                                AppShell.recipeWizardRequested("create", { promoteShotId: model.id })
                             }
                         }
                     }
@@ -940,7 +936,7 @@ Page {
                             id: editArea
                             anchors.fill: parent
                             onClicked: {
-                                pageStack.push(Qt.resolvedUrl("PostShotReviewPage.qml"), { editShotId: model.id, autoClose: false })
+                                AppShell.postShotReviewRequested(model.id, false)
                             }
                         }
                     }

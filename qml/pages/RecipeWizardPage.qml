@@ -2812,10 +2812,7 @@ Page {
                                                         buttonSize: Theme.scaled(26)
                                                         profileFilename: row.name
                                                         profileName: row.title
-                                                        onClicked: pageStack.push(
-                                                            Qt.resolvedUrl("ProfileInfoPage.qml"),
-                                                            { profileFilename: row.name,
-                                                              profileName: row.title })
+                                                        onClicked: AppShell.profileInfoRequested(row.name, row.title)
                                                     }
                                                 }
                                             }
@@ -3678,10 +3675,7 @@ Page {
                                     buttonSize: Theme.scaled(26)
                                     profileFilename: parent.profileFilename
                                     profileName: wizardPage.fProfileTitle
-                                    onClicked: pageStack.push(
-                                        Qt.resolvedUrl("ProfileInfoPage.qml"),
-                                        { profileFilename: parent.profileFilename,
-                                          profileName: wizardPage.fProfileTitle })
+                                    onClicked: AppShell.profileInfoRequested(parent.profileFilename, wizardPage.fProfileTitle)
                                 }
                             }
                         }

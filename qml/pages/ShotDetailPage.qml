@@ -469,8 +469,7 @@ Page {
                         accessibleName: TranslationManager.translate("shotdetail.button.recipe", "Create recipe from this shot")
                         accessibleItem: parent
                         onAccessibleClicked: {
-                            pageStack.push(Qt.resolvedUrl("RecipeWizardPage.qml"),
-                                { mode: "create", promoteShotId: shotDetailPage.shotId })
+                            AppShell.recipeWizardRequested("create", { promoteShotId: shotDetailPage.shotId })
                         }
                     }
                 }
@@ -507,8 +506,7 @@ Page {
                         accessibleName: TranslationManager.translate("shotdetail.button.edit", "Edit shot")
                         accessibleItem: parent
                         onAccessibleClicked: {
-                            pageStack.push(Qt.resolvedUrl("PostShotReviewPage.qml"),
-                                { editShotId: shotDetailPage.shotId, autoClose: false })
+                            AppShell.postShotReviewRequested(shotDetailPage.shotId, false)
                         }
                     }
                 }

@@ -116,8 +116,7 @@ Item {
     }
 
     function goToEquipment() {
-        if (typeof pageStack !== "undefined")
-            pageStack.push(Qt.resolvedUrl("../../../pages/EquipmentPage.qml"))
+            AppShell.equipmentRequested()
     }
 
     // --- COMPACT MODE ---

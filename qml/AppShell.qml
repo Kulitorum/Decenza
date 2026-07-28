@@ -54,6 +54,44 @@ QtObject {
     // no tool could check and that silently did nothing if the name ever changed.
     signal screensaverRequested()
 
+    // Destination requests. Named per destination rather than one generic
+    // `pageRequested(url, props)`, because a string page name is not checked by anything and the
+    // codebase had four different spellings of the same path plus one built by concatenation
+    // (`"../../../pages/" + page`). A signal name is checked at build time.
+    //
+    // These carry INTENT, not policy: main.qml decides push vs replace. See the note on its
+    // navigation functions for the rule (machine-driven replaces, user-driven pushes).
+    signal espressoRequested()
+    signal steamRequested()
+    signal hotWaterRequested()
+    signal flushRequested()
+    signal settingsRequested(string tabId)
+    signal recipeEditorRequested()
+    signal recipesRequested()
+    // options carries the wizard's own properties: promoteShotId, editRecipeId, prefill.
+    signal recipeWizardRequested(string mode, var options)
+    signal shotHistoryRequested(var filter)
+    signal shotDetailRequested(int shotId, var shotIds)
+    signal shotComparisonRequested()
+    signal postShotReviewRequested(int shotId, bool autoClose)
+    signal profileInfoRequested(string profileFilename, string profileName)
+    signal beanInfoRequested()
+    signal equipmentRequested()
+    signal autoFavoritesRequested()
+    signal autoFavoriteInfoRequested(var options)
+    signal communityBrowserRequested()
+    signal visualizerMultiImportRequested()
+    signal flowCalibrationRequested()
+    signal aiSettingsRequested()
+    signal stringBrowserRequested()
+    signal addLanguageRequested()
+
+    // "Leave this page, however you can." Operation pages can be arrived at two ways — pushed
+    // when the user navigated, replaced when the machine drove a phase change — so back is
+    // available in one case and not the other. The page should not have to inspect the stack to
+    // find out; it says it wants out and the shell picks.
+    signal dismissRequested()
+
     // ---- Operation-completion handshake --------------------------------------
     // A page that opens a dialog over a finishing operation suspends the
     // "complete" overlay, then releases it when the dialog closes. Without the
@@ -100,4 +138,9 @@ QtObject {
     // that. Both are deleted now — a rename here is a build-time failure at every
     // call site instead.
     property real sessionMeasuredMilkG: 0
+
+    // The page currently on top of the stack, published by main.qml on every change. Read by
+    // widgets that live OUTSIDE the page stack — the persistent status bar — and so cannot find
+    // the page by walking their own parent chain. Null before the first page is shown.
+    property Item currentPage: null
 }

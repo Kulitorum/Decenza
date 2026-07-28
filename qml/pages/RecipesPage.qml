@@ -313,7 +313,7 @@ Page {
         copy.createdFromShotId = 0
         copy.clonedFromRecipeId = recipe.id
         copy.name = trCopyOf.text.arg(recipe.name)
-        pageStack.push(Qt.resolvedUrl("RecipeWizardPage.qml"), { mode: "create", prefill: copy })
+        AppShell.recipeWizardRequested("create", { prefill: copy })
     }
 
     // The stale card's one-tap re-point: an open-bag picker scoped to one
@@ -565,8 +565,7 @@ Page {
                     height: Theme.scaled(36)
                     icon.source: "qrc:/icons/edit.svg"
                     accessibleName: TranslationManager.translate("recipes.accessible.edit", "Edit recipe")
-                    onClicked: pageStack.push(Qt.resolvedUrl("RecipeWizardPage.qml"),
-                                              { mode: "edit", editRecipeId: card.recipe.id })
+                    onClicked: AppShell.recipeWizardRequested("edit", { editRecipeId: card.recipe.id })
                 }
 
                 AccessibleButton {
@@ -665,7 +664,7 @@ Page {
                     Layout.preferredHeight: Theme.scaled(44)
                     text: TranslationManager.translate("recipes.addButton", "Add Recipe")
                     accessibleName: TranslationManager.translate("recipes.accessible.add", "Add a new recipe")
-                    onClicked: pageStack.push(Qt.resolvedUrl("RecipeWizardPage.qml"), { mode: "create" })
+                    onClicked: AppShell.recipeWizardRequested("create", {})
                 }
             }
 
@@ -832,14 +831,14 @@ Page {
                     title: TranslationManager.translate("recipes.empty.fromShot", "Start from a good shot")
                     subtitle: TranslationManager.translate("recipes.empty.fromShotHint",
                         "Pick a shot you liked in history and save it as a recipe")
-                    onTapped: pageStack.push(Qt.resolvedUrl("ShotHistoryPage.qml"))
+                    onTapped: AppShell.shotHistoryRequested({})
                 }
                 StarterTile {
                     icon: "qrc:/icons/plus.svg"
                     title: TranslationManager.translate("recipes.empty.fromScratch", "Build from scratch")
                     subtitle: TranslationManager.translate("recipes.empty.fromScratchHint",
                         "Walk through drink, beans, profile, and details")
-                    onTapped: pageStack.push(Qt.resolvedUrl("RecipeWizardPage.qml"), { mode: "create" })
+                    onTapped: AppShell.recipeWizardRequested("create", {})
                 }
             }
 

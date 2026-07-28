@@ -1029,7 +1029,7 @@ Page {
                             apiKeyPopup.close()
                             AppShell.backRequested()
                             AppShell.backRequested()
-                            pageStack.push("../AISettingsPage.qml")
+                            AppShell.aiSettingsRequested()
                         }
                     }
                 }

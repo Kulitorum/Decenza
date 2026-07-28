@@ -12,9 +12,7 @@ Item {
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
 
     function goToSettings() {
-        if (typeof pageStack !== "undefined") {
-            pageStack.push(Qt.resolvedUrl("../../../pages/SettingsPage.qml"))
-        }
+            AppShell.settingsRequested("")
     }
 
     // --- COMPACT MODE ---

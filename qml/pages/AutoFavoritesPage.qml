@@ -356,7 +356,7 @@ Page {
                                 // (used to scope stats) while model.doseWeightG is the latest
                                 // shot's raw dose (shown on the card). Pass the bucket so the
                                 // Info page's averages cover the same shots the card aggregates.
-                                pageStack.push(Qt.resolvedUrl("AutoFavoriteInfoPage.qml"), {
+                                AppShell.autoFavoriteInfoRequested({
                                     shotId: model.shotId,
                                     groupBy: Settings.network.autoFavoritesGroupBy,
                                     beanBrand: model.beanBrand || "",
@@ -436,7 +436,7 @@ Page {
                                 var props = {}
                                 if (Object.keys(filter).length > 0)
                                     props.initialFilter = filter
-                                pageStack.push(Qt.resolvedUrl("ShotHistoryPage.qml"), props)
+                                AppShell.shotHistoryRequested(props)
                             }
                         }
                     }
@@ -501,8 +501,7 @@ Page {
                                 ". " + favoriteDelegate._groupByText
                             accessibleItem: favRecipeButton
                             onAccessibleClicked: {
-                                pageStack.push(Qt.resolvedUrl("RecipeWizardPage.qml"),
-                                               { mode: "create", promoteShotId: model.shotId })
+                                AppShell.recipeWizardRequested("create", { promoteShotId: model.shotId })
                             }
                         }
                     }

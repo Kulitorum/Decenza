@@ -81,9 +81,7 @@ Item {
     }
 
     function goToHotWater() {
-        if (typeof pageStack !== "undefined") {
-            pageStack.push(Qt.resolvedUrl("../../../pages/HotWaterPage.qml"))
-        }
+            AppShell.hotWaterRequested()
     }
 
     // --- COMPACT MODE ---
