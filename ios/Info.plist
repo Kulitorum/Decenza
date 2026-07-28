@@ -67,6 +67,12 @@
     <key>NSBonjourServices</key>
     <array>
         <string>_http._tcp</string>
+        <!-- The Half Decent Scale's DNS-SD advertisement (openscale v3.0.9+).
+             iOS only permits browsing service types declared here, so without
+             this entry the scale browse silently returns nothing. Declaring it
+             is also what lets the browse go through mDNSResponder instead of a
+             raw multicast socket, which would need the multicast entitlement. -->
+        <string>_decentscale._tcp</string>
     </array>
     <key>UIBackgroundModes</key>
     <array>

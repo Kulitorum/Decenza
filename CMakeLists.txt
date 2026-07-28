@@ -195,9 +195,26 @@ endif()
 set(PAHO_HIGH_PERFORMANCE OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(paho_mqtt_c)
 
-# mjansson/mdns: header-only mDNS library for resolving .local hostnames on Android
-# (Android's getaddrinfo doesn't reliably handle mDNS)
-if(ANDROID)
+# mjansson/mdns: header-only mDNS library. Two jobs:
+#  - resolving .local hostnames on Android (Android's getaddrinfo doesn't
+#    reliably handle mDNS), which is what it was originally pulled in for;
+#  - the _decentscale._tcp DNS-SD service browse, which QHostInfo cannot do at
+#    all (it resolves names, it does not enumerate services).
+#
+# Everywhere EXCEPT iOS.
+#
+# iOS is excluded because a raw multicast socket to 224.0.0.251 there requires
+# the com.apple.developer.networking.multicast entitlement, which Apple grants
+# only by per-app application; iOS browses through mDNSResponder instead and
+# must not even carry this code.
+#
+# macOS DOES build it, despite shipping the Bonjour backend by default. macOS is
+# the only desktop that can be tested against real scales here, and without this
+# the mjansson browse — the backend Android and Windows/Linux actually use —
+# could not be exercised anywhere except by deploying to a tablet. The backend
+# is selectable at runtime (MdnsResolver::setBrowseBackend), so a macOS build
+# can A/B the two against the same LAN and confirm they agree.
+if(NOT IOS)
     FetchContent_Declare(
         mdns_lib
         GIT_REPOSITORY https://github.com/mjansson/mdns.git
@@ -737,6 +754,7 @@ set(SOURCES
     src/mcp/mcptools_ai_conversations.cpp
     src/network/mqttclient.cpp
     src/network/mdnsresolver.cpp
+    src/network/wifiscaleresult.cpp
     src/network/webdebuglogger.cpp
     src/network/locationprovider.cpp
     src/network/shotreporter.cpp
@@ -923,6 +941,7 @@ set(HEADERS
     src/network/shotserver.h
     src/network/mqttclient.h
     src/network/mdnsresolver.h
+    src/network/wifiscaleresult.h
     src/network/webdebuglogger.h
     src/network/locationprovider.h
     src/network/shotreporter.h
@@ -1161,13 +1180,18 @@ target_include_directories(Decenza PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ui
     ${CMAKE_CURRENT_SOURCE_DIR}/src/screensaver
 )
-if(ANDROID)
+if(NOT IOS)
     # SYSTEM: mjansson/mdns is vendored third-party code, and it is header-only,
     # so without this it compiles INSIDE our translation units and inherits
     # -Werror. Android caught -Wcast-align on its sockaddr -> sockaddr_in casts,
     # which is idiomatic BSD-socket code we are in no position to "fix".
     # SYSTEM keeps our diagnostics on our code, matching the reason the warning
     # options sit after the FetchContent blocks.
+    #
+    # Must stay SYSTEM on every platform this is enabled for, not just Android:
+    # the header is equally -Wcast-align-dirty under MSVC and desktop GCC/Clang,
+    # and those builds are -Werror too. Keep this guard in step with the
+    # FetchContent block above.
     target_include_directories(Decenza SYSTEM PRIVATE ${mdns_lib_SOURCE_DIR})
 endif()
 if(IOS)
@@ -1727,9 +1751,34 @@ if(APPLE AND NOT IOS)
     target_link_libraries(Decenza PRIVATE
         "-framework CoreBluetooth"
     )
+    # Bundle ID, overridable for local dev builds — mirrors IOS_BUNDLE_ID above:
+    #   cmake ... -DMACOS_BUNDLE_ID=io.github.kulitorum.decenza.jefftest
+    #
+    # Why you would want to: macOS keys the Local Network privacy grant to the
+    # app's identity, and a dev build that shares the shipping bundle id also
+    # shares (and fights over) that one grant. On macOS 15+ the permission prompt
+    # frequently never appears, and there is no way to reset the grant —
+    # `tccutil` does not manage Local Network — so a wedged dev build ends up
+    # needing a reboot. Giving dev builds their own id makes them a separate
+    # subject, which re-triggers the prompt and leaves the shipping app's grant
+    # untouched.
+    #
+    # Safe for user data: settings and app storage are addressed by
+    # organization/application name ("DecentEspresso"/"Decenza", see
+    # appsettings.cpp) and QStandardPaths, never by bundle id, so changing this
+    # does not orphan an existing install's shots, profiles or preferences.
+    # A CACHE variable rather than the plain `if(NOT ...)` form used for
+    # IOS_BUNDLE_ID: this one needs to be settable on an EXISTING build
+    # directory. Qt Creator's "Initial Configuration" is only applied to a fresh
+    # cache, so a plain reconfigure silently ignores anything added there — which
+    # is exactly how a first attempt at this failed. As a cache entry it appears
+    # in Qt Creator's CMake settings and can be edited in place.
+    set(MACOS_BUNDLE_ID "io.github.kulitorum.decenza" CACHE STRING
+        "macOS bundle identifier. Override for local dev builds to get a separate Local Network permission subject.")
     set_target_properties(Decenza PROPERTIES
         MACOSX_BUNDLE TRUE
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/macos/Info.plist"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "${MACOS_BUNDLE_ID}"
         MACOSX_BUNDLE_ICON_FILE "AppIcon.icns"
     )
     # Add macOS app icon to bundle
@@ -1782,6 +1831,17 @@ if(APPLE AND NOT IOS)
     #      value is the identity's SHA-1 from step 1 (robust — no spaces/parens
     #      to quote) or any unique substring of its name:
     #        -DDECENZA_MACOS_CODESIGN_IDENTITY=DFA23C5D…the SHA-1…
+    #
+    # CAVEAT, learned 2026-07-28: a stable signature is necessary but may not be
+    # sufficient. Local Network identity also involves the UUID of the main
+    # executable, which the linker regenerates on every relink, and on macOS 15+
+    # the permission prompt often never appears at all — so a rebuild can still
+    # read as an unapproved app and have its LAN traffic dropped silently
+    # (instant EHOSTUNREACH, no local port bound, while the internet works).
+    # Apple confirms the immediate-failure behaviour is by design and that there
+    # is no way to reset or force the prompt. When that happens, MACOS_BUNDLE_ID
+    # above is the lever that does not require a reboot: a different bundle id is
+    # unambiguously a different subject, so the prompt fires again.
     #
     # Non-deep on purpose: only the top-level bundle is re-signed, which is what
     # carries the identity TCC keys on. The linker's ad-hoc signatures on the
