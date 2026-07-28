@@ -16,7 +16,7 @@ Page {
         TranslationManager.translate("profileimport.title", "Import from Tablet")
 
     function rescan() {
-        if (customScanPath != "")
+        if (customScanPath !== "")
             MainController.profileImporter.scanProfilesFromUrl(customScanPath)
         else
             MainController.profileImporter.scanProfiles()

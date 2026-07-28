@@ -644,7 +644,12 @@ Page {
             interval: 1000
             running: clockDisplay.visible
             repeat: true
-            onTriggered: parent.currentTime = new Date()
+            // `parent`, not clockDisplay: Timer is a QObject, not an Item, so it has no parent
+            // of its own. Unqualified `parent` walked past it to the document scope and resolved
+            // to screensaverPage.parent — the StackView content item — so the write landed on an
+            // object with no currentTime and the clock never ticked. qmllint does not flag this:
+            // `parent` is a known identifier, not an unqualified one.
+            onTriggered: clockDisplay.currentTime = new Date()
         }
     }
 

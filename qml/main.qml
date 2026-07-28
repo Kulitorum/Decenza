@@ -4113,10 +4113,18 @@ ApplicationWindow {
                     // (the StackView is `pageStack`), so this threw a ReferenceError and took the
                     // whole handler with it, else-branch included. The two-finger back gesture has
                     // never worked, and it only runs with a screen reader active, which is why
-                    // nobody hit it. goBack() is the one owner of back navigation and adds the
-                    // re-entry guard this never had; the old else-branch was unreachable in
-                    // practice anyway, since depth 1 is `initialItem: idlePage`.
-                    root.goBack()
+                    // nobody hit it.
+                    //
+                    // Both branches are needed. `pageStack.replace(null, X)` CLEARS the stack, and
+                    // that is how every machine-driven page is entered (espresso, steam, hot water,
+                    // flush, descaling, transport) plus the screensaver — so those pages sit at
+                    // depth 1 with a non-idle currentItem, and goBack() alone would do nothing
+                    // there while the announcement above had already said it went back. This is the
+                    // same idiom onDismissRequested uses, for the same reason.
+                    if (pageStack.depth > 1)
+                        root.goBack()
+                    else
+                        root.goToIdle()
                 }
             }
             startPoints = []

@@ -7,7 +7,10 @@ import Decenza
 
 ShaderEffect {
     // Uniforms: time and resolution
-    property real time: 0
+    // No initialiser: `NumberAnimation on time` below is a value source, and a value source
+    // overrides an initial binding rather than starting from it. The `: 0` was dead. Removed
+    // rather than honoured, so the shader timing is unchanged.
+    property real time
     property real resWidth: width > 0 ? width : 960
     property real resHeight: height > 0 ? height : 600
 

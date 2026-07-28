@@ -510,12 +510,15 @@ Page {
         states: State {
             name: "positioned"
             when: highlightOverlay.target !== null
+            // Explicit `highlightOverlay.<prop>:` form rather than `target:` plus bare property
+            // names. The old shape is custom-parsed by PropertyChanges, which means the bindings
+            // are not analysable — and `target` is doubly confusing here, since highlightOverlay
+            // has its OWN `target` property that these bindings read.
             PropertyChanges {
-                target: highlightOverlay
-                x: highlightOverlay.target ? highlightOverlay.target.x : 0
-                y: highlightOverlay.target ? highlightOverlay.target.y : 0
-                width: highlightOverlay.target ? highlightOverlay.target.width : 0
-                height: highlightOverlay.target ? highlightOverlay.target.height : 0
+                highlightOverlay.x: highlightOverlay.target ? highlightOverlay.target.x : 0
+                highlightOverlay.y: highlightOverlay.target ? highlightOverlay.target.y : 0
+                highlightOverlay.width: highlightOverlay.target ? highlightOverlay.target.width : 0
+                highlightOverlay.height: highlightOverlay.target ? highlightOverlay.target.height : 0
             }
         }
 
