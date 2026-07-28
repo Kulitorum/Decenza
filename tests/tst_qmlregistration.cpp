@@ -400,6 +400,99 @@ private slots:
         }
     }
 
+    // The same hazard as the Phase test above, for the UNSCOPED form: an unscoped Q_ENUM is
+    // reachable straight off the singleton, so QML writes SteamHealthTracker.EstablishingAfterReset
+    // with no enum name in the expression to anchor a targeted regex on. Generalised rather than
+    // written for that one name, because the failure is silent and identical everywhere it occurs:
+    // an enumerator that does not exist is `undefined`, and `state === undefined` is false rather
+    // than an error, so the page renders its fallback wording forever and nothing is logged.
+    //
+    // This gap was found by review of the batch that created it. SteamHealthTracker's header had
+    // carried a comment asserting that this file already pinned its exported name; it did not —
+    // nothing under tests/ referenced SteamHealthTracker at all, so the rename that comment warned
+    // against would have gone green. Deleting a false claim does not close the hole it described.
+    void qmlOnlyNamesSingletonMembersThatExist()
+    {
+        // Key by EXPORT, not by `name:`. componentsByName() keys by the Component's own name,
+        // which for a QML_FOREIGN registration is the C++ type (ScreensaverVideoManager) and not
+        // what QML types (ScreensaverManager). The exports list carries the QML-visible name.
+        QHash<QString, QString> byExport;
+        static const QRegularExpression exportRe(QStringLiteral("\"Decenza/(\\w+) [0-9.]+\""));
+        const QStringList blocks = m_qmltypes.split(QStringLiteral("    Component {"));
+        for (const QString& b : blocks) {
+            if (!b.contains(QStringLiteral("isSingleton: true")))
+                continue;
+            auto m = exportRe.globalMatch(b);
+            while (m.hasNext())
+                byExport.insert(m.next().captured(1), b);
+        }
+        QVERIFY2(byExport.size() >= 10,
+                 qPrintable(QStringLiteral("found only %1 singleton exports in the qmltypes; the "
+                            "parser is broken, not the code").arg(byExport.size())));
+
+        // What a member access may legally resolve to: any declared name in the Component
+        // (property, method, signal, or the enum's own name for the scoped form), plus every
+        // enumerator inside a `values:` list.
+        static const QRegularExpression nameRe(QStringLiteral("name: \"(\\w+)\""));
+        static const QRegularExpression valuesRe(QStringLiteral("values: \\[([^\\]]*)\\]"));
+        static const QRegularExpression quotedRe(QStringLiteral("\"(\\w+)\""));
+        QHash<QString, QSet<QString>> allowed;
+        for (auto kv = byExport.cbegin(); kv != byExport.cend(); ++kv) {
+            QSet<QString> names;
+            auto nm = nameRe.globalMatch(kv.value());
+            while (nm.hasNext())
+                names.insert(nm.next().captured(1));
+            auto vm = valuesRe.globalMatch(kv.value());
+            while (vm.hasNext()) {
+                auto qm = quotedRe.globalMatch(vm.next().captured(1));
+                while (qm.hasNext())
+                    names.insert(qm.next().captured(1));
+            }
+            allowed.insert(kv.key(), names);
+        }
+
+        // Only uppercase-initial members are checked. Properties and methods are camelCase by
+        // convention, so restricting to the initial capital keeps this to the enum-shaped accesses
+        // this test is about, and keeps it from tripping over inherited QObject members that the
+        // qmltypes does not re-declare on each Component.
+        QStringList problems;
+        int accessesChecked = 0;
+        QDirIterator it(QStringLiteral(DECENZA_SOURCE_DIR) + QStringLiteral("/qml"),
+                        {QStringLiteral("*.qml")}, QDir::Files, QDirIterator::Subdirectories);
+        while (it.hasNext()) {
+            const QString path = it.next();
+            const QString text = readOrEmpty(path);
+            const QString rel = QString(path).remove(QStringLiteral(DECENZA_SOURCE_DIR)
+                                                     + QLatin1Char('/'));
+            for (auto kv = allowed.cbegin(); kv != allowed.cend(); ++kv) {
+                const QString& qmlName = kv.key();
+                if (!text.contains(qmlName))
+                    continue;
+                const QRegularExpression useRe(
+                    QStringLiteral("\\b%1\\.([A-Z]\\w*)").arg(qmlName));
+                auto um = useRe.globalMatch(text);
+                while (um.hasNext()) {
+                    const QString member = um.next().captured(1);
+                    ++accessesChecked;
+                    if (!kv.value().contains(member))
+                        problems.append(QStringLiteral("%1: %2.%3").arg(rel, qmlName, member));
+                }
+            }
+        }
+        QVERIFY2(accessesChecked > 0,
+                 "found no Singleton.UpperCaseMember accesses in qml/; the scan is broken");
+
+        if (!problems.isEmpty()) {
+            problems.sort();
+            problems.removeDuplicates();
+            QFAIL(qPrintable(QStringLiteral(
+                "qml/ names singleton members that do not exist in Decenza.qmltypes:\n  %1\n"
+                "Each is `undefined` at runtime. On the right of a comparison that is silently "
+                "false — no error, no log, just the wrong branch taken forever.")
+                .arg(problems.join(QStringLiteral("\n  ")))));
+        }
+    }
+
     // Every domain sub-object declared on Settings must also be a QML-known type, or chained
     // access `Settings.<domain>.<prop>` resolves to undefined at runtime while compiling clean.
     // The expected set is derived from settings.h rather than hard-coded, so a thirteenth domain
