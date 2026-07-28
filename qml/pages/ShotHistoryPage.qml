@@ -709,7 +709,11 @@ Page {
                                 source: "qrc:/icons/tick.svg"
                                 iconWidth: Theme.scaled(16)
                                 iconHeight: Theme.scaled(16)
-                                iconColor: Theme.primaryColor
+                                // primaryContrastColor, not primaryColor: the indicator's fill is
+                                // Theme.primaryColor when checked, so a primaryColor tick is drawn
+                                // blue-on-blue and cannot be seen. Same class as SettingsPage's
+                                // white-on-white search icon — visible only by looking at the app.
+                                iconColor: Theme.primaryContrastColor
                                 visible: checkBox.checked
                             }
                         }
