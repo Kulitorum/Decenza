@@ -69,7 +69,6 @@
     "qml/pages/EquipmentPage.qml": 3,
     "qml/pages/EspressoPage.qml": 23,
     "qml/pages/FlowCalibrationPage.qml": 1,
-    "qml/pages/FlushPage.qml": 117,
     "qml/pages/IdlePage.qml": 95,
     "qml/pages/ProfileImportPage.qml": 14,
     "qml/pages/ProfileInfoPage.qml": 32,
@@ -213,6 +212,7 @@
     "qml/main.qml",
     "qml/pages/AISettingsPage.qml",
     "qml/pages/FlowEditorPage.qml",
+    "qml/pages/FlushPage.qml",
     "qml/pages/HotWaterPage.qml",
     "qml/pages/PostShotReviewPage.qml",
     "qml/pages/PressureEditorPage.qml",
@@ -233,7 +233,7 @@
     "Quick.property-changes-parsed": 5,
     "duplicate-property-binding": 2,
     "equality-type-coercion": 1,
-    "missing-property": 146,
-    "unqualified": 2624
+    "missing-property": 150,
+    "unqualified": 2507
   }
 }
