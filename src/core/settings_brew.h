@@ -6,6 +6,10 @@
 #include <QVariantList>
 #include <QVariantMap>
 
+// Forward-declared rather than included: only the private preset-array helper
+// below needs it, and settings.h now includes this header (see CLAUDE.md).
+class QJsonArray;
+
 // Brew-domain settings: espresso, steam, hot water, flush, presets, and
 // session-only brew/temperature overrides. Split from Settings to keep
 // settings.h's transitive-include footprint small.
@@ -167,6 +171,8 @@ public:
     Q_INVOKABLE void removeSteamPitcherPreset(int index);
     Q_INVOKABLE void moveSteamPitcherPreset(int from, int to);
     Q_INVOKABLE QVariantMap getSteamPitcherPreset(int index) const;
+    // As waterVesselNameTaken: for a dialog to check before it calls a setter.
+    Q_INVOKABLE bool steamPitcherNameTaken(const QString& name, int ignoreIndex = -1) const;
     Q_INVOKABLE void setSteamPitcherWeight(int index, double weightG);
     // Weight-scaled steaming: pair a reference milk weight with this preset's
     // duration. At steam time the duration is scaled by the actual milk weight.
@@ -224,6 +230,10 @@ public:
     Q_INVOKABLE void removeWaterVesselPreset(int index);
     Q_INVOKABLE void moveWaterVesselPreset(int from, int to);
     Q_INVOKABLE QVariantMap getWaterVesselPreset(int index) const;
+    // Lets a dialog block Save and explain itself BEFORE calling the setters
+    // above, which reject a clash silently (they return void). ignoreIndex is
+    // the preset being renamed; pass -1 when adding.
+    Q_INVOKABLE bool waterVesselNameTaken(const QString& name, int ignoreIndex = -1) const;
 
     // Flush
     QVariantList flushPresets() const;
@@ -325,4 +335,24 @@ private:
     // Shared write path for the session anchor: normalizes + clamps, updates
     // the cache and QSettings, emits brewOverridesChanged once.
     void writeBrewYieldAnchor(double value, const QString& mode);
+
+    // Every preset list (steam pitchers, water vessels, flushes) is stored as a
+    // JSON array in one settings key and read back through here.
+    //
+    // The point of the helper is the `parseFailed` out-parameter. Reading with
+    // the no-error overload of QJsonDocument::fromJson makes unreadable bytes
+    // indistinguishable from an absent key — both yield an empty array — so a
+    // reader reports "you have no presets" and the next writer appends to that
+    // empty array and SAVES IT OVER the bytes it could not read. The user is
+    // told their presets are gone and then handed the action that makes it
+    // true. Mutators therefore check the flag and refuse to write.
+    //
+    // Pass nullptr when a caller genuinely cannot act on the distinction; the
+    // warning is still logged.
+    QJsonArray readPresetArray(const QString& key, bool* parseFailed = nullptr) const;
+
+    // Case-insensitive, whitespace-trimmed name search. ignoreIndex is the entry
+    // being renamed (so renaming a preset to its own name is not a clash); pass
+    // -1 when adding.
+    static bool nameTakenIn(const QJsonArray& arr, const QString& name, int ignoreIndex);
 };

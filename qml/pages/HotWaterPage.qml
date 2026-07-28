@@ -933,13 +933,17 @@ Page {
                     KeyNavigation.backtab: cancelEditVesselButton
                     // A vessel is identified by its NAME everywhere it is used —
                     // recipes snapshot it by name, and the recipe wizard matches
-                    // its tiles on it. Renaming one to blank therefore produces a
-                    // vessel nothing can refer to, so the empty name is rejected
-                    // here exactly as the Add dialog rejects it.
+                    // its tiles on it. So a blank name (nothing can refer to it)
+                    // and a name another vessel already holds (two vessels that
+                    // cannot be told apart) are both refused, as in the Add
+                    // dialog. ignoreIndex is this preset: keeping its own name is
+                    // not a clash.
                     enabled: editVesselNameInput.text.trim().length > 0
+                        && !Settings.brew.waterVesselNameTaken(editVesselNameInput.text, editingVesselIndex)
                     onClicked: {
                         Qt.inputMethod.commit()
-                        if (editVesselNameInput.text.trim().length === 0)
+                        if (editVesselNameInput.text.trim().length === 0
+                                || Settings.brew.waterVesselNameTaken(editVesselNameInput.text, editingVesselIndex))
                             return
                         var preset = Settings.brew.getWaterVesselPreset(editingVesselIndex)
                         Settings.brew.updateWaterVesselPreset(editingVesselIndex, editVesselNameInput.text, preset.volume, preset.mode || "weight", (preset.flowRate !== undefined) ? preset.flowRate : 40, (preset.temperature !== undefined) ? preset.temperature : Settings.brew.waterTemperature)
@@ -1031,6 +1035,22 @@ Page {
                 }
             }
 
+            // Two vessels sharing a name are indistinguishable everywhere they
+            // are used — recipes snapshot the vessel BY NAME — so the clash is
+            // named here rather than letting the setter drop the write silently.
+            Label {
+                visible: newVesselNameInput.text.trim().length > 0
+                    && Settings.brew.waterVesselNameTaken(newVesselNameInput.text, -1)
+                Layout.fillWidth: true
+                text: TranslationManager.translate("hotwater.vesselNameInUse",
+                          "That name is already used by another vessel — choose a different one.")
+                font: Theme.captionFont
+                color: Theme.warningColor
+                wrapMode: Text.WordWrap
+                Accessible.role: Accessible.StaticText
+                Accessible.name: text
+            }
+
             RowLayout {
                 spacing: Theme.scaled(10)
 
@@ -1050,6 +1070,8 @@ Page {
                     primary: true
                     text: TranslationManager.translate("hotwater.button.add", "Add")
                     accessibleName: TranslationManager.translate("hotWater.addNewVessel", "Add new water vessel with entered name")
+                    enabled: newVesselNameInput.text.trim().length > 0
+                        && !Settings.brew.waterVesselNameTaken(newVesselNameInput.text, -1)
                     KeyNavigation.tab: newVesselNameInput
                     KeyNavigation.backtab: cancelAddVesselButton
                     onClicked: {

@@ -1734,22 +1734,37 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
                     qDebug() << "applyActivatedRecipe: recreated deleted water vessel" << vesselName;
                 } else if (!blockHasValues) {
                     // Name-only block (web): adopt the live vessel's values.
+                    // Each field is adopted only when the preset actually
+                    // carries it: presets predating these keys exist (the Hot
+                    // Water page reads them with the same `undefined`
+                    // fallbacks), and an absent key resolves to 0 — which would
+                    // silently discard the defaults applied above and push a
+                    // 0 mL/s, 0 °C target to the machine.
                     const QVariantMap p = brew->getWaterVesselPreset(index);
                     volume = p.value("volume").toInt();
                     const QString pMode = p.value("mode").toString();
                     if (!pMode.isEmpty()) mode = pMode;
-                    flowRate = p.value("flowRate").toInt();
-                    tempC = p.value("temperature").toDouble();
+                    if (p.contains("flowRate")) flowRate = p.value("flowRate").toInt();
+                    if (p.contains("temperature")) tempC = p.value("temperature").toDouble();
                 }
                 brew->setSelectedWaterCup(index);
             }
             // Push the vessel's values into the live hot-water settings and send
             // (the non-UI equivalent of selecting the vessel on the brew screen).
-            brew->setWaterVolume(volume);
-            brew->setWaterVolumeMode(mode);
-            m_settings->hardware()->setHotWaterFlowRate(flowRate);
-            brew->setWaterTemperature(tempC);
-            applyHotWaterSettings();
+            // A vessel that resolved to no usable volume is treated like the
+            // missing-vessel case above — say so and leave the live settings at
+            // the user's baseline, rather than pouring to a 0 target.
+            if (volume <= 0) {
+                qWarning() << "applyActivatedRecipe: hot-water vessel" << vesselName
+                           << "resolved to no usable volume — leaving the live hot-water"
+                           << "settings untouched";
+            } else {
+                brew->setWaterVolume(volume);
+                brew->setWaterVolumeMode(mode);
+                m_settings->hardware()->setHotWaterFlowRate(flowRate);
+                brew->setWaterTemperature(tempC);
+                applyHotWaterSettings();
+            }
         }
 
         // Selection state last, so the watchers above never see a half-

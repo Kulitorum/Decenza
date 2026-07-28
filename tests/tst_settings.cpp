@@ -656,6 +656,76 @@ private slots:
         QCOMPARE(m_settings.brew()->getWaterVesselPreset(idx)["temperature"].toDouble(), 92.0);
     }
 
+    void duplicatePresetNamesAreRejected() {
+        // Presets are addressed BY NAME downstream (recipes snapshot the vessel or
+        // pitcher and re-select it by name on activation), so two sharing a name
+        // are indistinguishable — the setter refuses the second one.
+        const qsizetype before = m_settings.brew()->waterVesselPresets().size();
+        m_settings.brew()->addWaterVesselPreset("Duplicate Test", 250);
+        QCOMPARE(m_settings.brew()->waterVesselPresets().size(), before + 1);
+
+        // Same name, and the case-insensitive/whitespace variants of it.
+        for (const QString& clash : {QStringLiteral("Duplicate Test"),
+                                     QStringLiteral("duplicate test"),
+                                     QStringLiteral("  Duplicate Test  ")}) {
+            QTest::ignoreMessage(QtWarningMsg,
+                QRegularExpression(QStringLiteral("refusing a duplicate water vessel named")));
+            m_settings.brew()->addWaterVesselPreset(clash, 300);
+        }
+        QCOMPARE(m_settings.brew()->waterVesselPresets().size(), before + 1);
+        QVERIFY(m_settings.brew()->waterVesselNameTaken("DUPLICATE TEST"));
+        QVERIFY(!m_settings.brew()->waterVesselNameTaken("Something Else"));
+
+        // Renaming a preset to the name it already holds is not a clash.
+        const int idx = static_cast<int>(before);
+        QVERIFY(!m_settings.brew()->waterVesselNameTaken("Duplicate Test", idx));
+        m_settings.brew()->updateWaterVesselPreset(idx, "Duplicate Test", 275);
+        QCOMPARE(m_settings.brew()->getWaterVesselPreset(idx)["volume"].toInt(), 275);
+
+        // The pitcher list carries the identical contract.
+        const qsizetype pitchersBefore = m_settings.brew()->steamPitcherPresets().size();
+        m_settings.brew()->addSteamPitcherPreset("Duplicate Pitcher", 30, 150, 150.0);
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("refusing a duplicate steam pitcher named")));
+        m_settings.brew()->addSteamPitcherPreset("duplicate pitcher", 45, 150, 150.0);
+        QCOMPARE(m_settings.brew()->steamPitcherPresets().size(), pitchersBefore + 1);
+    }
+
+    void unreadablePresetBlobIsNotOverwritten() {
+        // A corrupt preset blob used to be indistinguishable from an absent key:
+        // both parsed to an empty array, so the app reported "no presets" and the
+        // next add saved that empty array OVER the bytes it could not read. The
+        // read must warn, and every writer must refuse rather than destroy it.
+        QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+        const QByteArray corrupt = QByteArrayLiteral("{ this is not json");
+        raw.setValue("water/vesselPresets", corrupt);
+        raw.sync();
+
+        // Read through a FRESH Settings, as visualizerAutoUpdateDefault does: the
+        // shared m_settings holds its own QSettings instance and need not observe
+        // another instance's write.
+        {
+            Settings fresh;
+            QTest::ignoreMessage(QtWarningMsg,
+                QRegularExpression(QStringLiteral("SettingsBrew: could not parse water/vesselPresets")));
+            QVERIFY(fresh.brew()->waterVesselPresets().isEmpty());
+
+            // The add is refused — it warns again on its own read — and the
+            // stored bytes survive untouched.
+            QTest::ignoreMessage(QtWarningMsg,
+                QRegularExpression(QStringLiteral("SettingsBrew: could not parse water/vesselPresets")));
+            fresh.brew()->addWaterVesselPreset("Should not be written", 200);
+        }
+
+        raw.sync();
+        QCOMPARE(raw.value("water/vesselPresets").toByteArray(), corrupt);
+
+        // Restore a readable list; cleanupTestCase puts the original back, but
+        // the tests that follow in this class read presets through m_settings.
+        raw.setValue("water/vesselPresets", QByteArrayLiteral("[]"));
+        raw.sync();
+    }
+
     void temperatureUnitRoundTrip() {
         // The display temperature unit must survive an export -> import cycle. The
         // serializer's export/import key strings are hand-mirrored, so a typo on
