@@ -136,7 +136,16 @@ JsCanvasGradient *JsCanvasContext::createRadialGradient(float x0, float y0, floa
 
 void JsCanvasContext::setStyleStream(const QVariant &v, DrawCmd::Op colorOp, DrawCmd::Op brushOp)
 {
-    if (auto *grad = qobject_cast<JsCanvasGradient*>(v.value<QObject*>())) {
+    // Two spellings, because the QVariant's stored type depends on how QML got here. Since
+    // JsCanvasGradient became a registered QML type, `ctx.fillStyle = grad` can arrive already
+    // typed as JsCanvasGradient* rather than erased to QObject*, and value<QObject*>() alone is
+    // not guaranteed to recover it. Getting this wrong is invisible at compile time and nearly
+    // invisible at runtime: the gradient branch simply misses, toColor() yields a flat colour,
+    // and the cup renders without its gradient. Try the concrete type first, then the erased one.
+    auto *grad = v.value<JsCanvasGradient*>();
+    if (!grad)
+        grad = qobject_cast<JsCanvasGradient*>(v.value<QObject*>());
+    if (grad) {
         DrawCmd c{}; c.op = brushOp; c.brushId = grad->brushId();
         m_cmds.append(c);
         return;
