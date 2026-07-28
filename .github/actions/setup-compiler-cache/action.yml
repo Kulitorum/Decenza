@@ -41,6 +41,12 @@ inputs:
 runs:
   using: composite
   steps:
+    # The pinned version is part of a contract with callers: ccache-action
+    # stores each entry under its VARIANT name plus the key it was handed
+    # (`ccache-<key>-<timestamp>`, `sccache-<key>-…`), and nightly-sanitizers.yml
+    # reconstructs that prefix to find and delete its own entries. A bump that
+    # changed the stored key shape would break that reclaim silently — which is
+    # exactly how it broke the first time. Check the reclaim filter when bumping.
     - name: Set up ${{ inputs.variant }}
       uses: hendrikmuhs/ccache-action@v1.2.23
       with:
@@ -61,5 +67,30 @@ runs:
         # workflows pass `${{ inputs.use_cache }}`, which is an empty string on
         # a tag push, and empty is not 'false'.
         key: ${{ inputs.use_cache == 'false' && format('cold-no-restore-{0}', github.run_id) || inputs.key }}
+        # Tags save. Do not "optimise" this by suppressing saves on refs/tags/*.
+        #
+        # That was tried and reverted the same day. The reasoning looked sound:
+        # GitHub scopes caches by REF (a run reads its own ref's scope plus the
+        # default branch's, and writes only into its own), so a tag's entry is
+        # readable by nothing except that same tag — which sounds write-only,
+        # and v2.0.0 was holding 3045 MB of it.
+        #
+        # The premise "a tag builds once" is false here. The release process
+        # re-tags at HEAD and force-pushes to fold in late content, so the same
+        # tag ref builds repeatedly: v2.0.0 ran NINE macOS builds between
+        # 2026-07-22 and 07-24, v2.0.1 two. Every one after the first restored
+        # the previous attempt's cache. The sizes show it — v2.0.0's macOS entry
+        # reached 1870 MB across nine builds against v2.0.1's 569 MB across two,
+        # which is accumulation, not a cold build's footprint.
+        #
+        # So the tag scope is the HOTTEST cache in the repo, not dead weight —
+        # and since main no longer carries a platform compiler cache at all
+        # (warm-main-cache.yml is gone; see prune-caches.yml), it is the ONLY
+        # one. Suppressing it would make every release build cold, not just the
+        # first.
+        #
+        # The real cost was never the live tag's set; it was the sets left
+        # behind by tags that HAVE shipped. prune-caches.yml collects those,
+        # keeping the newest tag — the one currently being iterated on.
         save: ${{ inputs.use_cache != 'false' }}
         max-size: ${{ inputs.max-size }}
