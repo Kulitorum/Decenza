@@ -563,6 +563,91 @@ def check_fresh(import_path: str, files: list[str]) -> None:
         )
 
 
+def check_registry_fresh(import_path: str) -> None:
+    """Refuse to run when the TYPE REGISTRY is a generation behind the C++ sources.
+
+    check_fresh() above compares the QML, and it cannot see this one. qmllint resolves module
+    types through <build>/Decenza/Decenza.qmltypes, which qmltyperegistrar generates from the C++
+    QML_* macros. Change a registration in a header, skip the rebuild, and every QML file matches
+    its build copy byte for byte while the registry still describes the previous generation — so
+    the counts are measured against types that no longer match the source, and check_fresh() says
+    nothing because no QML changed.
+
+    That is not hypothetical either, and it is more expensive than the stale-QML case because it
+    fails SILENTLY IN THE SAFE-LOOKING DIRECTION. PR #1680 regenerated the baseline from a build
+    whose registry predated its own C++ changes: the newly-migrated names did not resolve, qmllint
+    gave up early on expressions it could not type, and it therefore reported FEWER warnings than
+    the tree really produces. Those numbers were written to the baseline as ceilings. Every later
+    honest run then failed against targets the tree could not meet, and the failure surfaced on
+    the nightly a day later rather than on the machine that caused it.
+
+    Content-based, like check_fresh, for the same reason: any git operation rewrites source
+    mtimes, so a timestamp comparison reports a freshly built tree as stale. The check is that
+    every singleton the C++ registers is actually IN the registry. A new or renamed registration
+    that has not been through qmltyperegistrar is missing from the exports, which is precisely the
+    generation skew this catches.
+    """
+    qmltypes = REPO / import_path / "Decenza" / "Decenza.qmltypes"
+    if not qmltypes.exists():
+        sys.exit(f"No {qmltypes}. Build first — qmllint cannot resolve Decenza types without it.")
+    registry = qmltypes.read_text(errors="replace")
+
+    # A struct/class carrying QML_SINGLETON exports under QML_NAMED_ELEMENT(X) if present, else
+    # under the foreign type from QML_FOREIGN(X), else its own name. Same resolution order
+    # tst_qmlregistration.cpp uses; this is the cheap textual half of it.
+    # The split CAPTURES the class name, because a plain QML_ELEMENT exports under it and there is
+    # nowhere else to get it. The first version of this function discarded the name and had no
+    # else-branch, so it silently collected 20 of the tree's 27 singletons — every QML_ELEMENT one,
+    # including MainController, MachineState and TranslationManager, went unchecked. It passed its
+    # negative control because that control used the QML_FOREIGN shape, exercising the branch that
+    # worked. A guard that covers 74% of its subject while reporting success is the failure mode
+    # this whole file exists to argue against, so see the count assertion below.
+    declared: set[str] = set()
+    for header in sorted((REPO / "src").rglob("*.h")):
+        text = header.read_text(errors="replace")
+        if "QML_SINGLETON" not in text:
+            continue
+        parts = re.split(r"^[ \t]*(?:class|struct)\s+(\w+)", text, flags=re.M)
+        # re.split with one group yields [pre, name1, body1, name2, body2, ...].
+        for cls, block in zip(parts[1::2], parts[2::2]):
+            if not re.search(r"^\s*QML_SINGLETON\s*$", block, flags=re.M):
+                continue
+            named = re.search(r"QML_NAMED_ELEMENT\(\s*(\w+)\s*\)", block)
+            foreign = re.search(r"QML_FOREIGN\(\s*(\w+)\s*\)", block)
+            if named:
+                declared.add(named.group(1))
+            elif foreign:
+                declared.add(foreign.group(1))
+            else:
+                declared.add(cls)
+    if not declared:
+        sys.exit("Found no QML_SINGLETON declarations under src/. The scan is broken, not the code.")
+
+    # Presence is not enough: the registry lists an `exports:` line for every registered type,
+    # singleton or not, so a type being MIGRATED to a singleton would still match on a stale
+    # registry — it is already there as an uncreatable type. Require the export and the singleton
+    # flag in the SAME component, which is what actually changes when the registration changes.
+    stale_types = []
+    components = registry.split("    Component {")
+    for name in sorted(declared):
+        owning = [c for c in components if f'"Decenza/{name} ' in c]
+        if not owning:
+            stale_types.append((name, "absent from the registry"))
+        elif not any("isSingleton: true" in c for c in owning):
+            stale_types.append((name, "present, but NOT as a singleton"))
+    if stale_types:
+        sys.exit(
+            "Type registry is STALE — these are registered as QML singletons in C++ but the\n"
+            f"registry at {qmltypes} disagrees, so qmllint is resolving against a previous\n"
+            "generation and the counts would not describe this source:\n"
+            + "".join(f"  {n}: {why}\n" for n, why in stale_types)
+            + "Rebuild, then re-run. (--allow-stale to override, but not with --update-baseline.)\n"
+            "This is the shape that produced the bad baseline in #1680: an under-resolving run\n"
+            "reports FEWER warnings, which looks like an improvement and ratchets the gate to a\n"
+            "target the tree cannot meet."
+        )
+
+
 def cmd_report(state: dict, categories: Counter, unqualified: dict, files: list[str],
                skipped: set[str]) -> int:
     total_unq = sum(sum(c.values()) for c in unqualified.values())
@@ -716,7 +801,11 @@ def main() -> int:
                          "at --batch 10). It exists only as an escape hatch for a qmllint that "
                          "cannot finish the tree in one process — see the note in run().")
     ap.add_argument("--allow-stale", action="store_true",
-                    help="skip the staleness check (for debugging only)")
+                    help="skip the staleness checks, QML and type registry (for debugging only)")
+    ap.add_argument("--allow-ceiling-rise", action="store_true",
+                    help="permit --update-baseline to write a HIGHER ceiling for a file, or move "
+                         "one off the clean list. Relaxing the gate, so it is never implicit; "
+                         "record the reason in the change's bugs-found.md.")
     ap.add_argument("--skip-unlintable", action="store_true",
                     help="drop the files in UNLINTABLE_BY_TOOL_BUG from the run. For a qmllint "
                          "that cannot finish them at all (CI, until the upstream fix ships); a "
@@ -743,6 +832,16 @@ def main() -> int:
             "backlog. Regenerate the baseline with a qmllint that can lint the whole tree."
         )
 
+    if args.allow_stale and args.update_baseline:
+        sys.exit(
+            "--update-baseline refuses --allow-stale. Those two together are precisely how the "
+            "#1680 baseline was written: the freshness checks are the only thing standing between "
+            "a build that under-resolves and a set of ceilings the tree cannot meet, and a "
+            "baseline is the one output where being wrong is durable — it becomes the target every "
+            "later run is measured against. --allow-stale exists for reading a report off a build "
+            "you know is behind, not for recording one. Rebuild, then write."
+        )
+
     on_disk = qml_files()
     if not on_disk:
         sys.exit("No QML files found.")
@@ -751,6 +850,7 @@ def main() -> int:
     # nothing about it. Checking freshness would be checking the wrong thing.
     if not args.allow_stale and not args.from_raw:
         check_fresh(import_path, on_disk)
+        check_registry_fresh(import_path)
 
     rsp = response_file(import_path)
     unlisted: list[str] = []
@@ -891,11 +991,67 @@ def main() -> int:
     if args.check:
         return cmd_check(state, set(skipped), unlisted)
     if args.update_baseline:
+        # A ceiling that RISES is the one edit this file exists to resist, and until now
+        # --update-baseline wrote it without comment — the same keystroke that records a genuine
+        # improvement also relaxes the gate, and the output looked identical either way. Raising
+        # one is sometimes right (the #1680 baseline recorded three ceilings the tree could not
+        # meet, and correcting them meant raising them), but it is never routine, so it costs a
+        # flag and prints what it did.
+        rises, drops = [], 0
+        if BASELINE.exists():
+            try:
+                prev = json.loads(BASELINE.read_text())
+            except json.JSONDecodeError as e:
+                sys.exit(f"{BASELINE} is not valid JSON ({e}). Refusing to write: the rise check "
+                         "below can only compare against a baseline it can read, and skipping it "
+                         "silently is how an unmeetable ceiling gets recorded.")
+            if not isinstance(prev, dict) or "ceilings" not in prev or "clean" not in prev:
+                sys.exit(f"{BASELINE} is missing 'ceilings'/'clean'. Refusing to write: with an "
+                         "unrecognised schema every file reads as having no history, so no rise "
+                         "could ever be detected and the check would pass by being blind.")
+            # Indexed, not .get()-with-default — see the schema check just above. A default would
+            # make every comparison below vacuous and the write unconditional, which is a guard
+            # that silently declines to run: the exact shape this whole change argues against.
+            old = prev["ceilings"]
+            was_clean = set(prev["clean"])
+            for f, n in state["ceilings"].items():
+                was = old.get(f)
+                if was is None:
+                    # Not in ceilings. Either it was clean, or it is a file the baseline has never
+                    # seen — and BOTH are rises from zero. The new-file case matters most: the
+                    # baseline's own _README promises "new code never starts with a budget", and
+                    # cmd_check() enforces it, so letting --update-baseline hand a brand-new file
+                    # a ceiling silently is the one edit that quietly repeals that rule.
+                    rises.append((f, 0, n))
+                elif n > was:
+                    rises.append((f, was, n))
+                elif n < was:
+                    drops += 1
+            # A file that reached zero leaves state["ceilings"] entirely, so counting drops only
+            # over the surviving entries understates exactly the work worth reporting.
+            drops += sum(1 for f in old if f not in state["ceilings"])
+        if rises and not args.allow_ceiling_rise:
+            sys.exit(
+                "refusing to write: this would RAISE %d ceiling(s), which relaxes the gate:\n"
+                % len(rises)
+                + "".join(f"  {f}: {was} -> {now}\n" for f, was, now in rises)
+                + "\nA rise is not always wrong — a baseline measured against a stale build can\n"
+                "record a target the tree cannot meet, and correcting it means raising it. But it\n"
+                "is never routine, so say so explicitly:\n"
+                "  --update-baseline --allow-ceiling-rise\n"
+                "and record why in the change's bugs-found.md. If you did NOT expect a rise, the\n"
+                "likely cause is a stale build: rebuild and re-run before writing anything."
+            )
         BASELINE.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
         print(
             f"Baseline written: {len(state['clean'])} clean, "
             f"{len(state['ceilings'])} with ceilings, {len(state['observed_categories'])} categories."
         )
+        if rises:
+            print(f"RAISED {len(rises)} ceiling(s) (--allow-ceiling-rise): "
+                  + ", ".join(f"{f} {was}->{now}" for f, was, now in rises))
+        if drops:
+            print(f"lowered {drops} ceiling(s).")
         return 0
     return cmd_report(state, categories, unqualified, files, set(skipped))
 
