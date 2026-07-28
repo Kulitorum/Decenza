@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
 import Decenza
-import "../.."
 
 // Layout widget: measured milk weight (composable-brew-bar).
 // Shows the live in-session milk while steaming (sessionMeasuredMilkG on the

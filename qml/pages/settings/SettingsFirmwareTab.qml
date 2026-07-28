@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
-import "../../components"
 
 // DE1 firmware update tab. Surfaces the FirmwareUpdater state machine
 // from MainController (MainController.firmwareUpdater) — current vs.

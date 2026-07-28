@@ -95,7 +95,11 @@ CATEGORY_EXEMPTIONS: dict[str, int] = {
     # 311 -> 303 when three widgets stopped reaching main.qml through `Window.window` with a
     # `typeof win.X === "function"` probe and used AppShell signals instead. Same lesson as
     # above: a duck-typed hop is counted here, so removing it lowers this ceiling.
-    "missing-property": 300,
+    # 300 -> 268 by deleting the directory imports described above. A directory import resolves
+    # a singleton .qml as a plain component type, so `DrinkType.shortLabel` and
+    # `SettingsTabs.indexOf` — both real, both declared — reported as missing members. The types
+    # were being shadowed, not the members lost.
+    "missing-property": 268,
     # All 21 remaining are qmllint FALSE POSITIVES and cannot be driven to zero from this side:
     # it flags any child DECLARED lexically inside a Layout without checking that a Layout will
     # actually manage it. Two shapes — objects that are not Items at all (Popup/Dialog derive
@@ -104,14 +108,11 @@ CATEGORY_EXEMPTIONS: dict[str, int] = {
     # Qt 6.11.1 source; see bugs-found.md. The real ones were fixed by moving to
     # Layout.preferredWidth/Height — do not "clean up" these 21.
     "Quick.layout-positioning": 21,
-    # 23 -> 7 when the last runtime qmlRegisterType<> calls became QML_ELEMENT. All 16 that went
-    # were "X was not found. Did you add all imports and dependencies?" on FastLineRenderer,
-    # JsCanvasPainterItem, StrangeAttractorRenderer and DocumentFormatter — not one a real
-    # missing import, all of them a type qmltyperegistrar never saw. The Pipe*Geometry types went
-    # the same way once qt_add_qml_module gained DEPENDENCIES QtQuick3D — without that their
-    # QQuick3DGeometry prototype was unlinkable and compile-time registration just traded these
-    # warnings for 'unresolved-type' ones. The 4 left are roll-ups and unrelated.
-    "import": 4,
+    # No "import" entry: the category is CLEAR. It went 23 -> 7 when the last runtime
+    # qmlRegisterType<> calls became QML_ELEMENT, and 7 -> 0 when 106 redundant directory imports
+    # were deleted — `import "../components"` and friends, which shadowed the module's own
+    # registrations. Re-adding a directory import for a type the module already provides will
+    # bring this category back.
     "Quick.property-changes-parsed": 5,
     "duplicate-property-binding": 2,
     # No "unresolved-type" entry either — same cause, cleared the same way.

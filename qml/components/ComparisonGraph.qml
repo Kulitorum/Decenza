@@ -1,7 +1,6 @@
 import QtQuick
 import QtGraphs
 import Decenza
-import "graphs"
 
 // Outer Item wraps the GraphsView so all 30 trace overlays (3 shots × 10
 // curves), the Canvas phase markers, the crosshair, and phase labels render

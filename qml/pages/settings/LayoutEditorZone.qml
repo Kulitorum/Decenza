@@ -4,7 +4,6 @@ import QtQuick.Layouts
 import QtQuick.Window
 import QtQml.Models
 import Decenza
-import "../../components"
 
 Rectangle {
     id: root

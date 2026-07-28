@@ -4,7 +4,6 @@ import QtQuick.Layouts
 import QtQuick.Effects
 import QtQuick.Window
 import Decenza
-import "../.."
 import "../PillFit.js" as PillFit
 
 // Recipes quick-switch (add-recipes): structural mirror of BeansItem. Tap

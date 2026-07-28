@@ -1,6 +1,5 @@
 import QtQuick
 import Decenza
-import "../"
 
 // The steam analogue of ShotPlanText: a one-line sentence summarising what the
 // next steam will do — "Steam 300g of milk, using the Large pitcher for 30s" — with the live

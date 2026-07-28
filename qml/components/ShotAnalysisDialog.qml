@@ -6,7 +6,6 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
-import "."
 
 // Brief shot quality summary dialog — no AI, computed from curve data.
 // Shows only noteworthy observations + a verdict.

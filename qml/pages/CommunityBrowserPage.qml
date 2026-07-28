@@ -1,8 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
 import Decenza
-import "../components"
-import "../components/library"
 
 Item {
     id: communityBrowser

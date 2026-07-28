@@ -7,7 +7,6 @@ import QtQuick
 import QtQuick.Effects
 import QtQuick.Layouts
 import Decenza
-import "../.."
 
 Item {
     id: root

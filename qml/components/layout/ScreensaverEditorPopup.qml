@@ -3,7 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtQml.Models
 import Decenza
-import ".."
 import "ShotPlanConfig.js" as ShotPlanConfig
 
 Dialog {

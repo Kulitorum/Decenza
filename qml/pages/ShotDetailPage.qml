@@ -5,7 +5,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Effects
 import Decenza
-import "../components"
 import "../components/layout/ShotPlanConfig.js" as ShotPlanConfig
 
 Page {

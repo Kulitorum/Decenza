@@ -3,7 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Dialogs
 import Decenza
-import "../../components"
 
 KeyboardAwareContainer {
     id: historyDataTab

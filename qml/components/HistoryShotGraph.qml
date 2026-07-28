@@ -1,7 +1,6 @@
 import QtQuick
 import QtGraphs
 import Decenza
-import "graphs"
 
 // Outer Item wraps the GraphsView so dashed overlays, right-axis-mapped traces,
 // inspect crosshair, marker labels, and the right-axis label column render as

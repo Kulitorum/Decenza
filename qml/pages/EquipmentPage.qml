@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
-import "../components"
 
 // Equipment inventory (add-equipment-packages): mirrors BeanInfoPage. Shows all
 // packages with inInventory = true as cards; "Add Equipment" opens the create

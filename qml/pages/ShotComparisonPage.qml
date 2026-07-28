@@ -3,7 +3,6 @@ import QtQuick.Controls
 import QtQuick.Effects
 import QtQuick.Layouts
 import Decenza
-import "../components"
 
 Page {
     id: shotComparisonPage

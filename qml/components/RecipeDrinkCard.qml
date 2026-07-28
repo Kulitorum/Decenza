@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
-import "."
 
 // The ONE recipe card (recipes-bag-links-ui-polish, design D4): rendered by
 // the Recipes management page and, identically, as the wizard summary's

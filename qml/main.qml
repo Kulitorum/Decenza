@@ -3,8 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Window
 import Decenza
-import "components"
-import "components/library"
 
 ApplicationWindow {
     id: root

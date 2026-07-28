@@ -1,6 +1,5 @@
 import QtQuick
 import Decenza
-import "layout"
 
 Rectangle {
     id: statusBarRoot

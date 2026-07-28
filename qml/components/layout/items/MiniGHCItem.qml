@@ -6,7 +6,6 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Effects
 import Decenza
-import "../.."
 
 // Layout widget with 5 buttons to control DE1 machine operations:
 // Espresso, Steam, Hot Water, Flush, and Stop.

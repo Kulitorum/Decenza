@@ -1,6 +1,5 @@
 import QtQuick
 import Decenza
-import "../.."
 import "../ShotPlanConfig.js" as ShotPlanConfig
 
 // The Shot Plan widget — page-aware: shows the brew/shot plan normally and, unless the

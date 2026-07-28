@@ -12,7 +12,6 @@ import QtQuick.Layouts
 import QtQuick.Effects
 import QtQuick.Window
 import Decenza
-import "../components"
 
 Page {
     id: steamPage

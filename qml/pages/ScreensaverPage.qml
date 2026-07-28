@@ -2,8 +2,6 @@ import QtQuick
 import QtQuick.Controls
 import QtMultimedia
 import Decenza
-import "../components"
-import "../components/layout/items"
 
 // Screensaver modes:
 // "disabled"  - Dims backlight to minimum with black overlay (keeps screen on to avoid EGL surface issues)

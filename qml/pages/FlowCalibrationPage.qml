@@ -3,8 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtGraphs
 import Decenza
-import "../components"
-import "../components/graphs"
 
 Page {
     id: calibrationPage

@@ -4,7 +4,6 @@ import QtQuick.Layouts
 import QtQuick.Window
 import QtQuick.Dialogs
 import Decenza
-import "../../components"
 
 Item {
     id: debugTab

@@ -1,6 +1,5 @@
 import QtQuick
 import Decenza
-import "../"
 
 // The brew summary for the home screen. Content is driven by an ordered item
 // list (`itemOrder`) and a `sentence` toggle:

@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
-import "../components"
 import "../components/RecipeSearch.js" as RecipeSearch
 
 // Recipes management (add-recipes): mirrors BeanInfoPage — cards in a Flow

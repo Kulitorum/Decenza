@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
-import "../components"
 
 // Recipe wizard (add-recipe-wizard-tea): ONE page for all recipe creation and
 // editing, replacing RecipeComposerPage. Three entry points land here — blank

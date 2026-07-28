@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
 import Decenza
-import "../.."
 
 // Current-time readout. Like the other status readouts it supports a per-instance
 // display mode: "text" (default) or "icon" (a clock icon shown with the time —

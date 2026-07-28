@@ -4,7 +4,6 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
-import "../components"
 
 /**
  * SimpleProfileEditorPage - Shared simple profile editor for flow (settings_2b) and pressure (settings_2a)

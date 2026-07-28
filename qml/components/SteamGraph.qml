@@ -1,7 +1,6 @@
 import QtQuick
 import QtGraphs
 import Decenza
-import "graphs"
 
 // Outer Item wraps the GraphsView so the FastLineRenderer / dashed overlay
 // can render as siblings on top of the chart. GraphsView swallows scene-graph

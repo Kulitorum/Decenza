@@ -3,8 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Window
 import Decenza
-import "../components"
-import "../components/layout"
 import "../components/layout/PillFit.js" as PillFit
 
 Page {

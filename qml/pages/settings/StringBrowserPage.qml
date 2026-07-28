@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Controls
 import Decenza
-import "../../components"
 
 Page {
     id: stringBrowserPage
