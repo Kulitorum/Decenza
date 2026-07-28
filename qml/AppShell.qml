@@ -49,6 +49,10 @@ QtObject {
     signal descalingRequested()
     signal transportRequested()
     signal brewSettingsRequested()
+    // Three widgets reached this through `Window.window` and a
+    // `typeof win.goToScreensaver === "function"` probe — a duck-typed call on QQuickWindow that
+    // no tool could check and that silently did nothing if the name ever changed.
+    signal screensaverRequested()
 
     // ---- Operation-completion handshake --------------------------------------
     // A page that opens a dialog over a finishing operation suspends the

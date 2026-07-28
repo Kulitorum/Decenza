@@ -1,3 +1,7 @@
+// Delegates below declare their model roles with `required property`; ids from this file then
+// resolve statically inside them. See PresetPillRow.qml for the full rationale.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -63,6 +67,10 @@ Page {
                     ]
 
                     delegate: Rectangle {
+                        id: providerCard
+
+                        required property var modelData
+
                         Layout.fillWidth: true
                         Layout.maximumWidth: Theme.scaled(500)
                         height: Theme.scaled(70)
@@ -81,14 +89,14 @@ Page {
                                 spacing: Theme.scaled(2)
 
                                 Tr {
-                                    key: modelData.nameKey
-                                    fallback: modelData.name
+                                    key: providerCard.modelData.nameKey
+                                    fallback: providerCard.modelData.name
                                     font: Theme.bodyFont
                                     color: Theme.textColor
                                 }
                                 Tr {
-                                    key: modelData.descKey
-                                    fallback: modelData.desc
+                                    key: providerCard.modelData.descKey
+                                    fallback: providerCard.modelData.desc
                                     font.pixelSize: Theme.scaled(12)
                                     color: Theme.textSecondaryColor
                                 }
@@ -99,7 +107,7 @@ Page {
                                 Layout.preferredWidth: Theme.scaled(24)
                                 Layout.preferredHeight: Theme.scaled(24)
                                 radius: Theme.scaled(12)
-                                visible: Settings.ai.aiProvider === modelData.id
+                                visible: Settings.ai.aiProvider === providerCard.modelData.id
                                 color: "transparent"
                                 border.color: Theme.textColor
                                 border.width: 2
@@ -116,7 +124,7 @@ Page {
 
                         MouseArea {
                             anchors.fill: parent
-                            onClicked: Settings.ai.aiProvider = modelData.id
+                            onClicked: Settings.ai.aiProvider = providerCard.modelData.id
                         }
                     }
                 }

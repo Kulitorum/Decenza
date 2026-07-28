@@ -1,3 +1,7 @@
+// Delegates below declare their model roles with `required property`; ids from this file then
+// resolve statically inside them. See PresetPillRow.qml for the full rationale.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -207,12 +211,12 @@ Dialog {
                             Layout.fillWidth: true
                             spacing: Theme.spacingSmall
                             Text {
-                                text: TranslationManager.translate(modelData.key + ".name", modelData.name)
+                                text: TranslationManager.translate(card.modelData.key + ".name", card.modelData.name)
                                 color: Theme.textColor
                                 font.pixelSize: Theme.scaled(19); font.bold: true
                             }
                             Text {
-                                text: "1:" + modelData.ratio.toFixed(1)
+                                text: "1:" + card.modelData.ratio.toFixed(1)
                                 color: Theme.primaryColor
                                 font.pixelSize: Theme.scaled(19); font.bold: true
                             }
@@ -226,7 +230,7 @@ Dialog {
                         }
                         Text {
                             Layout.fillWidth: true
-                            text: TranslationManager.translate(modelData.key + ".desc", modelData.desc)
+                            text: TranslationManager.translate(card.modelData.key + ".desc", card.modelData.desc)
                             color: Theme.textSecondaryColor
                             font: Theme.captionFont
                             wrapMode: Text.WordWrap
@@ -245,18 +249,18 @@ Dialog {
                                 color: minusMa.pressed ? Qt.darker(Theme.primaryColor, 1.15) : Theme.primaryColor
                                 Accessible.role: Accessible.Button
                                 Accessible.name: TranslationManager.translate("ratio.edit.decrease", "Decrease %1 ratio")
-                                                 .arg(TranslationManager.translate(modelData.key + ".name", modelData.name))
+                                                 .arg(TranslationManager.translate(card.modelData.key + ".name", card.modelData.name))
                                 Accessible.focusable: true
                                 Accessible.onPressAction: minusMa.clicked(null)
                                 Text { anchors.centerIn: parent; text: "—"; color: Theme.primaryContrastColor
                                        font.pixelSize: Theme.scaled(24); font.bold: true }
                                 MouseArea { id: minusMa; anchors.fill: parent
-                                    onClicked: root.setPresetRatio(modelData.idx, modelData.ratio - 0.1) }
+                                    onClicked: root.setPresetRatio(card.modelData.idx, card.modelData.ratio - 0.1) }
                             }
                             Text {
                                 Layout.fillWidth: true
                                 horizontalAlignment: Text.AlignHCenter
-                                text: "1:" + modelData.ratio.toFixed(1)
+                                text: "1:" + card.modelData.ratio.toFixed(1)
                                 color: Theme.textColor
                                 font.pixelSize: Theme.scaled(20); font.bold: true
                             }
@@ -267,13 +271,13 @@ Dialog {
                                 color: plusMa.pressed ? Qt.darker(Theme.primaryColor, 1.15) : Theme.primaryColor
                                 Accessible.role: Accessible.Button
                                 Accessible.name: TranslationManager.translate("ratio.edit.increase", "Increase %1 ratio")
-                                                 .arg(TranslationManager.translate(modelData.key + ".name", modelData.name))
+                                                 .arg(TranslationManager.translate(card.modelData.key + ".name", card.modelData.name))
                                 Accessible.focusable: true
                                 Accessible.onPressAction: plusMa.clicked(null)
                                 Text { anchors.centerIn: parent; text: "+"; color: Theme.primaryContrastColor
                                        font.pixelSize: Theme.scaled(24); font.bold: true }
                                 MouseArea { id: plusMa; anchors.fill: parent
-                                    onClicked: root.setPresetRatio(modelData.idx, modelData.ratio + 0.1) }
+                                    onClicked: root.setPresetRatio(card.modelData.idx, card.modelData.ratio + 0.1) }
                             }
                         }
                     }
@@ -282,7 +286,7 @@ Dialog {
                         id: cardMa
                         anchors.fill: parent
                         enabled: !root.editMode
-                        onClicked: root.applyRatio(modelData.ratio)
+                        onClicked: root.applyRatio(card.modelData.ratio)
                     }
                 }
             }

@@ -1,3 +1,7 @@
+// Delegates below declare their model roles with `required property`; ids from this file then
+// resolve statically inside them. See PresetPillRow.qml for the full rationale.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Layouts
 import Decenza
@@ -30,6 +34,8 @@ ColumnLayout {
 
         // Each row: date label + temp dot + flow dot + weight dot
         Flow {
+            id: shotRow
+
             required property var modelData
             required property int index
 
@@ -38,7 +44,7 @@ ColumnLayout {
 
             // Shot date+time identifier
             Text {
-                text: modelData.dateTime || ""
+                text: shotRow.modelData.dateTime || ""
                 font.family: Theme.captionFont.family
                 font.pixelSize: Theme.captionFont.pixelSize
                 font.bold: true
@@ -57,8 +63,8 @@ ColumnLayout {
                     color: Theme.temperatureColor
                 }
                 Text {
-                    text: modelData.hasTemperature
-                          ? Theme.cToDisplay(modelData.temperature).toFixed(1) + " " + Theme.tempUnitSuffix()
+                    text: shotRow.modelData.hasTemperature
+                          ? Theme.cToDisplay(shotRow.modelData.temperature).toFixed(1) + " " + Theme.tempUnitSuffix()
                           : "\u2014"
                     font: Theme.captionFont
                     color: Theme.textColor
@@ -77,8 +83,8 @@ ColumnLayout {
                     color: Theme.flowColor
                 }
                 Text {
-                    text: modelData.hasFlow
-                          ? modelData.flow.toFixed(1) + " mL/s"
+                    text: shotRow.modelData.hasFlow
+                          ? shotRow.modelData.flow.toFixed(1) + " mL/s"
                           : "\u2014"
                     font: Theme.captionFont
                     color: Theme.textColor
@@ -97,8 +103,8 @@ ColumnLayout {
                     color: Theme.weightColor
                 }
                 Text {
-                    text: modelData.hasWeight
-                          ? modelData.weight.toFixed(1) + " g"
+                    text: shotRow.modelData.hasWeight
+                          ? shotRow.modelData.weight.toFixed(1) + " g"
                           : "\u2014"
                     font: Theme.captionFont
                     color: Theme.textColor

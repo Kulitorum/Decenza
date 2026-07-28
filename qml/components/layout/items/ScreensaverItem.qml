@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Window
 import Decenza
 import "../.."
 
@@ -64,10 +63,7 @@ Item {
         if (DE1Device && DE1Device.connected) {
             DE1Device.goToSleep()
         }
-        var win = Window.window
-        if (win && typeof win.goToScreensaver === "function") {
-            win.goToScreensaver()
-        }
+        AppShell.screensaverRequested()
     }
 
     // --- COMPACT MODE (bar zones) ---

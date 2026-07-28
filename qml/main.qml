@@ -3492,6 +3492,7 @@ ApplicationWindow {
         function onDescalingRequested() { root.goToDescaling() }
         function onTransportRequested() { root.goToTransport() }
         function onBrewSettingsRequested() { root.openBrewSettings() }
+        function onScreensaverRequested() { root.goToScreensaver() }
         function onCompletionSuspendRequested() { root.suspendCompletionForDialog() }
         function onCompletionFinishRequested() { root.finishCompletion() }
     }

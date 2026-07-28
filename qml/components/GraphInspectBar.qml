@@ -1,3 +1,7 @@
+// Delegates below declare their model roles with `required property`; ids from this file then
+// resolve statically inside them. See PresetPillRow.qml for the full rationale.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Layouts
 import Decenza
@@ -57,13 +61,15 @@ Flow {
         }
 
         delegate: Row {
+            id: inspectEntry
+
             required property var modelData
             spacing: Theme.scaled(4)
             Rectangle {
                 width: Theme.scaled(8); height: Theme.scaled(8); radius: Theme.scaled(4)
                 anchors.verticalCenter: parent.verticalCenter
                 color: {
-                    switch (modelData.name) {
+                    switch (inspectEntry.modelData.name) {
                         case "Pressure": return Theme.pressureColor
                         case "Flow": return Theme.flowColor
                         case "Temp": return Theme.temperatureColor
@@ -80,9 +86,9 @@ Flow {
                 }
             }
             Text {
-                text: modelData.unit.length > 0
-                    ? modelData.value.toFixed(1) + " " + modelData.unit
-                    : modelData.value.toFixed(1)
+                text: inspectEntry.modelData.unit.length > 0
+                    ? inspectEntry.modelData.value.toFixed(1) + " " + inspectEntry.modelData.unit
+                    : inspectEntry.modelData.value.toFixed(1)
                 font: Theme.captionFont
                 color: Theme.textColor
                 Accessible.ignored: true

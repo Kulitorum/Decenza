@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Effects
-import QtQuick.Window
 import Decenza
 import "../.."
 
@@ -362,9 +361,7 @@ Item {
                         ScaleDevice.disableLcd()
                     if (typeof DE1Device !== "undefined" && DE1Device !== null)
                         DE1Device.goToSleep()
-                    var win = Window.window
-                    if (win && typeof win.goToScreensaver === "function")
-                        win.goToScreensaver()
+                    AppShell.screensaverRequested()
                     break
                 case "startEspresso":
                     if (canStart)
@@ -399,8 +396,7 @@ Item {
                         BLEManager.scanForDevices()
                     break
                 case "brewSettings":
-                    var bwin = Window.window
-                    if (bwin && bwin.openBrewSettings) bwin.openBrewSettings()
+                    AppShell.brewSettingsRequested()
                     break
                 case "toggleCharging":
                     if (typeof BatteryManager !== "undefined" && BatteryManager !== null)

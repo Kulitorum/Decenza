@@ -91,7 +91,11 @@ CATEGORY_EXEMPTIONS: dict[str, int] = {
     # unchecked, it was untyped at the hop — `Window.window.sessionMeasuredMilkG` is a
     # member access on QQuickWindow and was counted here, and each collapse of six
     # `itemAt(i).focusTarget` call sites into one helper removed five more.
-    "missing-property": 311,
+    #
+    # 311 -> 303 when three widgets stopped reaching main.qml through `Window.window` with a
+    # `typeof win.X === "function"` probe and used AppShell signals instead. Same lesson as
+    # above: a duck-typed hop is counted here, so removing it lowers this ceiling.
+    "missing-property": 300,
     # All 21 remaining are qmllint FALSE POSITIVES and cannot be driven to zero from this side:
     # it flags any child DECLARED lexically inside a Layout without checking that a Layout will
     # actually manage it. Two shapes — objects that are not Items at all (Popup/Dialog derive
@@ -179,7 +183,12 @@ UNLINTABLE_BY_TOOL_BUG: dict[str, str] = {
 # skip-mode ceilings depend on them. `unqualified` is absent on purpose — it is never a category
 # exemption, it is enforced per file, and a skipped file simply has no ceiling checked that run.
 UNLINTABLE_CATEGORY_CONTRIBUTION: dict[str, dict[str, int]] = {
-    "qml/components/layout/items/CustomItem.qml": {"missing-property": 4},
+    # 4 -> 0. All four were duck-typed hops through `Window.window` — three
+    # `typeof win.goToScreensaver === "function"` probes and one `win.openBrewSettings` —
+    # now AppShell signals. The entry stays with an empty contribution rather than being
+    # deleted: the file is still in UNLINTABLE_BY_TOOL_BUG, and a future warning in it must
+    # be recorded here deliberately rather than by re-adding a mapping someone removed.
+    "qml/components/layout/items/CustomItem.qml": {},
 }
 
 
