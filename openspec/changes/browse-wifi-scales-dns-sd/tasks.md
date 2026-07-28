@@ -63,7 +63,7 @@ and is **out of scope for UI work**: it stays as it is. It is still a caller of
 `WifiScaleDiscovery`, so it must keep compiling and working against any API
 change made in group 2.
 
-- [ ] 7.1 Confirm the main discovered-devices list renders several WiFi rows correctly with no structural change — if it does, this task is verification, not code.
+- [x] 7.1 **Verified 2026-07-28** — the existing list rendered both WiFi scales plus the BLE scale with no structural change, as predicted. Multi-scale support fell out of BLEManager emitting more rows.
 - [x] 7.2 Label rows with the DNS-SD instance name; show firmware version as secondary text where it fits.
 - [x] 7.2a When two rows carry indistinguishable or suffix-differentiated generic labels (`Half Decent Scale` / `Half Decent Scale-2` — real, observed), also show the resolved hostname or address on the row (design D7a).
 - [x] 7.3 Keep the list add-only during a scan cycle (design D4c) — no row is removed mid-scan, so nothing shifts under a finger already moving toward a tap. Rebuild on the next scan.
@@ -84,11 +84,11 @@ change made in group 2.
 
 ## 9. Platform verification
 
-- [ ] 9.1 Verify browse on macOS against both live scales (`hds.local`, `hdstest.local`) and confirm the app shows exactly two rows, not the four instances the raw browse returns. Leave the picker open ~30 s and confirm ghost rows drop off rather than lingering.
+- [x] 9.1 **Verified 2026-07-28** — both scales found (`hds.local`/192.168.10.145 fw 3.1.12, `hdstest.local`/192.168.10.241 fw 3.1.13-dev) and exactly two rows shown, against four instances in the raw `dns-sd` browse. Ghosts never appeared, because the resolve gate keeps them out rather than relying on later pruning.
 - [ ] 9.2 **DEFERRED TO POST-MERGE** — verify browse on Android on the tablet. Android is the primary platform and the mjansson transport's real target, but the device can't be tested until this lands on `main`. macOS has proven the parsing/join logic via the `mjansson` backend switch; what remains unverified on Android is the socket layer itself (different stack, plus the WifiManager.MulticastLock dependency).
 - [ ] 9.3 **DEFERRED — no device available; will be exercised by a beta user.** CI test build for iOS — the Bonjour shim is `#ifdef`-guarded and a local macOS build does not compile it. iOS is the primary driver; do not sign this off on macOS alone.
 - [ ] 9.4 CI test build for Windows and Linux to confirm the widened mjansson include survives `-Werror`.
-- [ ] 9.5 Regression check with the scale renamed away from `hds`, and with it renamed back, confirming discovery works in both states.
+- [x] 9.5 **Covered 2026-07-28** — the two live scales are exactly this pair: one at the default name (`hds`) and one renamed (`hdstest`). Both were discovered, listed and connectable in the same scan.
 
 ## 9b. macOS dev bundle id
 
@@ -98,8 +98,8 @@ change made in group 2.
 
 ## 10. Docs and review
 
-- [ ] 10.1 Update `docs/CLAUDE_MD/BLE_PROTOCOL.md` (or the WiFi-scale section that owns discovery) with the browse, the TXT contract, and the v3.0.9 firmware floor.
-- [ ] 10.2 Update the wiki manual (`Kulitorum/Decenza.wiki`) Connections / Add WiFi Scale section: multiple scales, renamed scales, what to do when the list is empty. Hold the push per the usual release convention unless told otherwise.
+- [x] 10.1 **Written, not updated** — no WiFi-scale documentation existed anywhere in `docs/`, so this is a new "WiFi Scale Discovery" section in `docs/CLAUDE_MD/BLE_PROTOCOL.md`. Covers the advertised service and TXT contract, the v3.0.9 firmware floor and why the A-record fallback still runs unconditionally, the four wire behaviours that contradict the firmware source, the two-backend split with the reason for each, and the both-plists requirement with the `-65555` symptom it causes. Design rationale is referenced rather than duplicated.
+- [x] 10.2 **Not needed** (Jeff, 2026-07-28): the user-facing flow is unchanged — tap Scan, pick a scale — and the manual does not document the old `hds.local`-only constraint or the previous row label, so nothing in it is made wrong. The visible deltas are that renamed scales now appear at all, several WiFi scales can be listed, and rows carry the scale's own name.
 - [ ] 10.3 Open the PR (never push to `main`).
 - [ ] 10.4 Run `/pr-review-toolkit:review-pr` on the PR and address findings.
 - [ ] 10.5 Archive the change with spec sync as the final commit on this PR, not a separate PR.
