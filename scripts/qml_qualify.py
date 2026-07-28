@@ -9,7 +9,10 @@ decide is how you get this, from a real bulk pass:
     ValueInput.qml has `gear` on a delegate. The pass prefixed it with the component root,
     which has no such member, so every gear tap assigned `undefined`.
 
-qmllint already knows the answer and prints it. For an unqualified access it emits:
+qmllint already knows the answer and prints it. For an unqualified access it emits (this is real
+output from the PATCHED qmllint, taken AFTER the delegate gained `required property var modelData`
+— that matters: against an injected context property qmllint offers no id at all, because there is
+no id to offer. The suggestion appears once the role is a declared member of a delegate with an id):
 
     Warning: .../FlushPage.qml:142:35: Unqualified access [unqualified]
                                 text: modelData.name
@@ -40,6 +43,11 @@ Sites with no suggestion are reported, never guessed at. In practice they are:
     function instead: (event) => ...`, and the fix is the `function(event)` form, not a prefix
   * ids from outer components inside a nested component — Info says to set
     `pragma ComponentBehavior: Bound`, which is a semantic change and needs a delegate audit first
+
+It DOES now handle qmllint's glued-diagnostic bug (see GLUED_RE) — that one used to lose sites
+silently rather than report them, which is the worst possible behaviour for a tool whose entire
+claim is "never guesses". An accounting check in main() refuses to edit if the parsed count and
+qmllint's own count for the file disagree, so a future format change fails loudly instead.
 """
 
 from __future__ import annotations
@@ -53,6 +61,19 @@ from pathlib import Path
 
 WARN = re.compile(r"^Warning: (\S+?):(\d+):(\d+): Unqualified access \[unqualified\]$")
 QUALIFY_HINT = "qualify the access with its id"
+
+# qmllint 6.11.1 omits the trailing newline after some hint lines ("You first have to give the
+# element an id"), so the NEXT diagnostic is glued onto the end of that line and matches nothing.
+# Measured on this tree: RecipeWizardPage.qml has 144 unqualified sites and 20 of them vanish
+# without this split — not reported as unsuggested, silently absent. scripts/qmllint_report.py
+# carries the same regex for the same reason; it splits in memory and never writes the repaired
+# text back, so anything reading its --raw-out (i.e. this script) must split again itself.
+GLUED_RE = re.compile(r"(?<!^)(?=(?:Warning|Error|Info): )", re.MULTILINE)
+
+
+def read_raw(path: Path) -> list[str]:
+    """Split qmllint output into lines, repairing glued diagnostics first (see GLUED_RE)."""
+    return GLUED_RE.sub("\n", path.read_text(errors="replace")).split("\n")
 
 
 def collect(raw: list[str], target: str):
@@ -112,6 +133,12 @@ def verify(path: Path) -> int:
             while i < len(diff) and diff[i].startswith("+") and not diff[i].startswith("+++"):
                 plus.append(diff[i][1:])
                 i += 1
+            if len(minus) != len(plus):
+                # Unequal hunk: the paired comparison below cannot align lines, so it would
+                # silently check nothing. Say so rather than reporting a clean run.
+                print(f"  UNVERIFIED HUNK ({len(minus)} removed / {len(plus)} added) — "
+                      f"mid-chain check could not run here; inspect by hand.", file=sys.stderr)
+                bad += 1
             if len(minus) == len(plus):
                 for before, after in zip(minus, plus):
                     if before == after:
@@ -142,8 +169,19 @@ def main() -> int:
     args = ap.parse_args()
 
     path = Path(args.file)
-    raw = Path(args.raw).read_text(errors="replace").split("\n")
-    fixes, unsuggested = collect(raw, "/" + path.name)
+    raw = read_raw(Path(args.raw))
+    # Match on the full relative path, not the basename: two files can share a name.
+    fixes, unsuggested = collect(raw, "/" + str(path))
+
+    # Accounting, because the failure mode above is SILENT. Count the file's unqualified
+    # diagnostics independently of the parse and refuse to run if the two disagree.
+    reported = sum(1 for line in raw
+                   if (m := WARN.match(line)) and m.group(1).endswith("/" + path.name))
+    seen = sum(len(v) for v in fixes.values()) + len(unsuggested)
+    if seen != reported:
+        print(f"ACCOUNTING MISMATCH: parsed {seen} but qmllint reported {reported} for {path}. "
+              f"Refusing to edit — the parse is losing diagnostics.", file=sys.stderr)
+        return 1
 
     total = sum(len(v) for v in fixes.values())
     prefixes = Counter(p for v in fixes.values() for _, p in v)

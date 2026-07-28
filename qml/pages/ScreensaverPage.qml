@@ -549,8 +549,11 @@ Page {
         Rectangle {
             id: gradientRect
             anchors.fill: parent
-            // No initialiser: `NumberAnimation on gradientHue` below is a value source, and a value
-            // source overrides an initial binding rather than starting from it. The `: 0.6` that
+            // No initialiser: `NumberAnimation on gradientHue` below is a value source WITH AN EXPLICIT
+            // `from: 0`, so it starts there and the initialiser is discarded immediately.
+            // (A value source with no `from` DOES start from the property's current value —
+            // qquickanimation.cpp:1324. The rule is about the explicit `from`, not about
+            // value sources in general.) The `: 0.6` that
             // used to be here was dead — the gradient has always started at 0, not at 0.6. Removed
             // rather than honoured, so the rendering is unchanged; set the animation's `from` if a
             // different start hue is ever wanted.
