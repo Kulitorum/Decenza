@@ -99,7 +99,11 @@ CATEGORY_EXEMPTIONS: dict[str, int] = {
     # a singleton .qml as a plain component type, so `DrinkType.shortLabel` and
     # `SettingsTabs.indexOf` — both real, both declared — reported as missing members. The types
     # were being shadowed, not the members lost.
-    "missing-property": 268,
+    # 268 -> 250 by hoisting `root.Window.window` to `Window.window` read once at the item root
+    # in six layout widgets. `Window` is an ATTACHED property — it resolves against the current
+    # scope, so writing it through an id is a member access on a type that has no such member.
+    # It works at runtime, which is why it survived; it is simply not checkable in that spelling.
+    "missing-property": 250,
     # All 21 remaining are qmllint FALSE POSITIVES and cannot be driven to zero from this side:
     # it flags any child DECLARED lexically inside a Layout without checking that a Layout will
     # actually manage it. Two shapes — objects that are not Items at all (Popup/Dialog derive
