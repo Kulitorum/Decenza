@@ -160,7 +160,7 @@ Page {
                 for (var i = 0; i < results.length; i++) {
                     shotListModel.append(results[i])
                 }
-                shotHistoryPage.currentOffset += results.shotHistoryPage.length
+                shotHistoryPage.currentOffset += results.length
                 shotHistoryPage.hasMoreShots = results.length >= shotHistoryPage.pageSize
                 shotHistoryPage.isLoadingMore = false
             } else {
