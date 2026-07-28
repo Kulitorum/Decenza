@@ -113,7 +113,7 @@ Page {
                     text: TranslationManager.translate("dialingassistant.button.goback", "Go Back")
                     accessibleName: TranslationManager.translate("dialingAssistant.returnToPreviousPage", "Return to previous page")
                     Layout.alignment: Qt.AlignHCenter
-                    onClicked: pageStack.pop()
+                    onClicked: AppShell.backRequested()
                 }
             }
         }
@@ -274,7 +274,7 @@ Page {
                 text: TranslationManager.translate("dialingAssistant.button.done", "Done")
                 accessibleName: TranslationManager.translate("dialingassistant.accessible.done", "Close recommendation")
                 Layout.fillWidth: true
-                onClicked: pageStack.pop()
+                onClicked: AppShell.backRequested()
                 background: Rectangle {
                     implicitHeight: Theme.scaled(48)
                     radius: Theme.scaled(6)

@@ -1834,7 +1834,7 @@ Page {
                 wizardPage._submitting = false
                 wizardPage._createToken = ""
                 if (recipeId > 0) {
-                    pageStack.pop()
+                    AppShell.backRequested()
                 } else {
                     // Name the cause when storage gave one — the generic wording
                     // leaves the user with nothing to act on, and this is the
@@ -1863,7 +1863,7 @@ Page {
                 wizardPage._submitting = false
                 if (success) {
                     wizardPage._saveFailReason = ""
-                    pageStack.pop()
+                    AppShell.backRequested()
                 } else {
                     // "busy" means the database was locked by another write — the
                     // one cause here where trying again actually works, so say so

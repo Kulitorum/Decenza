@@ -238,7 +238,7 @@ Item {
     BottomBar {
         id: communityBottomBar
         title: TranslationManager.translate("community.title", "Community")
-        onBackClicked: pageStack.pop()
+        onBackClicked: AppShell.backRequested()
 
         // Download button
         Rectangle {

@@ -308,6 +308,6 @@ Page {
     BottomBar {
         id: bottomBar
         title: TranslationManager.translate("profileinfo.title", "Profile Info")
-        onBackClicked: pageStack.pop()
+        onBackClicked: AppShell.backRequested()
     }
 }

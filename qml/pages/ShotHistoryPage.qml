@@ -47,7 +47,7 @@ Page {
         function onShotMetadataLoaded(shotId, success) {
             shotHistoryPage._waitingForShotLoad = false
             if (success)
-                pageStack.pop()
+                AppShell.backRequested()
         }
     }
 

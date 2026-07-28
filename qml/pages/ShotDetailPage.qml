@@ -134,7 +134,7 @@ Page {
         }
         function onShotDeleted(deletedId) {
             if (deletedId === shotDetailPage.shotId)
-                pageStack.pop()
+                AppShell.backRequested()
         }
         function onVisualizerInfoUpdated(id, success) {
             if (id !== shotDetailPage.shotId) return

@@ -30,7 +30,7 @@ Page {
             stringListView.forceActiveFocus()
             Qt.inputMethod.hide()
         } else {
-            pageStack.pop()
+            AppShell.backRequested()
         }
     }
 
@@ -1027,8 +1027,8 @@ Page {
                         anchors.fill: parent
                         onClicked: {
                             apiKeyPopup.close()
-                            pageStack.pop()
-                            pageStack.pop()
+                            AppShell.backRequested()
+                            AppShell.backRequested()
                             pageStack.push("../AISettingsPage.qml")
                         }
                     }

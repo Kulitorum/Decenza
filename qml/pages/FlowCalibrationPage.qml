@@ -245,7 +245,7 @@ Page {
                 enabled: FlowCalibrationModel?.hasData ?? false
                 onClicked: {
                     FlowCalibrationModel.save()
-                    pageStack.pop()
+                    AppShell.backRequested()
                 }
             }
         }
