@@ -47,7 +47,7 @@ Page {
     // Hidden Tr component for page title (used by root.currentPageTitle)
     Tr { id: pageTitleText; key: "hotwater.title"; fallback: "Hot Water"; visible: false }
 
-    property bool isDispensing: MachineState.phase === MachineState.Phase.HotWater || root.debugLiveView
+    property bool isDispensing: MachineState.phase === MachineState.Phase.HotWater || AppShell.debugLiveView
     property int editingVesselIndex: -1
 
     property bool isVolumeMode: Settings.brew.waterVolumeMode === "volume"
@@ -323,8 +323,8 @@ Page {
                 border.width: Theme.scaled(2)
 
                 activeFocusOnTab: true
-                Keys.onReturnPressed: function(event) { DE1Device.stopOperation(); root.goToIdle(); event.accepted = true }
-                Keys.onSpacePressed:  function(event) { DE1Device.stopOperation(); root.goToIdle(); event.accepted = true }
+                Keys.onReturnPressed: function(event) { DE1Device.stopOperation(); AppShell.idleRequested(); event.accepted = true }
+                Keys.onSpacePressed:  function(event) { DE1Device.stopOperation(); AppShell.idleRequested(); event.accepted = true }
                 Keys.onTabPressed: function(event) {
                     if (liveVesselRepeater.count > 0) liveVesselRepeater.itemAt(0).forceActiveFocus()
                     event.accepted = true
@@ -351,7 +351,7 @@ Page {
                     accessibleItem: hotWaterStopButton
                     onAccessibleClicked: {
                         DE1Device.stopOperation()
-                        root.goToIdle()
+                        AppShell.idleRequested()
                     }
                 }
             }
@@ -827,7 +827,7 @@ Page {
         title: page.getCurrentVesselName() || noVesselText.text
         onBackClicked: {
             MainController.applyHotWaterSettings()
-            root.goToIdle()
+            AppShell.idleRequested()
         }
 
         Text {

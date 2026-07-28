@@ -1175,6 +1175,7 @@ if(IOS)
 endif()
 
 # QML module - mark singletons
+set_source_files_properties(qml/AppShell.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/components/SettingsTabs.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/components/layout/WidgetColor.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
@@ -1184,6 +1185,7 @@ set_source_files_properties(qml/components/LastShotChartSource.qml PROPERTIES QT
 # Define QML files list for dependency tracking
 set(QML_FILES
     qml/main.qml
+    qml/AppShell.qml
     qml/Theme.qml
     qml/pages/IdlePage.qml
     qml/pages/EspressoPage.qml

@@ -1011,7 +1011,7 @@ Page {
         id: bottomBar
         title: TranslationManager.translate("shothistory.title", "Shot History")
         rightText: MainController.shotHistory.totalShots + " " + TranslationManager.translate("shothistory.shots", "shots")
-        onBackClicked: root.goBack()
+        onBackClicked: AppShell.backRequested()
     }
 
     Dialog {

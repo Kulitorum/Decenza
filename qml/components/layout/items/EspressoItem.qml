@@ -109,12 +109,6 @@ Item {
         }
     }
 
-    function goToProfileSelector() {
-        if (typeof pageStack !== "undefined") {
-            pageStack.push(Qt.resolvedUrl("../../../pages/ProfileSelectorPage.qml"))
-        }
-    }
-
     // --- COMPACT MODE ---
     Item {
         id: compactContent
@@ -160,8 +154,8 @@ Item {
                             + (root.isActive ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
             accessibleDescription: TranslationManager.translate("idle.accessible.espresso.hint", "Tap to toggle presets. Double-tap or long-press to select profile.")
             onAccessibleClicked: root.togglePresets()
-            onAccessibleDoubleClicked: root.goToProfileSelector()
-            onAccessibleLongPressed: root.goToProfileSelector()
+            onAccessibleDoubleClicked: AppShell.profileSelectorRequested()
+            onAccessibleLongPressed: AppShell.profileSelectorRequested()
         }
     }
 

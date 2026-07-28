@@ -436,6 +436,6 @@ Page {
     BottomBar {
         title: trBottomTitle.text
         rightText: trBottomHint.text
-        onBackClicked: root.goBack()
+        onBackClicked: AppShell.backRequested()
     }
 }

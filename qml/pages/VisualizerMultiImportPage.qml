@@ -914,6 +914,6 @@ Page {
     BottomBar {
         title: TranslationManager.translate("visualizerImport.visualizer", "Visualizer")
         rightText: TranslationManager.translate("visualizerImport.tapToImport", "Tap ☆ to import")
-        onBackClicked: root.goBack()
+        onBackClicked: AppShell.backRequested()
     }
 }

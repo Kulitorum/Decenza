@@ -1,6 +1,5 @@
 import QtQuick
 import QtQuick.Layouts
-import QtQuick.Window
 import Decenza
 import "../.."
 
@@ -25,10 +24,8 @@ Item {
     // Live in-session milk (set during steaming, reset to 0 at session end /
     // pitcher change). 0 when the window or property is unavailable — guarded so
     // the widget degrades to the committed value and never errors.
-    readonly property double liveMilkG: {
-        var win = root.Window.window
-        return (win && win.sessionMeasuredMilkG > 0) ? win.sessionMeasuredMilkG : 0
-    }
+    readonly property double liveMilkG:
+        AppShell.sessionMeasuredMilkG > 0 ? AppShell.sessionMeasuredMilkG : 0
     readonly property double milkG: liveMilkG > 0 ? liveMilkG : Settings.brew.lastSteamMilkG
     readonly property string valueText: milkG > 0 ? milkG.toFixed(1) + " g" : "—"
 

@@ -40,7 +40,7 @@ Page {
         if (recipeModified) {
             exitDialog.open()
         } else {
-            root.goBack()
+            AppShell.backRequested()
         }
     }
 
@@ -657,7 +657,7 @@ Page {
                 if (recipeModified) {
                     exitDialog.open()
                 } else {
-                    root.goBack()
+                    AppShell.backRequested()
                 }
             }
             background: Rectangle {
@@ -914,17 +914,17 @@ Page {
             if (originalProfileName) {
                 ProfileManager.loadProfile(originalProfileName)
             }
-            root.goBack()
+            AppShell.backRequested()
         }
         onTryClicked: {
             ProfileManager.uploadCurrentProfile()
-            root.goBack()
+            AppShell.backRequested()
         }
         onSaveAsClicked: saveAsDialog.open()
         onSaveClicked: {
             if (ProfileManager.saveProfile(originalProfileName)) {
                 AccessibilityManager.announce(TranslationManager.translate("simpleProfileEditor.profileSaved", "Profile saved"))
-                root.goBack()
+                AppShell.backRequested()
             } else {
                 AccessibilityManager.announce(TranslationManager.translate("simpleProfileEditor.saveFailed", "Save failed"))
                 saveErrorDialog.open()
@@ -1069,7 +1069,7 @@ Page {
                     overwriteDialog.open()
                 } else {
                     if (ProfileManager.saveProfileAs(filename, saveAsTitleField.text)) {
-                        root.goBack()
+                        AppShell.backRequested()
                     } else {
                         saveErrorDialog.open()
                     }
@@ -1169,7 +1169,7 @@ Page {
                     onClicked: {
                         overwriteDialog.close()
                         if (ProfileManager.saveProfileAs(saveAsDialog.pendingFilename, saveAsTitleField.text)) {
-                            root.goBack()
+                            AppShell.backRequested()
                         } else {
                             saveErrorDialog.open()
                         }

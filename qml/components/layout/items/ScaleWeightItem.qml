@@ -1,6 +1,5 @@
 import QtQuick
 import QtQuick.Layouts
-import QtQuick.Window
 import Decenza
 import "../.."
 
@@ -58,14 +57,6 @@ Item {
     property bool scaleConnected: ScaleDevice && ScaleDevice.connected
     property bool accessibilityEnabled: typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled
 
-    // Open the single global Brew Settings dialog (hosted at the app root) via the
-    // window, so this works wherever the tile is placed — including the persistent
-    // status bar, which is not a descendant of IdlePage.
-    function openBrewSettings() {
-        var win = root.Window.window
-        if (win && win.openBrewSettings) win.openBrewSettings()
-    }
-
     // Scale warning: saved BLE scale not connected or connection failed, or app fell back to simulated scale
     // Don't warn if a USB scale is connected — it satisfies the "have a real scale" requirement (not available on iOS)
     property bool showScaleWarning: !root.isComputedMode
@@ -113,7 +104,7 @@ Item {
         if (root.showScaleWarning)
             BLEManager.scanForDevices()
         else if (root.isComputedMode)  // tare is meaningless for a computed target — edit it instead
-            root.openBrewSettings()
+            AppShell.brewSettingsRequested()
         else if (root.scaleConnected)
             MachineState.tareScale()
     }
@@ -274,7 +265,7 @@ Item {
                 // A computed target has nothing to tare (a tap would silently
                 // no-op or mark a phantom tare complete) — tap edits it instead.
                 if (root.isComputedMode) {
-                    root.openBrewSettings()
+                    AppShell.brewSettingsRequested()
                     return
                 }
 
@@ -296,7 +287,7 @@ Item {
                 if (tapCount >= 2) {
                     tapCount = 0
                     singleTapTimer.stop()
-                    root.openBrewSettings()
+                    AppShell.brewSettingsRequested()
                 } else {
                     singleTapTimer.restart()
                 }
@@ -308,7 +299,7 @@ Item {
             interval: 600
             onTriggered: {
                 scaleMouseArea.longPressTriggered = true
-                root.openBrewSettings()
+                AppShell.brewSettingsRequested()
             }
         }
 
@@ -404,7 +395,7 @@ Item {
                 if (root.showScaleWarning)
                     BLEManager.scanForDevices()
                 else if (root.isComputedMode)  // computed target: tap edits it, never tares
-                    root.openBrewSettings()
+                    AppShell.brewSettingsRequested()
                 else if (root.scaleConnected)
                     MachineState.tareScale()
             }

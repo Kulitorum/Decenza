@@ -1595,7 +1595,7 @@ Page {
     BottomBar {
         id: bottomBar
         title: TranslationManager.translate("shotdetail.title", "Shot Detail")
-        onBackClicked: root.goBack()
+        onBackClicked: AppShell.backRequested()
 
         // Profile name + date in the bottom bar remain visible while the user scrolls,
         // providing context when the header is off-screen. It reads as a subtitle to

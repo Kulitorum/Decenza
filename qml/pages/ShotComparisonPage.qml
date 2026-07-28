@@ -428,6 +428,6 @@ Page {
         id: bottomBar
         title: TranslationManager.translate("comparison.title", "Compare Shots")
         rightText: comparisonModel.shotCount + " " + TranslationManager.translate("comparison.shots", "shots")
-        onBackClicked: root.goBack()
+        onBackClicked: AppShell.backRequested()
     }
 }

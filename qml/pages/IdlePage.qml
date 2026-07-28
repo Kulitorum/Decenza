@@ -30,9 +30,9 @@ Page {
         // Safety net: if a picker popup was destroyed while open (e.g. a layout
         // rebuild) its onClosed never fired, so clear any leftover slide offset.
         idlePage.releasePanelClearance()
-        if (root.pendingBrewDialog) {
-            root.pendingBrewDialog = false
-            root.openBrewSettings()
+        if (AppShell.pendingBrewDialog) {
+            AppShell.pendingBrewDialog = false
+            AppShell.brewSettingsRequested()
         }
     }
 
@@ -583,7 +583,7 @@ Page {
             // the duration at session end, in main.qml). Recorded even for an
             // uncalibrated preset so the very first calibration-bootstrap steam can be
             // adopted — and never as a half-pair, since the time half is written there.
-            if (Window.window) Window.window.sessionMeasuredMilkG = milk
+            AppShell.sessionMeasuredMilkG = milk
             // Single source of truth (SettingsBrew): 0 when off/uncalibrated → nothing to lock.
             var t = Settings.brew.scaledSteamTime(Settings.brew.selectedSteamPitcher, milk)
             if (t <= 0) return
@@ -738,7 +738,7 @@ Page {
             MachineState.tareScale()
             // Fresh steam attempt: drop any milk captured but not consumed by a prior
             // (abandoned) attempt, so it can't scale this one.
-            if (Window.window) Window.window.sessionMeasuredMilkG = 0
+            AppShell.sessionMeasuredMilkG = 0
         }
 
         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled && activePresetFunction !== "") {

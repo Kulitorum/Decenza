@@ -27,7 +27,7 @@ Page {
         if (profileModified) {
             exitDialog.open()
         } else {
-            root.goBack()
+            AppShell.backRequested()
         }
     }
 
@@ -791,7 +791,7 @@ Page {
                 if (profileModified) {
                     exitDialog.open()
                 } else {
-                    root.goBack()
+                    AppShell.backRequested()
                 }
             }
             // White button with primary text for bottom bar
@@ -923,7 +923,7 @@ Page {
                     return
                 }
                 if (saveProfileAs(filename, saveAsTitleField.text)) {
-                    root.goBack()
+                    AppShell.backRequested()
                 } else {
                     saveErrorDialog.open()
                 }
@@ -1003,7 +1003,7 @@ Page {
                     onClicked: {
                         overwriteDialog.close()
                         if (saveProfileAs(saveAsDialog.pendingFilename, saveAsTitleField.text)) {
-                            root.goBack()
+                            AppShell.backRequested()
                         } else {
                             saveErrorDialog.open()
                         }
@@ -1138,16 +1138,16 @@ Page {
             if (originalProfileName) {
                 ProfileManager.loadProfile(originalProfileName)
             }
-            root.goBack()
+            AppShell.backRequested()
         }
         onTryClicked: {
             ProfileManager.uploadCurrentProfile()
-            root.goBack()
+            AppShell.backRequested()
         }
         onSaveAsClicked: saveAsDialog.open()
         onSaveClicked: {
             if (saveProfile()) {
-                root.goBack()
+                AppShell.backRequested()
             } else {
                 saveErrorDialog.open()
             }
@@ -1721,7 +1721,7 @@ Page {
         if (!profile) return
 
         var frameCount = profile.steps ? profile.steps.length : 0
-        var title = root.cleanForSpeech(profile.title || "Untitled")
+        var title = AccessibilityManager.cleanForSpeech(profile.title || "Untitled")
         var announcement = title + " profile. " + frameCount + " frame" + (frameCount !== 1 ? "s" : "")
         AccessibilityManager.announce(announcement)
     }

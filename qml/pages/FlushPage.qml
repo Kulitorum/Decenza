@@ -25,7 +25,7 @@ Page {
         }
     }
 
-    property bool isFlushing: MachineState.phase === MachineState.Phase.Flushing || root.debugLiveView
+    property bool isFlushing: MachineState.phase === MachineState.Phase.Flushing || AppShell.debugLiveView
     property int editingPresetIndex: -1
 
     onIsFlushingChanged: {
@@ -201,8 +201,8 @@ Page {
                 border.width: Theme.scaled(2)
 
                 activeFocusOnTab: true
-                Keys.onReturnPressed: { root.userExitedFlush = true; DE1Device.stopOperation(); root.goToIdle(); event.accepted = true }
-                Keys.onSpacePressed:  { root.userExitedFlush = true; DE1Device.stopOperation(); root.goToIdle(); event.accepted = true }
+                Keys.onReturnPressed: { AppShell.userExitedFlush = true; DE1Device.stopOperation(); AppShell.idleRequested(); event.accepted = true }
+                Keys.onSpacePressed:  { AppShell.userExitedFlush = true; DE1Device.stopOperation(); AppShell.idleRequested(); event.accepted = true }
                 Keys.onTabPressed: {
                     if (livePresetRepeater.count > 0) livePresetRepeater.itemAt(0).forceActiveFocus()
                     event.accepted = true
@@ -228,9 +228,9 @@ Page {
                     accessibleName: TranslationManager.translate("flush.accessible.stopFlushing", "Stop flushing")
                     accessibleItem: flushStopButton
                     onAccessibleClicked: {
-                        root.userExitedFlush = true
+                        AppShell.userExitedFlush = true
                         DE1Device.stopOperation()
-                        root.goToIdle()
+                        AppShell.idleRequested()
                     }
                 }
             }
@@ -595,16 +595,16 @@ Page {
         title: getCurrentPresetName() || pageTitle
         onBackClicked: {
             if (isFlushing) {
-                root.userExitedFlush = true
+                AppShell.userExitedFlush = true
                 DE1Device.stopOperation()
             } else {
                 MainController.applyFlushSettings()
             }
             // Handle both pushed (user nav) and replaced (auto nav) cases
             if (pageStack.depth > 1) {
-                root.goBack()
+                AppShell.backRequested()
             } else {
-                root.goToIdle()
+                AppShell.idleRequested()
             }
         }
 

@@ -925,7 +925,7 @@ Page {
         if (hasUnsavedChanges() && (canSave || !earlyWalk))
             exitDialog.open()
         else
-            root.goBack()
+            AppShell.backRequested()
     }
 
     // A failed save must be SEEN: the pinned error label exists only on the
@@ -1821,7 +1821,7 @@ Page {
                 // and only fails to save. Leave the page instead.
                 console.warn("RecipeWizard: recipe", wizardPage.editRecipeId,
                              "no longer exists — leaving edit")
-                root.goBack()
+                AppShell.backRequested()
             }
         }
         function onRecipeCreated(recipeId, recipe) {
@@ -3839,7 +3839,7 @@ Page {
         itemType: "recipe"
         showSaveAs: false
         canSave: wizardPage.canSave
-        onDiscardClicked: root.goBack()
+        onDiscardClicked: AppShell.backRequested()
         onSaveClicked: wizardPage.save()
     }
 

@@ -84,7 +84,14 @@ BASELINE = REPO / "qml-diagnostics-baseline.json"
 # still includes files the run never read is an allowance, not a ceiling.
 CATEGORY_EXEMPTIONS: dict[str, int] = {
     # Each entry is a ceiling, not a budget.
-    "missing-property": 322,
+    #
+    # 322 -> 311 when the AppShell singleton replaced the pages' `root.*` reach into
+    # main.qml. Note the direction: fixing the UNQUALIFIED class lowered this one, which is
+    # the opposite of what task 3c saw. The reason is that the old code was not merely
+    # unchecked, it was untyped at the hop — `Window.window.sessionMeasuredMilkG` is a
+    # member access on QQuickWindow and was counted here, and each collapse of six
+    # `itemAt(i).focusTarget` call sites into one helper removed five more.
+    "missing-property": 311,
     # All 21 remaining are qmllint FALSE POSITIVES and cannot be driven to zero from this side:
     # it flags any child DECLARED lexically inside a Layout without checking that a Layout will
     # actually manage it. Two shapes — objects that are not Items at all (Popup/Dialog derive

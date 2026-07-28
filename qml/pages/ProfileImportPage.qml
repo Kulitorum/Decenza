@@ -534,6 +534,6 @@ Page {
     // Bottom bar
     BottomBar {
         title: profileImportPage.pageTitle
-        onBackClicked: root.goBack()
+        onBackClicked: AppShell.backRequested()
     }
 }

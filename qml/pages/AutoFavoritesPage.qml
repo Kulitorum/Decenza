@@ -466,7 +466,7 @@ Page {
                             accessibleItem: loadButton
                             onAccessibleClicked: {
                                 if (Settings.network.autoFavoritesOpenBrewSettings)
-                                    root.pendingBrewDialog = true
+                                    AppShell.pendingBrewDialog = true
                                 autoFavoritesPage._waitingForShotLoad = true
                                 // Pass the latest shot's raw dose so the loaded recipe matches
                                 // what the card displays (and what the user last dialled in).
@@ -692,6 +692,6 @@ Page {
     // Bottom bar
     BottomBar {
         title: TranslationManager.translate("autofavorites.title", "Auto-Favorites")
-        onBackClicked: root.goBack()
+        onBackClicked: AppShell.backRequested()
     }
 }

@@ -80,7 +80,7 @@ Page {
         // Every committed edit is already persisted; just flush a possible
         // in-progress text field and leave — no confirmation prompt needed.
         autosave()
-        root.goBack()
+        AppShell.backRequested()
     }
 
     // Intercept Android system back button / Escape key; reset auto-close on any key
@@ -307,7 +307,7 @@ Page {
         onTriggered: {
             // Auto-close: flush any pending edit and exit
             postShotReviewPage.autosave()
-            root.goBack()
+            AppShell.backRequested()
         }
     }
 

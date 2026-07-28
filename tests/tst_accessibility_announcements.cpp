@@ -484,6 +484,40 @@ private slots:
         QVERIFY2(!primary.contains("accessibility/tickVolume"),
                  "stale legacy must NOT bleed over a restored profile");
     }
+
+    // cleanForSpeech() was JavaScript on main.qml's root until it moved here, and
+    // in that form nothing could test it — a QML function reached by creation-context
+    // lookup has no seam. These pin the behaviour the port had to reproduce exactly,
+    // including the ordering: the unit expansions insert spaces that the final
+    // whitespace collapse normalises, so reordering them changes the output.
+    void cleanForSpeech_data() {
+        QTest::addColumn<QString>("input");
+        QTest::addColumn<QString>("expected");
+
+        QTest::newRow("empty")            << QString()               << QString();
+        QTest::newRow("profile extension")<< "gagne_88C.json"        << "gagne 88 degrees Celsius";
+        QTest::newRow("tcl extension")    << "Best Overall.tcl"      << "Best Overall";
+        QTest::newRow("extension midword")<< "a.json.b"              << "a.json.b";
+        QTest::newRow("separators")       << "slow-and_steady"       << "slow and steady";
+        QTest::newRow("degree symbols")   << "brew 93°C then 200°F"  << "brew 93 degrees Celsius then 200 degrees Fahrenheit";
+        QTest::newRow("millilitres")      << "36ml out"              << "36 milliliters out";
+        QTest::newRow("grams")            << "18g in"                << "18 grams in";
+        QTest::newRow("bar")              << "9bar peak"             << "9 bar peak";
+        QTest::newRow("seconds")          << "25s total"             << "25 seconds total";
+        QTest::newRow("percent")          << "60% flow"              << "60 percent flow";
+        // The bare-C rule is word-bounded, so a capital C starting the next word is
+        // left alone. This is what keeps "88 Colombia" from becoming a temperature.
+        QTest::newRow("bare C needs boundary") << "88 Colombia"      << "88 Colombia";
+        QTest::newRow("collapses runs")   << "a   b"                 << "a b";
+        QTest::newRow("trims")            << "  spaced  "           << "spaced";
+    }
+
+    void cleanForSpeech() {
+        QFETCH(QString, input);
+        QFETCH(QString, expected);
+        FakeAccessibilityManager mgr;
+        QCOMPARE(mgr.cleanForSpeech(input), expected);
+    }
 };
 
 QTEST_GUILESS_MAIN(tst_AccessibilityAnnouncements)

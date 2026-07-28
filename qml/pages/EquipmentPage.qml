@@ -138,6 +138,6 @@ Page {
 
     BottomBar {
         barColor: "transparent"
-        onBackClicked: root.goBack()
+        onBackClicked: AppShell.backRequested()
     }
 }

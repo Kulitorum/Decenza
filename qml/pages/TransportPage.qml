@@ -251,7 +251,7 @@ Page {
                     _customFontWeight: Font.Bold
                     onClicked: {
                         showComplete = false
-                        root.goToIdle()
+                        AppShell.idleRequested()
                     }
                 }
             }
@@ -408,7 +408,7 @@ Page {
         title: transportPage.pageTitle
         onBackClicked: {
             showComplete = false
-            root.goBack()
+            AppShell.backRequested()
         }
     }
 }

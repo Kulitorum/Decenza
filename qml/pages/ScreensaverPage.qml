@@ -834,10 +834,10 @@ Page {
         }
 
         // Defer scale dialogs until machine reaches Ready
-        root.scaleDialogDeferred = true
+        AppShell.scaleDialogDeferred = true
 
         // Navigate back to idle
-        root.goToIdleFromScreensaver()
+        AppShell.idleFromScreensaverRequested()
     }
 
     // Clean up media when page is being removed
@@ -868,9 +868,9 @@ Page {
                     BLEManager.tryDirectConnectToScale()
                 }
                 // Defer scale dialogs until machine reaches Ready
-                root.scaleDialogDeferred = true
+                AppShell.scaleDialogDeferred = true
                 // Navigate back to idle
-                root.goToIdleFromScreensaver()
+                AppShell.idleFromScreensaverRequested()
             }
         }
     }

@@ -55,7 +55,7 @@ Page {
         }
     }
 
-    property bool isSteaming: MachineState.phase === MachineState.Phase.Steaming || root.debugLiveView
+    property bool isSteaming: MachineState.phase === MachineState.Phase.Steaming || AppShell.debugLiveView
     property int editingPitcherIndex: -1  // For the edit popup
     property bool steamSoftStopped: false  // For two-stage stop on headless machines
     property bool wasSteaming: false  // Track if we were steaming (to turn off heater after)
@@ -409,8 +409,8 @@ Page {
     // captured THIS session (set by the home-screen OR steam auto-capture, shared via the
     // window) and fall back to the last reading seen on the steam page. 0 = none yet.
     function capturedMilkForScaling() {
-        if (typeof Window !== "undefined" && Window.window && Window.window.sessionMeasuredMilkG > 0)
-            return Window.window.sessionMeasuredMilkG
+        if (AppShell.sessionMeasuredMilkG > 0)
+            return AppShell.sessionMeasuredMilkG
         return steamPage.lastOnScaleMilk
     }
 
@@ -502,7 +502,7 @@ Page {
             return
         }
         steamWarningDialog.warningMessage = msg
-        root.suspendCompletionForDialog()
+        AppShell.completionSuspendRequested()
         steamWarningDialog.open()
     }
 
@@ -522,7 +522,7 @@ Page {
             // hardware GHC button while still acknowledging the prior session's
             // warning), don't navigate to idle — they're steaming again.
             if (steamPage.isSteaming) return
-            root.finishCompletion()
+            AppShell.completionFinishRequested()
         }
 
         background: Rectangle {
@@ -921,8 +921,8 @@ Page {
                         text: {
                             if (steamPage.isSteamHeating) {
                                 return Theme.formatTemperature(steamPage.currentSteamTemp, 0) + " / " + Theme.formatTemperature(steamPage.targetSteamTemp, 0)
-                            } else if (steamPage.isPuffing && root.steamAutoFlushCountdown > 0) {
-                                return root.steamAutoFlushCountdown.toFixed(1) + "s / " + Settings.brew.steamAutoFlushSeconds + "s"
+                            } else if (steamPage.isPuffing && AppShell.steamAutoFlushCountdown > 0) {
+                                return AppShell.steamAutoFlushCountdown.toFixed(1) + "s / " + Settings.brew.steamAutoFlushSeconds + "s"
                             } else {
                                 return MachineState.shotTime.toFixed(1) + "s / " + Settings.brew.steamTimeout + "s"
                             }
@@ -992,7 +992,7 @@ Page {
                                 return parent.width * Math.min(1, steamPage.currentSteamTemp / steamPage.targetSteamTemp)
                             } else if (steamPage.isPuffing && Settings.brew.steamAutoFlushSeconds > 0) {
                                 // Countdown: progress goes from full to empty
-                                return parent.width * Math.min(1, root.steamAutoFlushCountdown / Settings.brew.steamAutoFlushSeconds)
+                                return parent.width * Math.min(1, AppShell.steamAutoFlushCountdown / Settings.brew.steamAutoFlushSeconds)
                             } else {
                                 return parent.width * Math.min(1, MachineState.shotTime / Settings.brew.steamTimeout)
                             }
@@ -1088,8 +1088,8 @@ Page {
                         text: {
                             if (steamPage.isSteamHeating) {
                                 return Theme.formatTemperature(steamPage.currentSteamTemp, 0) + " / " + Theme.formatTemperature(steamPage.targetSteamTemp, 0)
-                            } else if (steamPage.isPuffing && root.steamAutoFlushCountdown > 0) {
-                                return root.steamAutoFlushCountdown.toFixed(1) + "s / " + Settings.brew.steamAutoFlushSeconds + "s"
+                            } else if (steamPage.isPuffing && AppShell.steamAutoFlushCountdown > 0) {
+                                return AppShell.steamAutoFlushCountdown.toFixed(1) + "s / " + Settings.brew.steamAutoFlushSeconds + "s"
                             } else {
                                 return MachineState.shotTime.toFixed(1) + "s / " + Settings.brew.steamTimeout + "s"
                             }
@@ -1217,12 +1217,12 @@ Page {
                         if (!Settings.hardware.steamTwoTapStop) {
                             // Single-tap mode: stop immediately and trigger auto-purge
                             DE1Device.requestIdle()
-                            root.goToIdle()
+                            AppShell.idleRequested()
                         } else if (steamPage.steamSoftStopped) {
                             // Two-tap mode, second tap: request Idle to trigger purge
                             steamPage.steamSoftStopped = false  // Reset before navigating
                             DE1Device.requestIdle()
-                            root.goToIdle()
+                            AppShell.idleRequested()
                         } else {
                             // Two-tap mode, first tap: soft stop steam without purge
                             // Sends 1-second timeout which triggers elapsed > target stop
@@ -2216,7 +2216,7 @@ Page {
             // Latch the measured milk for the baseline pair (committed atomically with
             // the duration at session end, in main.qml) — recorded even when the preset
             // isn't calibrated yet so the calibration-bootstrap steam can be adopted.
-            if (Window.window) Window.window.sessionMeasuredMilkG = milk
+            AppShell.sessionMeasuredMilkG = milk
             // Respect a manual ±5 adjustment: still record the milk (above) for the
             // baseline, but don't overwrite the time the user dialed in by hand.
             if (steamPage.steamTimeoutUserAdjusted)
@@ -2362,7 +2362,7 @@ Page {
             } else {
                 MainController.applySteamSettings()
             }
-            root.goToIdle()
+            AppShell.idleRequested()
         }
 
         Text {

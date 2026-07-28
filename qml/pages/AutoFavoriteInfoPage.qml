@@ -529,6 +529,6 @@ Page {
     BottomBar {
         id: bottomBar
         title: TranslationManager.translate("autofavoriteinfo.title", "Favorite Details")
-        onBackClicked: root.goBack()
+        onBackClicked: AppShell.backRequested()
     }
 }

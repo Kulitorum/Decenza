@@ -26,8 +26,9 @@ ApplicationWindow {
     leftPadding: 0
     rightPadding: 0
 
-    // Debug flag to force live view on operation pages (for development)
-    property bool debugLiveView: false
+    // debugLiveView, pendingBrewDialog, userExitedFlush, steamAutoFlushCountdown,
+    // scaleDialogDeferred and stopReason now live on the AppShell singleton, which
+    // is where the pages that share them can actually see the declaration.
 
     // True when the app is allowed to start machine operations on-screen.
     // The hardware Group Head Controller (GHC), when present and active, takes
@@ -35,8 +36,6 @@ ApplicationWindow {
     // are only valid in headless (no/inactive GHC) or simulation mode.
     readonly property bool canStartOperations: DE1Device.isHeadless || DE1Device.simulationMode
 
-    // Flag to open BrewDialog when IdlePage becomes active (set by AutoFavoritesPage)
-    property bool pendingBrewDialog: false
 
     // Single, global Brew Settings dialog — reachable from anywhere via
     // root.openBrewSettings() (home-screen content, the persistent status bar, the
@@ -61,10 +60,6 @@ ApplicationWindow {
     property string returnToPageName: ""
     property int returnToShotId: 0
 
-    // Set by FlushPage's back-arrow / STOP handlers to suppress the 1.5s "Flush
-    // Complete" overlay when the user explicitly chose to leave. Single-shot:
-    // cleared on the next Idle/Ready transition regardless of current page.
-    property bool userExitedFlush: false
 
     // True while the first-run restore dialog is active (prevents SettingsHistoryDataTab from also handling restore signals)
 
@@ -563,18 +558,16 @@ ApplicationWindow {
     // Latched by the milk auto-capture (IdlePage/SteamPage) to the milk weight
     // measured for the upcoming steam session. Committed atomically with the actual
     // duration when the session ends, so "use as baseline" never adopts a mismatched
-    // (milk, time) pair. 0 = no milk measured this session. Reset points: pitcher
-    // change and session end (both below), plus IdlePage's fresh-steam-attempt zero
-    // when steam is re-selected. Mirrored read-only by SteamPlanText and
-    // MilkWeightItem; read by SteamPage's captured-milk fallback and SteamItem's
-    // popup preset tap.
-    property real sessionMeasuredMilkG: 0
+    // (milk, time) pair. The property itself is AppShell.sessionMeasuredMilkG — see
+    // there for why it is not declared on this object. Reset points: pitcher change
+    // and session end (both below), plus IdlePage's fresh-steam-attempt zero when
+    // steam is re-selected.
     // The captured milk is specific to the selected pitcher's tare + calibration, so
     // drop it when the pitcher changes — otherwise a new pitcher's steam could scale to
     // the previous pitcher's milk.
     Connections {
         target: Settings.brew
-        function onSelectedSteamPitcherChanged() { root.sessionMeasuredMilkG = 0 }
+        function onSelectedSteamPitcherChanged() { AppShell.sessionMeasuredMilkG = 0 }
     }
 
     // Live dose-weighing state, pushed by IdlePage (Bindings next to its
@@ -604,12 +597,12 @@ ApplicationWindow {
             if (MachineState.phase !== MachineState.Phase.Steaming && steamElapsedTracker > 0) {
                 // Commit the (milk, time) pair only for a real session with measured
                 // milk; either way clear the latches so nothing leaks to the next one.
-                if (steamElapsedTracker >= 1 && root.sessionMeasuredMilkG > 0) {
-                    Settings.brew.lastSteamMilkG = root.sessionMeasuredMilkG
+                if (steamElapsedTracker >= 1 && AppShell.sessionMeasuredMilkG > 0) {
+                    Settings.brew.lastSteamMilkG = AppShell.sessionMeasuredMilkG
                     Settings.brew.lastSteamTimeS = steamElapsedTracker
                 }
                 steamElapsedTracker = 0
-                root.sessionMeasuredMilkG = 0
+                AppShell.sessionMeasuredMilkG = 0
             }
         }
     }
@@ -651,15 +644,13 @@ ApplicationWindow {
                 console.log("DE1 entered Puffing substate")
                 if (Settings.brew.steamAutoFlushSeconds > 0) {
                     console.log("Starting auto-flush countdown:", Settings.brew.steamAutoFlushSeconds, "seconds")
-                    root.steamAutoFlushCountdown = Settings.brew.steamAutoFlushSeconds
+                    AppShell.steamAutoFlushCountdown = Settings.brew.steamAutoFlushSeconds
                     steamAutoFlushTimer.restart()
                 }
             }
         }
     }
 
-    // Auto-flush countdown value (for display on SteamPage)
-    property real steamAutoFlushCountdown: 0
 
     // Handle settings changes
     Connections {
@@ -726,8 +717,6 @@ ApplicationWindow {
     property bool shuttingDown: false
 
 
-    // Defer scale dialogs until machine reaches Ready (event-driven, not timer-based)
-    property bool scaleDialogDeferred: false
     // True while a previously-connected scale is disconnected (a mid-session
     // drop). Set on scaleDisconnected, cleared on scaleConnected. Lets us defer
     // the "Scale Disconnected" notice until a reconnect actually FAILS
@@ -756,7 +745,7 @@ ApplicationWindow {
         // While scale dialogs are deferred, skip scale popups and show others
         var queue = pendingPopups.slice()
         var next
-        if (root.scaleDialogDeferred) {
+        if (AppShell.scaleDialogDeferred) {
             var idx = -1
             for (var i = 0; i < queue.length; i++) {
                 if (queue[i].id !== "flowScale" && queue[i].id !== "scaleDisconnected") {
@@ -831,9 +820,9 @@ ApplicationWindow {
         running: false
         repeat: true
         onTriggered: {
-            root.steamAutoFlushCountdown -= 0.1
-            if (root.steamAutoFlushCountdown <= 0) {
-                root.steamAutoFlushCountdown = 0
+            AppShell.steamAutoFlushCountdown -= 0.1
+            if (AppShell.steamAutoFlushCountdown <= 0) {
+                AppShell.steamAutoFlushCountdown = 0
                 steamAutoFlushTimer.stop()
                 console.log("Steam auto-flush countdown complete, requesting Idle state")
                 // Turn off steam heater if keepSteamHeaterOn is false
@@ -1578,7 +1567,7 @@ ApplicationWindow {
             var popupId = root.scaleDropPending ? "scaleDisconnected" : "flowScale"
             var dialog = root.scaleDropPending ? scaleDisconnectedDialog : flowScaleDialog
             if (screensaverActive) { queuePopup(popupId); return }
-            if (root.scaleDialogDeferred) { queuePopup(popupId); return }
+            if (AppShell.scaleDialogDeferred) { queuePopup(popupId); return }
             dialog.open()
         }
         function onScaleDisconnected() {
@@ -2231,7 +2220,6 @@ ApplicationWindow {
     }
 
     // Espresso stop reason overlay (shown on top of any page)
-    property string stopReason: ""  // "manual", "weight", "machine", ""
     property bool stopOverlayVisible: false
     property bool wasEspressoOperation: false  // Track if the operation that just ended was espresso
 
@@ -2239,13 +2227,18 @@ ApplicationWindow {
     // saved shot records why it ended (manually-stopped shots have
     // arbitrary yield and must not drive dial-in advice). This single
     // handler covers every existing stop entry point that sets stopReason.
-    onStopReasonChanged: {
-        if (typeof MainController !== "undefined" && MainController !== null)
-            MainController.reportShotStopReason(stopReason)
+    // A Connections block rather than an onStopReasonChanged handler, because the
+    // property is AppShell's now, not this object's.
+    Connections {
+        target: AppShell
+        function onStopReasonChanged() {
+            if (typeof MainController !== "undefined" && MainController !== null)
+                MainController.reportShotStopReason(AppShell.stopReason)
+        }
     }
 
     function getStopReasonText() {
-        switch (stopReason) {
+        switch (AppShell.stopReason) {
             case "manual": return "Stopped manually"
             case "weight": return "Target weight reached"
             case "machine": return "Profile complete - DE1 stopped the shot"
@@ -2345,7 +2338,7 @@ ApplicationWindow {
     Connections {
         target: MachineState
         function onTargetWeightReached() {
-            root.stopReason = "weight"
+            AppShell.stopReason = "weight"
         }
         function onSawBypassed() {
             root.sawBypassedVisible = true
@@ -2361,7 +2354,7 @@ ApplicationWindow {
             root.wasEspressoOperation = (phase === MachineState.Phase.EspressoPreheating ||
                                          phase === MachineState.Phase.Preinfusion ||
                                          phase === MachineState.Phase.Pouring)
-            root.stopReason = ""
+            AppShell.stopReason = ""
             root.stopOverlayVisible = false
             root.sawBypassedVisible = false
             sawBypassedTimer.stop()
@@ -2375,8 +2368,8 @@ ApplicationWindow {
             }
 
             // If no reason set, DE1 ended the shot (profile complete or machine-initiated)
-            if (root.stopReason === "") {
-                root.stopReason = "machine"
+            if (AppShell.stopReason === "") {
+                AppShell.stopReason = "machine"
             }
             // Show the overlay with pop-in animation
             root.stopOverlayVisible = true
@@ -3367,7 +3360,7 @@ ApplicationWindow {
                 }
                 // Stop and reset auto-flush timer (steaming fully ended)
                 steamAutoFlushTimer.stop()
-                root.steamAutoFlushCountdown = 0
+                AppShell.steamAutoFlushCountdown = 0
             }
 
             // Update previous phase tracking
@@ -3390,14 +3383,14 @@ ApplicationWindow {
             }
 
             // Clear scale dialog deferral when machine reaches Ready or an active phase
-            if (root.scaleDialogDeferred) {
+            if (AppShell.scaleDialogDeferred) {
                 if (phase === MachineState.Phase.Idle ||
                     phase === MachineState.Phase.Ready ||
                     phase === MachineState.Phase.EspressoPreheating ||
                     phase === MachineState.Phase.Steaming ||
                     phase === MachineState.Phase.HotWater ||
                     phase === MachineState.Phase.Flushing) {
-                    root.scaleDialogDeferred = false
+                    AppShell.scaleDialogDeferred = false
                     // If a real physical scale connected during warmup, discard queued scale popups
                     // (FlowScale is always "connected" so don't let it suppress dialogs)
                     if (ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale) {
@@ -3406,7 +3399,7 @@ ApplicationWindow {
                         showNextPendingPopup()  // Show deferred dialog now
                     }
                 } else if (phase === MachineState.Phase.Sleep) {
-                    root.scaleDialogDeferred = false
+                    AppShell.scaleDialogDeferred = false
                 }
             }
 
@@ -3464,7 +3457,7 @@ ApplicationWindow {
                 } else if (currentPage === "hotWaterPage") {
                     showCompletion(trHotWaterComplete.text, "hotwater")
                 } else if (currentPage === "flushPage") {
-                    if (root.userExitedFlush) {
+                    if (AppShell.userExitedFlush) {
                         console.log("Phase Idle/Ready: flush exited by user, skipping completion overlay")
                     } else {
                         showCompletion(trFlushComplete.text, "flush")
@@ -3477,9 +3470,30 @@ ApplicationWindow {
                 // (synchronous back-handler navigation typically changes the page
                 // before this async phase signal arrives). Without this, the flag
                 // would strand and suppress a later legitimate flush completion.
-                root.userExitedFlush = false
+                AppShell.userExitedFlush = false
             }
         }
+    }
+
+    // The shell side of the AppShell contract. Every navigation function below is
+    // unchanged — the guard, the return-to-page handling, the operation-page replace
+    // all still live here, because this object owns pageStack. All that moved is how
+    // a page asks: it emits a request on a declared type instead of finding `root` by
+    // name through the context it happened to be created in.
+    Connections {
+        target: AppShell
+        function onBackRequested() { root.goBack() }
+        function onIdleRequested() { root.goToIdle() }
+        function onIdleFromScreensaverRequested() { root.goToIdleFromScreensaver() }
+        function onProfileEditorRequested() { root.goToProfileEditor() }
+        function onProfileSelectorRequested() { root.goToProfileSelector() }
+        function onProfileImportRequested() { root.goToProfileImport() }
+        function onVisualizerBrowserRequested() { root.goToVisualizerBrowser() }
+        function onDescalingRequested() { root.goToDescaling() }
+        function onTransportRequested() { root.goToTransport() }
+        function onBrewSettingsRequested() { root.openBrewSettings() }
+        function onCompletionSuspendRequested() { root.suspendCompletionForDialog() }
+        function onCompletionFinishRequested() { root.finishCompletion() }
     }
 
     // Helper functions for navigation
@@ -3639,30 +3653,6 @@ ApplicationWindow {
     }
 
     // Clean up text for TTS (replace underscores, expand units, etc.)
-    function cleanForSpeech(text) {
-        if (!text) return ""
-        var cleaned = text
-        // Remove common file extensions
-        cleaned = cleaned.replace(/\.(json|tcl|txt)$/i, "")
-        // Replace underscores and hyphens with spaces
-        cleaned = cleaned.replace(/[_-]/g, " ")
-        // Expand units for natural speech. Both the °C/°F symbols and a bare "88C"
-        // (common in Celsius-authored profile names like gagne_88C) always denote
-        // their own unit regardless of the display setting, so map them literally —
-        // the app's own converted read-outs always emit an explicit "°F"/"°C", never
-        // a bare number+C, so this never mislabels a converted value.
-        cleaned = cleaned.replace(/°F/g, " degrees Fahrenheit")
-        cleaned = cleaned.replace(/°C/g, " degrees Celsius")
-        cleaned = cleaned.replace(/(\d)\s*C\b/g, "$1 degrees Celsius")  // bare "88C" (Celsius-authored)
-        cleaned = cleaned.replace(/(\d)\s*ml\b/gi, "$1 milliliters")
-        cleaned = cleaned.replace(/(\d)\s*g\b/g, "$1 grams")
-        cleaned = cleaned.replace(/(\d)\s*bar\b/gi, "$1 bar")
-        cleaned = cleaned.replace(/(\d)\s*s\b/g, "$1 seconds")
-        cleaned = cleaned.replace(/(\d)\s*%/g, "$1 percent")
-        // Remove multiple spaces
-        cleaned = cleaned.replace(/\s+/g, " ")
-        return cleaned.trim()
-    }
 
     property bool screensaverActive: false
 

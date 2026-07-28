@@ -256,10 +256,10 @@ Page {
                     // Machine tab's Maintenance card forwards to global navigation
                     if (tabId === "machine" && item) {
                         item.openDescaling.connect(function() {
-                            root.goToDescaling()
+                            AppShell.descalingRequested()
                         })
                         item.openTransport.connect(function() {
-                            root.goToTransport()
+                            AppShell.transportRequested()
                         })
                     }
                 }
@@ -390,7 +390,7 @@ Page {
                 // target on top of the Settings page, so the user can press
                 // Back to return to the search context.
                 if (externalRoute === "profileSelector") {
-                    root.goToProfileSelector()
+                    AppShell.profileSelectorRequested()
                 }
                 return
             }
@@ -522,6 +522,6 @@ Page {
     BottomBar {
         id: bottomBar
         title: TranslationManager.translate("settings.title", "Settings")
-        onBackClicked: root.goBack()
+        onBackClicked: AppShell.backRequested()
     }
 }
