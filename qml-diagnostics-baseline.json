@@ -69,14 +69,12 @@
     "qml/pages/EquipmentPage.qml": 3,
     "qml/pages/EspressoPage.qml": 23,
     "qml/pages/FlowCalibrationPage.qml": 1,
-    "qml/pages/IdlePage.qml": 95,
     "qml/pages/ProfileImportPage.qml": 14,
     "qml/pages/ProfileInfoPage.qml": 32,
     "qml/pages/ProfileSelectorPage.qml": 54,
     "qml/pages/RecipeEditorPage.qml": 99,
     "qml/pages/RecipeWizardPage.qml": 144,
     "qml/pages/RecipesPage.qml": 29,
-    "qml/pages/ScreensaverPage.qml": 85,
     "qml/pages/SettingsPage.qml": 4,
     "qml/pages/ShotComparisonPage.qml": 27,
     "qml/pages/TransportPage.qml": 21,
@@ -214,9 +212,11 @@
     "qml/pages/FlowEditorPage.qml",
     "qml/pages/FlushPage.qml",
     "qml/pages/HotWaterPage.qml",
+    "qml/pages/IdlePage.qml",
     "qml/pages/PostShotReviewPage.qml",
     "qml/pages/PressureEditorPage.qml",
     "qml/pages/ProfileEditorPage.qml",
+    "qml/pages/ScreensaverPage.qml",
     "qml/pages/ShotDetailPage.qml",
     "qml/pages/ShotHistoryPage.qml",
     "qml/pages/SimpleProfileEditorPage.qml",
@@ -229,11 +229,11 @@
     "qml/pages/settings/SettingsVisualizerTab.qml"
   ],
   "observed_categories": {
-    "Quick.layout-positioning": 21,
+    "Quick.layout-positioning": 20,
     "Quick.property-changes-parsed": 5,
-    "duplicate-property-binding": 2,
+    "duplicate-property-binding": 1,
     "equality-type-coercion": 1,
     "missing-property": 150,
-    "unqualified": 2507
+    "unqualified": 2327
   }
 }
