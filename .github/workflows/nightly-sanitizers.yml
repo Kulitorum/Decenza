@@ -88,6 +88,12 @@ jobs:
 
     name: ${{ matrix.sanitizer }}
 
+    # One definition for the cache key. The reclaim filter below needs the same
+    # string with ccache-action's variant prefix on the front; two literals 70
+    # lines apart is how they drifted the first time.
+    env:
+      CACHE_KEY: sanitizers-${{ matrix.sanitizer }}-linux-x86_64
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -142,16 +148,26 @@ jobs:
         id: cachefit
         env:
           GH_TOKEN: ${{ github.token }}
-          MANUAL: ${{ github.event_name == 'workflow_dispatch' && inputs.use_cache || true }}
-          # Must carry the `ccache-` prefix that hendrikmuhs/ccache-action
-          # prepends to whatever key it is handed — the stored entries are
-          # `ccache-sanitizers-<san>-linux-x86_64-<timestamp>`, not
-          # `sanitizers-…`. Without it the reclaim loop below matches nothing
-          # and yields silently: measured 2026-07-28, both legs' entries from
+          # NOT `event_name == 'workflow_dispatch' && inputs.use_cache || true`.
+          # GitHub's `A && B || C` yields C whenever B is falsy, so unchecking
+          # the box gave `true && false` → false → `false || true` → true: the
+          # override was discarded on every run and the early-exit below was
+          # dead code. Written as an implication instead, which has no falsy-B
+          # hole.
+          MANUAL: ${{ github.event_name != 'workflow_dispatch' || inputs.use_cache }}
+          # Must carry the prefix ccache-action puts in front of whatever key it
+          # is handed — its own VARIANT name, so `ccache-` here and `sccache-`
+          # on the Windows job (visible in the store as
+          # `sccache-sccache-windows-x64-…`). Derived from CACHE_KEY rather than
+          # written out, so the reclaim filter and the cache key cannot drift
+          # apart — they did, and that is the bug this fixed: the filter read
+          # `sanitizers-…` while the stored entries were
+          # `ccache-sanitizers-<san>-linux-x86_64-<timestamp>`, matched nothing,
+          # and yielded silently. Measured 2026-07-28: both legs' entries from
           # 2026-07-26 still resident and untouched while every run since
           # rebuilt cold, their 540 MB helping hold free space under the
           # threshold that triggers the yield in the first place.
-          MINE: ccache-sanitizers-${{ matrix.sanitizer }}-linux-x86_64
+          MINE: ccache-${{ env.CACHE_KEY }}
         run: |
           set -uo pipefail
           if [ "$MANUAL" != "true" ]; then
@@ -197,33 +213,50 @@ jobs:
           # Only this leg's own entries — the other sanitizer leg manages its
           # own, so the two matrix jobs cannot race on the same ids.
           #
-          # Collected into a variable rather than piped straight into the loop,
-          # so the loop body runs in THIS shell and the counter below survives
-          # it. That counter is the canary: a reclaim that matches nothing, or
-          # is refused for want of actions: write, now says so instead of
-          # yielding in name only. Same remedy as the launcher assertion below —
-          # make the mechanism assert its own effect.
-          MATCHES=$(gh cache list --repo "$GITHUB_REPOSITORY" --limit 500 --json id,key,sizeInBytes \
-                      | jq -r --arg mine "$MINE" \
-                          '.[] | select(.key | startswith($mine)) | "\(.id)\t\(.sizeInBytes)\t\(.key)"')
+          # Listed, filtered and counted as three separate observable steps, so
+          # the four ways this can end are distinguishable in the log. They were
+          # not: a first version reported a failed `gh cache list`, a jq error,
+          # a refused delete and "there was legitimately nothing to release"
+          # with one identical message blaming the key prefix — which is the
+          # same dead end as the bug this step was rewritten to fix.
+          #
+          # Note the benign case is the COMMON one. A yield builds cold with
+          # save: false, so a leg that yielded last night holds nothing tonight;
+          # under sustained pressure MATCHED=0 is the steady state and must not
+          # warn, or the warning is noise inside a week.
+          #
+          # Never exits non-zero: a cache decision must not cost the night's
+          # sanitizer signal (see the un-cached build below, which is fine).
+          if ! RAW=$(gh cache list --repo "$GITHUB_REPOSITORY" --limit 500 --json id,key,sizeInBytes); then
+            echo "::error::Could not list caches — this leg's entries were NOT released and the space was not handed back."
+            exit 0
+          fi
+          if ! MATCHES=$(printf '%s' "$RAW" | jq -r --arg mine "$MINE" \
+               '.[] | select(.key | startswith($mine)) | "\(.id)\t\(.sizeInBytes)\t\(.key)"'); then
+            echo "::error::Could not parse the cache listing (renamed --json field?) — this leg's entries were NOT released."
+            exit 0
+          fi
+          MATCHED=$(printf '%s' "$MATCHES" | grep -c . || true)
           RELEASED=0
           while IFS=$'\t' read -r id size key; do
             [ -n "$id" ] || continue
-            if gh cache delete "$id" --repo "$GITHUB_REPOSITORY"; then
+            if err=$(gh cache delete "$id" --repo "$GITHUB_REPOSITORY" 2>&1); then
               RELEASED=$(( RELEASED + 1 ))
               echo "- released \`$key\` ($(( size / 1024 / 1024 )) MB)" >> "$GITHUB_STEP_SUMMARY"
             else
-              echo "::warning::Could not delete cache '$key' — needs actions: write on this job."
+              echo "::warning::Could not delete cache '$key': $err"
             fi
           done <<< "$MATCHES"
-          if [ "$RELEASED" -eq 0 ]; then
-            echo "::warning::Yielded the compiler cache but released nothing: no entry matched the prefix '$MINE'. The space was not handed back."
+          if [ "$MATCHED" -eq 0 ]; then
+            echo "Nothing held under '$MINE' — this leg is already cold, no space to hand back."
+          elif [ "$RELEASED" -eq 0 ]; then
+            echo "::error::Matched $MATCHED entr(y|ies) under '$MINE' but released none — every delete was refused. The space was not handed back."
           fi
 
       - name: Set up ccache
         uses: ./.github/actions/setup-compiler-cache
         with:
-          key: sanitizers-${{ matrix.sanitizer }}-linux-x86_64
+          key: ${{ env.CACHE_KEY }}
           use_cache: ${{ steps.cachefit.outputs.use_cache }}
           max-size: 600M
 

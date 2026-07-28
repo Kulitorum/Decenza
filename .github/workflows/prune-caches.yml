@@ -113,21 +113,31 @@ jobs:
 
       # Compiler caches parked on superseded release tags.
       #
+      # ONE-TIME CLEANUP PLUS A BACKSTOP, not an ongoing policy. Tag refs no
+      # longer save a cache at all — see the `save:` expression and its note in
+      # .github/actions/setup-compiler-cache/action.yml — so nothing new can
+      # enter this set. What it collects is the backlog written before that
+      # landed, and anything a future change to that expression lets through.
+      #
       # The step above keeps one copy per (prefix, ref) and is right to, but a
       # release tag is a ref that never builds again once the next one ships,
       # so its whole set is one-copy-of-dead-weight. GitHub scopes restores to
       # the entry's own ref (a tag build cannot read another tag's cache), which
       # is what makes an older tag's set unreachable rather than merely stale.
       #
-      # Measured 2026-07-28: v2.0.0 held 3045 MB across four platforms — macOS
-      # 1870, iOS 467, Linux x64 457, Windows 251 — while v2.0.1 was the shipped
-      # release. That is 30% of the 10 GB cap held by a tag nothing will build
-      # again, and it was pushing the nightly sanitizer job into its cold-build
-      # yield every night.
+      # Measured 2026-07-28: v2.0.0 held 3045 MB — macOS 1870, iOS 467, Linux
+      # x64 457, Windows 251 — while v2.0.1 was the shipped release. Four
+      # entries because that is what v2.0.0 happened to leave; six workflows use
+      # the cache action and v2.0.1 left six, 1.48 GB. Either way it is ~30% of
+      # the 10 GB cap held by a tag nothing will build again, and it was pushing
+      # the nightly sanitizer job into its cold-build yield every night.
       #
-      # The NEWEST tag is kept, deliberately: re-tagging at HEAD and force-
-      # pushing is the standard fix when main moves past a tag, and that reuses
-      # the same ref, so its cache still restores.
+      # The NEWEST tag is kept so a re-tag at HEAD — the standard fix when main
+      # moves past a tag — does not have its in-flight set collected mid-release.
+      # Note this no longer preserves warmth for that rebuild: with saving off on
+      # tags there is nothing to restore, and the retry reads main's scope. The
+      # newest set therefore ages out on GitHub's own 7-day unaccessed eviction
+      # rather than being collected here, which is the intended end state.
       #
       # Scoped tightly, since the surrounding steps are conservative about tags
       # for good reason: only timestamped ccache/sccache keys, only on tag refs,
@@ -143,18 +153,30 @@ jobs:
 
           # Tag-scoped entries surface as refs/heads/refs/tags/X (the odd shape
           # the deleted-branch step below skips) as well as plain refs/tags/X.
-          # Handle both; anything else is not a tag and is left alone.
-          CACHES=$(gh cache list --repo "$GITHUB_REPOSITORY" --limit 500 \
-                     --json id,key,ref,sizeInBytes \
-                   | jq -r --arg ts "$TS" '
+          # The whole `refs/heads/` is what is optional — `refs/(heads/)?refs/`
+          # only matches the quirk shape and a `refs/refs/` that never occurs,
+          # so a plain refs/tags/X would silently select nothing.
+          if ! RAW=$(gh cache list --repo "$GITHUB_REPOSITORY" --limit 500 \
+                       --json id,key,ref,sizeInBytes); then
+            echo "::error::Could not list caches — the superseded-tag prune did NOT run."
+            exit 1
+          fi
+          if ! CACHES=$(printf '%s' "$RAW" | jq -r --arg ts "$TS" '
                        .[]
                        | select(.key | test($ts))
-                       | select(.ref | test("^refs/(heads/)?refs/tags/"))
-                       | "\(.id)\t\(.ref | sub("^refs/(heads/)?refs/tags/"; ""))\t\(.sizeInBytes)\t\(.key)"
-                     ')
+                       | select(.ref | test("^(refs/heads/)?refs/tags/"))
+                       | "\(.id)\t\(.ref | sub("^(refs/heads/)?refs/tags/"; ""))\t\(.sizeInBytes)\t\(.key)"
+                     '); then
+            echo "::error::Could not parse the cache listing (renamed --json field?) — the superseded-tag prune did NOT run."
+            exit 1
+          fi
 
+          # Report what was actually observed. "No tag caches" and "the listing
+          # never happened" have to look different in the log, or this step
+          # asserts a fact about the store it never read — the failure the
+          # nightly's reclaim was rewritten to stop making.
           if [ -z "$CACHES" ]; then
-            echo "No tag-scoped compiler caches present."
+            echo "Listed $(printf '%s' "$RAW" | jq length) caches; none are tag-scoped."
             exit 0
           fi
 
@@ -162,23 +184,42 @@ jobs:
           # store. Self-contained on purpose: a tag whose build is still running
           # cannot appear here anyway, because the gate step skips the whole
           # workflow while any build is active.
+          #
+          # `sort -V` assumes this repo's scheme: strictly ascending, unsuffixed
+          # vX.Y.Z. It is wrong for a hotfix released after a higher version
+          # (v1.9.5 after v2.0.0 sorts older) and for a prerelease suffix, where
+          # GNU filevercmp ranks v2.1.0-beta ABOVE v2.1.0. Left as-is because
+          # tag refs no longer save a cache at all, so nothing new can enter
+          # this set; revisit if that ever changes.
           NEWEST=$(printf '%s\n' "$CACHES" | cut -f2 | sort -uV | tail -1)
-          echo "Newest tag with caches: $NEWEST (keeping its entries)"
+          CANDIDATES=$(printf '%s\n' "$CACHES" | awk -F'\t' -v n="$NEWEST" '$2 != n' | grep -c . || true)
+          echo "Newest tag with caches: $NEWEST (keeping its entries); $CANDIDATES entr(y|ies) on older tags."
 
           freed=0
+          deleted=0
           while IFS=$'\t' read -r id tag size key; do
             [ -n "$id" ] || continue
             [ "$tag" = "$NEWEST" ] && continue
             mb=$(( size / 1024 / 1024 ))
-            if gh cache delete "$id" --repo "$GITHUB_REPOSITORY"; then
+            if err=$(gh cache delete "$id" --repo "$GITHUB_REPOSITORY" 2>&1); then
               echo "- deleted \`$key\` (${mb} MB) — tag $tag superseded by $NEWEST" \
                 >> "$GITHUB_STEP_SUMMARY"
               freed=$(( freed + mb ))
+              deleted=$(( deleted + 1 ))
             else
-              echo "::warning::Failed to delete cache $key (id $id)"
+              echo "::warning::Failed to delete cache $key (id $id): $err"
             fi
           done <<< "$CACHES"
-          echo "Reclaimed ${freed} MB from superseded tags."
+
+          # Attempted vs succeeded, to the step summary rather than a stdout
+          # line nobody opens: "Reclaimed 0 MB" alone reads the same whether
+          # nothing needed collecting or every delete was refused.
+          echo "Reclaimed ${freed} MB from ${deleted}/${CANDIDATES} superseded entries." \
+            >> "$GITHUB_STEP_SUMMARY"
+          if [ "$CANDIDATES" -gt 0 ] && [ "$deleted" -eq 0 ]; then
+            echo "::error::$CANDIDATES entr(y|ies) on superseded tags and none could be deleted — nothing was reclaimed."
+            exit 1
+          fi
 
       # Caches for refs that no longer exist. The step above dedupes WITHIN a
       # ref and is correct at that job, but it has no concept of a ref that has
@@ -200,8 +241,12 @@ jobs:
       # Deliberately conservative about what counts as dead:
       #   - branches: only if `git ls-remote` says the ref is gone
       #   - PRs: only if the PR is CLOSED or MERGED
-      #   - refs/tags/* and anything unrecognised: never touched, since tag
-      #     caches warm release builds and a misfire there is expensive
+      #   - refs/tags/* and anything unrecognised: never touched HERE. The
+      #     original reason — tag caches warm release builds — no longer holds
+      #     (a tag cannot read another tag's cache, and tag refs no longer save
+      #     one), so superseded tags are collected by the step above instead.
+      #     What survives is the caution: this step deletes on a liveness signal
+      #     and a tag is always live, so a misfire here would be silent.
       - name: Drop caches for deleted branches and closed PRs
         if: ${{ steps.gate.outputs.skip == 'false' }}
         env:

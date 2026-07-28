@@ -65,12 +65,19 @@ runs:
         #
         # GitHub scopes caches by REF, not by key: a run reads its own ref's
         # scope plus the default branch's, and writes only into its own. So a
-        # tag build already restores main's entries — that is what
-        # warm-main-cache.yml keeps stocked — while the copy it saves lands in a
-        # scope only that same tag could ever read. Tags do not build twice, so
-        # those copies are write-only. v2.0.0 held 3045 MB of them across four
-        # platforms with v2.0.1 already shipped (measured 2026-07-28), a third
-        # of the 10 GB cap on a ref nothing would run again.
+        # tag build already restores main's entries — what warm-main-cache.yml
+        # seeds — while the copy it saves lands in a scope only that same tag
+        # could ever read. Tags do not build twice, so those copies are
+        # write-only. v2.0.0 held 3045 MB of them with v2.0.1 already shipped
+        # (measured 2026-07-28), ~30% of the 10 GB cap on a ref nothing would
+        # run again.
+        #
+        # Main's scope is now the ONLY thing seeding these, and warm-main-cache
+        # fires on `release: released` alone — not on a release left as a
+        # prerelease, which is this project's normal intermediate state. Main's
+        # entries were a release behind on the day this was written. If release
+        # builds start reading cold, check main's entry dates before suspecting
+        # this expression.
         #
         # No key can widen this — two tags cannot share a scope, and a tag
         # cannot write into main's. Not saving is the only lever.
