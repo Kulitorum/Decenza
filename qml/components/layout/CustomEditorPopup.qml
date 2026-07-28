@@ -1,3 +1,10 @@
+// Bound so this file's nested components — the two format-bar Repeater delegates, the colour
+// swatch Repeater, and the colour-picker Loader's sourceComponent — resolve this file's own
+// ids (`popup`, `formatter`, `colorPickerPopup`) instead of reading them as unqualified
+// access. Every delegate that takes an injected model role declares it required in the same
+// edit: without that, ComponentBehavior: Bound breaks them at RUNTIME and silently.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -601,21 +608,23 @@ Dialog {
                                 { label: "XL", size: 48 }
                             ]
                             Rectangle {
-                                readonly property bool isActive: formatter.currentFontSize === modelData.size
+                                id: sizeSwatch
+                                required property var modelData
+                                readonly property bool isActive: formatter.currentFontSize === sizeSwatch.modelData.size
                                 width: Theme.scaled(30); height: Theme.scaled(30)
                                 radius: Theme.scaled(4)
-                                color: isActive ? Theme.primaryColor : (sizeMa.pressed ? Qt.darker(Theme.backgroundColor, 1.3) : Theme.backgroundColor)
+                                color: sizeSwatch.isActive ? Theme.primaryColor : (sizeMa.pressed ? Qt.darker(Theme.backgroundColor, 1.3) : Theme.backgroundColor)
                                 border.color: Theme.borderColor; border.width: 1
                                 Accessible.role: Accessible.Button
-                                Accessible.name: TranslationManager.translate("customeditor.format.fontSize", "Font size") + " " + modelData.label + (isActive ? ", " + TranslationManager.translate("combobox.selected", "Selected") : "")
+                                Accessible.name: TranslationManager.translate("customeditor.format.fontSize", "Font size") + " " + sizeSwatch.modelData.label + (sizeSwatch.isActive ? ", " + TranslationManager.translate("combobox.selected", "Selected") : "")
                                 Accessible.focusable: true
                                 Accessible.onPressAction: sizeMa.clicked(null)
                                 Text {
-                                    anchors.centerIn: parent; text: modelData.label
-                                    color: parent.isActive ? Theme.primaryContrastColor : Theme.textColor; font: Theme.captionFont
+                                    anchors.centerIn: parent; text: sizeSwatch.modelData.label
+                                    color: sizeSwatch.isActive ? Theme.primaryContrastColor : Theme.textColor; font: Theme.captionFont
                                     Accessible.ignored: true
                                 }
-                                MouseArea { id: sizeMa; anchors.fill: parent; onClicked: formatter.setFontSize(modelData.size) }
+                                MouseArea { id: sizeMa; anchors.fill: parent; onClicked: formatter.setFontSize(sizeSwatch.modelData.size) }
                             }
                         }
                     }
@@ -631,22 +640,24 @@ Dialog {
                                 { icon: "qrc:/icons/AlignRight.svg", align: "right" }
                             ]
                             Rectangle {
+                                id: alignSwatch
+                                required property var modelData
                                 width: Theme.scaled(30); height: Theme.scaled(30)
                                 radius: Theme.scaled(4)
-                                color: popup.textAlign === modelData.align ? Theme.primaryColor : Theme.backgroundColor
+                                color: popup.textAlign === alignSwatch.modelData.align ? Theme.primaryColor : Theme.backgroundColor
                                 border.color: Theme.borderColor; border.width: 1
                                 Accessible.role: Accessible.Button
-                                Accessible.name: TranslationManager.translate("customeditor.format.align", "Align") + " " + modelData.align + (popup.textAlign === modelData.align ? ", " + TranslationManager.translate("combobox.selected", "Selected") : "")
+                                Accessible.name: TranslationManager.translate("customeditor.format.align", "Align") + " " + alignSwatch.modelData.align + (popup.textAlign === alignSwatch.modelData.align ? ", " + TranslationManager.translate("combobox.selected", "Selected") : "")
                                 Accessible.focusable: true
                                 Accessible.onPressAction: alignMa.clicked(null)
                                 ColoredIcon {
                                     anchors.centerIn: parent
-                                    source: modelData.icon
+                                    source: alignSwatch.modelData.icon
                                     iconWidth: Theme.scaled(16)
                                     iconHeight: Theme.scaled(16)
-                                    iconColor: popup.textAlign === modelData.align ? Theme.primaryContrastColor : Theme.textColor
+                                    iconColor: popup.textAlign === alignSwatch.modelData.align ? Theme.primaryContrastColor : Theme.textColor
                                 }
-                                MouseArea { id: alignMa; anchors.fill: parent; onClicked: popup.textAlign = modelData.align }
+                                MouseArea { id: alignMa; anchors.fill: parent; onClicked: popup.textAlign = alignSwatch.modelData.align }
                             }
                         }
                     }
@@ -1066,13 +1077,13 @@ Dialog {
         contentItem: Loader {
             id: cpLoader
             active: false
-            onLoaded: {
-                if (item && typeof item.setColor === "function")
-                    item.setColor(colorPickerPopup.initialColor)
-            }
             sourceComponent: ColumnLayout {
-                function setColor(c) { cpEditorInner.setColor(c) }
                 spacing: Theme.scaled(6)
+
+                // Seed the editor from inside the component. Doing it from the Loader's
+                // onLoaded meant reaching through `item`, which is only ever a QObject —
+                // the forwarding `setColor` it called was unverifiable from there.
+                Component.onCompleted: cpEditorInner.setColor(colorPickerPopup.initialColor)
 
                 RowLayout {
                     spacing: Theme.spacingMedium
@@ -1165,14 +1176,15 @@ Dialog {
                             { color: Theme.textSecondaryColor, label: TranslationManager.translate("customEditor.colorSecondary", "Secondary") }
                         ]
                         Rectangle {
+                            id: colorSwatch
                             required property var modelData
                             width: Theme.scaled(22); height: Theme.scaled(22)
                             radius: width / 2
-                            color: modelData.color
+                            color: colorSwatch.modelData.color
                             border.color: swatchMa.containsMouse ? Theme.primaryContrastColor : Theme.borderColor
                             border.width: swatchMa.containsMouse ? 2 : 1
                             Accessible.role: Accessible.Button
-                            Accessible.name: modelData.label + " " + TranslationManager.translate("customeditor.accessible.colorSwatch", "color swatch")
+                            Accessible.name: colorSwatch.modelData.label + " " + TranslationManager.translate("customeditor.accessible.colorSwatch", "color swatch")
                             Accessible.focusable: true
                             Accessible.onPressAction: swatchMa.clicked(null)
 
@@ -1181,7 +1193,7 @@ Dialog {
                                 anchors.fill: parent
                                 hoverEnabled: true
                                 onClicked: {
-                                    var c = parent.modelData.color.toString()
+                                    var c = colorSwatch.modelData.color.toString()
                                     if (colorPickerPopup.mode === "text") {
                                         formatter.setColorOnRange(c, formatter.savedSelectionStart, formatter.savedSelectionEnd)
                                     } else {

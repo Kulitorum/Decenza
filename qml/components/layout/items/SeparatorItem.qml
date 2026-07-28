@@ -1,10 +1,8 @@
 import QtQuick
 import Decenza
 
-Item {
+LayoutWidgetItem {
     id: root
-    property bool isCompact: false
-    property string itemId: ""
 
     implicitWidth: Theme.scaled(1)
     implicitHeight: Theme.scaled(30)

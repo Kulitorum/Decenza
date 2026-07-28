@@ -185,6 +185,11 @@ Page {
 
     Connections {
         target: Qt.application
+        // qmllint disable missing-property
+        // `Qt.application.state` is real: in a QtQuick app the object is a QQuickApplication
+        // (qquickglobal.cpp:239-241), which declares `state`
+        // (qtquick/util/qquickapplication_p.h:38). qmllint types it as the qtqml base class
+        // QQmlApplication, which does not — a tool limitation, not a missing property.
         function onStateChanged() {
             if (Qt.application.state === Qt.ApplicationSuspended) {
                 screensaverPage.appSuspended = true
@@ -216,6 +221,7 @@ Page {
                 }
             }
         }
+        // qmllint enable missing-property
     }
 
     function playNextMedia() {
@@ -326,7 +332,16 @@ Page {
         if (!mediaPlayerLoader.item) return
 
         // Prevent handling the same failure twice
+        // The video surface is an inline sourceComponent, so `mediaPlayerLoader.item` has no type
+        // name to cast to and every read of its `player`/`output` aliases is a QObject member
+        // access. Extracting it to a file is the real fix and is deliberately NOT done here: the
+        // component reaches back into this page for six things (playNextMedia, handleVideoFailure,
+        // videoFailCount, lastFailedSource, isVideosMode, mediaPlaying), so the extraction is an
+        // interface design, and this screen carries the Qt FFmpeg MediaCodec leak history that makes
+        // an untested change here expensive. Left as a marked debt rather than a silent one.
+        // qmllint disable missing-property
         var playerSource = mediaPlayerLoader.item.player.source.toString()
+        // qmllint enable missing-property
         if (playerSource === lastFailedSource) return
         lastFailedSource = playerSource
 
@@ -442,9 +457,12 @@ Page {
         }
 
         onLoaded: {
+            // Inline sourceComponent — see handleVideoFailure for why this is not extracted.
+            // qmllint disable missing-property
             item.player.videoOutput = item.output
             item.player.source = screensaverPage.pendingVideoSource
             item.player.play()
+            // qmllint enable missing-property
         }
     }
 
@@ -543,7 +561,10 @@ Page {
     Rectangle {
         id: fallbackBackground
         anchors.fill: parent
+        // Inline sourceComponent — see handleVideoFailure for why this is not extracted.
+        // qmllint disable missing-property
         visible: screensaverPage.isVideosMode && (!screensaverPage.mediaPlaying || (!screensaverPage.isCurrentItemImage && (!mediaPlayerLoader.item || mediaPlayerLoader.item.player.playbackState !== MediaPlayer.PlayingState)))
+        // qmllint enable missing-property
         z: 1
 
         Rectangle {
@@ -594,10 +615,13 @@ Page {
                                ScreensaverManager.showDateOnPersonal &&
                                ScreensaverManager.currentMediaDate.length > 0
 
+        // Inline sourceComponent — see handleVideoFailure for why this is not extracted.
+        // qmllint disable missing-property
         visible: screensaverPage.isVideosMode &&
                  (showDate || ScreensaverManager.currentVideoAuthor.length > 0) &&
                  ((mediaPlayerLoader.item && mediaPlayerLoader.item.player.playbackState === MediaPlayer.PlayingState) ||
                   (screensaverPage.isCurrentItemImage && screensaverPage.mediaPlaying))
+        // qmllint enable missing-property
 
         Text {
             anchors.centerIn: parent

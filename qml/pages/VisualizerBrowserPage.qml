@@ -155,14 +155,19 @@ Page {
                             }
                         }
 
-                        Keys.onReturnPressed: {
-                            if (text.length === 4) {
-                                MainController.visualizerImporter.importFromShareCode(text)
+                        // Submit on both Return and Enter (numeric keypad). This used to read
+                        // `Keys.onEnterPressed: Keys.onReturnPressed(event)`, which is not a
+                        // callable — the keypad Enter key threw a TypeError instead of submitting.
+                        function submitShareCode() {
+                            if (shareCodeInput.text.length === 4) {
+                                MainController.visualizerImporter.importFromShareCode(shareCodeInput.text)
                             }
-                            focus = false
+                            shareCodeInput.focus = false
                             Keyboard.hide()
                         }
-                        Keys.onEnterPressed: Keys.onReturnPressed(event)
+
+                        Keys.onReturnPressed: shareCodeInput.submitShareCode()
+                        Keys.onEnterPressed: shareCodeInput.submitShareCode()
                     }
 
                     // Import buttons row

@@ -13,7 +13,7 @@ import "../PillFit.js" as PillFit
 // compiles "equipment" to a CustomItem (action togglePreset:equipment +
 // navigate:equipment on long/double), so this file renders only in the compact
 // (top/bottom/statusBar) zones.
-Item {
+LayoutWidgetItem {
     id: root
 
     // `Window` is an ATTACHED property: it resolves against the current scope, so it is read here
@@ -22,8 +22,6 @@ Item {
     // — it reports `Member "Window" not found on type "EquipmentItem"`. Reading it once also removes the
     // duplicate lookups.
     readonly property var appWindow: Window.window
-    property bool isCompact: false
-    property string itemId: ""
 
     property var idlePage: {
         var p = root.parent

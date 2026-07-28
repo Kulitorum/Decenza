@@ -605,17 +605,19 @@ KeyboardAwareContainer {
                 // Qt.openUrlExternally on macOS, popping a "no application"
                 // dialog instead of opening the browser).
                 ColumnLayout {
+                    id: mcpSetupColumn
+
                     readonly property string mcpSetupUrl: (Settings.mcp.mcpEnabled && MainController.shotServer
                         && MainController.shotServer.url.length > 0)
                         ? MainController.shotServer.url + "/mcp/setup" : ""
 
-                    visible: mcpSetupUrl.length > 0
+                    visible: mcpSetupColumn.mcpSetupUrl.length > 0
                     Layout.fillWidth: true
                     spacing: Theme.scaled(2)
 
                     Text {
                         text: TranslationManager.translate("settings.ai.mcp.setupPageLabel", "Setup page:") + " "
-                            + parent.mcpSetupUrl
+                            + mcpSetupColumn.mcpSetupUrl
                         color: Theme.accentColor
                         font.pixelSize: Theme.scaled(12)
                         font.underline: true
@@ -629,8 +631,8 @@ KeyboardAwareContainer {
                             anchors.fill: parent
                             cursorShape: Qt.PointingHandCursor
                             onClicked: {
-                                if (parent.parent.mcpSetupUrl.length > 0)
-                                    Qt.openUrlExternally(parent.parent.mcpSetupUrl)
+                                if (mcpSetupColumn.mcpSetupUrl.length > 0)
+                                    Qt.openUrlExternally(mcpSetupColumn.mcpSetupUrl)
                             }
                         }
                         Accessible.onPressAction: setupLinkArea.clicked(null)

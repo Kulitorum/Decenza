@@ -6,16 +6,8 @@ import Decenza
 // Shows the current ratio as a 1:X.X pill; tapping opens the ratio chooser.
 // Selecting a preset arms a RATIO ANCHOR on the session (add-yield-ratio-
 // anchor): the target then derives from the dose and follows it.
-Item {
+LayoutWidgetItem {
     id: root
-    property bool isCompact: false
-    property string itemId: ""
-    property color zoneTextColor: Theme.textColor
-    property bool zoneValueBold: false
-    property string zoneStyle: "standard"
-    // See LayoutItemDelegate.
-    property color zoneFillOverride: "transparent"
-
     readonly property string labelText: TranslationManager.translate("idle.status.ratio", "Ratio")
     // The ACTUAL active ratio: the stored anchor when ratio-anchored, else
     // derived target ÷ dose — ProfileManager.brewByRatio folds both, the same

@@ -2,11 +2,8 @@ import QtQuick
 import QtQuick.Layouts
 import Decenza
 
-Item {
+LayoutWidgetItem {
     id: root
-    property bool isCompact: false
-    property string itemId: ""
-    property var modelData: ({})
 
     // Per-instance data mode (composable-brew-bar): "" / "gross" (raw weight,
     // default), "netBeans" (minus dose-cup tare), "netMilk" (minus pitcher

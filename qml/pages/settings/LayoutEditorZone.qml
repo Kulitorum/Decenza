@@ -180,12 +180,12 @@ Rectangle {
                     id: visualModel
                     model: root.items
 
-                    delegate: Item {
+                    delegate: RepeaterDelegateItem {
                         id: chipDelegate
                         width: chipBody.width
                         height: chipBody.height
 
-                        readonly property int liveIndex: DelegateModel.itemsIndex
+                        itemIndex: chipDelegate.DelegateModel.itemsIndex
                         readonly property bool isSelected: !root._dragging && (modelData.id === root.selectedItemId)
                         readonly property bool hasOptions: Settings.network.typeHasOptions(modelData.type)
 
@@ -239,7 +239,7 @@ Rectangle {
                                 // Accessible-only reorder fallback (drag has no
                                 // screen-reader equivalent). Hidden in normal use.
                                 StyledIconButton {
-                                    visible: root._a11yEnabled && chipDelegate.isSelected && chipDelegate.liveIndex > 0
+                                    visible: root._a11yEnabled && chipDelegate.isSelected && chipDelegate.itemIndex > 0
                                     implicitWidth: Theme.scaled(28)
                                     implicitHeight: Theme.scaled(28)
                                     icon.source: "qrc:/icons/ArrowLeft.svg"
@@ -286,7 +286,7 @@ Rectangle {
 
                                 // Accessible-only reorder fallback (toward end).
                                 StyledIconButton {
-                                    visible: root._a11yEnabled && chipDelegate.isSelected && chipDelegate.liveIndex < root.items.length - 1
+                                    visible: root._a11yEnabled && chipDelegate.isSelected && chipDelegate.itemIndex < root.items.length - 1
                                     implicitWidth: Theme.scaled(28)
                                     implicitHeight: Theme.scaled(28)
                                     icon.source: "qrc:/icons/ArrowLeft.svg"
@@ -354,7 +354,7 @@ Rectangle {
                                 property bool _held: false
 
                                 onPressed: {
-                                    _startIndex = chipDelegate.liveIndex
+                                    _startIndex = chipDelegate.itemIndex
                                     _held = false
                                 }
                                 onPositionChanged: {
@@ -371,7 +371,7 @@ Rectangle {
                                 }
                                 onReleased: {
                                     if (root._dragging) {
-                                        var endIndex = chipDelegate.liveIndex
+                                        var endIndex = chipDelegate.itemIndex
                                         if (_startIndex >= 0 && endIndex !== _startIndex)
                                             root.reorder(_startIndex, endIndex)
                                     }
@@ -382,7 +382,7 @@ Rectangle {
                                     // Roll back any live swaps so the DelegateModel
                                     // order matches the unchanged backing list.
                                     if (root._dragging) {
-                                        var cur = chipDelegate.liveIndex
+                                        var cur = chipDelegate.itemIndex
                                         if (_startIndex >= 0 && cur !== _startIndex)
                                             visualModel.items.move(cur, _startIndex, 1)
                                     }
@@ -397,10 +397,10 @@ Rectangle {
                         DropArea {
                             anchors.fill: parent
                             onEntered: function(drag) {
-                                var src = drag.source
+                                var src = drag.source as RepeaterDelegateItem
                                 if (!src || src === chipDelegate) return
-                                var from = src.liveIndex
-                                var to = chipDelegate.liveIndex
+                                var from = src.itemIndex
+                                var to = chipDelegate.itemIndex
                                 if (from !== to) visualModel.items.move(from, to, 1)
                             }
                         }

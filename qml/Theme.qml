@@ -30,6 +30,22 @@ QtObject {
     // has ONE reactive home — don't add a second copy on the window root.
     property string currentOperationMode: ""
 
+    // Title of the page currently on top, published by main.qml. Read by the PageTitleItem
+    // layout widget, which is a global overlay and so cannot reach the page itself.
+    property string currentPageTitle: ""
+
+    // Live dose-weighing state, published by IdlePage's beanCapture engine: the virtual-zero
+    // net bean weight while an uncaptured dose sits on the scale (-1 when not weighing), and
+    // the brief "dose captured" accent flash. Read by the DoseWeightItem layout widget, which
+    // can live in the persistent status bar and so cannot reach beanCapture directly.
+    //
+    // Here rather than on the window root for the reason stated above: page/mode state gets
+    // ONE reactive home. The window-root copy these replaced was reached through
+    // `Window.window`, a QQuickWindow — so a one-sided rename was invisible to the compiler
+    // and the widget carried a runtime warn-once probe to notice it. That is now a lint error.
+    property real doseLiveNetG: -1
+    property bool doseCaptureFlash: false
+
     // Convert emoji character to pre-rendered SVG image path.
     // Passes through qrc:/icons/... paths unchanged.
     // Returns "" when no asset is bundled — see _emojiAssetPath.

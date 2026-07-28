@@ -8,11 +8,8 @@ import QtQuick.Layouts
 import QtQuick.Effects
 import Decenza
 
-Item {
+LayoutWidgetItem {
     id: root
-    property bool isCompact: false
-    property string itemId: ""
-    property var modelData: ({})
 
     readonly property string content: modelData.content || "Text"
     readonly property string textAlign: modelData.align || "center"
@@ -43,9 +40,8 @@ Item {
 
     // Action tiles use Theme.actionTileColor (neutral over a custom background
     // image so they match the bars/cards, standard accent otherwise); an explicit
-    // per-widget bgColor still wins.
-    // Set by LayoutPreview when previewing an unapplied background colour; otherwise unset.
-    property color zoneFillOverride: "transparent"
+    // per-widget bgColor still wins. (zoneFillOverride below is set by LayoutPreview when
+    // previewing an unapplied background colour, and is otherwise transparent.)
     readonly property color _themeTileColor: hasAction ? Theme.actionTileColor : Theme.surfaceColor
     readonly property color _parsedBgColor: bgColor !== "" ? bgColor
         : (zoneFillOverride.a > 0 ? zoneFillOverride : _themeTileColor)

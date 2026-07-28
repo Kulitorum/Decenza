@@ -766,17 +766,25 @@ Page {
 
                     trailingActionDelegate: Component {
                         StyledIconButton {
+                            id: editFavoriteButton
+
+                            readonly property FavoritesRowActionSlot slot: parent as FavoritesRowActionSlot
+
                             anchors.fill: parent
                             icon.source: "qrc:/icons/edit.svg"
                             icon.width: Theme.scaled(18)
                             icon.height: Theme.scaled(18)
-                            icon.color: parent.selected ? Theme.primaryContrastColor : Theme.textColor
-                            accessibleName: parent.row ? (TranslationManager.translate("profileselector.accessible.edit", "Edit") + " " + AccessibilityManager.cleanForSpeech(parent.row.name)) : ""
+                            icon.color: editFavoriteButton.slot && editFavoriteButton.slot.selected
+                                        ? Theme.primaryContrastColor : Theme.textColor
+                            accessibleName: editFavoriteButton.slot && editFavoriteButton.slot.row
+                                ? (TranslationManager.translate("profileselector.accessible.edit", "Edit") + " "
+                                   + AccessibilityManager.cleanForSpeech(editFavoriteButton.slot.row.name))
+                                : ""
 
                             onClicked: {
-                                if (!parent.row) return
-                                Settings.app.selectedFavoriteProfile = parent.rowIndex
-                                ProfileManager.loadProfile(parent.row.filename)
+                                if (!editFavoriteButton.slot || !editFavoriteButton.slot.row) return
+                                Settings.app.selectedFavoriteProfile = editFavoriteButton.slot.rowIndex
+                                ProfileManager.loadProfile(editFavoriteButton.slot.row.filename)
                                 AppShell.profileEditorRequested()
                             }
                         }

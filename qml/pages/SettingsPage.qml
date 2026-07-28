@@ -259,17 +259,19 @@ Page {
 
                 onLoaded: {
                     // Themes tab emits a signal requesting the Save Theme dialog
-                    if (tabId === "themes" && item) {
-                        item.openSaveThemeDialog.connect(function() {
+                    var themesTab = item as SettingsThemesTab
+                    if (themesTab) {
+                        themesTab.openSaveThemeDialog.connect(function() {
                             saveThemeDialog.open()
                         })
                     }
                     // Machine tab's Maintenance card forwards to global navigation
-                    if (tabId === "machine" && item) {
-                        item.openDescaling.connect(function() {
+                    var machineTab = item as SettingsMachineTab
+                    if (machineTab) {
+                        machineTab.openDescaling.connect(function() {
                             AppShell.descalingRequested()
                         })
-                        item.openTransport.connect(function() {
+                        machineTab.openTransport.connect(function() {
                             AppShell.transportRequested()
                         })
                     }
@@ -328,9 +330,10 @@ Page {
 
         function doSave(name) {
             Settings.theme.saveCurrentTheme(name)
-            var themesLoader = tabLoaders.itemAt(SettingsTabs.indexOf("themes"))
-            if (themesLoader && themesLoader.item && themesLoader.item.refreshPresets) {
-                themesLoader.item.refreshPresets()
+            var themesLoader = tabLoaders.itemAt(SettingsTabs.indexOf("themes")) as Loader
+            var themesTab = themesLoader ? themesLoader.item as SettingsThemesTab : null
+            if (themesTab) {
+                themesTab.refreshPresets()
             }
             saveThemeDialog.close()
         }

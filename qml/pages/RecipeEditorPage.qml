@@ -104,14 +104,14 @@ Page {
         scrollingFromSelection = true
         // Center the section in the view
         var scrollTarget = Math.max(0, targetY - recipeScrollView.height / 4)
-        recipeScrollView.contentItem.contentY = scrollTarget
+        (recipeScrollView.contentItem as Flickable).contentY = scrollTarget
         // Clear flag after synchronous binding updates have propagated
         Qt.callLater(function() { scrollingFromSelection = false })
     }
 
     // Find which section is most centered in the scroll view
     function findCenteredSection() {
-        var viewCenter = recipeScrollView.contentItem.contentY + recipeScrollView.height / 2
+        var viewCenter = (recipeScrollView.contentItem as Flickable).contentY + recipeScrollView.height / 2
         var sections = [
             { name: "core", item: coreSection },
             { name: "infuse", item: infuseSection },
@@ -307,7 +307,7 @@ Page {
                     Connections {
                         target: recipeScrollView.contentItem
                         function onMovingChanged() {
-                            if (!recipeScrollView.contentItem.moving && !scrollingFromSelection) {
+                            if (!(recipeScrollView.contentItem as Flickable).moving && !scrollingFromSelection) {
                                 var section = findCenteredSection()
                                 var frameIdx = sectionToFrame(section)
                                 if (frameIdx >= 0 && frameIdx !== selectedFrameIndex) {
@@ -316,7 +316,7 @@ Page {
                             }
                         }
                         function onDraggingChanged() {
-                            if (recipeScrollView.contentItem.dragging) {
+                            if ((recipeScrollView.contentItem as Flickable).dragging) {
                                 scrollingFromSelection = false
                             }
                         }

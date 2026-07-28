@@ -1,3 +1,9 @@
+// Bound so the popup's ListView delegate can resolve this file's own ids (`root`,
+// `suggestionList`) instead of reading them as unqualified access. The one delegate in this
+// file takes injected model roles, so both are declared required in the same edit — without
+// that, ComponentBehavior: Bound breaks them at RUNTIME and silently.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Effects
@@ -7,6 +13,12 @@ import Decenza
 // Autocomplete text field that shows filtered suggestions as you type
 Item {
     id: root
+
+    // Attached-property lookups are only typed when written unprefixed in the scope they
+    // attach to; `root.Window.window` reads as a plain member of this file's own type.
+    // `var`, not `Window`: the attached property hands back a QQuickWindow, and the QML
+    // `Window` type is QQuickWindowQmlImpl — a narrower type the assignment cannot satisfy.
+    readonly property var hostWindow: Window.window
 
     property string label: ""
     property string text: ""
@@ -403,7 +415,7 @@ Item {
         y: {
             var _v = visible  // re-evaluate on open — mapToItem is not reactive
             var below = textInput.y + textInput.height
-            var win = root.Window.window
+            var win = root.hostWindow
             if (win) {
                 var fieldTopGlobal = textInput.mapToItem(null, 0, 0).y
                 var fieldBottomGlobal = fieldTopGlobal + textInput.height
@@ -431,21 +443,22 @@ Item {
             model: getFilteredSuggestions()
             currentIndex: -1
 
-            // Store reference to root for delegate access
-            property var suggestionRoot: root
-
             delegate: ItemDelegate {
                 id: suggestionDelegate
+
+                required property var modelData
+                required property int index
+
                 width: suggestionList.width
                 // Taller rows when a differentiator subtitle is shown so both lines fit.
                 height: suggestionDelegate.itemDesc.length > 0 ? Theme.scaled(58) : Theme.scaled(44)
-                highlighted: index === suggestionList.currentIndex
+                highlighted: suggestionDelegate.index === suggestionList.currentIndex
 
                 // Store reference to avoid scope issues
-                property string itemText: modelData
+                property string itemText: suggestionDelegate.modelData
                 // Optional differentiator subtitle for this value (empty when none).
-                property string itemDesc: root.descriptions && root.descriptions[modelData] !== undefined
-                                          ? String(root.descriptions[modelData]) : ""
+                property string itemDesc: root.descriptions && root.descriptions[suggestionDelegate.modelData] !== undefined
+                                          ? String(root.descriptions[suggestionDelegate.modelData]) : ""
 
                 contentItem: Column {
                     spacing: Theme.scaled(1)
@@ -478,12 +491,7 @@ Item {
                     opacity: highlighted || hovered ? 0.2 : 1
                 }
 
-                onClicked: {
-                    var listView = suggestionDelegate.ListView.view
-                    if (listView && listView.suggestionRoot) {
-                        listView.suggestionRoot.selectSuggestion(suggestionDelegate.itemText)
-                    }
-                }
+                onClicked: root.selectSuggestion(suggestionDelegate.itemText)
             }
 
             // Show message when no matches

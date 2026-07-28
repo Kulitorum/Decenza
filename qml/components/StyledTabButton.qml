@@ -64,6 +64,7 @@ TabButton {
     // Focus indicator - only for keyboard navigation, not mouse clicks
     FocusIndicator {
         targetItem: root
+        targetRadius: Theme.scaled(4)  // matches the checked-tab background Rectangle
         visible: root.visualFocus
     }
 }

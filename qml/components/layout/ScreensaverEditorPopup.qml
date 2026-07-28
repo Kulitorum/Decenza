@@ -446,12 +446,12 @@ Dialog {
                                 id: planVisualModel
                                 model: popup.shotPlanItems
 
-                                delegate: Item {
+                                delegate: RepeaterDelegateItem {
                                     id: planChip
                                     width: planChipBody.width
                                     height: planChipBody.height
 
-                                    readonly property int liveIndex: DelegateModel.itemsIndex
+                                    itemIndex: planChip.DelegateModel.itemsIndex
                                     readonly property string itemKey: modelData
 
                                     Rectangle {
@@ -486,7 +486,7 @@ Dialog {
                                         Accessible.role: Accessible.StaticText
                                         Accessible.name: TranslationManager.translate("shotPlanEditor.shownChip", "%1, shown, position %2 of %3")
                                             .arg(popup.planItemLabel(planChip.itemKey))
-                                            .arg(planChip.liveIndex + 1)
+                                            .arg(planChip.itemIndex + 1)
                                             .arg(popup.shotPlanItems.length)
                                         Accessible.focusable: true
 
@@ -498,14 +498,14 @@ Dialog {
                                             // Accessible-only reorder fallback (drag has no
                                             // screen-reader equivalent). Hidden in normal use.
                                             StyledIconButton {
-                                                visible: popup._a11yEnabled && planChip.liveIndex > 0
+                                                visible: popup._a11yEnabled && planChip.itemIndex > 0
                                                 implicitWidth: Theme.scaled(28)
                                                 implicitHeight: Theme.scaled(28)
                                                 icon.source: "qrc:/icons/ArrowLeft.svg"
                                                 icon.width: Theme.scaled(14)
                                                 icon.height: Theme.scaled(14)
                                                 accessibleName: TranslationManager.translate("layoutEditor.moveToStart", "Move toward start")
-                                                onClicked: popup.planMoveItem(planChip.liveIndex, planChip.liveIndex - 1)
+                                                onClicked: popup.planMoveItem(planChip.itemIndex, planChip.itemIndex - 1)
                                             }
 
                                             Text {
@@ -517,7 +517,7 @@ Dialog {
 
                                             // Accessible-only reorder fallback (toward end).
                                             StyledIconButton {
-                                                visible: popup._a11yEnabled && planChip.liveIndex < popup.shotPlanItems.length - 1
+                                                visible: popup._a11yEnabled && planChip.itemIndex < popup.shotPlanItems.length - 1
                                                 implicitWidth: Theme.scaled(28)
                                                 implicitHeight: Theme.scaled(28)
                                                 icon.source: "qrc:/icons/ArrowLeft.svg"
@@ -525,7 +525,7 @@ Dialog {
                                                 icon.height: Theme.scaled(14)
                                                 rotation: 180
                                                 accessibleName: TranslationManager.translate("layoutEditor.moveToEnd", "Move toward end")
-                                                onClicked: popup.planMoveItem(planChip.liveIndex, planChip.liveIndex + 1)
+                                                onClicked: popup.planMoveItem(planChip.itemIndex, planChip.itemIndex + 1)
                                             }
 
                                             // Remove — sends the item to the Available row.
@@ -559,7 +559,7 @@ Dialog {
 
                                             property int _startIndex: -1
 
-                                            onPressed: _startIndex = planChip.liveIndex
+                                            onPressed: _startIndex = planChip.itemIndex
                                             onPositionChanged: {
                                                 if (drag.active) popup._planDragging = true
                                             }
@@ -571,7 +571,7 @@ Dialog {
                                                 // statement, or the trailing lines run in a torn-down
                                                 // context where `popup` no longer resolves.
                                                 var from = _startIndex
-                                                var to = popup._planDragging ? planChip.liveIndex : -1
+                                                var to = popup._planDragging ? planChip.itemIndex : -1
                                                 popup._planDragging = false
                                                 _startIndex = -1
                                                 if (from >= 0 && to >= 0 && to !== from)
@@ -581,7 +581,7 @@ Dialog {
                                                 // Roll back any live swaps so the DelegateModel
                                                 // order matches the unchanged working list.
                                                 if (popup._planDragging) {
-                                                    var cur = planChip.liveIndex
+                                                    var cur = planChip.itemIndex
                                                     if (_startIndex >= 0 && cur !== _startIndex)
                                                         planVisualModel.items.move(cur, _startIndex, 1)
                                                 }
@@ -596,10 +596,10 @@ Dialog {
                                     DropArea {
                                         anchors.fill: parent
                                         onEntered: function(drag) {
-                                            var src = drag.source
+                                            var src = drag.source as RepeaterDelegateItem
                                             if (!src || src === planChip) return
-                                            var from = src.liveIndex
-                                            var to = planChip.liveIndex
+                                            var from = src.itemIndex
+                                            var to = planChip.itemIndex
                                             if (from !== to) planVisualModel.items.move(from, to, 1)
                                         }
                                     }

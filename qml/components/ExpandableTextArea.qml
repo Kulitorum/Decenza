@@ -388,7 +388,7 @@ Rectangle {
                     // Scroll to keep cursor visible when typing or tapping
                     onCursorRectangleChanged: {
                         if (!activeFocus) return
-                        var flickable = dialogScrollView.contentItem
+                        var flickable = dialogScrollView.contentItem as Flickable
                         if (!flickable) return
                         var cursorY = cursorRectangle.y
                         var cursorBottom = cursorY + cursorRectangle.height

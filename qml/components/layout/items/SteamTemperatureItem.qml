@@ -2,11 +2,8 @@ import QtQuick
 import QtQuick.Layouts
 import Decenza
 
-Item {
+LayoutWidgetItem {
     id: root
-    property bool isCompact: false
-    property string itemId: ""
-    property var modelData: ({})
 
     // Per-instance display mode (composable-status-bar): "text" (default) or
     // "icon" (a steam icon ahead of the value). Read from stored props.

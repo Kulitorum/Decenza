@@ -8,19 +8,8 @@ import QtQuick.Layouts
 import QtQuick.Effects
 import Decenza
 
-Item {
+LayoutWidgetItem {
     id: root
-    property bool isCompact: false
-    property string itemId: ""
-    property var modelData: ({})
-
-    // Zone style propagation — see LayoutItemDelegate. This widget did not take either
-    // before: its icon and label were pinned to Theme.textColor and its fill to Theme's
-    // chrome, so on a styled zone (or the background chooser's preview of a candidate
-    // colour) it stayed on the applied theme while everything beside it followed the
-    // zone — a white-on-navy capsule sitting in a light tan bar.
-    property color zoneTextColor: Theme.textColor
-    property color zoneFillOverride: "transparent"
 
     // Per-instance option (composable-status-bar): whether long-press quits the
     // app. Default true (current behaviour). When false, the widget sleeps on tap

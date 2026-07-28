@@ -1,18 +1,14 @@
 import QtQuick
 import QtQuick.Layouts
-import QtQuick.Window
 import Decenza
 
-Item {
+LayoutWidgetItem {
     id: root
-    property bool isCompact: false
-    property string itemId: ""
 
-    // Access currentPageTitle from the ApplicationWindow (main.qml)
-    property string pageTitle: {
-        var win = Window.window
-        return win ? (win.currentPageTitle || "") : ""
-    }
+    // Published by main.qml on Theme, beside currentPageObjectName below. Read from there
+    // rather than off the window root: `Window.window` is a QQuickWindow, so the property
+    // was an unchecked member read on a type that does not declare it.
+    readonly property string pageTitle: Theme.currentPageTitle
 
     // True only when the idle/home page is on top. The long-press-to-Settings
     // rescue gesture below is gated on this: the status bar (and this title) is a
@@ -23,10 +19,11 @@ Item {
     // the parent chain, which this widget cannot do — it is not a child of any page.
     readonly property bool onIdlePage: Theme.currentPageObjectName === "idlePage"
 
+    // A widget never reaches into main.qml's root — it emits an AppShell signal and the
+    // shell decides (QML_NAVIGATION.md). "" means no particular tab, which is what the
+    // direct `win.goToSettings()` call this replaced did.
     function openSettings() {
-        var win = Window.window
-        if (win && win.goToSettings)
-            win.goToSettings()
+        AppShell.settingsRequested("")
     }
 
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth

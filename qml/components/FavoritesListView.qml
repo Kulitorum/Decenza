@@ -20,7 +20,8 @@ import Decenza
 //   selectedIndex: external index of the selected row (or -1)
 //   displayTextFn(row, index), accessibleNameFn(row, index), deleteAccessibleNameFn(row, index)
 //   removeConfirmFn(row, index): return false to cancel delete
-//   trailingActionDelegate: Component whose loaded root sees `parent.row`, `parent.rowIndex`, `parent.selected`
+//   trailingActionDelegate: Component loaded into a FavoritesRowActionSlot, so its root reads
+//     the row through `(parent as FavoritesRowActionSlot).row` / `.rowIndex` / `.selected`
 //   showDeleteButton: toggles the X button column
 //   rowAccessibleDescription: TalkBack/VoiceOver hint describing the long-press/double-tap action
 //
@@ -69,17 +70,17 @@ Item {
         id: visualModel
         model: root.model
 
-        delegate: Item {
+        delegate: RepeaterDelegateItem {
             id: rowDelegate
             width: listView.width
             height: root.rowHeight
 
             // itemsIndex reflects live position after reorder via visualModel.items.move()
-            readonly property int liveIndex: DelegateModel.itemsIndex
+            itemIndex: rowDelegate.DelegateModel.itemsIndex
             readonly property var rowData: modelData
             // Highlight suppressed during drag (selected index refers to the external
             // model; live swaps would make the highlight jump mid-drag).
-            readonly property bool selected: !root._dragging && (liveIndex === root.selectedIndex)
+            readonly property bool selected: !root._dragging && (rowDelegate.itemIndex === root.selectedIndex)
 
             Rectangle {
                 id: rowPill
@@ -153,14 +154,14 @@ Item {
                             property int _startIndex: -1
 
                             onPressed: {
-                                _startIndex = rowDelegate.liveIndex
+                                _startIndex = rowDelegate.itemIndex
                                 root._dragging = true
                             }
 
                             onReleased: {
                                 autoScrollTimer.stop()
                                 autoScrollTimer.vy = 0
-                                var endIndex = rowDelegate.liveIndex
+                                var endIndex = rowDelegate.itemIndex
                                 if (_startIndex >= 0 && endIndex !== _startIndex) {
                                     // Emit before clearing _dragging so the selection-highlight
                                     // binding doesn't re-evaluate against a stale selectedIndex
@@ -176,7 +177,7 @@ Item {
                                 autoScrollTimer.vy = 0
                                 // Roll back any live swaps performed during this drag so the
                                 // DelegateModel order stays in sync with the backing Settings list.
-                                var currentIndex = rowDelegate.liveIndex
+                                var currentIndex = rowDelegate.itemIndex
                                 if (_startIndex >= 0 && currentIndex !== _startIndex) {
                                     visualModel.items.move(currentIndex, _startIndex, 1)
                                 }
@@ -207,7 +208,7 @@ Item {
                     // Row label
                     Text {
                         Layout.fillWidth: true
-                        text: root.displayTextFn(rowDelegate.rowData, rowDelegate.liveIndex)
+                        text: root.displayTextFn(rowDelegate.rowData, rowDelegate.itemIndex)
                         color: rowDelegate.selected ? Theme.primaryContrastColor : Theme.textColor
                         font: Theme.bodyFont
                         elide: Text.ElideRight
@@ -215,15 +216,15 @@ Item {
                     }
 
                     // Trailing action slot
-                    Loader {
+                    FavoritesRowActionSlot {
                         active: root.trailingActionDelegate !== null
                         visible: active
                         sourceComponent: root.trailingActionDelegate
                         Layout.preferredWidth: Theme.scaled(36)
                         Layout.preferredHeight: Theme.scaled(36)
-                        property var row: rowDelegate.rowData
-                        property int rowIndex: rowDelegate.liveIndex
-                        property bool selected: rowDelegate.selected
+                        row: rowDelegate.rowData
+                        rowIndex: rowDelegate.itemIndex
+                        selected: rowDelegate.selected
                     }
 
                     // Delete button
@@ -234,12 +235,12 @@ Item {
                         icon.source: "qrc:/icons/cross.svg"
                         inactiveColor: Theme.errorColor
                         accessibleName: rowDelegate.rowData
-                            ? root.deleteAccessibleNameFn(rowDelegate.rowData, rowDelegate.liveIndex) : ""
+                            ? root.deleteAccessibleNameFn(rowDelegate.rowData, rowDelegate.itemIndex) : ""
 
                         onClicked: {
                             if (!rowDelegate.rowData) return
-                            if (root.removeConfirmFn(rowDelegate.rowData, rowDelegate.liveIndex)) {
-                                root.rowDeleted(rowDelegate.liveIndex)
+                            if (root.removeConfirmFn(rowDelegate.rowData, rowDelegate.itemIndex)) {
+                                root.rowDeleted(rowDelegate.itemIndex)
                             }
                         }
                     }
@@ -249,22 +250,22 @@ Item {
                     anchors.fill: parent
                     z: -1
                     accessibleName: rowDelegate.rowData
-                        ? root.accessibleNameFn(rowDelegate.rowData, rowDelegate.liveIndex) : ""
+                        ? root.accessibleNameFn(rowDelegate.rowData, rowDelegate.itemIndex) : ""
                     accessibleDescription: root.rowAccessibleDescription
                     accessibleItem: rowPill
                     supportLongPress: true
                     supportDoubleClick: true
                     onAccessibleClicked: {
                         if (!rowDelegate.rowData) return
-                        root.rowSelected(rowDelegate.liveIndex)
+                        root.rowSelected(rowDelegate.itemIndex)
                     }
                     onAccessibleDoubleClicked: {
                         if (!rowDelegate.rowData) return
-                        root.rowLongPressed(rowDelegate.liveIndex)
+                        root.rowLongPressed(rowDelegate.itemIndex)
                     }
                     onAccessibleLongPressed: {
                         if (!rowDelegate.rowData) return
-                        root.rowLongPressed(rowDelegate.liveIndex)
+                        root.rowLongPressed(rowDelegate.itemIndex)
                     }
                 }
             }
@@ -274,10 +275,10 @@ Item {
             DropArea {
                 anchors.fill: parent
                 onEntered: function(drag) {
-                    var src = drag.source
+                    var src = drag.source as RepeaterDelegateItem
                     if (!src) return
-                    var from = src.liveIndex
-                    var to = rowDelegate.liveIndex
+                    var from = src.itemIndex
+                    var to = rowDelegate.itemIndex
                     if (from !== to) visualModel.items.move(from, to, 1)
                 }
             }

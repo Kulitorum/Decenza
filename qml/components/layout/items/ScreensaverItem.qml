@@ -1,11 +1,8 @@
 import QtQuick
 import Decenza
 
-Item {
+LayoutWidgetItem {
     id: root
-    property bool isCompact: false
-    property string itemId: ""
-    property var modelData: ({})
 
     // Extract screensaver subtype from the layout item type string
     // e.g. "screensaverFlipClock" -> "flipclock"

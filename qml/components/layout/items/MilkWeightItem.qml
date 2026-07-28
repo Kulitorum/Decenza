@@ -6,13 +6,8 @@ import Decenza
 // Shows the live in-session milk while steaming (sessionMeasuredMilkG on the
 // window root) and falls back to the last committed session weight
 // (Settings.brew.lastSteamMilkG); "—" when neither is available.
-Item {
+LayoutWidgetItem {
     id: root
-    property bool isCompact: false
-    property string itemId: ""
-    property var modelData: ({})
-    property color zoneTextColor: Theme.textColor
-    property bool zoneValueBold: false
 
     // Per-instance display mode ("text" default | "icon": the shared steam icon
     // in place of the label) and color override. See WidgetColor for the palette.

@@ -1,7 +1,6 @@
 import QtQuick
+import Decenza
 
-Item {
+LayoutWidgetItem {
     id: root
-    property bool isCompact: false
-    property string itemId: ""
 }
