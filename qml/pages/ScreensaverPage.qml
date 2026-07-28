@@ -1,3 +1,8 @@
+// The video/image Loader sourceComponents below are nested components, so `screensaverPage`
+// and the other ids in this file are not statically resolvable inside them without this
+// pragma. No Repeater or delegate in this file, so no `required property` is needed.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtMultimedia
@@ -123,35 +128,35 @@ Page {
         target: ScreensaverManager
         function onVideoReady(path) {
             // Media just finished downloading - try to play if we're showing fallback
-            if (!mediaPlaying) {
+            if (!screensaverPage.mediaPlaying) {
                 console.log("[Screensaver] New media ready, starting playback")
-                playNextMedia()
+                screensaverPage.playNextMedia()
             }
         }
         function onCatalogUpdated() {
             // Catalog loaded - try to play if we're showing fallback
-            if (!mediaPlaying && ScreensaverManager.itemCount > 0) {
+            if (!screensaverPage.mediaPlaying && ScreensaverManager.itemCount > 0) {
                 console.log("[Screensaver] Catalog updated, trying playback")
-                playNextMedia()
+                screensaverPage.playNextMedia()
             }
         }
         function onDimPercentChanged() {
-            if (isDisabledMode) return  // Disabled mode keeps brightness at minimum
+            if (screensaverPage.isDisabledMode) return  // Disabled mode keeps brightness at minimum
             if (ScreensaverManager.dimPercent === 0) {
                 dimTimer.stop()
                 dimOverlay.opacity = 0
                 ScreensaverManager.setScreenDimming(0)
             } else if (dimOverlay.opacity > 0) {
-                applyDim()
+                screensaverPage.applyDim()
             } else {
-                startDimming()
+                screensaverPage.startDimming()
             }
         }
         function onDimDelayMinutesChanged() {
             // Only restart if dim hasn't triggered yet
-            if (dimOverlay.opacity === 0 && ScreensaverManager.dimPercent > 0 && !isDisabledMode) {
+            if (dimOverlay.opacity === 0 && ScreensaverManager.dimPercent > 0 && !screensaverPage.isDisabledMode) {
                 dimTimer.stop()
-                startDimming()
+                screensaverPage.startDimming()
             }
         }
     }
@@ -186,7 +191,7 @@ Page {
                 console.log("[Screensaver] App suspended — pausing all rendering")
                 // Destroy video decoder to stop rendering to dead EGL surface
                 if (mediaPlayerLoader.active) {
-                    pendingVideoSource = ""
+                    screensaverPage.pendingVideoSource = ""
                     mediaPlayerLoader.active = false
                 }
                 imageDisplayTimer.stop()
@@ -194,19 +199,19 @@ Page {
             } else if (Qt.application.state === Qt.ApplicationActive && screensaverPage.appSuspended) {
                 screensaverPage.appSuspended = false
                 console.log("[Screensaver] App resumed — restarting media")
-                if (isVideosMode && ScreensaverManager.enabled) {
-                    playNextMedia()
+                if (screensaverPage.isVideosMode && ScreensaverManager.enabled) {
+                    screensaverPage.playNextMedia()
                     // playNextMedia() may call wake() which navigates away —
                     // don't touch animation state on a page being torn down
                     if (!screensaverPage.visible) return
                 }
                 // Restart gradient animation if in fallback mode (no playable media)
-                if (isVideosMode && !mediaPlaying) {
+                if (screensaverPage.isVideosMode && !screensaverPage.mediaPlaying) {
                     gradientAnimation.running = true
                 }
                 // Restart image rotation if an image was already loaded pre-suspend
                 // (onStatusChanged won't re-fire for an already-loaded source)
-                if (isVideosMode && isCurrentItemImage && mediaPlaying) {
+                if (screensaverPage.isVideosMode && screensaverPage.isCurrentItemImage && screensaverPage.mediaPlaying) {
                     imageDisplayTimer.restart()
                 }
             }
@@ -361,14 +366,14 @@ Page {
         repeat: false
         onTriggered: {
             // Mark current image as played for LRU tracking
-            if (currentImageSource.length > 0) {
-                ScreensaverManager.markVideoPlayed(currentImageSource)
+            if (screensaverPage.currentImageSource.length > 0) {
+                ScreensaverManager.markVideoPlayed(screensaverPage.currentImageSource)
             }
-            videoFailCount = 0
-            lastFailedSource = ""
+            screensaverPage.videoFailCount = 0
+            screensaverPage.lastFailedSource = ""
             // Toggle to other image for cross-fade effect
-            useFirstImage = !useFirstImage
-            playNextMedia()
+            screensaverPage.useFirstImage = !screensaverPage.useFirstImage
+            screensaverPage.playNextMedia()
         }
     }
 
@@ -384,7 +389,7 @@ Page {
         // Event-driven recreation: when the old component is destroyed (item
         // becomes null), re-activate the Loader to create a fresh decoder.
         onItemChanged: {
-            if (item === null && pendingVideoSource.length > 0) {
+            if (item === null && screensaverPage.pendingVideoSource.length > 0) {
                 mediaPlayerLoader.active = true
             }
         }
@@ -401,14 +406,14 @@ Page {
                 onMediaStatusChanged: {
                     if (mediaStatus === MediaPlayer.EndOfMedia) {
                         ScreensaverManager.markVideoPlayed(source.toString())
-                        videoFailCount = 0
-                        lastFailedSource = ""
-                        playNextMedia()
+                        screensaverPage.videoFailCount = 0
+                        screensaverPage.lastFailedSource = ""
+                        screensaverPage.playNextMedia()
                     } else if (mediaStatus === MediaPlayer.InvalidMedia) {
                         // InvalidMedia is the parser's verdict that the bytes
                         // aren't valid media — treat as a format error so the
                         // cached file gets evicted and re-fetched.
-                        handleVideoFailure(true)
+                        screensaverPage.handleVideoFailure(true)
                     }
                 }
 
@@ -417,13 +422,13 @@ Page {
                     // Only Qt's FormatError implies the on-disk bytes are
                     // bad. Other codes (ResourceError, NetworkError,
                     // AccessDeniedError) are transient — leave the file alone.
-                    handleVideoFailure(error === MediaPlayer.FormatError)
+                    screensaverPage.handleVideoFailure(error === MediaPlayer.FormatError)
                 }
 
                 onPlaybackStateChanged: {
                     if (playbackState === MediaPlayer.PlayingState) {
-                        videoFailCount = 0
-                        lastFailedSource = ""
+                        screensaverPage.videoFailCount = 0
+                        screensaverPage.lastFailedSource = ""
                     }
                 }
             }
@@ -432,13 +437,13 @@ Page {
                 id: videoOut
                 anchors.fill: parent
                 fillMode: VideoOutput.PreserveAspectCrop
-                visible: isVideosMode && mediaPlaying && !isCurrentItemImage
+                visible: screensaverPage.isVideosMode && screensaverPage.mediaPlaying && !screensaverPage.isCurrentItemImage
             }
         }
 
         onLoaded: {
             item.player.videoOutput = item.output
-            item.player.source = pendingVideoSource
+            item.player.source = screensaverPage.pendingVideoSource
             item.player.play()
         }
     }
@@ -447,7 +452,7 @@ Page {
     Item {
         id: imageContainer
         anchors.fill: parent
-        visible: isVideosMode && mediaPlaying && isCurrentItemImage
+        visible: screensaverPage.isVideosMode && screensaverPage.mediaPlaying && screensaverPage.isCurrentItemImage
 
         // Two images for cross-fade effect (2 second dissolve)
         Image {
@@ -455,14 +460,14 @@ Page {
             anchors.fill: parent
             fillMode: Image.PreserveAspectCrop
             asynchronous: true
-            opacity: useFirstImage ? 1.0 : 0.0
+            opacity: screensaverPage.useFirstImage ? 1.0 : 0.0
 
             Behavior on opacity {
                 NumberAnimation { duration: 2000; easing.type: Easing.InOutQuad }
             }
 
             onStatusChanged: {
-                if (status === Image.Ready && useFirstImage && source.toString().length > 0) {
+                if (status === Image.Ready && screensaverPage.useFirstImage && source.toString().length > 0) {
                     // Image loaded — only cycle if there are multiple items to show
                     if (ScreensaverManager.itemCount > 1 || ScreensaverManager.personalMediaCount > 1)
                         imageDisplayTimer.restart()
@@ -475,14 +480,14 @@ Page {
             anchors.fill: parent
             fillMode: Image.PreserveAspectCrop
             asynchronous: true
-            opacity: useFirstImage ? 0.0 : 1.0
+            opacity: screensaverPage.useFirstImage ? 0.0 : 1.0
 
             Behavior on opacity {
                 NumberAnimation { duration: 2000; easing.type: Easing.InOutQuad }
             }
 
             onStatusChanged: {
-                if (status === Image.Ready && !useFirstImage && source.toString().length > 0) {
+                if (status === Image.Ready && !screensaverPage.useFirstImage && source.toString().length > 0) {
                     if (ScreensaverManager.itemCount > 1 || ScreensaverManager.personalMediaCount > 1)
                         imageDisplayTimer.restart()
                 }
@@ -494,57 +499,62 @@ Page {
     Loader {
         id: pipesLoader
         anchors.fill: parent
-        active: Settings.app.hasQuick3D && isPipesMode && !appSuspended
-        visible: isPipesMode
+        active: Settings.app.hasQuick3D && screensaverPage.isPipesMode && !screensaverPage.appSuspended
+        visible: screensaverPage.isPipesMode
         z: 0
         source: "qrc:/qt/qml/Decenza/qml/components/PipesScreensaver.qml"
-        onLoaded: item.running = Qt.binding(function() { return isPipesMode && screensaverPage.visible && !appSuspended })
+        onLoaded: item.running = Qt.binding(function() { return screensaverPage.isPipesMode && screensaverPage.visible && !screensaverPage.appSuspended })
     }
 
     // Flip Clock screensaver
     Loader {
         id: flipClockLoader
         anchors.fill: parent
-        active: isFlipClockMode && !appSuspended
-        visible: isFlipClockMode
+        active: screensaverPage.isFlipClockMode && !screensaverPage.appSuspended
+        visible: screensaverPage.isFlipClockMode
         z: 0
         source: "qrc:/qt/qml/Decenza/qml/components/FlipClockScreensaver.qml"
-        onLoaded: item.running = Qt.binding(function() { return isFlipClockMode && screensaverPage.visible && !appSuspended })
+        onLoaded: item.running = Qt.binding(function() { return screensaverPage.isFlipClockMode && screensaverPage.visible && !screensaverPage.appSuspended })
     }
 
     // Strange Attractor screensaver
     Loader {
         id: attractorLoader
         anchors.fill: parent
-        active: isAttractorMode && !appSuspended
-        visible: isAttractorMode
+        active: screensaverPage.isAttractorMode && !screensaverPage.appSuspended
+        visible: screensaverPage.isAttractorMode
         z: 0
         source: "qrc:/qt/qml/Decenza/qml/components/StrangeAttractorScreensaver.qml"
-        onLoaded: item.running = Qt.binding(function() { return isAttractorMode && screensaverPage.visible && !appSuspended })
+        onLoaded: item.running = Qt.binding(function() { return screensaverPage.isAttractorMode && screensaverPage.visible && !screensaverPage.appSuspended })
     }
 
     // Shot Map screensaver (flat map works without Quick3D, globe loaded conditionally)
     Loader {
         id: shotMapLoader
         anchors.fill: parent
-        active: isShotMapMode && !appSuspended
-        visible: isShotMapMode
+        active: screensaverPage.isShotMapMode && !screensaverPage.appSuspended
+        visible: screensaverPage.isShotMapMode
         z: 0
         source: "qrc:/qt/qml/Decenza/qml/components/ShotMapScreensaver.qml"
-        onLoaded: item.running = Qt.binding(function() { return isShotMapMode && screensaverPage.visible && !appSuspended })
+        onLoaded: item.running = Qt.binding(function() { return screensaverPage.isShotMapMode && screensaverPage.visible && !screensaverPage.appSuspended })
     }
 
     // Fallback: show a subtle animation while no cached media (videos mode only)
     Rectangle {
         id: fallbackBackground
         anchors.fill: parent
-        visible: isVideosMode && (!mediaPlaying || (!isCurrentItemImage && (!mediaPlayerLoader.item || mediaPlayerLoader.item.player.playbackState !== MediaPlayer.PlayingState)))
+        visible: screensaverPage.isVideosMode && (!screensaverPage.mediaPlaying || (!screensaverPage.isCurrentItemImage && (!mediaPlayerLoader.item || mediaPlayerLoader.item.player.playbackState !== MediaPlayer.PlayingState)))
         z: 1
 
         Rectangle {
             id: gradientRect
             anchors.fill: parent
-            property real gradientHue: 0.6
+            // No initialiser: `NumberAnimation on gradientHue` below is a value source, and a value
+            // source overrides an initial binding rather than starting from it. The `: 0.6` that
+            // used to be here was dead — the gradient has always started at 0, not at 0.6. Removed
+            // rather than honoured, so the rendering is unchanged; set the animation's `from` if a
+            // different start hue is ever wanted.
+            property real gradientHue
 
             gradient: Gradient {
                 GradientStop {
@@ -581,10 +591,10 @@ Page {
                                ScreensaverManager.showDateOnPersonal &&
                                ScreensaverManager.currentMediaDate.length > 0
 
-        visible: isVideosMode &&
+        visible: screensaverPage.isVideosMode &&
                  (showDate || ScreensaverManager.currentVideoAuthor.length > 0) &&
                  ((mediaPlayerLoader.item && mediaPlayerLoader.item.player.playbackState === MediaPlayer.PlayingState) ||
-                  (isCurrentItemImage && mediaPlaying))
+                  (screensaverPage.isCurrentItemImage && screensaverPage.mediaPlaying))
 
         Text {
             anchors.centerIn: parent
@@ -595,7 +605,7 @@ Page {
                 var author = Theme.replaceEmojiWithImg(ScreensaverManager.currentVideoAuthor, Theme.scaled(14))
                 if (parent.showDate) {
                     return Theme.replaceEmojiWithImg(ScreensaverManager.currentMediaDate, Theme.scaled(14))
-                } else if (isCurrentItemImage) {
+                } else if (screensaverPage.isCurrentItemImage) {
                     return TranslationManager.translate("screensaver.photo_by", "Photo by %1 (Pexels)")
                            .arg(author)
                 } else {
@@ -615,13 +625,13 @@ Page {
         z: 2
         // Show clock based on screensaver type and user preference
         // Flip clock and disabled modes never show the clock
-        visible: (isVideosMode && ScreensaverManager.videosShowClock) ||
-                 (isPipesMode && ScreensaverManager.pipesShowClock) ||
-                 (isAttractorMode && ScreensaverManager.attractorShowClock)
+        visible: (screensaverPage.isVideosMode && ScreensaverManager.videosShowClock) ||
+                 (screensaverPage.isPipesMode && ScreensaverManager.pipesShowClock) ||
+                 (screensaverPage.isAttractorMode && ScreensaverManager.attractorShowClock)
         anchors.bottom: parent.bottom
         anchors.right: parent.right
-        anchors.rightMargin: Theme.scaled(50) + driftX
-        anchors.bottomMargin: Theme.chartMarginLarge + Theme.scaled(20) + driftY  // Above credits bar
+        anchors.rightMargin: Theme.scaled(50) + screensaverPage.driftX
+        anchors.bottomMargin: Theme.chartMarginLarge + Theme.scaled(20) + screensaverPage.driftY  // Above credits bar
         text: Qt.formatTime(currentTime, Settings.app.use12HourTime ? "h:mmap" : "HH:mm")
         color: Theme.primaryContrastColor
         opacity: 0.8
@@ -646,11 +656,11 @@ Page {
     Item {
         id: overlayReadoutRow
         z: 2
-        visible: !isDisabledMode && overlayRow.implicitWidth > 0
+        visible: !screensaverPage.isDisabledMode && overlayRow.implicitWidth > 0
         anchors.top: parent.top
         anchors.right: parent.right
-        anchors.topMargin: Theme.scaled(20) + driftY
-        anchors.rightMargin: Theme.scaled(50) + driftX
+        anchors.topMargin: Theme.scaled(20) + screensaverPage.driftY
+        anchors.rightMargin: Theme.scaled(50) + screensaverPage.driftX
         width: overlayRow.implicitWidth
         height: overlayRow.implicitHeight
 
@@ -689,7 +699,7 @@ Page {
     Rectangle {
         id: linkButton
         z: 4
-        visible: !isDisabledMode && ScreensaverManager.overlayLinkButtonEnabled
+        visible: !screensaverPage.isDisabledMode && ScreensaverManager.overlayLinkButtonEnabled
                  && ScreensaverManager.overlayLinkButtonLabel !== ""
         // Dims along with the rest of the screen, same as everything below the
         // dim overlay — otherwise it'd be the one static element that never
@@ -697,8 +707,8 @@ Page {
         opacity: 1.0 - dimOverlay.opacity
         anchors.left: parent.left
         anchors.bottom: parent.bottom
-        anchors.leftMargin: Theme.scaled(50) - driftX
-        anchors.bottomMargin: Theme.chartMarginLarge + Theme.scaled(20) + driftY
+        anchors.leftMargin: Theme.scaled(50) - screensaverPage.driftX
+        anchors.bottomMargin: Theme.chartMarginLarge + Theme.scaled(20) + screensaverPage.driftY
         radius: Theme.scaled(8)
         color: Qt.rgba(0, 0, 0, 0.5)
         border.color: Qt.rgba(1, 1, 1, 0.4)
@@ -731,7 +741,7 @@ Page {
         anchors.right: parent.right
         height: Theme.scaled(3)
         color: "transparent"
-        visible: isVideosMode && ScreensaverManager.isDownloading
+        visible: screensaverPage.isVideosMode && ScreensaverManager.isDownloading
 
         Rectangle {
             anchors.left: parent.left
@@ -753,7 +763,7 @@ Page {
         interval: Math.max(1, ScreensaverManager.dimDelayMinutes) * 60 * 1000
         repeat: false
         running: false
-        onTriggered: applyDim()
+        onTriggered: screensaverPage.applyDim()
     }
 
     // z:2.5 positions this above clock/credits (z:2) but below the touch MouseArea (z:3)
@@ -797,8 +807,8 @@ Page {
     MouseArea {
         z: 3
         anchors.fill: parent
-        onClicked: wake()
-        onPressed: wake()
+        onClicked: screensaverPage.wake()
+        onPressed: screensaverPage.wake()
     }
 
     // Also wake on key press
