@@ -1,3 +1,8 @@
+// `layer.effect` declares an inline component, so ids from this file are not statically
+// resolvable inside it without this pragma. No Repeater/delegate in this file, so no
+// `required property` is needed — see PresetPillRow.qml for the case that does.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Effects
@@ -183,7 +188,7 @@ Item {
     Timer {
         id: refreshTimer
         interval: 1000
-        running: content.indexOf("%TIME%") >= 0 || content.indexOf("%DATE%") >= 0
+        running: root.content.indexOf("%TIME%") >= 0 || root.content.indexOf("%DATE%") >= 0
         repeat: true
         onTriggered: root._refreshTick++
     }

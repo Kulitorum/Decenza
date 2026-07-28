@@ -1,3 +1,8 @@
+// Loader/sourceComponent blocks below are nested components, so `idlePage` and the other ids
+// in this file are not statically resolvable inside them without this pragma. There is no
+// Repeater or delegate in this file, so no `required property` is needed.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -826,9 +831,9 @@ Page {
     MouseArea {
         anchors.fill: parent
         z: -1
-        enabled: activePresetFunction !== "" &&
+        enabled: idlePage.activePresetFunction !== "" &&
                  !(typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
-        onClicked: activePresetFunction = ""
+        onClicked: idlePage.activePresetFunction = ""
     }
 
     // ============================================================
@@ -884,7 +889,14 @@ Page {
         // down for an upper-half one (restores to 0 on close).
         transform: Translate {
             y: -idlePage.bottomPanelClearance + idlePage.topPanelClearance
+            // qmllint disable Quick.layout-positioning
+            // False positive, verified: this `y` belongs to the Translate transform, not to the
+            // layout-managed item. A transform is precisely how you offset an item inside a layout
+            // WITHOUT fighting the layout — the alternative qmllint suggests (Layout.topMargin)
+            // would make the layout re-measure on every animation frame. The linter attributes the
+            // `y` to the enclosing item and cannot see the transform boundary.
             Behavior on y { NumberAnimation { duration: 200; easing.type: Easing.OutQuad } }
+            // qmllint enable Quick.layout-positioning
         }
 
         // Status readouts (temp, water level, connection)
@@ -914,7 +926,7 @@ Page {
         // Inline preset rows (for center-zone action buttons)
         Item {
             Layout.alignment: Qt.AlignHCenter
-            Layout.preferredHeight: activePresetFunction !== "" ? activePresetRow.implicitHeight : 0
+            Layout.preferredHeight: idlePage.activePresetFunction !== "" ? activePresetRow.implicitHeight : 0
             Layout.fillWidth: true
             Layout.maximumWidth: Theme.scaled(900)
             Layout.leftMargin: Theme.standardMargin
@@ -922,7 +934,7 @@ Page {
             clip: true
 
             property var activePresetRow: {
-                switch (activePresetFunction) {
+                switch (idlePage.activePresetFunction) {
                     case "steam": return steamPresetLoader
                     case "espresso": return espressoColumnLoader
                     case "hotwater": return hotWaterPresetLoader
@@ -942,7 +954,7 @@ Page {
                 id: steamPresetLoader
                 width: parent.width
                 anchors.horizontalCenter: parent.horizontalCenter
-                active: activePresetFunction === "steam"
+                active: idlePage.activePresetFunction === "steam"
                 visible: active
 
                 // Track scale weight changes and bump version to refresh the live
@@ -1079,7 +1091,7 @@ Page {
                 id: espressoColumnLoader
                 width: parent.width
                 anchors.horizontalCenter: parent.horizontalCenter
-                active: activePresetFunction === "espresso"
+                active: idlePage.activePresetFunction === "espresso"
                 visible: active
                 sourceComponent: Column {
                     width: parent ? parent.width : 0
@@ -1164,8 +1176,8 @@ Page {
                             Accessible.name: (ProfileManager.currentProfileName || "") + " " + TranslationManager.translate("idle.accessible.startespresso", "Start espresso")
                             Accessible.focusable: true
                             Accessible.onPressAction: idleNonFavMouseArea.clicked(null)
-                            Keys.onReturnPressed: { idleNonFavMouseArea.clicked(null); event.accepted = true }
-                            Keys.onSpacePressed:  { idleNonFavMouseArea.clicked(null); event.accepted = true }
+                            Keys.onReturnPressed: function(event) { idleNonFavMouseArea.clicked(null); event.accepted = true }
+                            Keys.onSpacePressed: function(event) { idleNonFavMouseArea.clicked(null); event.accepted = true }
 
                             Text {
                                 id: nonFavoriteProfileText
@@ -1256,7 +1268,7 @@ Page {
                 id: hotWaterPresetLoader
                 width: parent.width
                 anchors.horizontalCenter: parent.horizontalCenter
-                active: activePresetFunction === "hotwater"
+                active: idlePage.activePresetFunction === "hotwater"
                 visible: active
                 sourceComponent: PresetPillRow {
                     maxWidth: hotWaterPresetLoader.width
@@ -1303,7 +1315,7 @@ Page {
                 id: flushPresetLoader
                 width: parent.width
                 anchors.horizontalCenter: parent.horizontalCenter
-                active: activePresetFunction === "flush"
+                active: idlePage.activePresetFunction === "flush"
                 visible: active
                 sourceComponent: PresetPillRow {
                     maxWidth: flushPresetLoader.width
@@ -1351,7 +1363,7 @@ Page {
                 id: beanPresetLoader
                 width: parent.width
                 anchors.horizontalCenter: parent.horizontalCenter
-                active: activePresetFunction === "beans"
+                active: idlePage.activePresetFunction === "beans"
                 visible: active
                 sourceComponent: PresetPillRow {
                     id: inlineBeanPresetRow
@@ -1385,7 +1397,7 @@ Page {
                 id: equipmentPresetLoader
                 width: parent.width
                 anchors.horizontalCenter: parent.horizontalCenter
-                active: activePresetFunction === "equipment"
+                active: idlePage.activePresetFunction === "equipment"
                 visible: active
                 sourceComponent: PresetPillRow {
                     maxWidth: equipmentPresetLoader.width
@@ -1418,7 +1430,7 @@ Page {
                 id: recipePresetLoader
                 width: parent.width
                 anchors.horizontalCenter: parent.horizontalCenter
-                active: activePresetFunction === "recipes"
+                active: idlePage.activePresetFunction === "recipes"
                 visible: active
                 sourceComponent: PresetPillRow {
                     maxWidth: recipePresetLoader.width

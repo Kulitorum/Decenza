@@ -602,6 +602,7 @@ Page {
         }
 
         AccessibleButton {
+            id: doneButton
             text: TranslationManager.translate("recipeEditor.done", "Done")
             accessibleName: TranslationManager.translate("recipeEditor.finishEditing", "Finish editing recipe")
             onClicked: {
@@ -617,11 +618,11 @@ Page {
                 implicitWidth: Math.max(Theme.scaled(80), recipeDoneText.implicitWidth + Theme.scaled(32))
                 implicitHeight: Theme.scaled(36)
                 radius: Theme.scaled(6)
-                color: parent.down ? Qt.darker(Theme.primaryContrastColor, 1.1) : Theme.primaryContrastColor
+                color: doneButton.down || doneButton.isPressed ? Qt.darker(Theme.primaryContrastColor, 1.1) : Theme.primaryContrastColor
             }
             contentItem: Text {
                 id: recipeDoneText
-                text: parent.text
+                text: doneButton.text
                 font.pixelSize: Theme.scaled(14)
                 font.family: Theme.bodyFont.family
                 color: Theme.primaryColor

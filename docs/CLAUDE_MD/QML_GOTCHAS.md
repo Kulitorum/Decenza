@@ -394,6 +394,32 @@ paired-line, not textual:
 Run over a whole branch diff that is a few seconds and it is exhaustive; it found this occurrence
 and confirmed there were no others.
 
+## Introducing an id? Verify every use falls inside that object's own block
+
+Giving a control an id to replace an untyped `parent.` hop is a good fix, and it is easy to bind
+the id to the WRONG object. An automated pass over
+`Button { background: Rectangle { color: parent.down ... } }` searched upward for the enclosing
+`background:`/`contentItem:` with no bound, found one hundreds of lines above, and attached six
+references to a button in a different part of the file:
+
+```qml
+// line 273
+AccessibleButton { id: createNewProfileButton; ... }
+// line 774, inside `trailingActionDelegate: Component { StyledIconButton { ... } }`
+icon.color: createNewProfileButton.selected ? ...   // WRONG: `parent` here is the delegate's row
+```
+
+It compiles, and both objects exist, so nothing complains — it simply reads the wrong object.
+
+The check that catches it is cheap and does not need a linter: **for every id you introduce, find
+its declaration line and its block's extent by indentation, then assert every `<id>.` use in the
+file falls inside that range.** Run over a 38-id pass this found exactly the 2 that were wrong.
+
+Note the ordinary gate does NOT catch this. It surfaced only because one file's `unqualified`
+ceiling ROSE (54 -> 60) and the tool refused to write a baseline that relaxes a ceiling — the
+rise was the symptom, not the defect. A gate that silently accepted the new number would have
+shipped it.
+
 ## `Window` is an attached property — do not write it through an id
 
 ```qml

@@ -263,6 +263,7 @@ Item {
                         }
 
                         ProgressBar {
+                            id: progressBar
                             Layout.fillWidth: true
                             from: 0
                             to: Math.max(1, TranslationManager.totalStringCount)
@@ -287,7 +288,7 @@ Item {
 
                             contentItem: Item {
                                 Rectangle {
-                                    width: parent.parent.visualPosition * parent.width
+                                    width: progressBar.visualPosition * parent.width
                                     height: parent.height
                                     radius: Theme.scaled(3)
                                     color: Theme.successColor
@@ -755,6 +756,7 @@ Item {
         z: 100
 
         ProgressBar {
+            id: progressBar2
             anchors.centerIn: parent
             width: parent.width * 0.6
             from: 0
@@ -769,7 +771,7 @@ Item {
 
             contentItem: Item {
                 Rectangle {
-                    width: parent.parent.visualPosition * parent.width
+                    width: progressBar2.visualPosition * parent.width
                     height: parent.height
                     radius: Theme.scaled(4)
                     color: Theme.primaryColor

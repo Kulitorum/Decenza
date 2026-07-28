@@ -771,13 +771,14 @@ Item {
                         model: BLEManager.discoveredDevices
 
                         delegate: ItemDelegate {
+                            id: delegate
                             width: ListView.view.width
                             contentItem: Text {
                                 text: modelData.name + " (" + modelData.address + ")"
                                 color: Theme.textColor
                             }
                             background: Rectangle {
-                                color: parent.hovered ? Theme.accentColor : "transparent"
+                                color: delegate.hovered ? Theme.accentColor : "transparent"
                                 radius: Theme.scaled(4)
                             }
                             onClicked: DE1Device.connectToDevice(modelData.address)
@@ -1699,6 +1700,7 @@ Item {
                         }
 
                         delegate: ItemDelegate {
+                            id: delegate2
                             width: ListView.view.width
 
                             Accessible.role: Accessible.Button
@@ -1743,7 +1745,7 @@ Item {
                                 }
                             }
                             background: Rectangle {
-                                color: parent.hovered ? Theme.accentColor : "transparent"
+                                color: delegate2.hovered ? Theme.accentColor : "transparent"
                                 radius: Theme.scaled(4)
                             }
                             onClicked: {

@@ -675,21 +675,22 @@ Item {
                         }
 
                         delegate: ItemDelegate {
+                            id: delegate
                             width: ListView.view ? ListView.view.width : 0
                             height: Theme.scaled(36)
                             highlighted: modelData && modelData.id === ScreensaverManager.selectedCategoryId
 
                             background: Rectangle {
-                                color: parent.highlighted ? Theme.primaryColor :
-                                       parent.hovered ? Qt.darker(Theme.insetBackgroundColor, 1.2) : Theme.insetBackgroundColor
+                                color: delegate.highlighted ? Theme.primaryColor :
+                                       delegate.hovered ? Qt.darker(Theme.insetBackgroundColor, 1.2) : Theme.insetBackgroundColor
                                 radius: Theme.scaled(6)
                             }
 
                             contentItem: Text {
                                 text: modelData ? modelData.name : ""
-                                color: parent.highlighted ? Theme.primaryContrastColor : Theme.textColor
+                                color: delegate.highlighted ? Theme.primaryContrastColor : Theme.textColor
                                 font.pixelSize: Theme.scaled(14)
-                                font.bold: parent.highlighted
+                                font.bold: delegate.highlighted
                                 verticalAlignment: Text.AlignVCenter
                                 leftPadding: Theme.scaled(10)
                             }

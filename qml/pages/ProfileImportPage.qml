@@ -16,7 +16,11 @@ Page {
         TranslationManager.translate("profileimport.title", "Import from Tablet")
 
     function rescan() {
-        if (customScanPath != "")
+        // .toString(), not a bare compare: `customScanPath` is a `property url`, and QML exposes
+        // a url to JS as a UrlObject whose default virtualIsEqualTo returns false unconditionally
+        // (qv4managed.cpp). `!==` never coerces, so it was ALWAYS true and rescan() stopped
+        // falling back to auto-detect. `!=` coerced via ToPrimitive, which is why it worked.
+        if (customScanPath.toString() !== "")
             MainController.profileImporter.scanProfilesFromUrl(customScanPath)
         else
             MainController.profileImporter.scanProfiles()
@@ -167,6 +171,7 @@ Page {
 
         // Progress bar (during scanning/importing, non-iOS only)
         ProgressBar {
+            id: progressBar
             Layout.fillWidth: true
             Layout.preferredHeight: Theme.scaled(4)
             visible: !profileImportPage.isIOS && (MainController.profileImporter.isScanning || MainController.profileImporter.isImporting)
@@ -179,7 +184,7 @@ Page {
                 radius: 2
             }
             contentItem: Rectangle {
-                width: parent.visualPosition * parent.width
+                width: progressBar.visualPosition * parent.width
                 height: parent.height
                 radius: 2
                 color: Theme.primaryColor

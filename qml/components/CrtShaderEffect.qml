@@ -7,7 +7,12 @@ import Decenza
 
 ShaderEffect {
     // Uniforms: time and resolution
-    property real time: 0
+    // No initialiser: `NumberAnimation on time` below is a value source WITH AN EXPLICIT `from`,
+    // so it starts there and the initialiser is discarded immediately. (A value source with
+    // no `from` DOES start from the property's current value — qquickanimation.cpp:1324.
+    // The rule is about the explicit `from`, not about value sources in general.) The `: 0` was dead. Removed
+    // rather than honoured, so the shader timing is unchanged.
+    property real time
     property real resWidth: width > 0 ? width : 960
     property real resHeight: height > 0 ? height : 600
 

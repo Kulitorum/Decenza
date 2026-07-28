@@ -93,6 +93,7 @@ Dialog {
             property real buttonHeight: Theme.scaled(50)
 
             AccessibleButton {
+                id: discardButton
                 width: parent.buttonWidth
                 height: parent.buttonHeight
                 text: TranslationManager.translate("unsavedChanges.discard", "Discard")
@@ -104,10 +105,10 @@ Dialog {
                 background: Rectangle {
                     implicitHeight: Theme.scaled(60)
                     radius: Theme.buttonRadius
-                    color: parent.down ? Qt.darker(Theme.errorColor, 1.2) : Theme.errorColor
+                    color: discardButton.down || discardButton.isPressed ? Qt.darker(Theme.errorColor, 1.2) : Theme.errorColor
                 }
                 contentItem: Text {
-                    text: parent.text
+                    text: discardButton.text
                     font: Theme.bodyFont
                     color: Theme.primaryContrastColor
                     horizontalAlignment: Text.AlignHCenter
@@ -116,6 +117,7 @@ Dialog {
             }
 
             AccessibleButton {
+                id: useUnsavedButton
                 visible: root.showTry
                 width: visible ? parent.buttonWidth : 0
                 height: visible ? parent.buttonHeight : 0
@@ -133,7 +135,7 @@ Dialog {
                     border.color: Theme.successColor
                 }
                 contentItem: Text {
-                    text: parent.text
+                    text: useUnsavedButton.text
                     font: Theme.bodyFont
                     color: Theme.successColor
                     horizontalAlignment: Text.AlignHCenter
@@ -142,6 +144,7 @@ Dialog {
             }
 
             AccessibleButton {
+                id: saveAsButton
                 visible: root.showSaveAs
                 width: visible ? parent.buttonWidth : 0
                 height: visible ? parent.buttonHeight : 0
@@ -159,7 +162,7 @@ Dialog {
                     border.color: Theme.primaryColor
                 }
                 contentItem: Text {
-                    text: parent.text
+                    text: saveAsButton.text
                     font: Theme.bodyFont
                     color: Theme.primaryColor
                     horizontalAlignment: Text.AlignHCenter
@@ -168,6 +171,7 @@ Dialog {
             }
 
             AccessibleButton {
+                id: saveButton
                 width: parent.buttonWidth
                 height: parent.buttonHeight
                 text: TranslationManager.translate("unsavedChanges.save", "Save")
@@ -180,12 +184,12 @@ Dialog {
                 background: Rectangle {
                     implicitHeight: Theme.scaled(60)
                     radius: Theme.buttonRadius
-                    color: parent.enabled
-                        ? (parent.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor)
+                    color: saveButton.enabled
+                        ? (saveButton.down || saveButton.isPressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor)
                         : Theme.buttonDisabled
                 }
                 contentItem: Text {
-                    text: parent.text
+                    text: saveButton.text
                     font: Theme.bodyFont
                     color: Theme.primaryContrastColor
                     horizontalAlignment: Text.AlignHCenter

@@ -108,6 +108,7 @@ Dialog {
             Layout.preferredHeight: Theme.scaled(50)
 
             AccessibleButton {
+                id: okButton
                 anchors.right: parent.right
                 width: Theme.scaled(140)
                 height: Theme.scaled(50)
@@ -121,10 +122,10 @@ Dialog {
                 background: Rectangle {
                     implicitHeight: Theme.scaled(50)
                     radius: Theme.buttonRadius
-                    color: parent.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+                    color: okButton.down || okButton.isPressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
                 }
                 contentItem: Text {
-                    text: parent.text
+                    text: okButton.text
                     font: Theme.bodyFont
                     color: Theme.primaryContrastColor
                     horizontalAlignment: Text.AlignHCenter

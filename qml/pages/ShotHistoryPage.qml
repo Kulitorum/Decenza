@@ -688,6 +688,7 @@ Page {
 
                     // Selection checkbox
                     CheckBox {
+                        id: checkBox
                         checked: shotHistoryPage.isSelected(shotDelegate.model.id)
                         onClicked: shotHistoryPage.toggleSelection(shotDelegate.model.id)
                         Accessible.role: Accessible.CheckBox
@@ -699,8 +700,8 @@ Page {
                             implicitWidth: Theme.scaled(24)
                             implicitHeight: Theme.scaled(24)
                             radius: Theme.scaled(4)
-                            color: parent.checked ? Theme.primaryColor : "transparent"
-                            border.color: parent.checked ? Theme.primaryColor : Theme.borderColor
+                            color: checkBox.checked ? Theme.primaryColor : "transparent"
+                            border.color: checkBox.checked ? Theme.primaryColor : Theme.borderColor
                             border.width: 2
 
                             ColoredIcon {
@@ -708,8 +709,12 @@ Page {
                                 source: "qrc:/icons/tick.svg"
                                 iconWidth: Theme.scaled(16)
                                 iconHeight: Theme.scaled(16)
-                                iconColor: Theme.primaryColor
-                                visible: parent.parent.checked
+                                // primaryContrastColor, not primaryColor: the indicator's fill is
+                                // Theme.primaryColor when checked, so a primaryColor tick is drawn
+                                // blue-on-blue and cannot be seen. Same class as SettingsPage's
+                                // white-on-white search icon — visible only by looking at the app.
+                                iconColor: Theme.primaryContrastColor
+                                visible: checkBox.checked
                             }
                         }
                     }

@@ -339,7 +339,13 @@ Item {
                 modal: true
                 dim: true
                 closePolicy: Dialog.CloseOnEscape
+                // qmllint disable Quick.layout-positioning
+                // False positive, verified: qmllint's ForbiddenChildrenPropertyValidatorPass checks only
+                // whether an object is DECLARED lexically inside a Layout, never whether a Layout actually
+                // manages it. This object is not layout-managed — Dialog/Popup derive from QObject rather
+                // than Item, and anything with `parent: Overlay.overlay` is reparented out at runtime.
                 anchors.centerIn: Overlay.overlay
+                // qmllint enable Quick.layout-positioning
                 padding: Theme.scaled(24)
 
                 property string resultMessage: ""
@@ -485,7 +491,13 @@ Item {
                 modal: true
                 dim: true
                 closePolicy: Dialog.CloseOnEscape
+                // qmllint disable Quick.layout-positioning
+                // False positive, verified: qmllint's ForbiddenChildrenPropertyValidatorPass checks only
+                // whether an object is DECLARED lexically inside a Layout, never whether a Layout actually
+                // manages it. This object is not layout-managed — Dialog/Popup derive from QObject rather
+                // than Item, and anything with `parent: Overlay.overlay` is reparented out at runtime.
                 anchors.centerIn: Overlay.overlay
+                // qmllint enable Quick.layout-positioning
                 padding: Theme.scaled(24)
 
                 property string resultMessage: ""

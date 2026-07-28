@@ -111,24 +111,42 @@ CATEGORY_EXEMPTIONS: dict[str, int] = {
     # indistinguishable from the correct spelling, and its failure mode is the silent one (the
     # in-progress word is never committed). CLAUDE.md's "call commit() before reading
     # TextField.text" rule now has a home in code rather than being a convention.
-    "missing-property": 145,
-    # All 21 remaining are qmllint FALSE POSITIVES and cannot be driven to zero from this side:
-    # it flags any child DECLARED lexically inside a Layout without checking that a Layout will
-    # actually manage it. Two shapes — objects that are not Items at all (Popup/Dialog derive
-    # from QObject; one Translate transform), and one Item reparented out of the layout at
-    # runtime (`parent: Overlay.overlay` + anchors, SettingsHistoryDataTab.qml). Verified in the
-    # Qt 6.11.1 source; see bugs-found.md. The real ones were fixed by moving to
-    # Layout.preferredWidth/Height — do not "clean up" these 21.
-    "Quick.layout-positioning": 21,
+    # No "missing-property" entry: NOT exempted. As of this change there are no approved
+    # category exemptions at all, and this dict is empty by intent.
+    #
+    # The category is NOT yet at zero — the gate is red on it, deliberately. A ceiling here
+    # would be global: at 145, a brand-new missing-property bug anywhere in the tree was
+    # invisible, which is what an exemption costs and why none of the five survived. Red and
+    # honest beats green and blind; the remaining sites are being worked to zero.
+    # No "Quick.layout-positioning" entry: CLEAR, and deliberately not by blanket exemption.
+    # All 21 were qmllint FALSE POSITIVES — its ForbiddenChildrenPropertyValidatorPass checks
+    # only whether an object is DECLARED lexically inside a Layout, never whether a Layout
+    # actually manages it. Three shapes: Dialog/Popup (derive from QObject, not Item), items
+    # reparented out at runtime via `parent: Overlay.overlay`, and one Translate transform.
+    #
+    # They are now suppressed AT EACH SITE with `qmllint disable/enable` and the reason
+    # inline, rather than exempted here. That is the whole point: a category exemption is
+    # global, so at 21 a genuine layout-positioning bug introduced anywhere in the tree was
+    # invisible. At 0 the category is enforced and the next real one fails the gate.
     # No "import" entry: the category is CLEAR. It went 23 -> 7 when the last runtime
     # qmlRegisterType<> calls became QML_ELEMENT, and 7 -> 0 when 106 redundant directory imports
     # were deleted — `import "../components"` and friends, which shadowed the module's own
     # registrations. Re-adding a directory import for a type the module already provides will
     # bring this category back.
-    "Quick.property-changes-parsed": 5,
-    "duplicate-property-binding": 2,
+    # No "Quick.property-changes-parsed" entry: CLEAR. The five were one PropertyChanges block
+    # in SettingsPage.qml using `target:` plus bare property names, which PropertyChanges
+    # custom-parses so the bindings are not analysable. Rephrased as explicit
+    # `highlightOverlay.<prop>:` bindings.
+    # No "duplicate-property-binding" entry: CLEAR. Both were `NumberAnimation on X` over a
+    # property that also had an initialiser (ScreensaverPage gradientHue, CrtShaderEffect
+    # time). A value source OVERRIDES an initial binding rather than starting from it, so in
+    # both cases the initialiser was dead and the code had never done what it read as.
     # No "unresolved-type" entry either — same cause, cleared the same way.
-    "equality-type-coercion": 1,
+    # No "equality-type-coercion" entry: CLEAR. One `!=` in ProfileImportPage — and the fix was
+    # NOT the obvious one. The operand is a `property url`, which QML hands to JS as a UrlObject
+    # whose default virtualIsEqualTo returns false unconditionally, so a bare `!==` is ALWAYS
+    # true and silently broke the rescan fallback. Compare `.toString()`. Lint-clean and wrong
+    # is worse than lint-dirty and right.
     # No "incompatible-type" entry. Its single finding was
     # StrangeAttractorScreensaver.qml:47 binding `target: renderer`, declared QObject and actually
     # a StrangeAttractorRenderer — unresolvable while that type was registered at runtime, and

@@ -396,10 +396,12 @@ Item {
 
     // Clock display (top center)
     Text {
+        id: shotMapClock
+
         anchors.top: parent.top
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.topMargin: 30
-        text: Qt.formatTime(currentTime, Settings.app.use12HourTime ? "h:mmap" : "HH:mm")
+        text: Qt.formatTime(shotMapClock.currentTime, Settings.app.use12HourTime ? "h:mmap" : "HH:mm")
         color: mapTexture === "bright" ? "#ffffff" : "#aabbcc"
         font.pixelSize: Theme.scaled(48)
         font.bold: true
@@ -413,7 +415,10 @@ Item {
             interval: 1000
             running: showClock && root.visible
             repeat: true
-            onTriggered: parent.currentTime = new Date()
+            // shotMapClock, not `parent`: Timer is a QObject with no parent of its own, so
+            // unqualified `parent` resolved to the FILE root's parent and the clock never
+            // ticked. Same defect as ScreensaverPage.qml.
+            onTriggered: shotMapClock.currentTime = new Date()
         }
     }
 
