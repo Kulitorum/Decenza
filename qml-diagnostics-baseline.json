@@ -76,7 +76,7 @@
     "qml/components/layout/items/QuitItem.qml": 1,
     "qml/components/layout/items/RecipesItem.qml": 2,
     "qml/components/layout/items/ScaleBatteryItem.qml": 9,
-    "qml/components/layout/items/ScaleWeightItem.qml": 5,
+    "qml/components/layout/items/ScaleWeightItem.qml": 4,
     "qml/components/layout/items/ScreensaverItem.qml": 3,
     "qml/components/layout/items/SettingsItem.qml": 1,
     "qml/components/layout/items/SleepItem.qml": 4,
@@ -84,7 +84,7 @@
     "qml/components/layout/items/WeatherItem.qml": 32,
     "qml/components/library/LibraryItemCard.qml": 66,
     "qml/components/library/LibraryPanel.qml": 96,
-    "qml/main.qml": 141,
+    "qml/main.qml": 140,
     "qml/pages/AISettingsPage.qml": 8,
     "qml/pages/AutoFavoriteInfoPage.qml": 77,
     "qml/pages/AutoFavoritesPage.qml": 75,
@@ -119,7 +119,7 @@
     "qml/pages/settings/LayoutEditorZone.qml": 79,
     "qml/pages/settings/SettingsAITab.qml": 35,
     "qml/pages/settings/SettingsCalibrationTab.qml": 1,
-    "qml/pages/settings/SettingsConnectionsTab.qml": 83,
+    "qml/pages/settings/SettingsConnectionsTab.qml": 78,
     "qml/pages/settings/SettingsDebugTab.qml": 7,
     "qml/pages/settings/SettingsFirmwareTab.qml": 52,
     "qml/pages/settings/SettingsHistoryDataTab.qml": 18,
@@ -235,6 +235,6 @@
     "equality-type-coercion": 1,
     "import": 4,
     "missing-property": 311,
-    "unqualified": 4440
+    "unqualified": 4433
   }
 }

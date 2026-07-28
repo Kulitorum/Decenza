@@ -570,17 +570,17 @@ Item {
 
                     // Port info
                     Text {
-                        text: TranslationManager.translate("settings.connections.port", "Port:") + " " + (typeof USBManager !== "undefined" ? USBManager.portName : "")
+                        text: TranslationManager.translate("settings.connections.port", "Port:") + " " + (usbAvailable ? USBManager.portName : "")
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(13)
                     }
 
                     // Serial number
                     Text {
-                        text: TranslationManager.translate("settings.connections.serial", "Serial:") + " " + (typeof USBManager !== "undefined" ? USBManager.serialNumber : "")
+                        text: TranslationManager.translate("settings.connections.serial", "Serial:") + " " + (usbAvailable ? USBManager.serialNumber : "")
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(13)
-                        visible: typeof USBManager !== "undefined" && USBManager.serialNumber !== ""
+                        visible: usbAvailable && USBManager.serialNumber !== ""
                     }
 
                     // Firmware version

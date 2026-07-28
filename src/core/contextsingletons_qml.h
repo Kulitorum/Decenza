@@ -32,16 +32,20 @@
 // the two apart. #1661 is what that costs when it goes wrong.
 //
 // The 30 context properties live when this file was created accounted for 943 such warnings. The
-// names registered BELOW are now 747 of those 943 — 660 in the first batch (#1680), plus
-// SteamHealthTracker, FlowCalibrationModel, ProfileStorage and McpServer here. Update this figure
-// when you add an entry; it is the one number in this file that goes stale silently.
+// names registered BELOW are now 757 of those 943 — 660 in the first batch (#1680), plus
+// SteamHealthTracker, FlowCalibrationModel, ProfileStorage and McpServer, plus USBManager and
+// UsbScaleManager. Update this figure when you add an entry; it is the one number in this file
+// that goes stale silently.
 //
-// The five that remain are listed in openspec/changes/fix-qmllint-usability/tasks.md, each blocked
-// on something specific: ScaleDevice and Refractometer are re-pointed at runtime and need a
-// forwarding façade; USBManager and UsbScaleManager are inside `#ifndef Q_OS_IOS`; GHCSimulator is
-// the case described below. "Types already registered uncreatable in their own headers" used to be
-// listed here as a fourth blocker — it was wrong. Only SteamHealthTracker was ever in that shape,
-// and it turned out not to be a blocker at all: the registration simply moved here.
+// THREE remain, listed in openspec/changes/fix-qmllint-usability/tasks.md. ScaleDevice and
+// Refractometer are re-pointed at runtime and need a forwarding façade — genuinely the hardest
+// thing left, and section 4 defers it deliberately. GHCSimulator is the case described below.
+//
+// "Inside `#ifndef Q_OS_IOS`" used to be listed here as a blocker for USBManager and
+// UsbScaleManager. It was a real obstacle but a small one, and it is gone: see
+// decenzaOptionalSingleton() below. "Types already registered uncreatable in their own headers"
+// was listed as a blocker too — that one was simply wrong. Only SteamHealthTracker was ever in
+// that shape, and the registration just moved here.
 //
 // LIFETIME — READ BEFORE ADDING AN ENTRY
 // --------------------------------------
@@ -56,14 +60,15 @@
 // that reason and is registered below; de1SimulatorPtr is still declared after `engine` and is
 // deliberately NOT here.
 //
-// ghcSimulator is a different case and is NOT here for a different reason. Its declaration is
-// already inside `#if (Q_OS_WIN || Q_OS_MACOS) && QT_DEBUG`, so on every other build the instance
-// legitimately does not exist — QML guards the name, and main.qml:861 has truthy-guarded it all
-// along. Registering it would therefore be safe at the QML level but would make
-// decenzaPublishedSingleton() qCritical on every Android, iOS and Linux launch, because that
-// helper treats "asked for before main() published it" as always a defect, which for this one
-// name it is not. Registering it needs an explicit optional-singleton path in the helper; that is
-// a deliberate decision, not an oversight, and it is not worth taking for 15 warnings.
+// ghcSimulator is still NOT here, and the reason has changed. The optional-singleton path it was
+// waiting for now exists (decenzaOptionalSingleton, below) and would handle its
+// `#if (Q_OS_WIN || Q_OS_MACOS) && QT_DEBUG` guard exactly as it handles the USB pair's. What
+// blocks it is the LIFETIME rule above: `GHCSimulator ghcSimulator` is declared in main.cpp AFTER
+// `QQmlApplicationEngine engine`, so registering it as-is publishes a raw pointer to an object
+// that dies while live bindings can still read it — the refractometer crash, again. Registering it
+// means hoisting that declaration above the engine first, and that is a change to debug-desktop
+// startup ordering for 15 warnings on a build nobody ships. Do the hoist, then register; do not
+// register without the hoist.
 
 #include <QtQml/qqmlregistration.h>
 #include <QtQml/QQmlEngine>
@@ -87,6 +92,8 @@
 #include "../mcp/mcpserver.h"
 #include "../machine/steamhealthtracker.h"
 #include "../models/flowcalibrationmodel.h"
+#include "../usb/usbmanager.h"
+#include "../usb/usbscalemanager.h"
 
 // Shared body of every create() below. The QML_* and Q_GADGET macros have to appear literally in
 // each struct — moc does not expand preprocessor macros when it looks for them, so the structs
@@ -116,6 +123,30 @@ T* decenzaPublishedSingleton(T* instance, QJSEngine* engine, const char* qmlName
     }
     QJSEngine::setObjectOwnership(instance, QJSEngine::CppOwnership);
     return instance;
+}
+
+// The same publish, for a name whose instance legitimately does not exist on some builds.
+//
+// decenzaPublishedSingleton() treats a null instance as always a defect, which is right for a
+// name main() unconditionally owns and wrong for one behind a platform guard: USBManager and
+// UsbScaleManager are declared inside `#ifndef Q_OS_IOS`, so on iOS there is nothing to publish
+// and a qCritical on every launch would be noise reporting the intended state.
+//
+// A null return still gives QML `undefined` for the name, which is exactly what the QML side
+// already expects — every reference is either behind `Qt.platform.os !== "ios"` or a
+// `typeof X !== "undefined"` guard. The difference from a context property is that the name is
+// now a declared type: qmllint checks the member you reach for, and a typo in it fails even
+// though the instance may be absent at runtime.
+//
+// Do NOT reach for this to silence a name that should always be present. The loud version is the
+// default for a reason — an unpublished mandatory singleton reads as "every binding is undefined"
+// with nothing saying why.
+template <typename T>
+T* decenzaOptionalSingleton(T* instance, QJSEngine* engine, const char* qmlName)
+{
+    if (!instance)
+        return nullptr;
+    return decenzaPublishedSingleton(instance, engine, qmlName);
 }
 
 // 236 unqualified references across 26 QML files — the largest single name in the app.
@@ -418,5 +449,47 @@ public:
     static McpServer* create(QQmlEngine*, QJSEngine* engine)
     {
         return decenzaPublishedSingleton(s_singletonInstance, engine, "McpServer");
+    }
+};
+
+// USBManager and UsbScaleManager are declared inside `#ifndef Q_OS_IOS` in main.cpp, so on iOS
+// there is no instance and create() returns null — hence decenzaOptionalSingleton() rather than
+// the loud form. That guard was the whole reason these two stayed context properties.
+//
+// Registering them does NOT make the name resolve to an object on iOS, and it must not: the QML
+// side guards every use (`Qt.platform.os !== "ios"`, `typeof USBManager !== "undefined"`) and
+// those guards stay. What it buys is that the MEMBER is checked everywhere — `USBManager.de1Connected`
+// and `UsbScaleManager.scaleConnected` are typed now, on every platform including iOS, so a
+// misspelling fails the build rather than reading undefined on the one platform that has the object.
+
+// 8 references across 1 QML file.
+struct USBManagerForeign
+{
+    Q_GADGET
+    QML_FOREIGN(USBManager)
+    QML_SINGLETON
+    QML_NAMED_ELEMENT(USBManager)
+
+public:
+    inline static USBManager* s_singletonInstance = nullptr;
+    static USBManager* create(QQmlEngine*, QJSEngine* engine)
+    {
+        return decenzaOptionalSingleton(s_singletonInstance, engine, "USBManager");
+    }
+};
+
+// 2 references across 2 QML files.
+struct UsbScaleManagerForeign
+{
+    Q_GADGET
+    QML_FOREIGN(UsbScaleManager)
+    QML_SINGLETON
+    QML_NAMED_ELEMENT(UsbScaleManager)
+
+public:
+    inline static UsbScaleManager* s_singletonInstance = nullptr;
+    static UsbScaleManager* create(QQmlEngine*, QJSEngine* engine)
+    {
+        return decenzaOptionalSingleton(s_singletonInstance, engine, "UsbScaleManager");
     }
 };

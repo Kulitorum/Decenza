@@ -266,6 +266,24 @@ Two mechanical traps when adding `QML_ELEMENT` to a header:
   registered types *inherit*. Without `DEPENDENCIES QtQuick3D`, `PipeCylinderGeometry`'s
   `QQuick3DGeometry` prototype is unlinkable and every use reports `used but it is not resolved` —
   with `Quick3D.qmltypes` shipped and already on the import path.
+- **Migrating a `#ifdef`-guarded context property silently breaks every `typeof X !== "undefined"`
+  guard around it.** This is the one migration hazard that does not announce itself: it compiles
+  clean, the gate reports only improvements, and it breaks at runtime on the platform you did not
+  build. A context property that `main()` never publishes is genuinely absent, so `typeof` returns
+  `"undefined"` and the guard holds. Register the same name as a `QML_SINGLETON` and **the type
+  always exists** — on a platform where `create()` returns null, `typeof X` is `"object"`, the
+  guard passes, and the next member access dereferences null. `USBManager` and `UsbScaleManager`
+  hit exactly this: three bindings in `SettingsConnectionsTab.qml` would have thrown on iOS, and
+  a `visible:` gate does not save you, because an invisible element's bindings still evaluate.
+  - Fix: guard on the **condition**, not on the name's existence — the file's own
+    `readonly property bool usbAvailable: Qt.platform.os !== "ios"`, or a plain truthiness test
+    (`X ? X.member : ...`), both of which are correct for a null singleton *and* an absent one.
+  - Use `decenzaOptionalSingleton()` (not `decenzaPublishedSingleton()`) for a name whose instance
+    legitimately does not exist on some builds; the loud helper would `qCritical` on every launch
+    of the platform that is behaving correctly.
+  - Grep for `typeof <Name>` before migrating. If there are none, check anyway for
+    `Qt.platform.os` tests near the uses — those are the same guard written a different way, and
+    they are the ones that stay correct.
 
 ## Reading the qmllint gate — four things that will save you a day
 

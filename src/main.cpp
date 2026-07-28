@@ -3464,8 +3464,11 @@ int main(int argc, char *argv[])
     LibrarySharingForeign::s_singletonInstance = &librarySharing;
     ShotHistoryExporterForeign::s_singletonInstance = &shotHistoryExporter;
 #ifndef Q_OS_IOS
-    context->setContextProperty("USBManager", &usbManager);
-    context->setContextProperty("UsbScaleManager", &usbScaleManager);
+    // On iOS these two are never published and their create() returns null, so QML reads the name
+    // as undefined — which is what every call site there already guards for. See
+    // decenzaOptionalSingleton() in contextsingletons_qml.h for why that is not an error.
+    USBManagerForeign::s_singletonInstance = &usbManager;
+    UsbScaleManagerForeign::s_singletonInstance = &usbScaleManager;
 #endif
 
     // Declared above `engine` (see there); only the wiring is here, where its dependencies exist.
