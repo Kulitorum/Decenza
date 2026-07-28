@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -159,21 +161,21 @@ Item {
     Rectangle {
         id: valueDisplay
         anchors.fill: parent
-        radius: sc(8)
+        radius: root.sc(8)
         color: Theme.cardBackgroundColor
         border.width: 1
         border.color: Theme.textSecondaryColor
 
         RowLayout {
             anchors.fill: parent
-            anchors.margins: sc(2)
-            spacing: sc(2)
+            anchors.margins: root.sc(2)
+            spacing: root.sc(2)
 
             // Minus button - immediate response, Flickable handles scroll detection
             Rectangle {
-                Layout.preferredWidth: sc(24)
+                Layout.preferredWidth: root.sc(24)
                 Layout.fillHeight: true
-                radius: sc(6)
+                radius: root.sc(6)
                 color: minusArea.pressed ? Qt.darker(Theme.surfaceColor, 1.3) : "transparent"
 
                 Accessible.role: Accessible.Button
@@ -197,7 +199,7 @@ Item {
                     // repeat timer; on release we stop the timer and commit.
                     // onCanceled means user dragged off the button — stop without
                     // committing since the hold repeats are what they wanted to cancel.
-                    onClicked: { adjustValue(-1); root.commitValue() }
+                    onClicked: { root.adjustValue(-1); root.commitValue() }
                     onPressAndHold: decrementTimer.start()
                     onReleased: {
                         if (decrementTimer.running) {
@@ -212,7 +214,7 @@ Item {
                     id: decrementTimer
                     interval: 80
                     repeat: true
-                    onTriggered: adjustValue(-1)
+                    onTriggered: root.adjustValue(-1)
                 }
             }
 
@@ -278,7 +280,7 @@ Item {
                         if (!dragReady) {
                             var absX = Math.abs(deltaX)
                             var absY = Math.abs(deltaY)
-                            if (absX > sc(15) && absX > absY) {
+                            if (absX > root.sc(15) && absX > absY) {
                                 dragReady = true
                                 isDragging = true
                                 startX = mouse.x
@@ -287,7 +289,7 @@ Item {
                             } else {
                                 // Track any movement so we don't open popup
                                 // for vertical swipes (which should scroll).
-                                if (absX > sc(5) || absY > sc(5)) {
+                                if (absX > root.sc(5) || absY > root.sc(5)) {
                                     hasMoved = true
                                 }
                                 return
@@ -299,20 +301,20 @@ Item {
                         // Dragging up = fine gear (fineStepSize) when available.
                         var vertDist = mouse.y - startY
                         var gear
-                        if (root.hasFineGear && vertDist < -sc(50)) {
+                        if (root.hasFineGear && vertDist < -root.sc(50)) {
                             gear = -1  // Fine gear (drag up)
                         } else {
-                            gear = Math.min(2, Math.floor(Math.max(0, vertDist) / sc(50)))
+                            gear = Math.min(2, Math.floor(Math.max(0, vertDist) / root.sc(50)))
                         }
                         if (gear !== currentGear) {
                             currentGear = gear
-                            announceGearChange(gear)
+                            root.announceGearChange(gear)
                         }
 
-                        var effectiveStep = gearToStep(gear)
-                        var steps = Math.round(deltaX / sc(20))
+                        var effectiveStep = root.gearToStep(gear)
+                        var steps = Math.round(deltaX / root.sc(20))
                         if (steps !== 0) {
-                            adjustValueWithStep(steps, effectiveStep)
+                            root.adjustValueWithStep(steps, effectiveStep)
                             startX = mouse.x
                             // Do NOT reset startY — it is the gear reference point
                         }
@@ -356,8 +358,8 @@ Item {
                 Item {
                     id: bubbleAnchor
                     anchors.centerIn: parent
-                    width: sc(1)
-                    height: sc(1)
+                    width: root.sc(1)
+                    height: root.sc(1)
                 }
 
                 // Floating speech bubble - rendered in overlay to be always on top
@@ -377,9 +379,9 @@ Item {
 
                         property point anchorPos: bubbleAnchor.mapToItem(Overlay.overlay, 0, 0)
                         x: anchorPos.x - width / 2
-                        y: anchorPos.y - height - sc(15)
+                        y: anchorPos.y - height - root.sc(15)
                         width: bubbleRect.width
-                        height: bubbleRect.height + bubbleTail.height - sc(3)
+                        height: bubbleRect.height + bubbleTail.height - root.sc(3)
 
                         // Pop-in animation
                         scale: valueDragArea.isDragging ? 1.0 : 0.5
@@ -391,16 +393,16 @@ Item {
                         // Bubble body - 1.5x larger
                         Rectangle {
                             id: bubbleRect
-                            width: bubbleText.width + sc(36)
-                            height: sc(66)
+                            width: bubbleText.width + root.sc(36)
+                            height: root.sc(66)
                             radius: height / 2
                             color: root.valueColor
 
                             // Subtle gradient shine
                             Rectangle {
                                 anchors.fill: parent
-                                anchors.margins: sc(3)
-                                radius: parent.radius - sc(3)
+                                anchors.margins: root.sc(3)
+                                radius: parent.radius - root.sc(3)
                                 gradient: Gradient {
                                     GradientStop { position: 0.0; color: Qt.rgba(1, 1, 1, 0.3) }
                                     GradientStop { position: 0.5; color: Qt.rgba(1, 1, 1, 0) }
@@ -411,7 +413,7 @@ Item {
                                 id: bubbleText
                                 anchors.centerIn: parent
                                 text: root.displayText || (root.value.toFixed(root.decimals) + root.suffix)
-                                font.pixelSize: sc(30)
+                                font.pixelSize: root.sc(30)
                                 font.bold: true
                                 color: speechBubble.getContrastColor(root.valueColor)
                             }
@@ -422,9 +424,9 @@ Item {
                             id: bubbleTail
                             anchors.horizontalCenter: bubbleRect.horizontalCenter
                             anchors.top: bubbleRect.bottom
-                            anchors.topMargin: -sc(3)
-                            width: sc(30)
-                            height: sc(21)
+                            anchors.topMargin: -root.sc(3)
+                            width: root.sc(30)
+                            height: root.sc(21)
 
                             onPaint: {
                                 var ctx = getContext("2d")
@@ -457,14 +459,14 @@ Item {
                     visible: valueDragArea.isDragging
 
                     property point widgetPos: valueContainer.mapToItem(Overlay.overlay, valueContainer.width, valueContainer.height / 2)
-                    x: widgetPos.x + sc(8)
+                    x: widgetPos.x + root.sc(8)
                     y: widgetPos.y - height / 2
                     width: gearCol.width
                     height: gearCol.height
 
                     Column {
                         id: gearCol
-                        spacing: sc(2)
+                        spacing: root.sc(2)
 
                         Repeater {
                             model: root.gearLabels()
@@ -473,7 +475,7 @@ Item {
                                 required property string modelData
                                 property int gear: root.labelIndexToGear(index)
                                 text: modelData
-                                font.pixelSize: sc(13)
+                                font.pixelSize: root.sc(13)
                                 font.bold: valueDragArea.currentGear === gear
                                 color: valueDragArea.currentGear === gear ? Theme.primaryColor : Theme.textSecondaryColor
                                 opacity: valueDragArea.currentGear === gear ? 1.0 : 0.35
@@ -485,9 +487,9 @@ Item {
 
             // Plus button - immediate response, Flickable handles scroll detection
             Rectangle {
-                Layout.preferredWidth: sc(24)
+                Layout.preferredWidth: root.sc(24)
                 Layout.fillHeight: true
-                radius: sc(6)
+                radius: root.sc(6)
                 color: plusArea.pressed ? Qt.darker(Theme.surfaceColor, 1.3) : "transparent"
 
                 Accessible.role: Accessible.Button
@@ -507,7 +509,7 @@ Item {
                 MouseArea {
                     id: plusArea
                     anchors.fill: parent
-                    onClicked: { adjustValue(1); root.commitValue() }
+                    onClicked: { root.adjustValue(1); root.commitValue() }
                     onPressAndHold: incrementTimer.start()
                     onReleased: {
                         if (incrementTimer.running) {
@@ -522,7 +524,7 @@ Item {
                     id: incrementTimer
                     interval: 80
                     repeat: true
-                    onTriggered: adjustValue(1)
+                    onTriggered: root.adjustValue(1)
                 }
             }
         }
@@ -586,23 +588,23 @@ Item {
             Rectangle {
                 id: popupControl
                 anchors.centerIn: parent
-                width: parent.width - sc(40)
-                height: sc(80)
-                radius: sc(16)
+                width: parent.width - root.sc(40)
+                height: root.sc(80)
+                radius: root.sc(16)
                 color: Theme.surfaceColor
                 border.width: 1
                 border.color: Theme.textSecondaryColor
 
                 RowLayout {
                     anchors.fill: parent
-                    anchors.margins: sc(6)
-                    spacing: sc(4)
+                    anchors.margins: root.sc(6)
+                    spacing: root.sc(4)
 
                     // Minus button
                     Rectangle {
-                        Layout.preferredWidth: sc(70)
+                        Layout.preferredWidth: root.sc(70)
                         Layout.fillHeight: true
-                        radius: sc(12)
+                        radius: root.sc(12)
                         color: popupMinusArea.pressed ? Qt.darker(Theme.surfaceColor, 1.3) : "transparent"
 
                         Accessible.role: Accessible.Button
@@ -613,7 +615,7 @@ Item {
                         Text {
                             anchors.centerIn: parent
                             text: "\u2212"
-                            font.pixelSize: sc(32)
+                            font.pixelSize: root.sc(32)
                             font.bold: true
                             color: root.value <= root.from ? Theme.textSecondaryColor : Theme.textColor
                             Accessible.ignored: true
@@ -622,7 +624,7 @@ Item {
                         MouseArea {
                             id: popupMinusArea
                             anchors.fill: parent
-                            onClicked: { popupAdjust(-1); root.commitValue() }
+                            onClicked: { root.popupAdjust(-1); root.commitValue() }
                             onPressAndHold: popupDecrementTimer.start()
                             onReleased: {
                                 if (popupDecrementTimer.running) {
@@ -637,7 +639,7 @@ Item {
                             id: popupDecrementTimer
                             interval: 80
                             repeat: true
-                            onTriggered: popupAdjust(-1)
+                            onTriggered: root.popupAdjust(-1)
                         }
                     }
 
@@ -657,10 +659,10 @@ Item {
                         // Release fires commitValue once when the key lifts,
                         // mirroring the +/- button contract.
                         Keys.onEscapePressed: scrubberPopup.close()
-                        Keys.onUpPressed: popupAdjust(1)
-                        Keys.onDownPressed: popupAdjust(-1)
-                        Keys.onLeftPressed: popupAdjust(-1)
-                        Keys.onRightPressed: popupAdjust(1)
+                        Keys.onUpPressed: root.popupAdjust(1)
+                        Keys.onDownPressed: root.popupAdjust(-1)
+                        Keys.onLeftPressed: root.popupAdjust(-1)
+                        Keys.onRightPressed: root.popupAdjust(1)
                         Keys.onReturnPressed: scrubberPopup.close()
                         Keys.onEnterPressed: scrubberPopup.close()
                         Keys.onReleased: function(event) {
@@ -677,7 +679,7 @@ Item {
                             anchors.centerIn: parent
                             visible: !popupContent.editMode
                             text: root.displayText || (root.value.toFixed(root.decimals) + root.suffix)
-                            font.pixelSize: sc(40)
+                            font.pixelSize: root.sc(40)
                             font.bold: true
                             color: root.valueColor
                         }
@@ -686,9 +688,9 @@ Item {
                         TextInput {
                             id: popupTextInput
                             anchors.centerIn: parent
-                            width: parent.width - sc(12)
+                            width: parent.width - root.sc(12)
                             visible: popupContent.editMode
-                            font.pixelSize: sc(40)
+                            font.pixelSize: root.sc(40)
                             font.bold: true
                             color: root.valueColor
                             horizontalAlignment: Text.AlignHCenter
@@ -736,9 +738,9 @@ Item {
                         Rectangle {
                             anchors.horizontalCenter: parent.horizontalCenter
                             anchors.top: popupTextInput.bottom
-                            anchors.topMargin: sc(2)
-                            width: popupTextInput.contentWidth + sc(20)
-                            height: sc(2)
+                            anchors.topMargin: root.sc(2)
+                            width: popupTextInput.contentWidth + root.sc(20)
+                            height: root.sc(2)
                             color: root.valueColor
                             visible: popupContent.editMode
                         }
@@ -758,7 +760,7 @@ Item {
                                 // Offset startY so the current gear is preserved when drag begins.
                                 // Works for all gears: gear=0 → mouse.y, gear=1 → mouse.y-50,
                                 // gear=-1 → mouse.y+50 (because -(-1)*50 = +50).
-                                startY = mouse.y - popupContent.currentGear * sc(50)
+                                startY = mouse.y - popupContent.currentGear * root.sc(50)
                                 isDragging = false
 
                                 // Announce parameter name when bubble appears (accessibility)
@@ -771,27 +773,27 @@ Item {
                             onPositionChanged: function(mouse) {
                                 var deltaX = mouse.x - startX
 
-                                if (!isDragging && (Math.abs(deltaX) > sc(5) || Math.abs(mouse.y - startY) > sc(5))) {
+                                if (!isDragging && (Math.abs(deltaX) > root.sc(5) || Math.abs(mouse.y - startY) > root.sc(5))) {
                                     isDragging = true
                                 }
 
                                 if (isDragging) {
                                     var vertDist = mouse.y - startY
                                     var gear
-                                    if (root.hasFineGear && vertDist < -sc(50)) {
+                                    if (root.hasFineGear && vertDist < -root.sc(50)) {
                                         gear = -1
                                     } else {
-                                        gear = Math.min(2, Math.floor(Math.max(0, vertDist) / sc(50)))
+                                        gear = Math.min(2, Math.floor(Math.max(0, vertDist) / root.sc(50)))
                                     }
                                     if (gear !== popupContent.currentGear) {
                                         popupContent.currentGear = gear
-                                        announceGearChange(gear)
+                                        root.announceGearChange(gear)
                                     }
 
-                                    var effectiveStep = gearToStep(gear)
-                                    var steps = Math.round(deltaX / sc(20))
+                                    var effectiveStep = root.gearToStep(gear)
+                                    var steps = Math.round(deltaX / root.sc(20))
                                     if (steps !== 0) {
-                                        adjustValueWithStep(steps, effectiveStep)
+                                        root.adjustValueWithStep(steps, effectiveStep)
                                         startX = mouse.x
                                         // Do NOT reset startY — it is the gear reference point
                                     }
@@ -822,8 +824,8 @@ Item {
                         Item {
                             id: popupBubbleAnchor
                             anchors.centerIn: parent
-                            width: sc(1)
-                            height: sc(1)
+                            width: root.sc(1)
+                            height: root.sc(1)
                         }
 
                         // Speech bubble for popup
@@ -840,9 +842,9 @@ Item {
 
                                 property point globalPos: popupBubbleAnchor.mapToGlobal(0, 0)
                                 x: globalPos.x - width / 2
-                                y: globalPos.y - height - sc(15)
+                                y: globalPos.y - height - root.sc(15)
                                 width: popupBubbleRect.width
-                                height: popupBubbleRect.height + popupBubbleTail.height - sc(3)
+                                height: popupBubbleRect.height + popupBubbleTail.height - root.sc(3)
 
                                 scale: popupDragArea.pressed ? 1.0 : 0.5
                                 opacity: popupDragArea.pressed ? 1.0 : 0
@@ -852,15 +854,15 @@ Item {
 
                                 Rectangle {
                                     id: popupBubbleRect
-                                    width: popupBubbleText.width + sc(36)
-                                    height: sc(66)
+                                    width: popupBubbleText.width + root.sc(36)
+                                    height: root.sc(66)
                                     radius: height / 2
                                     color: root.valueColor
 
                                     Rectangle {
                                         anchors.fill: parent
-                                        anchors.margins: sc(3)
-                                        radius: parent.radius - sc(3)
+                                        anchors.margins: root.sc(3)
+                                        radius: parent.radius - root.sc(3)
                                         gradient: Gradient {
                                             GradientStop { position: 0.0; color: Qt.rgba(1, 1, 1, 0.3) }
                                             GradientStop { position: 0.5; color: Qt.rgba(1, 1, 1, 0) }
@@ -871,7 +873,7 @@ Item {
                                         id: popupBubbleText
                                         anchors.centerIn: parent
                                         text: root.displayText || (root.value.toFixed(root.decimals) + root.suffix)
-                                        font.pixelSize: sc(30)
+                                        font.pixelSize: root.sc(30)
                                         font.bold: true
                                         color: parent.parent.getContrastColor(root.valueColor)
                                     }
@@ -881,9 +883,9 @@ Item {
                                     id: popupBubbleTail
                                     anchors.horizontalCenter: popupBubbleRect.horizontalCenter
                                     anchors.top: popupBubbleRect.bottom
-                                    anchors.topMargin: -sc(3)
-                                    width: sc(30)
-                                    height: sc(21)
+                                    anchors.topMargin: -root.sc(3)
+                                    width: root.sc(30)
+                                    height: root.sc(21)
 
                                     onPaint: {
                                         var ctx = getContext("2d")
@@ -909,9 +911,9 @@ Item {
 
                     // Plus button
                     Rectangle {
-                        Layout.preferredWidth: sc(70)
+                        Layout.preferredWidth: root.sc(70)
                         Layout.fillHeight: true
-                        radius: sc(12)
+                        radius: root.sc(12)
                         color: popupPlusArea.pressed ? Qt.darker(Theme.surfaceColor, 1.3) : "transparent"
 
                         Accessible.role: Accessible.Button
@@ -922,7 +924,7 @@ Item {
                         Text {
                             anchors.centerIn: parent
                             text: "+"
-                            font.pixelSize: sc(32)
+                            font.pixelSize: root.sc(32)
                             font.bold: true
                             color: root.value >= root.to ? Theme.textSecondaryColor : Theme.textColor
                             Accessible.ignored: true
@@ -931,7 +933,7 @@ Item {
                         MouseArea {
                             id: popupPlusArea
                             anchors.fill: parent
-                            onClicked: { popupAdjust(1); root.commitValue() }
+                            onClicked: { root.popupAdjust(1); root.commitValue() }
                             onPressAndHold: popupIncrementTimer.start()
                             onReleased: {
                                 if (popupIncrementTimer.running) {
@@ -946,7 +948,7 @@ Item {
                             id: popupIncrementTimer
                             interval: 80
                             repeat: true
-                            onTriggered: popupAdjust(1)
+                            onTriggered: root.popupAdjust(1)
                         }
                     }
                 }
@@ -955,18 +957,20 @@ Item {
             // Gear selector — tappable column of multipliers to the left of the control
             Column {
                 anchors.right: popupControl.left
-                anchors.rightMargin: sc(12)
+                anchors.rightMargin: root.sc(12)
                 anchors.verticalCenter: popupControl.verticalCenter
-                spacing: sc(8)
+                spacing: root.sc(8)
 
                 Repeater {
                     model: root.gearLabels()
                     Text {
+                        id: gearLabel
+
                         required property int index
                         required property string modelData
-                        property int gear: root.labelIndexToGear(index)
+                        property int gear: root.labelIndexToGear(gearLabel.index)
                         text: modelData
-                        font.pixelSize: sc(16)
+                        font.pixelSize: root.sc(16)
                         font.bold: popupContent.currentGear === gear
                         color: popupContent.currentGear === gear ? Theme.primaryColor : Theme.textSecondaryColor
                         opacity: popupContent.currentGear === gear ? 1.0 : 0.35
@@ -979,10 +983,10 @@ Item {
                         MouseArea {
                             id: gearArea
                             anchors.fill: parent
-                            anchors.margins: -sc(4)
+                            anchors.margins: -root.sc(4)
                             onClicked: {
-                                popupContent.currentGear = gear
-                                announceGearChange(gear)
+                                popupContent.currentGear = gearLabel.gear
+                                root.announceGearChange(gearLabel.gear)
                             }
                         }
                     }
@@ -992,14 +996,14 @@ Item {
             // Step size indicator — shown while dragging or when a non-default gear is selected
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
-                y: popupControl.y + popupControl.height + sc(20)
+                y: popupControl.y + popupControl.height + root.sc(20)
                 visible: popupDragArea.isDragging || popupContent.currentGear !== 0
                 text: {
-                    var effectiveStep = gearToStep(popupContent.currentGear)
+                    var effectiveStep = root.gearToStep(popupContent.currentGear)
                     var d = Math.max(0, -Math.floor(Math.log10(effectiveStep) + 0.0001))
                     return TranslationManager.translate("valueinput.step", "step") + ": " + effectiveStep.toFixed(d)
                 }
-                font.pixelSize: sc(24)
+                font.pixelSize: root.sc(24)
                 font.bold: true
                 color: Theme.primaryColor
             }
@@ -1007,10 +1011,10 @@ Item {
             // Usage hint — shown when not dragging and at default gear
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
-                y: popupControl.y + popupControl.height + sc(20)
+                y: popupControl.y + popupControl.height + root.sc(20)
                 visible: !popupDragArea.isDragging && popupContent.currentGear === 0 && !popupContent.editMode
                 text: TranslationManager.translate("valueinput.hint.full", "← drag  ↕ gear  ×2 type")
-                font.pixelSize: sc(16)
+                font.pixelSize: root.sc(16)
                 color: Theme.textSecondaryColor
             }
 
@@ -1019,7 +1023,7 @@ Item {
             // so sc(56) keeps a clear gap below the tallest element.
             Text {
                 anchors.top: popupControl.bottom
-                anchors.topMargin: sc(56)
+                anchors.topMargin: root.sc(56)
                 anchors.horizontalCenter: parent.horizontalCenter
                 text: root.rangeText || (root.from.toFixed(root.decimals) + root.suffix + " \u2014 " + root.to.toFixed(root.decimals) + root.suffix)
                 font: Theme.bodyFont

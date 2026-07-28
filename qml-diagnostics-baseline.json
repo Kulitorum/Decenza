@@ -41,7 +41,6 @@
     "qml/components/SwipeableArea.qml": 36,
     "qml/components/SwitchEquipmentDialog.qml": 7,
     "qml/components/TastePicker.qml": 13,
-    "qml/components/ValueInput.qml": 132,
     "qml/components/graphs/CustomLegend.qml": 10,
     "qml/components/layout/CustomEditorPopup.qml": 30,
     "qml/components/layout/EmojiPicker.qml": 17,
@@ -74,7 +73,6 @@
     "qml/pages/FlowCalibrationPage.qml": 1,
     "qml/pages/FlushPage.qml": 117,
     "qml/pages/IdlePage.qml": 95,
-    "qml/pages/PostShotReviewPage.qml": 301,
     "qml/pages/ProfileImportPage.qml": 14,
     "qml/pages/ProfileInfoPage.qml": 32,
     "qml/pages/ProfileSelectorPage.qml": 54,
@@ -84,8 +82,6 @@
     "qml/pages/ScreensaverPage.qml": 85,
     "qml/pages/SettingsPage.qml": 4,
     "qml/pages/ShotComparisonPage.qml": 27,
-    "qml/pages/ShotDetailPage.qml": 171,
-    "qml/pages/ShotHistoryPage.qml": 156,
     "qml/pages/TransportPage.qml": 21,
     "qml/pages/VisualizerBrowserPage.qml": 14,
     "qml/pages/VisualizerMultiImportPage.qml": 97,
@@ -177,6 +173,7 @@
     "qml/components/Tr.qml",
     "qml/components/TranslationErrorToast.qml",
     "qml/components/UnsavedChangesDialog.qml",
+    "qml/components/ValueInput.qml",
     "qml/components/graphs/AutoRangingAxis.qml",
     "qml/components/graphs/DashedLineSeries.qml",
     "qml/components/graphs/DecenzaGraphsTheme.qml",
@@ -217,8 +214,11 @@
     "qml/pages/AISettingsPage.qml",
     "qml/pages/FlowEditorPage.qml",
     "qml/pages/HotWaterPage.qml",
+    "qml/pages/PostShotReviewPage.qml",
     "qml/pages/PressureEditorPage.qml",
     "qml/pages/ProfileEditorPage.qml",
+    "qml/pages/ShotDetailPage.qml",
+    "qml/pages/ShotHistoryPage.qml",
     "qml/pages/SimpleProfileEditorPage.qml",
     "qml/pages/SteamPage.qml",
     "qml/pages/settings/DeviceMigrationDialog.qml",
@@ -235,6 +235,6 @@
     "equality-type-coercion": 1,
     "import": 4,
     "missing-property": 300,
-    "unqualified": 3498
+    "unqualified": 2738
   }
 }
