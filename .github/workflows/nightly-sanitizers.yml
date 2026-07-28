@@ -58,8 +58,11 @@ env:
   CACHE_HEADROOM_MIN_GB: '2'
 
 # actions: write is for the yield path below, which deletes this job's own
-# ccache entries to hand the space back. Listing caches works on a public repo
-# with a read token; deleting one is a write and 403s without this.
+# ccache entries to hand the space back. That listing works on a read token is
+# measured — run 30211328841 logged `Contents: read, Metadata: read`, no Actions
+# scope, and the yield's `gh cache list` still returned. That deleting needs
+# write is inferred from the REST docs, not observed: the key-prefix bug meant a
+# delete was never once attempted before this.
 permissions:
   contents: read
   actions: write
@@ -180,6 +183,17 @@ jobs:
           # observed reporting 8.57 GB / 19 entries immediately after a deletion
           # the list already showed as complete at 5.1 GB / 9 entries. Deciding
           # on a stale total would keep caching exactly when space ran out.
+          #
+          # --limit 500 is the ceiling on what gh will return, and it fails
+          # silently in the direction that matters: the listing is ordered by
+          # last-accessed descending, so a truncated tail is exactly the stale
+          # entries this arithmetic is meant to notice. Both this sum and the
+          # reclaim below check for it.
+          COUNT=$(gh cache list --repo "$GITHUB_REPOSITORY" --limit 500 \
+                    --json id --jq 'length' 2>/dev/null || echo "0")
+          if [ "$COUNT" -ge 500 ]; then
+            echo "::warning::Cache listing hit the 500-entry limit; the free-space total and the reclaim below may both be partial."
+          fi
           USED=$(gh cache list --repo "$GITHUB_REPOSITORY" --limit 500 \
                    --json sizeInBytes --jq '[.[].sizeInBytes] | add // 0' 2>/dev/null || echo "")
           if [ -z "$USED" ]; then
@@ -225,14 +239,23 @@ jobs:
           # under sustained pressure MATCHED=0 is the steady state and must not
           # warn, or the warning is noise inside a week.
           #
-          # Never exits non-zero: a cache decision must not cost the night's
-          # sanitizer signal (see the un-cached build below, which is fine).
+          # Never exits non-zero HERE: this step runs before the build, so
+          # aborting would cost the night's sanitizer signal over cache
+          # bookkeeping. Instead it records a verdict in reclaim_status, and the
+          # Summarise step at the end — which is `if: always()` and is this
+          # file's designated fail-at-the-end hook — turns a real failure into a
+          # red tick once the tests have run. That matters because the file's
+          # own conclusion, stated at the ctest summary below, is that nightlies
+          # are read by the tick; leaving this as an annotation would make it
+          # the one assertion here that nobody sees.
           if ! RAW=$(gh cache list --repo "$GITHUB_REPOSITORY" --limit 500 --json id,key,sizeInBytes); then
+            echo "reclaim_status=list-failed" >> "$GITHUB_OUTPUT"
             echo "::error::Could not list caches — this leg's entries were NOT released and the space was not handed back."
             exit 0
           fi
           if ! MATCHES=$(printf '%s' "$RAW" | jq -r --arg mine "$MINE" \
                '.[] | select(.key | startswith($mine)) | "\(.id)\t\(.sizeInBytes)\t\(.key)"'); then
+            echo "reclaim_status=parse-failed" >> "$GITHUB_OUTPUT"
             echo "::error::Could not parse the cache listing (renamed --json field?) — this leg's entries were NOT released."
             exit 0
           fi
@@ -248,9 +271,13 @@ jobs:
             fi
           done <<< "$MATCHES"
           if [ "$MATCHED" -eq 0 ]; then
+            echo "reclaim_status=nothing-held" >> "$GITHUB_OUTPUT"
             echo "Nothing held under '$MINE' — this leg is already cold, no space to hand back."
           elif [ "$RELEASED" -eq 0 ]; then
+            echo "reclaim_status=refused" >> "$GITHUB_OUTPUT"
             echo "::error::Matched $MATCHED entr(y|ies) under '$MINE' but released none — every delete was refused. The space was not handed back."
+          else
+            echo "reclaim_status=released" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Set up ccache
@@ -396,6 +423,10 @@ jobs:
         if: always()
         env:
           SANITIZER: ${{ matrix.sanitizer }}
+          # Empty when cachefit exited before reaching a verdict (cache in use,
+          # disabled by input, usage unreadable) — all states where there was no
+          # reclaim to judge.
+          RECLAIM_STATUS: ${{ steps.cachefit.outputs.reclaim_status }}
         run: |
           LOG=build/ctest.log
           # Set when a sanitizer report is present in the log, regardless of
@@ -432,3 +463,20 @@ jobs:
             echo "::error::Sanitizer finding present in the log; failing the job even though ctest may have passed on retry."
             exit 1
           fi
+
+          # Same argument applied to the cache reclaim. The cachefit step cannot
+          # fail the job itself — it runs before the build, and a cache decision
+          # must not cost the night's sanitizer signal — so it records a verdict
+          # and this step raises it after the tests have had their say.
+          #
+          # Only the states where the mechanism is BROKEN fail: the listing or
+          # its parse died, or entries matched and every delete was refused.
+          # `nothing-held` is the normal steady state under sustained pressure
+          # (a leg that yielded last night saved nothing, so it holds nothing
+          # tonight) and must stay green, or the signal is noise within a week.
+          case "$RECLAIM_STATUS" in
+            list-failed|parse-failed|refused)
+              echo "::error::Compiler-cache reclaim failed ($RECLAIM_STATUS) — the yield did not hand its space back. The sanitizer results above still stand."
+              exit 1
+              ;;
+          esac

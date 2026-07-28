@@ -157,9 +157,15 @@ jobs:
           # only matches the quirk shape and a `refs/refs/` that never occurs,
           # so a plain refs/tags/X would silently select nothing.
           if ! RAW=$(gh cache list --repo "$GITHUB_REPOSITORY" --limit 500 \
-                       --json id,key,ref,sizeInBytes); then
+                       --json id,key,ref,sizeInBytes,createdAt); then
             echo "::error::Could not list caches — the superseded-tag prune did NOT run."
             exit 1
+          fi
+          # --limit 500 is gh's ceiling and truncation is invisible: the listing
+          # is ordered by last-accessed descending, so what falls off the end is
+          # precisely the stale entries this step exists to collect.
+          if [ "$(printf '%s' "$RAW" | jq length)" -ge 500 ]; then
+            echo "::warning::Cache listing hit the 500-entry limit; this prune may be partial."
           fi
           if ! CACHES=$(printf '%s' "$RAW" | jq -r --arg ts "$TS" '
                        .[]
@@ -180,18 +186,24 @@ jobs:
             exit 0
           fi
 
-          # Newest by version sort over the tags actually present in the cache
-          # store. Self-contained on purpose: a tag whose build is still running
-          # cannot appear here anyway, because the gate step skips the whole
-          # workflow while any build is active.
+          # Newest by BUILD TIME, not by version sort. What this step protects is
+          # the most recently built release, and `sort -V` answers a different
+          # question — it ranks a hotfix released after a higher version as older
+          # (v1.9.5 after v2.0.0) and, under GNU filevercmp, ranks v2.1.0-beta
+          # ABOVE v2.1.0, so it would keep the beta and collect the shipped tag.
+          # createdAt has neither failure and needs no assumption about the tag
+          # scheme.
           #
-          # `sort -V` assumes this repo's scheme: strictly ascending, unsuffixed
-          # vX.Y.Z. It is wrong for a hotfix released after a higher version
-          # (v1.9.5 after v2.0.0 sorts older) and for a prerelease suffix, where
-          # GNU filevercmp ranks v2.1.0-beta ABOVE v2.1.0. Left as-is because
-          # tag refs no longer save a cache at all, so nothing new can enter
-          # this set; revisit if that ever changes.
-          NEWEST=$(printf '%s\n' "$CACHES" | cut -f2 | sort -uV | tail -1)
+          # Self-contained on purpose: a tag whose build is still running cannot
+          # appear here anyway, because the gate step skips the whole workflow
+          # while any build is active.
+          NEWEST=$(printf '%s' "$RAW" | jq -r --arg ts "$TS" '
+                     [ .[]
+                       | select(.key | test($ts))
+                       | select(.ref | test("^(refs/heads/)?refs/tags/")) ]
+                     | max_by(.createdAt)
+                     | .ref | sub("^(refs/heads/)?refs/tags/"; "")
+                   ')
           CANDIDATES=$(printf '%s\n' "$CACHES" | awk -F'\t' -v n="$NEWEST" '$2 != n' | grep -c . || true)
           echo "Newest tag with caches: $NEWEST (keeping its entries); $CANDIDATES entr(y|ies) on older tags."
 
@@ -253,11 +265,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -uo pipefail
+          # Same shape as the step above: listing checked separately from
+          # "found nothing", and the loop fed by a here-string so `freed`
+          # survives it. It previously ran on the right of a pipe, where the
+          # counter accumulated in a subshell and was discarded — harmless while
+          # nothing read it, and a trap for whoever printed it next.
+          if ! RAW=$(gh cache list --repo "$GITHUB_REPOSITORY" --limit 500 \
+                       --json id,key,ref,sizeInBytes); then
+            echo "::error::Could not list caches — the dead-ref prune did NOT run."
+            exit 1
+          fi
+          ROWS=$(printf '%s' "$RAW" | jq -r '.[] | "\(.id)\t\(.ref)\t\(.sizeInBytes)\t\(.key)"')
           freed=0
-          gh cache list --repo "$GITHUB_REPOSITORY" --limit 500 \
-            --json id,key,ref,sizeInBytes \
-            | jq -r '.[] | "\(.id)\t\(.ref)\t\(.sizeInBytes)\t\(.key)"' \
-            | while IFS=$'\t' read -r id ref size key; do
+          while IFS=$'\t' read -r id ref size key; do
                 [ -n "$id" ] || continue
                 dead=""
                 case "$ref" in
@@ -284,15 +304,63 @@ jobs:
                 esac
                 if [ -n "$dead" ]; then
                   mb=$(( size / 1024 / 1024 ))
-                  if gh cache delete "$id" --repo "$GITHUB_REPOSITORY"; then
+                  if err=$(gh cache delete "$id" --repo "$GITHUB_REPOSITORY" 2>&1); then
                     echo "- deleted \`$key\` (${mb} MB) — $dead" >> "$GITHUB_STEP_SUMMARY"
                     freed=$(( freed + mb ))
                   else
-                    echo "::warning::Failed to delete cache $key (id $id)"
+                    echo "::warning::Failed to delete cache $key (id $id): $err"
                   fi
                 fi
-              done
+          done <<< "$ROWS"
+          echo "Reclaimed ${freed} MB from dead refs." >> "$GITHUB_STEP_SUMMARY"
 
           gh api "repos/$GITHUB_REPOSITORY/actions/cache/usage" --jq \
             '"Remaining: \(.active_caches_count) caches, \((.active_caches_size_in_bytes/1073741824)*100|round/100) GB / 10 GB cap"' \
             >> "$GITHUB_STEP_SUMMARY" || true
+
+      # Is main's compiler cache still being re-seeded?
+      #
+      # Since tag builds stopped saving (setup-compiler-cache's `save:`), main's
+      # scope is the ONLY thing any release build can restore from, and the only
+      # thing that writes it is warm-main-cache.yml — which fires on
+      # `release: released` alone. A release left as a prerelease, which is this
+      # project's normal intermediate state, never triggers it. Nothing else
+      # would report that: builds would just quietly get slower, which is the
+      # same invisible degradation as an inert cache.
+      #
+      # Compares against the latest published release rather than a fixed age,
+      # so a quiet month between releases raises nothing. Runs regardless of the
+      # gate — it reads, deletes nothing, and the daily cron makes it a daily
+      # check. A warning, not an error: a stale main cache costs build minutes,
+      # it does not make a build wrong.
+      - name: Check main's cache is still being seeded
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          REL=$(gh release view --repo "$GITHUB_REPOSITORY" \
+                  --json tagName,publishedAt,isPrerelease 2>/dev/null || echo "")
+          if [ -z "$REL" ] || [ "$(printf '%s' "$REL" | jq -r .isPrerelease)" != "false" ]; then
+            echo "No published (non-prerelease) release to compare against; skipping."
+            exit 0
+          fi
+          TAG=$(printf '%s' "$REL" | jq -r .tagName)
+          PUB=$(printf '%s' "$REL" | jq -r .publishedAt)
+
+          NEWEST_MAIN=$(gh cache list --repo "$GITHUB_REPOSITORY" --limit 500 \
+                          --json key,ref,createdAt 2>/dev/null \
+                        | jq -r '[ .[]
+                                   | select(.ref == "refs/heads/main")
+                                   | select(.key | test("^(cc|sc)cache-")) ]
+                                 | max_by(.createdAt) | .createdAt // ""' 2>/dev/null || echo "")
+          if [ -z "$NEWEST_MAIN" ]; then
+            echo "::warning::main holds no compiler cache at all — every release build will start cold. Check warm-main-cache.yml."
+            exit 0
+          fi
+
+          # String compare is sound: both are ISO-8601 UTC from the same API.
+          if [[ "$NEWEST_MAIN" < "$PUB" ]]; then
+            echo "::warning::main's newest compiler cache ($NEWEST_MAIN) predates the current release $TAG ($PUB) — warm-main-cache.yml has not re-seeded it, so release builds restore an older tree. Was $TAG promoted out of prerelease?"
+          else
+            echo "main's compiler cache ($NEWEST_MAIN) is newer than release $TAG ($PUB)."
+          fi

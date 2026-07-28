@@ -41,6 +41,12 @@ inputs:
 runs:
   using: composite
   steps:
+    # The pinned version is part of a contract with callers: ccache-action
+    # stores each entry under its VARIANT name plus the key it was handed
+    # (`ccache-<key>-<timestamp>`, `sccache-<key>-…`), and nightly-sanitizers.yml
+    # reconstructs that prefix to find and delete its own entries. A bump that
+    # changed the stored key shape would break that reclaim silently — which is
+    # exactly how it broke the first time. Check the reclaim filter when bumping.
     - name: Set up ${{ inputs.variant }}
       uses: hendrikmuhs/ccache-action@v1.2.23
       with:
