@@ -566,8 +566,8 @@ are dirty for other reasons anyway. They keep their per-file ceilings.
 - [ ] 5.3 Confirm `qml/Theme.qml` is on the clean list — that file is the specific regression this change exists to prevent, and it is the acceptance test for the whole change
 - [ ] 5.4 Triage the categories the noise was hiding — 310 `missing-property`, 27 `import`, 25 `index`, and the singleton `incompatible-type` / `equality-type-coercion` / `unresolved-type` findings — and fix or exempt each explicitly
 - [ ] 5.5 Full test suite green via `mcp__qtcreator__run_tests` (scope `all`)
-- [ ] 5.6 Update the qmllint instruction in `CLAUDE.md` and `docs/CLAUDE_MD/QML_GOTCHAS.md`, which currently point at a command whose output is unreadable
-- [ ] 5.7 Record in `QML_GOTCHAS.md` that new C++ objects exposed to QML are registered as singletons, never via `setContextProperty()`
+- [x] 5.6 Update the qmllint instruction in `CLAUDE.md` and `docs/CLAUDE_MD/QML_GOTCHAS.md`, which currently point at a command whose output is unreadable
+- [x] 5.7 Record in `QML_GOTCHAS.md` that new C++ objects exposed to QML are registered as singletons, never via `setContextProperty()`
 - [ ] 5.8 Archive this change with `openspec archive fix-qmllint-usability` as the last commit on the branch
 
 ## 6. Review round on PR #1665
@@ -618,3 +618,51 @@ and the confirmed defects are in [`bugs-found.md`](bugs-found.md) entries 3–7 
   main.cpp "registers zero QML singletons" (it now registers three). That document is a draft that
   looked at performance without correctness, and is to be revisited as a whole after the QML
   cleanup lands rather than patched line by line now
+
+## 3c. The last runtime type registrations, and the erasure they were hiding
+
+- [x] 3c.1 Eight runtime `qmlRegisterType<>()` calls in `main.cpp` were the last of the defect class
+  this change exists to remove — for CREATABLE types this time. A runtime registration never
+  reaches `qmltyperegistrar`, so the type is absent from `Decenza.qmltypes` and qmllint reports
+  every *use* of it as `X was not found. Did you add all imports and dependencies?` Four moved to
+  `QML_ELEMENT` in their own headers: `FastLineRenderer`, `JsCanvasPainterItem`,
+  `StrangeAttractorRenderer`, `DocumentFormatter`. Safe there, unlike the classes in
+  `contextsingletons_qml.h`, because each already derives from a Quick type, so any target
+  compiling them links Qt6::Qml anyway.
+- [x] 3c.2 Required three new entries in the `target_include_directories(Decenza ...)` block —
+  `src/rendering`, `src/ui`, `src/screensaver`. The generated registration file emits
+  `#if __has_include(<bare-name.h>)`, so an unreachable basename makes the include expand to
+  nothing and the build fails with `use of undeclared identifier` in generated code, three tools
+  from the cause. That block already documented this and named the ambiguity check to run first
+  (`find <dirs> -maxdepth 1 -name '*.h' -exec basename {} \; | sort | uniq -d`, empty = safe).
+- [x] 3c.3 **The registration was hiding two layers of type erasure, and that is the real find.**
+  Fixing it made `missing-property` RISE 322 -> 388, because 66 calls in `CupFillView.qml` became
+  reachable for the first time:
+  - `JsCanvasPainterItem::paint()` declared `QObject *ctx` while emitting a `JsCanvasContext*`
+    with 17 `Q_INVOKABLE`s, so every `beginPath`/`lineTo`/`fill` was a member missing from
+    `QObject`. qmllint was right and useless.
+  - `createLinearGradient()`/`createRadialGradient()` declared `QObject*` while returning a
+    `JsCanvasGradient*`, so all 41 `addColorStop` calls were the same shape one level down.
+  Both now typed, and `JsCanvasContext`/`JsCanvasGradient` registered `QML_UNCREATABLE` so the
+  calls are checked against the real API. Runtime-verified: the cup fill still renders.
+- [x] 3c.4 `Pipe*Geometry` **also moved to compile-time registration — after a wrong call was
+  caught by a question.** They were first left on `qmlRegisterType<>` on the measurement that
+  compile-time "bought nothing": it cleared three `import` warnings and produced three
+  `unresolved-type` ones instead. The measurement was right and the conclusion was wrong. That
+  trade was not a property of qmllint; it was a missing declaration.
+  - `qt_add_qml_module(Decenza ...)` listed no `DEPENDENCIES`. The import path resolves what QML
+    **imports** — which is why `import QtQuick3D` in `PipesScreensaver.qml` always worked — but
+    not what our own registered types **inherit**. `PipeCylinderGeometry`'s prototype is
+    `QQuick3DGeometry`, and qmllint will not link a prototype across modules the module has not
+    declared, even with `Quick3D.qmltypes` shipped and on the path.
+  - With `DEPENDENCIES QtQuick3D` both sets clear: `import` 7 -> 4 and **no** `unresolved-type`
+    warnings appear. Kept conditional on `ENABLE_QUICK3D`, because `pipegeometry.*` genuinely is
+    not compiled without it and the module would be declaring a dependency it does not have.
+  - Recorded because of how the error was made, not what it was: a measured trade-off was accepted
+    as a property of the tool without asking why the prototype was unresolvable. The withdrawn
+    host-dependence argument (all seven release workflows install `qtquick3d`) was the *second*
+    wrong reason given for the same deferral.
+- [x] 3c.5 Result: gate passes, clean list **90 -> 92**. `import` 23 -> 7, and both
+  `incompatible-type` and `unresolved-type` cleared entirely — the former was
+  `StrangeAttractorScreensaver.qml` binding `target: renderer`, unresolvable while that type was
+  registered at runtime.

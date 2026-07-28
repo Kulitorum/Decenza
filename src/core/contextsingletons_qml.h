@@ -4,13 +4,22 @@
 //
 // WHY THIS FILE EXISTS SEPARATELY FROM THE CLASS HEADERS
 // -----------------------------------------------------
-// The obvious move is to put QML_ELEMENT straight in each class header, the way
-// CoffeeBagStorage and the types reachable through MainController do it. That is fine for a
-// header only the app compiles, and wrong for these: the classes here are also compiled into
-// test and tool targets that link no Qt6::Qml. add_decenza_test() links Test/Core/Bluetooth/
-// Sql/Network/Gui and nothing else, and `saw_parity` is narrower still — a <QtQml/...> include
-// reaching either is a build break, not a style question. That is the same reason settings.h
-// keeps its registration in settings_qml.h; this file is that pattern generalised.
+// The obvious move is to put QML_ELEMENT straight in each class header, the way CoffeeBagStorage
+// and the types reachable through MainController do it.
+//
+// THE REASON THIS FILE GIVES FOR NOT DOING THAT IS OUT OF DATE. It used to say the classes here
+// are compiled into test and tool targets that link no Qt6::Qml, citing add_decenza_test() as
+// linking "Test/Core/Bluetooth/Sql/Network/Gui and nothing else". That is false: decenza_testlib
+// links Qt6::Qml PUBLIC (tests/CMakeLists.txt, since #1617) and every add_decenza_test() target
+// links decenza_testlib, so they all get it transitively — de1device.cpp, this file's headline
+// example, is compiled straight into decenza_testlib. The four targets that genuinely lack
+// Qt6::Qml (profile_sync, shot_eval, saw_replay, saw_parity) compile none of these classes.
+//
+// So the link-time argument does not currently justify the indirection. What may still justify it
+// is narrower and UNMEASURED: keeping <QtQml/...> out of class headers that much of the app
+// includes, so adding or changing a registration does not invalidate every TU that includes them.
+// Nobody has measured that, so do not repeat it as the reason either. What IS true and worth
+// keeping: this file compiles only into the Decenza target, so whatever it includes stops here.
 //
 // Only the Decenza target compiles this file (CMakeLists.txt), so the QtQml dependency stops
 // here no matter how widely the underlying headers are included.

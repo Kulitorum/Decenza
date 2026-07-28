@@ -176,12 +176,6 @@ extern "C" const char* __ubsan_default_options()
 #if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
 #include "screensaver/iosbrightness.h"
 #endif
-#include "screensaver/strangeattractorrenderer.h"
-#include "rendering/fastlinerenderer.h"
-#include "ui/jscanvaspainteritem.h"
-#ifdef ENABLE_QUICK3D
-#include "screensaver/pipegeometry.h"
-#endif
 #include "network/webdebuglogger.h"
 #include "core/widgetlibrary.h"
 #include "history/shothistoryexporter.h"
@@ -190,7 +184,6 @@ extern "C" const char* __ubsan_default_options()
 #include "mcp/mcpremoteaccess.h"
 #include "network/librarysharing.h"
 #include "network/relayclient.h"
-#include "core/documentformatter.h"
 #include "weather/weathermanager.h"
 #include "models/flowcalibrationmodel.h"
 
@@ -3525,10 +3518,21 @@ int main(int argc, char *argv[])
     // reaches Decenza.qmltypes and qmllint cannot resolve the type behind the properties that
     // return it. QML reaches those four through MainController properties, never by type name.
 
-    // GPU-accelerated Canvas-like surface (CupFillView). The wrapper exposes
-    // an `onPaint(ctx)` signal whose ctx replays JS-recorded draw commands
-    // through QCanvasPainter on the scene-graph render thread.
-    qmlRegisterType<JsCanvasPainterItem>("Decenza", 1, 0, "JsCanvasPainterItem");
+    // The CREATABLE types that used to be registered here — JsCanvasPainterItem,
+    // StrangeAttractorRenderer, FastLineRenderer, DocumentFormatter and the four Pipe*Geometry types —
+    // now carry QML_ELEMENT in their own headers. Same QML names, same creatable
+    // contract, and for the same reason the uncreatable ones moved: a runtime qmlRegisterType<>
+    // is invisible to qmltyperegistrar, so the type never reached Decenza.qmltypes and qmllint
+    // reported every USE of it as "was not found. Did you add all imports and dependencies?" —
+    // 19 warnings across six QML files, none of them a real missing import.
+    //
+    // Safe in their headers, and the reason is per-TARGET, not per-base-class. An earlier draft
+    // said "every one already derives from a Quick or Quick3D type" — false: DocumentFormatter,
+    // and the JsCanvasContext/JsCanvasGradient pair registered alongside them, all derive from
+    // plain QObject. What actually holds is that documentformatter.cpp and jscanvas*.cpp are
+    // compiled ONLY by the Decenza target, and the one of these that is compiled elsewhere,
+    // fastlinerenderer.cpp, goes into decenza_shotlib, which links Qt6::Quick. Apply that test to
+    // the next header, not the inheritance one.
 
     // Settings sub-object types are registered at COMPILE time via QML_FOREIGN in
     // settings_qml.h, not here. A runtime qmlRegisterUncreatableType<> is invisible to
@@ -3547,23 +3551,6 @@ int main(int argc, char *argv[])
     qmlRegisterUncreatableMetaObject(ShotProjection::staticMetaObject,
         "Decenza", 1, 0, "ShotProjection",
         "ShotProjection is a value type returned by ShotHistoryStorage signals");
-
-    // Register strange attractor renderer (QQuickPaintedItem, no Quick3D dependency)
-    qmlRegisterType<StrangeAttractorRenderer>("Decenza", 1, 0, "StrangeAttractorRenderer");
-
-    // Register fast line renderer for shot graph (QSGGeometryNode, pre-allocated VBO)
-    qmlRegisterType<FastLineRenderer>("Decenza", 1, 0, "FastLineRenderer");
-
-#ifdef ENABLE_QUICK3D
-    // Register pipe geometry types for 3D pipes screensaver
-    qmlRegisterType<PipeCylinderGeometry>("Decenza", 1, 0, "PipeCylinderGeometry");
-    qmlRegisterType<PipeElbowGeometry>("Decenza", 1, 0, "PipeElbowGeometry");
-    qmlRegisterType<PipeCapGeometry>("Decenza", 1, 0, "PipeCapGeometry");
-    qmlRegisterType<PipeSphereGeometry>("Decenza", 1, 0, "PipeSphereGeometry");
-#endif
-
-    // Register DocumentFormatter for rich text editing in layout editor
-    qmlRegisterType<DocumentFormatter>("Decenza", 1, 0, "DocumentFormatter");
 
     checkpoint("Context properties & type registration");
 

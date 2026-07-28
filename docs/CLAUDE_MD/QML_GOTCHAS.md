@@ -224,3 +224,71 @@ readonly property var pageSizes: {
 
 The mutated-`TextMetrics` form is only safe when the measurement runs **imperatively** — inside a Timer/handler that writes a plain (non-`readonly`) property — not inside a binding. That is exactly what `PresetPillRow.measureTextWidth()` does (called from the timer-driven `calculateRows()`), which is why it never loops. Binding loops are **runtime-only**: a clean C++/qmlcache build will not catch them — check the running app's log (`debug_get_log`) after the change. (Bitten during `descriptive-recipe-names` computing idle pill-row page sizes; the shared `FontMetrics` is the font-mirroring measurement in `PillFit.js`'s callers.)
 
+
+## Exposing C++ to QML: always compile-time, never `setContextProperty` or runtime `qmlRegister*`
+
+**Rule: a C++ type or object that QML touches is registered by a macro in a header.** Not by
+`context->setContextProperty("X", &x)`, and not by `qmlRegisterType<X>("Decenza", 1, 0, "X")` in
+`main()`. Both are runtime-only, and *runtime-only means invisible* — to qmllint, to
+`qmlcachegen`, and to the language server. A context property is worse than untyped: it is
+**indistinguishable from a typo**, because nothing in the build can tell the two apart. #1661 is
+what that costs.
+
+| What you have | What to write |
+|---|---|
+| An object `main()` owns | `QML_FOREIGN` + `QML_SINGLETON` struct in `src/core/contextsingletons_qml.h`, published via `s_singletonInstance` |
+| A class only the app compiles | `QML_ELEMENT` (+ `QML_SINGLETON` or `QML_UNCREATABLE`) directly in its header |
+| A type QML instantiates | `QML_ELEMENT` in its header |
+| Enums QML compares against | Nothing extra — a singleton exposes them as `Singleton.Enumerator` |
+
+**When does a class need the `*Foreign` indirection rather than the macro in its own header?**
+Answer it per target, not by inheritance. The rule is only: *does every target that compiles this
+.cpp link `Qt6::Qml`?* Today the answer is almost always yes — `decenza_testlib` links `Qt6::Qml`
+PUBLIC, so every `add_decenza_test()` binary gets it transitively, and the four targets that do
+not (`profile_sync`, `shot_eval`, `saw_replay`, `saw_parity`) compile none of the wrapped classes.
+
+`contextsingletons_qml.h` states the constraint as "test and tool targets link no Qt6::Qml", and as
+written that is **no longer true** — `decenza_testlib` gained `Qt6::Qml` in #1617, before that
+comment was written. Do not use it as the reason for reaching for `*Foreign` on a new class; check
+the actual link line. (Whether the pattern still earns its keep for a *different* reason — keeping
+`<QtQml/...>` out of widely-included class headers, so a registration change does not invalidate
+every TU that includes them — is plausible and **unmeasured**. Do not assert it as fact either.)
+
+Two mechanical traps when adding `QML_ELEMENT` to a header:
+
+- **The header's directory must be in the `target_include_directories(Decenza ...)` block.** The
+  generated registration file emits `#if __has_include(<bare-name.h>)`; an unreachable basename
+  makes the include expand to nothing and the build fails with `use of undeclared identifier` in
+  *generated* code, three tools from the cause. That block lists the directories and the
+  duplicate-basename check to run first.
+- **If the type inherits from another QML module, `qt_add_qml_module` must declare
+  `DEPENDENCIES`.** The import path resolves what QML *imports*; it does not resolve what your
+  registered types *inherit*. Without `DEPENDENCIES QtQuick3D`, `PipeCylinderGeometry`'s
+  `QQuick3DGeometry` prototype is unlinkable and every use reports `used but it is not resolved` —
+  with `Quick3D.qmltypes` shipped and already on the import path.
+
+## Reading the qmllint gate — four things that will save you a day
+
+`python3 scripts/qmllint_report.py --check` (add `--qmllint <patched>` locally; CI runs stock with
+`--skip-unlintable`). `--report` prints the breakdown; `--update-baseline` records it.
+
+1. **A count going UP after a fix is usually the fix working.** Better type resolution reaches
+   expressions qmllint previously abandoned, so it finds more. Three recorded instances, each of
+   which looked like a regression: the `MainController` migration (`unresolved-type` 2 -> 763),
+   the #1680 stale-baseline correction (three files' `unqualified` rose), and the `CupFillView`
+   case below (`missing-property` 322 -> 388). Diff the per-file and per-category sets before
+   concluding anything — totals alone will mislead you.
+2. **An unresolvable type hides every defect behind it.** Fixing `JsCanvasPainterItem`'s
+   registration surfaced 66 warnings in `CupFillView.qml` that had never been reachable: the
+   `paint()` signal declared `QObject *ctx` while emitting a `JsCanvasContext*`, and the gradient
+   factories returned `QObject*` instead of `JsCanvasGradient*`. qmllint was right and useless —
+   `QObject` really has no `beginPath`. **When you see many `Member "x" not found on type
+   "QObject"`, suspect an erased pointer type in C++, not a mistake in the QML.**
+3. **"qmllint cannot do X" is usually a missing declaration, not a tool limitation.** The Quick3D
+   case above was measured, accepted as a property of the linter, and was actually one CMake
+   keyword. Before writing off a diagnostic class, ask what the module has failed to declare.
+4. **The gate only ratchets down, so a too-low number is invisible to it.** Nothing asks whether a
+   recorded ceiling is *achievable*. A baseline measured against a stale build under-reports,
+   which looks exactly like an improvement — that is how #1680 shipped three ceilings the tree
+   could not meet. `check_registry_fresh()` and `--allow-ceiling-rise` exist because of it; do not
+   route around either.

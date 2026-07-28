@@ -20,7 +20,6 @@
     "qml/components/ComparisonShotTable.qml": 18,
     "qml/components/ConnectionIndicator.qml": 13,
     "qml/components/CrashReportDialog.qml": 8,
-    "qml/components/CupFillView.qml": 6,
     "qml/components/DatePickerDialog.qml": 7,
     "qml/components/EquipmentInfoDialog.qml": 4,
     "qml/components/ExpandableTextArea.qml": 1,
@@ -47,7 +46,6 @@
     "qml/components/ShotMapGlobe.qml": 11,
     "qml/components/ShotMapScreensaver.qml": 48,
     "qml/components/SteamGraph.qml": 4,
-    "qml/components/StrangeAttractorScreensaver.qml": 2,
     "qml/components/StyledIconButton.qml": 3,
     "qml/components/SuggestionField.qml": 29,
     "qml/components/SwipeableArea.qml": 36,
@@ -154,6 +152,7 @@
     "qml/components/ConversationOverlay.qml",
     "qml/components/CrtOverlay.qml",
     "qml/components/CrtShaderEffect.qml",
+    "qml/components/CupFillView.qml",
     "qml/components/DateUtils.js",
     "qml/components/De1CommunicationErrorDialog.qml",
     "qml/components/DrinkType.qml",
@@ -186,6 +185,7 @@
     "qml/components/StableWeightCapture.qml",
     "qml/components/StatusBar.qml",
     "qml/components/SteamPlanText.qml",
+    "qml/components/StrangeAttractorScreensaver.qml",
     "qml/components/StyledComboBox.qml",
     "qml/components/StyledSwitch.qml",
     "qml/components/StyledTabButton.qml",
@@ -232,10 +232,8 @@
     "Quick.property-changes-parsed": 5,
     "duplicate-property-binding": 2,
     "equality-type-coercion": 1,
-    "import": 23,
-    "incompatible-type": 1,
+    "import": 4,
     "missing-property": 322,
-    "unqualified": 4946,
-    "unresolved-type": 2
+    "unqualified": 4938
   }
 }

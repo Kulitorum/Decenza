@@ -117,7 +117,7 @@ qsizetype JsCanvasContext::newBrush(BrushSpec::Type type,
     return m_brushes.size() - 1;
 }
 
-QObject *JsCanvasContext::createLinearGradient(float x0, float y0, float x1, float y1)
+JsCanvasGradient *JsCanvasContext::createLinearGradient(float x0, float y0, float x1, float y1)
 {
     const qsizetype id = newBrush(BrushSpec::Type::Linear, x0, y0, 0.0f, x1, y1, 0.0f);
     auto *g = new JsCanvasGradient(this, id);
@@ -125,7 +125,7 @@ QObject *JsCanvasContext::createLinearGradient(float x0, float y0, float x1, flo
     return g;
 }
 
-QObject *JsCanvasContext::createRadialGradient(float x0, float y0, float r0,
+JsCanvasGradient *JsCanvasContext::createRadialGradient(float x0, float y0, float r0,
                                                float x1, float y1, float r1)
 {
     const qsizetype id = newBrush(BrushSpec::Type::Radial, x0, y0, r0, x1, y1, r1);
@@ -136,7 +136,16 @@ QObject *JsCanvasContext::createRadialGradient(float x0, float y0, float r0,
 
 void JsCanvasContext::setStyleStream(const QVariant &v, DrawCmd::Op colorOp, DrawCmd::Op brushOp)
 {
-    if (auto *grad = qobject_cast<JsCanvasGradient*>(v.value<QObject*>())) {
+    // Two spellings, because the QVariant's stored type depends on how QML got here. Since
+    // JsCanvasGradient became a registered QML type, `ctx.fillStyle = grad` can arrive already
+    // typed as JsCanvasGradient* rather than erased to QObject*, and value<QObject*>() alone is
+    // not guaranteed to recover it. Getting this wrong is invisible at compile time and nearly
+    // invisible at runtime: the gradient branch simply misses, toColor() yields a flat colour,
+    // and the cup renders without its gradient. Try the concrete type first, then the erased one.
+    auto *grad = v.value<JsCanvasGradient*>();
+    if (!grad)
+        grad = qobject_cast<JsCanvasGradient*>(v.value<QObject*>());
+    if (grad) {
         DrawCmd c{}; c.op = brushOp; c.brushId = grad->brushId();
         m_cmds.append(c);
         return;

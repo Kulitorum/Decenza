@@ -35,7 +35,7 @@ Detailed documentation lives in `docs/CLAUDE_MD/`. Read these when working in th
 | `AI_ADVISOR.md` | AI dialing assistant design |
 | `BEAN_BASE.md` | Loffee Labs Bean Base integration: API quirks (whole-word search, tier-gated fields, 429 classification), snapshot-not-reference rule, lock-follows-the-data UI, Visualizer canonical-id architecture |
 | `SETTINGS.md` | Settings architecture: 12 domain sub-objects, how to add properties/domains, QML access pattern, build-blast rules |
-| `QML_GOTCHAS.md` | QML bug-prone patterns with code samples (font conflict, reserved names, IME drop, etc.) |
+| `QML_GOTCHAS.md` | QML bug-prone patterns with code samples (font conflict, reserved names, IME drop, etc.); **how to expose C++ to QML** (always compile-time, never `setContextProperty`/runtime `qmlRegister*`); **how to read the qmllint gate** |
 | `QML_NAVIGATION.md` | StackView page navigation, phase-change handler, operation-page conventions |
 | `SHOTSERVER.md` | ShotServer file split, async community endpoints, JS `fetch()` rules |
 | `WIDGET_SNAPSHOT.md` | iOS/Android Home Screen widget: snapshot JSON schema, transport, phase-label table, display/staleness rules |
@@ -144,6 +144,16 @@ just harder to scan.
   `Theme.toAccessibleText()` strips emoji and tags from a rendered string for exactly this.
 
 ### QML Gotchas (one-liners — full samples in `docs/CLAUDE_MD/QML_GOTCHAS.md`)
+
+- **Exposing a C++ type or object to QML is a macro in a header, never `setContextProperty()` and
+  never a runtime `qmlRegisterType<>()`.** Both are invisible to qmllint, `qmlcachegen` and the
+  language server, and a context property is indistinguishable from a typo — the #1661 defect
+  class. The table of which macro to use, the two mechanical traps (include directory,
+  `qt_add_qml_module` `DEPENDENCIES`) and how to read the gate are in `QML_GOTCHAS.md`.
+- **A qmllint count going UP after a fix is usually the fix working** — resolving a type lets the
+  linter reach expressions it previously abandoned. Diff the per-file and per-category sets
+  before calling it a regression; totals alone mislead. Likewise, many `Member "x" not found on
+  type "QObject"` means an erased pointer type in C++, not a mistake in the QML.
 
 - **Font property conflict**: don't mix `font: Theme.bodyFont` with `font.bold: true` — assign sub-properties individually.
 - **Reserved names in JS model data**: `name`, `parent`, `children`, `data`, `state`, `enabled`, `visible`, `width`, `height`, `x`, `y`, `z`, `focus`, `clip` collide with QML properties — use `label` etc.

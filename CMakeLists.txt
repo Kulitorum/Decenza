@@ -1154,6 +1154,12 @@ target_include_directories(Decenza PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/models
     ${CMAKE_CURRENT_SOURCE_DIR}/src/network
     ${CMAKE_CURRENT_SOURCE_DIR}/src/profile
+    # Added when the last runtime qmlRegisterType<> calls became QML_ELEMENT: fastlinerenderer.h,
+    # jscanvaspainteritem.h, strangeattractorrenderer.h and pipegeometry.h. Verified non-ambiguous
+    # by the command above before adding.
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/rendering
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/ui
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/screensaver
 )
 if(ANDROID)
     # SYSTEM: mjansson/mdns is vendored third-party code, and it is header-only,
@@ -1422,10 +1428,23 @@ if(ENABLE_QUICK3D AND Qt6Quick3D_FOUND)
     )
 endif()
 
+# DEPENDENCIES is what lets qmllint follow a Decenza type's PROTOTYPE into another module.
+# Without it, PipeCylinderGeometry's base QQuick3DGeometry is a name the linter cannot link, and
+# every use of those types reports "used but it is not resolved" — even though Qt ships
+# Quick3D.qmltypes and its qml directory is already on the import path. The import path resolves
+# what QML *imports*; this resolves what our own registered types *inherit*.
+# Conditional for the same reason the sources are: pipegeometry.* is not compiled without Quick3D,
+# so naming the dependency there would declare one the module does not have.
+set(DECENZA_QML_DEPENDENCIES "")
+if(ENABLE_QUICK3D AND Qt6Quick3D_FOUND)
+    list(APPEND DECENZA_QML_DEPENDENCIES QtQuick3D)
+endif()
+
 qt_add_qml_module(Decenza
     URI Decenza
     VERSION 1.1
     QML_FILES ${QML_FILES}
+    DEPENDENCIES ${DECENZA_QML_DEPENDENCIES}
     NO_GENERATE_EXTRA_QMLDIRS
 )
 

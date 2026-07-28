@@ -93,16 +93,25 @@ CATEGORY_EXEMPTIONS: dict[str, int] = {
     # Qt 6.11.1 source; see bugs-found.md. The real ones were fixed by moving to
     # Layout.preferredWidth/Height — do not "clean up" these 21.
     "Quick.layout-positioning": 21,
-    "import": 23,
+    # 23 -> 7 when the last runtime qmlRegisterType<> calls became QML_ELEMENT. All 16 that went
+    # were "X was not found. Did you add all imports and dependencies?" on FastLineRenderer,
+    # JsCanvasPainterItem, StrangeAttractorRenderer and DocumentFormatter — not one a real
+    # missing import, all of them a type qmltyperegistrar never saw. The Pipe*Geometry types went
+    # the same way once qt_add_qml_module gained DEPENDENCIES QtQuick3D — without that their
+    # QQuick3DGeometry prototype was unlinkable and compile-time registration just traded these
+    # warnings for 'unresolved-type' ones. The 4 left are roll-ups and unrelated.
+    "import": 4,
     "Quick.property-changes-parsed": 5,
     "duplicate-property-binding": 2,
-    "unresolved-type": 2,
+    # No "unresolved-type" entry either — same cause, cleared the same way.
     "equality-type-coercion": 1,
-    # One finding: StrangeAttractorScreensaver.qml:47 binds `target: renderer` where the
-    # declared type is QObject and the value is StrangeAttractorRenderer. This entry was briefly
-    # deleted as "cleared" — it was not, it was one of the 475 diagnostics the glued-line bug was
-    # dropping, and the gate caught the mistake on the next run.
-    "incompatible-type": 1,
+    # No "incompatible-type" entry. Its single finding was
+    # StrangeAttractorScreensaver.qml:47 binding `target: renderer`, declared QObject and actually
+    # a StrangeAttractorRenderer — unresolvable while that type was registered at runtime, and
+    # resolved the moment it gained QML_ELEMENT. (An earlier deletion of this entry was WRONG: the
+    # finding had not cleared, it was one of the 475 diagnostics a glued-line parsing bug was
+    # dropping, and the gate caught it on the next run. This time the count is zero on a full,
+    # verified run.)
 }
 
 # Two shapes, and getting either wrong loses diagnostics silently:
