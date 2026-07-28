@@ -1889,8 +1889,13 @@ private slots:
         // through to the profile, and the live dose is left alone (the bag
         // adopts it on the first edit; coffee-bag-model).
         dye.setActiveBagId(static_cast<int>(bagNoDose));
-        QTRY_COMPARE(dye.activeBagId(), static_cast<int>(bagNoDose));
-        QTRY_COMPARE(dye.doseOwner(), SettingsDye::DoseOwner::Profile);
+        QCOMPARE(dye.activeBagId(), static_cast<int>(bagNoDose));
+        // Let this bag's row land before reading the rung. Unresolved reads as
+        // "no dose" here, so a check taken mid-flight would pass for the wrong
+        // reason — and a row still in flight would land on top of the dose
+        // dialed just below, taking the rung back to empty.
+        QTRY_VERIFY(dye.doseLadderResolved());
+        QCOMPARE(dye.doseOwner(), SettingsDye::DoseOwner::Profile);
         QCOMPARE(dye.dyeBeanWeight(), 20.0);
 
         // Dialing a dose onto that bag makes it the owner: the write-through
@@ -1913,8 +1918,12 @@ private slots:
         // not merely the session value.
         dye.setDyeBeanWeight(19.0);              // the recipe's dose is live
         dye.setActiveBagId(static_cast<int>(bagWithDose));
-        QTRY_COMPARE(dye.activeBagId(), static_cast<int>(bagWithDose));
-        QTest::qWait(50);                        // let any queued apply land
+        QCOMPARE(dye.activeBagId(), static_cast<int>(bagWithDose));
+        // Wait on the ROW landing, not on a duration: the rung reports itself
+        // unresolved until bagReady arrives, so this is the event the queued
+        // apply is gated behind. A fixed wait passes locally and fails on a
+        // sanitizer runner where the storage worker takes longer than it.
+        QTRY_VERIFY(dye.doseLadderResolved());
         QCOMPARE(dye.dyeBeanWeight(), 19.0);     // NOT the bag's 20.0
         QCOMPARE(dye.doseOwner(), SettingsDye::DoseOwner::Recipe);
 
