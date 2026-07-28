@@ -645,15 +645,23 @@ and the confirmed defects are in [`bugs-found.md`](bugs-found.md) entries 3–7 
     `JsCanvasGradient*`, so all 41 `addColorStop` calls were the same shape one level down.
   Both now typed, and `JsCanvasContext`/`JsCanvasGradient` registered `QML_UNCREATABLE` so the
   calls are checked against the real API. Runtime-verified: the cup fill still renders.
-- [x] 3c.4 `Pipe*Geometry` deliberately left on runtime registration. Compile-time works but buys
-  nothing: qmllint cannot resolve `QQuick3DGeometry` from the module response file, so it only
-  swaps three `import` warnings for three `unresolved-type` ones. Reasoning recorded at the call
-  site.
-  - A second reason was claimed and withdrawn: that `pipegeometry.h` compiling only under
-    `ENABLE_QUICK3D` would make the qmltypes host-dependent. **All seven release workflows install
-    `qtquick3d`**, so no shipped platform lacks it, and a dev machine that does already diverges
-    because `pipegeometry.cpp` is not compiled there. Kept on the record because the argument
-    sounded like the `GHCSimulatorWindow.qml` precedent and was not.
+- [x] 3c.4 `Pipe*Geometry` **also moved to compile-time registration — after a wrong call was
+  caught by a question.** They were first left on `qmlRegisterType<>` on the measurement that
+  compile-time "bought nothing": it cleared three `import` warnings and produced three
+  `unresolved-type` ones instead. The measurement was right and the conclusion was wrong. That
+  trade was not a property of qmllint; it was a missing declaration.
+  - `qt_add_qml_module(Decenza ...)` listed no `DEPENDENCIES`. The import path resolves what QML
+    **imports** — which is why `import QtQuick3D` in `PipesScreensaver.qml` always worked — but
+    not what our own registered types **inherit**. `PipeCylinderGeometry`'s prototype is
+    `QQuick3DGeometry`, and qmllint will not link a prototype across modules the module has not
+    declared, even with `Quick3D.qmltypes` shipped and on the path.
+  - With `DEPENDENCIES QtQuick3D` both sets clear: `import` 7 -> 4 and **no** `unresolved-type`
+    warnings appear. Kept conditional on `ENABLE_QUICK3D`, because `pipegeometry.*` genuinely is
+    not compiled without it and the module would be declaring a dependency it does not have.
+  - Recorded because of how the error was made, not what it was: a measured trade-off was accepted
+    as a property of the tool without asking why the prototype was unresolvable. The withdrawn
+    host-dependence argument (all seven release workflows install `qtquick3d`) was the *second*
+    wrong reason given for the same deferral.
 - [x] 3c.5 Result: gate passes, clean list **90 -> 92**. `import` 23 -> 7, and both
   `incompatible-type` and `unresolved-type` cleared entirely — the former was
   `StrangeAttractorScreensaver.qml` binding `target: renderer`, unresolvable while that type was

@@ -2,10 +2,15 @@
 
 #include <QtQuick3D/QQuick3DGeometry>
 #include <QVector3D>
+#include <QtQml/qqmlregistration.h>
 
 // Custom cylinder geometry with configurable sides
 class PipeCylinderGeometry : public QQuick3DGeometry {
     Q_OBJECT
+    // Compile-time registration; the module declares DEPENDENCIES QtQuick3D so qmllint can
+    // follow the QQuick3DGeometry prototype. Without that dependency this resolves as
+    // "used but it is not resolved" and is no better than the runtime call it replaced.
+    QML_ELEMENT
 
     Q_PROPERTY(float radius READ radius WRITE setRadius NOTIFY radiusChanged)
     Q_PROPERTY(float length READ length WRITE setLength NOTIFY lengthChanged)
@@ -39,6 +44,7 @@ private:
 // Custom 90-degree elbow geometry (quarter torus)
 class PipeElbowGeometry : public QQuick3DGeometry {
     Q_OBJECT
+    QML_ELEMENT
 
     Q_PROPERTY(float pipeRadius READ pipeRadius WRITE setPipeRadius NOTIFY pipeRadiusChanged)
     Q_PROPERTY(float bendRadius READ bendRadius WRITE setBendRadius NOTIFY bendRadiusChanged)
@@ -78,6 +84,7 @@ private:
 // Custom end cap geometry (flat disc)
 class PipeCapGeometry : public QQuick3DGeometry {
     Q_OBJECT
+    QML_ELEMENT
 
     Q_PROPERTY(float radius READ radius WRITE setRadius NOTIFY radiusChanged)
     Q_PROPERTY(int sides READ sides WRITE setSides NOTIFY sidesChanged)
@@ -105,6 +112,7 @@ private:
 // Custom sphere geometry with configurable resolution
 class PipeSphereGeometry : public QQuick3DGeometry {
     Q_OBJECT
+    QML_ELEMENT
 
     Q_PROPERTY(float radius READ radius WRITE setRadius NOTIFY radiusChanged)
     Q_PROPERTY(int sides READ sides WRITE setSides NOTIFY sidesChanged)

@@ -3526,8 +3526,8 @@ int main(int argc, char *argv[])
     // return it. QML reaches those four through MainController properties, never by type name.
 
     // The CREATABLE types that used to be registered here — JsCanvasPainterItem,
-    // StrangeAttractorRenderer, FastLineRenderer and DocumentFormatter — now carry QML_ELEMENT in
-    // their own headers. The four Pipe*Geometry types did not; see the block further down. Same QML names, same creatable
+    // StrangeAttractorRenderer, FastLineRenderer, DocumentFormatter and the four Pipe*Geometry types —
+    // now carry QML_ELEMENT in their own headers. Same QML names, same creatable
     // contract, and for the same reason the uncreatable ones moved: a runtime qmlRegisterType<>
     // is invisible to qmltyperegistrar, so the type never reached Decenza.qmltypes and qmllint
     // reported every USE of it as "was not found. Did you add all imports and dependencies?" —
@@ -3553,25 +3553,6 @@ int main(int argc, char *argv[])
     qmlRegisterUncreatableMetaObject(ShotProjection::staticMetaObject,
         "Decenza", 1, 0, "ShotProjection",
         "ShotProjection is a value type returned by ShotHistoryStorage signals");
-
-#ifdef ENABLE_QUICK3D
-    // The Pipe*Geometry types stay RUNTIME-registered, unlike the four above. Moving them to
-    // QML_ELEMENT was tried and reverted, for one measured reason: it buys nothing. qmllint
-    // cannot resolve QQuick3DGeometry (their base) from the module's response file, so
-    // compile-time registration merely swaps three "was not found" warnings for three "used but
-    // not resolved" ones in PipesScreensaver.qml, and adds a category occurrence to carry them.
-    //
-    // An earlier version of this comment gave a second reason — that pipegeometry.h compiles only
-    // under `ENABLE_QUICK3D AND Qt6Quick3D_FOUND`, so registering it there would make
-    // Decenza.qmltypes host-dependent. That does not hold up: all seven release workflows install
-    // qtquick3d, so no shipped build lacks it, and a dev machine that does already diverges
-    // because pipegeometry.cpp is not compiled there at all. Revisit this if qmllint gains
-    // Quick3D resolution — at that point compile-time registration would start paying.
-    qmlRegisterType<PipeCylinderGeometry>("Decenza", 1, 0, "PipeCylinderGeometry");
-    qmlRegisterType<PipeElbowGeometry>("Decenza", 1, 0, "PipeElbowGeometry");
-    qmlRegisterType<PipeCapGeometry>("Decenza", 1, 0, "PipeCapGeometry");
-    qmlRegisterType<PipeSphereGeometry>("Decenza", 1, 0, "PipeSphereGeometry");
-#endif
 
     checkpoint("Context properties & type registration");
 

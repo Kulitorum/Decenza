@@ -232,7 +232,7 @@
     "Quick.property-changes-parsed": 5,
     "duplicate-property-binding": 2,
     "equality-type-coercion": 1,
-    "import": 7,
+    "import": 4,
     "missing-property": 322,
     "unqualified": 4938
   }
