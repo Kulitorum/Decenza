@@ -207,6 +207,22 @@ void UsbScaleManager::startPolling()
     m_pollTimer.start();
 }
 
+void UsbScaleManager::probeNow()
+{
+    qDebug() << "[USB Scale] On-demand probe requested (scan)";
+    emit logMessage(QStringLiteral("[USB Scale] Probing for USB scale (scan)"));
+
+    onPollTimerTick();
+
+    // A pass is synchronous in the sense that matters here: it either finds an
+    // already-open scale, or it kicks off a probe whose result arrives on the
+    // normal availability signals. We report the pass as finished rather than
+    // waiting for the probe's own timeout, because the scan indicator should
+    // not sit on USB — BLE's 15 s dominates and a USB scale that answers later
+    // still appears via the background poll.
+    emit probeFinished();
+}
+
 void UsbScaleManager::stopPolling()
 {
     m_pollTimer.stop();

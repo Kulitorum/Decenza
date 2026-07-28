@@ -2,6 +2,7 @@
 #include "mcptoolregistry.h"
 #include "../ble/blemanager.h"
 #include "../ble/de1device.h"
+#include "../network/mdnsresolver.h"
 
 #include <QJsonObject>
 #include <QJsonArray>
@@ -55,6 +56,95 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
             return result;
         },
         "control");
+
+    // devices_wifi_browse
+    registry->registerTool(
+        "devices_wifi_browse",
+        "Run WiFi scale discovery only (DNS-SD browse for _decentscale._tcp plus the "
+        "hds/hds-2/hds-3 A-record fallback), without a BLE scan. Diagnostic tool: lets the "
+        "mDNS backend be chosen explicitly so the two implementations can be compared on the "
+        "same network. Call devices_wifi_results after a few seconds to read what was found.",
+        QJsonObject{
+            {"type", "object"},
+            {"properties", QJsonObject{
+                {"backend", QJsonObject{
+                    {"type", "string"},
+                    {"enum", QJsonArray{"auto", "bonjour", "mjansson"}},
+                    {"description", "Which mDNS implementation to browse with. "
+                                    "'auto' is what ships (bonjour on macOS/iOS, mjansson elsewhere). "
+                                    "'mjansson' on macOS exercises the backend Android and "
+                                    "Windows/Linux actually use. 'bonjour' is unavailable off Apple."}}},
+                {"timeoutMs", QJsonObject{
+                    {"type", "integer"},
+                    {"description", "How long to browse, in milliseconds. Default 8000. "
+                                    "Short windows return the resolver's cache including stale "
+                                    "entries; longer ones let it prune them."}}}
+            }}
+        },
+        [bleManager](const QJsonObject& args) -> QJsonObject {
+            QJsonObject result;
+            if (!bleManager) {
+                result["error"] = "BLE manager not available";
+                return result;
+            }
+            const QString backend = args.value("backend").toString(QStringLiteral("auto")).toLower();
+            if (backend == QStringLiteral("bonjour"))
+                MdnsResolver::setBrowseBackend(MdnsResolver::BrowseBackend::Bonjour);
+            else if (backend == QStringLiteral("mjansson"))
+                MdnsResolver::setBrowseBackend(MdnsResolver::BrowseBackend::Mjansson);
+            else
+                MdnsResolver::setBrowseBackend(MdnsResolver::BrowseBackend::Auto);
+
+            const int timeoutMs = args.value("timeoutMs").toInt(8000);
+            QMetaObject::invokeMethod(bleManager, "browseWifiScales",
+                Qt::QueuedConnection, Q_ARG(int, timeoutMs));
+
+            result["success"] = true;
+            result["backendRequested"] = backend;
+            result["backendActive"] = MdnsResolver::activeBrowseBackendName();
+            result["timeoutMs"] = timeoutMs;
+            result["message"] = QString("WiFi discovery started using the %1 backend. "
+                                        "Call devices_wifi_results after about %2 seconds.")
+                                    .arg(MdnsResolver::activeBrowseBackendName())
+                                    .arg((timeoutMs / 1000) + 1);
+            return result;
+        },
+        "control");
+
+    // devices_wifi_results
+    registry->registerTool(
+        "devices_wifi_results",
+        "Read the raw results of the most recent WiFi scale discovery, including the DNS-SD "
+        "detail the device list flattens away: instance name, TXT name, port, WebSocket path, "
+        "firmware version, and whether each was found by service browse or hostname fallback.",
+        QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+        [bleManager](const QJsonObject&) -> QJsonObject {
+            QJsonObject result;
+            if (!bleManager) {
+                result["error"] = "BLE manager not available";
+                return result;
+            }
+            QJsonArray arr;
+            const QVariantList results = bleManager->wifiScaleResults();
+            for (const QVariant& v : results) {
+                const QVariantMap m = v.toMap();
+                QJsonObject o;
+                o["instanceName"] = m["instanceName"].toString();
+                o["mdnsName"] = m["mdnsName"].toString();
+                o["hostname"] = m["hostname"].toString();
+                o["address"] = m["address"].toString();
+                o["port"] = m["port"].toInt();
+                o["path"] = m["path"].toString();
+                o["firmwareVersion"] = m["firmwareVersion"].toString();
+                o["foundBy"] = m["foundBy"].toString();
+                arr.append(o);
+            }
+            result["results"] = arr;
+            result["count"] = arr.size();
+            result["backendActive"] = MdnsResolver::activeBrowseBackendName();
+            return result;
+        },
+        "read");
 
     // devices_connect_scale
     registry->registerTool(

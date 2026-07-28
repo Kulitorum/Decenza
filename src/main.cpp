@@ -2551,6 +2551,11 @@ int main(int argc, char *argv[])
                         // selection), hand the IP to connectToHost() as its
                         // preferredIp so it dials the known IP directly instead
                         // of asking Qt's resolver to re-resolve ".local".
+                        // Use the endpoint the scale advertised over DNS-SD
+                        // rather than assuming :80/snapshot (defaults to that
+                        // when discovery had no TXT data).
+                        wifi->setEndpoint(bleManager.pendingWifiPort(),
+                                          bleManager.pendingWifiPath());
                         wifi->connectToHost(bleManager.pendingWifiHostname(),
                                             bleManager.pendingWifiResolvedIp());
                     }
@@ -2852,6 +2857,7 @@ int main(int argc, char *argv[])
                 // (never cached until verified). Empty for manual-typed entries
                 // and cache-driven reconnects — those fall through to the cached
                 // IP / hostname-resolve path (see BLEManager call sites).
+                wifi->setEndpoint(bleManager.pendingWifiPort(), bleManager.pendingWifiPath());
                 wifi->connectToHost(hostname, bleManager.pendingWifiResolvedIp());
             }
         } else {
@@ -3308,6 +3314,18 @@ int main(int argc, char *argv[])
     QObject::connect(&bleManager, &BLEManager::usbConnectRequested,
                      [&usbScaleManager]() {
         usbScaleManager.connectToScale();
+    });
+
+    // "Scan for Devices" covers USB too, not just BLE and WiFi. BLEManager asks
+    // (it doesn't own UsbScaleManager) and the completion feeds back so the
+    // composite "Scanning..." indicator waits for all three transports.
+    QObject::connect(&bleManager, &BLEManager::usbProbeRequested,
+                     [&usbScaleManager]() {
+        usbScaleManager.probeNow();
+    });
+    QObject::connect(&usbScaleManager, &UsbScaleManager::probeFinished,
+                     [&bleManager]() {
+        bleManager.onUsbProbeFinished();
     });
 
     // Forward USB scale manager log messages to BOTH logs: the scale log (so the

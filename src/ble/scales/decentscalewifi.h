@@ -61,6 +61,17 @@ public:
     // See m_retryShouldReresolve.
     void connectToHost(const QString& hostname, const QString& preferredIp = QString());
 
+    /**
+     * Override the WebSocket endpoint with what DNS-SD advertised, instead of
+     * assuming the firmware's current :80/snapshot. Set before connectToHost()
+     * from a browse result; a scale found any other way keeps the defaults.
+     *
+     * The point is that the endpoint is data the scale publishes (TXT `path`,
+     * SRV port), so a future firmware that moves it keeps working without an
+     * app change.
+     */
+    void setEndpoint(quint16 port, const QString& path);
+
     QString name() const override { return m_name; }
     QString type() const override { return ScaleTypeIds::scaleTypeId(ScaleType::DecentScaleWifi); }
     QString transportType() const { return QStringLiteral("wifi"); }
@@ -215,6 +226,10 @@ private:
 
     QWebSocket* m_socket = nullptr;
     QTimer* m_recognitionTimer = nullptr;
+    // WebSocket endpoint. Defaults are the firmware's current advertisement;
+    // setEndpoint() replaces them with what a DNS-SD browse actually reported.
+    quint16 m_wsPort = 80;
+    QString m_wsPath = QStringLiteral("/snapshot");
     QString m_hostname;             // The canonical hostname (no "wifi:" prefix). Stable across fallback.
     QString m_currentTarget;        // Whatever we're currently dialing — IP or hostname.
     bool m_currentTargetIsHostname = false;

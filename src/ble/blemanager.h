@@ -16,6 +16,7 @@
 #include <atomic>
 
 #include "blecapability.h"
+#include "network/wifiscaleresult.h"
 
 class ScaleDevice;
 class RefractometerDevice;
@@ -37,6 +38,12 @@ struct ScaleEntry {
     QString transport;            // "ble" or "wifi"
     QString name;                 // Display name (carries " (WiFi)" suffix for WiFi entries)
     QString address;              // Routing handle: BLE MAC/UUID, or "wifi:<hostname>"
+    // WiFi entries discovered by DNS-SD carry the endpoint the scale actually
+    // advertised, rather than us assuming :80/snapshot. Defaults match the
+    // firmware's current advertisement, so a scale found by the A-record
+    // fallback (which has no TXT data) still connects.
+    quint16 wsPort = 80;
+    QString wsPath = QStringLiteral("/snapshot");
     QString resolvedIp;           // WiFi entries only: the IP WifiScaleDiscovery's mDNS
                                    // query resolved `address`'s hostname to. Empty for BLE/USB.
                                    // Lets connectToScale() seed DecentScaleWifi's IP cache so
@@ -156,6 +163,10 @@ public:
     // seeds DecentScaleWifi's IP cache with it before dialing, so the connect
     // skips Qt's own (mDNS-unreliable on non-Android) hostname resolver.
     QString pendingWifiResolvedIp() const { return m_pendingWifiResolvedIp; }
+    // WebSocket endpoint advertised by the scale being connected to. Defaults
+    // to the firmware's :80/snapshot when discovery had no TXT data to go on.
+    quint16 pendingWifiPort() const { return m_pendingWifiPort; }
+    QString pendingWifiPath() const { return m_pendingWifiPath; }
     // True between beginWifiFallbackToBleScan and the next successful connect.
     // main.cpp reads this when a BLE Decent scale connects during the fallback
     // window — in that case the user's saved WiFi primary address is preserved
@@ -464,6 +475,23 @@ public:
     // UsbScaleManager::usbScaleAvailable/Unavailable.
     void setUsbScaleAvailable(bool available, const QString& name);
 
+    // Called by main.cpp when a scan-initiated USB probe pass completes, so the
+    // composite `scanning` property can drop its USB third. Safe to call when
+    // no scan-initiated probe is outstanding.
+    void onUsbProbeFinished();
+
+    // WiFi-only discovery, without the BLE scan. Exists for the MCP diagnostic
+    // tools: the mjansson browse is the backend Android and Windows/Linux use,
+    // but it is developed on a Mac that ships the Bonjour backend, so being able
+    // to drive either one against the same LAN is the only way to compare them
+    // without deploying to a tablet.
+    Q_INVOKABLE void browseWifiScales(int timeoutMs);
+
+    // Raw results of the most recent WiFi discovery, for the MCP diagnostic
+    // tools. Each entry carries the DNS-SD detail the discovered-scales list
+    // flattens away (instance name, TXT name, port, path, firmware, source).
+    QVariantList wifiScaleResults() const;
+
     // Scale address management
     Q_INVOKABLE void setSavedScaleAddress(const QString& address, const QString& type, const QString& name);
     Q_INVOKABLE void clearSavedScale();
@@ -566,6 +594,10 @@ signals:
     // device — the USB connect goes through UsbScaleManager::connectToScale(),
     // which creates + opens the UsbDecentScale and emits its own scaleDiscovered.
     void usbConnectRequested();
+
+    // Emitted when a scan wants USB probed alongside BLE and WiFi. main.cpp
+    // owns UsbScaleManager, so BLEManager asks rather than calling directly.
+    void usbProbeRequested();
     void errorOccurred(const QString& error);
     void de1LogMessage(const QString& message);
     void scaleLogMessage(const QString& message);
@@ -808,6 +840,27 @@ private:
     QString m_pendingWifiHostname;
     // Companion to m_pendingWifiHostname — see pendingWifiResolvedIp().
     QString m_pendingWifiResolvedIp;
+    quint16 m_pendingWifiPort = 80;
+    QString m_pendingWifiPath = QStringLiteral("/snapshot");
+
+    // True while a scan-initiated USB probe pass is outstanding. Feeds the
+    // composite `scanning` property so "Scanning..." covers all three
+    // transports. Set by scanForDevices(), cleared by the USB probeFinished
+    // signal that main.cpp forwards in.
+    bool m_usbProbeInFlight = false;
+
+    // Every WiFi result seen in the current scan, keyed by resolved address.
+    // Kept because a row's label depends on the OTHER rows: DNS-SD suffixes
+    // colliding instance names ("Half Decent Scale" / "Half Decent Scale-2"),
+    // which tells the user nothing about which scale is which, so those rows
+    // have to show their address too. That decision can't be made from one
+    // result in isolation. Cleared at the start of each scan.
+    QVector<WifiScaleResult> m_wifiResults;
+
+    // Re-derive the display name of every WiFi row from m_wifiResults,
+    // appending the address to any row whose label would otherwise be
+    // indistinguishable from another's.
+    void relabelWifiScales();
 
     // Saved DE1 for direct wake connection
     QString m_savedDE1Address;

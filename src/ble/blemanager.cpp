@@ -11,6 +11,7 @@
 #include "../core/settings_hardware.h"
 #include "../core/translationmanager.h"
 #include "../network/wifiscalediscovery.h"
+#include "../network/mdnsresolver.h"
 #include "bleepochgate.h"
 #include "version.h"
 #include <QBluetoothLocalDevice>
@@ -670,7 +671,18 @@ void BLEManager::setScaleSimulated(bool simulated) {
 }
 
 bool BLEManager::isScanning() const {
-    return m_scanning;
+    // Composite on purpose: "Scan for Devices" searches BLE, WiFi AND USB, so
+    // the indicator must answer "is the app still looking", not "is the BLE
+    // agent still looking". Reporting only m_scanning made the button revert to
+    // its idle text while WiFi results were still arriving.
+    //
+    // NOTE this is the PROPERTY only. m_scanning stays BLE-agent state and the
+    // internal control flow (restart-if-already-scanning, stopScan guards)
+    // continues to read it directly — those genuinely mean "the BLE agent is
+    // busy" and must not pick up the WiFi/USB meaning.
+    return m_scanning
+        || (m_wifiDiscovery && (m_wifiDiscovery->isBrowsing() || m_wifiDiscovery->isProbing()))
+        || m_usbProbeInFlight;
 }
 
 QVariantList BLEManager::discoveredDevices() const {
@@ -750,6 +762,10 @@ void BLEManager::connectToScale(const QString& address) {
             // (see ScaleEntry::resolvedIp) so main.cpp can seed DecentScaleWifi's
             // IP cache and skip Qt's own hostname resolver entirely.
             m_pendingWifiResolvedIp = entry.resolvedIp;
+            // Endpoint the scale advertised over DNS-SD (defaults to :80/snapshot
+            // for a fallback-discovered scale, which publishes no TXT data).
+            m_pendingWifiPort = entry.wsPort;
+            m_pendingWifiPath = entry.wsPath;
             emit scaleDiscovered(QBluetoothDeviceInfo{}, entry.type);
         } else {
             emit scaleDiscovered(entry.device, entry.type);
@@ -817,17 +833,18 @@ void BLEManager::probeMdnsForManualEntry() {
                 [this](const QString& msg) {
             appendScaleLog(QString("[WifiScaleDiscovery/manual] %1").arg(msg));
         });
-        connect(m_manualEntryDiscovery, &WifiScaleDiscovery::scaleFound, this,
-                [this](const QString& hostname, const QString& resolvedAddress) {
+        connect(m_manualEntryDiscovery, &WifiScaleDiscovery::resultFound, this,
+                [this](const WifiScaleResult& result) {
             // (Result line — the WifiScaleDiscovery logMessage above already
             // logged the "mDNS resolved …" detail; this is the higher-level
             // event for the user reading the log top-to-bottom.)
-            appendScaleLog(QString("Manual-entry mDNS found %1 at %2").arg(hostname, resolvedAddress));
+            appendScaleLog(QString("Manual-entry mDNS found %1 at %2")
+                               .arg(result.hostname, result.address));
             m_manualEntryFoundThisProbe = true;
-            emit manualWifiMdnsDiscovered(hostname, resolvedAddress);
+            emit manualWifiMdnsDiscovered(result.hostname, result.address);
         });
         connect(m_manualEntryDiscovery, &WifiScaleDiscovery::probeFinished, this,
-                [this]() {
+                [this](bool /*ran*/) {
             if (!m_manualEntryFoundThisProbe) {
                 appendScaleLog(QStringLiteral(
                     "Manual-entry mDNS: no HDS scale responded — user can still type an address"));
@@ -836,8 +853,12 @@ void BLEManager::probeMdnsForManualEntry() {
         });
     }
     m_manualEntryFoundThisProbe = false;
+    // Deliberately the single default name, not the full fallback list the scan
+    // uses: this dialog shows ONE one-tap shortcut, so probing several names
+    // would just make which one appears depend on resolution order. The dialog
+    // is the manual type-an-address path; discovering everything is the scan's job.
     appendScaleLog(QStringLiteral("Probing mDNS for hds.local (manual entry)..."));
-    m_manualEntryDiscovery->probe();
+    m_manualEntryDiscovery->probe(QStringLiteral("hds.local"));
 }
 
 void BLEManager::connectToWifiScale(const QString& hostnameOrIp, const QString& resolvedIp) {
@@ -2057,19 +2078,126 @@ void BLEManager::scanForDevices() {
     m_wifiFallbackToBleActive = false;
     startScan();
 
-    // Fire the WiFi mDNS probe in parallel with the BLE scan. On-demand only;
-    // no idle probing per the project requirement. 5 s timeout matches the
-    // saved-scale rehydration path — the HDS mDNS responder regularly takes
-    // 2-4 s to reply (likely the ESP32 being woken from a power-save state),
-    // and the BLE scan is running in parallel for ~10 s anyway so this
-    // doesn't slow down the user-perceived scan duration.
+    // Fire WiFi discovery in parallel with the BLE scan. On-demand only; no
+    // idle probing per the project requirement.
+    //
+    // BOTH mechanisms run, every time — the browse is not a replacement and the
+    // fallback is not a fallback-if-the-browse-fails. A LAN can hold a
+    // v3.0.9+ scale that advertises DNS-SD and an older one that only answers
+    // to its hostname, and running the fallback only when the browse came back
+    // empty would hide the old scale whenever a new one is present.
+    //
+    // The 5 s A-record timeout is unchanged: the HDS responder regularly takes
+    // 2-4 s to reply (likely the ESP32 waking from power-save). The browse runs
+    // longer, alongside the ~15 s BLE scan, because a DNS-SD browse's first
+    // callback is a dump of the resolver's cache — stale instances included —
+    // and the resolver's own pruning of those arrives seconds later.
     ensureWifiDiscovery();
-    m_wifiDiscovery->probe(QStringLiteral("hds.local"), 5000);
+    m_wifiDiscovery->browse(15000);
+    m_wifiDiscovery->probe(WifiScaleDiscovery::defaultFallbackHostnames(), 5000);
+
+    // USB is otherwise a free-running background poll that the scan button never
+    // touched, so a scale plugged in just before a scan appeared only when the
+    // 2 s timer next came round. Ask for an immediate pass and count it as part
+    // of the scan, so "Scan for Devices" really does mean all three transports.
+    // Fresh label set for this scan. The WiFi ROWS are deliberately not cleared
+    // here — doStartScan() only clears BLE rows, and within a scan cycle the
+    // list stays add-only so nothing a user is looking at vanishes under them.
+    m_wifiResults.clear();
+
+    m_usbProbeInFlight = true;
+    emit usbProbeRequested();
+
+    // The composite `scanning` property just gained two more contributors.
+    emit scanningChanged();
+}
+
+void BLEManager::browseWifiScales(int timeoutMs) {
+    ensureWifiDiscovery();
+    m_wifiResults.clear();
+    appendScaleLog(QString("WiFi-only discovery requested (backend=%1, %2 ms)")
+                       .arg(MdnsResolver::activeBrowseBackendName())
+                       .arg(timeoutMs));
+    m_wifiDiscovery->browse(timeoutMs);
+    m_wifiDiscovery->probe(WifiScaleDiscovery::defaultFallbackHostnames(), 5000);
+    emit scanningChanged();
+}
+
+QVariantList BLEManager::wifiScaleResults() const {
+    QVariantList out;
+    for (const WifiScaleResult& r : m_wifiResults) {
+        QVariantMap m;
+        m["instanceName"] = r.instanceName;
+        m["mdnsName"] = r.mdnsName;
+        m["hostname"] = r.hostname;
+        m["address"] = r.address;
+        m["port"] = r.port;
+        m["path"] = r.path;
+        m["firmwareVersion"] = r.firmwareVersion;
+        m["foundBy"] = r.foundBy == WifiScaleResult::Source::Browse
+            ? QStringLiteral("browse") : QStringLiteral("fallback");
+        out.append(m);
+    }
+    return out;
+}
+
+void BLEManager::relabelWifiScales() {
+    if (m_wifiResults.isEmpty())
+        return;
+
+    bool changed = false;
+    for (const WifiScaleResult& r : m_wifiResults) {
+        if (r.address.isEmpty())
+            continue;
+
+        // Ambiguous when some OTHER result would render the same base label.
+        // Two unrenamed scales are the real case: DNS-SD hands us "Half Decent
+        // Scale" and "Half Decent Scale-2", and the "-2" is a protocol artifact
+        // the user never chose and cannot map to a physical scale.
+        bool ambiguous = false;
+        for (const WifiScaleResult& other : m_wifiResults) {
+            if (other.address == r.address)
+                continue;
+            if (WifiScaleResultUtil::labelsCollide(r, other)) {
+                ambiguous = true;
+                break;
+            }
+        }
+
+        const QString name = QString("%1 (WiFi)")
+                                 .arg(WifiScaleResultUtil::displayName(r, ambiguous));
+        for (ScaleEntry& entry : m_scales) {
+            if (entry.transport != QStringLiteral("wifi"))
+                continue;
+            if (entry.resolvedIp != r.address)
+                continue;
+            if (entry.name != name) {
+                entry.name = name;
+                changed = true;
+            }
+        }
+    }
+
+    if (changed)
+        emit scalesChanged();
+}
+
+void BLEManager::onUsbProbeFinished() {
+    if (!m_usbProbeInFlight) return;
+    m_usbProbeInFlight = false;
+    emit scanningChanged();
 }
 
 void BLEManager::ensureWifiDiscovery() {
     if (m_wifiDiscovery) return;
     m_wifiDiscovery = new WifiScaleDiscovery(this);
+    // Each transport finishing changes the composite `scanning` property, so
+    // the "Scanning..." indicator clears only once ALL of them are done rather
+    // than when the BLE agent alone finishes.
+    connect(m_wifiDiscovery, &WifiScaleDiscovery::probeFinished, this,
+            [this](bool) { emit scanningChanged(); });
+    connect(m_wifiDiscovery, &WifiScaleDiscovery::browseFinished, this,
+            [this](bool) { emit scanningChanged(); });
     // Forward mDNS-layer diagnostics into the user-shareable scale debug log.
     // Without this, "mDNS lookup timed out" / "no responder" lines lived only
     // in qDebug output (Qt Creator console / adb logcat), invisible in the log
@@ -2083,34 +2211,77 @@ void BLEManager::ensureWifiDiscovery() {
     // call site lazy-created the discovery object with a DIFFERENT lambda
     // and the second registration was silently dropped by the
     // `if (!m_wifiDiscovery)` guard — breaking whichever path ran second.
-    connect(m_wifiDiscovery, &WifiScaleDiscovery::scaleFound, this,
-        [this](const QString& hostname, const QString& resolvedAddress) {
+    connect(m_wifiDiscovery, &WifiScaleDiscovery::resultFound, this,
+        [this](const WifiScaleResult& result) {
+            const QString hostname = result.hostname;
+            const QString resolvedAddress = result.address;
             const QString address = QStringLiteral("wifi:") + hostname;
             qDebug() << "[BLE] WiFi scale found:" << hostname
                      << "->" << resolvedAddress
                      << "address=" << address
+                     << "instance=" << result.instanceName
+                     << "fw=" << result.firmwareVersion
                      << "userInitiatedScan=" << m_userInitiatedScaleScan
                      << "saved=" << m_savedScaleAddress;
-            // Append to the discovered-scales list if not already present —
-            // useful for the user-initiated scan, harmless for the auto-
-            // reconnect path (the UI list is hidden during direct-wake).
+
+            // Dedupe on the RESOLVED ADDRESS, not the hostname: the browse and
+            // the A-record fallback reach the same scale under different names
+            // (SRV target vs queried name), and the address is the only identity
+            // both establish. Matching on hostname would show one scale twice.
             qsizetype existingIndex = -1;
             for (qsizetype i = 0; i < m_scales.size(); ++i) {
-                if (m_scales[i].transport == QStringLiteral("wifi") && m_scales[i].address == address) {
+                if (m_scales[i].transport != QStringLiteral("wifi"))
+                    continue;
+                if (m_scales[i].address == address
+                        || (!resolvedAddress.isEmpty()
+                            && m_scales[i].resolvedIp == resolvedAddress)) {
                     existingIndex = i;
                     break;
                 }
             }
+
+            // Remember the result so labels can be re-derived across the whole
+            // set — whether a row needs its address shown depends on the other
+            // rows, not on this one alone. Browse supersedes a fallback hit at
+            // the same address (it carries instance name, port and path).
+            bool mergedIntoExisting = false;
+            for (WifiScaleResult& seen : m_wifiResults) {
+                if (!resolvedAddress.isEmpty() && seen.address == resolvedAddress) {
+                    if (result.foundBy == WifiScaleResult::Source::Browse)
+                        seen = result;
+                    mergedIntoExisting = true;
+                    break;
+                }
+            }
+            if (!mergedIntoExisting)
+                m_wifiResults.append(result);
+
+            // Provisional label; relabelWifiScales() below fixes up collisions
+            // once the full set is known.
+            const QString label = WifiScaleResultUtil::displayName(result, /*ambiguous=*/false);
+
             if (existingIndex < 0) {
                 ScaleEntry entry;
                 entry.type = QStringLiteral("decent-wifi");
                 entry.transport = QStringLiteral("wifi");
-                entry.name = QStringLiteral("Half Decent Scale (WiFi)");
+                entry.name = QString("%1 (WiFi)").arg(label);
                 entry.address = address;
                 entry.resolvedIp = resolvedAddress;
+                entry.wsPort = result.port;
+                entry.wsPath = result.path;
                 m_scales.append(entry);
                 qDebug() << "[BLE] Added WiFi scale to discovered list; m_scales count=" << m_scales.size();
                 appendScaleLog(QString("Found %1 (%2)").arg(entry.name, entry.address));
+                emit scalesChanged();
+            } else if (result.foundBy == WifiScaleResult::Source::Browse) {
+                // A browse hit supersedes a fallback row for the same scale: it
+                // carries the instance name, port and path the A-record path
+                // cannot produce. Refresh in place rather than adding a duplicate.
+                m_scales[existingIndex].name = QString("%1 (WiFi)").arg(label);
+                m_scales[existingIndex].address = address;
+                m_scales[existingIndex].resolvedIp = resolvedAddress;
+                m_scales[existingIndex].wsPort = result.port;
+                m_scales[existingIndex].wsPath = result.path;
                 emit scalesChanged();
             } else {
                 // Refresh the resolved IP even on a repeat find — DHCP may have
@@ -2119,6 +2290,11 @@ void BLEManager::ensureWifiDiscovery() {
                 m_scales[existingIndex].resolvedIp = resolvedAddress;
                 qDebug() << "[BLE] WiFi scale already in discovered list — not re-adding";
             }
+
+            // A new result can make a previously-unambiguous label ambiguous
+            // (the second unrenamed scale is what creates the collision), so
+            // relabel the whole set rather than just this row.
+            relabelWifiScales();
 
             // Auto-connect when the discovered scale matches the saved primary,
             // including during user-initiated scans. Matching the saved primary
