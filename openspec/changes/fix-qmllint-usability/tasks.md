@@ -448,16 +448,25 @@ new lifetime concept.
   Neither had any QML registration; the earlier note calling them "already registered, would
   conflict" was wrong, and only `SteamHealthTracker` was ever in that shape.
 - [x] 3b.4 `AppVersion`, `AppVersionCode`, `PreviousCrashLog`, `PreviousDebugLogTail` (16) — four
-  loose values with no object to hang off, so they get one: a new `AppInfo` singleton
-  (`src/core/appinfo.h`), read as `AppInfo.version` / `.versionCode` / `.previousCrashLog` /
-  `.previousDebugLogTail`. All four properties are `CONSTANT`: every value is known before
-  `QQmlEngine::load()` and none can change afterwards.
+  loose values, given to the objects that already owned them. **The first attempt invented an
+  `AppInfo` singleton to hold all four; review deleted it, and that was the right call** (3b.11):
+  - `AppVersion` / `AppVersionCode` → `MainController.updateChecker.currentVersion` /
+    `.currentVersionCode`, which already existed, already read the same `VERSION_STRING` and
+    `versionCode()`, were already `CONSTANT` and registered, and were already used in the same
+    file that displayed the context-property versions.
+  - `PreviousCrashLog` / `PreviousDebugLogTail` → `CrashReporter`, where QML already goes to
+    submit them, so `CrashReportDialog` now reads and submits through one object. Both are
+    `CONSTANT`: they describe a run that has already ended. Note the asymmetry — `CrashReporter`
+    does not own the log's lifecycle; `MainController::clearCrashLog()` deletes the file
+    `CrashHandler` wrote.
 - [x] 3b.5 Dead registration removed: `qmlRegisterUncreatableType<DE1Device>(… "DE1DeviceType")`.
   It existed for the same shadowing reason as the others, `DE1Device` became a singleton in
   PR #1680, and nothing in `qml/` or `tests/` referenced the name.
-- [x] 3b.6 `decenzaPublishedSingleton()` extracted from `contextsingletons_qml.h` to
-  `src/core/qmlsingletonpublish.h`, now that `appinfo.h` is a second caller. That file's own
-  comment records that three hand-written copies previously diverged; a fourth was not the move.
+- [x] 3b.6 `decenzaPublishedSingleton()` **stays in `contextsingletons_qml.h`**. It was briefly
+  extracted to `src/core/qmlsingletonpublish.h` when `AppInfo` would have been a second caller;
+  deleting `AppInfo` left the extraction with one caller and no justification, so it folded back.
+  The point it was extracted for still holds and is recorded there: three hand-written copies of
+  that logic previously diverged, so a fourth was not the move.
 - [x] 3b.7 **`GHCSimulator` (15) deliberately NOT in this batch**, and not for the lifetime reason
   the old note gave. Its declaration sits inside `#if (Q_OS_WIN || Q_OS_MACOS) && QT_DEBUG`, so on
   every other build the instance legitimately does not exist. QML is already safe with that —
@@ -486,6 +495,36 @@ new lifetime concept.
   `SettingsCalibrationTab.qml` 40 -> 1, `FlowCalibrationPage.qml` 39 -> 2, `qml/main.qml` 159 ->
   141, `RecipeWizardPage.qml` 159 -> 151, `SettingsAITab.qml` 37 -> 35, and
   `SettingsUpdateTab.qml` onto the clean list.
+
+- [x] 3b.11 **Review round on PR #1683.** Five agents; every finding verified against the code
+  before acting on it, and three were acted on:
+  - **`AppInfo` deleted** (see 3b.4). Three of its four values already had a registered owner, and
+    `AppVersion` duplicating `UpdateChecker::currentVersion` is precisely the two-sources-of-truth
+    drift this change exists to remove. The batch ends up adding no new types rather than two.
+  - **Three false comments, all written in this batch's first commit.** Recorded because the rate
+    matters more than any one of them: `appinfo.h` named `CrashReporter` as what clears the crash
+    log (it is `MainController::clearCrashLog()`); `main.cpp` called the three storage `…Type`
+    registrations context-property workarounds (no such context property ever existed —
+    `git log -S` — and the claim contradicted its own next paragraph); and `main.cpp`'s teardown
+    comment still described `FlowCalibrationModel` as declared after `engine` and protected by
+    QML dropping a context property, both false since the hoist. That last one is the
+    documentation for the exact use-after-free hazard this batch navigates, so a later reader
+    could have moved the declaration back down on its authority. **Three of the four comment
+    defects found across #1680 and #1683 were confident, specific, and wrong.**
+  - **The enum-contract test that the deleted comment had falsely claimed existed.**
+    `SettingsCalibrationTab.qml` compares against `SteamHealthTracker.EstablishingAfterReset`; a
+    renamed enumerator makes that `=== undefined` — silently false, wrong wording forever, no
+    error and no log. Written generally rather than for one name: every
+    `Singleton.UpperCaseMember` access in `qml/` must resolve in `Decenza.qmltypes`. It covers the
+    unscoped form that `qmlOnlyNamesPhaseEnumeratorsThatExist` structurally cannot, there being no
+    enum name in the expression to anchor on. Verified by negative control — injecting a renamed
+    enumerator fails it, reverting passes. Passing alone would only have proved it ran.
+  - Declined, with reasons: a `try`/`catch` around `Component.onCompleted` (real observation — a
+    null singleton throws where a missing context property was falsy — but the only route to null
+    is deleting a publish line `tst_qmlregistration` asserts exists); `qFatal` in the publish
+    helper (contradicts its deliberate "checked, not asserted" design, which exists because
+    `Q_ASSERT` compiles out of Release); and stripping `?.` from `FlowCalibrationPage` for
+    call-site consistency (churn with no defect behind it).
 
 ## 4. Deferred: the runtime-swapped devices
 
