@@ -202,7 +202,7 @@ Item {
             Connections {
                 target: MachineState
                 function onScaleWeightChanged() {
-                    if (presetPopup.visible) popupPillRow.parent.popupSuffixVersion++
+                    if (presetPopup.visible) popupPillRow.presetPopup.popupSuffixVersion++
                 }
             }
 

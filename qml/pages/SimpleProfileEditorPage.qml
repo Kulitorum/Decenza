@@ -660,6 +660,7 @@ Page {
         }
 
         AccessibleButton {
+            id: accessibleButton
             text: editorPage.tr("done", "Done")
             accessibleName: editorPage.isFlow ? editorPage.tr("finishEditing", "Finish editing flow profile") : editorPage.tr("finishEditing", "Finish editing pressure profile")
             onClicked: {
@@ -674,11 +675,11 @@ Page {
                 implicitWidth: Math.max(Theme.scaled(80), doneText.implicitWidth + Theme.scaled(32))
                 implicitHeight: Theme.scaled(36)
                 radius: Theme.scaled(6)
-                color: parent.down ? Qt.darker(Theme.primaryContrastColor, 1.1) : Theme.primaryContrastColor
+                color: accessibleButton.down ? Qt.darker(Theme.primaryContrastColor, 1.1) : Theme.primaryContrastColor
             }
             contentItem: Text {
                 id: doneText
-                text: parent.text
+                text: accessibleButton.text
                 font.pixelSize: Theme.scaled(14)
                 font.family: Theme.bodyFont.family
                 color: Theme.primaryColor
@@ -818,6 +819,7 @@ Page {
                 }
 
                 AccessibleButton {
+                    id: doneButton
                     Layout.fillWidth: true
                     Layout.topMargin: Theme.scaled(6)
                     text: TranslationManager.translate("common.done", "Done")
@@ -826,10 +828,10 @@ Page {
                     background: Rectangle {
                         implicitHeight: Theme.scaled(44)
                         radius: Theme.buttonRadius
-                        color: parent.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+                        color: doneButton.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
                     }
                     contentItem: Text {
-                        text: parent.text
+                        text: doneButton.text
                         font: Theme.bodyFont
                         color: Theme.primaryContrastColor
                         horizontalAlignment: Text.AlignHCenter
@@ -891,6 +893,7 @@ Page {
             }
 
             AccessibleButton {
+                id: okButton
                 Layout.fillWidth: true
                 Layout.leftMargin: Theme.scaled(20)
                 Layout.rightMargin: Theme.scaled(20)
@@ -901,10 +904,10 @@ Page {
                 background: Rectangle {
                     implicitHeight: Theme.scaled(44)
                     radius: Theme.buttonRadius
-                    color: parent.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+                    color: okButton.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
                 }
                 contentItem: Text {
-                    text: parent.text
+                    text: okButton.text
                     font: Theme.bodyFont
                     color: Theme.primaryContrastColor
                     horizontalAlignment: Text.AlignHCenter
@@ -1022,6 +1025,7 @@ Page {
                     spacing: Theme.scaled(10)
 
                     AccessibleButton {
+                        id: cancelButton
                         Layout.fillWidth: true
                         text: TranslationManager.translate("common.cancel", "Cancel")
                         accessibleName: TranslationManager.translate("common.cancel", "Cancel")
@@ -1034,7 +1038,7 @@ Page {
                             border.color: Theme.textSecondaryColor
                         }
                         contentItem: Text {
-                            text: parent.text
+                            text: cancelButton.text
                             font: Theme.bodyFont
                             color: Theme.textColor
                             horizontalAlignment: Text.AlignHCenter
@@ -1043,6 +1047,7 @@ Page {
                     }
 
                     AccessibleButton {
+                        id: saveButton
                         Layout.fillWidth: true
                         text: TranslationManager.translate("common.save", "Save")
                         accessibleName: TranslationManager.translate("common.save", "Save")
@@ -1050,10 +1055,10 @@ Page {
                         background: Rectangle {
                             implicitHeight: Theme.scaled(44)
                             radius: Theme.buttonRadius
-                            color: parent.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+                            color: saveButton.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
                         }
                         contentItem: Text {
-                            text: parent.text
+                            text: saveButton.text
                             font: Theme.bodyFont
                             color: Theme.primaryContrastColor
                             horizontalAlignment: Text.AlignHCenter
@@ -1152,6 +1157,7 @@ Page {
                 spacing: Theme.scaled(10)
 
                 AccessibleButton {
+                    id: noButton
                     Layout.fillWidth: true
                     text: TranslationManager.translate("common.no", "No")
                     accessibleName: TranslationManager.translate("common.no", "No")
@@ -1164,7 +1170,7 @@ Page {
                         border.color: Theme.textSecondaryColor
                     }
                     contentItem: Text {
-                        text: parent.text
+                        text: noButton.text
                         font: Theme.bodyFont
                         color: Theme.textColor
                         horizontalAlignment: Text.AlignHCenter
@@ -1173,6 +1179,7 @@ Page {
                 }
 
                 AccessibleButton {
+                    id: yesButton
                     Layout.fillWidth: true
                     text: TranslationManager.translate("common.yes", "Yes")
                     accessibleName: TranslationManager.translate("common.yes", "Yes")
@@ -1187,10 +1194,10 @@ Page {
                     background: Rectangle {
                         implicitHeight: Theme.scaled(44)
                         radius: Theme.buttonRadius
-                        color: parent.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+                        color: yesButton.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
                     }
                     contentItem: Text {
-                        text: parent.text
+                        text: yesButton.text
                         font: Theme.bodyFont
                         color: Theme.primaryContrastColor
                         horizontalAlignment: Text.AlignHCenter

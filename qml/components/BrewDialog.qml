@@ -500,6 +500,7 @@ Dialog {
 
                 // Clear all overrides
                 AccessibleButton {
+                    id: clearButton
                     Layout.preferredHeight: Theme.scaled(36)
                     text: TranslationManager.translate("brewDialog.clear", "Clear")
                     accessibleName: TranslationManager.translate("brewDialog.clearAllOverrides", "Clear all overrides")
@@ -548,7 +549,7 @@ Dialog {
                         border.color: Theme.warningColor
                     }
                     contentItem: Text {
-                        text: parent.text
+                        text: clearButton.text
                         font: Theme.bodyFont
                         color: Theme.warningColor
                         horizontalAlignment: Text.AlignHCenter
@@ -558,6 +559,7 @@ Dialog {
 
                 // Cancel
                 AccessibleButton {
+                    id: cancelButton
                     Layout.preferredHeight: Theme.scaled(36)
                     text: TranslationManager.translate("brewDialog.cancel", "Cancel")
                     accessibleName: TranslationManager.translate("brewDialog.cancelBrewSettings", "Cancel brew settings")
@@ -570,7 +572,7 @@ Dialog {
                         border.color: Theme.textSecondaryColor
                     }
                     contentItem: Text {
-                        text: parent.text
+                        text: cancelButton.text
                         font: Theme.bodyFont
                         color: Theme.textColor
                         horizontalAlignment: Text.AlignHCenter
@@ -580,6 +582,7 @@ Dialog {
 
                 // OK (primary)
                 AccessibleButton {
+                    id: okButton
                     Layout.preferredHeight: Theme.scaled(36)
                     text: TranslationManager.translate("brewDialog.ok", "OK")
                     accessibleName: TranslationManager.translate("brewDialog.confirmBrewSettings", "Confirm brew settings")
@@ -610,10 +613,10 @@ Dialog {
                     background: Rectangle {
                         implicitHeight: Theme.scaled(36)
                         radius: Theme.buttonRadius
-                        color: parent.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+                        color: okButton.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
                     }
                     contentItem: Text {
-                        text: parent.text
+                        text: okButton.text
                         font: Theme.bodyFont
                         color: Theme.primaryContrastColor
                         horizontalAlignment: Text.AlignHCenter

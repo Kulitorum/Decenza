@@ -229,10 +229,6 @@
     "qml/pages/settings/SettingsVisualizerTab.qml"
   ],
   "observed_categories": {
-    "Quick.layout-positioning": 20,
-    "Quick.property-changes-parsed": 5,
-    "duplicate-property-binding": 1,
-    "equality-type-coercion": 1,
     "missing-property": 150,
     "unqualified": 2327
   }

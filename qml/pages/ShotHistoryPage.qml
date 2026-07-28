@@ -688,6 +688,7 @@ Page {
 
                     // Selection checkbox
                     CheckBox {
+                        id: checkBox
                         checked: shotHistoryPage.isSelected(shotDelegate.model.id)
                         onClicked: shotHistoryPage.toggleSelection(shotDelegate.model.id)
                         Accessible.role: Accessible.CheckBox
@@ -699,8 +700,8 @@ Page {
                             implicitWidth: Theme.scaled(24)
                             implicitHeight: Theme.scaled(24)
                             radius: Theme.scaled(4)
-                            color: parent.checked ? Theme.primaryColor : "transparent"
-                            border.color: parent.checked ? Theme.primaryColor : Theme.borderColor
+                            color: checkBox.checked ? Theme.primaryColor : "transparent"
+                            border.color: checkBox.checked ? Theme.primaryColor : Theme.borderColor
                             border.width: 2
 
                             ColoredIcon {
@@ -709,7 +710,7 @@ Page {
                                 iconWidth: Theme.scaled(16)
                                 iconHeight: Theme.scaled(16)
                                 iconColor: Theme.primaryColor
-                                visible: parent.parent.checked
+                                visible: parent.checkBox.checked
                             }
                         }
                     }

@@ -1167,6 +1167,7 @@ Rectangle {
                 property real buttonHeight: Theme.scaled(50)
 
                 AccessibleButton {
+                    id: cancelButton
                     width: parent.buttonWidth
                     height: parent.buttonHeight
                     text: TranslationManager.translate("aiReport.cancel", "Cancel")
@@ -1180,7 +1181,7 @@ Rectangle {
                         border.color: Theme.textSecondaryColor
                     }
                     contentItem: Text {
-                        text: parent.text
+                        text: cancelButton.text
                         font: Theme.bodyFont
                         color: Theme.textColor
                         horizontalAlignment: Text.AlignHCenter
@@ -1189,6 +1190,7 @@ Rectangle {
                 }
 
                 AccessibleButton {
+                    id: openWebButton
                     width: parent.buttonWidth
                     height: parent.buttonHeight
                     enabled: MainController.shotServer && MainController.shotServer.running
@@ -1203,10 +1205,10 @@ Rectangle {
                     background: Rectangle {
                         implicitHeight: Theme.scaled(60)
                         radius: Theme.buttonRadius
-                        color: parent.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+                        color: openWebButton.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
                     }
                     contentItem: Text {
-                        text: parent.text
+                        text: openWebButton.text
                         font: Theme.bodyFont
                         color: Theme.primaryContrastColor
                         horizontalAlignment: Text.AlignHCenter

@@ -167,6 +167,7 @@ Page {
 
         // Progress bar (during scanning/importing, non-iOS only)
         ProgressBar {
+            id: progressBar
             Layout.fillWidth: true
             Layout.preferredHeight: Theme.scaled(4)
             visible: !profileImportPage.isIOS && (MainController.profileImporter.isScanning || MainController.profileImporter.isImporting)
@@ -179,7 +180,7 @@ Page {
                 radius: 2
             }
             contentItem: Rectangle {
-                width: parent.visualPosition * parent.width
+                width: progressBar.visualPosition * parent.width
                 height: parent.height
                 radius: 2
                 color: Theme.primaryColor

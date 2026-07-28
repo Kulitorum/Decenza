@@ -875,7 +875,7 @@ Item {
                                         text: root.displayText || (root.value.toFixed(root.decimals) + root.suffix)
                                         font.pixelSize: root.sc(30)
                                         font.bold: true
-                                        color: parent.parent.getContrastColor(root.valueColor)
+                                        color: parent.scrubberPopup.getContrastColor(root.valueColor)
                                     }
                                 }
 

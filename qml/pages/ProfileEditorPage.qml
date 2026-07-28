@@ -349,6 +349,7 @@ Page {
                         spacing: Theme.scaled(6)
 
                         AccessibleButton {
+                            id: openProfileSettingsButton
                             Layout.fillWidth: true
                             text: {
                                 profileEditorPage.stepVersion
@@ -359,13 +360,13 @@ Page {
                             accessibleName: TranslationManager.translate("profileEditor.openProfileSettings", "Open profile settings")
                             onClicked: profileSettingsPopup.open()
                             background: Rectangle {
-                                color: parent.down ? Qt.darker(Theme.surfaceColor, 1.2) : Qt.rgba(1, 1, 1, 0.05)
+                                color: openProfileSettingsButton.down ? Qt.darker(Theme.surfaceColor, 1.2) : Qt.rgba(1, 1, 1, 0.05)
                                 radius: Theme.scaled(8)
                                 border.width: 1
                                 border.color: Theme.textSecondaryColor
                             }
                             contentItem: Text {
-                                text: parent.text
+                                text: openProfileSettingsButton.text
                                 font: Theme.captionFont
                                 color: Theme.textColor
                                 horizontalAlignment: Text.AlignHCenter
@@ -374,6 +375,7 @@ Page {
                         }
 
                         AccessibleButton {
+                            id: openLimitsButton
                             Layout.fillWidth: true
                             text: {
                                 profileEditorPage.stepVersion
@@ -387,13 +389,13 @@ Page {
                             accessibleName: TranslationManager.translate("profileEditor.openLimits", "Open limits settings")
                             onClicked: limitsPopup.open()
                             background: Rectangle {
-                                color: parent.down ? Qt.darker(Theme.surfaceColor, 1.2) : Qt.rgba(1, 1, 1, 0.05)
+                                color: openLimitsButton.down ? Qt.darker(Theme.surfaceColor, 1.2) : Qt.rgba(1, 1, 1, 0.05)
                                 radius: Theme.scaled(8)
                                 border.width: 1
                                 border.color: Theme.textSecondaryColor
                             }
                             contentItem: Text {
-                                text: parent.text
+                                text: openLimitsButton.text
                                 font: Theme.captionFont
                                 color: Theme.textColor
                                 horizontalAlignment: Text.AlignHCenter
@@ -544,6 +546,7 @@ Page {
 
             // Close button
             AccessibleButton {
+                id: doneButton
                 Layout.fillWidth: true
                 Layout.topMargin: Theme.scaled(6)
                 text: TranslationManager.translate("profileEditor.done", "Done")
@@ -552,10 +555,10 @@ Page {
                 background: Rectangle {
                     implicitHeight: Theme.scaled(44)
                     radius: Theme.buttonRadius
-                    color: parent.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+                    color: doneButton.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
                 }
                 contentItem: Text {
-                    text: parent.text
+                    text: doneButton.text
                     font: Theme.bodyFont
                     color: Theme.primaryContrastColor
                     horizontalAlignment: Text.AlignHCenter
@@ -785,6 +788,7 @@ Page {
             font: Theme.bodyFont
         }
         AccessibleButton {
+            id: doneButton2
             text: TranslationManager.translate("profileEditor.doneButton", "Done")
             accessibleName: TranslationManager.translate("profileEditor.finishEditing", "Finish editing profile")
             onClicked: {
@@ -800,11 +804,11 @@ Page {
                 implicitWidth: Math.max(Theme.scaled(80), doneText.implicitWidth + Theme.scaled(32))
                 implicitHeight: Theme.scaled(36)
                 radius: Theme.scaled(6)
-                color: parent.down ? Qt.darker(Theme.primaryContrastColor, 1.1) : Theme.primaryContrastColor
+                color: doneButton2.down ? Qt.darker(Theme.primaryContrastColor, 1.1) : Theme.primaryContrastColor
             }
             contentItem: Text {
                 id: doneText
-                text: parent.text
+                text: doneButton2.text
                 font.pixelSize: Theme.scaled(14)
                 font.family: Theme.bodyFont.family
                 color: Theme.primaryColor

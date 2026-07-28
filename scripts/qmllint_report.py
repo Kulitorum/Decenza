@@ -111,7 +111,13 @@ CATEGORY_EXEMPTIONS: dict[str, int] = {
     # indistinguishable from the correct spelling, and its failure mode is the silent one (the
     # in-progress word is never committed). CLAUDE.md's "call commit() before reading
     # TextField.text" rule now has a home in code rather than being a convention.
-    "missing-property": 145,
+    # No "missing-property" entry: NOT exempted. As of this change there are no approved
+    # category exemptions at all, and this dict is empty by intent.
+    #
+    # The category is NOT yet at zero — the gate is red on it, deliberately. A ceiling here
+    # would be global: at 145, a brand-new missing-property bug anywhere in the tree was
+    # invisible, which is what an exemption costs and why none of the five survived. Red and
+    # honest beats green and blind; the remaining sites are being worked to zero.
     # No "Quick.layout-positioning" entry: CLEAR, and deliberately not by blanket exemption.
     # All 21 were qmllint FALSE POSITIVES — its ForbiddenChildrenPropertyValidatorPass checks
     # only whether an object is DECLARED lexically inside a Layout, never whether a Layout

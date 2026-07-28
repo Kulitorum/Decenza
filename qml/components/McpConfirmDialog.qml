@@ -147,6 +147,7 @@ Dialog {
             property real buttonHeight: Theme.scaled(50)
 
             AccessibleButton {
+                id: denyButton
                 width: parent.buttonWidth
                 height: parent.buttonHeight
                 text: TranslationManager.translate("mcp.confirm.deny", "Deny")
@@ -159,10 +160,10 @@ Dialog {
                 background: Rectangle {
                     implicitHeight: Theme.scaled(60)
                     radius: Theme.buttonRadius
-                    color: parent.down ? Qt.darker(Theme.errorColor, 1.2) : Theme.errorColor
+                    color: denyButton.down ? Qt.darker(Theme.errorColor, 1.2) : Theme.errorColor
                 }
                 contentItem: Text {
-                    text: parent.text
+                    text: denyButton.text
                     font: Theme.bodyFont
                     color: Theme.primaryContrastColor
                     horizontalAlignment: Text.AlignHCenter
@@ -172,6 +173,7 @@ Dialog {
             }
 
             AccessibleButton {
+                id: allowButton
                 width: parent.buttonWidth
                 height: parent.buttonHeight
                 text: TranslationManager.translate("mcp.confirm.allow", "Allow")
@@ -185,10 +187,10 @@ Dialog {
                 background: Rectangle {
                     implicitHeight: Theme.scaled(60)
                     radius: Theme.buttonRadius
-                    color: parent.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+                    color: allowButton.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
                 }
                 contentItem: Text {
-                    text: parent.text
+                    text: allowButton.text
                     font: Theme.bodyFont
                     color: Theme.primaryContrastColor
                     horizontalAlignment: Text.AlignHCenter
