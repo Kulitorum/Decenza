@@ -190,12 +190,11 @@ void WifiScaleDiscovery::browse(int timeoutMs) {
             if (!self->m_browseInFlight) return;
             self->m_browseInFlight = false;
 
-            // Always report what the browse did. The browse itself runs on a
-            // worker thread whose qDebug never reaches the app's debug log, so
-            // this is the ONLY place its outcome becomes visible in a log a user
-            // can share — and "ran and found nothing", "could not run at all"
-            // and "found things but dropped them all as stale" are three very
-            // different failures that look identical in the device list.
+            // Always report what the browse did. "Ran and found nothing",
+            // "could not run at all" and "found things but dropped them all as
+            // stale" are three very different failures that look identical in
+            // the device list, so the outcome has to reach the shareable log as
+            // data rather than being inferred from its absence.
             emit self->logMessage(
                 QString("DNS-SD browse finished via %1 in %2 ms — %3 resolved, "
                         "%4 named but unresolved, %5 withdrawn")

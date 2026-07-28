@@ -119,6 +119,11 @@ int mdnsResolveCallback(int sock, const struct sockaddr* from, size_t addrlen,
 // wire ("Half Decent Scale._decentscale._tcp.local"), because that is what the
 // SRV and TXT records are named after.
 struct MdnsBrowseInstance {
+    // Instance name as it appeared on the wire, ORIGINAL CASE. The map key is
+    // lowercased so the PTR/SRV/TXT joins are case-insensitive (DNS names are),
+    // but this is what the user sees as the scale's name — lowercasing it would
+    // turn "Half Decent Scale" into "half decent scale" on every row.
+    QByteArray displayName;
     QByteArray target;   // SRV target host, trailing dot stripped
     quint16 port = 0;
     QMap<QString, QString> txt;
@@ -141,7 +146,12 @@ QByteArray recordNameOf(const void* data, size_t size, size_t name_offset)
     QByteArray out(name.str, static_cast<qsizetype>(name.length));
     if (out.endsWith('.'))
         out.chop(1);
-    return out;
+    // Lowercase to match the contract above. DNS names are case-insensitive on
+    // the wire, and the SRV/TXT/A joins below key off these strings — a
+    // responder that answers with different casing in PTR rdata than in the SRV
+    // owner name would silently fail to join, and the instance would then be
+    // logged as a "dropped unresolved" stale registration rather than a bug.
+    return out.toLower();
 }
 
 // "Half Decent Scale (hdstest)._decentscale._tcp.local" + "_decentscale._tcp.local"
@@ -166,7 +176,9 @@ MdnsResolver::ServiceInstance makeInstance(const QByteArray& fullName,
                                            const MdnsBrowseContext& ctx)
 {
     MdnsResolver::ServiceInstance si;
-    si.instanceName = stripServiceSuffix(fullName, ctx.serviceType);
+    // Strip the suffix from the ORIGINAL-CASE name, not the lowercased key.
+    si.instanceName = stripServiceSuffix(
+        inst.displayName.isEmpty() ? fullName : inst.displayName, ctx.serviceType);
     si.hostname = QString::fromUtf8(inst.target);
     si.address = ctx.addresses.value(inst.target);
     si.port = inst.port;
@@ -198,15 +210,20 @@ int mdnsBrowseCallback(int sock, const struct sockaddr* from, size_t addrlen,
         case MDNS_RECORDTYPE_PTR: {
             // Only PTRs for the service type we asked about; the network is
             // full of other services answering their own browses.
-            if (recordName.toLower() != ctx->serviceType)
+            if (recordName != ctx->serviceType)   // both already lowercased
                 return 0;
             mdns_string_t inst = mdns_record_parse_ptr(data, size, record_offset,
                                                        record_length, strbuf, sizeof(strbuf));
             QByteArray instName(inst.str, static_cast<qsizetype>(inst.length));
             if (instName.endsWith('.'))
                 instName.chop(1);
-            if (!instName.isEmpty() && !ctx->instances.contains(instName))
-                ctx->instances.insert(instName, MdnsBrowseInstance{});
+            const QByteArray display = instName;      // preserve wire casing
+            instName = instName.toLower();             // key: matches recordNameOf()
+            if (!instName.isEmpty() && !ctx->instances.contains(instName)) {
+                MdnsBrowseInstance fresh;
+                fresh.displayName = display;
+                ctx->instances.insert(instName, fresh);
+            }
             break;
         }
         case MDNS_RECORDTYPE_SRV: {
@@ -217,6 +234,7 @@ int mdnsBrowseCallback(int sock, const struct sockaddr* from, size_t addrlen,
             QByteArray target(srv.name.str, static_cast<qsizetype>(srv.name.length));
             if (target.endsWith('.'))
                 target.chop(1);
+            target = target.toLower();       // key into ctx->addresses
             MdnsBrowseInstance& inst = ctx->instances[recordName];
             inst.target = target;
             inst.port = srv.port;
@@ -923,9 +941,6 @@ QString resolveHostname(const QString& /*hostname*/, int /*timeoutMs*/) { return
 #endif
 
 namespace {
-// Not atomic on purpose: this is set from a diagnostic path before a browse
-// starts, and read by the browse worker. Making it thread-safe would imply it
-// is meant to change mid-browse, which it is not.
 // Atomic because it is written from the main thread (the MCP diagnostic tool)
 // and read from the browse worker. A torn enum read is unlikely in practice, but
 // this is a genuine data race and the nightly sanitizer build compiles it.

@@ -1105,6 +1105,14 @@ Item {
 
                                 readonly property int rowHeight: Theme.scaled(44)
                                 readonly property int visibleRows: 3
+                                // More entries than fit means the dropdown has to
+                                // SAY so. A transient ScrollIndicator does not —
+                                // it only appears once you are already flicking,
+                                // so a list of four reads as a list of three and
+                                // the fourth scale looks like it was never saved.
+                                readonly property bool listScrollable:
+                                    Settings.knownScales.length > visibleRows
+                                readonly property int scrollBarWidth: Theme.scaled(6)
 
                                 function indexOfPrimary() {
                                     var scales = Settings.knownScales
@@ -1237,7 +1245,12 @@ Item {
                                 // Per-row delegate: star (filled on primary) + name + transport badge.
                                 delegate: ItemDelegate {
                                     id: scaleRowDelegate
+                                    // Yield the scrollbar's strip when one is
+                                    // showing — the bar overlays the flickable,
+                                    // and a full-width row puts it on top of the
+                                    // transport badge.
                                     width: scalePicker.width
+                                           - (scalePicker.listScrollable ? scalePicker.scrollBarWidth : 0)
                                     height: scalePicker.rowHeight
                                     highlighted: scalePicker.highlightedIndex === index
 
@@ -1333,7 +1346,15 @@ Item {
                                     // Cap visible height at `visibleRows`; longer lists scroll.
                                     // Drive sizing off the model length directly — ComboBox.count
                                     // can lag behind a QVariantList model after refresh.
-                                    height: Math.min(Settings.knownScales.length, scalePicker.visibleRows) * scalePicker.rowHeight
+                                    //
+                                    // When there IS more, show half of the next row
+                                    // rather than a clean edge at `visibleRows`. A
+                                    // list cut exactly on a row boundary looks
+                                    // complete; a sliced row cannot be mistaken for
+                                    // the end of the list, and it works before any
+                                    // interaction, unlike the scrollbar alone.
+                                    height: (Math.min(Settings.knownScales.length, scalePicker.visibleRows)
+                                             + (scalePicker.listScrollable ? 0.5 : 0)) * scalePicker.rowHeight
                                             + topPadding + bottomPadding
 
                                     // Move keyboard focus into the list when the
@@ -1352,7 +1373,15 @@ Item {
                                         keyNavigationEnabled: true
                                         model: scalePicker.popup.visible ? scalePicker.delegateModel : null
                                         currentIndex: scalePicker.highlightedIndex
-                                        ScrollIndicator.vertical: ScrollIndicator {}
+                                        // AlwaysOn, not AsNeeded: AsNeeded still
+                                        // fades to zero opacity until the list is
+                                        // active, which is exactly the case that
+                                        // needs the cue.
+                                        ScrollBar.vertical: ScrollBar {
+                                            policy: scalePicker.listScrollable ? ScrollBar.AlwaysOn
+                                                                               : ScrollBar.AlwaysOff
+                                            width: scalePicker.scrollBarWidth
+                                        }
                                     }
 
                                     background: Rectangle {

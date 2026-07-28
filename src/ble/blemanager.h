@@ -165,6 +165,12 @@ public:
     QString pendingWifiResolvedIp() const { return m_pendingWifiResolvedIp; }
     // WebSocket endpoint advertised by the scale being connected to. Defaults
     // to the firmware's :80/snapshot when discovery had no TXT data to go on.
+    // Display name of the WiFi scale being connected to, e.g.
+    // "Half Decent Scale (hdstest) (WiFi)". Falls back to the generic name when
+    // the scale was not discovered this session (a saved-scale reconnect).
+    // Without this every WiFi scale is saved under one identical label and a
+    // user with two of them cannot tell which is connected.
+    QString pendingWifiDisplayName() const;
     quint16 pendingWifiPort() const { return m_pendingWifiPort; }
     QString pendingWifiPath() const { return m_pendingWifiPath; }
     // True between beginWifiFallbackToBleScan and the next successful connect.
@@ -860,7 +866,9 @@ private:
     // signal that main.cpp forwards in.
     bool m_usbProbeInFlight = false;
 
-    // Every WiFi result seen in the current scan, keyed by resolved address.
+    // Every WiFi result seen in the current scan, keyed by normalized hostname
+    // (see WifiScaleResultUtil::upsertByHostname — the address is DHCP-mutable
+    // cache data and deliberately NOT the identity).
     // Kept because a row's label depends on the OTHER rows: DNS-SD suffixes
     // colliding instance names ("Half Decent Scale" / "Half Decent Scale-2"),
     // which tells the user nothing about which scale is which, so those rows
@@ -871,6 +879,9 @@ private:
     // Rebuild the WiFi rows of m_scales from m_wifiResults. The rows are a
     // projection of that set, not a second collection kept in step with it.
     void rebuildWifiScaleRows();
+    // Remove all WiFi rows. Called only at the start of a user-initiated scan —
+    // see the note in the implementation about the refractometer tick.
+    void clearWifiScaleRows();
 
     // Saved DE1 for direct wake connection
     QString m_savedDE1Address;

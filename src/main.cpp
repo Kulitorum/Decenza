@@ -2579,7 +2579,10 @@ int main(int argc, char *argv[])
         const QString hostname = isWifi ? bleManager.pendingWifiHostname() : QString();
         const QString deviceId = isWifi ? (QStringLiteral("wifi:") + hostname)
                                          : getDeviceIdentifier(device);
-        const QString displayName = isWifi ? QStringLiteral("Half Decent Scale (WiFi)")
+        // Use the name discovery derived (carries the scale's own DNS-SD
+        // instance name) rather than a generic label — with two WiFi scales
+        // paired, one identical name for both makes Known Devices useless.
+        const QString displayName = isWifi ? bleManager.pendingWifiDisplayName()
                                             : device.name();
         // Manual "Add WiFi Scale" entries DEFER persistence until the WS
         // endpoint actually validates as an HDS scale. Without this, a typo or

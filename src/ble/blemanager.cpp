@@ -1115,6 +1115,13 @@ void BLEManager::doStartScan() {
 }
 
 void BLEManager::stopScan() {
+    // End the WiFi browse with the scan cycle. Without this the browse ran to
+    // its full deadline, keeping the composite `scanning` property true and the
+    // Scan button disabled with no way to abort — and holding a thread pool
+    // slot after the user had already picked a scale.
+    if (m_wifiDiscovery)
+        m_wifiDiscovery->stopBrowse();
+
     if (!m_scanning) return;
 
     emit de1LogMessage("Scan stopped");
@@ -2052,10 +2059,11 @@ void BLEManager::scanForDevices() {
     m_flowScaleFallbackEmitted = false;  // User-initiated scan resets the dialog guard
     emit scaleConnectionFailedChanged();
 
-    if (!isBluetoothAvailable()) {
-        qDebug() << "BLEManager: scanForDevices - Bluetooth is powered off, skipping";
-        return;
-    }
+    // NOTE: Bluetooth availability gates ONLY the BLE leg, below. It used to
+    // return outright here, which meant a machine with Bluetooth off — or no
+    // adapter at all, common on desktop — got no WiFi browse, no A-record
+    // fallback and no USB probe either. "Scan for Devices" means find my
+    // devices; two of the three transports do not need a radio.
 
     // If already scanning, we need to restart to include scales
     if (m_scanning) {
@@ -2071,7 +2079,17 @@ void BLEManager::scanForDevices() {
     // as a "temporary fallback" and main.cpp would skip persisting it as the
     // primary, demoting the user's explicit pick.
     m_wifiFallbackToBleActive = false;
-    startScan();
+    if (isBluetoothAvailable()) {
+        startScan();
+    } else {
+        // No radio: skip the BLE leg but still run WiFi and USB. Clear the
+        // request flags startScan() would otherwise have consumed, so they
+        // don't leak into the next scan.
+        qDebug() << "BLEManager: Bluetooth unavailable — scanning WiFi and USB only";
+        appendScaleLog(QStringLiteral("Bluetooth unavailable — scanning WiFi and USB only"));
+        m_scanningForScales = false;
+        m_userInitiatedScaleScan = false;
+    }
 
     // Fire WiFi discovery in parallel with the BLE scan. On-demand only; no
     // idle probing per the project requirement.
@@ -2095,10 +2113,11 @@ void BLEManager::scanForDevices() {
     // touched, so a scale plugged in just before a scan appeared only when the
     // 2 s timer next came round. Ask for an immediate pass and count it as part
     // of the scan, so "Scan for Devices" really does mean all three transports.
-    // Fresh label set for this scan. The WiFi ROWS are deliberately not cleared
-    // here — doStartScan() only clears BLE rows, and within a scan cycle the
-    // list stays add-only so nothing a user is looking at vanishes under them.
+    // Fresh start for this scan: drop both the results and the rows derived
+    // from them, so a departed scale stops being listed. Within the cycle the
+    // list is then add-only, so nothing vanishes while the user reads it.
     m_wifiResults.clear();
+    clearWifiScaleRows();
 
     m_usbProbeInFlight = true;
     emit usbProbeRequested();
@@ -2110,6 +2129,7 @@ void BLEManager::scanForDevices() {
 void BLEManager::browseWifiScales(int timeoutMs) {
     ensureWifiDiscovery();
     m_wifiResults.clear();
+    clearWifiScaleRows();
     appendScaleLog(QString("WiFi-only discovery requested (backend=%1, %2 ms)")
                        .arg(MdnsResolver::activeBrowseBackendName())
                        .arg(timeoutMs));
@@ -2196,6 +2216,47 @@ void BLEManager::rebuildWifiScaleRows() {
 
     if (changed)
         emit scalesChanged();
+}
+
+void BLEManager::clearWifiScaleRows() {
+    // Drop WiFi rows at the START of a user-initiated scan, so a scale that has
+    // gone away stops being listed. This is the same semantics doStartScan()
+    // already applies to BLE rows, and it is what makes "add-only within a scan"
+    // safe: nothing vanishes while the user is reading the list, but a departed
+    // scale does not linger forever either.
+    //
+    // Deliberately NOT done in doStartScan(): the periodic refractometer
+    // auto-reconnect calls that every ~30 s, and wiping WiFi rows there would
+    // erase a freshly-discovered scale before the user could tap it.
+    bool removed = false;
+    for (qsizetype i = m_scales.size() - 1; i >= 0; --i) {
+        if (m_scales[i].transport == QStringLiteral("wifi")) {
+            m_scales.removeAt(i);
+            removed = true;
+        }
+    }
+    if (removed)
+        emit scalesChanged();
+}
+
+QString BLEManager::pendingWifiDisplayName() const {
+    // ALWAYS derived from the hostname, never from the DNS-SD instance name.
+    //
+    // Known Devices persists this label, and every entry must be
+    // self-distinguishing there: two unrenamed scales both advertise the
+    // instance name "Half Decent Scale", so using it produced two identical
+    // rows with no way to tell which was which. The hostname is the identity
+    // this app already keys on ("wifi:<hostname>"), it is unique by
+    // construction, and it is available even on a saved-scale reconnect where
+    // no scan has run — which the previous discovery-row lookup was not, so it
+    // fell back to a generic label and OVERWROTE an already-correct stored name.
+    QString host = WifiScaleResultUtil::normalizeHostname(m_pendingWifiHostname);
+    const qsizetype dot = host.indexOf(QLatin1Char('.'));
+    if (dot > 0)
+        host = host.left(dot);
+    if (host.isEmpty())
+        return QStringLiteral("Half Decent Scale (WiFi)");
+    return QString("Half Decent Scale (%1) (WiFi)").arg(host);
 }
 
 void BLEManager::setPendingWifiConnect(const QString& hostname, const QString& resolvedIp,
