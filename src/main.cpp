@@ -1961,6 +1961,15 @@ int main(int argc, char *argv[])
     // they were, because mainController.shotHistory() is not ready this early.
     FlowCalibrationModel flowCalibrationModel;
 
+    // Hoisted for the same rule, and note it was ALREADY exposed to QML from below the engine —
+    // as a context property, which QML drops on destroyed(), so the ordering hazard was papered
+    // over rather than absent. Its constructor takes no dependencies (it just blanks the LEDs),
+    // so only the DECLARATION moves; setDE1Device()/setDE1Simulator() stay where the simulator
+    // exists, ~1750 lines below.
+#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
+    GHCSimulator ghcSimulator;
+#endif
+
     // Set up QML engine
     QQmlApplicationEngine engine;
     checkpoint("QML engine created");
@@ -3369,10 +3378,6 @@ int main(int argc, char *argv[])
     // FlowScale weight connection is handled by the fallback timer and scale disconnect logic
     // Don't connect here - only one scale should feed the graph at a time
 
-    // Create GHC Simulator for Windows debug builds (before engine load so it can be exposed to QML)
-#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
-    GHCSimulator ghcSimulator;
-#endif
 
     // Expose C++ objects to QML
     QQmlContext* context = engine.rootContext();
@@ -3495,7 +3500,10 @@ int main(int argc, char *argv[])
 
 #if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
     // Make GHCSimulator available to main window for window sync
-    context->setContextProperty("GHCSimulator", &ghcSimulator);
+    // Declared above `engine` (see there). Optional rather than mandatory: the declaration is
+    // inside a debug-desktop `#if`, so on every other build there is no instance and QML reads
+    // the name as undefined — which main.qml's truthy guard has always expected.
+    GHCSimulatorForeign::s_singletonInstance = &ghcSimulator;
 #endif
 
     // The "…Type" registrations that used to live here are all gone, and the reason they existed
@@ -3716,11 +3724,10 @@ int main(int argc, char *argv[])
 
         ghcEnginePtr = std::make_unique<QQmlApplicationEngine>();
         auto& ghcEngine = *ghcEnginePtr;
-        ghcEngine.rootContext()->setContextProperty("GHCSimulator", &ghcSimulator);
-        // No "DE1Device" line either: it is now a QML_SINGLETON, and a singleton is per-type,
+        // No "GHCSimulator" line: it is now a QML_SINGLETON too, and a singleton is per-type,
         // not per-engine — GHCSimulatorWindow.qml imports Decenza, so this engine resolves the
         // same instance main published. A context property of the same name would SHADOW it and
-        // be invisible to qmllint, which is the shape #1661 took.
+        // be invisible to qmllint, which is the shape #1661 took. The same goes for "DE1Device".
         //
         // No "DE1Simulator" property. GHCSimulatorWindow.qml is the only file this engine loads
         // and it never reads that name; nothing else in qml/ does either.

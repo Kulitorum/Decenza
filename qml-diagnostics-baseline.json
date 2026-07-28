@@ -84,7 +84,7 @@
     "qml/components/layout/items/WeatherItem.qml": 32,
     "qml/components/library/LibraryItemCard.qml": 66,
     "qml/components/library/LibraryPanel.qml": 96,
-    "qml/main.qml": 140,
+    "qml/main.qml": 137,
     "qml/pages/AISettingsPage.qml": 8,
     "qml/pages/AutoFavoriteInfoPage.qml": 77,
     "qml/pages/AutoFavoritesPage.qml": 75,
@@ -129,7 +129,7 @@
     "qml/pages/settings/SettingsSearchDialog.qml": 17,
     "qml/pages/settings/SettingsThemesTab.qml": 22,
     "qml/pages/settings/StringBrowserPage.qml": 92,
-    "qml/simulator/GHCSimulatorWindow.qml": 57
+    "qml/simulator/GHCSimulatorWindow.qml": 45
   },
   "clean": [
     "qml/AppShell.qml",
@@ -235,6 +235,6 @@
     "equality-type-coercion": 1,
     "import": 4,
     "missing-property": 311,
-    "unqualified": 4433
+    "unqualified": 4418
   }
 }
