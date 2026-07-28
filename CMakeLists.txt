@@ -626,6 +626,7 @@ set(SOURCES
     src/ble/de1device.cpp
     src/ble/bletransport.cpp
     src/ble/scaledevice.cpp
+    src/ble/scaledeviceproxy.cpp
     src/ble/scales/scalefactory.cpp
     src/ble/scales/scaletypeids.cpp
     src/ble/scales/decentscale.cpp
@@ -866,6 +867,7 @@ set(HEADERS
     src/ble/de1device.h
     src/ble/bletransport.h
     src/ble/scaledevice.h
+    src/ble/scaledeviceproxy.h
     src/ble/scales/scalefactory.h
     src/ble/scales/scaletypeids.h
     src/ble/scales/decentscale.h

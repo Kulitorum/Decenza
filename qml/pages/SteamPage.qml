@@ -60,14 +60,19 @@ Page {
     property bool steamSoftStopped: false  // For two-stage stop on headless machines
     property bool wasSteaming: false  // Track if we were steaming (to turn off heater after)
 
-    // A real (weighing) scale is present. ScaleDevice is a context property
-    // re-pointed at the live scale object; at app shutdown the underlying
-    // QObject is destroyed and the property reads as null, so direct
-    // ScaleDevice.connected bindings throw TypeErrors during teardown. Route
-    // every "real scale present" check through this null-safe property —
-    // never read ScaleDevice members directly in a binding without a null
-    // guard.
-    readonly property bool realScaleConnected: !!ScaleDevice && ScaleDevice.connected === true && ScaleDevice.isFlowScale === false
+    // A real (weighing) scale is present.
+    //
+    // ScaleDevice used to be a context property re-pointed at the live scale object, so at
+    // shutdown the underlying QObject was destroyed, the property read as null, and a direct
+    // `ScaleDevice.connected` binding threw TypeErrors during teardown. That is what the
+    // `!!ScaleDevice` guard was for, and it is no longer the situation: ScaleDevice is now a
+    // singleton proxy that always exists and holds its target in a QPointer, so a destroyed
+    // scale reads as disconnected rather than as null. The guard is gone with the hazard.
+    //
+    // Kept as a single named property anyway, which was always the better half of the original
+    // advice: eighteen call sites agreeing on what "a real scale" means beats eighteen copies of
+    // the three-term test.
+    readonly property bool realScaleConnected: ScaleDevice.connected && !ScaleDevice.isFlowScale
 
     // Repeater.itemAt() is typed QQuickItem, so the delegate's own `focusTarget`
     // is not statically known and every call site was an unchecked member access.
@@ -329,7 +334,7 @@ Page {
 
     // Net milk currently on the scale for the selected pitcher (0 if none/invalid).
     function currentMeasuredMilk() {
-        if (!ScaleDevice || !ScaleDevice.connected) return 0
+        if (!ScaleDevice.connected) return 0
         return Settings.brew.netMilkForPitcher(Settings.brew.selectedSteamPitcher, MachineState.scaleWeight)
     }
 

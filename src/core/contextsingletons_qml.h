@@ -92,6 +92,7 @@
 #include "../mcp/mcpserver.h"
 #include "../machine/steamhealthtracker.h"
 #include "../models/flowcalibrationmodel.h"
+#include "../ble/scaledeviceproxy.h"
 #include "../usb/usbmanager.h"
 #include "../usb/usbscalemanager.h"
 
@@ -527,3 +528,24 @@ public:
     }
 };
 #endif
+
+// 79 references across 18 QML files — the largest single name in the tree, and the last context
+// property to go apart from Refractometer.
+//
+// Registered as ScaleDeviceProxy but NAMED ScaleDevice, so every existing call site is unchanged.
+// The name has to be re-pointed as hardware comes and goes (11 sites in main.cpp) and a singleton
+// cannot be, so the singleton is the proxy and the proxy is what moves. See scaledeviceproxy.h.
+struct ScaleDeviceForeign
+{
+    Q_GADGET
+    QML_FOREIGN(ScaleDeviceProxy)
+    QML_SINGLETON
+    QML_NAMED_ELEMENT(ScaleDevice)
+
+public:
+    inline static ScaleDeviceProxy* s_singletonInstance = nullptr;
+    static ScaleDeviceProxy* create(QQmlEngine*, QJSEngine* engine)
+    {
+        return decenzaPublishedSingleton(s_singletonInstance, engine, "ScaleDevice");
+    }
+};

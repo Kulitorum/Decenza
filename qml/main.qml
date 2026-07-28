@@ -3393,7 +3393,7 @@ ApplicationWindow {
                     AppShell.scaleDialogDeferred = false
                     // If a real physical scale connected during warmup, discard queued scale popups
                     // (FlowScale is always "connected" so don't let it suppress dialogs)
-                    if (ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale) {
+                    if (ScaleDevice.connected && !ScaleDevice.isFlowScale) {
                         removeQueuedScalePopups()
                     } else if (Settings.primaryScaleAddress !== "") {
                         showNextPendingPopup()  // Show deferred dialog now
@@ -4470,10 +4470,12 @@ ApplicationWindow {
 
     Connections {
         target: ScaleDevice
-        enabled: AccessibilityManager.enabled && ScaleDevice !== null
+        // Not `ScaleDevice !== null`: the singleton proxy always exists, so that test was always
+        // true and guarded nothing. Gate on the state, never on the object.
+        enabled: AccessibilityManager.enabled
 
         function onConnectedChanged() {
-            if (ScaleDevice && ScaleDevice.connected) {
+            if (ScaleDevice.connected) {
                 AccessibilityManager.announce(trAnnounceScaleConnected.text + " " + ScaleDevice.name)
             }
             // Disconnection is handled by scaleDisconnectedDialog
@@ -4483,10 +4485,9 @@ ApplicationWindow {
     // Discard stale scale popups when scale reconnects
     Connections {
         target: ScaleDevice
-        enabled: ScaleDevice !== null
 
         function onConnectedChanged() {
-            if (ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale) {
+            if (ScaleDevice.connected && !ScaleDevice.isFlowScale) {
                 removeQueuedScalePopups()
             }
         }
