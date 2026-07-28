@@ -560,3 +560,49 @@ the forbidden direction and is recorded here for that reason rather than being q
 The ~8 `modelData`/`root` accesses underneath are pre-existing delegate-scoping defects, now
 visible; fixing them needs `required property` declarations in three files unrelated to this batch
 and is left as follow-up rather than bundled here.
+
+## The gate could not tell a wrong ceiling from a real improvement — now it can
+
+The baseline defect above is not interesting because a number was wrong. It is interesting
+because **every check in the script was pointed the wrong way to catch it.** Both holes are now
+closed, and both fixes were verified by negative control rather than by observing a pass.
+
+**Hole 1: the staleness check could not see the type registry.**
+
+`check_fresh()` compares each QML file against the build's own copy, which is the right check for
+"you edited QML and forgot to rebuild". It is blind to the case that actually occurred. qmllint
+resolves module types through `Decenza.qmltypes`, which `qmltyperegistrar` generates from the C++
+`QML_*` macros — so a changed *registration* leaves every QML file byte-identical while the
+registry describes the previous generation. `check_fresh()` passes, and the run measures the tree
+against types that no longer match it.
+
+Worse, it fails in the safe-looking direction: names that do not resolve make qmllint give up
+early on expressions it cannot type, so it reports **fewer** warnings. Fewer warnings reads as an
+improvement, and `--update-baseline` writes it in as a ceiling.
+
+`check_registry_fresh()` closes it, content-based for the same reason `check_fresh()` is — any git
+operation rewrites source mtimes, so a timestamp check calls a freshly built tree stale. It
+asserts that every `QML_SINGLETON` declared under `src/` appears in the registry's exports. A new
+or renamed registration that has not been through `qmltyperegistrar` is missing, which is exactly
+the skew. Verified by adding a header registering a singleton absent from the qmltypes: the run
+refuses and names it; removing the header restores a clean pass.
+
+**Hole 2: `--update-baseline` relaxed the gate silently.**
+
+Every enforcement path asks whether counts *rose*. Nothing asked whether a *recorded ceiling was
+achievable*, and nothing distinguished the two things `--update-baseline` can do: locking in an
+improvement, and relaxing the gate. The same keystroke did both, with identical output.
+
+A rise now costs `--allow-ceiling-rise`, and the refusal names each file with its before and after.
+Raising is sometimes correct — correcting the three ceilings above meant raising them — so this is
+a speed bump, not a ban, and the message says so while pointing at the likelier cause: a stale
+build. When the flag is passed, the run prints exactly which ceilings it raised, so the relaxation
+appears in the log rather than only in a diff nobody reads. Moving a file off the clean list counts
+as a rise from zero, since the clean list is the part of the baseline worth defending most.
+Verified by faking an unachievable ceiling in the baseline: the write is refused, and permitted
+only with the flag.
+
+**What generalises beyond this script.** A ratchet that only measures one direction will accept a
+bad measurement pointing the other way, indefinitely and without complaint. The failure is not
+that the number was wrong; it is that "the tree improved" and "the measurement under-reported"
+produced identical evidence, and only one of them was ever considered.
