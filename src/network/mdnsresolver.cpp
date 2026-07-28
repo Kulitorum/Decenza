@@ -502,7 +502,8 @@ QVector<ServiceInstance> browseServiceMjansson(const QString& serviceType, int t
             for (auto it = ctx.instances.cbegin(); it != ctx.instances.cend(); ++it) {
                 if (ctx.reported.contains(it.key()))
                     continue;
-                if (it->target.isEmpty() || it->port == 0 || !ctx.addresses.contains(it->target))
+                if (!browseInstanceResolved(it->target, it->port,
+                                            ctx.addresses.contains(it->target)))
                     continue;
                 ctx.reported.insert(it.key());
                 onResolved(makeInstance(it.key(), *it, ctx));
@@ -520,7 +521,8 @@ QVector<ServiceInstance> browseServiceMjansson(const QString& serviceType, int t
     int dropped = 0;
     for (auto it = ctx.instances.cbegin(); it != ctx.instances.cend(); ++it) {
         const QString instanceLabel = stripServiceSuffix(it.key(), ctx.serviceType);
-        if (it->target.isEmpty() || it->port == 0 || !ctx.addresses.contains(it->target)) {
+        if (!browseInstanceResolved(it->target, it->port,
+                                    ctx.addresses.contains(it->target))) {
             ++dropped;
             qDebug().noquote() << "[MdnsResolver] browse dropped unresolved instance="
                                << instanceLabel
@@ -932,6 +934,14 @@ QVector<ServiceInstance> browseServiceBonjour(const QString& serviceType, int ti
 #include <QDebug>
 
 namespace MdnsResolver {
+
+// Defined here, outside every platform guard, so the rule is one function on
+// every platform rather than one per backend. See the header for why a ghost
+// instance must not become a row.
+bool browseInstanceResolved(const QByteArray& srvTarget, quint16 port, bool haveAddress)
+{
+    return !srvTarget.isEmpty() && port != 0 && haveAddress;
+}
 
 #ifdef Q_OS_IOS
 // iOS never builds the mjansson path (it would need the multicast entitlement),

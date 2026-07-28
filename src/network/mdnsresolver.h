@@ -128,6 +128,28 @@ QVector<ServiceInstance> browseService(const QString& serviceType, int timeoutMs
                                        const std::atomic<bool>* cancel = nullptr);
 
 /**
+ * The join predicate: is a browsed instance complete enough to be a row?
+ *
+ * A DNS-SD browse routinely returns instance names whose SRV and A records have
+ * expired while the PTR is still cached — a device that rebooted, was renamed,
+ * or was unplugged without sending a goodbye. Half the instances on the
+ * reference network were exactly this. Those are ghosts, and showing them as
+ * selectable scales means offering the user a device that cannot be connected
+ * to.
+ *
+ * An instance qualifies only with ALL THREE: an SRV target, a nonzero port, and
+ * an address for that target. Named rather than inlined because the mjansson
+ * browse applies it twice — once for the incremental report, once for the final
+ * sweep — and the two drifting apart would mean a scale reported mid-browse
+ * that then vanishes from the returned vector.
+ *
+ * The Bonjour backend enforces the same rule structurally: an instance only
+ * enters its results map once DNSServiceResolve and the address lookup have
+ * both replied, so a never-resolving instance simply has no entry.
+ */
+bool browseInstanceResolved(const QByteArray& srvTarget, quint16 port, bool haveAddress);
+
+/**
  * Which implementation browseService() uses.
  *
  * Auto is what ships: Bonjour on Apple, mjansson everywhere else. The explicit
