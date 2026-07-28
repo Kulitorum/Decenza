@@ -496,13 +496,20 @@ LayoutWidgetItem {
 
             Text {
                 text: root.resolvedText
-                // StyledText (not RichText) so elide actually works — Qt ignores
-                // elide on RichText, which clipped mid-glyph on wide/fallback fonts.
-                textFormat: Text.StyledText
+                // RichText, because the editor saves per-range styling as CSS spans
+                // (`<span style="color:…; font-size:…px">`, documentformatter.cpp:400-411)
+                // and StyledText parses attributes for `<font>` ONLY
+                // (qquickstyledtext.cpp:422) — the span was dropped and every custom
+                // widget rendered at the default colour and size no matter what was saved.
+                //
+                // Qt ignores `elide` on RichText, so this clips at the edge instead of
+                // ellipsing. That is the trade for showing the styling the editor promises;
+                // `clip` keeps the cut clean rather than mid-glyph.
+                textFormat: Text.RichText
+                clip: true
                 color: Theme.textColor
                 font: Theme.bodyFont
                 horizontalAlignment: root.qtAlignment
-                elide: Text.ElideRight
                 maximumLineCount: 1
                 Accessible.ignored: true
             }
@@ -570,7 +577,9 @@ LayoutWidgetItem {
             Text {
                 id: emojiText
                 text: root.resolvedText
-                textFormat: Text.StyledText
+                // RichText — see the compact-mode Text above. Neither of these two centre
+                // renderings elides, so nothing is given up here.
+                textFormat: Text.RichText
                 color: root._contentColor
                 font: Theme.bodyFont
                 horizontalAlignment: Text.AlignHCenter
@@ -586,7 +595,7 @@ LayoutWidgetItem {
             anchors.centerIn: parent
             width: Math.max(0, parent.width - (root.hasAction ? Theme.scaled(24) : 0))
             text: root.resolvedText
-            textFormat: Text.StyledText
+            textFormat: Text.RichText
             color: Theme.textColor
             font: Theme.bodyFont
             horizontalAlignment: root.qtAlignment

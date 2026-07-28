@@ -466,7 +466,12 @@ Dialog {
                             Text {
                                 id: fpEmojiText
                                 text: previewCol.previewHtml
-                                textFormat: Text.StyledText
+                                // RichText, matching CustomItem — the saved format is CSS
+                                // spans, which StyledText drops entirely (it parses
+                                // attributes for `<font>` only). This preview claims a 1:1
+                                // match with the live widget and previously shared its
+                                // blindness to every colour and size the editor sets.
+                                textFormat: Text.RichText
                                 color: Theme.textColor
                                 font: Theme.bodyFont
                                 horizontalAlignment: Text.AlignHCenter
@@ -481,7 +486,7 @@ Dialog {
                             anchors.centerIn: parent
                             width: parent.width > 0 ? parent.width - (previewCol.hasAction ? Theme.scaled(24) : 0) : implicitWidth
                             text: previewCol.previewHtml
-                            textFormat: Text.StyledText
+                            textFormat: Text.RichText
                             color: Theme.textColor
                             font: Theme.bodyFont
                             horizontalAlignment: popup.textAlign === "left" ? Text.AlignLeft
@@ -526,11 +531,13 @@ Dialog {
 
                             Text {
                                 text: previewCol.previewHtml
-                                // StyledText so elide works (Qt ignores elide on RichText)
-                                textFormat: Text.StyledText
+                                // RichText + clip, matching CustomItem's compact rendering:
+                                // Qt ignores elide on RichText, so the bar preview clips at
+                                // the edge exactly as the live bar widget now does.
+                                textFormat: Text.RichText
+                                clip: true
                                 color: Theme.textColor
                                 font: Theme.bodyFont
-                                elide: Text.ElideRight
                                 maximumLineCount: 1
                             }
                         }
