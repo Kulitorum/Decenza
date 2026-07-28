@@ -61,5 +61,24 @@ runs:
         # workflows pass `${{ inputs.use_cache }}`, which is an empty string on
         # a tag push, and empty is not 'false'.
         key: ${{ inputs.use_cache == 'false' && format('cold-no-restore-{0}', github.run_id) || inputs.key }}
-        save: ${{ inputs.use_cache != 'false' }}
+        # Restore on a tag, never save on one.
+        #
+        # GitHub scopes caches by REF, not by key: a run reads its own ref's
+        # scope plus the default branch's, and writes only into its own. So a
+        # tag build already restores main's entries — that is what
+        # warm-main-cache.yml keeps stocked — while the copy it saves lands in a
+        # scope only that same tag could ever read. Tags do not build twice, so
+        # those copies are write-only. v2.0.0 held 3045 MB of them across four
+        # platforms with v2.0.1 already shipped (measured 2026-07-28), a third
+        # of the 10 GB cap on a ref nothing would run again.
+        #
+        # No key can widen this — two tags cannot share a scope, and a tag
+        # cannot write into main's. Not saving is the only lever.
+        #
+        # What this gives up: re-tagging at HEAD and force-pushing reuses the
+        # ref, so today a second attempt restores the first attempt's own cache.
+        # It now restores main's instead — previous release rather than the
+        # identical tree, so a lower hit rate but not a cold build. A re-tag at
+        # HEAD means the source moved anyway, which is most of that difference.
+        save: ${{ inputs.use_cache != 'false' && !startsWith(github.ref, 'refs/tags/') }}
         max-size: ${{ inputs.max-size }}
