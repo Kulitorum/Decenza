@@ -237,10 +237,13 @@ the gate could be built. Read task 1.1 before trusting a number in these documen
   - **Needs a declaration move first (1 of the above, plus the façade work):**
     `FlowCalibrationModel` — see 2.3.
   - **Needs a value-holder singleton (4 names, 16 warnings):** `AppVersion`, `AppVersionCode`,
-    `PreviousCrashLog`, `PreviousDebugLogTail` are plain `QString`/`int`, not QObjects. One small
-    `AppInfo` singleton with `CONSTANT` properties. Note this renames the QML call sites
-    (`AppVersion` becomes `AppInfo.appVersion`), which the object migrations do not — 16 warnings
-    is a thin return for a rename, so this is the one group where doing nothing is defensible.
+    `PreviousCrashLog`, `PreviousDebugLogTail` are plain `QString`/`int`, not QObjects, so this
+    group needs somewhere to put them. Note it renames the QML call sites, which the object
+    migrations do not — 16 warnings is a thin return for a rename, so this is the one group where
+    doing nothing is defensible.
+    **Superseded by 3b.4:** the planned answer here was one small `AppInfo` holder, and that was
+    wrong. Three of the four values already had a registered owner (`UpdateChecker`,
+    `CrashReporter`), which the planning pass never checked for. Read 3b.4, not this line.
   - **Deleted, not migrated (3 names, 0 warnings):** `FlowScale`, `DE1Simulator`, `IsDebugBuild`.
 
 ## 3. Migrate the ten names that matter
