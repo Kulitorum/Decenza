@@ -71,7 +71,7 @@ change made in group 2.
 - [x] 7.5 **No QML changed** — multi-scale support fell out of BLEManager emitting more rows into the existing list, so no new interactive elements were introduced and there is nothing new to make accessible. Original text: accessibility on any new/changed rows: `Accessible.role`, `Accessible.name`, `Accessible.focusable`, `Accessible.onPressAction` — prefer `AccessibleButton`/`AccessibleMouseArea` over raw `Rectangle`+`MouseArea`. Fix any pre-existing violations in the file while there.
 - [x] 7.6 **No new user-facing strings** — row labels come from the scale's own DNS-SD instance name (user data, not translatable copy) and the pre-existing " (WiFi)" suffix. Original text: all new strings through `TranslationManager.translate` / `Tr`; reuse existing common keys where they fit.
 - [x] 7.7 **No new QML files.** Original text: if any new QML file is added, register it in the `qt_add_qml_module` file list in `CMakeLists.txt`.
-- [ ] 7.8 Verify the Add WiFi Scale dialog still opens, probes and connects unchanged after the group-2 API change. No redesign.
+- [x] 7.8 **Verified 2026-07-28** — dialog opens and shows its one-tap shortcut ("Scale found on this network / hds.local (192.168.10.145)") unchanged after the `scaleFound` → `resultFound(WifiScaleResult)` and `probeFinished(bool)` API change. Confirms the deliberate choice to keep this path on the single default name rather than the three-name fallback: one unambiguous shortcut instead of whichever name resolves first.
 
 ## 8. Tests
 
@@ -80,7 +80,7 @@ change made in group 2.
 - [x] 8.3 Unit-test the display-name derivation for all four cases — browse unrenamed, browse renamed, fallback-only, and the `-2` instance-name collision needing address disambiguation.
 - [ ] 8.3a Unit-test that an instance which never resolves produces no row, and that a withdrawal arriving mid-cycle leaves the existing row in place (design D4c — add-only within a scan).
 - [x] 8.4 Read `docs/CLAUDE_MD/TESTING.md` before writing any of these; no test may emit WARN lines.
-- [ ] 8.5 Run the full suite via `mcp__qtcreator__run_tests` (scope `all`) — nothing on GitHub builds or tests this PR.
+- [x] 8.5 **106/106 passed, 0 failed, 0 skipped, no warnings** (2026-07-28, `run_tests` scope `all`, 36.5 s). Includes both new targets and the first compile of the widened `describeBrowseError` message.
 
 ## 9. Platform verification
 
