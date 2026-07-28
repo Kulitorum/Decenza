@@ -50,7 +50,6 @@
     "qml/components/layout/ZoneOptionsPopup.qml": 4,
     "qml/components/layout/items/AutoFavoritesItem.qml": 1,
     "qml/components/layout/items/BeansItem.qml": 1,
-    "qml/components/layout/items/CustomItem.qml": 3,
     "qml/components/layout/items/EquipmentItem.qml": 1,
     "qml/components/layout/items/FlushItem.qml": 1,
     "qml/components/layout/items/HistoryItem.qml": 1,
@@ -61,7 +60,7 @@
     "qml/components/layout/items/WeatherItem.qml": 32,
     "qml/components/library/LibraryItemCard.qml": 66,
     "qml/components/library/LibraryPanel.qml": 95,
-    "qml/main.qml": 111,
+    "qml/main.qml": 110,
     "qml/pages/AutoFavoriteInfoPage.qml": 77,
     "qml/pages/AutoFavoritesPage.qml": 71,
     "qml/pages/BeanInfoPage.qml": 4,
@@ -188,6 +187,7 @@
     "qml/components/layout/WidgetColor.qml",
     "qml/components/layout/items/BatteryLevelItem.qml",
     "qml/components/layout/items/ClockItem.qml",
+    "qml/components/layout/items/CustomItem.qml",
     "qml/components/layout/items/DiscussItem.qml",
     "qml/components/layout/items/DoseWeightItem.qml",
     "qml/components/layout/items/EspressoItem.qml",
@@ -233,7 +233,7 @@
     "Quick.property-changes-parsed": 5,
     "duplicate-property-binding": 2,
     "equality-type-coercion": 1,
-    "missing-property": 145,
-    "unqualified": 2738
+    "missing-property": 146,
+    "unqualified": 2734
   }
 }
