@@ -95,7 +95,7 @@
     "qml/pages/FlowCalibrationPage.qml": 2,
     "qml/pages/FlushPage.qml": 118,
     "qml/pages/IdlePage.qml": 99,
-    "qml/pages/PostShotReviewPage.qml": 323,
+    "qml/pages/PostShotReviewPage.qml": 301,
     "qml/pages/ProfileEditorPage.qml": 404,
     "qml/pages/ProfileImportPage.qml": 14,
     "qml/pages/ProfileInfoPage.qml": 33,
@@ -116,7 +116,7 @@
     "qml/pages/settings/LayoutEditorZone.qml": 79,
     "qml/pages/settings/SettingsAITab.qml": 35,
     "qml/pages/settings/SettingsCalibrationTab.qml": 1,
-    "qml/pages/settings/SettingsConnectionsTab.qml": 41,
+    "qml/pages/settings/SettingsConnectionsTab.qml": 39,
     "qml/pages/settings/SettingsDebugTab.qml": 7,
     "qml/pages/settings/SettingsFirmwareTab.qml": 52,
     "qml/pages/settings/SettingsHistoryDataTab.qml": 18,
@@ -235,6 +235,6 @@
     "equality-type-coercion": 1,
     "import": 4,
     "missing-property": 311,
-    "unqualified": 4287
+    "unqualified": 4263
   }
 }

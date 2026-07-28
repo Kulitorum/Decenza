@@ -93,12 +93,14 @@
 #include "../machine/steamhealthtracker.h"
 #include "../models/flowcalibrationmodel.h"
 #include "../ble/scaledeviceproxy.h"
+#include "../ble/refractometers/refractometerproxy.h"
 #include "../usb/usbmanager.h"
 #include "../usb/usbscalemanager.h"
 
-// Compiled on every platform except iOS and Android — see the CMakeLists.txt block that lists
-// ghcsimulator.cpp for why the condition is spelled this way and must stay in lockstep.
-#if !defined(Q_OS_IOS) && !defined(Q_OS_ANDROID)
+// Guarded on DECENZA_SIMULATOR, which is what ghcsimulator.h itself guards on: the class drives
+// DE1Simulator and cannot exist without it. True for every desktop configuration and for Debug on
+// Android and iOS; a tablet production build has neither the simulator nor this type.
+#ifdef DECENZA_SIMULATOR
 #include "../simulator/ghcsimulator.h"
 #endif
 
@@ -503,8 +505,9 @@ public:
 
 // 3 references in main.qml, plus GHCSimulatorWindow.qml which its own engine loads.
 //
-// The TYPE exists on every desktop platform; the INSTANCE only on a debug Windows/macOS build,
-// where main.cpp declares it inside `#if (Q_OS_WIN || Q_OS_MACOS) && QT_DEBUG`. That split is
+// The TYPE exists wherever DECENZA_SIMULATOR does; the INSTANCE only on a debug Windows/macOS
+// build, where main.cpp declares it inside `#if (Q_OS_WIN || Q_OS_MACOS) && QT_DEBUG` — the GHC
+// window is a second top-level window, which is meaningless on a tablet. That split is
 // deliberate. Registering only where the instance can exist would leave the type out of
 // Decenza.qmltypes on Linux, and since the qmllint baseline is generated on macOS while the gate
 // runs on Linux, the result is a ceiling CI cannot achieve.
@@ -512,7 +515,7 @@ public:
 // main.qml already guards on truthiness (`typeof GHCSimulator !== "undefined" && GHCSimulator`),
 // which is what stays correct now that the name always resolves to a type and create() may hand
 // back null. Do not "simplify" that to the typeof test alone.
-#if !defined(Q_OS_IOS) && !defined(Q_OS_ANDROID)
+#ifdef DECENZA_SIMULATOR
 struct GHCSimulatorForeign
 {
     Q_GADGET
@@ -547,5 +550,27 @@ public:
     static ScaleDeviceProxy* create(QQmlEngine*, QJSEngine* engine)
     {
         return decenzaPublishedSingleton(s_singletonInstance, engine, "ScaleDevice");
+    }
+};
+
+// 12 references in PostShotReviewPage.qml. The last context property.
+//
+// Registered as RefractometerProxy but NAMED Refractometer, for the same reason as ScaleDevice:
+// main() re-points the name (five sites, at a DiFluid driver on connect and back at nullptr on
+// disconnect) and a singleton cannot be re-pointed. Unlike the scale, "no device" here is the
+// NORMAL state — a refractometer is only connected while the review page has it open — so every
+// getter on the proxy is written for that case first.
+struct RefractometerForeign
+{
+    Q_GADGET
+    QML_FOREIGN(RefractometerProxy)
+    QML_SINGLETON
+    QML_NAMED_ELEMENT(Refractometer)
+
+public:
+    inline static RefractometerProxy* s_singletonInstance = nullptr;
+    static RefractometerProxy* create(QQmlEngine*, QJSEngine* engine)
+    {
+        return decenzaPublishedSingleton(s_singletonInstance, engine, "Refractometer");
     }
 };

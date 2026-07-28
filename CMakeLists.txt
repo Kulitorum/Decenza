@@ -639,6 +639,7 @@ set(SOURCES
     src/ble/scales/smartchefscale.cpp
     src/ble/scales/difluidscale.cpp
     src/ble/refractometers/refractometerdevice.cpp
+    src/ble/refractometers/refractometerproxy.cpp
     src/ble/refractometers/difluidr2.cpp
     src/ble/refractometers/difluidr1.cpp
     src/ble/refractometers/aes128.cpp
@@ -769,38 +770,25 @@ endif()
 # every configuration. Whether any of it actually compiles is decided by
 # DECENZA_SIMULATOR (see the target_compile_definitions block below), which the
 # files themselves guard on.
+#
+# ghcsimulator is here rather than behind a platform test because what it actually
+# depends on is DE1Simulator, not a platform: it drives that class's signals and
+# cannot compile without it. Tying it to the same condition says so directly, and
+# means it is available in every build where the simulator is — all desktop
+# configurations, and Debug on Android and iOS.
+#
+# It used to be `if(WIN32 OR (APPLE AND NOT IOS))`, which had a second cost beyond
+# being the wrong condition: GHCSimulator is a registered QML singleton, and a
+# registered type only reaches Decenza.qmltypes on a platform that COMPILES it. The
+# qmllint baseline is generated on macOS and the gate runs on Linux, so a
+# macOS-and-Windows-only type produced a ceiling CI could not achieve — the exact
+# shape #1684 added detection for.
 list(APPEND SOURCES
     src/simulator/de1simulator.cpp
     src/simulator/simulatedscale.cpp
+    src/simulator/ghcsimulator.cpp
 )
 
-# GHC simulator window - desktop only. It opens a second top-level window,
-# which is meaningless on a tablet. (It is not a QWidget despite what this
-# comment said for years: GHCSimulator is a plain QObject and the window is a
-# QtQuick Window in its own QQmlApplicationEngine.)
-#
-# NOT `if(WIN32 OR APPLE)`: APPLE is true for iOS too, so that spelling compiled
-# this into every iPad build despite the comment. It drives DE1Simulator's
-# signals, so with the simulator absent it would not even compile there.
-#
-# The condition was `WIN32 OR (APPLE AND NOT IOS)` and now includes Linux, which
-# matters for a reason that has nothing to do with the window: GHCSimulator is a
-# registered QML singleton, and a registered type only reaches Decenza.qmltypes on
-# a platform that COMPILES it. The qmllint baseline is generated on macOS and the
-# gate runs on Linux, so a macOS-only type produces a ceiling CI cannot achieve —
-# the exact shape #1684 added detection for. Spelled `NOT IOS AND NOT ANDROID`
-# rather than a desktop allowlist because it must stay in lockstep with the
-# `#if !defined(Q_OS_IOS) && !defined(Q_OS_ANDROID)` guard around the registration
-# in contextsingletons_qml.h; if you change one, change the other.
-#
-# Android stays excluded on purpose, and not for tidiness: DECENZA_SIMULATOR is
-# `$<CONFIG:Debug>` there, so an Android RELEASE build has no DE1Simulator and this
-# file would not compile. Desktop defines it unconditionally.
-if(NOT IOS AND NOT ANDROID)
-    list(APPEND SOURCES
-        src/simulator/ghcsimulator.cpp
-    )
-endif()
 
 # Native CoreBluetooth transport and iOS brightness helpers
 if(APPLE)
@@ -975,15 +963,9 @@ endif()
 list(APPEND HEADERS
     src/simulator/de1simulator.h
     src/simulator/simulatedscale.h
+    src/simulator/ghcsimulator.h
 )
 
-# GHC simulator window header - see the source section note for why this is
-# `NOT IOS AND NOT ANDROID` rather than a desktop allowlist.
-if(NOT IOS AND NOT ANDROID)
-    list(APPEND HEADERS
-        src/simulator/ghcsimulator.h
-    )
-endif()
 
 # Native CoreBluetooth transport header (iOS and macOS)
 if(APPLE)

@@ -193,7 +193,12 @@ extern "C" const char* __ubsan_default_options()
 #include "simulator/de1simulator.h"
 #include "simulator/simulatedscale.h"
 #endif
-#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
+// DECENZA_SIMULATOR is part of the condition, not decoration: GHCSimulator guards its own
+// contents on it (it drives DE1Simulator and cannot compile without it), so every site that
+// names the class has to agree. Desktop defines it unconditionally, which is why the two used to
+// look interchangeable — until `-DDECENZA_SIMULATOR_OVERRIDE=0`, the flag that exists precisely
+// so the tablet-production shape can be built on a desktop, made them differ.
+#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG) && defined(DECENZA_SIMULATOR)
 #include "simulator/ghcsimulator.h"
 #endif
 
@@ -1965,13 +1970,14 @@ int main(int argc, char *argv[])
     // rule as everything else registered as a singleton; the eleven places below that used to
     // re-point the `ScaleDevice` context property now call setTarget() on this.
     ScaleDeviceProxy scaleProxy;
+    RefractometerProxy refractometerProxy;
 
     // Hoisted for the same rule, and note it was ALREADY exposed to QML from below the engine —
     // as a context property, which QML drops on destroyed(), so the ordering hazard was papered
     // over rather than absent. Its constructor takes no dependencies (it just blanks the LEDs),
     // so only the DECLARATION moves; setDE1Device()/setDE1Simulator() stay where the simulator
     // exists, ~1750 lines below.
-#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
+#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG) && defined(DECENZA_SIMULATOR)
     GHCSimulator ghcSimulator;
 #endif
 
@@ -2915,8 +2921,10 @@ int main(int argc, char *argv[])
 
     // === Refractometer (DiFluid R1 / R2) ===
     // The `refractometer` unique_ptr itself is declared up with the engine —
-    // see the note there for why the order matters.
-    engine.rootContext()->setContextProperty("Refractometer", nullptr);
+    // see the note there for why the order matters. The QML-facing proxy starts with no
+    // target, which is the normal state: a refractometer is only connected while the
+    // post-shot review page has it open.
+    RefractometerForeign::s_singletonInstance = &refractometerProxy;
 
     // Restore saved refractometer address for auto-reconnect
     if (!settings.savedRefractometerAddress().isEmpty()) {
@@ -2925,7 +2933,7 @@ int main(int argc, char *argv[])
     }
 
     QObject::connect(&bleManager, &BLEManager::refractometerDiscovered, handlerScope.get(),
-                     [&refractometer, &engine, &bleManager, &settings](const QBluetoothDeviceInfo& device) {
+                     [&refractometer, &refractometerProxy, &bleManager, &settings](const QBluetoothDeviceInfo& device) {
         qDebug().noquote() << QString("[R2-diag] refractometerDiscovered dev=%1 existingInstance=%2 existingConnected=%3")
             .arg(getDeviceIdentifier(device),
                  refractometer ? QString::number(reinterpret_cast<quintptr>(refractometer.get()), 16)
@@ -2948,7 +2956,7 @@ int main(int argc, char *argv[])
                      refractometer->isConnected() ? QStringLiteral("true") : QStringLiteral("false"));
             refractometer->disconnectFromDevice();
             bleManager.setRefractometerDevice(nullptr);
-            engine.rootContext()->setContextProperty("Refractometer", nullptr);
+            refractometerProxy.setTarget(nullptr);
         }
 
         // Create transport using the same platform selection as scales
@@ -2977,7 +2985,7 @@ int main(int argc, char *argv[])
         bleManager.setRefractometerDevice(refractometer.get());
 
         // Expose to QML
-        engine.rootContext()->setContextProperty("Refractometer", refractometer.get());
+        refractometerProxy.setTarget(refractometer.get());
 
         // Save address for auto-reconnect
         settings.setSavedRefractometerAddress(getDeviceIdentifier(device));
@@ -3026,13 +3034,13 @@ int main(int argc, char *argv[])
 
     // Handle Forget Refractometer — disconnect and clean up
     QObject::connect(&bleManager, &BLEManager::disconnectRefractometerRequested, handlerScope.get(),
-                     [&refractometer, &engine, &bleManager,
+                     [&refractometer, &refractometerProxy, &bleManager,
                       &refractometerReconnectTimer, &refractometerReconnectAttempt]() {
         if (refractometer) {
             qDebug() << "[Refractometer] Forget requested, disconnecting";
             refractometer->disconnectFromDevice();
             bleManager.setRefractometerDevice(nullptr);
-            engine.rootContext()->setContextProperty("Refractometer", nullptr);
+            refractometerProxy.setTarget(nullptr);
             refractometer.reset();
         }
         // Stop any pending/persistent reconnect — the user forgot this device.
@@ -3503,7 +3511,7 @@ int main(int argc, char *argv[])
     // registered singleton so qmllint can see it — not as a context property, which is exactly
     // the shape that let this one sit unused without anything noticing.
 
-#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
+#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG) && defined(DECENZA_SIMULATOR)
     // Make GHCSimulator available to main window for window sync
     // Declared above `engine` (see there). Optional rather than mandatory: the declaration is
     // inside a debug-desktop `#if`, so on every other build there is no instance and QML reads
@@ -3601,7 +3609,7 @@ int main(int argc, char *argv[])
     // loop starts, and signal connections become dangling references (use-after-free).
     std::unique_ptr<DE1Simulator> de1SimulatorPtr;
     std::unique_ptr<SimulatedScale> simulatedScalePtr;
-#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
+#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG) && defined(DECENZA_SIMULATOR)
     std::unique_ptr<QQmlApplicationEngine> ghcEnginePtr;
 #endif
 
@@ -3722,7 +3730,7 @@ int main(int argc, char *argv[])
         applySimulatedScaleEnabled();
 
         // GHC Simulator window (desktop debug only — other platforms use the layout widget)
-#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG)
+#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS)) && defined(QT_DEBUG) && defined(DECENZA_SIMULATOR)
         // Configure GHC visual controller (created earlier for main window access)
         ghcSimulator.setDE1Device(&de1Device);
         ghcSimulator.setDE1Simulator(&de1Simulator);
