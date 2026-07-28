@@ -564,8 +564,20 @@ and is left as follow-up rather than bundled here.
 ## The gate could not tell a wrong ceiling from a real improvement — now it can
 
 The baseline defect above is not interesting because a number was wrong. It is interesting
-because **every check in the script was pointed the wrong way to catch it.** Both holes are now
-closed, and both fixes were verified by negative control rather than by observing a pass.
+because **every check in the script was pointed the wrong way to catch it.** Two holes are closed
+below, on every path CI takes and on a plain `--update-baseline`.
+
+Two caveats, both found by review of the fix itself rather than volunteered:
+
+- **`--update-baseline --allow-stale` originally still bypassed both freshness checks.** The write
+  path already refused `--from-raw` and `--skip-unlintable`; `--allow-stale` was simply missed, and
+  that combination is exactly how the bad baseline was produced. It is now refused too. Worth
+  recording because the first version of this fix closed the hole for CI while leaving it open on
+  the manual path where the defect actually originated.
+- **"Verified by negative control" below means a one-time manual check, not a regression test.**
+  Nothing under `tests/` exercises either guard, so a later edit could break one silently. That is
+  a real gap next to `tst_qmlregistration.cpp`, which codifies its equivalent assertions in a test
+  CI runs — the model these guards should eventually follow.
 
 **Hole 1: the staleness check could not see the type registry.**
 
@@ -581,11 +593,43 @@ early on expressions it cannot type, so it reports **fewer** warnings. Fewer war
 improvement, and `--update-baseline` writes it in as a ceiling.
 
 `check_registry_fresh()` closes it, content-based for the same reason `check_fresh()` is — any git
-operation rewrites source mtimes, so a timestamp check calls a freshly built tree stale. It
-asserts that every `QML_SINGLETON` declared under `src/` appears in the registry's exports. A new
-or renamed registration that has not been through `qmltyperegistrar` is missing, which is exactly
-the skew. Verified by adding a header registering a singleton absent from the qmltypes: the run
-refuses and names it; removing the header restores a clean pass.
+operation rewrites source mtimes, so a timestamp check calls a freshly built tree stale. For every
+`QML_SINGLETON` declared under `src/` it requires the registry to carry that export **and** to mark
+that same component `isSingleton: true`.
+
+**The first version of this guard was itself a worked example of the thing it guards against, and
+that is worth recording above the guard.** It resolved a singleton's QML name from
+`QML_NAMED_ELEMENT` or `QML_FOREIGN` and had no third branch, so a plain `QML_ELEMENT` contributed
+nothing — the `re.split` had discarded the class name, leaving nowhere to get it. It therefore
+checked **20 of the tree's 27 singletons** and reported success. The seven it could not see were
+`MainController`, `MachineState`, `ProfileManager`, `AccessibilityManager`, `TranslationManager`,
+`EmojiAssets` and `MarkdownRenderer` — most of the largest ones, and the same population the
+incident it cites was about.
+
+It passed its own negative control, because that control used the `QML_FOREIGN` shape and so
+exercised the branch that worked. **A guard verified only on the path that works is not verified.**
+The `if not declared` backstop could not catch it either: twenty names is a healthy-looking
+non-empty set, and "found some" reads identically to "found all" — the same shape as the truncated
+qmllint run that once counted never-analysed files as clean.
+
+Two further holes came out of the same review, both the same anti-pattern: a lookup whose
+not-found case defaults to *harmless*, inside a check whose whole job is to notice absence.
+
+- Presence in the registry was not enough. Every registered type has an `exports:` line, singleton
+  or not, so a type mid-migration **to** a singleton would match against a stale registry that
+  still lists it as uncreatable. That is one migration away, not hypothetical. The export and the
+  singleton flag must now appear in the same component.
+- The rise check read the old baseline with `.get(key, {})`. A baseline that was valid JSON with
+  the wrong schema made every file read as having no history, so no rise could be detected and the
+  write proceeded silently — #1680 reproduced inside its own fix. The schema is now required,
+  unparseable JSON is refused by name, and a file the baseline has never seen counts as a rise
+  from zero (the `_README` promises new code never starts with a budget, and `--update-baseline`
+  was quietly repealing that).
+
+Re-verified afterwards against each shape separately, which is the part the first attempt skipped:
+a bare `QML_ELEMENT` singleton, a type present but not as a singleton, a wrong-schema baseline, an
+unparseable baseline, and an unseen file arriving with warnings. Each is refused by name, and
+removing the fault restores a clean 218/218 pass.
 
 **Hole 2: `--update-baseline` relaxed the gate silently.**
 
