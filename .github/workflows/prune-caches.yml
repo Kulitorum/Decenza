@@ -110,6 +110,76 @@ jobs:
                   echo "::warning::Failed to delete cache $key (id $id)"
                 fi
               done
+
+      # Compiler caches parked on superseded release tags.
+      #
+      # The step above keeps one copy per (prefix, ref) and is right to, but a
+      # release tag is a ref that never builds again once the next one ships,
+      # so its whole set is one-copy-of-dead-weight. GitHub scopes restores to
+      # the entry's own ref (a tag build cannot read another tag's cache), which
+      # is what makes an older tag's set unreachable rather than merely stale.
+      #
+      # Measured 2026-07-28: v2.0.0 held 3045 MB across four platforms — macOS
+      # 1870, iOS 467, Linux x64 457, Windows 251 — while v2.0.1 was the shipped
+      # release. That is 30% of the 10 GB cap held by a tag nothing will build
+      # again, and it was pushing the nightly sanitizer job into its cold-build
+      # yield every night.
+      #
+      # The NEWEST tag is kept, deliberately: re-tagging at HEAD and force-
+      # pushing is the standard fix when main moves past a tag, and that reuses
+      # the same ref, so its cache still restores.
+      #
+      # Scoped tightly, since the surrounding steps are conservative about tags
+      # for good reason: only timestamped ccache/sccache keys, only on tag refs,
+      # only for tags that sort older than the newest one present. Stable-key
+      # entries (qt-*, openssl-*, gradle-*) are never touched.
+      - name: Drop compiler caches for superseded release tags
+        if: ${{ steps.gate.outputs.skip == 'false' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          TS='-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z$'
+
+          # Tag-scoped entries surface as refs/heads/refs/tags/X (the odd shape
+          # the deleted-branch step below skips) as well as plain refs/tags/X.
+          # Handle both; anything else is not a tag and is left alone.
+          CACHES=$(gh cache list --repo "$GITHUB_REPOSITORY" --limit 500 \
+                     --json id,key,ref,sizeInBytes \
+                   | jq -r --arg ts "$TS" '
+                       .[]
+                       | select(.key | test($ts))
+                       | select(.ref | test("^refs/(heads/)?refs/tags/"))
+                       | "\(.id)\t\(.ref | sub("^refs/(heads/)?refs/tags/"; ""))\t\(.sizeInBytes)\t\(.key)"
+                     ')
+
+          if [ -z "$CACHES" ]; then
+            echo "No tag-scoped compiler caches present."
+            exit 0
+          fi
+
+          # Newest by version sort over the tags actually present in the cache
+          # store. Self-contained on purpose: a tag whose build is still running
+          # cannot appear here anyway, because the gate step skips the whole
+          # workflow while any build is active.
+          NEWEST=$(printf '%s\n' "$CACHES" | cut -f2 | sort -uV | tail -1)
+          echo "Newest tag with caches: $NEWEST (keeping its entries)"
+
+          freed=0
+          while IFS=$'\t' read -r id tag size key; do
+            [ -n "$id" ] || continue
+            [ "$tag" = "$NEWEST" ] && continue
+            mb=$(( size / 1024 / 1024 ))
+            if gh cache delete "$id" --repo "$GITHUB_REPOSITORY"; then
+              echo "- deleted \`$key\` (${mb} MB) — tag $tag superseded by $NEWEST" \
+                >> "$GITHUB_STEP_SUMMARY"
+              freed=$(( freed + mb ))
+            else
+              echo "::warning::Failed to delete cache $key (id $id)"
+            fi
+          done <<< "$CACHES"
+          echo "Reclaimed ${freed} MB from superseded tags."
+
       # Caches for refs that no longer exist. The step above dedupes WITHIN a
       # ref and is correct at that job, but it has no concept of a ref that has
       # ceased to exist: every entry on a deleted branch is the newest of its

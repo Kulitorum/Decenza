@@ -57,8 +57,12 @@ on:
 env:
   CACHE_HEADROOM_MIN_GB: '2'
 
+# actions: write is for the yield path below, which deletes this job's own
+# ccache entries to hand the space back. Listing caches works on a public repo
+# with a read token; deleting one is a write and 403s without this.
 permissions:
   contents: read
+  actions: write
 
 concurrency:
   group: ${{ github.workflow }}
@@ -139,7 +143,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           MANUAL: ${{ github.event_name == 'workflow_dispatch' && inputs.use_cache || true }}
-          MINE: sanitizers-${{ matrix.sanitizer }}-linux-x86_64
+          # Must carry the `ccache-` prefix that hendrikmuhs/ccache-action
+          # prepends to whatever key it is handed — the stored entries are
+          # `ccache-sanitizers-<san>-linux-x86_64-<timestamp>`, not
+          # `sanitizers-…`. Without it the reclaim loop below matches nothing
+          # and yields silently: measured 2026-07-28, both legs' entries from
+          # 2026-07-26 still resident and untouched while every run since
+          # rebuilt cold, their 540 MB helping hold free space under the
+          # threshold that triggers the yield in the first place.
+          MINE: ccache-sanitizers-${{ matrix.sanitizer }}-linux-x86_64
         run: |
           set -uo pipefail
           if [ "$MANUAL" != "true" ]; then
@@ -184,15 +196,29 @@ jobs:
 
           # Only this leg's own entries — the other sanitizer leg manages its
           # own, so the two matrix jobs cannot race on the same ids.
-          gh cache list --repo "$GITHUB_REPOSITORY" --limit 500 --json id,key,sizeInBytes \
-            | jq -r --arg mine "$MINE" \
-                '.[] | select(.key | startswith($mine)) | "\(.id)\t\(.sizeInBytes)\t\(.key)"' \
-            | while IFS=$'\t' read -r id size key; do
-                [ -n "$id" ] || continue
-                if gh cache delete "$id" --repo "$GITHUB_REPOSITORY"; then
-                  echo "- released \`$key\` ($(( size / 1024 / 1024 )) MB)" >> "$GITHUB_STEP_SUMMARY"
-                fi
-              done
+          #
+          # Collected into a variable rather than piped straight into the loop,
+          # so the loop body runs in THIS shell and the counter below survives
+          # it. That counter is the canary: a reclaim that matches nothing, or
+          # is refused for want of actions: write, now says so instead of
+          # yielding in name only. Same remedy as the launcher assertion below —
+          # make the mechanism assert its own effect.
+          MATCHES=$(gh cache list --repo "$GITHUB_REPOSITORY" --limit 500 --json id,key,sizeInBytes \
+                      | jq -r --arg mine "$MINE" \
+                          '.[] | select(.key | startswith($mine)) | "\(.id)\t\(.sizeInBytes)\t\(.key)"')
+          RELEASED=0
+          while IFS=$'\t' read -r id size key; do
+            [ -n "$id" ] || continue
+            if gh cache delete "$id" --repo "$GITHUB_REPOSITORY"; then
+              RELEASED=$(( RELEASED + 1 ))
+              echo "- released \`$key\` ($(( size / 1024 / 1024 )) MB)" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "::warning::Could not delete cache '$key' — needs actions: write on this job."
+            fi
+          done <<< "$MATCHES"
+          if [ "$RELEASED" -eq 0 ]; then
+            echo "::warning::Yielded the compiler cache but released nothing: no entry matched the prefix '$MINE'. The space was not handed back."
+          fi
 
       - name: Set up ccache
         uses: ./.github/actions/setup-compiler-cache
