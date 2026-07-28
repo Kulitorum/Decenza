@@ -83,11 +83,11 @@ runs:
         # reached 1870 MB across nine builds against v2.0.1's 569 MB across two,
         # which is accumulation, not a cold build's footprint.
         #
-        # So the tag scope is the HOTTEST cache in the repo, not dead weight.
-        # Suppressing it would push all nine of those rebuilds onto main's
-        # scope, which is seeded only by warm-main-cache.yml on
-        # `release: released` — an event this project usually never reaches,
-        # since releases tend to stay prereleases.
+        # So the tag scope is the HOTTEST cache in the repo, not dead weight —
+        # and since main no longer carries a platform compiler cache at all
+        # (warm-main-cache.yml is gone; see prune-caches.yml), it is the ONLY
+        # one. Suppressing it would make every release build cold, not just the
+        # first.
         #
         # The real cost was never the live tag's set; it was the sets left
         # behind by tags that HAVE shipped. prune-caches.yml collects those,
