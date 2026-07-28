@@ -618,3 +618,40 @@ and the confirmed defects are in [`bugs-found.md`](bugs-found.md) entries 3–7 
   main.cpp "registers zero QML singletons" (it now registers three). That document is a draft that
   looked at performance without correctness, and is to be revisited as a whole after the QML
   cleanup lands rather than patched line by line now
+
+## 3c. The last runtime type registrations, and the erasure they were hiding
+
+- [x] 3c.1 Eight runtime `qmlRegisterType<>()` calls in `main.cpp` were the last of the defect class
+  this change exists to remove — for CREATABLE types this time. A runtime registration never
+  reaches `qmltyperegistrar`, so the type is absent from `Decenza.qmltypes` and qmllint reports
+  every *use* of it as `X was not found. Did you add all imports and dependencies?` Four moved to
+  `QML_ELEMENT` in their own headers: `FastLineRenderer`, `JsCanvasPainterItem`,
+  `StrangeAttractorRenderer`, `DocumentFormatter`. Safe there, unlike the classes in
+  `contextsingletons_qml.h`, because each already derives from a Quick type, so any target
+  compiling them links Qt6::Qml anyway.
+- [x] 3c.2 Required three new entries in the `target_include_directories(Decenza ...)` block —
+  `src/rendering`, `src/ui`, `src/screensaver`. The generated registration file emits
+  `#if __has_include(<bare-name.h>)`, so an unreachable basename makes the include expand to
+  nothing and the build fails with `use of undeclared identifier` in generated code, three tools
+  from the cause. That block already documented this and named the ambiguity check to run first
+  (`find <dirs> -maxdepth 1 -name '*.h' -exec basename {} \; | sort | uniq -d`, empty = safe).
+- [x] 3c.3 **The registration was hiding two layers of type erasure, and that is the real find.**
+  Fixing it made `missing-property` RISE 322 -> 388, because 66 calls in `CupFillView.qml` became
+  reachable for the first time:
+  - `JsCanvasPainterItem::paint()` declared `QObject *ctx` while emitting a `JsCanvasContext*`
+    with 17 `Q_INVOKABLE`s, so every `beginPath`/`lineTo`/`fill` was a member missing from
+    `QObject`. qmllint was right and useless.
+  - `createLinearGradient()`/`createRadialGradient()` declared `QObject*` while returning a
+    `JsCanvasGradient*`, so all 41 `addColorStop` calls were the same shape one level down.
+  Both now typed, and `JsCanvasContext`/`JsCanvasGradient` registered `QML_UNCREATABLE` so the
+  calls are checked against the real API. Runtime-verified: the cup fill still renders.
+- [x] 3c.4 `Pipe*Geometry` deliberately left on runtime registration. Compile-time works but buys
+  nothing — qmllint cannot resolve `QQuick3DGeometry` from the module response file, so it only
+  swaps three `import` warnings for three `unresolved-type` ones — and `pipegeometry.h` compiles
+  only under `ENABLE_QUICK3D AND Qt6Quick3D_FOUND`, so registering it there makes the qmltypes
+  host-dependent: the same shape as the `GHCSimulatorWindow.qml` bundling bug that failed the
+  Linux gate and nothing else. Reasoning recorded at the call site.
+- [x] 3c.5 Result: gate passes, clean list **90 -> 92**. `import` 23 -> 7, and both
+  `incompatible-type` and `unresolved-type` cleared entirely — the former was
+  `StrangeAttractorScreensaver.qml` binding `target: renderer`, unresolvable while that type was
+  registered at runtime.

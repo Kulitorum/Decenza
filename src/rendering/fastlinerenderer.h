@@ -6,9 +6,16 @@
 #include <QVector>
 #include <QSGGeometryNode>
 #include <QSGFlatColorMaterial>
+#include <QtQml/qqmlregistration.h>
 
 class FastLineRenderer : public QQuickItem {
     Q_OBJECT
+    // Compile-time registration. A runtime qmlRegisterType<>() in main.cpp is invisible to
+    // qmltyperegistrar, so the type never reaches Decenza.qmltypes and qmllint reports every
+    // use of it as "was not found. Did you add all imports and dependencies?" — 21 such
+    // warnings across the tree, all from this one cause.
+    QML_ELEMENT
+
 
     Q_PROPERTY(QColor color READ color WRITE setColor NOTIFY colorChanged)
     Q_PROPERTY(float lineWidth READ lineWidth WRITE setLineWidth NOTIFY lineWidthChanged)

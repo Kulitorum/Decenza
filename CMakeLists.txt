@@ -1154,6 +1154,12 @@ target_include_directories(Decenza PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/models
     ${CMAKE_CURRENT_SOURCE_DIR}/src/network
     ${CMAKE_CURRENT_SOURCE_DIR}/src/profile
+    # Added when the last runtime qmlRegisterType<> calls became QML_ELEMENT: fastlinerenderer.h,
+    # jscanvaspainteritem.h, strangeattractorrenderer.h and pipegeometry.h. Verified non-ambiguous
+    # by the command above before adding.
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/rendering
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/ui
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/screensaver
 )
 if(ANDROID)
     # SYSTEM: mjansson/mdns is vendored third-party code, and it is header-only,

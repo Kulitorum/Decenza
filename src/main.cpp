@@ -3525,10 +3525,16 @@ int main(int argc, char *argv[])
     // reaches Decenza.qmltypes and qmllint cannot resolve the type behind the properties that
     // return it. QML reaches those four through MainController properties, never by type name.
 
-    // GPU-accelerated Canvas-like surface (CupFillView). The wrapper exposes
-    // an `onPaint(ctx)` signal whose ctx replays JS-recorded draw commands
-    // through QCanvasPainter on the scene-graph render thread.
-    qmlRegisterType<JsCanvasPainterItem>("Decenza", 1, 0, "JsCanvasPainterItem");
+    // The CREATABLE types that used to be registered here — JsCanvasPainterItem,
+    // StrangeAttractorRenderer, FastLineRenderer and DocumentFormatter — now carry QML_ELEMENT in
+    // their own headers. The four Pipe*Geometry types did not; see the block further down. Same QML names, same creatable
+    // contract, and for the same reason the uncreatable ones moved: a runtime qmlRegisterType<>
+    // is invisible to qmltyperegistrar, so the type never reached Decenza.qmltypes and qmllint
+    // reported every USE of it as "was not found. Did you add all imports and dependencies?" —
+    // 19 warnings across five QML files, none of them a real missing import.
+    //
+    // Safe in their headers, unlike the classes in contextsingletons_qml.h: every one already
+    // derives from a Quick or Quick3D type, so any target compiling them links Qt6::Qml anyway.
 
     // Settings sub-object types are registered at COMPILE time via QML_FOREIGN in
     // settings_qml.h, not here. A runtime qmlRegisterUncreatableType<> is invisible to
@@ -3548,22 +3554,20 @@ int main(int argc, char *argv[])
         "Decenza", 1, 0, "ShotProjection",
         "ShotProjection is a value type returned by ShotHistoryStorage signals");
 
-    // Register strange attractor renderer (QQuickPaintedItem, no Quick3D dependency)
-    qmlRegisterType<StrangeAttractorRenderer>("Decenza", 1, 0, "StrangeAttractorRenderer");
-
-    // Register fast line renderer for shot graph (QSGGeometryNode, pre-allocated VBO)
-    qmlRegisterType<FastLineRenderer>("Decenza", 1, 0, "FastLineRenderer");
-
 #ifdef ENABLE_QUICK3D
-    // Register pipe geometry types for 3D pipes screensaver
+    // The Pipe*Geometry types stay RUNTIME-registered, unlike the four above. Moving them to
+    // QML_ELEMENT was tried and reverted: it works, but it buys nothing and costs something.
+    // qmllint cannot resolve QQuick3DGeometry (their base) from the module's response file, so
+    // compile-time registration only swaps three "was not found" warnings for three "used but not
+    // resolved" ones in PipesScreensaver.qml. Meanwhile pipegeometry.h compiles only under
+    // `ENABLE_QUICK3D AND Qt6Quick3D_FOUND`, so registering it there makes Decenza.qmltypes
+    // depend on whether the host has Quick3D — the same host-dependent-registry shape that made
+    // the GHCSimulatorWindow.qml bundling bug fail the Linux gate and nothing else.
     qmlRegisterType<PipeCylinderGeometry>("Decenza", 1, 0, "PipeCylinderGeometry");
     qmlRegisterType<PipeElbowGeometry>("Decenza", 1, 0, "PipeElbowGeometry");
     qmlRegisterType<PipeCapGeometry>("Decenza", 1, 0, "PipeCapGeometry");
     qmlRegisterType<PipeSphereGeometry>("Decenza", 1, 0, "PipeSphereGeometry");
 #endif
-
-    // Register DocumentFormatter for rich text editing in layout editor
-    qmlRegisterType<DocumentFormatter>("Decenza", 1, 0, "DocumentFormatter");
 
     checkpoint("Context properties & type registration");
 

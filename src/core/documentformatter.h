@@ -9,10 +9,17 @@
 #include <QColor>
 #include <QVariantList>
 #include <QVariantMap>
+#include <QtQml/qqmlregistration.h>
 
 class DocumentFormatter : public QObject
 {
     Q_OBJECT
+    // Compile-time registration. A runtime qmlRegisterType<>() in main.cpp is invisible to
+    // qmltyperegistrar, so the type never reaches Decenza.qmltypes and qmllint reports every
+    // use of it as "was not found. Did you add all imports and dependencies?" — 21 such
+    // warnings across the tree, all from this one cause.
+    QML_ELEMENT
+
 
     Q_PROPERTY(QQuickTextDocument* document READ document WRITE setDocument NOTIFY documentChanged)
     Q_PROPERTY(int selectionStart READ selectionStart WRITE setSelectionStart NOTIFY selectionStartChanged)

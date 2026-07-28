@@ -8,6 +8,7 @@
 #include <QVariant>
 
 #include <QtCanvasPainter/qcanvasgradient.h>
+#include <QtQml/qqmlregistration.h>
 
 QT_BEGIN_NAMESPACE
 class QCanvasPainter;
@@ -54,6 +55,13 @@ struct BrushSpec {
 class JsCanvasContext : public QObject
 {
     Q_OBJECT
+    // Uncreatable, but REGISTERED: this is the type of the `ctx` handed to
+    // JsCanvasPainterItem::paint(), and CupFillView.qml makes ~66 calls on it. While the signal
+    // erased it to QObject* those calls were unresolvable — qmllint reported every beginPath(),
+    // lineTo() and fill() as a member missing from QObject, which was true and useless. With the
+    // type registered and the signal typed, they are checked against the 17 Q_INVOKABLEs below.
+    QML_ELEMENT
+    QML_UNCREATABLE("JsCanvasContext is created in C++ and delivered as the paint() argument")
     // QML assignment syntax (`ctx.fillStyle = grad`) needs a Q_PROPERTY,
     // but the recorded buffer is the source of truth — readers never need
     // to query state back. Stub READs satisfy the moc requirement.
@@ -92,8 +100,11 @@ public:
     Q_INVOKABLE void reset();
 
     // Gradient factories
-    Q_INVOKABLE QObject* createLinearGradient(float x0, float y0, float x1, float y1);
-    Q_INVOKABLE QObject* createRadialGradient(float x0, float y0, float r0, float x1, float y1, float r1);
+    // JsCanvasGradient*, not QObject*. QML assigns the result to ctx.fillStyle and calls
+    // addColorStop() on it 41 times in CupFillView.qml; erased to QObject* every one of those
+    // was an unresolvable member. Same mistake as paint()'s argument, one level down.
+    Q_INVOKABLE JsCanvasGradient* createLinearGradient(float x0, float y0, float x1, float y1);
+    Q_INVOKABLE JsCanvasGradient* createRadialGradient(float x0, float y0, float r0, float x1, float y1, float r1);
 
     // Property setters (also exposed via Q_PROPERTY for QML assignment)
     void setFillStyle(const QVariant &v);
@@ -126,6 +137,10 @@ private:
 class JsCanvasGradient : public QObject
 {
     Q_OBJECT
+    // Returned by ctx.createLinearGradient()/createRadialGradient() and then assigned to
+    // ctx.fillStyle, so QML holds one; registered for the same reason as the context.
+    QML_ELEMENT
+    QML_UNCREATABLE("JsCanvasGradient is created by JsCanvasContext factory methods")
 
 public:
     JsCanvasGradient(JsCanvasContext *ctx, qsizetype brushId);

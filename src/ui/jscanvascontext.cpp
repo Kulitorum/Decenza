@@ -117,7 +117,7 @@ qsizetype JsCanvasContext::newBrush(BrushSpec::Type type,
     return m_brushes.size() - 1;
 }
 
-QObject *JsCanvasContext::createLinearGradient(float x0, float y0, float x1, float y1)
+JsCanvasGradient *JsCanvasContext::createLinearGradient(float x0, float y0, float x1, float y1)
 {
     const qsizetype id = newBrush(BrushSpec::Type::Linear, x0, y0, 0.0f, x1, y1, 0.0f);
     auto *g = new JsCanvasGradient(this, id);
@@ -125,7 +125,7 @@ QObject *JsCanvasContext::createLinearGradient(float x0, float y0, float x1, flo
     return g;
 }
 
-QObject *JsCanvasContext::createRadialGradient(float x0, float y0, float r0,
+JsCanvasGradient *JsCanvasContext::createRadialGradient(float x0, float y0, float r0,
                                                float x1, float y1, float r1)
 {
     const qsizetype id = newBrush(BrushSpec::Type::Radial, x0, y0, r0, x1, y1, r1);
