@@ -75,30 +75,30 @@ Item {
                     Text {
                         text: TranslationManager.translate(
                                   "firmware.tab.installed", "Installed: v%1")
-                              .arg(fw && fw.installedVersion > 0
-                                   ? fw.installedVersion : "—")
+                              .arg(firmwareTab.fw && firmwareTab.fw.installedVersion > 0
+                                   ? firmwareTab.fw.installedVersion : "—")
                         color: Theme.textColor
                         font.pixelSize: Theme.scaled(13)
                     }
                     Text {
-                        visible: fw && fw.availableVersion > 0
+                        visible: firmwareTab.fw && firmwareTab.fw.availableVersion > 0
                         text: {
-                            if (!fw) return ""
-                            if (fw.isDowngrade) {
+                            if (!firmwareTab.fw) return ""
+                            if (firmwareTab.fw.isDowngrade) {
                                 return TranslationManager.translate(
                                     "firmware.tab.availableDowngrade",
                                     "Available: v%1 (downgrade)")
-                                    .arg(fw.availableVersion)
+                                    .arg(firmwareTab.fw.availableVersion)
                             }
                             return TranslationManager.translate(
                                 "firmware.tab.available", "Available: v%1")
-                                .arg(fw.availableVersion)
+                                .arg(firmwareTab.fw.availableVersion)
                         }
-                        color: fw && fw.updateAvailable
-                               ? (fw.isDowngrade ? Theme.warningColor : Theme.accentColor)
+                        color: firmwareTab.fw && firmwareTab.fw.updateAvailable
+                               ? (firmwareTab.fw.isDowngrade ? Theme.warningColor : Theme.accentColor)
                                : Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(13)
-                        font.bold: fw && fw.updateAvailable
+                        font.bold: firmwareTab.fw && firmwareTab.fw.updateAvailable
                     }
                 }
 
@@ -108,21 +108,21 @@ Item {
                     text: TranslationManager.translate(
                               "firmware.tab.checkNow", "Check now")
                     accessibleName: text
-                    enabled: fw && !firmwareTab.isWorking
-                    onClicked: if (fw) fw.checkForUpdate()
+                    enabled: firmwareTab.fw && !firmwareTab.isWorking
+                    onClicked: if (firmwareTab.fw) firmwareTab.fw.checkForUpdate()
                 }
 
                 AccessibleButton {
                     Layout.preferredWidth: Theme.scaled(140)
                     Layout.preferredHeight: Theme.scaled(40)
-                    text: fw && fw.isDowngrade
+                    text: firmwareTab.fw && firmwareTab.fw.isDowngrade
                           ? TranslationManager.translate(
                                 "firmware.tab.downgradeNow", "Downgrade now")
                           : TranslationManager.translate(
                                 "firmware.tab.updateNow", "Update now")
                     accessibleName: text
-                    enabled: fw && fw.updateAvailable && !firmwareTab.isWorking && !fw.isSimulated
-                    onClicked: if (fw) fw.startUpdate()
+                    enabled: firmwareTab.fw && firmwareTab.fw.updateAvailable && !firmwareTab.isWorking && !firmwareTab.fw.isSimulated
+                    onClicked: if (firmwareTab.fw) firmwareTab.fw.startUpdate()
                 }
             }
         }
@@ -135,7 +135,7 @@ Item {
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: Theme.scaled(70)
-            visible: fw && fw.updateAvailable && fw.isDowngrade
+            visible: firmwareTab.fw && firmwareTab.fw.updateAvailable && firmwareTab.fw.isDowngrade
             color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
             border.color: Theme.warningColor
@@ -164,8 +164,8 @@ Item {
                                   "Installed v%1 → available v%2. " +
                                   "Flashing will roll the DE1 back. " +
                                   "Continue only if you know why.")
-                              .arg(fw && fw.installedVersion > 0 ? fw.installedVersion : "—")
-                              .arg(fw ? fw.availableVersion : "—")
+                              .arg(firmwareTab.fw && firmwareTab.fw.installedVersion > 0 ? firmwareTab.fw.installedVersion : "—")
+                              .arg(firmwareTab.fw ? firmwareTab.fw.availableVersion : "—")
                         color: Theme.textColor
                         font.pixelSize: Theme.scaled(12)
                         wrapMode: Text.Wrap
@@ -182,7 +182,7 @@ Item {
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: Theme.scaled(50)
-            visible: fw && fw.isSimulated
+            visible: firmwareTab.fw && firmwareTab.fw.isSimulated
             color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
             border.color: Theme.textSecondaryColor
@@ -223,7 +223,7 @@ Item {
                 spacing: Theme.spacingSmall
 
                 Text {
-                    text: fw ? fw.stateText : ""
+                    text: firmwareTab.fw ? firmwareTab.fw.stateText : ""
                     color: Theme.textColor
                     font.pixelSize: Theme.scaled(15)
                     font.bold: true
@@ -234,7 +234,7 @@ Item {
                     Layout.preferredHeight: Theme.scaled(10)
                     from: 0
                     to: 1
-                    value: fw ? fw.progress : 0
+                    value: firmwareTab.fw ? firmwareTab.fw.progress : 0
                 }
 
                 Text {
@@ -258,7 +258,7 @@ Item {
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: Theme.scaled(80)
-            visible: fw && fw.state === firmwareTab.stateFailed
+            visible: firmwareTab.fw && firmwareTab.fw.state === firmwareTab.stateFailed
             color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
             border.color: Theme.errorColor
@@ -282,7 +282,7 @@ Item {
                     }
                     Text {
                         Layout.fillWidth: true
-                        text: fw ? fw.errorMessage : ""
+                        text: firmwareTab.fw ? firmwareTab.fw.errorMessage : ""
                         color: Theme.textColor
                         font.pixelSize: Theme.scaled(12)
                         wrapMode: Text.Wrap
@@ -295,8 +295,8 @@ Item {
                     text: TranslationManager.translate(
                               "firmware.tab.retry", "Retry")
                     accessibleName: text
-                    enabled: fw && fw.retryAvailable
-                    onClicked: if (fw) fw.retry()
+                    enabled: firmwareTab.fw && firmwareTab.fw.retryAvailable
+                    onClicked: if (firmwareTab.fw) firmwareTab.fw.retry()
                 }
             }
         }
@@ -306,7 +306,7 @@ Item {
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: Theme.scaled(60)
-            visible: fw && fw.state === firmwareTab.stateSucceeded
+            visible: firmwareTab.fw && firmwareTab.fw.state === firmwareTab.stateSucceeded
             color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
             border.color: Theme.accentColor
@@ -317,7 +317,7 @@ Item {
                 text: TranslationManager.translate(
                           "firmware.tab.success",
                           "Update complete — DE1 is on v%1")
-                      .arg(fw ? fw.installedVersion : "")
+                      .arg(firmwareTab.fw ? firmwareTab.fw.installedVersion : "")
                 color: Theme.textColor
                 font.pixelSize: Theme.scaled(14)
             }
@@ -330,7 +330,7 @@ Item {
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: Theme.scaled(80)
-            visible: fw && fw.state === firmwareTab.stateAwaitingReboot
+            visible: firmwareTab.fw && firmwareTab.fw.state === firmwareTab.stateAwaitingReboot
             color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
             border.color: Theme.warningColor
