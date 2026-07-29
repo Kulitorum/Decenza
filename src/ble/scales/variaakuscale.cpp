@@ -3,6 +3,7 @@
 #include "scalelogging.h"
 
 #define VARIA_LOG(msg)  SCALE_LOG("VariaAkuScale", msg)
+#define VARIA_INFO(msg) SCALE_INFO("VariaAkuScale", msg)
 #define VARIA_WARN(msg) SCALE_WARN("VariaAkuScale", msg)
 
 VariaAkuScale::VariaAkuScale(ScaleBleTransport* transport, QObject* parent)
@@ -59,7 +60,7 @@ void VariaAkuScale::connectToDevice(const QBluetoothDeviceInfo& device) {
     m_serviceFound = false;
     m_characteristicsReady = false;
 
-    VARIA_LOG(QString("Connecting to %1 (%2)")
+    VARIA_INFO(QString("Connecting to %1 (%2)")
               .arg(device.name())
               .arg(device.address().toString()));
 
@@ -164,7 +165,7 @@ void VariaAkuScale::tickleWatchdog() {
         // NOW we can report connected — we have proof the scale is functional
         if (!isConnected()) {
             setConnected(true);
-            VARIA_LOG("Scale confirmed working, reporting connected");
+            VARIA_INFO("Scale confirmed working, reporting connected");
         }
     }
 

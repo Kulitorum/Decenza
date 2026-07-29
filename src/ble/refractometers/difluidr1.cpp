@@ -204,7 +204,7 @@ void DiFluidR1::connectToDevice(const QBluetoothDeviceInfo& device) {
     m_phase = Phase::Disconnected;
     if (nameChange) emit nameChanged();
 
-    R1_LOG(QString("Connecting to %1 (%2)")
+    R1_INFO(QString("Connecting to %1 (%2)")
                .arg(m_name,
                     device.address().isNull() ? device.deviceUuid().toString()
                                               : device.address().toString()));
@@ -259,7 +259,7 @@ void DiFluidR1::onTransportConnected() {
 }
 
 void DiFluidR1::onTransportDisconnected() {
-    R1_LOG("Transport disconnected");
+    R1_INFO("Transport disconnected");
     resetLinkState();
 }
 
@@ -371,7 +371,7 @@ void DiFluidR1::onCharacteristicRead(const QBluetoothUuid& characteristicUuid,
     if (m_phase != Phase::Ready) {
         m_phase = Phase::Ready;
         emit connectedChanged();
-        R1_LOG("Connected and ready for measurements");
+        R1_INFO("Connected and ready for measurements");
     }
 }
 

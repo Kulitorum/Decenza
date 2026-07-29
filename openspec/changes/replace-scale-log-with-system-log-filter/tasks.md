@@ -9,14 +9,14 @@
 
 ## 2. Assign scale tiers
 
-- [ ] 2.1 `blemanager.cpp` — the ~60 `appendScaleLog` sites: promote the connection narrative (scan lifecycle, device found, connecting, connected/disconnected, transport selection and WiFi→BLE fallback, reconnect scheduling, the slow-tail crossing) to INFO; leave internal detail at DEBUG. Keep every existing WARN at WARN.
-- [ ] 2.2 The 13 BLE scale drivers — keep frame/protocol traffic at DEBUG; promote connect/disconnect/identify outcomes to INFO.
-- [ ] 2.3 The transports (`qtscalebletransport.cpp`, `corebluetoothscalebletransport.mm`) — DEBUG for characteristic and discovery mechanics, INFO for link established/lost, existing WARN unchanged.
-- [ ] 2.4 `usbscalemanager.cpp` / `usbdecentscale.cpp` — INFO for device found, probe confirmed, connect/disconnect, unplug; DEBUG for probe byte-level detail.
-- [ ] 2.5 The refractometers (`difluidr1.cpp`, `difluidr2.cpp`) — assign tiers now that they carry `[Refractometer]`: INFO for connect/disconnect and completed measurements, DEBUG for packet framing and checksum detail, WARN for no-liquid/beyond-range/decode failures.
-- [ ] 2.6 `wifiscalediscovery.cpp` — INFO for the browse/lookup outcomes the `wifi-scale-discovery` spec requires to be diagnosable from a shared log.
-- [ ] 2.7 Review the resulting INFO set as a whole: read the INFO-only scale lines for a full scan → connect → shot → disconnect cycle and judge it as a narrative. Fix anything that reads as noise or has a hole. Do not evaluate sites in isolation.
-- [ ] 2.8 Build and run the full suite; confirm no test newly trips `QTest::failOnWarning()`.
+- [x] 2.1 `blemanager.cpp` — the ~60 `appendScaleLog` sites: promote the connection narrative (scan lifecycle, device found, connecting, connected/disconnected, transport selection and WiFi→BLE fallback, reconnect scheduling, the slow-tail crossing) to INFO; leave internal detail at DEBUG. Keep every existing WARN at WARN.
+- [x] 2.2 The 13 BLE scale drivers — keep frame/protocol traffic at DEBUG; promote connect/disconnect/identify outcomes to INFO.
+- [x] 2.3 The transports (`qtscalebletransport.cpp`, `corebluetoothscalebletransport.mm`) — DEBUG for characteristic and discovery mechanics, INFO for link established/lost, existing WARN unchanged.
+- [x] 2.4 `usbscalemanager.cpp` / `usbdecentscale.cpp` — INFO for device found, probe confirmed, connect/disconnect, unplug; DEBUG for probe byte-level detail.
+- [x] 2.5 The refractometers (`difluidr1.cpp`, `difluidr2.cpp`) — assign tiers now that they carry `[Refractometer]`: INFO for connect/disconnect and completed measurements, DEBUG for packet framing and checksum detail, WARN for no-liquid/beyond-range/decode failures.
+- [x] 2.6 `wifiscalediscovery.cpp` — INFO for the browse/lookup outcomes the `wifi-scale-discovery` spec requires to be diagnosable from a shared log.
+- [x] 2.7 Review the resulting INFO set as a whole: read the INFO-only scale lines for a full scan → connect → shot → disconnect cycle and judge it as a narrative. Fix anything that reads as noise or has a hole. Do not evaluate sites in isolation.
+- [x] 2.8 Build and run the full suite; confirm no test newly trips `QTest::failOnWarning()`.
 
 ## 3. DE1 helpers, marker and tiers
 

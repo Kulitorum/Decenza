@@ -47,6 +47,7 @@ template struct AccessBypass<WsPrivateSocketTag, &QWebSocketPrivate::m_pSocket>;
 #include "../../network/mdnsresolver.h"
 
 #define WIFI_LOG(msg)  SCALE_LOG("DecentScaleWifi", msg)
+#define WIFI_INFO(msg) SCALE_INFO("DecentScaleWifi", msg)
 #define WIFI_WARN(msg) SCALE_WARN("DecentScaleWifi", msg)
 
 DecentScaleWifi::DecentScaleWifi(QObject* parent)
@@ -142,7 +143,7 @@ void DecentScaleWifi::connectToHost(const QString& hostname, const QString& pref
     // the cached IP when resolution fails, so leaving the flag set still dials
     // something on every cycle.
     if (m_retryShouldReresolve) {
-        WIFI_LOG(QString("Previous attempt found %1 unreachable — re-resolving before retry")
+        WIFI_INFO(QString("Previous attempt found %1 unreachable — re-resolving before retry")
                  .arg(hostname));
         attemptHostname();
         return;
@@ -198,7 +199,7 @@ void DecentScaleWifi::attemptTarget(const QString& target, bool isHostname) {
     const QString hostPort = m_wsPort == 80 ? target
                                             : QStringLiteral("%1:%2").arg(target).arg(m_wsPort);
     const QUrl url(QStringLiteral("ws://%1%2").arg(hostPort, m_wsPath));
-    WIFI_LOG(QString("Connecting to %1 (%2)").arg(
+    WIFI_INFO(QString("Connecting to %1 (%2)").arg(
         url.toString(), isHostname ? QStringLiteral("hostname") : QStringLiteral("cached IP")));
     // ORDER MATTERS: arm the recognition window BEFORE open(), never after.
     // open() can fail synchronously — an address the OS rejects at the routing
@@ -399,7 +400,7 @@ void DecentScaleWifi::onConnected() {
     // (e.g. wired + WiFi on the same subnet) it names the egress interface the
     // OS bound this connection to, which is the datum needed to diagnose a
     // connect that leaves via the wrong / a down interface.
-    WIFI_LOG(QString("WebSocket connected — peer=%1:%2 local=%3:%4")
+    WIFI_INFO(QString("WebSocket connected — peer=%1:%2 local=%3:%4")
              .arg(peerIp).arg(peerPort).arg(localIp).arg(localPort));
     setConnected(true);
 
@@ -457,7 +458,7 @@ void DecentScaleWifi::onDisconnected() {
             disconnectLog += QString(", reason=\"%1\"").arg(closeReason);
         disconnectLog += QStringLiteral(")");
     }
-    WIFI_LOG(disconnectLog);
+    WIFI_INFO(disconnectLog);
 
     // Pending hostname fallback (cached IP didn't validate): the recognition
     // timer marked this disconnect as the one we were waiting for. Run the
@@ -630,7 +631,7 @@ void DecentScaleWifi::handlePowerFrame(const QJsonObject& obj) {
     // gives up) is the user-facing signal.
     if (m_powerOffInitiatedByApp) {
         m_powerOffInitiatedByApp = false;
-        WIFI_LOG(QString("Scale shut down: %1 (code %2) — app-initiated")
+        WIFI_INFO(QString("Scale shut down: %1 (code %2) — app-initiated")
                  .arg(reasonText).arg(reasonCode));
         return;
     }

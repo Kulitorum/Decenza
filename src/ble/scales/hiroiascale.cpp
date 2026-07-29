@@ -4,6 +4,7 @@
 #include <QTimer>
 
 #define HIROIA_LOG(msg)  SCALE_LOG("HiroiaScale", msg)
+#define HIROIA_INFO(msg) SCALE_INFO("HiroiaScale", msg)
 #define HIROIA_WARN(msg) SCALE_WARN("HiroiaScale", msg)
 
 HiroiaScale::HiroiaScale(ScaleBleTransport* transport, QObject* parent)
@@ -49,7 +50,7 @@ void HiroiaScale::connectToDevice(const QBluetoothDeviceInfo& device) {
     m_serviceFound = false;
     m_characteristicsReady = false;
 
-    HIROIA_LOG(QString("Connecting to %1 (%2)")
+    HIROIA_INFO(QString("Connecting to %1 (%2)")
                .arg(device.name())
                .arg(device.address().toString()));
 
@@ -62,7 +63,7 @@ void HiroiaScale::onTransportConnected() {
 }
 
 void HiroiaScale::onTransportDisconnected() {
-    HIROIA_LOG("Transport disconnected");
+    HIROIA_INFO("Transport disconnected");
     setConnected(false);
 }
 

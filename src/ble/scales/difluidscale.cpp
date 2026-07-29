@@ -4,6 +4,7 @@
 #include <QTimer>
 
 #define DIFLUID_LOG(msg)  SCALE_LOG("DifluidScale", msg)
+#define DIFLUID_INFO(msg) SCALE_INFO("DifluidScale", msg)
 #define DIFLUID_WARN(msg) SCALE_WARN("DifluidScale", msg)
 
 DifluidScale::DifluidScale(ScaleBleTransport* transport, QObject* parent)
@@ -48,7 +49,7 @@ void DifluidScale::connectToDevice(const QBluetoothDeviceInfo& device) {
     m_name = device.name();
     resetLinkState();
 
-    DIFLUID_LOG(QString("Connecting to %1 (%2)")
+    DIFLUID_INFO(QString("Connecting to %1 (%2)")
                 .arg(device.name())
                 .arg(device.address().toString()));
 
@@ -61,7 +62,7 @@ void DifluidScale::onTransportConnected() {
 }
 
 void DifluidScale::onTransportDisconnected() {
-    DIFLUID_LOG("Transport disconnected");
+    DIFLUID_INFO("Transport disconnected");
     resetLinkState();
     setConnected(false);
 }

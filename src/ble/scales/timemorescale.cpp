@@ -4,6 +4,7 @@
 #include <QTimer>
 
 #define TIMEMORE_LOG(msg)  SCALE_LOG("TimemoreScale", msg)
+#define TIMEMORE_INFO(msg) SCALE_INFO("TimemoreScale", msg)
 #define TIMEMORE_WARN(msg) SCALE_WARN("TimemoreScale", msg)
 
 // Timemore Dot/Duo BLE protocol
@@ -74,7 +75,7 @@ void TimemoreScale::connectToDevice(const QBluetoothDeviceInfo& device) {
     m_serviceFound = false;
     m_characteristicsReady = false;
 
-    TIMEMORE_LOG(QString("Connecting to %1 (%2)")
+    TIMEMORE_INFO(QString("Connecting to %1 (%2)")
                  .arg(device.name())
                  .arg(device.address().toString()));
 
@@ -87,7 +88,7 @@ void TimemoreScale::onTransportConnected() {
 }
 
 void TimemoreScale::onTransportDisconnected() {
-    TIMEMORE_LOG("Transport disconnected");
+    TIMEMORE_INFO("Transport disconnected");
     setConnected(false);
 }
 

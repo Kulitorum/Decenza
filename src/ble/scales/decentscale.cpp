@@ -6,6 +6,7 @@
 #include <QTimer>
 
 #define DECENT_LOG(msg)  SCALE_LOG("DecentScale", msg)
+#define DECENT_INFO(msg) SCALE_INFO("DecentScale", msg)
 #define DECENT_WARN(msg) SCALE_WARN("DecentScale", msg)
 
 DecentScale::DecentScale(ScaleBleTransport* transport, QObject* parent)

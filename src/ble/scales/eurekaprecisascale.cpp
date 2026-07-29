@@ -4,6 +4,7 @@
 #include <QTimer>
 
 #define EUREKA_LOG(msg)  SCALE_LOG("EurekaPrecisaScale", msg)
+#define EUREKA_INFO(msg) SCALE_INFO("EurekaPrecisaScale", msg)
 #define EUREKA_WARN(msg) SCALE_WARN("EurekaPrecisaScale", msg)
 
 EurekaPrecisaScale::EurekaPrecisaScale(ScaleBleTransport* transport, QObject* parent)
@@ -49,7 +50,7 @@ void EurekaPrecisaScale::connectToDevice(const QBluetoothDeviceInfo& device) {
     m_serviceFound = false;
     m_characteristicsReady = false;
 
-    EUREKA_LOG(QString("Connecting to %1 (%2)")
+    EUREKA_INFO(QString("Connecting to %1 (%2)")
                .arg(device.name())
                .arg(device.address().toString()));
 
@@ -62,7 +63,7 @@ void EurekaPrecisaScale::onTransportConnected() {
 }
 
 void EurekaPrecisaScale::onTransportDisconnected() {
-    EUREKA_LOG("Transport disconnected");
+    EUREKA_INFO("Transport disconnected");
     setConnected(false);
 }
 

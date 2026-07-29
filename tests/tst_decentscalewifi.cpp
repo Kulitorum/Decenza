@@ -201,6 +201,11 @@ private slots:
     // The "[Scale] <name> DISCONNECTED" teardown warning is handled by the
     // m_disconnectNoise filter declared above, not by an ignoreMessage() —
     // see the note there for why, and for why it must be built here.
+    // QtInfoMsg, not QtDebugMsg, on the "WebSocket disconnected (...)"
+    // expectations below: the disconnect CLASSIFICATION is why a user's scale
+    // dropped, so it sits in the INFO tier that reaches the connections view
+    // (see core/logtags.h). The firmware-version lines stay DEBUG — identity
+    // detail, not lifecycle.
     void init() {
         QTest::failOnWarning();
         m_disconnectNoise.emplace(QStringLiteral(R"(\[Scale\].*DISCONNECTED)"));
@@ -338,7 +343,7 @@ private slots:
 
         // Drop and reconnect.
         QSignalSpy connSpy(&driver, &ScaleDevice::connectedChanged);
-        QTest::ignoreMessage(QtDebugMsg,
+        QTest::ignoreMessage(QtInfoMsg,
             QRegularExpression(QStringLiteral("WebSocket disconnected.*peer close")));
         server.closeFromServer();
         QVERIFY(connSpy.wait(2000));
@@ -536,7 +541,7 @@ private slots:
         connectAndHandshake(driver, server);
 
         QSignalSpy connSpy(&driver, &ScaleDevice::connectedChanged);
-        QTest::ignoreMessage(QtDebugMsg,
+        QTest::ignoreMessage(QtInfoMsg,
             QRegularExpression(QStringLiteral("WebSocket disconnected \\(unexpected\\).*peer close")));
         server.closeFromServer();
         QVERIFY(connSpy.wait(2000));
@@ -554,7 +559,7 @@ private slots:
 
         QSignalSpy connSpy(&driver, &ScaleDevice::connectedChanged);
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("WebSocket error:")));
-        QTest::ignoreMessage(QtDebugMsg,
+        QTest::ignoreMessage(QtInfoMsg,
             QRegularExpression(QStringLiteral("WebSocket disconnected \\(unexpected\\).*transport error")));
         server.abortClient();
         QVERIFY(connSpy.wait(2000));

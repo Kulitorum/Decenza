@@ -4,6 +4,7 @@
 #include <QTimer>
 
 #define ECLAIR_LOG(msg)  SCALE_LOG("AtomheartEclairScale", msg)
+#define ECLAIR_INFO(msg) SCALE_INFO("AtomheartEclairScale", msg)
 #define ECLAIR_WARN(msg) SCALE_WARN("AtomheartEclairScale", msg)
 
 AtomheartEclairScale::AtomheartEclairScale(ScaleBleTransport* transport, QObject* parent)
@@ -60,7 +61,7 @@ void AtomheartEclairScale::connectToDevice(const QBluetoothDeviceInfo& device) {
     m_serviceFound = false;
     m_characteristicsReady = false;
 
-    ECLAIR_LOG(QString("Connecting to %1 (%2)")
+    ECLAIR_INFO(QString("Connecting to %1 (%2)")
                .arg(device.name())
                .arg(device.address().toString()));
 
@@ -73,7 +74,7 @@ void AtomheartEclairScale::onTransportConnected() {
 }
 
 void AtomheartEclairScale::onTransportDisconnected() {
-    ECLAIR_LOG("Transport disconnected");
+    ECLAIR_INFO("Transport disconnected");
     stopWatchdog();
     setConnected(false);
 }
@@ -195,7 +196,7 @@ void AtomheartEclairScale::tickleWatchdog() {
     if (!m_updatesReceived) {
         m_updatesReceived = true;
         m_watchdogTimer->stop();
-        ECLAIR_LOG("First weight update received, reporting connected");
+        ECLAIR_INFO("First weight update received, reporting connected");
         if (!isConnected()) {
             setConnected(true);
         }

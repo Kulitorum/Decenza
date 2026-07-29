@@ -4,6 +4,7 @@
 #include <QTimer>
 
 #define FELICITA_LOG(msg)  SCALE_LOG("FelicitaScale", msg)
+#define FELICITA_INFO(msg) SCALE_INFO("FelicitaScale", msg)
 #define FELICITA_WARN(msg) SCALE_WARN("FelicitaScale", msg)
 
 FelicitaScale::FelicitaScale(ScaleBleTransport* transport, QObject* parent)
@@ -49,7 +50,7 @@ void FelicitaScale::connectToDevice(const QBluetoothDeviceInfo& device) {
     m_serviceFound = false;
     m_characteristicsReady = false;
 
-    FELICITA_LOG(QString("Connecting to %1 (%2)")
+    FELICITA_INFO(QString("Connecting to %1 (%2)")
                  .arg(device.name())
                  .arg(device.address().toString()));
 
@@ -62,7 +63,7 @@ void FelicitaScale::onTransportConnected() {
 }
 
 void FelicitaScale::onTransportDisconnected() {
-    FELICITA_LOG("Transport disconnected");
+    FELICITA_INFO("Transport disconnected");
     setConnected(false);
 }
 

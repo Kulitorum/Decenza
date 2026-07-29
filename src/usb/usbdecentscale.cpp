@@ -13,6 +13,7 @@
 // header also defines a two-argument SCALE_LOG, so this driver's one-argument
 // spelling gets its own name rather than shadowing it.
 #define USB_SCALE_LOG(msg)  SCALE_LOG_TAGGED("USB Scale", msg)
+#define USB_SCALE_INFO(msg) SCALE_INFO_TAGGED("USB Scale", msg)
 #define USB_SCALE_WARN(msg) SCALE_WARN_TAGGED("USB Scale", msg)
 
 // ===========================================================================
@@ -142,7 +143,7 @@ void UsbDecentScale::open(const QString& portName)
 #endif
 
     setConnected(true);
-    USB_SCALE_LOG("Connected");
+    USB_SCALE_INFO("Connected");
 
     // Send init command (from reaprime): 0x20 0x01
     sendCommand(QByteArray::fromHex("200100"));
@@ -171,7 +172,7 @@ void UsbDecentScale::close()
 
     if (isConnected()) {
         setConnected(false);
-        USB_SCALE_LOG("Disconnected");
+        USB_SCALE_INFO("Disconnected");
     }
 }
 

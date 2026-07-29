@@ -4,6 +4,7 @@
 #include <cmath>
 
 #define ACAIA_LOG(msg)  SCALE_LOG("AcaiaScale", msg)
+#define ACAIA_INFO(msg) SCALE_INFO("AcaiaScale", msg)
 #define ACAIA_WARN(msg) SCALE_WARN("AcaiaScale", msg)
 
 AcaiaScale::AcaiaScale(ScaleBleTransport* transport, QObject* parent)
@@ -118,7 +119,7 @@ void AcaiaScale::onTransportConnected() {
 }
 
 void AcaiaScale::onTransportDisconnected() {
-    ACAIA_LOG("Transport disconnected");
+    ACAIA_INFO("Transport disconnected");
     stopAllTimers();
     m_weightReceived = false;
     m_characteristicsReady = false;
@@ -524,7 +525,7 @@ void AcaiaScale::decodeWeight(const QByteArray& data, int payloadOffset) {
     // This ensures the handshake completed successfully
     if (!m_weightReceived) {
         m_weightReceived = true;
-        ACAIA_LOG("First weight received, marking as connected");
+        ACAIA_INFO("First weight received, marking as connected");
         setConnected(true);
     }
 

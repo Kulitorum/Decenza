@@ -4,6 +4,7 @@
 #include <QTimer>
 
 #define SKALE_LOG(msg)  SCALE_LOG("SkaleScale", msg)
+#define SKALE_INFO(msg) SCALE_INFO("SkaleScale", msg)
 #define SKALE_WARN(msg) SCALE_WARN("SkaleScale", msg)
 
 SkaleScale::SkaleScale(ScaleBleTransport* transport, QObject* parent)
@@ -49,7 +50,7 @@ void SkaleScale::connectToDevice(const QBluetoothDeviceInfo& device) {
     m_serviceFound = false;
     m_characteristicsReady = false;
 
-    SKALE_LOG(QString("Connecting to %1 (%2)")
+    SKALE_INFO(QString("Connecting to %1 (%2)")
               .arg(device.name())
               .arg(device.address().toString()));
 
@@ -62,7 +63,7 @@ void SkaleScale::onTransportConnected() {
 }
 
 void SkaleScale::onTransportDisconnected() {
-    SKALE_LOG("Transport disconnected");
+    SKALE_INFO("Transport disconnected");
     setConnected(false);
 }
 

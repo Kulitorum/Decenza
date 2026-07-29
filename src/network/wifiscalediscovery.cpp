@@ -1,5 +1,7 @@
 #include "wifiscalediscovery.h"
 
+#include "ble/scales/scalelogging.h"
+
 #include <QHostInfo>
 #include <QTimer>
 #include <QDebug>
@@ -26,12 +28,18 @@ WifiScaleDiscovery::WifiScaleDiscovery(QObject* parent)
     m_timeoutTimer->setSingleShot(true);
     connect(m_timeoutTimer, &QTimer::timeout, this, [this]() {
         if (m_outstanding <= 0) return;
-        // No qDebug beside the emit: BLEManager forwards logMessage into
-        // appendScaleLog with system-log mirroring ON (both instances — see
-        // blemanager.cpp), so the emitted line already reaches stderr, prefixed.
-        // A qDebug here just printed the same event twice in different words.
-        emit logMessage(QString("mDNS probe timed out with %1 lookup(s) outstanding")
-                            .arg(m_outstanding));
+        // Logs at source through the shared helper: one call writes stderr at
+        // the right severity AND emits for the connections view, so the tier this
+        // class chooses survives. Forwarding a bare string through BLEManager
+        // could not carry it, and the outcomes below are required to be
+        // diagnosable from a user-shared log (see the wifi-scale-discovery spec).
+        // INFO, not WARN, for the same reason as the per-name failure below:
+        // a probe timing out with lookups outstanding is the ordinary outcome on
+        // a network with no HDS scale on it, and WARN would cry wolf on every
+        // scan. The spec only requires it be recorded distinguishably.
+        SCALE_INFO_TAGGED("WifiScaleDiscovery",
+            QString("mDNS probe timed out with %1 lookup(s) outstanding")
+                .arg(m_outstanding));
         const bool ran = m_anyProbeRan;
         cancelInFlight();
         emit probeFinished(ran);
@@ -69,10 +77,10 @@ void WifiScaleDiscovery::probe(const QStringList& hostnames, int timeoutMs) {
     // dereferences freed memory.
     m_probeCancel = std::make_shared<std::atomic<bool>>(false);
 
-    // (No paired qDebug — see the probe-timeout handler above.)
-    emit logMessage(QString("mDNS lookup of %1 (timeout %2 ms)")
-                        .arg(hostnames.join(QStringLiteral(", ")))
-                        .arg(timeoutMs));
+    SCALE_INFO_TAGGED("WifiScaleDiscovery",
+        QString("mDNS lookup of %1 (timeout %2 ms)")
+            .arg(hostnames.join(QStringLiteral(", ")))
+            .arg(timeoutMs));
 
     for (const QString& hostname : hostnames) {
 #ifdef Q_OS_ANDROID
@@ -124,14 +132,19 @@ void WifiScaleDiscovery::probe(const QStringList& hostnames, int timeoutMs) {
                 if (m_outstanding <= 0) return;
 
                 if (info.error() != QHostInfo::NoError || info.addresses().isEmpty()) {
-                    emit logMessage(QString("mDNS lookup failed for %1: %2")
-                                        .arg(hostname, info.errorString()));
+                    // INFO, not WARN: hds-2/hds-3 are absent on most networks,
+                    // so a per-name failure is the normal case. The spec needs it
+                    // recorded per name so a partial result is diagnosable.
+                    SCALE_INFO_TAGGED("WifiScaleDiscovery",
+                        QString("mDNS lookup failed for %1: %2")
+                            .arg(hostname, info.errorString()));
                 } else {
                     WifiScaleResult r;
                     r.foundBy = WifiScaleResult::Source::Fallback;
                     r.hostname = hostname;
                     r.address = info.addresses().first().toString();
-                    emit logMessage(QString("mDNS resolved %1 to %2").arg(hostname, r.address));
+                    SCALE_INFO_TAGGED("WifiScaleDiscovery",
+                        QString("mDNS resolved %1 to %2").arg(hostname, r.address));
                     emit resultFound(r);
                 }
                 finishOneLookup();
@@ -171,9 +184,9 @@ void WifiScaleDiscovery::browse(int timeoutMs) {
     auto cancel = std::make_shared<std::atomic<bool>>(false);
     m_browseCancel = cancel;
 
-    // (No paired qDebug — see the probe-timeout handler above.)
-    emit logMessage(QString("DNS-SD browse for %1 (timeout %2 ms)")
-                        .arg(serviceType).arg(timeoutMs));
+    SCALE_INFO_TAGGED("WifiScaleDiscovery",
+        QString("DNS-SD browse for %1 (timeout %2 ms)")
+            .arg(serviceType).arg(timeoutMs));
 
     QPointer<WifiScaleDiscovery> self(this);
     auto runnable = QRunnable::create([self, serviceType, timeoutMs, generation, cancel]() {

@@ -4,6 +4,7 @@
 #include <QTimer>
 
 #define SMARTCHEF_LOG(msg)  SCALE_LOG("SmartChefScale", msg)
+#define SMARTCHEF_INFO(msg) SCALE_INFO("SmartChefScale", msg)
 #define SMARTCHEF_WARN(msg) SCALE_WARN("SmartChefScale", msg)
 
 SmartChefScale::SmartChefScale(ScaleBleTransport* transport, QObject* parent)
@@ -49,7 +50,7 @@ void SmartChefScale::connectToDevice(const QBluetoothDeviceInfo& device) {
     m_serviceFound = false;
     m_characteristicsReady = false;
 
-    SMARTCHEF_LOG(QString("Connecting to %1 (%2)")
+    SMARTCHEF_INFO(QString("Connecting to %1 (%2)")
                   .arg(device.name())
                   .arg(device.address().toString()));
 
@@ -62,7 +63,7 @@ void SmartChefScale::onTransportConnected() {
 }
 
 void SmartChefScale::onTransportDisconnected() {
-    SMARTCHEF_LOG("Transport disconnected");
+    SMARTCHEF_INFO("Transport disconnected");
     setConnected(false);
 }
 

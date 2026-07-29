@@ -4,6 +4,7 @@
 #include <QTimer>
 
 #define BOOKOO_LOG(msg)  SCALE_LOG("BookooScale", msg)
+#define BOOKOO_INFO(msg) SCALE_INFO("BookooScale", msg)
 #define BOOKOO_WARN(msg) SCALE_WARN("BookooScale", msg)
 
 BookooScale::BookooScale(ScaleBleTransport* transport, QObject* parent)
@@ -55,7 +56,7 @@ void BookooScale::connectToDevice(const QBluetoothDeviceInfo& device) {
     QString deviceId = device.address().isNull()
         ? device.deviceUuid().toString()
         : device.address().toString();
-    BOOKOO_LOG(QString("Connecting to %1 (%2)").arg(device.name(), deviceId));
+    BOOKOO_INFO(QString("Connecting to %1 (%2)").arg(device.name(), deviceId));
 
     m_transport->connectToDevice(device);
 }
@@ -66,7 +67,7 @@ void BookooScale::onTransportConnected() {
 }
 
 void BookooScale::onTransportDisconnected() {
-    BOOKOO_LOG("Transport disconnected");
+    BOOKOO_INFO("Transport disconnected");
     setConnected(false);
 }
 

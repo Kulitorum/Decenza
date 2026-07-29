@@ -830,7 +830,11 @@ void BLEManager::probeMdnsForManualEntry() {
         // captured in the log they share.
         connect(m_manualEntryDiscovery, &WifiScaleDiscovery::logMessage, this,
                 [this](const QString& msg) {
-            appendScaleLog(QString("[WifiScaleDiscovery/manual] %1").arg(msg));
+            // Record only, and no re-prefixing: WifiScaleDiscovery now logs
+            // through the shared helper, so the line already carries
+            // [Scale][WifiScaleDiscovery] and already reached stderr at the
+            // severity that class chose.
+            appendScaleLog(msg, /*mirrorToSystemLog=*/false);
         });
         connect(m_manualEntryDiscovery, &WifiScaleDiscovery::resultFound, this,
                 [this](const WifiScaleResult& result) {
@@ -2322,7 +2326,8 @@ void BLEManager::ensureWifiDiscovery() {
     // a user uploads with a bug report.
     connect(m_wifiDiscovery, &WifiScaleDiscovery::logMessage, this,
             [this](const QString& msg) {
-        appendScaleLog(QString("[WifiScaleDiscovery] %1").arg(msg));
+        // Record only — see the manual-entry forwarder above.
+        appendScaleLog(msg, /*mirrorToSystemLog=*/false);
     });
     // Single unified handler that handles both code paths (user-initiated
     // scan AND saved-scale direct-wake). Before this consolidation, each

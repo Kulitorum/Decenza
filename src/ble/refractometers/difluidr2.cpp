@@ -137,7 +137,7 @@ DiFluidR2::DiFluidR2(ScaleBleTransport* transport, QObject* parent)
                .arg(QString::number(reinterpret_cast<quintptr>(this), 16)));
         m_connected = true;
         emit connectedChanged();
-        R2_LOG("Connected and ready for measurements");
+        R2_INFO("Connected and ready for measurements");
 
         // Put the R2 into Celsius (Func=1 Settings, Cmd=0 Temperature Unit, Data=0).
         // Doubles as the init handshake the connect path has always sent — it
@@ -230,7 +230,7 @@ void DiFluidR2::connectToDevice(const QBluetoothDeviceInfo& device) {
     m_autoTestRequested = -1;
     if (nameChange) emit nameChanged();
 
-    R2_LOG(QString("Connecting to %1 (%2)")
+    R2_INFO(QString("Connecting to %1 (%2)")
                .arg(device.name())
                .arg(device.address().isNull() ? device.deviceUuid().toString()
                                               : device.address().toString()));
@@ -398,7 +398,7 @@ void DiFluidR2::onTransportDisconnected() {
            .arg(m_connected ? QStringLiteral("connectedChanged -> FALSE")
                             : QStringLiteral("connect attempt failed before ready (was not connected)"),
                 QString::number(reinterpret_cast<quintptr>(this), 16)));
-    R2_LOG("Transport disconnected");
+    R2_INFO("Transport disconnected");
     m_measurementTimer.stop();
     m_initTimer.stop();
     m_connected = false;
