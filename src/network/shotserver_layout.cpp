@@ -2032,7 +2032,7 @@ QString ShotServer::generateLayoutPage() const
                             <span class="color-label">Color</span>
                             <div class="color-swatch" id="textColorSwatch" style="background:#ffffff" onclick="openColorPopup('text')"></div>
                             <input type="color" id="textColorInput" value="#ffffff" style="position:absolute;visibility:hidden;width:0;height:0" onchange="applyTextColor(this.value)">
-                            <span class="color-swatch-x" onclick="clearTextColor()" title="Reset text color">&#10005;</span>
+                            <span class="color-swatch-x" onclick="clearTextColor()" title="Default text color (follows the app theme)">&#10005;</span>
                             <span class="color-label" style="margin-left:6px">Bg</span>
                             <div class="color-swatch" id="bgColorSwatch" style="background:transparent" onclick="openColorPopup('bg')">
                                 <span id="bgNoneX" style="color:var(--text-secondary);font-size:0.6rem">&#10005;</span>
@@ -3859,7 +3859,11 @@ QString ShotServer::generateLayoutPage() const
             var text = seg.text;
             if (!text) continue;
             if (text === "\n") { html += "<br>"; continue; }
-            var escaped = text.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+            // Must match DocumentFormatter::segmentsToHtml() byte for byte — a widget authored
+            // here and one authored in the app compile to the same stored `content`. The C++
+            // side uses QString::toHtmlEscaped(), which also escapes the double quote
+            // (qstring.cpp:10129), so this did too little and the two surfaces drifted.
+            var escaped = text.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
             var styles = [];
             if (seg.color) styles.push("color:" + seg.color);
             if (seg.size) styles.push("font-size:" + seg.size + "px");
@@ -3932,7 +3936,7 @@ QString ShotServer::generateLayoutPage() const
                 renderEmojiGrid();
                 updateBgColorUI();
                 updateHideBgUI();
-                updateTextColorUI("#ffffff");
+                updateTextColorUI("");
                 updatePreview();
                 document.getElementById("editorPanel").classList.remove("editor-hidden");
                 wysiwygEl.focus();
@@ -4050,12 +4054,56 @@ QString ShotServer::generateLayoutPage() const
         autoSave();
     }
 
+    // Return the selection to Default: no stored colour at all, so the widget follows the
+    // app's theme colour. Distinct from picking a shade — domToSegments() emits a `color` key
+    // only when it finds one, and that absence is what the app reads as Default.
+    //
+    // This used to run `foreColor "#ffffff"`, which pinned the text WHITE rather than clearing
+    // it — invisible on a light theme, and it came back to the app as an explicit white
+    // instead of Default. removeFormat is not the answer either: it strips bold and italic too.
+    //
+    // execCommand cannot unset a colour, so mark the selection with a sentinel shade nobody
+    // would choose, then strip the colour from exactly the nodes carrying it. The sentinel is
+    // never saved — it exists only between these two statements.
     function clearTextColor() {
         restoreSelection();
-        // Apply default color instead of removeFormat (which strips ALL formatting)
-        document.execCommand("foreColor", false, "#ffffff");
+
+        // Nothing selected: bail BEFORE the sentinel. execCommand("foreColor") on a collapsed
+        // caret creates no node — the browser records it as the pending TYPING style, so the
+        // strip loop below finds nothing and the next characters typed come out #010203, which
+        // domToSegments() then stores as a real near-black colour. That is worse than the bug
+        // this function replaced: no user could ever pick #010203, so they cannot undo it by
+        // choosing the same shade again. Same guard as execFontSize() above, and it matches the
+        // app side, where clearColorOnRange() also refuses an empty range.
+        var sel = window.getSelection();
+        if (!sel.rangeCount || sel.isCollapsed) {
+            showLibToast('Select some text first');
+            return;
+        }
+
+        var SENTINEL = "#010203";
+        document.execCommand("foreColor", false, SENTINEL);
+
+        // Both spellings: execCommand emits <font color> or a style depending on the browser
+        // and on styleWithCSS. Compare through rgbToHex rather than against a literal
+        // "rgb(1, 2, 3)", whose spacing is a browser normalisation detail.
+        // Include wysiwygEl itself: querySelectorAll never matches its own root, but
+        // domToSegments() DOES read the root's style, so a browser that applies the colour to
+        // the editing host (select-all) would leak the sentinel onto every segment.
+        var marked = [wysiwygEl].concat(Array.prototype.slice.call(
+            wysiwygEl.querySelectorAll('[style*="color"], font[color]')));
+        for (var i = 0; i < marked.length; i++) {
+            var n = marked[i];
+            var isSentinel = (n.style && rgbToHex(n.style.color) === SENTINEL)
+                || (n.tagName.toLowerCase() === "font"
+                    && rgbToHex(n.getAttribute("color") || "") === SENTINEL);
+            if (!isSentinel) continue;
+            if (n.style) n.style.removeProperty("color");
+            if (n.tagName.toLowerCase() === "font") n.removeAttribute("color");
+        }
+
         saveSelection();
-        updateTextColorUI("#ffffff");
+        updateTextColorUI("");
         updatePreview();
         autoSave();
     }
@@ -4153,9 +4201,15 @@ QString ShotServer::generateLayoutPage() const
         document.addEventListener("mouseup", function() { dragging = false; });
     })();
 
+    // An empty color means Default (no stored colour). Show it as an empty swatch rather than
+    // as a shade, so "Default" and "white" are not the same thing on screen.
     function updateTextColorUI(color) {
-        document.getElementById("textColorSwatch").style.background = color;
-        document.getElementById("textColorInput").value = color;
+        var swatch = document.getElementById("textColorSwatch");
+        swatch.style.background = color || "transparent";
+        swatch.title = color || "Default (follows the app theme)";
+        // Reset rather than leave the previous shade behind: the swatch would read Default
+        // while this still held the old colour, and its onchange handler is still wired.
+        document.getElementById("textColorInput").value = color || "#ffffff";
     }
 
     function insertVar(token) {

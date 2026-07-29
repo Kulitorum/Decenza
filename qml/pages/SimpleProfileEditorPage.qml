@@ -115,14 +115,14 @@ Page {
             default: return
         }
         scrollingFromSelection = true
-        var scrollTarget = Math.max(0, targetY - editorScrollView.height / 4)
-        editorScrollView.contentItem.contentY = scrollTarget
+        var flick = editorScrollView.contentItem as Flickable
+        flick.contentY = Math.max(0, targetY - editorScrollView.height / 4)
         // Clear flag after synchronous binding updates have propagated
         Qt.callLater(function() { scrollingFromSelection = false })
     }
 
     function findCenteredSection() {
-        var viewCenter = editorScrollView.contentItem.contentY + editorScrollView.height / 2
+        var viewCenter = (editorScrollView.contentItem as Flickable).contentY + editorScrollView.height / 2
         var sections = [
             { name: "preinfusion", item: preinfusionSection },
             { name: "hold", item: holdSection },
@@ -314,7 +314,7 @@ Page {
                     Connections {
                         target: editorScrollView.contentItem
                         function onMovingChanged() {
-                            if (!editorScrollView.contentItem.moving && !editorPage.scrollingFromSelection) {
+                            if (!(editorScrollView.contentItem as Flickable).moving && !editorPage.scrollingFromSelection) {
                                 var section = editorPage.findCenteredSection()
                                 var frameIdx = editorPage.sectionToFrame(section)
                                 if (frameIdx >= 0 && frameIdx !== editorPage.selectedFrameIndex) {
@@ -323,7 +323,7 @@ Page {
                             }
                         }
                         function onDraggingChanged() {
-                            if (editorScrollView.contentItem.dragging) {
+                            if ((editorScrollView.contentItem as Flickable).dragging) {
                                 editorPage.scrollingFromSelection = false
                             }
                         }

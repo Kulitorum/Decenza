@@ -8,11 +8,8 @@ import QtQuick.Effects
 import QtQuick.Layouts
 import Decenza
 
-Item {
+LayoutWidgetItem {
     id: root
-    property bool isCompact: false
-    property string itemId: ""
-    property var modelData: ({})
 
     // Per-instance display mode: unset keeps today's icon+value form ("icon",
     // the schema-declared default for this type), "text" renders the value

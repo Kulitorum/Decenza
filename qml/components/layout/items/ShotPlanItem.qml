@@ -7,11 +7,8 @@ import "../ShotPlanConfig.js" as ShotPlanConfig
 // selected on the idle screen, the steam page, or actively steaming). Page/mode state
 // comes from the Theme singleton (a separately-loaded widget cannot see the pageStack id
 // by scope; singleton properties bind reactively).
-Item {
+LayoutWidgetItem {
     id: root
-    property bool isCompact: false
-    property string itemId: ""
-    property var modelData: ({})
 
     // Ordered display items. New configs store `shotPlanItems` (a JSON array of
     // item keys — order is display order); configs saved before the chip editor

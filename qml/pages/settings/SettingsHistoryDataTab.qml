@@ -552,47 +552,49 @@ KeyboardAwareContainer {
 
                 // Server status indicator (URL link)
                 RowLayout {
+                    id: serverStatusRow
+
                     Layout.fillWidth: true
                     spacing: Theme.scaled(6)
                     visible: Settings.network.shotServerEnabled
 
                     property bool serverRunning: MainController.shotServer && MainController.shotServer.running
-                    property bool secured: serverRunning && Settings.network.webSecurityEnabled &&
+                    property bool secured: serverStatusRow.serverRunning && Settings.network.webSecurityEnabled &&
                                            MainController.shotServer && MainController.shotServer.hasTotpSecret
 
                     Rectangle {
                         Layout.preferredWidth: Theme.scaled(8)
                         Layout.preferredHeight: Theme.scaled(8)
                         radius: Theme.scaled(4)
-                        color: !parent.serverRunning ? Theme.errorColor :
-                               parent.secured ? Theme.successColor : Theme.textSecondaryColor
+                        color: !serverStatusRow.serverRunning ? Theme.errorColor :
+                               serverStatusRow.secured ? Theme.successColor : Theme.textSecondaryColor
                         Accessible.ignored: true
                     }
 
                     Text {
                         text: {
-                            if (!parent.serverRunning)
+                            if (!serverStatusRow.serverRunning)
                                 return TranslationManager.translate("settings.data.serverstarting", "Starting...");
                             var url = MainController.shotServer.url || "";
-                            if (parent.secured)
+                            if (serverStatusRow.secured)
                                 return url + " \u2022 " + TranslationManager.translate("settings.data.secured", "Secured");
                             if (Settings.network.webSecurityEnabled)
                                 return url + " (HTTPS)";
                             return url;
                         }
-                        color: parent.secured ? Theme.successColor :
-                               parent.serverRunning ? Theme.textColor : Theme.textSecondaryColor
+                        color: serverStatusRow.secured ? Theme.successColor :
+                               serverStatusRow.serverRunning ? Theme.textColor : Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(10)
-                        font.underline: parent.serverRunning
+                        font.underline: serverStatusRow.serverRunning
                         Layout.fillWidth: true
                         elide: Text.ElideMiddle
                         Accessible.role: Accessible.Link
                         Accessible.name: text
-                        Accessible.focusable: parent.serverRunning
+                        Accessible.focusable: serverStatusRow.serverRunning
                         Accessible.onPressAction: Qt.openUrlExternally(MainController.shotServer.url)
 
                         TapHandler {
-                            enabled: parent.parent.serverRunning
+                            enabled: serverStatusRow.serverRunning
                             onTapped: Qt.openUrlExternally(MainController.shotServer.url)
                         }
                     }

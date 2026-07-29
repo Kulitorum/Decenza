@@ -8,17 +8,8 @@ import QtQuick.Effects
 import QtQuick.Layouts
 import Decenza
 
-Item {
+LayoutWidgetItem {
     id: root
-    property bool isCompact: false
-    property string itemId: ""
-
-    // Zone style propagation — see LayoutItemDelegate. As with SleepItem this widget
-    // took neither, so on a styled zone (or the background chooser's preview of a
-    // candidate colour) it stayed on the applied theme while its neighbours followed
-    // the zone.
-    property color zoneTextColor: Theme.textColor
-    property color zoneFillOverride: "transparent"
 
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight

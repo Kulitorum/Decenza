@@ -161,6 +161,7 @@ Button {
     // Focus indicator
     FocusIndicator {
         targetItem: root
+        targetRadius: Theme.scaled(6)  // matches the background Rectangle above
         visible: root.activeFocus
     }
 

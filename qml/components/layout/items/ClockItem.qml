@@ -6,11 +6,8 @@ import Decenza
 // display mode: "text" (default) or "icon" (a clock icon shown with the time —
 // beside it in a bar, above it in center zones).
 // Respects the 12/24-hour setting and updates every second.
-Item {
+LayoutWidgetItem {
     id: root
-    property bool isCompact: false
-    property string itemId: ""
-    property var modelData: ({})
 
     readonly property string displayMode: (modelData && modelData.displayMode) ? modelData.displayMode : "text"
 

@@ -677,7 +677,9 @@ Item {
         // dismiss the dialog and lose sight of the progress UI while the BLE
         // upload keeps running in the background. The close (×) button is
         // gated the same way below.
-        closePolicy: (firmwarePanelLoader.item && firmwarePanelLoader.item.isFlashing)
+        readonly property SettingsFirmwareTab firmwarePanel: firmwarePanelLoader.item as SettingsFirmwareTab
+
+        closePolicy: (firmwareDialog.firmwarePanel && firmwareDialog.firmwarePanel.isFlashing)
                      ? Dialog.NoAutoClose
                      : Dialog.CloseOnEscape
 
@@ -731,7 +733,7 @@ Item {
                     StyledIconButton {
                         text: "×"
                         accessibleName: TranslationManager.translate("firmware.dialog.close", "Close firmware dialog")
-                        enabled: !firmwarePanelLoader.item || !firmwarePanelLoader.item.isFlashing
+                        enabled: !firmwareDialog.firmwarePanel || !firmwareDialog.firmwarePanel.isFlashing
                         onClicked: firmwareDialog.close()
                     }
                 }

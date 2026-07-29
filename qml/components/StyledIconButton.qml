@@ -99,6 +99,7 @@ RoundButton {
     // Focus indicator
     FocusIndicator {
         targetItem: root
+        targetRadius: root.width / 2  // RoundButton — keep the ring circular
         visible: root.activeFocus
     }
 

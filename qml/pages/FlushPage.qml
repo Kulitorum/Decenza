@@ -41,6 +41,27 @@ Page {
     }
 
     // Get current preset values
+    // Repeater.itemAt() is typed QQuickItem, so reaching the delegate's own `focusTarget`
+    // needs the cast to its declared root type. Guarded and kept to one place, matching
+    // SteamPage.pitcherFocusTarget() / HotWaterPage.vesselFocusTarget().
+    //
+    // The null check is not defensive padding: Repeater.count is the MODEL size and is
+    // emitted before the delegates exist — regenerate() returns early until
+    // componentComplete() (qquickrepeater.cpp:379-396) — so `count > 0` with a null
+    // itemAt() is the normal state while a creation-time KeyNavigation binding first
+    // evaluates. Dereferencing through the cast there threw on every page open.
+    function presetFocusTarget(i: int): Item {
+        if (i < 0 || i >= presetRepeater.count) return null
+        var it = presetRepeater.itemAt(i) as RepeaterDelegateItem
+        return it ? it.focusTarget : null
+    }
+
+    function focusPresetAt(i: int) {
+        var target = flushPage.presetFocusTarget(i)
+        if (target)
+            target.forceActiveFocus()
+    }
+
     function getCurrentPresetFlow() {
         var preset = Settings.brew.getFlushPreset(Settings.brew.selectedFlushPreset)
         return preset ? preset.flow : 6.0
@@ -285,7 +306,7 @@ Page {
                             id: presetRepeater
                             model: Settings.brew.flushPresets
 
-                            Item {
+                            RepeaterDelegateItem {
                                 id: presetDelegate
 
                                 required property var modelData
@@ -293,28 +314,28 @@ Page {
                                 width: presetPill.width
                                 height: Theme.scaled(36)
 
-                                property int presetIndex: index
-                                property Item focusTarget: presetPill
+                                itemIndex: presetDelegate.index
+                                focusTarget: presetPill
 
                                 Rectangle {
                                     id: presetPill
                                     width: presetText.implicitWidth + 24
                                     height: Theme.scaled(36)
                                     radius: Theme.scaled(18)
-                                    color: presetDelegate.presetIndex === Settings.brew.selectedFlushPreset ? Theme.primaryColor : Theme.insetBackgroundColor
-                                    border.color: presetDelegate.presetIndex === Settings.brew.selectedFlushPreset ? Theme.primaryColor : Theme.textSecondaryColor
+                                    color: presetDelegate.itemIndex === Settings.brew.selectedFlushPreset ? Theme.primaryColor : Theme.insetBackgroundColor
+                                    border.color: presetDelegate.itemIndex === Settings.brew.selectedFlushPreset ? Theme.primaryColor : Theme.textSecondaryColor
                                     border.width: 1
                                     opacity: dragArea.drag.active ? 0.8 : 1.0
 
                                     activeFocusOnTab: true
                                     Accessible.role: Accessible.Button
                                     Accessible.name: presetDelegate.modelData.name + " " + TranslationManager.translate("flush.accessibility.preset", "preset") +
-                                                     (presetDelegate.presetIndex === Settings.brew.selectedFlushPreset ?
+                                                     (presetDelegate.itemIndex === Settings.brew.selectedFlushPreset ?
                                                       ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
                                     Accessible.description: TranslationManager.translate("flush.accessibility.presetHint", "Double-tap or long-press to rename.")
                                     Accessible.focusable: true
                                     Accessible.onPressAction: {
-                                        Settings.brew.selectedFlushPreset = presetDelegate.presetIndex
+                                        Settings.brew.selectedFlushPreset = presetDelegate.itemIndex
                                         flowInput.value = presetDelegate.modelData.flow
                                         secondsInput.value = presetDelegate.modelData.seconds
                                         Settings.brew.flushFlow = presetDelegate.modelData.flow
@@ -323,7 +344,7 @@ Page {
                                     }
 
                                     Keys.onReturnPressed: function(event) {
-                                        Settings.brew.selectedFlushPreset = presetDelegate.presetIndex
+                                        Settings.brew.selectedFlushPreset = presetDelegate.itemIndex
                                         flowInput.value = presetDelegate.modelData.flow
                                         secondsInput.value = presetDelegate.modelData.seconds
                                         Settings.brew.flushFlow = presetDelegate.modelData.flow
@@ -332,7 +353,7 @@ Page {
                                         event.accepted = true
                                     }
                                     Keys.onSpacePressed: function(event) {
-                                        Settings.brew.selectedFlushPreset = presetDelegate.presetIndex
+                                        Settings.brew.selectedFlushPreset = presetDelegate.itemIndex
                                         flowInput.value = presetDelegate.modelData.flow
                                         secondsInput.value = presetDelegate.modelData.seconds
                                         Settings.brew.flushFlow = presetDelegate.modelData.flow
@@ -341,23 +362,23 @@ Page {
                                         event.accepted = true
                                     }
                                     Keys.onLeftPressed: function(event) {
-                                        if (presetDelegate.index > 0) presetRepeater.itemAt(presetDelegate.index - 1).focusTarget.forceActiveFocus()
+                                        if (presetDelegate.index > 0) flushPage.focusPresetAt(presetDelegate.index - 1)
                                         event.accepted = true
                                     }
                                     Keys.onRightPressed: function(event) {
-                                        if (presetDelegate.index < presetRepeater.count - 1) presetRepeater.itemAt(presetDelegate.index + 1).focusTarget.forceActiveFocus()
+                                        if (presetDelegate.index < presetRepeater.count - 1) flushPage.focusPresetAt(presetDelegate.index + 1)
                                         event.accepted = true
                                     }
                                     Keys.onTabPressed: function(event) {
                                         if (presetDelegate.index < presetRepeater.count - 1)
-                                            presetRepeater.itemAt(presetDelegate.index + 1).focusTarget.forceActiveFocus()
+                                            flushPage.focusPresetAt(presetDelegate.index + 1)
                                         else
                                             addPresetButton.forceActiveFocus()
                                         event.accepted = true
                                     }
                                     Keys.onBacktabPressed: function(event) {
                                         if (presetDelegate.index > 0)
-                                            presetRepeater.itemAt(presetDelegate.index - 1).focusTarget.forceActiveFocus()
+                                            flushPage.focusPresetAt(presetDelegate.index - 1)
                                         else
                                             flowInput.forceActiveFocus()
                                         event.accepted = true
@@ -378,7 +399,7 @@ Page {
                                         id: presetText
                                         anchors.centerIn: parent
                                         text: presetDelegate.modelData.name
-                                        color: presetDelegate.presetIndex === Settings.brew.selectedFlushPreset ? Theme.primaryContrastColor : Theme.textColor
+                                        color: presetDelegate.itemIndex === Settings.brew.selectedFlushPreset ? Theme.primaryContrastColor : Theme.textColor
                                         font: Theme.bodyFont
                                         Accessible.ignored: true
                                     }
@@ -402,7 +423,7 @@ Page {
                                             holdTimer.stop()
                                             if (!moved && !held) {
                                                 // Simple click - select the preset
-                                                Settings.brew.selectedFlushPreset = presetDelegate.presetIndex
+                                                Settings.brew.selectedFlushPreset = presetDelegate.itemIndex
                                                 flowInput.value = presetDelegate.modelData.flow
                                                 secondsInput.value = presetDelegate.modelData.seconds
                                                 Settings.brew.flushFlow = presetDelegate.modelData.flow
@@ -416,14 +437,14 @@ Page {
                                         onPositionChanged: {
                                             if (drag.active) {
                                                 moved = true
-                                                presetsRow.draggedIndex = presetDelegate.presetIndex
+                                                presetsRow.draggedIndex = presetDelegate.itemIndex
                                             }
                                         }
 
                                         onDoubleClicked: {
                                             holdTimer.stop()
                                             held = true  // Prevent single-click selection on release
-                                            flushPage.editingPresetIndex = presetDelegate.presetIndex
+                                            flushPage.editingPresetIndex = presetDelegate.itemIndex
                                             editPresetNameInput.text = presetDelegate.modelData.name
                                             editPresetPopup.open()
                                         }
@@ -434,7 +455,7 @@ Page {
                                             onTriggered: {
                                                 if (!dragArea.moved) {
                                                     dragArea.held = true
-                                                    flushPage.editingPresetIndex = presetDelegate.presetIndex
+                                                    flushPage.editingPresetIndex = presetDelegate.itemIndex
                                                     editPresetNameInput.text = presetDelegate.modelData.name
                                                     editPresetPopup.open()
                                                 }
@@ -446,8 +467,15 @@ Page {
                                 DropArea {
                                     anchors.fill: parent
                                     onEntered: function(drag) {
-                                        var fromIndex = drag.source.presetIndex
-                                        var toIndex = presetDelegate.presetIndex
+                                        // Guarded like the DelegateModel drop targets in
+                                        // FavoritesListView / LayoutEditorZone. `itemIndex` is a
+                                        // SHARED property now, so a drag from an unrelated
+                                        // reorderable list would answer with a plausible integer
+                                        // instead of undefined and silently reorder this list.
+                                        var src = drag.source as RepeaterDelegateItem
+                                        if (!src || src === presetDelegate) return
+                                        var fromIndex = src.itemIndex
+                                        var toIndex = presetDelegate.itemIndex
                                         if (fromIndex !== toIndex) {
                                             Settings.brew.moveFlushPreset(fromIndex, toIndex)
                                         }
@@ -468,9 +496,8 @@ Page {
 
                             activeFocusOnTab: true
                             KeyNavigation.tab: secondsInput
-                            KeyNavigation.backtab: presetRepeater.count > 0
-                                ? presetRepeater.itemAt(presetRepeater.count - 1).focusTarget
-                                : secondsInput
+                            KeyNavigation.backtab: flushPage.presetFocusTarget(presetRepeater.count - 1)
+                                                   || secondsInput
                             Keys.onReturnPressed: function(event) { addPresetDialog.open(); event.accepted = true }
                             Keys.onSpacePressed: function(event) { addPresetDialog.open(); event.accepted = true }
 
@@ -580,9 +607,7 @@ Page {
                             suffix: " mL/s"
                             valueColor: Theme.flowColor
                             accessibleName: TranslationManager.translate("flush.label.flowRate", "Flow Rate")
-                            KeyNavigation.tab: presetRepeater.count > 0
-                                ? presetRepeater.itemAt(0).focusTarget
-                                : addPresetButton
+                            KeyNavigation.tab: flushPage.presetFocusTarget(0) || addPresetButton
                             KeyNavigation.backtab: secondsInput
 
                             // onValueModified: cheap bookkeeping per tick.

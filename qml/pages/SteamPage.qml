@@ -73,11 +73,16 @@ Page {
     // the three-term test.
     readonly property bool realScaleConnected: ScaleDevice.connected && !ScaleDevice.isFlowScale
 
-    // Repeater.itemAt() is typed QQuickItem, so the delegate's own `focusTarget`
-    // is not statically known and every call site was an unchecked member access.
-    // Kept to this one place rather than repeated at the sites that need it.
+    // Repeater.itemAt() is typed QQuickItem, so reaching the delegate's own `focusTarget`
+    // needs the cast to its declared root type. Kept to this one place rather than
+    // repeated at the sites that need it.
     function pitcherFocusTarget(i: int): Item {
-        var it = pitcherRepeater.itemAt(i)
+        // Range-checked as well as null-checked: Repeater.count is the MODEL size and is
+        // emitted before the delegates exist (regenerate() returns early until
+        // componentComplete(), qquickrepeater.cpp:379-396), so `count > 0` with a null
+        // itemAt() is normal while a creation-time binding first evaluates.
+        if (i < 0 || i >= pitcherRepeater.count) return null
+        var it = pitcherRepeater.itemAt(i) as RepeaterDelegateItem
         return it ? it.focusTarget : null
     }
 
@@ -1353,7 +1358,7 @@ Page {
                             id: pitcherRepeater
                             model: Settings.brew.steamPitcherPresets
 
-                            Item {
+                            RepeaterDelegateItem {
                                 id: pitcherDelegate
 
                                 required property int index
@@ -1362,13 +1367,13 @@ Page {
                                 width: pitcherPill.width
                                 height: Theme.scaled(36)
 
-                                property int pitcherIndex: pitcherDelegate.index
-                                property Item focusTarget: pitcherPill
+                                itemIndex: pitcherDelegate.index
+                                focusTarget: pitcherPill
 
                                 Rectangle {
                                     id: pitcherPill
                                     readonly property bool pitcherDisabled: pitcherDelegate.modelData.disabled === true
-                                    readonly property bool pitcherSelected: pitcherDelegate.pitcherIndex === Settings.brew.selectedSteamPitcher
+                                    readonly property bool pitcherSelected: pitcherDelegate.itemIndex === Settings.brew.selectedSteamPitcher
 
                                     width: pitcherText.implicitWidth + 24
                                     height: Theme.scaled(36)
@@ -1381,7 +1386,7 @@ Page {
                                     opacity: dragArea.drag.active ? 0.8 : 1.0
 
                                     function applyPitcher(reason) {
-                                        Settings.brew.selectedSteamPitcher = pitcherDelegate.pitcherIndex
+                                        Settings.brew.selectedSteamPitcher = pitcherDelegate.itemIndex
                                         if (pitcherPill.pitcherDisabled) {
                                             MainController.turnOffSteamHeater()
                                             return
@@ -1497,14 +1502,14 @@ Page {
                                         onPositionChanged: {
                                             if (dragArea.drag.active) {
                                                 dragArea.moved = true
-                                                pitcherPresetsRow.draggedIndex = pitcherDelegate.pitcherIndex
+                                                pitcherPresetsRow.draggedIndex = pitcherDelegate.itemIndex
                                             }
                                         }
 
                                         onDoubleClicked: {
                                             holdTimer.stop()
                                             dragArea.held = true  // Prevent single-click selection on release
-                                            steamPage.editingPitcherIndex = pitcherDelegate.pitcherIndex
+                                            steamPage.editingPitcherIndex = pitcherDelegate.itemIndex
                                             editPitcherNameInput.text = pitcherDelegate.modelData.name
                                             editPitcherPopup.open()
                                         }
@@ -1515,7 +1520,7 @@ Page {
                                             onTriggered: {
                                                 if (!dragArea.moved) {
                                                     dragArea.held = true
-                                                    steamPage.editingPitcherIndex = pitcherDelegate.pitcherIndex
+                                                    steamPage.editingPitcherIndex = pitcherDelegate.itemIndex
                                                     editPitcherNameInput.text = pitcherDelegate.modelData.name
                                                     editPitcherPopup.open()
                                                 }
@@ -1527,8 +1532,15 @@ Page {
                                 DropArea {
                                     anchors.fill: parent
                                     onEntered: function(drag) {
-                                        var fromIndex = drag.source.pitcherIndex
-                                        var toIndex = pitcherDelegate.pitcherIndex
+                                        // Guarded like the DelegateModel drop targets in
+                                        // FavoritesListView / LayoutEditorZone. `itemIndex` is a
+                                        // SHARED property now, so a drag from an unrelated
+                                        // reorderable list would answer with a plausible integer
+                                        // instead of undefined and silently reorder this list.
+                                        var src = drag.source as RepeaterDelegateItem
+                                        if (!src || src === pitcherDelegate) return
+                                        var fromIndex = src.itemIndex
+                                        var toIndex = pitcherDelegate.itemIndex
                                         if (fromIndex !== toIndex) {
                                             Settings.brew.moveSteamPitcherPreset(fromIndex, toIndex)
                                         }

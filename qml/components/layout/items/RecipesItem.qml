@@ -13,7 +13,7 @@ import "../PillFit.js" as PillFit
 // recipe's own grind + steam, via MainController's single activation path). Double-tap
 // or long-press opens the Recipes management page; with zero recipes a plain
 // tap goes straight there. MRU replaces any favorite flag.
-Item {
+LayoutWidgetItem {
     id: root
 
     // `Window` is an ATTACHED property: it resolves against the current scope, so it is read here
@@ -22,8 +22,6 @@ Item {
     // — it reports `Member "Window" not found on type "RecipesItem"`. Reading it once also removes the
     // duplicate lookups.
     readonly property var appWindow: Window.window
-    property bool isCompact: false
-    property string itemId: ""
 
     property var idlePage: {
         var p = root.parent

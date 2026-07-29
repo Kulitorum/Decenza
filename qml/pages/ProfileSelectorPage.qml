@@ -765,19 +765,32 @@ Page {
                     }
 
                     trailingActionDelegate: Component {
-                        StyledIconButton {
-                            anchors.fill: parent
-                            icon.source: "qrc:/icons/edit.svg"
-                            icon.width: Theme.scaled(18)
-                            icon.height: Theme.scaled(18)
-                            icon.color: parent.selected ? Theme.primaryContrastColor : Theme.textColor
-                            accessibleName: parent.row ? (TranslationManager.translate("profileselector.accessible.edit", "Edit") + " " + AccessibilityManager.cleanForSpeech(parent.row.name)) : ""
+                        FavoritesRowAction {
+                            id: editFavoriteAction
 
-                            onClicked: {
-                                if (!parent.row) return
-                                Settings.app.selectedFavoriteProfile = parent.rowIndex
-                                ProfileManager.loadProfile(parent.row.filename)
-                                AppShell.profileEditorRequested()
+                            StyledIconButton {
+                                anchors.fill: parent
+                                icon.source: "qrc:/icons/edit.svg"
+                                icon.width: Theme.scaled(18)
+                                icon.height: Theme.scaled(18)
+                                icon.color: editFavoriteAction.selected ? Theme.primaryContrastColor
+                                                                        : Theme.textColor
+                                accessibleName: editFavoriteAction.row
+                                    ? (TranslationManager.translate("profileselector.accessible.edit", "Edit") + " "
+                                       + AccessibilityManager.cleanForSpeech(editFavoriteAction.row.name))
+                                    : ""
+
+                                onClicked: {
+                                    if (!editFavoriteAction.row) {
+                                        // A tap that does nothing at all is the hardest kind of
+                                        // defect to report; say so in the log.
+                                        console.warn("ProfileSelectorPage: edit tapped with no row bound")
+                                        return
+                                    }
+                                    Settings.app.selectedFavoriteProfile = editFavoriteAction.rowIndex
+                                    ProfileManager.loadProfile(editFavoriteAction.row.filename)
+                                    AppShell.profileEditorRequested()
+                                }
                             }
                         }
                     }

@@ -44,9 +44,8 @@ ApplicationWindow {
     // time (else 0) — a fixed snapshot, not a live binding, so it can't jump to 0 if
     // the app navigates away from Idle while the dialog is open.
     function openBrewSettings() {
-        globalBrewDialog.scaleVirtualZero =
-            (pageStack.currentItem && pageStack.currentItem.objectName === "idlePage")
-                ? pageStack.currentItem.scaleVirtualZero : 0
+        var idle = pageStack.currentItem as IdlePage
+        globalBrewDialog.scaleVirtualZero = idle ? idle.scaleVirtualZero : 0
         globalBrewDialog.open()
     }
     BrewDialog {
@@ -568,16 +567,6 @@ ApplicationWindow {
         function onSelectedSteamPitcherChanged() { AppShell.sessionMeasuredMilkG = 0 }
     }
 
-    // Live dose-weighing state, pushed by IdlePage (Bindings next to its
-    // beanCapture engine) while the idle page is showing: the virtual-zero net-bean
-    // weight while an uncaptured dose sits on the scale (-1 otherwise), and the
-    // brief "dose captured" accent flash (IdlePage's beanCaptureShown). Mirrored
-    // read-only by DoseWeightItem so the Beans widget ticks live during weighing
-    // with the same net the capture engine tracks — the widget never re-derives
-    // scale state itself.
-    property real doseLiveNetG: -1
-    property bool doseCaptureFlash: false
-
     // Save the most recent steam session as an atomic (milk weight, duration) pair
     // so steam setup can adopt it as a baseline. Both fields are written together at
     // session end — only when this session actually had a measured milk weight,
@@ -699,9 +688,24 @@ ApplicationWindow {
     // AND when the page's own pageTitle does — which is itself a binding over translate().
     //
     // Any page without a `pageTitle` property yields "" rather than an error.
+    //
+    // The probe is genuinely dynamic and stays dynamic: the 33 pages that declare pageTitle
+    // share no base type, and giving them one would have to be a Page subclass —
+    // CommunityBrowserPage roots at Item, so it would silently drop out and lose its title.
+    // A base type is the right follow-up; it is not a one-line change.
+    // qmllint disable missing-property
     readonly property string currentPageTitle: {
         var it = pageStack.currentItem
         return (it && it.pageTitle !== undefined) ? it.pageTitle : ""
+    }
+    // qmllint enable missing-property
+
+    // Mirrored onto Theme so the PageTitleItem layout widget — a global overlay that is not
+    // a child of any page — can read it without reaching into this window's root.
+    Binding {
+        target: Theme
+        property: "currentPageTitle"
+        value: root.currentPageTitle
     }
 
     // Flag to prevent premature UI display
@@ -1152,9 +1156,11 @@ ApplicationWindow {
     Binding {
         target: Theme
         property: "shotChartOnCurrentPage"
-        value: !!(pageStack.currentItem
-                  && pageStack.currentItem.background
-                  && pageStack.currentItem.background.paintsShotChart)
+        value: {
+            var page = pageStack.currentItem as Page
+            var surface = page ? page.background as BackgroundSurface : null
+            return !!(surface && surface.paintsShotChart)
+        }
     }
 
     // Page stack for navigation
@@ -2146,10 +2152,9 @@ ApplicationWindow {
         if (pageName === "postShotReviewPage") {
             root.returnToPageName = pageName
             // Get the editShotId from the current page, fallback to lastSavedShotId
-            var currentItem = pageStack.currentItem
-            var hasEditShotId = currentItem && typeof currentItem.editShotId !== "undefined"
-            if (hasEditShotId && currentItem.editShotId > 0) {
-                root.returnToShotId = currentItem.editShotId
+            var currentReview = pageStack.currentItem as PostShotReviewPage
+            if (currentReview && currentReview.editShotId > 0) {
+                root.returnToShotId = currentReview.editShotId
             } else {
                 root.returnToShotId = MainController.lastSavedShotId
             }
@@ -3600,9 +3605,10 @@ ApplicationWindow {
         var wantTab = (tabId !== undefined && tabId !== "" && SettingsTabs.indexOf(tabId) >= 0)
         // Already in Settings: switch tab in place rather than stacking a second copy. Assigning
         // requestedTabId would do nothing — the page consumes it only in StackView.onActivated.
-        if (pageStack.currentItem && pageStack.currentItem.objectName === "settingsPage") {
+        var settings = pageStack.currentItem as SettingsPage
+        if (settings) {
             if (wantTab)
-                pageStack.currentItem.showTab(tabId)
+                settings.showTab(tabId)
             return
         }
         if (wantTab) {

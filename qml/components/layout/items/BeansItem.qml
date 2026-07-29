@@ -6,7 +6,7 @@ import QtQuick.Window
 import Decenza
 import "../PillFit.js" as PillFit
 
-Item {
+LayoutWidgetItem {
     id: root
 
     // `Window` is an ATTACHED property: it resolves against the current scope, so it is read here
@@ -15,8 +15,6 @@ Item {
     // — it reports `Member "Window" not found on type "BeansItem"`. Reading it once also removes the
     // duplicate lookups.
     readonly property var appWindow: Window.window
-    property bool isCompact: false
-    property string itemId: ""
 
     property var idlePage: {
         var p = root.parent

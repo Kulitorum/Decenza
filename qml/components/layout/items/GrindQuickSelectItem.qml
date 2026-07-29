@@ -14,17 +14,8 @@ import Decenza
 // (Brew Settings is the other) — both edit the live dial-in. The record hosts
 // inject the grinder that owns their value instead: the shot's in post-shot
 // review, the bag's in the beans dialog, the recipe's package in the wizard.
-Item {
+LayoutWidgetItem {
     id: root
-    property bool isCompact: false
-    property string itemId: ""
-    property var modelData: ({})
-    property color zoneTextColor: Theme.textColor
-    property bool zoneValueBold: false
-    property string zoneStyle: "standard"
-    // See LayoutItemDelegate.
-    property color zoneFillOverride: "transparent"
-
     readonly property string labelText:
         TranslationManager.translate("grind.quickSelect.label", "Grind")
 

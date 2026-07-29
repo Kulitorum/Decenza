@@ -1273,6 +1273,9 @@ set(QML_FILES
     qml/components/ConnectionIndicator.qml
     qml/components/LiveCoachingBanner.qml
     qml/components/FavoritesListView.qml
+    qml/components/FavoritesRowAction.qml
+    qml/components/RepeaterDelegateItem.qml
+    qml/components/layout/LayoutWidgetItem.qml
     qml/components/PresetPillRow.qml
     qml/components/ValueInput.qml
     qml/components/RatingInput.qml

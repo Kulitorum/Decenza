@@ -11,10 +11,8 @@ import Decenza
 // Espresso, Steam, Hot Water, Flush, and Stop.
 // Enabled in simulation mode or for headless machines (no physical GHC).
 // Dimmed and disabled when the machine has a hardware GHC or is not ready.
-Item {
+LayoutWidgetItem {
     id: root
-    property bool isCompact: false
-    property string itemId: ""
 
     enabled: (DE1Device.simulationMode || DE1Device.isHeadless) && MachineState.isReady
     opacity: ((DE1Device.simulationMode || DE1Device.isHeadless) && MachineState.isReady) ? 1.0 : 0.4

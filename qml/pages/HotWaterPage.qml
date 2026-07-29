@@ -87,11 +87,16 @@ Page {
         }
     }
 
-    // Repeater.itemAt() is typed QQuickItem, so the delegate's own `focusTarget`
-    // is not statically known and every call site was an unchecked member access.
-    // Kept to this one place rather than repeated at the six sites that need it.
+    // Repeater.itemAt() is typed QQuickItem, so reaching the delegate's own `focusTarget`
+    // needs the cast to its declared root type. Kept to this one place rather than
+    // repeated at the six sites that need it.
     function vesselFocusTarget(i: int): Item {
-        var it = vesselRepeater.itemAt(i)
+        // Range-checked as well as null-checked: Repeater.count is the MODEL size and is
+        // emitted before the delegates exist (regenerate() returns early until
+        // componentComplete(), qquickrepeater.cpp:379-396), so `count > 0` with a null
+        // itemAt() is normal while a creation-time binding first evaluates.
+        if (i < 0 || i >= vesselRepeater.count) return null
+        var it = vesselRepeater.itemAt(i) as RepeaterDelegateItem
         return it ? it.focusTarget : null
     }
 
@@ -395,7 +400,7 @@ Page {
                             id: vesselRepeater
                             model: Settings.brew.waterVesselPresets
 
-                            Item {
+                            RepeaterDelegateItem {
                                 id: vesselDelegate
 
                                 required property int index
@@ -404,36 +409,36 @@ Page {
                                 width: vesselPill.width
                                 height: Theme.scaled(36)
 
-                                property int vesselIndex: vesselDelegate.index
-                                property Item focusTarget: vesselPill
+                                itemIndex: vesselDelegate.index
+                                focusTarget: vesselPill
 
                                 Rectangle {
                                     id: vesselPill
                                     width: vesselText.implicitWidth + 24
                                     height: Theme.scaled(36)
                                     radius: Theme.scaled(18)
-                                    color: vesselDelegate.vesselIndex === Settings.brew.selectedWaterVessel ? Theme.primaryColor : Theme.insetBackgroundColor
-                                    border.color: vesselDelegate.vesselIndex === Settings.brew.selectedWaterVessel ? Theme.primaryColor : Theme.textSecondaryColor
+                                    color: vesselDelegate.itemIndex === Settings.brew.selectedWaterVessel ? Theme.primaryColor : Theme.insetBackgroundColor
+                                    border.color: vesselDelegate.itemIndex === Settings.brew.selectedWaterVessel ? Theme.primaryColor : Theme.textSecondaryColor
                                     border.width: 1
                                     opacity: dragArea.drag.active ? 0.8 : 1.0
 
                                     activeFocusOnTab: true
                                     Accessible.role: Accessible.Button
                                     Accessible.name: vesselDelegate.modelData.name + " " + TranslationManager.translate("hotwater.accessibility.preset", "preset") +
-                                                     (vesselDelegate.vesselIndex === Settings.brew.selectedWaterVessel ?
+                                                     (vesselDelegate.itemIndex === Settings.brew.selectedWaterVessel ?
                                                       ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
                                     Accessible.description: TranslationManager.translate("hotwater.accessibility.presetHint", "Double-tap or long-press to rename.")
                                     Accessible.focusable: true
                                     Accessible.onPressAction: {
-                                        page.selectVessel(vesselDelegate.vesselIndex, vesselDelegate.modelData)
+                                        page.selectVessel(vesselDelegate.itemIndex, vesselDelegate.modelData)
                                     }
 
                                     Keys.onReturnPressed: function(event) {
-                                        page.selectVessel(vesselDelegate.vesselIndex, vesselDelegate.modelData)
+                                        page.selectVessel(vesselDelegate.itemIndex, vesselDelegate.modelData)
                                         event.accepted = true
                                     }
                                     Keys.onSpacePressed: function(event) {
-                                        page.selectVessel(vesselDelegate.vesselIndex, vesselDelegate.modelData)
+                                        page.selectVessel(vesselDelegate.itemIndex, vesselDelegate.modelData)
                                         event.accepted = true
                                     }
                                     Keys.onLeftPressed: function(event) {
@@ -474,7 +479,7 @@ Page {
                                         id: vesselText
                                         anchors.centerIn: parent
                                         text: vesselDelegate.modelData.name
-                                        color: vesselDelegate.vesselIndex === Settings.brew.selectedWaterVessel ? Theme.primaryContrastColor : Theme.textColor
+                                        color: vesselDelegate.itemIndex === Settings.brew.selectedWaterVessel ? Theme.primaryContrastColor : Theme.textColor
                                         font: Theme.bodyFont
                                         Accessible.ignored: true
                                     }
@@ -498,7 +503,7 @@ Page {
                                             holdTimer.stop()
                                             if (!dragArea.moved && !dragArea.held) {
                                                 // Simple click - select the vessel
-                                                page.selectVessel(vesselDelegate.vesselIndex, vesselDelegate.modelData)
+                                                page.selectVessel(vesselDelegate.itemIndex, vesselDelegate.modelData)
                                             }
                                             vesselPill.Drag.drop()
                                             vesselPresetsRow.draggedIndex = -1
@@ -507,14 +512,14 @@ Page {
                                         onPositionChanged: {
                                             if (dragArea.drag.active) {
                                                 dragArea.moved = true
-                                                vesselPresetsRow.draggedIndex = vesselDelegate.vesselIndex
+                                                vesselPresetsRow.draggedIndex = vesselDelegate.itemIndex
                                             }
                                         }
 
                                         onDoubleClicked: {
                                             holdTimer.stop()
                                             dragArea.held = true  // Prevent single-click selection on release
-                                            page.editingVesselIndex = vesselDelegate.vesselIndex
+                                            page.editingVesselIndex = vesselDelegate.itemIndex
                                             editVesselNameInput.text = vesselDelegate.modelData.name
                                             editVesselPopup.open()
                                         }
@@ -525,7 +530,7 @@ Page {
                                             onTriggered: {
                                                 if (!dragArea.moved) {
                                                     dragArea.held = true
-                                                    page.editingVesselIndex = vesselDelegate.vesselIndex
+                                                    page.editingVesselIndex = vesselDelegate.itemIndex
                                                     editVesselNameInput.text = vesselDelegate.modelData.name
                                                     editVesselPopup.open()
                                                 }
@@ -537,8 +542,15 @@ Page {
                                 DropArea {
                                     anchors.fill: parent
                                     onEntered: function(drag) {
-                                        var fromIndex = drag.source.vesselIndex
-                                        var toIndex = vesselDelegate.vesselIndex
+                                        // Guarded like the DelegateModel drop targets in
+                                        // FavoritesListView / LayoutEditorZone. `itemIndex` is a
+                                        // SHARED property now, so a drag from an unrelated
+                                        // reorderable list would answer with a plausible integer
+                                        // instead of undefined and silently reorder this list.
+                                        var src = drag.source as RepeaterDelegateItem
+                                        if (!src || src === vesselDelegate) return
+                                        var fromIndex = src.itemIndex
+                                        var toIndex = vesselDelegate.itemIndex
                                         if (fromIndex !== toIndex) {
                                             Settings.brew.moveWaterVesselPreset(fromIndex, toIndex)
                                         }

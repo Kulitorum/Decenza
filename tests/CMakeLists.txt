@@ -507,6 +507,18 @@ add_decenza_test(tst_textescaping
 )
 target_link_libraries(tst_textescaping PRIVATE Qt6::Qml)
 
+# --- tst_customwidgethtml: the two segmentsToHtml implementations, and DocumentFormatter ---
+# Differential: runs the web editor's JS copy (lifted out of src/network/shotserver_layout.cpp)
+# in a QJSEngine and diffs it against the C++ one, so the app and ShotServer surfaces cannot
+# drift again. Also covers DocumentFormatter's colour round trip.
+add_decenza_test(tst_customwidgethtml
+    tst_customwidgethtml.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/documentformatter.cpp
+)
+# Qt6::Quick, not just Qml: documentformatter.h includes <QQuickTextDocument>, which is a
+# Quick header even though nothing in this test constructs one.
+target_link_libraries(tst_customwidgethtml PRIVATE Qt6::Qml Qt6::Quick)
+
 # --- tst_recipesearch: Recipes-page tokenized search matcher ---
 # Runs the real JS out of qml/components/RecipeSearch.js in a QJSEngine, so it guards
 # shipping source rather than a copy. Needs Qt6::Qml for QJSEngine.

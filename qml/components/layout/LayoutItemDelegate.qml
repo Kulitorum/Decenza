@@ -186,8 +186,12 @@ Item {
     // Track loaded item's implicit size so the parent RowLayout allocates
     // the correct width (Loader alone doesn't re-propagate after property
     // bindings are set up in onLoaded)
-    implicitWidth: loader.item ? loader.item.implicitWidth : 0
-    implicitHeight: loader.item ? loader.item.implicitHeight : 0
+    // `loader.item` is a QObject; every widget source under items/ roots at
+    // LayoutWidgetItem, so the cast is what makes these reads checkable rather than assumed.
+    readonly property LayoutWidgetItem widget: loader.item as LayoutWidgetItem
+
+    implicitWidth: root.widget ? root.widget.implicitWidth : 0
+    implicitHeight: root.widget ? root.widget.implicitHeight : 0
 
     Loader {
         id: loader
@@ -243,28 +247,47 @@ Item {
                 case "screensaverPipes":
                 case "screensaverAttractor":
                 case "screensaverShotMap":   src = "items/ScreensaverItem.qml"; break
-                default:                 src = ""; break
+                default:
+                    // Empty source means the Loader never loads, so neither onLoaded nor the
+                    // Loader.Error branch of onStatusChanged below ever fires — an unrecognised
+                    // type would vanish from the layout with no diagnostic at all.
+                    console.warn("LayoutItemDelegate: unknown widget type '" + root.itemType
+                                 + "' (id '" + root.itemId + "') — not rendered")
+                    src = ""
+                    break
             }
             return src ? Qt.resolvedUrl(src) : ""
         }
 
         onLoaded: {
-            item.isCompact = Qt.binding(function() { return root.isCompact })
-            item.itemId = root.itemId
+            // Cast the handler's own `item`, not root.widget — the binding that feeds
+            // root.widget has no guaranteed ordering against this handler.
+            var widget = item as LayoutWidgetItem
+            if (!widget) {
+                // Not just unstyled: the early return also skips the anchors.fill below, and
+                // root.widget stays null so implicitWidth/implicitHeight are 0 — the widget
+                // takes no space and paints nothing.
+                console.warn("LayoutItemDelegate: widget type '" + root.itemType + "' (id '"
+                             + root.itemId + "') does not root at LayoutWidgetItem — "
+                             + "it will not render")
+                return
+            }
 
-            // Propagate zone style to widgets that opt in (composable-brew-bar)
-            if (typeof item.zoneTextColor !== "undefined")
-                item.zoneTextColor = Qt.binding(function() { return root.zoneTextColor })
-            if (typeof item.zoneFillOverride !== "undefined")
-                item.zoneFillOverride = Qt.binding(function() { return root.zoneFillOverride })
-            if (typeof item.zoneValueBold !== "undefined")
-                item.zoneValueBold = Qt.binding(function() { return root.zoneValueBold })
-            if (typeof item.zoneStyle !== "undefined")
-                item.zoneStyle = Qt.binding(function() { return root.zoneStyle })
+            widget.isCompact = Qt.binding(function() { return root.isCompact })
+
+            // Zone style propagation (composable-brew-bar). Every widget inherits these
+            // from LayoutWidgetItem now, so the bindings are unconditional; the
+            // `typeof item.zoneX !== "undefined"` probes this replaced were each an
+            // unchecked read on a QObject, and silently skipped a widget whose property
+            // had been renamed rather than reporting it.
+            widget.zoneTextColor = Qt.binding(function() { return root.zoneTextColor })
+            widget.zoneFillOverride = Qt.binding(function() { return root.zoneFillOverride })
+            widget.zoneValueBold = Qt.binding(function() { return root.zoneValueBold })
+            widget.zoneStyle = Qt.binding(function() { return root.zoneStyle })
 
             if (root.isCompiled) {
                 // Compiled items: reactive binding merges original modelData with compiled properties
-                item.modelData = Qt.binding(function() {
+                widget.modelData = Qt.binding(function() {
                     var compiled = root.compileToCustom(root.itemType)
                     if (!compiled) return root.modelData
                     var merged = { id: root.modelData.id, type: root.modelData.type }
@@ -275,13 +298,11 @@ Item {
                     return merged
                 })
             } else {
-                if (typeof item.modelData !== "undefined") {
-                    item.modelData = Qt.binding(function() { return root.modelData })
-                }
+                widget.modelData = Qt.binding(function() { return root.modelData })
             }
             // Bind loaded item to fill the Loader so it gets the correct size
             // from the parent Layout (implicit size flows up, actual size flows down)
-            item.anchors.fill = loader
+            widget.anchors.fill = loader
         }
 
         onStatusChanged: {

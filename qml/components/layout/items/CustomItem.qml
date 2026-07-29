@@ -8,11 +8,8 @@ import QtQuick.Layouts
 import QtQuick.Effects
 import Decenza
 
-Item {
+LayoutWidgetItem {
     id: root
-    property bool isCompact: false
-    property string itemId: ""
-    property var modelData: ({})
 
     readonly property string content: modelData.content || "Text"
     readonly property string textAlign: modelData.align || "center"
@@ -43,9 +40,8 @@ Item {
 
     // Action tiles use Theme.actionTileColor (neutral over a custom background
     // image so they match the bars/cards, standard accent otherwise); an explicit
-    // per-widget bgColor still wins.
-    // Set by LayoutPreview when previewing an unapplied background colour; otherwise unset.
-    property color zoneFillOverride: "transparent"
+    // per-widget bgColor still wins. (zoneFillOverride is inherited from LayoutWidgetItem;
+    // see there for who sets it.)
     readonly property color _themeTileColor: hasAction ? Theme.actionTileColor : Theme.surfaceColor
     readonly property color _parsedBgColor: bgColor !== "" ? bgColor
         : (zoneFillOverride.a > 0 ? zoneFillOverride : _themeTileColor)
@@ -500,14 +496,28 @@ Item {
 
             Text {
                 text: root.resolvedText
-                // StyledText (not RichText) so elide actually works — Qt ignores
-                // elide on RichText, which clipped mid-glyph on wide/fallback fonts.
-                textFormat: Text.StyledText
+                // RichText, because the editor saves per-range styling as CSS spans
+                // (`<span style="color:…; font-size:…px">`, documentformatter.cpp:400-411) and
+                // StyledText has no `<span>` handler and never reads a
+                // `style=` attribute. The only tag whose attributes reach the character format
+                // is `<font>` (qquickstyledtext.cpp:421-422); `<a>`, `<img>`, `<ol>` and `<ul>`
+                // attributes are parsed too but carry no styling — and `<img>` is why emoji
+                // (Theme.replaceEmojiWithImg) rendered correctly here all along.
+                // So the span was dropped and every custom widget rendered at the default
+                // colour and size no matter what was saved.
+                //
+                // Qt ignores BOTH `elide` and `maximumLineCount` on RichText — the rich path
+                // in QQuickTextPrivate::updateSize() never reaches setupTextLayout(), which is
+                // the only place either is consulted. So neither is declared here: a property
+                // that provably does nothing is the thing this branch is removing elsewhere.
+                // `clip` bounds the paint instead, and content with a line break grows the row
+                // rather than being clamped — the trade for rendering the styling the editor
+                // promises.
+                textFormat: Text.RichText
+                clip: true
                 color: Theme.textColor
                 font: Theme.bodyFont
                 horizontalAlignment: root.qtAlignment
-                elide: Text.ElideRight
-                maximumLineCount: 1
                 Accessible.ignored: true
             }
         }
@@ -574,7 +584,9 @@ Item {
             Text {
                 id: emojiText
                 text: root.resolvedText
-                textFormat: Text.StyledText
+                // RichText — see the compact-mode Text above. Neither of these two centre
+                // renderings elides, so nothing is given up here.
+                textFormat: Text.RichText
                 color: root._contentColor
                 font: Theme.bodyFont
                 horizontalAlignment: Text.AlignHCenter
@@ -590,7 +602,7 @@ Item {
             anchors.centerIn: parent
             width: Math.max(0, parent.width - (root.hasAction ? Theme.scaled(24) : 0))
             text: root.resolvedText
-            textFormat: Text.StyledText
+            textFormat: Text.RichText
             color: Theme.textColor
             font: Theme.bodyFont
             horizontalAlignment: root.qtAlignment

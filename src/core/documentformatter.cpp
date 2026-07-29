@@ -131,6 +131,10 @@ int DocumentFormatter::currentFontSize() const
 
 QTextDocument *DocumentFormatter::textDocument() const
 {
+#ifdef DECENZA_TESTING
+    if (m_testDocument)
+        return m_testDocument;
+#endif
     if (!m_document)
         return nullptr;
     return m_document->textDocument();
@@ -240,6 +244,68 @@ void DocumentFormatter::setColorOnRange(const QString &color, int selStart, int 
     emit formatChanged();
 }
 
+// Remove any explicit foreground from the range, returning it to the widget's theme colour.
+//
+// Not expressible as a merge: QTextCursor::mergeCharFormat can only ADD or overwrite
+// properties, never remove one — merging a default-constructed format is a no-op. So each
+// overlapping fragment's format is rewritten with the foreground cleared. Ranges are
+// collected before any edit, because editing invalidates the fragment iterator.
+void DocumentFormatter::clearColorOnRange(int selStart, int selEnd)
+{
+    QTextDocument *doc = textDocument();
+    if (!doc)
+        return;
+
+    // An empty range falls back the same way every other format action does — live selection,
+    // then saved selection, then select-all (textCursorForFormat). Without this, "Default" was
+    // the one control in the toolbar that silently did nothing when the user had clicked into
+    // the text rather than dragged across it, while Bold in the same bar applied to everything.
+    // Its own bg-mode branch in CustomEditorPopup is unconditional too, so the same button had
+    // two different reliabilities depending on which mode it was in.
+    int from = qBound(0, qMin(selStart, selEnd), doc->characterCount() - 1);
+    int to = qBound(0, qMax(selStart, selEnd), doc->characterCount() - 1);
+    if (from == to) {
+        const QTextCursor fallback = textCursorForFormat();
+        if (!fallback.hasSelection()) {
+            qDebug() << "DocumentFormatter::clearColorOnRange: no selection after fallback chain";
+            return;
+        }
+        from = fallback.selectionStart();
+        to = fallback.selectionEnd();
+    }
+
+    struct Edit { int start; int end; QTextCharFormat fmt; };
+    QList<Edit> edits;
+
+    for (QTextBlock block = doc->findBlock(from); block.isValid() && block.position() < to;
+         block = block.next()) {
+        for (QTextBlock::iterator it = block.begin(); !it.atEnd(); ++it) {
+            const QTextFragment frag = it.fragment();
+            if (!frag.isValid())
+                continue;
+            const int fs = frag.position();
+            const int fe = fs + frag.length();
+            if (fe <= from || fs >= to)
+                continue;
+            QTextCharFormat fmt = frag.charFormat();
+            if (fmt.foreground().style() == Qt::NoBrush)
+                continue;
+            fmt.clearForeground();
+            edits.append({ qMax(fs, from), qMin(fe, to), fmt });
+        }
+    }
+
+    for (const Edit &e : std::as_const(edits)) {
+        QTextCursor cursor(doc);
+        cursor.setPosition(e.start);
+        cursor.setPosition(e.end, QTextCursor::KeepAnchor);
+        cursor.setCharFormat(e.fmt);
+    }
+
+    if (!edits.isEmpty())
+        emit formatChanged();
+}
+
 void DocumentFormatter::setFontSize(int pixelSize)
 {
     QTextCharFormat fmt;
@@ -300,12 +366,13 @@ QVariantList DocumentFormatter::toSegments() const
             if (fmt.fontItalic())
                 seg[QStringLiteral("italic")] = true;
 
-            if (fmt.foreground().style() != Qt::NoBrush) {
-                QColor c = fmt.foreground().color();
-                // Skip black/default — only store explicit colors
-                if (c != QColor(Qt::black) && c != QColor(0, 0, 0))
-                    seg[QStringLiteral("color")] = c.name();
-            }
+            // An explicit foreground is stored whatever it is, including black. The ABSENCE
+            // of a colour key is the "follow the widget's theme colour" state — which is why
+            // black must not double as that sentinel: a user who picks black in the editor
+            // got theme-coloured text back, which on a dark theme is the opposite of black.
+            // Clearing a colour is its own action (clearColorOnRange), not a shade.
+            if (fmt.foreground().style() != Qt::NoBrush)
+                seg[QStringLiteral("color")] = fmt.foreground().color().name();
 
             int px = fmt.property(QTextFormat::FontPixelSize).toInt();
             if (px > 0) {

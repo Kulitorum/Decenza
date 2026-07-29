@@ -446,12 +446,17 @@ Dialog {
                                 id: planVisualModel
                                 model: popup.shotPlanItems
 
-                                delegate: Item {
+                                delegate: RepeaterDelegateItem {
                                     id: planChip
+                                    // Required, not injected: RepeaterDelegateItem declares `itemIndex` required, and a delegate
+                                    // with ANY required property stops receiving model roles as context properties — bare
+                                    // `modelData` becomes undefined. Declaring it required is what puts it back.
+                                    required property var modelData
+
                                     width: planChipBody.width
                                     height: planChipBody.height
 
-                                    readonly property int liveIndex: DelegateModel.itemsIndex
+                                    itemIndex: planChip.DelegateModel.itemsIndex
                                     readonly property string itemKey: modelData
 
                                     Rectangle {
@@ -486,7 +491,7 @@ Dialog {
                                         Accessible.role: Accessible.StaticText
                                         Accessible.name: TranslationManager.translate("shotPlanEditor.shownChip", "%1, shown, position %2 of %3")
                                             .arg(popup.planItemLabel(planChip.itemKey))
-                                            .arg(planChip.liveIndex + 1)
+                                            .arg(planChip.itemIndex + 1)
                                             .arg(popup.shotPlanItems.length)
                                         Accessible.focusable: true
 
@@ -498,14 +503,14 @@ Dialog {
                                             // Accessible-only reorder fallback (drag has no
                                             // screen-reader equivalent). Hidden in normal use.
                                             StyledIconButton {
-                                                visible: popup._a11yEnabled && planChip.liveIndex > 0
+                                                visible: popup._a11yEnabled && planChip.itemIndex > 0
                                                 implicitWidth: Theme.scaled(28)
                                                 implicitHeight: Theme.scaled(28)
                                                 icon.source: "qrc:/icons/ArrowLeft.svg"
                                                 icon.width: Theme.scaled(14)
                                                 icon.height: Theme.scaled(14)
                                                 accessibleName: TranslationManager.translate("layoutEditor.moveToStart", "Move toward start")
-                                                onClicked: popup.planMoveItem(planChip.liveIndex, planChip.liveIndex - 1)
+                                                onClicked: popup.planMoveItem(planChip.itemIndex, planChip.itemIndex - 1)
                                             }
 
                                             Text {
@@ -517,7 +522,7 @@ Dialog {
 
                                             // Accessible-only reorder fallback (toward end).
                                             StyledIconButton {
-                                                visible: popup._a11yEnabled && planChip.liveIndex < popup.shotPlanItems.length - 1
+                                                visible: popup._a11yEnabled && planChip.itemIndex < popup.shotPlanItems.length - 1
                                                 implicitWidth: Theme.scaled(28)
                                                 implicitHeight: Theme.scaled(28)
                                                 icon.source: "qrc:/icons/ArrowLeft.svg"
@@ -525,7 +530,7 @@ Dialog {
                                                 icon.height: Theme.scaled(14)
                                                 rotation: 180
                                                 accessibleName: TranslationManager.translate("layoutEditor.moveToEnd", "Move toward end")
-                                                onClicked: popup.planMoveItem(planChip.liveIndex, planChip.liveIndex + 1)
+                                                onClicked: popup.planMoveItem(planChip.itemIndex, planChip.itemIndex + 1)
                                             }
 
                                             // Remove — sends the item to the Available row.
@@ -559,7 +564,7 @@ Dialog {
 
                                             property int _startIndex: -1
 
-                                            onPressed: _startIndex = planChip.liveIndex
+                                            onPressed: _startIndex = planChip.itemIndex
                                             onPositionChanged: {
                                                 if (drag.active) popup._planDragging = true
                                             }
@@ -571,7 +576,7 @@ Dialog {
                                                 // statement, or the trailing lines run in a torn-down
                                                 // context where `popup` no longer resolves.
                                                 var from = _startIndex
-                                                var to = popup._planDragging ? planChip.liveIndex : -1
+                                                var to = popup._planDragging ? planChip.itemIndex : -1
                                                 popup._planDragging = false
                                                 _startIndex = -1
                                                 if (from >= 0 && to >= 0 && to !== from)
@@ -581,7 +586,7 @@ Dialog {
                                                 // Roll back any live swaps so the DelegateModel
                                                 // order matches the unchanged working list.
                                                 if (popup._planDragging) {
-                                                    var cur = planChip.liveIndex
+                                                    var cur = planChip.itemIndex
                                                     if (_startIndex >= 0 && cur !== _startIndex)
                                                         planVisualModel.items.move(cur, _startIndex, 1)
                                                 }
@@ -596,10 +601,10 @@ Dialog {
                                     DropArea {
                                         anchors.fill: parent
                                         onEntered: function(drag) {
-                                            var src = drag.source
+                                            var src = drag.source as RepeaterDelegateItem
                                             if (!src || src === planChip) return
-                                            var from = src.liveIndex
-                                            var to = planChip.liveIndex
+                                            var from = src.itemIndex
+                                            var to = planChip.itemIndex
                                             if (from !== to) planVisualModel.items.move(from, to, 1)
                                         }
                                     }
@@ -665,7 +670,19 @@ Dialog {
                         }
                     }
 
+                    // Grouped at spacingSmall rather than sitting loose in the outer column at
+                    // spacingMedium: four switch rows at the wider gap were the largest block of
+                    // dead space in this dialog, and pushed Preview past the 85%-of-window height
+                    // cap so the whole thing scrolled.
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.spacingSmall
+
                     StyledSwitch {
+                        // Row height pinned: the control's implicitHeight is sc(28) plus Control
+                        // padding, which is generous for a 24px indicator and, four rows deep, was
+                        // what pushed Preview past this dialog's 85%-of-window height cap.
+                        Layout.preferredHeight: Theme.scaled(30)
                         // ON, profile anchor available (Profile shown with a profile loaded):
                         // the "Brew … of Espresso, using … at …" scaffold (its own word order)
                         // with the remaining items trailing in chip order. ON, no profile anchor
@@ -678,6 +695,10 @@ Dialog {
                         onToggled: popup.shotPlanSentence = checked
                     }
                     StyledSwitch {
+                        // Row height pinned: the control's implicitHeight is sc(28) plus Control
+                        // padding, which is generous for a 24px indicator and, four rows deep, was
+                        // what pushed Preview past this dialog's 85%-of-window height cap.
+                        Layout.preferredHeight: Theme.scaled(30)
                         // Sentence mode only: the detail tail moves to its own line(s)
                         // below the sentence. Meaningless for fragments (there is no
                         // sentence/tail split), hence disabled when Sentence is off.
@@ -688,6 +709,10 @@ Dialog {
                         onToggled: popup.shotPlanStacked = checked
                     }
                     StyledSwitch {
+                        // Row height pinned: the control's implicitHeight is sc(28) plus Control
+                        // padding, which is generous for a 24px indicator and, four rows deep, was
+                        // what pushed Preview past this dialog's 85%-of-window height cap.
+                        Layout.preferredHeight: Theme.scaled(30)
                         // Yield display: ON shows only the effective target yield (e.g. "40.0g");
                         // OFF keeps the "profileDefault → target" arrow (e.g. "36.0 → 40.0g").
                         // Only affects the Dose & yield item, so disabled when it isn't shown —
@@ -698,12 +723,17 @@ Dialog {
                         onToggled: popup.shotPlanYieldTargetOnly = checked
                     }
                     StyledSwitch {
+                        // Row height pinned: the control's implicitHeight is sc(28) plus Control
+                        // padding, which is generous for a 24px indicator and, four rows deep, was
+                        // what pushed Preview past this dialog's 85%-of-window height cap.
+                        Layout.preferredHeight: Theme.scaled(30)
                         // Page-aware mode: while steaming (or steam selected) the widget swaps to the
                         // steam sentence. The steam side has no further options.
                         text: TranslationManager.translate("shotPlanEditor.showSteamPlan", "Steam plan (while steaming)")
                         checked: popup.shotPlanShowSteamPlan
                         onToggled: popup.shotPlanShowSteamPlan = checked
                     }
+                    } // switch group
 
                     Text {
                         text: TranslationManager.translate("shotPlanEditor.preview", "Preview")

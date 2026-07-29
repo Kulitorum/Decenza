@@ -143,6 +143,16 @@ colour glyph reach the platform renderer, which **crashes the render thread on m
 - **`pragma ComponentBehavior: Bound` breaks delegates that take injected model roles**, at runtime
   and silently. Check for `Repeater`/`delegate:` first; with none, the pragma alone is safe. With
   delegates, add `required property` to each in the same edit.
+  - **The same break comes from ONE `required property` anywhere on a delegate — no pragma
+    involved.** A delegate with any required property stops receiving model roles as context
+    properties, so bare `modelData` / `index` / `model` go `undefined` everywhere in it,
+    including nested scopes. Adding a required property to a delegate's **base type** does it
+    too, at a distance: making `RepeaterDelegateItem.itemIndex` required broke `modelData` in
+    three delegates in other files that had never declared a required property themselves.
+    Declare every role the delegate reads, in the same edit.
+  - Neither failure is visible to the compiler, to qmllint, or to the test suite — the symptom
+    is `ReferenceError: modelData is not defined` in the running app. If you touch a delegate
+    or its base type, open the screen.
 - **When qualifying identifiers, go by qmllint's line and column, never by text search.** One name
   can be several things in a file (a function-local `var step` and a nested `property var step`),
   and only the flagged occurrences may move.
@@ -162,7 +172,8 @@ colour glyph reach the platform renderer, which **crashes the render thread on m
     - A symbol is still not a substitute for an **icon** in chrome. `qrc:/icons/` SVGs follow `Theme.iconColor` and scale as artwork; a glyph is text that happens to look like a picture.
   - Rule of thumb: colour picture in the emoji keyboard → emoji, fine. Line-drawing symbol in your text colour → font glyph, also fine now, but confirm coverage with the script. Toolbar/navigation affordance → neither; use a themed SVG.
 - **The bundled font covers Latin (incl. Extended), Greek and Cyrillic only.** In CJK, Arabic, Hebrew, Devanagari and Thai locales every glyph comes from a platform fallback, so the metric determinism the bundled font provides does **not** apply there. Layout tolerance (wrap/elide/content-driven sizing) is what keeps those UIs from clipping — never rely on a fixed width that only fits the design font.
-- **`elide` is dead on `Text.RichText`**: use `Text.StyledText` for HTML-ish labels (elide works, and it's lighter); RichText silently disables `elide` → mid-glyph clipping.
+- **`elide` is dead on `Text.RichText`**: prefer `Text.StyledText` for HTML-ish labels (elide works, and it's lighter); RichText silently disables `elide` → mid-glyph clipping.
+  - **But `StyledText` cannot render CSS.** It has no `<span>` handler and never reads a `style=` attribute. The only tag whose attributes reach the character format is `<font>` (`qquickstyledtext.cpp:421-422`), and the `size` it accepts there is an HTML 1-7, not px (`:566-572`). So a `<span style="color:…; font-size:…px">` is dropped silently — text renders at the default colour and size. (`<a>`, `<img>`, `<ol>` and `<ul>` attributes *are* parsed, they just carry no styling; `<img>` is what makes `Theme.replaceEmojiWithImg` work under StyledText.) If the markup carries CSS, `Text.RichText` is the only option — and it ignores **both** `elide` and `maximumLineCount`, so bound the paint with `clip: true` and don't declare either. This is not hypothetical: it is what made the custom-widget editor's colour and S/M/L/XL rows decorative for their whole life, with the preview sharing the blindness so nothing on screen contradicted the save.
 - **Measuring text in a binding**: use `FontMetrics.advanceWidth(str)`, never a mutated `TextMetrics` (`.text=`/read `.width`) — the latter self-triggers a binding loop. Mutated `TextMetrics` is only safe in an imperative Timer/handler writing a plain property. Runtime-only; a clean build won't catch it.
 - **Accessibility on interactive elements**: every interactive element needs `Accessible.role`, `Accessible.name`, `Accessible.focusable: true`, and `Accessible.onPressAction`. Prefer `AccessibleButton` / `AccessibleMouseArea` over raw `Rectangle+MouseArea`. Full rules in `docs/CLAUDE_MD/ACCESSIBILITY.md`.
 

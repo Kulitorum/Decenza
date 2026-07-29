@@ -128,7 +128,7 @@ KeyboardAwareContainer {
                             font.pixelSize: Theme.scaled(12)
                         }
 
-                        Row {
+                        RowLayout {
                             Layout.fillWidth: true
                             Layout.preferredHeight: Theme.scaled(42)
                             spacing: Theme.scaled(8)
@@ -142,8 +142,8 @@ KeyboardAwareContainer {
 
                                 delegate: Rectangle {
                                     id: chargingModeButton
-                                    width: (parent.width - 2 * parent.spacing) / 3
-                                    height: parent.height
+                                    Layout.fillWidth: true
+                                    Layout.fillHeight: true
                                     radius: Theme.scaled(6)
                                     color: BatteryManager.chargingMode === modelData.value ?
                                            Theme.primaryColor : Theme.backgroundColor
@@ -1481,7 +1481,7 @@ KeyboardAwareContainer {
                             font.pixelSize: Theme.scaled(12)
                         }
 
-                        Row {
+                        RowLayout {
                             Layout.fillWidth: true
                             Layout.preferredHeight: Theme.scaled(42)
                             spacing: Theme.scaled(8)
@@ -1495,8 +1495,8 @@ KeyboardAwareContainer {
 
                                 delegate: Rectangle {
                                     id: refillKitButton
-                                    width: (parent.width - 2 * parent.spacing) / 3
-                                    height: parent.height
+                                    Layout.fillWidth: true
+                                    Layout.fillHeight: true
                                     radius: Theme.scaled(6)
                                     color: Settings.app.refillKitOverride === modelData.value ?
                                            Theme.primaryColor : Theme.backgroundColor

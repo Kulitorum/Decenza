@@ -60,7 +60,7 @@ Page {
         function onShotReady(id, shot) {
             if (id !== autoFavoriteInfoPage.shotId) return
             shotData = shot
-            Qt.callLater(function() { scrollView.contentItem.returnToBounds() })
+            Qt.callLater(function() { (scrollView.contentItem as Flickable).returnToBounds() })
         }
         function onAutoFavoriteGroupDetailsReady(details) {
             groupDetails = details
@@ -284,7 +284,7 @@ Page {
                         }
                         onReleased: {
                             Settings.setValue("autoFavoriteInfo/graphHeight", autoFavoriteInfoPage.graphHeight)
-                            Qt.callLater(function() { scrollView.contentItem.returnToBounds() })
+                            Qt.callLater(function() { (scrollView.contentItem as Flickable).returnToBounds() })
                         }
                     }
                 }

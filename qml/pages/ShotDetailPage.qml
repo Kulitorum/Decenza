@@ -124,7 +124,7 @@ Page {
             // Defer both calls until after layout has updated: returnToBounds() needs
             // final content bounds, and enterAnimation must start after new content is laid out.
             Qt.callLater(function() {
-                scrollView.contentItem.returnToBounds()
+                (scrollView.contentItem as Flickable).returnToBounds()
                 if (wasNavigating)
                     enterAnimation.start()
             })
@@ -740,7 +740,7 @@ Page {
 
                         onReleased: {
                             Settings.setValue("shotDetail/graphHeight", shotDetailPage.graphHeight)
-                            Qt.callLater(function() { scrollView.contentItem.returnToBounds() })
+                            Qt.callLater(function() { (scrollView.contentItem as Flickable).returnToBounds() })
                         }
                     }
                 }
