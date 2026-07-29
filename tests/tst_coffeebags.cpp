@@ -147,6 +147,16 @@ private:
         raw.sync();
     }
 
+    // Wait for CoffeeBagStorage's background worker to finish everything queued
+    // through it. ~SerialDbWorker discards queued-but-unstarted tasks and now
+    // warns when it does — several tests here call persistYieldSpecToBag()
+    // several times in a row and let `storage` go out of scope immediately
+    // after, with no wait for the async writes those calls queue. Call this
+    // right before such a test ends.
+    static void drainDbWork(CoffeeBagStorage& storage) {
+        QTRY_VERIFY(storage.isDbWorkIdle());
+    }
+
 private slots:
     void init() { QTest::failOnWarning(); }
 
@@ -1851,6 +1861,7 @@ private slots:
         dye.persistYieldSpecToBag(44.0, QStringLiteral("absolute"));
         QCOMPARE(dye.activeBagYieldValue(), 44.0);
 
+        drainDbWork(storage);
         clearDyeSettings();
     }
 
@@ -2098,6 +2109,8 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(bagRpm(), static_cast<qint64>(1350), 15000);
         QTRY_COMPARE_WITH_TIMEOUT(pkgRpm(), static_cast<qint64>(1350), 15000);
 
+        drainDbWork(bagStorage);
+        QTRY_VERIFY(eqStorage.isDbWorkIdle());
         clearDyeSettings();
     }
 
@@ -2144,8 +2157,12 @@ private slots:
         dye.setDyeGrinderRpm(1400);
         QTRY_COMPARE_WITH_TIMEOUT(bagRpm(), static_cast<qint64>(1400), 15000);
 
-        // Clear the dye QSettings state before teardown; the DB worker is joined
-        // by ~CoffeeBagStorage/~EquipmentStorage (SerialDbWorker quit()+wait()).
+        // Drain before teardown. ~CoffeeBagStorage joins its worker thread
+        // (SerialDbWorker quit()+wait()), but joining is not the same as
+        // finishing: quit() DISCARDS anything still queued rather than running
+        // it, so a write from setDyeGrinderSetting/setDyeGrinderRpm above could
+        // vanish here with nothing to show for it if this didn't wait first.
+        drainDbWork(bagStorage);
         clearDyeSettings();
     }
 

@@ -178,6 +178,14 @@ public:
     void initialize(const QString& dbPath);
     QString databasePath() const { return m_dbPath; }
 
+    // True when no background CRUD work is queued, running, or waiting to
+    // deliver its result — see ShotHistoryStorage::isDbWorkIdle() for the full
+    // rationale (same shape, same worker type). A test that destroys this
+    // object without waiting on this first was the exact path
+    // ~SerialDbWorker's discard warning was added to surface: work vanishes
+    // with nothing shown for it.
+    bool isDbWorkIdle() const;
+
     // Async queries — results via signals (QVariantList of toVariantMap()).
     Q_INVOKABLE void requestInventory();                   // inInventory = true, MRU order
     Q_INVOKABLE void requestBag(qint64 bagId);             // bagReady()

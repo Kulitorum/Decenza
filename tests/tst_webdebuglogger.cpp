@@ -224,6 +224,11 @@ private slots:
             "[   0.100] INFO  [Scale][BLEManager] a line\n");
 
         WebDebugLogger logger(logPath());
+        // An empty marker list is a real caller mistake in production — no view
+        // is ever built with one — so sessionLinesMatching() now warns once, in
+        // addition to the empty-result guarantee this test exists to pin.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("empty marker list"));
         QVERIFY(logger.sessionLinesMatching({}, QStringLiteral("INFO")).isEmpty());
     }
 

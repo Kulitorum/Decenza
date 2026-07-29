@@ -314,6 +314,11 @@ void CoffeeBagStorage::initialize(const QString& dbPath)
     m_dbPath = dbPath;
 }
 
+bool CoffeeBagStorage::isDbWorkIdle() const
+{
+    return !m_dbWorker || m_dbWorker->isIdle();
+}
+
 void CoffeeBagStorage::runAsync(const QString& connPrefix,
                                 std::function<void(QSqlDatabase&)> work,
                                 std::function<void(bool dbOpened)> done)

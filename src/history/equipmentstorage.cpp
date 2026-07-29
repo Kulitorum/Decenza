@@ -253,6 +253,11 @@ void EquipmentStorage::initialize(const QString& dbPath)
     m_dbPath = dbPath;
 }
 
+bool EquipmentStorage::isDbWorkIdle() const
+{
+    return !m_dbWorker || m_dbWorker->isIdle();
+}
+
 void EquipmentStorage::runAsync(const QString& connPrefix,
                                 std::function<void(QSqlDatabase&)> work,
                                 std::function<void(bool dbOpened)> done)
