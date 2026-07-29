@@ -2054,7 +2054,8 @@ int main(int argc, char *argv[])
 #endif
 
     // Scale auto-reconnect after disconnect: backoff ramp 5s → 30s → 60s, then
-    // the 60s tail repeats indefinitely while the scale stays disconnected.
+    // the 60s tail repeats while the scale stays disconnected — slowing to 5min
+    // once it is clear the scale is not coming back this sitting (see below).
     // First retry is quick (5s); the 30s/60s delays exceed BLE's 20s connection
     // timeout so each attempt completes before the next fires. We never give up
     // permanently (matches de1app): a scale powered back on hours later is
@@ -2065,6 +2066,26 @@ int main(int argc, char *argv[])
     QTimer scaleReconnectTimer;
     scaleReconnectTimer.setSingleShot(true);
     const std::vector<int> reconnectDelays = {5000, 30000, 60000};
+
+    // …but the 60 s tail runs at that cadence for a bounded number of cycles,
+    // then drops to 5 minutes. Each cycle costs a real amount: for a WiFi
+    // primary an mDNS/QHostInfo resolve, then a ~15 s BLE discovery, every
+    // minute, for as long as the app is open. A saved scale that has missed
+    // ten consecutive 60 s cycles is not "about to appear" — it is off, out of
+    // range, or (the case that prompted this) a WiFi scale whose host is not on
+    // this network at all, resolving "Host not found" 37 times in a single
+    // sitting. MQTT next door already ramps 5→60 s and then holds at 15 min for
+    // exactly this reason; this is the same shape, kept much shorter because a
+    // scale that IS powered back on should still be picked up promptly.
+    //
+    // Nothing is given up by slowing down: every event that means "a scale
+    // might be here now" already resets scaleReconnectAttempt to 0 and restarts
+    // the ramp at 5 s — app resume, screensaver exit, DE1 wake, a user-
+    // initiated scan, and a successful connect. The worst case is a scale
+    // switched on while the app sits untouched in the foreground, which waits
+    // up to 5 min instead of up to 1.
+    const int kScaleFastTailAttempts = 10;
+    const int kScaleSlowTailMs = 300000;  // 5 min
 
     // When Settings.keepScaleOn is false we deliberately disconnect the scale
     // on DE1 sleep. The connectedChanged handler below normally schedules an
@@ -2136,7 +2157,8 @@ int main(int argc, char *argv[])
     auto handlerScope = std::make_unique<QObject>();
 
     QObject::connect(&scaleReconnectTimer, &QTimer::timeout,
-                     [&bleManager, &settings, &scaleReconnectAttempt, &scaleReconnectTimer, &reconnectDelays]() {
+                     [&bleManager, &settings, &scaleReconnectAttempt, &scaleReconnectTimer,
+                      &reconnectDelays]() {   // the two const tail constants need no capture
         if (settings.scaleAddress().isEmpty()) {
             qDebug() << "Scale reconnect: no saved scale address, stopping retries";
             return;
@@ -2167,14 +2189,24 @@ int main(int argc, char *argv[])
         // (issue #1303). The saved scale auto-connects when seen in a scan.
         bleManager.tryDirectConnectToScale(/*allowDirectConnect=*/false);
         scaleReconnectAttempt++;
-        // Persistent reconnect: walk the ramp, then hold on the last (60s)
-        // delay forever. Stops naturally when the scale connects
-        // (connectedChanged), the user forgets it (scaleAddress empty, above),
-        // or the user scans for a different scale.
+        // Persistent reconnect: walk the ramp, hold on the last (60s) delay for
+        // kScaleFastTailAttempts cycles, then hold on the 5-minute delay
+        // forever. Stops naturally when the scale connects (connectedChanged),
+        // the user forgets it (scaleAddress empty, above), or the user scans for
+        // a different scale.
         if (scaleReconnectAttempt < static_cast<int>(reconnectDelays.size())) {
             scaleReconnectTimer.start(reconnectDelays[scaleReconnectAttempt]);
-        } else {
+        } else if (scaleReconnectAttempt < kScaleFastTailAttempts) {
             scaleReconnectTimer.start(reconnectDelays.back());
+        } else {
+            // Announce the one crossing, not every slow cycle — the 5-minute
+            // tail runs forever and the scale log is a 1000-entry ring buffer.
+            if (scaleReconnectAttempt == kScaleFastTailAttempts) {
+                bleManager.appendScaleLog(
+                    QString("Scale still absent after %1 attempts — slowing retries to every %2 min")
+                        .arg(scaleReconnectAttempt).arg(kScaleSlowTailMs / 60000));
+            }
+            scaleReconnectTimer.start(kScaleSlowTailMs);
         }
     });
 
@@ -3002,9 +3034,13 @@ int main(int argc, char *argv[])
         settings.setSavedRefractometerName(device.name());
         bleManager.setSavedRefractometerAddress(getDeviceIdentifier(device), device.name());
 
-        // Forward refractometer log messages to the scale log (shared log view)
+        // Forward refractometer log messages to the scale log (shared log view).
+        // Record only: the R1_LOG/R2_WARN macros already wrote the line to
+        // stderr at the right severity, so mirroring here would print it twice.
         QObject::connect(refractometer.get(), &RefractometerDevice::logMessage,
-                         &bleManager, &BLEManager::appendScaleLog);
+                         &bleManager, [&bleManager](const QString& msg) {
+            bleManager.appendScaleLog(msg, /*mirrorToSystemLog=*/false);
+        });
 
         // Surface actionable measurement errors ("No liquid detected", "Beyond
         // range", …) to the error dialog, mirroring the physical scale's
@@ -3357,8 +3393,14 @@ int main(int argc, char *argv[])
     // unified Settings scale panel shows USB probe/connect/error diagnostics and
     // the scale "Share Log" export includes them — appendScaleLog records into
     // m_scaleLogMessages) and the app/DE1 log (unchanged from before).
+    // (Lambda, not a pointer-to-member slot: appendScaleLog takes a defaulted
+    // second parameter. Mirroring stays ON here — UsbScaleManager's logMessage
+    // lines are separate from its qDebug lines, so this is the only place they
+    // reach stderr.)
     QObject::connect(&usbScaleManager, &UsbScaleManager::logMessage,
-                     &bleManager, &BLEManager::appendScaleLog);
+                     &bleManager, [&bleManager](const QString& msg) {
+        bleManager.appendScaleLog(msg);
+    });
     QObject::connect(&usbScaleManager, &UsbScaleManager::logMessage,
                      &bleManager, &BLEManager::de1LogMessage);
 #endif // !Q_OS_IOS

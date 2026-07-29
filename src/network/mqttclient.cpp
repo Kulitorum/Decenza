@@ -179,7 +179,21 @@ void MqttClient::onConnectSuccess(void* context, MQTTAsync_successData* /*respon
 void MqttClient::onConnectFailure(void* context, MQTTAsync_failureData* response)
 {
     MqttClient* self = static_cast<MqttClient*>(context);
-    QString error = response && response->message ? QString::fromUtf8(response->message) : "Connection failed";
+    // Paho's `message` for a broker that answered but REJECTED the session is
+    // the constant string "CONNACK return code" — it carries no information at
+    // all. The reason lives in `code`: the MQTT CONNACK return code (1 =
+    // unacceptable protocol version, 2 = identifier rejected, 3 = server
+    // unavailable, 4 = bad username or password, 5 = not authorized) or, for a
+    // failure before CONNACK, a negative MQTTASYNC_* error. Dropping it made
+    // every rejection read identically in the log AND in the status text the
+    // MQTT settings tab shows the user, so "wrong password" was indistinguish-
+    // able from "broker doesn't want this client id".
+    QString error = QStringLiteral("Connection failed");
+    if (response) {
+        if (response->message)
+            error = QString::fromUtf8(response->message);
+        error += QStringLiteral(" (code %1)").arg(response->code);
+    }
     emit self->internalConnectionFailed(error);
 }
 

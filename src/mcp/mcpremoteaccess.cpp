@@ -355,7 +355,7 @@ void McpRemoteAccess::doReachabilityProbe()
     m_probeInFlight = true;
     const quint64 gen = m_probeGeneration;
     QNetworkReply* reply = m_reachProbe->get(req);
-    connect(reply, &QNetworkReply::finished, this, [this, reply, gen]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, gen, domain]() {
         const bool gotHttpResponse =
             reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).isValid();
         const QString errStr = reply->errorString();
@@ -372,6 +372,13 @@ void McpRemoteAccess::doReachabilityProbe()
             if (!m_funnelReachable) {
                 m_funnelReachable = true;
                 stopReachabilityProbe();
+                // Log the recovery edge. Failures warn once per probe and then
+                // the probe just stops; without this line a log showing three
+                // "probe failed" warnings and nothing after is ambiguous —
+                // reachable on the next try, or given up? — and that is exactly
+                // how it read in practice.
+                qInfo().noquote() << "McpRemoteAccess: Funnel reachable at" << domain
+                                  << "— remote access Active";
                 setStatus(Active);
                 emit connectorUrlChanged();
             }
