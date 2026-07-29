@@ -2655,10 +2655,14 @@ void BLEManager::appendScaleLog(const QString& message, bool mirrorToSystemLog) 
     // pattern — asynclogger.cpp. So the severity argument is about Android and
     // the submitted logs, not about the Mac console.)
     //
-    // Grep note: because of this, [Scale] no longer prefixes the driver lines.
-    // A submitted log has BOTH prefixes and you usually want both — [Scale] for
-    // BLEManager's own narrative (plus scaledevice.cpp's CONNECTED/DISCONNECTED)
-    // and "[BLE <Driver>]" for everything the drivers and transports emit.
+    // Grep note: `grep '\[Scale\]'` returns the WHOLE scale narrative — this
+    // mirror's lines, scaledevice.cpp's CONNECTED/DISCONNECTED, and every driver,
+    // transport, refractometer and USB line, because those carry the marker
+    // themselves ("[Scale][BLE AcaiaScale] …", "[Scale][USB Scale] …"; see
+    // scalelogging.h). Suppressing the mirror here briefly broke that — the
+    // driver lines had been getting [Scale] only from this mirror — so the marker
+    // was moved to the source. Keep it on any new logging helper in the
+    // subsystem, or its lines drop out of that one grep silently.
     if (mirrorToSystemLog) {
         qDebug().noquote() << "[Scale]" << message;
     }

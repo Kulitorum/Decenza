@@ -549,7 +549,9 @@ CoreBluetoothScaleBleTransport::~CoreBluetoothScaleBleTransport() {
 }
 
 void CoreBluetoothScaleBleTransport::log(const QString& msg) {
-    QString fullMsg = QString("[BLE CoreBluetooth] ") + msg;
+    // [Scale] marker so this line is in the same grep as the drivers' —
+    // see scalelogging.h.
+    QString fullMsg = QString("[Scale][BLE CoreBluetooth] ") + msg;
     qDebug().noquote() << fullMsg;
     emit logMessage(fullMsg);
 }

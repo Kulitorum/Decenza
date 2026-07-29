@@ -1,19 +1,12 @@
 #include "difluidr2.h"
 #include "../protocol/de1characteristics.h"
+#include "../scales/scalelogging.h"
 #include "../transport/scalebletransport.h"
 
-// Logging macros — same pattern as scale drivers but emits logMessage() directly
-#define R2_LOG(msg) do { \
-    QString _msg = QString("[BLE DiFluidR2] ") + msg; \
-    qDebug().noquote() << _msg; \
-    emit logMessage(_msg); \
-} while(0)
-
-#define R2_WARN(msg) do { \
-    QString _msg = QString("[BLE DiFluidR2] ") + msg; \
-    qWarning().noquote() << _msg; \
-    emit logMessage(_msg); \
-} while(0)
+// Aliases over the shared macros (scalelogging.h) rather than a hand-copied
+// body: the [Scale] marker and the double-write shape then live in one place.
+#define R2_LOG(msg)  SCALE_LOG("DiFluidR2", msg)
+#define R2_WARN(msg) SCALE_WARN("DiFluidR2", msg)
 
 // Protocol constants
 static constexpr uint8_t PACKET_HEADER = 0xDF;

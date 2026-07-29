@@ -2,6 +2,8 @@
 
 #ifdef Q_OS_ANDROID
 
+#include "ble/scales/scalelogging.h"
+
 #include <QJniObject>
 #include <QJniEnvironment>
 #include <QCoreApplication>
@@ -22,7 +24,8 @@ bool AndroidUsbScaleHelper::hasDevice()
 {
     QJniObject ctx = getContext();
     if (!ctx.isValid()) {
-        qWarning() << "[USB] Scale JNI: context invalid";
+        // Stderr-only form: this is a static helper with no logMessage signal.
+        SCALE_WARN_STDERR_TAGGED("USB Scale", QStringLiteral("JNI: context invalid"));
         return false;
     }
 
@@ -33,7 +36,9 @@ bool AndroidUsbScaleHelper::hasDevice()
         ctx.object());
 
     if (env.checkAndClearExceptions()) {
-        qWarning() << "[USB] Scale JNI: EXCEPTION in hasDevice — class" << JAVA_CLASS << "not found?";
+        SCALE_WARN_STDERR_TAGGED("USB Scale",
+            QStringLiteral("JNI: EXCEPTION in hasDevice — class %1 not found?")
+                .arg(QLatin1String(JAVA_CLASS)));
         return false;
     }
 

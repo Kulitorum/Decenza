@@ -1,5 +1,6 @@
 #include "usb/usbdecentscale.h"
 #include "ble/protocol/decentscaleprotocol.h"
+#include "ble/scales/scalelogging.h"
 
 #ifdef Q_OS_ANDROID
 #include "usb/androidusbscalehelper.h"
@@ -7,12 +8,12 @@
 
 #include <QDebug>
 
-// Helper macro matching DecentScale BLE convention
-#define SCALE_LOG(msg) do { \
-    QString _msg = QString("[USB Scale] ") + msg; \
-    qDebug().noquote() << _msg; \
-    emit logMessage(_msg); \
-} while(0)
+// Alias over the shared macro (ble/scales/scalelogging.h) — the [Scale] marker
+// and the double-write shape live there, not in a copy here. Note the shared
+// header also defines a two-argument SCALE_LOG, so this driver's one-argument
+// spelling gets its own name rather than shadowing it.
+#define USB_SCALE_LOG(msg)  SCALE_LOG_TAGGED("USB Scale", msg)
+#define USB_SCALE_WARN(msg) SCALE_WARN_TAGGED("USB Scale", msg)
 
 // ===========================================================================
 // Constructor / Destructor
@@ -109,7 +110,7 @@ void UsbDecentScale::open(const QString& portName)
     // recovery already under way — and did it with a raw "[USB Scale]" log
     // prefix in the message. (#1658)
     if (!AndroidUsbScaleHelper::isOpen()) {
-        qWarning() << "[USB Scale] Android USB connection not open — open aborted";
+        USB_SCALE_WARN(QStringLiteral("Android USB connection not open — open aborted"));
         return;
     }
 
@@ -118,19 +119,19 @@ void UsbDecentScale::open(const QString& portName)
 #else
     if (portName.isEmpty()) {
         // Programming error — the caller resolved a confirmed port before this.
-        qWarning() << "[USB Scale] No port name specified — open aborted";
+        USB_SCALE_WARN(QStringLiteral("No port name specified — open aborted"));
         return;
     }
 
     m_port->setPortName(portName);
     if (!m_port->open(QIODevice::ReadWrite)) {
-        qWarning() << "[USB Scale] Failed to open" << portName << ":"
-                   << m_port->errorString();
+        USB_SCALE_WARN(QStringLiteral("Failed to open %1: %2")
+                           .arg(portName, m_port->errorString()));
         if (m_port->error() == QSerialPort::PermissionError) {
-            qWarning() << "[USB Scale] *** ADVISORY: the OS refused access to" << portName
-                       << "— on Linux add your user to the 'dialout' group "
-                          "(sudo usermod -aG dialout $USER) and log out and back in. "
-                          "Otherwise another application is holding the port.";
+            USB_SCALE_WARN(QStringLiteral(
+                "*** ADVISORY: the OS refused access to %1 — on Linux add your user to "
+                "the 'dialout' group (sudo usermod -aG dialout $USER) and log out and "
+                "back in. Otherwise another application is holding the port.").arg(portName));
         }
         return;
     }
@@ -141,7 +142,7 @@ void UsbDecentScale::open(const QString& portName)
 #endif
 
     setConnected(true);
-    SCALE_LOG("Connected");
+    USB_SCALE_LOG("Connected");
 
     // Send init command (from reaprime): 0x20 0x01
     sendCommand(QByteArray::fromHex("200100"));
@@ -170,7 +171,7 @@ void UsbDecentScale::close()
 
     if (isConnected()) {
         setConnected(false);
-        SCALE_LOG("Disconnected");
+        USB_SCALE_LOG("Disconnected");
     }
 }
 
@@ -186,7 +187,7 @@ void UsbDecentScale::onReadTimer()
         // Unplugged. close() drops the scale, UsbScaleManager's poll notices and
         // emits scaleLost(), and the UI follows — no dialog needed for an action
         // the user just took. (#1658)
-        qWarning() << "[USB Scale] Android USB connection lost";
+        USB_SCALE_WARN(QStringLiteral("Android USB connection lost"));
         close();
         return;
     }
@@ -211,12 +212,13 @@ void UsbDecentScale::onErrorOccurred(QSerialPort::SerialPortError error)
     if (error == QSerialPort::NoError) return;
 
     QString errorStr = m_port->errorString();
-    qWarning() << "[USB Scale] Port error:" << error << errorStr;
+    USB_SCALE_WARN(QStringLiteral("Port error %1: %2")
+                       .arg(static_cast<int>(error)).arg(errorStr));
 
     if (error == QSerialPort::ResourceError
         || error == QSerialPort::DeviceNotFoundError
         || error == QSerialPort::PermissionError) {
-        qWarning() << "[USB Scale] Serial port lost:" << errorStr;
+        USB_SCALE_WARN(QStringLiteral("Serial port lost: %1").arg(errorStr));
         close();
     }
 }
@@ -280,7 +282,7 @@ void UsbDecentScale::processBuffer()
 
     // Safety: prevent unbounded buffer growth
     if (m_buffer.size() > 1024) {
-        qWarning() << "[USB Scale] Buffer overflow, discarding" << m_buffer.size() << "bytes";
+        USB_SCALE_WARN(QStringLiteral("Buffer overflow, discarding %1 bytes").arg(m_buffer.size()));
         m_buffer.clear();
     }
 }
@@ -340,7 +342,7 @@ void UsbDecentScale::writeRaw(const QByteArray& data)
 #ifdef Q_OS_ANDROID
     int written = AndroidUsbScaleHelper::write(data);
     if (written < 0) {
-        qWarning() << "[USB Scale] Android USB write failed";
+        USB_SCALE_WARN(QStringLiteral("Android USB write failed"));
     }
 #else
     if (m_port && m_port->isOpen()) {

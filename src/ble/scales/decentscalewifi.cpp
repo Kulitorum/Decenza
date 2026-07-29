@@ -499,8 +499,10 @@ void DecentScaleWifi::onTextMessageReceived(const QString& message) {
     QJsonParseError err{};
     const QJsonDocument doc = QJsonDocument::fromJson(bytes, &err);
     if (err.error != QJsonParseError::NoError || !doc.isObject()) {
-        // Silently drop malformed frames at debug level only.
-        qDebug() << "[DecentScaleWifi] dropping malformed frame:" << err.errorString();
+        // Silently drop malformed frames at debug level only. WIFI_LOG, not a
+        // bare qDebug with its own prefix — that spelling was a fifth prefix
+        // family ("[DecentScaleWifi]") that no [Scale] or [BLE …] grep found.
+        WIFI_LOG(QStringLiteral("dropping malformed frame: %1").arg(err.errorString()));
         return;
     }
     const QJsonObject obj = doc.object();
