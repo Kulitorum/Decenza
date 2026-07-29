@@ -205,6 +205,19 @@ Item {
                         y: (parent.height - height) / 2
                     }
 
+                    // Screen readers get a real slider here: the drag MouseArea alone is
+                    // invisible to TalkBack/VoiceOver, and this is the only way to set a
+                    // channel value in the theme editor.
+                    Accessible.role: Accessible.Slider
+                    Accessible.name: TranslationManager.translate("colorEditor.accessible.channel",
+                                                                  "Color channel %1").arg(sliderRow.label)
+                    Accessible.focusable: true
+                    Accessible.value: String(Math.round(sliderRow.currentVal))
+                    Accessible.onIncreaseAction: root._setChannel(
+                        sliderRow.index, Math.min(sliderRow.maxVal, Math.round(sliderRow.currentVal) + 1))
+                    Accessible.onDecreaseAction: root._setChannel(
+                        sliderRow.index, Math.max(0, Math.round(sliderRow.currentVal) - 1))
+
                     MouseArea {
                         anchors.fill: parent
                         anchors.margins: -8

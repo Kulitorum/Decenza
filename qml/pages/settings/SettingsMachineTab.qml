@@ -477,7 +477,13 @@ KeyboardAwareContainer {
                             font.underline: true
                             wrapMode: Text.WordWrap
 
+                            Accessible.role: Accessible.Button
+                            Accessible.name: text
+                            Accessible.focusable: true
+                            Accessible.onPressAction: locationEnableArea.clicked(null)
+
                             MouseArea {
+                                id: locationEnableArea
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: {

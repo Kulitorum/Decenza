@@ -758,6 +758,15 @@ Item {
                                 leftPadding: Theme.scaled(10)
                             }
 
+                            // contentItem is set rather than `text`, so Qt derives no
+                            // default accessible name from this row.
+                            Accessible.role: Accessible.Button
+                            Accessible.name: delegate.modelData ? delegate.modelData.name : ""
+                            Accessible.focusable: true
+                            Accessible.checkable: true
+                            Accessible.checked: delegate.highlighted
+                            Accessible.onPressAction: delegate.clicked()
+
                             onClicked: {
                                 if (delegate.modelData) {
                                     ScreensaverManager.selectedCategoryId = delegate.modelData.id

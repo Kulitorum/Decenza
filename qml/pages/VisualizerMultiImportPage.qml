@@ -536,7 +536,19 @@ Page {
                                     }
                                 }
 
+                                // The row is the only way to select a shot; without these a
+                                // screen reader cannot reach it. The deselect target further
+                                // down already carries the same set.
+                                Accessible.role: Accessible.Button
+                                Accessible.name: shotDelegate.modelData.profile_title
+                                                 || TranslationManager.translate("visualizerImport.unknownProfile", "Unknown Profile")
+                                Accessible.focusable: true
+                                Accessible.checkable: true
+                                Accessible.checked: multiImportPage.selectedShot === shotDelegate.modelData
+                                Accessible.onPressAction: shotSelectArea.clicked(null)
+
                                 MouseArea {
+                                    id: shotSelectArea
                                     anchors.fill: parent
                                     anchors.leftMargin: Theme.scaled(40)  // Don't overlap star
                                     onClicked: {

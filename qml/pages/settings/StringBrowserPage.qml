@@ -307,6 +307,7 @@ Page {
                             Accessible.role: Accessible.Button
                             Accessible.name: TranslationManager.translate("stringBrowser.accessible.clearSearch", "Clear search")
                             Accessible.focusable: true
+                            Accessible.onPressAction: searchField.text = ""
 
                             MouseArea {
                                 anchors.fill: parent

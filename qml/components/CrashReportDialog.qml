@@ -377,6 +377,11 @@ Dialog {
                 Layout.leftMargin: Theme.scaled(20)
                 Layout.bottomMargin: Theme.scaled(10)
 
+                Accessible.role: Accessible.Button
+                Accessible.name: text
+                Accessible.focusable: true
+                Accessible.onPressAction: Qt.openUrlExternally(root.issueUrl)
+
                 MouseArea {
                     anchors.fill: parent
                     cursorShape: Qt.PointingHandCursor

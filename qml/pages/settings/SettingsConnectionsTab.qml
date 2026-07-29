@@ -152,9 +152,15 @@ Item {
 
                 // Cancel button
                 Text {
+                    id: shareLogCancel
                     text: TranslationManager.translate("common.cancel", "Cancel")
                     color: Theme.accentColor
                     font.pixelSize: Theme.scaled(14)
+
+                    Accessible.role: Accessible.Button
+                    Accessible.name: shareLogCancel.text
+                    Accessible.focusable: true
+                    Accessible.onPressAction: shareLogDialog.close()
 
                     MouseArea {
                         anchors.fill: parent
@@ -792,7 +798,15 @@ Item {
                                 color: delegate.hovered ? Theme.accentColor : "transparent"
                                 radius: Theme.scaled(4)
                             }
-                            onClicked: DE1Device.connectToDevice(modelData.address)
+
+                            // The row sets contentItem rather than `text`, so Qt has no
+                            // string to derive a default accessible name from.
+                            Accessible.role: Accessible.Button
+                            Accessible.name: delegate.modelData.name + " (" + delegate.modelData.address + ")"
+                            Accessible.focusable: true
+                            Accessible.onPressAction: delegate.clicked()
+
+                            onClicked: DE1Device.connectToDevice(delegate.modelData.address)
                         }
 
                         // A visual child of a ListView is reparented to its
