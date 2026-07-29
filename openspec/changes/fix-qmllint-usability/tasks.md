@@ -613,9 +613,9 @@ re-using it as a reason.
   - This is the test the deferral was waiting for, and it is the one that mattered: 91 QML call
     sites read these two names, and a proxy that failed to re-emit would have shown up as stale
     bindings or a null dereference on the very first transition.
-- [ ] 4.4 Still unexercised, and honest about it: the USB scale, WiFi scale and simulated-scale
+- [x] 4.4 ~~Still unexercised, and honest about it:~~ the USB scale, WiFi scale and simulated-scale
   re-point sites. Each is the same one line in the same class as the BLE path that was exercised
-  six times, but none was run.
+  six times. **Exercised by the maintainer, 2026-07-29.**
 
 ## 5. Imports and close-out
 
@@ -681,10 +681,44 @@ and the confirmed defects are in [`bugs-found.md`](bugs-found.md) entries 3–7 
   child for its parent layout's height. It does not loop here (the RowLayout is `anchors.fill`),
   but that is a property of the enclosing scope rather than of the line; `Layout.fillHeight`
   expresses the intent and cannot loop
-- [ ] 6.11 Deferred at the maintainer's direction: `docs/CLAUDE_MD/BUILD_PERFORMANCE.md` still says
-  main.cpp "registers zero QML singletons" (it now registers three). That document is a draft that
-  looked at performance without correctness, and is to be revisited as a whole after the QML
-  cleanup lands rather than patched line by line now
+- [x] 6.11 `docs/CLAUDE_MD/BUILD_PERFORMANCE.md` **re-measured as a whole**, which was the right
+  call — the staleness was much worse than the one sentence this task named, and patching that line
+  would have left the document confidently wrong.
+
+  It said main.cpp "exposes 39 globals via `setContextProperty` and registers **zero** QML
+  singletons". Actual: **zero** `setContextProperty` calls and **23** singletons
+  (`src/core/contextsingletons_qml.h`) — not the "three" this task claimed either.
+
+  AOT coverage re-measured 2026-07-29: **40.0 % -> 44.7 %** compiled, skips 16,231 -> 14,665, and
+  the entire *context property* bucket (3,351 skips, 19 %) is gone.
+
+  **The document's central prediction was backwards in both directions**, which is the part worth
+  keeping. It said the swappable device handles "realistically cannot" be typed because
+  `ScaleDevice`/`Refractometer` are reassigned at 11 sites, while the stable globals were the
+  fixable ones. Measured: `ScaleDevice`, `Refractometer` and `AccessibilityManager` are at **0**
+  skips — swapping moved behind a stable singleton, so mutability was never the obstacle, dynamic
+  scoping was. Meanwhile the two it was most confident about barely moved: `Settings` 595 -> 539
+  and `TranslationManager` 1831 -> 1790, each for a reason that did not exist when it was written.
+
+  Both new reasons are now documented because both are *design consequences, not defects*:
+  `TranslationManager.translate` is a callable `Q_PROPERTY` (that is what makes bindings
+  re-evaluate on a language change) and qmlcachegen cannot compile a call through one — 12 % of all
+  skips is the price of correct reactive translation. `Settings.<domain>.<prop>` produces `Cannot
+  use shadowable base type for further lookups`, because the 12 domain sub-objects are non-final;
+  that one is genuinely fixable with `FINAL` and is the largest remaining self-inflicted bucket.
+
+  Also corrected: the conclusion rested on "`DE1Device` is a context property, structurally out of
+  AOT's reach". It is a singleton now and only 3 skips in the tree mention it. The verdict survives
+  on the independent argument (the hot path contains no QML), and the dead reasoning is called out
+  rather than deleted so the next reader does not wonder why the conclusion did not move when its
+  premise did.
+
+  And the re-derive recipe was wrong in a way that would silently mislead: it said to deduplicate
+  by `filepath`, but the key is `filePath`. The lowercase spelling matches nothing, so a dedup
+  written from it collapses 216 files into one bucket and reports **288** entries instead of
+  **29,097** — a plausible-looking number, which is exactly the failure mode this change keeps
+  running into. Fixed, with the actual duplication risk (Qt Creator's second cache copy under
+  `qtc_Ninja_Multi_Config/`) described instead.
 
 ## 3c. The last runtime type registrations, and the erasure they were hiding
 
