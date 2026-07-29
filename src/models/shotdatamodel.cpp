@@ -131,6 +131,7 @@ void ShotDataModel::clear() {
     m_cumulativeWeightPoints.clear();
     m_weightFlowRatePoints.clear();
     m_weightFlowRateRawPoints.clear();
+    m_consecutiveSpikeRejections = 0;
 
     // Reset goal segments - keep first segment with capacity
     m_pressureGoalSegments.clear();
@@ -194,6 +195,8 @@ void ShotDataModel::clearWeightData() {
     if (m_fastWeightFlow) m_fastWeightFlow->clear();
     m_lastFlushedWeight = 0;
     m_lastFlushedWeightFlow = 0;
+    // The anchor these counted against is gone, so a run in progress no longer means anything.
+    m_consecutiveSpikeRejections = 0;
     qDebug() << "ShotDataModel: Cleared pre-tare weight data";
 }
 
@@ -301,6 +304,22 @@ void ShotDataModel::addWeightSample(double time, double weight) {
 
     // Spike filtering: reject readings that jump unrealistically from the last value
     // Max reasonable flow is ~5g/s, so anything faster is likely a scale glitch
+    //
+    // The comparison anchor is the last ACCEPTED point, which is only meaningful for an isolated
+    // glitch. A sustained move — cup nudged, second vessel set down, a real fast pour — fails the
+    // test on its first sample and then keeps failing, because every later sample is still measured
+    // against the pre-move anchor while the true weight walks further away. The filter recovers
+    // only by accident, once deltaTime has grown enough to dilute the rate below the threshold.
+    //
+    // A 2026-07-29 shot log shows the cost: 30 consecutive rejections over 2.0 s, all measured
+    // against a frozen 39.94 g while the scale climbed to 61.68 g. The weight series had a 2-second,
+    // 21-gram hole in it and the log had 30 near-identical WARN lines.
+    //
+    // So: cap the run. After kMaxConsecutiveRejections the move is no longer treated as a glitch —
+    // a glitch does not persist across four samples — and the sample is accepted, which re-anchors
+    // the filter on reality. Report once at the start of a run and once when it ends, never per
+    // sample.
+    constexpr int kMaxConsecutiveRejections = 3;
     if (!m_weightPoints.isEmpty()) {
         double lastWeight = m_weightPoints.last().y();
         double lastTime = m_weightPoints.last().x();
@@ -311,15 +330,31 @@ void ShotDataModel::addWeightSample(double time, double weight) {
         // Minimum deltaTime of 0.05s to avoid division issues
         if (deltaTime > 0.05) {
             double changeRate = deltaWeight / deltaTime;
-            if (changeRate > 10.0) {
-                qWarning() << "ShotDataModel: Rejecting spike - weight:" << weight
-                           << "lastWeight:" << lastWeight
-                           << "deltaWeight:" << deltaWeight
-                           << "deltaTime:" << deltaTime
-                           << "rate:" << changeRate << "g/s";
+            if (changeRate > 10.0 && m_consecutiveSpikeRejections < kMaxConsecutiveRejections) {
+                if (m_consecutiveSpikeRejections == 0) {
+                    m_firstRejectedWeight = weight;
+                    qWarning() << "ShotDataModel: Rejecting spike - weight:" << weight
+                               << "lastWeight:" << lastWeight
+                               << "deltaWeight:" << deltaWeight
+                               << "deltaTime:" << deltaTime
+                               << "rate:" << changeRate << "g/s";
+                }
+                m_consecutiveSpikeRejections++;
                 return;
             }
         }
+    }
+
+    if (m_consecutiveSpikeRejections > 0) {
+        // Either the reading came back into range on its own (an isolated glitch, which is what the
+        // filter is for) or the run hit the cap and this sample is being accepted despite the rate.
+        qWarning() << "ShotDataModel: Spike run ended after" << m_consecutiveSpikeRejections
+                   << "rejected sample(s) - first rejected:" << m_firstRejectedWeight
+                   << "accepting:" << weight
+                   << (m_consecutiveSpikeRejections >= kMaxConsecutiveRejections
+                           ? "(cap reached - treating as a real move, re-anchoring)"
+                           : "(back in range)");
+        m_consecutiveSpikeRejections = 0;
     }
 
     // Store cumulative weight for export (visualizer, shot history)
