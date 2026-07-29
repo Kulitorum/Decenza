@@ -49,6 +49,33 @@ inline QString lineLevel(const QString& line)
     return m.hasMatch() ? m.captured(1).toUpper() : QString();
 }
 
+// True when `line` belongs to any of the given subsystems. `markers` are the
+// BRACKETED tokens ("[Scale]", "[DE1]") that DecenzaLog::markerFilter() composes;
+// an empty list matches nothing, which is what a caller asking for no subsystem
+// should get rather than everything.
+//
+// Case-SENSITIVE, unlike filterLines()' `filter` below, and the asymmetry is
+// deliberate. That one takes a free string a human typed and being forgiving is a
+// kindness. A marker is a fixed token emitted by a macro: "[scale]" is not one,
+// and matching it would only ever be a false positive on prose that happened to
+// contain the word.
+//
+// Substring, never a pattern. A bracketed marker read as a regex is a character
+// class — "[Scale]" would match any line containing S, c, a, l or e, i.e. very
+// nearly every line — so this deliberately offers no regex mode to reach for.
+//
+// Lives here rather than beside its caller so that "a line belonging to subsystem
+// X" has one definition shared by the connections-page views and the MCP tools.
+// Two implementations of that predicate would be free to disagree about exactly
+// the queries the markers were introduced to make answerable.
+inline bool matchesAnyMarker(const QString& line, const QStringList& markers)
+{
+    for (const QString& marker : markers) {
+        if (!marker.isEmpty() && line.contains(marker, Qt::CaseSensitive)) return true;
+    }
+    return false;
+}
+
 // Filters `lines` (whose element 0 is absolute line number `startLine` within
 // the addressed range) by substring/regex `filter` and/or `minLevel`
 // (inclusive threshold). A line must satisfy both when both are given.

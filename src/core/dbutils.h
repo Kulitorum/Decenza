@@ -251,8 +251,36 @@ public:
     // callers whose work receives a ready db handle, prefer run() below.
     void post(std::function<void()> task) {
         ensureStarted();
-        QMetaObject::invokeMethod(m_context, std::move(task), Qt::QueuedConnection);
+        m_outstanding->fetch_add(1, std::memory_order_relaxed);
+        // Captures the COUNTER, not `this`. A queued lambda can outlive this
+        // worker — see m_outstanding's declaration for the use-after-free that
+        // capturing `this` here caused.
+        QMetaObject::invokeMethod(m_context,
+            [counter = m_outstanding, task = std::move(task)]() mutable {
+                task();
+                counter->fetch_sub(1, std::memory_order_release);
+            }, Qt::QueuedConnection);
     }
+
+    // Nothing submitted through this worker is still queued or running.
+    //
+    // Exists so a caller that must not proceed until the DB work has actually
+    // finished can WAIT ON THAT, rather than on a duration. tst_mcptools_write had
+    // five copies of `for (i < 20) { processEvents(); msleep(25); }` after
+    // storage.close() — a 500 ms guess at how long a background write takes, which
+    // is precisely the "timers as guards" anti-pattern CLAUDE.md forbids: it breaks
+    // on a slow or loaded machine, and under the parallel ASan+UBSan test run it
+    // did, intermittently, while passing on its own and on retry.
+    //
+    // For run(), idle additionally means the `done` callback has been delivered on
+    // the receiver's thread — the full round trip — because that callback is what a
+    // caller is usually waiting for. For a bare post(), the task marshals its own
+    // result and this can only cover the task body.
+    //
+    // Note what the destructor does NOT do: ~SerialDbWorker quit()s, which DISCARDS
+    // queued-but-unstarted tasks. So "wait for idle" and "destroy and join" are not
+    // interchangeable — only the former guarantees the work happened.
+    bool isIdle() const { return m_outstanding->load(std::memory_order_acquire) == 0; }
 
     // Identifies which storage's worker this is in a thread dump.
     QString name() const { return m_name; }
@@ -274,15 +302,25 @@ public:
              std::function<void(bool dbOpened)> done,
              QObject* receiver,
              std::shared_ptr<std::atomic<bool>> destroyed) {
+        // Keeps isIdle() false until the `done` callback has been delivered, not
+        // merely until the DB work finished. A shared_ptr with a decrementing
+        // deleter rather than an explicit release, because this chain has four
+        // exits — work completed, owner destroyed mid-flight, owner destroyed
+        // before delivery, and the receiver dying so the queued lambda is dropped
+        // undelivered — and only the last copy going away catches all four. An
+        // explicit decrement would leak the count on whichever path someone
+        // forgot, and a leaked count makes isIdle() never true, i.e. a waiter
+        // hangs until its timeout.
+        auto ticket = roundTripTicket();
         post([dbPath, connPrefix, work = std::move(work), done = std::move(done),
-              receiver, destroyed]() mutable {
+              receiver, destroyed, ticket]() mutable {
             const bool dbOpened = withTempDb(dbPath, connPrefix, [&](QSqlDatabase& db) { work(db); });
             if (!dbOpened)
                 qWarning() << "SerialDbWorker: failed to open DB for" << connPrefix;
             if (destroyed->load())
                 return;
             QMetaObject::invokeMethod(receiver,
-                [done = std::move(done), dbOpened, destroyed]() {
+                [done = std::move(done), dbOpened, destroyed, ticket]() {
                     if (destroyed->load())
                         return;
                     done(dbOpened);
@@ -291,6 +329,21 @@ public:
     }
 
 private:
+    // One outstanding-work unit, released when the last copy of the returned
+    // handle is destroyed. The null pointer is deliberate — the handle carries no
+    // value, only the lifetime; std::shared_ptr still runs the deleter for a null
+    // pointer when the use count reaches zero.
+    std::shared_ptr<void> roundTripTicket() {
+        m_outstanding->fetch_add(1, std::memory_order_relaxed);
+        // Captures the counter, NOT `this`. This deleter runs from whichever
+        // context destroys the last lambda holding the ticket, and one of those
+        // contexts is ~QObject purging undelivered events AFTER the worker is
+        // already gone. See m_outstanding.
+        return std::shared_ptr<void>(nullptr, [counter = m_outstanding](void*) {
+            counter->fetch_sub(1, std::memory_order_release);
+        });
+    }
+
     void ensureStarted() {
         // m_thread/m_context are touched here and in post() without a lock, so
         // every call must come from the one owner thread (see class comment).
@@ -309,4 +362,23 @@ private:
     QThread* m_ownerThread = nullptr;  // thread that first used this worker
     QThread* m_thread = nullptr;
     QObject* m_context = nullptr;
+    // Submitted-but-not-yet-finished units. Atomic because it is touched from the
+    // owner thread (submit), the worker thread (task end) and the receiver thread
+    // (delivery).
+    //
+    // Held by shared_ptr, and NOT a plain member, because it must outlive this
+    // object. Queued lambdas hold a reference to it, and a lambda can be destroyed
+    // after the worker is gone: ~CoffeeBagStorage (and ~ShotHistoryStorage) reset
+    // the worker in the destructor BODY, then the QObject base destructor runs
+    // QCoreApplication::removePostedEvents, which deletes any still-queued
+    // QMetaCallEvent and with it the lambda holding the ticket. Its deleter then
+    // decrements — after the free.
+    //
+    // A first version captured `this` in that deleter and ASan caught it exactly
+    // there: a use-after-free write in tst_coffeebags, from
+    // removePostedEvents -> ~QMetaCallEvent -> ~shared_ptr -> fetch_sub on the
+    // destroyed worker. It aborted the whole test binary rather than failing a
+    // case, which is why the run reported "fatal" and no assertion.
+    std::shared_ptr<std::atomic<int>> m_outstanding =
+        std::make_shared<std::atomic<int>>(0);
 };

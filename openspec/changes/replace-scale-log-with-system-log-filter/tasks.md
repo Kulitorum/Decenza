@@ -75,11 +75,11 @@ Found while converting group 3: `[Scale]`/`[DE1]`/`[Refractometer]` are not yet 
 
 ## 4. Logger plumbing
 
-- [ ] 4.1 Add `lineAppended(QtMsgType, QString)` to `WebDebugLogger`. Snapshot under the existing mutex and emit **after** releasing it — emitting under the lock deadlocks any slot that logs.
-- [ ] 4.2 Add a session-scoped filtered accessor returning the current session's lines matching a marker at or above a minimum level, implemented with `McpLogFilter` so the view and MCP share one definition of "a scale line".
-- [ ] 4.3 Expose `WebDebugLogger` to QML by macro in the header — never `setContextProperty`, never a runtime `qmlRegisterType` (see `QML_GOTCHAS.md`); add the `qt_add_qml_module` `DEPENDENCIES` entry if needed.
-- [ ] 4.4 Extend `tst_webdebuglogger`: the accessor returns only the current session, only matching markers, only at/above the level; `lineAppended` fires once per line with the right type; a slot that logs does not deadlock or recurse.
-- [ ] 4.5 Build and run the full suite.
+- [x] 4.1 Add `lineAppended(QtMsgType, QString)` to `WebDebugLogger`. Snapshot under the existing mutex and emit **after** releasing it — emitting under the lock deadlocks any slot that logs.
+- [x] 4.2 Add a session-scoped filtered accessor returning the current session's lines matching a marker at or above a minimum level, implemented with `McpLogFilter` so the view and MCP share one definition of "a scale line".
+- [x] 4.3 Expose `WebDebugLogger` to QML by macro in the header — never `setContextProperty`, never a runtime `qmlRegisterType` (see `QML_GOTCHAS.md`); add the `qt_add_qml_module` `DEPENDENCIES` entry if needed.
+- [x] 4.4 Extend `tst_webdebuglogger`: the accessor returns only the current session, only matching markers, only at/above the level; `lineAppended` fires once per line with the right type; a slot that logs does not deadlock or recurse.
+- [x] 4.5 Build and run the full suite.
 
 ## 5. Re-source the two views
 

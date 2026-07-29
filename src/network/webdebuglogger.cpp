@@ -1,5 +1,7 @@
 #include "webdebuglogger.h"
 
+#include "mcp/mcplogfilter.h"
+
 #include <QDebug>
 #include <QStandardPaths>
 #include <QDir>
@@ -28,6 +30,15 @@ void WebDebugLogger::install()
         s_instance = new WebDebugLogger();
         s_previousHandler = qInstallMessageHandler(messageHandler);
     }
+}
+
+WebDebugLogger* WebDebugLogger::create(QQmlEngine*, QJSEngine*)
+{
+    // Never constructs. install() has already run from main() before the QML engine
+    // exists, and this object owns the global Qt message handler — a second
+    // instance would either fight for it or capture nothing at all while looking
+    // fully functional to the view bound to it.
+    return s_instance;
 }
 
 WebDebugLogger::WebDebugLogger(QObject* parent)
@@ -118,6 +129,51 @@ void WebDebugLogger::handleMessage(QtMsgType type, const QString& message)
     // Also write to file (outside mutex to avoid blocking)
     locker.unlock();
     writeToFile(line);
+
+    // Notify observers LAST: after the mutex is released and after the line is on
+    // disk, so a slot that reads either sees a consistent state.
+    //
+    // Releasing the lock first is not a tidiness choice. This object's own signal
+    // reaches slots that can log — a view appending a line, a helper reporting what
+    // it did — and every such log re-enters handleMessage() through the global
+    // message handler. Emitting under m_mutex would therefore have the same thread
+    // take a non-recursive QMutex it already holds: a self-deadlock, on whatever
+    // arbitrary thread happened to log, with a stack that names the innocent slot.
+    //
+    // The re-entrancy is still a problem after the unlock, just a different one:
+    // slot logs -> handleMessage -> emit -> slot logs -> unbounded recursion until
+    // the stack dies. So the guard is per-THREAD (the handler is called from the
+    // database and network threads as well as the main one, and a shared flag would
+    // let one thread's logging silently suppress another's signal) and it suppresses
+    // only the EMIT. The line itself is still buffered and still written to disk,
+    // because a line produced by a logging slot is a real line and losing it would
+    // be a silent hole exactly where someone was trying to explain something.
+    //
+    // Documented in the signal's comment as a rule too, but the rule is not the
+    // mechanism: "do not log in this slot" is unenforceable, invisible when broken,
+    // and the failure is a hang or a crash rather than a wrong value.
+    //
+    // What this does NOT cover, stated because a guard invites the assumption that
+    // it does: a receiver living on a DIFFERENT thread whose slot logs. That emit is
+    // queued, so it returns before the slot runs and the flag is already clear by
+    // then; the slot's own log re-enters on its thread and queues another delivery,
+    // which grows the receiver's event queue without bound instead of the stack.
+    // Nothing in the app is such a receiver today — the views and this object are
+    // both main-thread — and a thread-local flag cannot see across threads to fix
+    // it. If a worker-thread observer is ever added, it needs its own answer.
+    static thread_local bool emitting = false;
+    if (emitting) {
+        return;
+    }
+    // Cleared on every exit path. A slot that throws would otherwise leave this
+    // thread permanently unable to emit, i.e. a view that silently stops updating
+    // with nothing to indicate why.
+    struct Guard {
+        bool& flag;
+        ~Guard() { flag = false; }
+    } guard{emitting};
+    emitting = true;
+    emit lineAppended(type, line);
 }
 
 void WebDebugLogger::writeToFile(const QString& line)
@@ -253,6 +309,67 @@ QList<WebDebugLogger::SessionBoundary> WebDebugLogger::sessionIndex(qsizetype* t
 QString WebDebugLogger::logFilePath() const
 {
     return m_logFilePath;
+}
+
+QStringList WebDebugLogger::sessionLinesMatching(const QStringList& markers,
+                                                 const QString& minLevel) const
+{
+    // No subsystem asked for means no lines, not every line. A view built with an
+    // empty marker list is a wiring mistake, and answering it with the unfiltered
+    // log would put the whole firehose on screen — the exact failure this change
+    // exists to end — while looking like it worked.
+    if (markers.isEmpty()) {
+        return {};
+    }
+
+    qsizetype totalLines = 0;
+    const QList<SessionBoundary> sessions = sessionIndex(&totalLines);
+
+    // The current session is the LAST boundary: install() writes one marker at
+    // startup and nothing writes another, so the newest is always ours.
+    //
+    // With no boundary at all, read the whole file. That is not a hypothetical
+    // branch to be defensive: the DECENZA_TESTING constructor deliberately writes
+    // no session marker, and a debug.log carried over from a build predating the
+    // markers has none either. Returning nothing in those cases would look exactly
+    // like "this subsystem logged nothing", which is the one answer a log reader
+    // must never be given falsely.
+    const qsizetype start = sessions.isEmpty() ? 0 : sessions.last().startLine;
+    const qsizetype count = sessions.isEmpty() ? totalLines : sessions.last().lineCount;
+    if (count <= 0) {
+        return {};
+    }
+
+    QStringList result;
+    for (const QString& line : getPersistedLogChunk(start, count)) {
+        if (lineMatches(line, markers, minLevel)) {
+            result.append(line);
+        }
+    }
+    return result;
+}
+
+bool WebDebugLogger::lineMatches(const QString& line, const QStringList& markers,
+                                const QString& minLevel) const
+{
+    // The single per-line test, called both by sessionLinesMatching() above for the
+    // backfill and directly by the views for each live line. One function, so the
+    // set a view is built with and the set it grows by cannot disagree.
+    if (!McpLogFilter::matchesAnyMarker(line, markers)) {
+        return false;
+    }
+    if (minLevel.isEmpty()) {
+        return true;
+    }
+    // An unrecognised minLevel ranks -1, which as a threshold would admit
+    // everything — including the session markers and trim banners that carry no
+    // level at all, because those also rank -1. Treated as "no level constraint"
+    // rather than silently putting the firehose back on screen.
+    const int minRank = McpLogFilter::levelRank(minLevel);
+    if (minRank < 0) {
+        return true;
+    }
+    return McpLogFilter::levelRank(McpLogFilter::lineLevel(line)) >= minRank;
 }
 
 QStringList WebDebugLogger::getLines(int afterIndex, int* lastIndex) const
