@@ -17,9 +17,9 @@ Button {
         radius: Theme.scaled(8)
         color: {
             if (root.selected) return Theme.primaryColor
-            if (root.down) return Qt.rgba(255, 255, 255, 0.15)
-            if (root.hovered) return Qt.rgba(255, 255, 255, 0.1)
-            return Qt.rgba(255, 255, 255, 0.05)
+            if (root.down) return Qt.rgba(1, 1, 1, 0.15)
+            if (root.hovered) return Qt.rgba(1, 1, 1, 0.1)
+            return Qt.rgba(1, 1, 1, 0.05)
         }
         border.width: root.selected ? 0 : 1
         border.color: Theme.textSecondaryColor

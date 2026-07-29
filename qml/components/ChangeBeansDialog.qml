@@ -1448,7 +1448,7 @@ Dialog {
                         // Match StyledComboBox (the input controls around it): 36 / r8.
                         Layout.preferredHeight: Theme.scaled(36)
                         radius: Theme.scaled(8)
-                        color: Qt.rgba(255, 255, 255, 0.1)
+                        color: Qt.rgba(1, 1, 1, 0.1)
 
                         Accessible.role: Accessible.Button
                         Accessible.name: trBeanDetails.text

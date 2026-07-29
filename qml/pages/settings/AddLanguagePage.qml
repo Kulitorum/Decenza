@@ -114,7 +114,7 @@ Page {
                     radius: Theme.buttonRadius
                     color: langMouseArea.pressed ? Theme.primaryColor : Theme.cardBackgroundColor
                     border.width: 1
-                    border.color: Qt.rgba(1, 1, 1, 0.3)
+                    border.color: Theme.borderColor
 
                     Accessible.role: Accessible.Button
                     Accessible.name: langCell.modelData.name + ", " + langCell.modelData.nativeName
@@ -151,7 +151,7 @@ Page {
                             Text {
                                 text: langCell.modelData.nativeName
                                 font: Theme.labelFont
-                                color: langMouseArea.pressed ? Qt.rgba(1,1,1,0.8) : Theme.textSecondaryColor
+                                color: langMouseArea.pressed ? Qt.alpha(Theme.primaryContrastColor, 0.8) : Theme.textSecondaryColor
                                 elide: Text.ElideRight
                                 Layout.fillWidth: true
                             }

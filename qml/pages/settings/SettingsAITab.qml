@@ -121,7 +121,7 @@ KeyboardAwareContainer {
 
                                 color: {
                                     if (isSelected) return Theme.primaryColor
-                                    if (hasKey) return Qt.rgba(0.2, 0.7, 0.3, 0.25)
+                                    if (hasKey) return Qt.alpha(Theme.successColor, 0.25)
                                     // Unconfigured state is meant to blend into the page
                                     // backdrop. With a flat Theme.backgroundColor page that
                                     // meant matching it exactly; with a background image
@@ -132,7 +132,7 @@ KeyboardAwareContainer {
                                 }
                                 border.color: {
                                     if (isSelected) return Theme.primaryColor
-                                    if (hasKey) return Qt.rgba(0.2, 0.7, 0.3, 0.5)
+                                    if (hasKey) return Qt.alpha(Theme.successColor, 0.5)
                                     return Theme.borderColor
                                 }
                                 border.width: 1
@@ -163,7 +163,7 @@ KeyboardAwareContainer {
                                             return MainController.aiManager ? MainController.aiManager.modelDisplayName(providerTile.modelData.id) : ""
                                         }
                                         font.pixelSize: Theme.scaled(11)
-                                        color: providerTile.isSelected ? Qt.rgba(1,1,1,0.8) : Theme.textSecondaryColor
+                                        color: providerTile.isSelected ? Qt.alpha(Theme.primaryContrastColor, 0.8) : Theme.textSecondaryColor
                                         Accessible.ignored: true
                                     }
                                 }

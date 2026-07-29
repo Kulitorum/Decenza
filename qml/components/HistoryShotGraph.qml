@@ -652,7 +652,7 @@ Item {
                 }
                 font.pixelSize: Theme.scaled(14)
                 font.bold: markerDelegate.isStart
-                color: markerDelegate.isStart ? Theme.accentColor : Qt.rgba(255, 255, 255, 0.8)
+                color: markerDelegate.isStart ? Theme.accentColor : Qt.rgba(1, 1, 1, 0.8)
                 rotation: -90
                 transformOrigin: Item.TopLeft
                 x: Theme.scaled(3)

@@ -210,7 +210,7 @@ Rectangle {
                             // options (custom orange retained; others use accent).
                             border.color: dragMa.drag.active ? Theme.primaryColor
                                 : (chipDelegate.hasOptions && !chipDelegate.isSelected
-                                    ? (chipDelegate.modelData.type === "custom" ? "orange" : Theme.primaryColor)
+                                    ? (chipDelegate.modelData.type === "custom" ? Theme.sourceBadgeOrangeColor : Theme.primaryColor)
                                     : Theme.borderColor)
                             border.width: (dragMa.drag.active || (chipDelegate.hasOptions && !chipDelegate.isSelected)) ? 2 : 1
                             scale: dragMa.drag.active ? 1.05 : 1.0
@@ -268,8 +268,8 @@ Rectangle {
                                     text: root.getItemDisplayName(chipDelegate.modelData.type)
                                     color: chipDelegate.isSelected
                                         ? Theme.primaryContrastColor
-                                        : ((chipDelegate.modelData.type === "spacer" || chipDelegate.modelData.type === "separator" || chipDelegate.modelData.type === "weather") ? "orange"
-                                        : ((chipDelegate.modelData.type.startsWith("screensaver") || chipDelegate.modelData.type === "lastShot") ? "#64B5F6" : Theme.textColor))
+                                        : ((chipDelegate.modelData.type === "spacer" || chipDelegate.modelData.type === "separator" || chipDelegate.modelData.type === "weather") ? Theme.sourceBadgeOrangeColor
+                                        : ((chipDelegate.modelData.type.startsWith("screensaver") || chipDelegate.modelData.type === "lastShot") ? Theme.sourceBadgeBlueColor : Theme.textColor))
                                     font: Theme.bodyFont
                                 }
 
@@ -289,7 +289,7 @@ Rectangle {
 
                                     Text {
                                         text: root.getTextChipLabel(chipDelegate.modelData)
-                                        color: chipDelegate.isSelected ? Theme.primaryContrastColor : "orange"
+                                        color: chipDelegate.isSelected ? Theme.primaryContrastColor : Theme.sourceBadgeOrangeColor
                                         font: Theme.captionFont
                                         anchors.verticalCenter: parent.verticalCenter
                                     }
@@ -548,8 +548,8 @@ Rectangle {
                                     anchors.leftMargin: Theme.scaled(12)
                                     anchors.verticalCenter: parent.verticalCenter
                                     text: addItemRow.modelData.label
-                                    color: (addItemRow.modelData.type.startsWith("screensaver") || addItemRow.modelData.type === "lastShot") ? "#64B5F6"
-                                        : (addItemRow.modelData.type === "spacer" || addItemRow.modelData.type === "separator" || addItemRow.modelData.type === "custom" || addItemRow.modelData.type === "weather") ? "orange" : Theme.textColor
+                                    color: (addItemRow.modelData.type.startsWith("screensaver") || addItemRow.modelData.type === "lastShot") ? Theme.sourceBadgeBlueColor
+                                        : (addItemRow.modelData.type === "spacer" || addItemRow.modelData.type === "separator" || addItemRow.modelData.type === "custom" || addItemRow.modelData.type === "weather") ? Theme.sourceBadgeOrangeColor : Theme.textColor
                                     font: Theme.bodyFont
                                 }
 

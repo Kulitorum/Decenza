@@ -387,7 +387,7 @@ Item {
                 }
                 font.pixelSize: Theme.scaled(18)
                 font.bold: markerDelegate.isStart || markerDelegate.isEnd
-                color: markerDelegate.isStart ? Theme.accentColor : (markerDelegate.isEnd ? Theme.stopMarkerColor : Qt.rgba(255, 255, 255, 0.8))
+                color: markerDelegate.isStart ? Theme.accentColor : (markerDelegate.isEnd ? Theme.stopMarkerColor : Qt.rgba(1, 1, 1, 0.8))
                 rotation: -90
                 transformOrigin: Item.TopLeft
                 x: Theme.scaled(4)

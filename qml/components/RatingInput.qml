@@ -118,7 +118,7 @@ FocusScope {
                         text: presetPill.modelData
                         font.pixelSize: Theme.scaled(root.compact ? 10 : 12)
                         font.bold: true
-                        color: presetPill.isActive ? "#ffffff" : root.ratingColor(presetPill.modelData)
+                        color: presetPill.isActive ? Theme.primaryContrastColor : root.ratingColor(presetPill.modelData)
                         Accessible.ignored: true
                     }
 
