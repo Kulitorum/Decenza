@@ -209,10 +209,13 @@ Item {
                     // invisible to TalkBack/VoiceOver, and this is the only way to set a
                     // channel value in the theme editor.
                     Accessible.role: Accessible.Slider
+                    // QQuickAccessibleAttached has no `value` property (only role, name,
+                    // description, id, ignored, labelledBy, labelFor plus the bool states),
+                    // so the current channel value goes in the name.
                     Accessible.name: TranslationManager.translate("colorEditor.accessible.channel",
-                                                                  "Color channel %1").arg(sliderRow.label)
+                                                                  "Color channel %1")
+                                     .arg(sliderRow.label) + ", " + Math.round(sliderRow.currentVal)
                     Accessible.focusable: true
-                    Accessible.value: String(Math.round(sliderRow.currentVal))
                     Accessible.onIncreaseAction: root._setChannel(
                         sliderRow.index, Math.min(sliderRow.maxVal, Math.round(sliderRow.currentVal) + 1))
                     Accessible.onDecreaseAction: root._setChannel(
