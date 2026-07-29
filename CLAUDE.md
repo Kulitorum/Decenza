@@ -147,10 +147,12 @@ colour glyph reach the platform renderer, which **crashes the render thread on m
   can be several things in a file (a function-local `var step` and a nested `property var step`),
   and only the flagged occurrences may move.
 - **A nested event loop reachable from a QML signal handler is a crash, not a slowdown.**
-  `processEvents()` / `exec()` below a handler delivers queued `DeferredDelete`s, so an object can
-  be destroyed mid-handler and Qt answers with `qFatal()` — shipped iOS 2.0.0 aborted this way
+  `processEvents()` / `exec()` below a handler delivers queued events, and one that destroys an
+  object whose handler is still running makes Qt `qFatal()`
+  (`qtdeclarative/src/qml/qml/qqmlengine.cpp:1370-1396`) — shipped iOS 2.0.0 aborted this way
   (#1692). Long work goes on a worker thread with results posted back queued, never pumped inline;
-  a progress bar is not a reason to pump. Full chain in `QML_GOTCHAS.md`.
+  a progress bar is not a reason to pump. Which posted event did it is NOT established, and the
+  obvious guess (a `DeferredDelete`) is gated — see `QML_GOTCHAS.md` for the sources.
 - **Font property conflict**: don't mix `font: Theme.bodyFont` with `font.bold: true` — assign sub-properties individually.
 - **Reserved names in JS model data**: `name`, `parent`, `children`, `data`, `state`, `enabled`, `visible`, `width`, `height`, `x`, `y`, `z`, `focus`, `clip` collide with QML properties — use `label` etc.
 - **IME last-word drop**: call `Keyboard.commit()` before reading any `TextField.text` from a button handler — otherwise the in-progress word is lost on mobile. (`Keyboard` is a compile-time singleton, `src/core/keyboard.h`. It replaced `Qt.inputMethod`, which qmllint types as a bare `QObject` — so a typo in the call was uncheckable, and its failure mode is silent.)

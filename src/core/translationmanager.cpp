@@ -163,8 +163,17 @@ TranslationManager::~TranslationManager()
     // The string-scan worker posts progress and its results back to this object, so it must not
     // outlive it. Nothing else waits on it — the scan is pure parsing over compiled-in qrc data,
     // so the worst case here is the parse of the remaining files, not a blocking I/O wait.
+    //
+    // The bounded wait is not belt-and-braces: wait() returns a bool that Qt does not annotate,
+    // so a dropped `false` would be invisible to -Werror=unused-result while leaving a thread
+    // about to post to an object entering ~QObject — the exact UB this line exists to prevent.
     if (m_scanThread && m_scanThread->isRunning()) {
-        m_scanThread->wait();
+        if (!m_scanThread->wait(10000)) {
+            qWarning() << "TranslationManager: the string-scan worker has not exited 10s into"
+                       << "destruction. Waiting on it regardless — the alternative is a thread"
+                       << "posting to a destroyed object.";
+            (void)m_scanThread->wait();
+        }
     }
 }
 
@@ -611,7 +620,12 @@ void TranslationManager::registerString(const QString& key, const QString& fallb
 // This runs when entering the Language settings page.
 void TranslationManager::scanAllStrings()
 {
+    // Not a refusal: the in-flight scan will emit scanFinished(), and that IS this caller's
+    // answer. The contract is that a caller connects BEFORE calling, never after — see
+    // translateAndUploadAllLanguages(), which parks on the signal first and only then asks for a
+    // scan. A caller that connects afterwards waits forever whenever it lost the race.
     if (m_scanning) {
+        qDebug() << "TranslationManager: string scan already running; joining the in-flight scan.";
         return;
     }
 
@@ -656,6 +670,7 @@ void TranslationManager::scanAllStrings()
     QThread* worker = QThread::create([this, qmlFiles]() {
         QList<ScannedString> found;
         QSet<QString> seenInQml;
+        QStringList unreadable;
         int filesDone = 0;
 
         for (const QString& filePath : qmlFiles) {
@@ -669,6 +684,11 @@ void TranslationManager::scanAllStrings()
                     seenInQml.insert(s.key);
                     found.append(s);
                 }
+            } else {
+                // A file we cannot read contributes nothing and would otherwise be indistinguishable
+                // from one that legitimately holds no strings — the scan would reach 100% and
+                // report success over a short registry, which is then AI-translated and uploaded.
+                unreadable << QStringLiteral("%1 (%2)").arg(filePath, file.errorString());
             }
 
             ++filesDone;
@@ -678,12 +698,29 @@ void TranslationManager::scanAllStrings()
             }, Qt::QueuedConnection);
         }
 
-        QMetaObject::invokeMethod(this, [this, found, seenInQml]() {
-            applyScanResults(found, seenInQml);
+        QMetaObject::invokeMethod(this, [this, found, seenInQml, unreadable]() {
+            applyScanResults(found, seenInQml, unreadable);
         }, Qt::QueuedConnection);
     });
 
     m_scanThread = worker;
+
+    // The results are posted before run() returns, so they are queued AHEAD of finished() on the
+    // main thread: reaching this slot with m_scanning still set means the worker died — or never
+    // started — without posting. Without it, m_scanning would stay true forever, the Language
+    // page's modal scanning overlay would never clear, every later scanAllStrings() would
+    // early-return, and anything parked on scanFinished() would wait for a signal that is not
+    // coming. QThread::start() can itself fail and only warns.
+    connect(worker, &QThread::finished, this, [this]() {
+        if (!m_scanning)
+            return;   // normal path: applyScanResults already ran
+        qWarning() << "TranslationManager: the string-scan worker exited without posting a result."
+                   << "The registry was not updated, so AI translation and community upload will"
+                   << "be working from an incomplete list.";
+        m_scanning = false;
+        emit scanningChanged();
+        emit scanFinished(0);   // release anything parked on it rather than hang
+    });
     connect(worker, &QThread::finished, worker, &QObject::deleteLater);
     worker->start();
 }
@@ -694,9 +731,11 @@ QList<TranslationManager::ScannedString> TranslationManager::parseTranslatableSt
 {
     QList<ScannedString> found;
 
-    // Built per call rather than kept static: this runs on the scan's worker thread, and a few
-    // microseconds of PCRE compile per file is not measurable against regexing the file itself.
-
+    // Built per call, not kept static: QRegularExpression is documented reentrant, not
+    // thread-safe (qtbase/src/corelib/text/qregularexpression.cpp:34), so a shared instance is a
+    // promise Qt does not make. A few microseconds of PCRE compile per file is not measurable
+    // against regexing the file itself.
+    //
     // Pattern 1: Direct translate() calls - translate("key", "fallback")
     QRegularExpression directCallRegex("translate\\s*\\(\\s*\"([^\"\\n]+)\"\\s*,\\s*\"([^\"\\n]+)\"\\s*\\)");
 
@@ -827,13 +866,14 @@ QList<TranslationManager::ScannedString> TranslationManager::parseTranslatableSt
     return found;
 }
 
-void TranslationManager::applyScanResults(const QList<ScannedString>& found, const QSet<QString>& seenInQml)
+void TranslationManager::applyScanResults(const QList<ScannedString>& found, const QSet<QString>& seenInQml,
+                                          const QStringList& unreadableFiles)
 {
     int stringsFound = 0;
     const qsizetype initialCount = m_stringRegistry.size();
 
-    // In file order, so a key used with two different fallbacks resolves the same way it did
-    // when this loop was interleaved with the parsing.
+    // In scan order (per file, then pattern 1, 2, 3), so a key used with two different fallbacks
+    // resolves the same way it did when this loop was interleaved with the parsing.
     for (const ScannedString& s : found) {
         if (noteSourceString(s.key, s.fallback)) {
             stringsFound++;
@@ -849,6 +889,20 @@ void TranslationManager::applyScanResults(const QList<ScannedString>& found, con
         emit totalStringCountChanged();
     }
 
+    // A file the scan could not read is not a cosmetic loss: the registry it feeds is what the AI
+    // translator is prompted with and what a community upload publishes, so a short scan spreads
+    // outward exactly the way the ":/qml" wrong-root bug did.
+    if (!unreadableFiles.isEmpty()) {
+        qWarning().noquote() << "TranslationManager: string scan could not read"
+                             << unreadableFiles.size() << "of" << m_scanTotal << "QML files. The"
+                             << "registry is INCOMPLETE — AI translation and community upload will"
+                             << "be working from a short list:"
+                             << "\n    " + unreadableFiles.join(QStringLiteral("\n    "));
+    }
+
+    // Both flags settle BEFORE the signal. translateAndUploadAllLanguages() re-enters from inside
+    // this emit and re-tests m_scanCompleted; set it afterwards and the batch re-parks, rescans,
+    // and loops scan -> translate -> scan forever. tst_translationscan pins the order.
     m_scanning = false;
     m_scanCompleted = true;
     emit scanningChanged();
@@ -3446,6 +3500,23 @@ void TranslationManager::translateAndUploadAllLanguages()
             m_batchAwaitingScan = true;
             connect(this, &TranslationManager::scanFinished, this, [this](int) {
                 m_batchAwaitingScan = false;
+
+                // The park opens a window the inline scan never had: an AI translation or an
+                // upload can start during it, and the re-entry would then hit the guard at the
+                // top of this function, qDebug, and return — with the single-shot connection
+                // already spent. The button press would evaporate with nothing on screen and no
+                // signal. Say so instead.
+                if (m_batchProcessing || m_autoTranslating || m_uploading) {
+                    m_lastError = QStringLiteral(
+                        "The batch translate and upload was waiting for the QML string scan to "
+                        "finish, but %1 started in the meantime. Wait for that to finish, then "
+                        "press the button again.")
+                        .arg(m_autoTranslating ? QStringLiteral("an AI translation")
+                                               : QStringLiteral("an upload"));
+                    emit lastErrorChanged();
+                    emit batchTranslateUploadFinished(false, m_lastError);
+                    return;
+                }
                 translateAndUploadAllLanguages();
             }, Qt::SingleShotConnection);
         }
