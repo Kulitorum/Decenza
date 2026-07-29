@@ -185,13 +185,18 @@ earlier draft said the swappable device handles "realistically cannot" be typed,
 because `ScaleDevice` and `Refractometer` are reassigned at 11 sites as hardware
 connects and disconnects, while the stable globals were the fixable ones. Measured:
 
-| | draft prediction | actual, now |
-|---|---|---|
-| `ScaleDevice`, `Refractometer` | unfixable | **0 skips** |
-| `AccessibilityManager` | fixable | **0 skips** |
-| `MainController` | fixable | 313 -> 152 |
-| `Settings` | fixable | 595 -> **539** |
-| `TranslationManager` | fixable | 1831 -> **1790** |
+| | draft prediction | after the cleanup | after #1698 |
+|---|---|---|---|
+| `ScaleDevice`, `Refractometer` | unfixable | **0 skips** | 0 |
+| `AccessibilityManager` | fixable | **0 skips** | 0 |
+| `MainController` | fixable | 313 -> 152 | **shadowable-base share fixed** |
+| `Settings` | fixable | 595 -> 539 | **shadowable-base share fixed** |
+| `TranslationManager` | fixable | 1831 -> **1790** | 1787 — permanent, see below |
+
+The middle column is the state the prediction was judged against; do not read it as
+current. #1698 then took the *shadowable-base* cause from 574 skips to 72 project-wide,
+which is the part of `Settings`/`MainController` that was fixable at all. Their residual
+skips now sit in other causes (untyped calls, unresolved ids), counted in the table above.
 
 The swappable ones went to zero because swapping moved *behind* a stable singleton
 that re-points its internals — mutability was never the obstacle, dynamic scoping

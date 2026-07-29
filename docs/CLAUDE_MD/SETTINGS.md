@@ -22,7 +22,7 @@ The split was tricky to get right — the rules below capture every gotcha that 
 
 Edit `src/core/settings_<domain>.h` and `.cpp`. Add:
 
-1. `Q_PROPERTY(... FINAL)` line in the header — include `FINAL`; see step 3 of "Adding a new domain" below for why omitting it silently costs AOT compilation
+1. `Q_PROPERTY(... FINAL)` line in the header — include `FINAL`; see step 3 of "Adding a new domain" below for why omitting it silently costs AOT compilation. It is load-bearing on anything QML then reads a property *off* (`Settings.brew.x`, or `foo.length` on a string), and inert otherwise — these classes apply it uniformly rather than tracking which properties are currently chained. Not to be confused with `QML_GOTCHAS.md`'s "never override FINAL properties on Qt types", which is about shadowing a base type you don't own.
 2. Getter + setter declarations in the header
 3. NOTIFY signal in `signals:` section
 4. Getter/setter bodies in the `.cpp`, reading/writing through `m_settings.value(...)` / `m_settings.setValue(...)` with the domain's existing key prefix (e.g. `mqtt/`, `theme/`)

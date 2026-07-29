@@ -82,13 +82,19 @@ class Settings : public QObject {
     // NotShadowable in that file (an extended singleton takes :176, for instance), but it is
     // the one available here.
     //
-    // Measured: these twelve accessors accounted for 429 of the project's 574 shadowable-base
-    // skips, and FINAL on them recovered 394 AOT-compiled bindings. Note `Settings.theme` (the
-    // SettingsTheme domain object) is not `qml/Theme.qml` (the styling singleton) despite the
-    // shared word — the bucket concentrates there because Theme.qml holds 85 of the repo's 174
-    // `Settings.theme.` reads. Whether that is worth anything at runtime is a separate
-    // question; docs/CLAUDE_MD/BUILD_PERFORMANCE.md is where the AOT numbers and the
-    // "is AOT worth it here" argument live.
+    // Measured, and the three numbers reconcile like this: the project had 574 shadowable-base
+    // skips; FINAL on these twelve accessors removed 429 of them, FINAL on the remaining
+    // settings properties removed 73 more (429 + 73 = 502), leaving 72 that live on other
+    // classes entirely. The 429 skips yielded only +394 AOT-compiled bindings, because 35 of
+    // them then failed for a DIFFERENT reason — removing a skip reason is not the same as the
+    // binding compiling, which is the single most misleading thing about this metric.
+    //
+    // Note `Settings.theme` (the SettingsTheme domain object) is not `qml/Theme.qml` (the
+    // styling singleton) despite the shared word — the bucket concentrates there because
+    // Theme.qml holds 88 of the 174 `Settings.theme.` reads under qml/ (both counted as
+    // occurrences: `grep -o 'Settings\.theme\.[A-Za-z0-9_]*'`). Whether any of this is worth
+    // anything at runtime is a separate question; docs/CLAUDE_MD/BUILD_PERFORMANCE.md holds the
+    // AOT numbers and the "is AOT worth it here" argument.
     //
     // QML cannot shadow these names structurally: Settings is QML_SINGLETON and every domain
     // type is QML_UNCREATABLE (settings_qml.h), so no QML type can derive from them. The C++

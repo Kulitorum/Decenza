@@ -411,7 +411,11 @@ QtObject {
     // reads inside C++ methods are invisible to the QML binding engine).
     //
     // DO NOT ADD TYPE ANNOTATIONS TO THESE SEVEN. They are the only unannotated
-    // functions left in this file and that is deliberate, not an oversight. Annotating
+    // TOP-LEVEL functions left in this file (the nested helpers `h` in colorToHex and
+    // `linearise` in _relativeLuminance are also unannotated, but they are private
+    // closures inside already-annotated parents and never reached from outside, so they
+    // do not participate in the untyped-call cascade). Leaving these seven is
+    // deliberate, not an oversight. Annotating
     // them (`tempUnitSuffix(): string` etc.) made qmlcachegen compile tempUnitSuffix()
     // into something that returns undefined, which showed up in the running app as
     //     RecipeEditorPage.qml:435: Unable to assign [undefined] to QString

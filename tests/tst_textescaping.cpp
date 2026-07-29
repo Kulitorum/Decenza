@@ -105,9 +105,12 @@ void TestTextEscaping::initTestCase()
                         // parameter text would silently turn `sep = "a: b"` into `sep = "a"`,
                         // or `re = /a:b/` into `/a/` — both still parse, so the test would go
                         // green while exercising a function Theme.qml does not have. None of
-                        // the extracted functions has a default value today; if one gains one,
-                        // fail loudly here instead. The unstripped text is returned so the
-                        // engine reports a SyntaxError, which QVERIFY2 below surfaces.
+                        // the extracted functions has a default value today. Note the guard is
+                        // narrower than "no defaults": a plain `pixelSize: var = 16` contains
+                        // none of these characters, so it strips cleanly and is fine. What the
+                        // guard catches is a default whose VALUE could contain a colon the
+                        // regex would eat. When it trips, the unstripped text is returned so
+                        // the engine reports a SyntaxError, which QVERIFY2 below surfaces.
                         if (!params.contains('"') && !params.contains('\'')
                             && !params.contains('/') && !params.contains('(')
                             && !params.contains('{')) {

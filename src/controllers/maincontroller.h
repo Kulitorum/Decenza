@@ -97,11 +97,18 @@ class MainController : public QObject {
     // (:197-198); that file has other NotShadowable paths, but none that apply to a plain
     // singleton's property.
     //
-    // That is also why the scalar leaf properties further down (currentFrameName,
-    // filteredGoalPressure, selectedRecipeId, …) are deliberately NOT final: nothing chains off
-    // them, so they never reach the shadow check. Keep FINAL on any accessor added here whose
-    // value gets a property read on it, or every chained lookup through it silently drops out
-    // of AOT. Nothing subclasses MainController today.
+    // The scalar leaf properties further down (currentFrameName, filteredGoalPressure,
+    // selectedRecipeId, …) are left non-final because it buys nothing THERE, not because they
+    // are exempt from the check. They are not: every property read goes through
+    // checkShadowing() and its isFinal() test, and a non-final one degrades to `var` just the
+    // same. What they never reach is checkBaseType()'s hard error at :248, because no QML
+    // chains a further lookup off them today. Add a binding that does — say
+    // `MainController.currentFrameName.length` — and that property needs FINAL too.
+    //
+    // So the rule is about the VALUE being used as a lookup base, not about pointer vs scalar.
+    // settings.h applies FINAL uniformly to every property rather than tracking which ones are
+    // currently chained; that is inert where it is not needed and immune to this trap.
+    // Nothing subclasses MainController today.
     Q_PROPERTY(VisualizerUploader* visualizer READ visualizer CONSTANT FINAL)
     Q_PROPERTY(VisualizerImporter* visualizerImporter READ visualizerImporter CONSTANT FINAL)
     Q_PROPERTY(BeanBaseClient* beanbase READ beanbase CONSTANT FINAL)
