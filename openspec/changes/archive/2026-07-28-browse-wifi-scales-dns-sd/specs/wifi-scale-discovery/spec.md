@@ -11,7 +11,7 @@ A user-initiated probe SHALL consist of two parts run together:
 
 Both parts SHALL run for every probe — the fallback is not conditional on the browse returning nothing, because a LAN can hold both new and old firmware at once.
 
-A single "Scan for Devices" press SHALL search every transport the app supports — Bluetooth, WiFi and USB — not Bluetooth alone. The three run concurrently. The A-record fallback SHALL complete within approximately 5 seconds, matching the timeout the code already uses for this path. The browse SHALL run for the whole scan cycle rather than a short snapshot, delivering rows incrementally, and SHALL stop when the scan stops. This does not constitute background probing — no browse SHALL be open outside a user-initiated scan cycle.
+A single "Scan for Devices" press SHALL search every transport the app supports — Bluetooth, WiFi and USB — not Bluetooth alone. The three run concurrently. The A-record fallback SHALL complete within approximately 5 seconds, matching the timeout the code already uses for this path. The browse SHALL run for the whole scan cycle rather than a short snapshot, delivering rows incrementally. It SHALL end on its own window elapsing, on a new scan superseding it, or on teardown — and SHALL NOT be cancelled by an incidental event during the scan, in particular not by the saved scale being rediscovered and auto-connected. This does not constitute background probing — no browse SHALL be open outside a user-initiated scan cycle.
 
 The scanning indicator SHALL remain active until **all three** transports have finished, so it answers "is the app still looking" rather than "is the Bluetooth agent still looking".
 
@@ -32,8 +32,12 @@ The scanning indicator SHALL remain active until **all three** transports have f
 - **THEN** the fast one's row appears immediately rather than waiting for the slow one or for the scan cycle to end
 
 #### Scenario: Scan ends
-- **WHEN** the scan cycle finishes
+- **WHEN** the browse's window elapses, a new scan supersedes it, or the app is torn down
 - **THEN** the browse is closed and no further mDNS traffic is generated
+
+#### Scenario: Saved scale auto-connects part-way through the browse
+- **WHEN** the BLE agent rediscovers the saved primary a second or two into the browse and the app auto-connects it
+- **THEN** the browse keeps running to its own deadline, so scales that only a browse can find still appear, and the scanning indicator stays set until it finishes
 
 #### Scenario: Renamed scale is discovered
 - **WHEN** a scale whose mDNS name has been changed from the default (so it answers at `<name>.local`, not `hds.local`) is on the LAN running firmware v3.0.9 or newer
@@ -94,6 +98,14 @@ Instance names are not unique. DNS-SD resolves instance-name collisions by appen
 #### Scenario: Same physical scale on both transports
 - **WHEN** the user runs a scan and both BLE and WiFi paths resolve the same physical HDS unit
 - **THEN** the discovered-scales list contains two distinct rows — one BLE, one WiFi — that can each be selected independently
+
+#### Scenario: A WiFi scale is saved to Known Devices
+- **WHEN** a WiFi scale is connected and persisted as a known device
+- **THEN** its stored label is derived from its hostname rather than its DNS-SD instance name, so every WiFi entry in Known Devices is self-distinguishing. Two unrenamed scales publish the same instance name, and the label must also be available on a saved-scale reconnect where no scan has run — a generic fallback there would overwrite an already-correct stored name.
+
+#### Scenario: Known Devices holds more entries than the picker shows at once
+- **WHEN** the Known Devices list is longer than the dropdown's visible rows
+- **THEN** the dropdown indicates that more entries exist rather than appearing complete at its cut-off
 
 ## ADDED Requirements
 
@@ -202,3 +214,11 @@ The scale debug log SHALL record what the browse did, at the same level of detai
 #### Scenario: Fallback names are logged individually
 - **WHEN** the multi-name A-record fallback runs
 - **THEN** the scale log records the outcome for each of `hds.local`, `hds-2.local` and `hds-3.local` separately, so a partial result is diagnosable
+
+#### Scenario: A lookup could not be performed at all
+- **WHEN** the query socket cannot be opened, or every query send fails
+- **THEN** the log says so specifically rather than reporting "no responder", because those have opposite fixes — a local permission or multicast problem versus a sleeping or absent scale
+
+#### Scenario: A diagnostic reads an empty result set
+- **WHEN** a diagnostic surface reports the results of the most recent discovery and there are none
+- **THEN** it also reports whether each transport actually ran, so "permission denied" is not indistinguishable from "no scales on this network"

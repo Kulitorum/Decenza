@@ -100,6 +100,6 @@ change made in group 2.
 
 - [x] 10.1 **Written, not updated** — no WiFi-scale documentation existed anywhere in `docs/`, so this is a new "WiFi Scale Discovery" section in `docs/CLAUDE_MD/BLE_PROTOCOL.md`. Covers the advertised service and TXT contract, the v3.0.9 firmware floor and why the A-record fallback still runs unconditionally, the four wire behaviours that contradict the firmware source, the two-backend split with the reason for each, and the both-plists requirement with the `-65555` symptom it causes. Design rationale is referenced rather than duplicated.
 - [x] 10.2 **Not needed** (Jeff, 2026-07-28): the user-facing flow is unchanged — tap Scan, pick a scale — and the manual does not document the old `hds.local`-only constraint or the previous row label, so nothing in it is made wrong. The visible deltas are that renamed scales now appear at all, several WiFi scales can be listed, and rows carry the scale's own name.
-- [ ] 10.3 Open the PR (never push to `main`).
-- [ ] 10.4 Run `/pr-review-toolkit:review-pr` on the PR and address findings.
-- [ ] 10.5 Archive the change with spec sync as the final commit on this PR, not a separate PR.
+- [x] 10.3 Opened as PR #1689.
+- [x] 10.4 Ran `/pr-review-toolkit:review-pr` twice — once on the initial branch and again after the late USB/naming/QML work, since those commits post-dated the first pass. Every finding at threshold is fixed. The two that mattered were feature-defeating: `scanForDevices()` set `m_usbProbeInFlight` on iOS where nothing can clear it (Scan button dead for the process lifetime after one tap), and `stopScan()` cancelled the DNS-SD browse whenever the saved primary auto-connected 1-2 s into a 15 s window — killing precisely the renamed-scale discovery this change exists to add.
+- [x] 10.5 Archived with spec sync as the final commit on this PR.
