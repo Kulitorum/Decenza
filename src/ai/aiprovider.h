@@ -98,9 +98,67 @@ protected:
     // Retry support: each sendRequest() assigns m_retryFn; each onAnalysisReply() calls tryScheduleRetry()
     bool tryScheduleRetry(QNetworkReply* reply);  // returns true if retry was scheduled
 
+    // What to do when a reply stops because it hit the output cap.
+    //
+    // A one-shot analysis (analyze/analyzeUrl) is parsed by machine: the caller
+    // reads a trailing fenced `nextShot` JSON block (#1054, parsed by
+    // AIManager::parseStructuredNext), which a cut-off reply has lost. A
+    // half-parsed result is worse than no result, so those paths fail.
+    //
+    // A conversation turn (analyzeConversation) is prose the user reads, so
+    // several thousand useful tokens beat an error — show them with a notice
+    // appended. Each analyze*() sets the policy before sending; the shared
+    // reply handler reads it.
+    enum class TruncationPolicy { Fail, ShowPartial };
+    TruncationPolicy m_truncationPolicy = TruncationPolicy::Fail;
+
+    // User-visible error for a reply that hit MAX_OUTPUT_TOKENS. Shared across
+    // providers: every one of them can truncate, and the user's remedy is the
+    // same regardless of which API produced it.
+    QString truncatedResponseError() const;
+
+    // Notice appended to a partial reply under TruncationPolicy::ShowPartial.
+    QString truncationNotice() const;
+
+    // Shared exit for "the reply is empty, or was cut off, or both". Returns
+    // true when it has emitted (analysisComplete for an allowed partial,
+    // analysisFailed otherwise) and the caller must return; false when the
+    // reply is fine and the caller should carry on to emit it.
+    //
+    // Factored out because all five providers need identical policy on top of
+    // five different vendor spellings of "why I stopped" — the divergence
+    // belongs in each handler's parsing, not in what we do about it.
+    bool dispatchTruncatedOrEmpty(const QString& text, bool truncated,
+                                  const QString& emptyMessage);
+
+    // Bound an untrusted provider error body before it reaches the log.
+    //
+    // These logs get attached to public GitHub issues, and a provider's 4xx
+    // body echoes fragments of the request back: Anthropic quotes the offending
+    // field and its value, OpenAI's moderation errors quote the flagged prompt
+    // text. Our prompts carry the user's shot history, bean names and tasting
+    // notes (AIManager::sanitizeApiMessages). Log the machine-readable type and
+    // a bounded prefix, never the whole body.
+    static QString logSafeErrorBody(const QByteArray& body);
+
     static constexpr int ANALYSIS_TIMEOUT_MS = 60000;   // 60s for cloud AI analysis
     static constexpr int TEST_TIMEOUT_MS = 15000;        // 15s for connection tests
     static constexpr int MAX_RETRIES = 3;                // max retries for 429/502/503/504
+    static constexpr int LOG_BODY_LIMIT = 200;           // chars of a provider error body we log
+
+    // Output cap for every analysis request, on every provider.
+    //
+    // Was 1024, which was too tight for the job: a dial-in reply plus the
+    // trailing fenced `nextShot` JSON block (#1054) lands right at that edge,
+    // and no provider inspected its stop/finish reason — so a capped reply was
+    // emitted as if complete, silently missing the JSON block.
+    //
+    // #1691 was the acute form, on Anthropic; the mechanism is recorded once at
+    // disableAnthropicThinking() in aiprovider.cpp rather than restated here.
+    //
+    // Raising the cap is close to free: it is a ceiling, not a reservation —
+    // billing is on tokens actually produced.
+    static constexpr int MAX_OUTPUT_TOKENS = 4096;
 
     QNetworkAccessManager* m_networkManager = nullptr;
     TranslationManager* m_translationManager = nullptr;
@@ -246,6 +304,10 @@ public:
     QString modelHint() const override;
 
     void setApiKey(const QString& key) { m_apiKey = key; }
+    // empty → keeps default upstream URL. Matches OpenAI/Anthropic; exists so
+    // the truncation/finish-reason handling is reachable from a test against a
+    // canned-response server (the branch shipped untested and was broken).
+    void setBaseUrl(const QString& url) { m_baseUrl = url.endsWith(QLatin1Char('/')) ? url.chopped(1) : url; }
     // Select the wire model. Ignores empty (keeps current default) and any id
     // not in availableModels(), so a stale/unknown stored value can't break the
     // request URL.
@@ -268,6 +330,7 @@ private:
     void sendRequest(const QJsonObject& requestBody);
 
     QString m_apiKey;
+    QString m_baseUrl;
     // Selected wire model. Defaulted in the constructor to the first
     // availableModels() entry (the recommended default), so the C++ default and
     // the UI's "unset → index 0" fallback reference the same fact and can't drift.
@@ -293,6 +356,9 @@ public:
 
     void setApiKey(const QString& key) { m_apiKey = key; }
     void setModel(const QString& model) { m_model = model; }
+    // empty → keeps default upstream URL. See GeminiProvider::setBaseUrl for
+    // why this exists.
+    void setBaseUrl(const QString& url) { m_baseUrl = url.endsWith(QLatin1Char('/')) ? url.chopped(1) : url; }
 
     void analyze(const QString& systemPrompt, const QString& userPrompt) override;
     void analyzeConversation(const QString& systemPrompt, const QJsonArray& messages) override;
@@ -306,6 +372,7 @@ private:
     void sendRequest(const QJsonObject& requestBody);
 
     QString m_apiKey;
+    QString m_baseUrl;
     QString m_model;
     static constexpr const char* API_URL = "https://openrouter.ai/api/v1/chat/completions";
 };

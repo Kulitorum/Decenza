@@ -668,8 +668,10 @@ target_include_directories(tst_aimanager PRIVATE ${CMAKE_BINARY_DIR})
 # Pins availableModels()/setModel()/shortModelName()/modelName() for the
 # user-selectable providers (OpenAI, Anthropic, Gemini): catalog order,
 # constructor default = first entry, and the empty/unknown/valid setModel
-# branches that AIManager drives from Settings.ai.providerModel(). Pure logic,
-# so the target only needs aiprovider.cpp (no network/mocking).
+# branches that AIManager drives from Settings.ai.providerModel(). Also pins the
+# request shape and the stop/finish-reason handling for all five providers,
+# which needs a canned-response server (FakeProviderServer) on loopback —
+# Qt6::Network comes in via add_decenza_test.
 add_decenza_test(tst_aiproviders
     tst_aiproviders.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/aiprovider.cpp

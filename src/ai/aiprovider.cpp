@@ -4,6 +4,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QNetworkRequest>
+#include <QStringList>
 #include <QTimer>
 #include <QUrl>
 #include <QVariant>
@@ -32,6 +33,49 @@ QString AIProvider::tr_(const char* key, const char* fallback) const
         return m_translationManager->translateString(QString::fromUtf8(key),
                                                QString::fromUtf8(fallback));
     return QString::fromUtf8(fallback);
+}
+
+QString AIProvider::truncatedResponseError() const
+{
+    // Deliberately does NOT say "ask a more specific question": analyzeUrl() is
+    // the recipe-wizard URL extraction, where there is no question to narrow —
+    // the user pasted a link. Keep the remedy true on every path.
+    return tr_("ai.error.truncated",
+               "The AI's reply was cut off before it finished. Please try again.");
+}
+
+QString AIProvider::truncationNotice() const
+{
+    return QStringLiteral("\n\n_") +
+           tr_("ai.notice.truncated", "This reply was cut off before it finished.") +
+           QStringLiteral("_");
+}
+
+bool AIProvider::dispatchTruncatedOrEmpty(const QString& text, bool truncated,
+                                          const QString& emptyMessage)
+{
+    if (!truncated && !text.isEmpty())
+        return false;  // ordinary reply — caller emits it
+
+    if (truncated && !text.isEmpty() && m_truncationPolicy == TruncationPolicy::ShowPartial) {
+        emit analysisComplete(text + truncationNotice());
+        return true;
+    }
+    emit analysisFailed(truncated ? truncatedResponseError() : emptyMessage);
+    return true;
+}
+
+QString AIProvider::logSafeErrorBody(const QByteArray& body)
+{
+    // Prefer the machine-readable classification, which never carries request
+    // content. Fall back to a bounded prefix when the body isn't the shape we
+    // expect (an HTML error page from a proxy, say).
+    const QJsonObject error = QJsonDocument::fromJson(body).object()["error"].toObject();
+    const QString type = error["type"].toString();
+    const QString code = error["code"].toString();
+    if (!type.isEmpty() || !code.isEmpty())
+        return QStringLiteral("type=%1 code=%2").arg(type, code);
+    return QString::fromUtf8(body.left(LOG_BODY_LIMIT));
 }
 
 QString AIProvider::friendlyNetworkError(QNetworkReply* reply) const
@@ -100,7 +144,8 @@ bool AIProvider::tryScheduleRetry(QNetworkReply* reply)
     const int delay = computeRetryDelayMs(++m_retryCount, reply);
     const QByteArray body = reply->readAll();
     qWarning() << name() << "HTTP" << status << "- retry" << m_retryCount
-               << "in" << delay << "ms" << (body.isEmpty() ? QByteArray() : ("- " + body.left(200)));
+               << "in" << delay << "ms"
+               << (body.isEmpty() ? QString() : QStringLiteral("- ") + logSafeErrorBody(body));
     // QTimer::singleShot is intentional: the server signalled a transient error and we must
     // wait before retrying (rate-limit or overload backoff). This is a server-driven delay,
     // not a heuristic guard. The generation counter prevents stale timers from firing if a
@@ -226,6 +271,7 @@ void OpenAIProvider::analyze(const QString& systemPrompt, const QString& userPro
     setStatus(Status::Busy);
     m_retryCount = 0;
     ++m_reqGen;
+    m_truncationPolicy = TruncationPolicy::Fail;
 
     QJsonObject requestBody;
     requestBody["model"] = m_model;
@@ -243,9 +289,9 @@ void OpenAIProvider::analyze(const QString& systemPrompt, const QString& userPro
     // chat/completions ("Unsupported parameter") — max_completion_tokens is
     // the accepted cap. Live-caught July 2026: stage-1 extraction and the
     // advisor both 400'd on gpt-5.4/gpt-5.4-mini.
-    requestBody["max_completion_tokens"] = 1024;
+    requestBody["max_completion_tokens"] = MAX_OUTPUT_TOKENS;
     // GPT-5 family are reasoning models; keep reasoning off so hidden
-    // reasoning tokens don't count against the 1024-token output cap (which would
+    // reasoning tokens don't count against the output cap (which would
     // risk truncating the trailing nextShot JSON block) and to keep latency/cost
     // low. Dial-in advice needs little chain-of-thought. Mirrors Gemini's
     // thinking=off. The 5.4 generation REPLACED the value "minimal" with "none"
@@ -268,6 +314,7 @@ void OpenAIProvider::analyzeUrl(const QString& systemPrompt, const QString& user
     setStatus(Status::Busy);
     m_retryCount = 0;
     ++m_reqGen;
+    m_truncationPolicy = TruncationPolicy::Fail;
 
     // The web_search tool lives on the Responses API, not chat/completions.
     // Its open_page action lets the model retrieve the specific URL named in
@@ -284,7 +331,7 @@ void OpenAIProvider::analyzeUrl(const QString& systemPrompt, const QString& user
     QJsonObject reasoning;
     reasoning["effort"] = QString("low");
     requestBody["reasoning"] = reasoning;
-    requestBody["max_output_tokens"] = 2048;
+    requestBody["max_output_tokens"] = MAX_OUTPUT_TOKENS;
 
     sendResponsesRequest(requestBody);
 }
@@ -327,9 +374,10 @@ void OpenAIProvider::onResponsesReply(QNetworkReply* reply)
                 emit analysisFailed(tr_("ai.openai.error", "OpenAI error: %1").arg(apiError));
                 return;
             }
+            // Bounded/classified, never the raw body — see logSafeErrorBody().
             qWarning() << "AI request failed"
                        << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
-                       << "-" << body;
+                       << "-" << logSafeErrorBody(body);
         }
         emit analysisFailed(friendlyNetworkError(reply));
         return;
@@ -348,7 +396,11 @@ void OpenAIProvider::onResponsesReply(QNetworkReply* reply)
 
     // The Responses output array interleaves reasoning/web_search_call items
     // with message items; the answer is the message items' output_text parts.
+    // Collect the part types too: when the answer is missing, WHAT came back
+    // instead is the whole diagnosis (#1691's lesson — log shape, not content).
     QString text;
+    QString refusal;
+    QStringList partTypes;
     const QJsonArray output = root["output"].toArray();
     for (const QJsonValue& itemVal : output) {
         const QJsonObject item = itemVal.toObject();
@@ -357,15 +409,34 @@ void OpenAIProvider::onResponsesReply(QNetworkReply* reply)
         const QJsonArray content = item["content"].toArray();
         for (const QJsonValue& partVal : content) {
             const QJsonObject part = partVal.toObject();
-            if (part["type"].toString() == QLatin1String("output_text"))
+            const QString partType = part["type"].toString();
+            partTypes << partType;
+            if (partType == QLatin1String("output_text"))
                 text += part["text"].toString();
+            else if (partType == QLatin1String("refusal"))
+                refusal = part["refusal"].toString();
         }
     }
-    if (text.isEmpty()) {
-        qWarning() << "OpenAI Responses: no output_text (status"
-                   << root["status"].toString() << ")";
-        emit analysisFailed(tr_("ai.openai.emptyContent", "OpenAI returned empty response content"));
-        return;
+
+    // Gate on completion, not on one reason. `incomplete_details.reason` is
+    // also "content_filter", and status can be "failed"/"cancelled" — anything
+    // other than "completed" means the text in hand is not the whole answer.
+    const QString status = root["status"].toString();
+    const QString incompleteReason = root["incomplete_details"].toObject()["reason"].toString();
+    const bool truncated = status != QLatin1String("completed");
+    if (text.isEmpty() || truncated) {
+        qWarning() << "OpenAI Responses: model" << m_model << "status" << status
+                   << "incomplete_reason" << incompleteReason
+                   << "part types" << partTypes << "text chars" << text.size();
+        // A refusal explains itself; surfacing it beats the generic message,
+        // which is the failure #1691 took three days to place.
+        if (text.isEmpty() && !refusal.isEmpty()) {
+            emit analysisFailed(tr_("ai.openai.refused", "OpenAI declined the request: %1").arg(refusal));
+            return;
+        }
+        if (dispatchTruncatedOrEmpty(text, truncated,
+                tr_("ai.openai.emptyContent", "OpenAI returned empty response content")))
+            return;
     }
     emit analysisComplete(text);
 }
@@ -380,11 +451,17 @@ void OpenAIProvider::analyzeConversation(const QString& systemPrompt, const QJso
     setStatus(Status::Busy);
     m_retryCount = 0;
     ++m_reqGen;
+    m_truncationPolicy = TruncationPolicy::Fail;
+    // A conversation turn is prose the user reads, so a cut-off reply still has
+    // value — show it with a notice rather than discarding it (see
+    // TruncationPolicy). The one-shot analyze()/analyzeUrl() paths keep Fail:
+    // their result is machine-parsed.
+    m_truncationPolicy = TruncationPolicy::ShowPartial;
 
     QJsonObject requestBody;
     requestBody["model"] = m_model;
     requestBody["messages"] = buildOpenAIMessages(systemPrompt, messages);
-    requestBody["max_completion_tokens"] = 1024;
+    requestBody["max_completion_tokens"] = MAX_OUTPUT_TOKENS;
     requestBody["reasoning_effort"] = "none";  // see analyze(): 5.4 generation dropped "minimal"
 
     sendRequest(requestBody);
@@ -407,9 +484,10 @@ void OpenAIProvider::onAnalysisReply(QNetworkReply* reply)
                 emit analysisFailed(tr_("ai.openai.error", "OpenAI error: %1").arg(apiError));
                 return;
             }
+            // Bounded/classified, never the raw body — see logSafeErrorBody().
             qWarning() << "AI request failed"
                        << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
-                       << "-" << body;
+                       << "-" << logSafeErrorBody(body);
         }
         emit analysisFailed(friendlyNetworkError(reply));
         return;
@@ -430,10 +508,30 @@ void OpenAIProvider::onAnalysisReply(QNetworkReply* reply)
         return;
     }
 
-    QString content = choices[0].toObject()["message"].toObject()["content"].toString();
-    if (content.isEmpty()) {
-        emit analysisFailed(tr_("ai.openai.emptyContent", "OpenAI returned empty response content"));
-        return;
+    const QJsonObject choice = choices[0].toObject();
+    const QString finishReason = choice["finish_reason"].toString();
+    const QJsonObject message = choice["message"].toObject();
+    QString content = message["content"].toString();
+    // "length" = hit max_completion_tokens; "content_filter" = moderation cut
+    // it short. Either way the text in hand is not the whole answer.
+    const bool truncated = finishReason == QLatin1String("length")
+                        || finishReason == QLatin1String("content_filter");
+    if (content.isEmpty() || truncated) {
+        qWarning() << "OpenAI: model" << m_model << "finish_reason" << finishReason
+                   << "content chars" << content.size()
+                   << "reasoning tokens"
+                   << root["usage"].toObject()["completion_tokens_details"]
+                          .toObject()["reasoning_tokens"].toInt();
+        // `message.refusal` carries the model's own stated reason; without this
+        // it reads as a bare "empty response content".
+        const QString refusal = message["refusal"].toString();
+        if (content.isEmpty() && !refusal.isEmpty()) {
+            emit analysisFailed(tr_("ai.openai.refused", "OpenAI declined the request: %1").arg(refusal));
+            return;
+        }
+        if (dispatchTruncatedOrEmpty(content, truncated,
+                tr_("ai.openai.emptyContent", "OpenAI returned empty response content")))
+            return;
     }
     emit analysisComplete(content);
 }
@@ -518,6 +616,41 @@ void OpenAIProvider::onTestReply(QNetworkReply* reply)
 // ============================================================================
 // Anthropic Provider
 // ============================================================================
+
+// Turn extended thinking OFF, explicitly, on every request.
+//
+// This has to be explicit because the default is NOT stable across models.
+// Per Anthropic's thinking documentation (checked 2026-07-29): omitting the
+// `thinking` field runs NO thinking on claude-sonnet-4-6, but runs ADAPTIVE
+// thinking on claude-sonnet-5. Since max_tokens caps thinking + response text
+// together, omitting it on Sonnet 5 lets thinking consume the entire budget
+// and the reply carries no text block at all.
+//
+// That is the mechanism behind #1691, whose user-visible symptom was
+// "Anthropic returned empty response content" on every request. Note the issue
+// itself reports only the symptom — it names no model and carries no wire
+// capture, and the block-type logging that would show a thinking-only reply is
+// added by this same change. The mechanism is inferred from the documented
+// defaults, not observed in that report; the logging exists so the next one
+// can be settled from the log instead.
+//
+// Off (not merely bounded) is the right setting here for the same reason the
+// OpenAI and Gemini paths force reasoning/thinking off: dial-in advice needs
+// little chain-of-thought, and hidden thinking tokens are billed at the output
+// rate.
+//
+// INVARIANT: assumes every availableModels() entry accepts thinking type
+// "disabled" — guard/branch here if the catalog ever gains one that doesn't.
+// This is not theoretical: newer Anthropic models reject the disabled form
+// outright (thinking is always on, omit the field instead) or accept it only
+// at or below a given effort level. Adding such a model to the catalog would
+// turn EVERY Anthropic request into a 400, which is a worse #1691 than #1691.
+static void disableAnthropicThinking(QJsonObject& requestBody)
+{
+    QJsonObject thinking;
+    thinking["type"] = QStringLiteral("disabled");
+    requestBody["thinking"] = thinking;
+}
 
 AnthropicProvider::AnthropicProvider(QNetworkAccessManager* networkManager,
                                      const QString& apiKey,
@@ -609,10 +742,12 @@ void AnthropicProvider::analyze(const QString& systemPrompt, const QString& user
     setStatus(Status::Busy);
     m_retryCount = 0;
     ++m_reqGen;
+    m_truncationPolicy = TruncationPolicy::Fail;
 
     QJsonObject requestBody;
     requestBody["model"] = m_model;
-    requestBody["max_tokens"] = 1024;
+    requestBody["max_tokens"] = MAX_OUTPUT_TOKENS;
+    disableAnthropicThinking(requestBody);
     requestBody["system"] = buildCachedSystemPrompt(systemPrompt);
     QJsonArray messages;
     QJsonObject userMsg;
@@ -634,10 +769,12 @@ void AnthropicProvider::analyzeUrl(const QString& systemPrompt, const QString& u
     setStatus(Status::Busy);
     m_retryCount = 0;
     ++m_reqGen;
+    m_truncationPolicy = TruncationPolicy::Fail;
 
     QJsonObject requestBody;
     requestBody["model"] = m_model;
-    requestBody["max_tokens"] = 1024;
+    requestBody["max_tokens"] = MAX_OUTPUT_TOKENS;
+    disableAnthropicThinking(requestBody);
     requestBody["system"] = buildCachedSystemPrompt(systemPrompt);
     QJsonArray messages;
     QJsonObject userMsg;
@@ -669,10 +806,17 @@ void AnthropicProvider::analyzeConversation(const QString& systemPrompt, const Q
     setStatus(Status::Busy);
     m_retryCount = 0;
     ++m_reqGen;
+    m_truncationPolicy = TruncationPolicy::Fail;
+    // A conversation turn is prose the user reads, so a cut-off reply still has
+    // value — show it with a notice rather than discarding it (see
+    // TruncationPolicy). The one-shot analyze()/analyzeUrl() paths keep Fail:
+    // their result is machine-parsed.
+    m_truncationPolicy = TruncationPolicy::ShowPartial;
 
     QJsonObject requestBody;
     requestBody["model"] = m_model;
-    requestBody["max_tokens"] = 1024;
+    requestBody["max_tokens"] = MAX_OUTPUT_TOKENS;
+    disableAnthropicThinking(requestBody);
     requestBody["system"] = buildCachedSystemPrompt(systemPrompt);
     requestBody["messages"] = messagesWithCachedFirstUser(messages);
 
@@ -753,9 +897,10 @@ void AnthropicProvider::onAnalysisReply(QNetworkReply* reply)
                 emit analysisFailed(tr_("ai.anthropic.error", "Anthropic error: %1").arg(apiError));
                 return;
             }
+            // Bounded/classified, never the raw body — see logSafeErrorBody().
             qWarning() << "AI request failed"
                        << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
-                       << "-" << body;
+                       << "-" << logSafeErrorBody(body);
         }
         emit analysisFailed(friendlyNetworkError(reply));
         return;
@@ -770,9 +915,18 @@ void AnthropicProvider::onAnalysisReply(QNetworkReply* reply)
         return;
     }
 
+    // Read stop_reason BEFORE any content gate. An early return above it makes
+    // the truncation branch unreachable for exactly the case that matters —
+    // the reply that stopped with nothing to show. That ordering bug shipped
+    // in this file's Gemini handler and is fixed there too.
+    const QString stopReason = root["stop_reason"].toString();
+
     QJsonArray content = root["content"].toArray();
     if (content.isEmpty()) {
-        emit analysisFailed(tr_("ai.anthropic.noResponse", "Anthropic returned no response"));
+        qWarning() << "Anthropic: model" << m_model << "no content blocks, stop_reason" << stopReason;
+        emit analysisFailed(stopReason == QLatin1String("max_tokens")
+            ? truncatedResponseError()
+            : tr_("ai.anthropic.noResponse", "Anthropic returned no response"));
         return;
     }
 
@@ -786,9 +940,31 @@ void AnthropicProvider::onAnalysisReply(QNetworkReply* reply)
         if (obj["type"].toString() == QLatin1String("text"))
             text += obj["text"].toString();
     }
-    if (text.isEmpty()) {
-        emit analysisFailed(tr_("ai.anthropic.emptyContent", "Anthropic returned empty response content"));
-        return;
+    // Treat anything that is not a natural end as an unfinished turn, rather
+    // than listing the bad reasons. "pause_turn" is the one that forced this:
+    // it means the API paused a long-running server-tool turn and the response
+    // must be fed back to continue, so its text is partial by definition — and
+    // analyzeUrl() attaches the web_fetch server tool, so this path can reach
+    // it. "refusal" and "model_context_window_exceeded" are likewise not
+    // answers. Allow-listing the two good reasons fails safe as Anthropic adds
+    // more; enumerating the bad ones does not.
+    const bool unfinished = stopReason != QLatin1String("end_turn")
+                         && stopReason != QLatin1String("stop_sequence");
+    if (text.isEmpty() || unfinished) {
+        // Log the block types on any text-less reply: content can be non-empty
+        // while carrying no text block at all (a thinking-only reply — #1691),
+        // and the generic message alone made that indistinguishable from a
+        // refusal. The model matters too: the #1691 root cause was that the
+        // thinking default differs BETWEEN models.
+        QStringList blockTypes;
+        for (const QJsonValue& block : content)
+            blockTypes << block.toObject()["type"].toString();
+        qWarning() << "Anthropic: model" << m_model << "stop_reason" << stopReason
+                   << "block types" << blockTypes << "text chars" << text.size()
+                   << "output tokens" << root["usage"].toObject()["output_tokens"].toInt();
+        if (dispatchTruncatedOrEmpty(text, unfinished,
+                tr_("ai.anthropic.emptyContent", "Anthropic returned empty response content")))
+            return;
     }
     emit analysisComplete(text);
 }
@@ -800,10 +976,15 @@ void AnthropicProvider::testConnection()
         return;
     }
 
-    // Send a minimal request to test the API key
+    // Send a minimal request to test the API key. Thinking off for the same
+    // reason as the analysis paths — with thinking on, a 10-token budget
+    // produces a reply with no text block. This check only looks for an error,
+    // so it PASSED while every real request failed (#1691): the user's key
+    // tested fine and the advisor was unusable.
     QJsonObject requestBody;
     requestBody["model"] = m_model;
     requestBody["max_tokens"] = 10;
+    disableAnthropicThinking(requestBody);
     QJsonArray messages;
     QJsonObject userMsg;
     userMsg["role"] = QString("user");
@@ -945,8 +1126,10 @@ QString GeminiProvider::shortModelName() const
 QString GeminiProvider::apiUrl() const
 {
     // Use URL without key - key is passed via header for better security
-    return QString("https://generativelanguage.googleapis.com/v1beta/models/%1:generateContent")
-        .arg(m_model);
+    const QString host = m_baseUrl.isEmpty()
+        ? QStringLiteral("https://generativelanguage.googleapis.com")
+        : m_baseUrl;
+    return host + QStringLiteral("/v1beta/models/%1:generateContent").arg(m_model);
 }
 
 void GeminiProvider::sendRequest(const QJsonObject& requestBody)
@@ -976,7 +1159,7 @@ void GeminiProvider::sendRequest(const QJsonObject& requestBody)
     }
     QJsonObject generationConfig;
     generationConfig["thinkingConfig"] = thinkingConfig;
-    generationConfig["maxOutputTokens"] = 1024;  // also bounds thinking tokens; matches other providers
+    generationConfig["maxOutputTokens"] = MAX_OUTPUT_TOKENS;  // also bounds thinking tokens; matches other providers
     bodyWithConfig["generationConfig"] = generationConfig;
 
     m_retryFn = [this, requestBody]() { sendRequest(requestBody); };
@@ -998,6 +1181,7 @@ void GeminiProvider::analyze(const QString& systemPrompt, const QString& userPro
     setStatus(Status::Busy);
     m_retryCount = 0;
     ++m_reqGen;
+    m_truncationPolicy = TruncationPolicy::Fail;
 
     // Gemini uses a different format
     QJsonObject requestBody;
@@ -1036,6 +1220,7 @@ void GeminiProvider::analyzeUrl(const QString& systemPrompt, const QString& user
     setStatus(Status::Busy);
     m_retryCount = 0;
     ++m_reqGen;
+    m_truncationPolicy = TruncationPolicy::Fail;
 
     // Same body as analyze() plus the url_context server tool: the API
     // fetches the URL named in the user prompt during generateContent
@@ -1077,6 +1262,12 @@ void GeminiProvider::analyzeConversation(const QString& systemPrompt, const QJso
     setStatus(Status::Busy);
     m_retryCount = 0;
     ++m_reqGen;
+    m_truncationPolicy = TruncationPolicy::Fail;
+    // A conversation turn is prose the user reads, so a cut-off reply still has
+    // value — show it with a notice rather than discarding it (see
+    // TruncationPolicy). The one-shot analyze()/analyzeUrl() paths keep Fail:
+    // their result is machine-parsed.
+    m_truncationPolicy = TruncationPolicy::ShowPartial;
 
     QJsonObject requestBody;
 
@@ -1129,9 +1320,10 @@ void GeminiProvider::onAnalysisReply(QNetworkReply* reply)
                 emit analysisFailed(tr_("ai.gemini.error", "Gemini error: %1").arg(apiError));
                 return;
             }
+            // Bounded/classified, never the raw body — see logSafeErrorBody().
             qWarning() << "AI request failed"
                        << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
-                       << "-" << body;
+                       << "-" << logSafeErrorBody(body);
         }
         emit analysisFailed(friendlyNetworkError(reply));
         return;
@@ -1154,19 +1346,32 @@ void GeminiProvider::onAnalysisReply(QNetworkReply* reply)
 
     QJsonArray candidates = root["candidates"].toArray();
     if (candidates.isEmpty()) {
-        emit analysisFailed(tr_("ai.gemini.noResponse", "Gemini returned no response"));
+        // A prompt-level block returns promptFeedback.blockReason and no
+        // candidates. That reason IS the explanation; discarding it left the
+        // user with five generic words and the log with nothing.
+        const QString blockReason = root["promptFeedback"].toObject()["blockReason"].toString();
+        qWarning() << "Gemini: model" << m_model << "no candidates, blockReason" << blockReason;
+        emit analysisFailed(blockReason.isEmpty()
+            ? tr_("ai.gemini.noResponse", "Gemini returned no response")
+            : tr_("ai.gemini.blocked", "Gemini refused the request (%1).").arg(blockReason));
         return;
     }
 
-    QJsonArray parts = candidates[0].toObject()["content"].toObject()["parts"].toArray();
-    if (parts.isEmpty()) {
-        emit analysisFailed(tr_("ai.gemini.emptyContent2", "Gemini returned empty content"));
-        return;
-    }
+    // Read finishReason BEFORE the parts gate. When Gemini stops on MAX_TOKENS
+    // *while still thinking* — and gemini-3.5-flash runs thinkingLevel
+    // "minimal", which is on, not off — the candidate comes back carrying a
+    // finishReason and NO content key at all. Reading it after an
+    // `parts.isEmpty()` early return made this branch unreachable for exactly
+    // the #1691-shaped failure it exists to catch: budget eaten by hidden
+    // reasoning, no text, opaque error. SAFETY/RECITATION/PROHIBITED_CONTENT
+    // arrive the same way.
+    const QString finishReason = candidates[0].toObject()["finishReason"].toString();
+    const bool truncated = finishReason == QLatin1String("MAX_TOKENS");
 
     // Join every non-thought text part: plain replies have exactly one, but
     // a url_context response (analyzeUrl) may split the answer across parts;
     // thought parts are hidden reasoning and must not leak into the answer.
+    const QJsonArray parts = candidates[0].toObject()["content"].toObject()["parts"].toArray();
     QString text;
     for (const QJsonValue& partVal : parts) {
         const QJsonObject part = partVal.toObject();
@@ -1174,9 +1379,21 @@ void GeminiProvider::onAnalysisReply(QNetworkReply* reply)
             continue;
         text += part["text"].toString();
     }
-    if (text.isEmpty()) {
-        emit analysisFailed(tr_("ai.gemini.emptyContent", "Gemini returned empty response content"));
-        return;
+
+    if (text.isEmpty() || truncated) {
+        // thoughtsTokenCount is the field that names a thinking-ate-the-budget
+        // failure on sight, so log it next to the reason rather than only in
+        // the qInfo line above.
+        qWarning() << "Gemini: model" << m_model << "finishReason" << finishReason
+                   << "parts" << parts.size() << "text chars" << text.size()
+                   << "thought tokens" << usage["thoughtsTokenCount"].toInt()
+                   << "output tokens" << usage["candidatesTokenCount"].toInt();
+        // One message for both empty cases. There used to be two strings one
+        // word apart ("empty content" vs "empty response content"), only one of
+        // which logged — a user reporting either could not say which they hit.
+        if (dispatchTruncatedOrEmpty(text, truncated,
+                tr_("ai.gemini.emptyContent", "Gemini returned empty response content")))
+            return;
     }
     emit analysisComplete(text);
 }
@@ -1282,7 +1499,9 @@ OpenRouterProvider::OpenRouterProvider(QNetworkAccessManager* networkManager,
 
 void OpenRouterProvider::sendRequest(const QJsonObject& requestBody)
 {
-    QUrl url(QString::fromLatin1(API_URL));
+    QUrl url(m_baseUrl.isEmpty()
+        ? QString::fromLatin1(API_URL)
+        : m_baseUrl + QStringLiteral("/api/v1/chat/completions"));
     QNetworkRequest req;
     req.setUrl(url);
     req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
@@ -1311,6 +1530,7 @@ void OpenRouterProvider::analyze(const QString& systemPrompt, const QString& use
     setStatus(Status::Busy);
     m_retryCount = 0;
     ++m_reqGen;
+    m_truncationPolicy = TruncationPolicy::Fail;
 
     // OpenRouter uses OpenAI-compatible format
     QJsonObject requestBody;
@@ -1325,7 +1545,7 @@ void OpenRouterProvider::analyze(const QString& systemPrompt, const QString& use
     userMsg["content"] = userPrompt;
     messages.append(userMsg);
     requestBody["messages"] = messages;
-    requestBody["max_tokens"] = 1024;
+    requestBody["max_tokens"] = MAX_OUTPUT_TOKENS;
 
     sendRequest(requestBody);
 }
@@ -1340,11 +1560,17 @@ void OpenRouterProvider::analyzeConversation(const QString& systemPrompt, const 
     setStatus(Status::Busy);
     m_retryCount = 0;
     ++m_reqGen;
+    m_truncationPolicy = TruncationPolicy::Fail;
+    // A conversation turn is prose the user reads, so a cut-off reply still has
+    // value — show it with a notice rather than discarding it (see
+    // TruncationPolicy). The one-shot analyze()/analyzeUrl() paths keep Fail:
+    // their result is machine-parsed.
+    m_truncationPolicy = TruncationPolicy::ShowPartial;
 
     QJsonObject requestBody;
     requestBody["model"] = m_model;
     requestBody["messages"] = buildOpenAIMessages(systemPrompt, messages);
-    requestBody["max_tokens"] = 1024;
+    requestBody["max_tokens"] = MAX_OUTPUT_TOKENS;
 
     sendRequest(requestBody);
 }
@@ -1366,9 +1592,10 @@ void OpenRouterProvider::onAnalysisReply(QNetworkReply* reply)
                 emit analysisFailed(tr_("ai.openrouter.error", "OpenRouter error: %1").arg(apiError));
                 return;
             }
+            // Bounded/classified, never the raw body — see logSafeErrorBody().
             qWarning() << "AI request failed"
                        << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
-                       << "-" << body;
+                       << "-" << logSafeErrorBody(body);
         }
         emit analysisFailed(friendlyNetworkError(reply));
         return;
@@ -1389,10 +1616,44 @@ void OpenRouterProvider::onAnalysisReply(QNetworkReply* reply)
         return;
     }
 
-    QString content = choices[0].toObject()["message"].toObject()["content"].toString();
-    if (content.isEmpty()) {
-        emit analysisFailed(tr_("ai.openrouter.emptyContent", "OpenRouter returned empty response content"));
+    const QJsonObject choice = choices[0].toObject();
+
+    // OpenRouter reports an upstream provider failure as a 200 carrying an
+    // error object on the CHOICE, which the top-level root["error"] check above
+    // does not see.
+    const QJsonObject choiceError = choice["error"].toObject();
+    if (!choiceError.isEmpty()) {
+        const QString message = choiceError["message"].toString();
+        qWarning() << "OpenRouter: model" << m_model << "upstream error"
+                   << choiceError["code"].toVariant() << "-" << message;
+        emit analysisFailed(tr_("ai.openrouter.error", "OpenRouter error: %1")
+            .arg(message.isEmpty() ? tr_("ai.error.unknown", "unknown error") : message));
         return;
+    }
+
+    // finish_reason "length" = the answer hit max_tokens. This matters most on
+    // OpenRouter: the model is a free-text user string, so it can point at a
+    // reasoning model whose hidden tokens eat the cap the way #1691's did.
+    // "content_filter" and "error" likewise mean the text in hand is not the
+    // whole answer.
+    const QString finishReason = choice["finish_reason"].toString();
+    const QJsonObject message = choice["message"].toObject();
+    QString content = message["content"].toString();
+    const bool truncated = finishReason == QLatin1String("length")
+                        || finishReason == QLatin1String("content_filter")
+                        || finishReason == QLatin1String("error");
+    if (content.isEmpty() || truncated) {
+        qWarning() << "OpenRouter: model" << m_model << "finish_reason" << finishReason
+                   << "content chars" << content.size();
+        const QString refusal = message["refusal"].toString();
+        if (content.isEmpty() && !refusal.isEmpty()) {
+            emit analysisFailed(tr_("ai.openrouter.refused",
+                                    "OpenRouter's model declined the request: %1").arg(refusal));
+            return;
+        }
+        if (dispatchTruncatedOrEmpty(content, truncated,
+                tr_("ai.openrouter.emptyContent", "OpenRouter returned empty response content")))
+            return;
     }
     emit analysisComplete(content);
 }
@@ -1522,6 +1783,7 @@ void OllamaProvider::analyze(const QString& systemPrompt, const QString& userPro
     setStatus(Status::Busy);
     m_retryCount = 0;
     ++m_reqGen;
+    m_truncationPolicy = TruncationPolicy::Fail;
 
     QJsonObject requestBody;
     requestBody["model"] = m_model;
@@ -1546,6 +1808,12 @@ void OllamaProvider::analyzeConversation(const QString& systemPrompt, const QJso
     setStatus(Status::Busy);
     m_retryCount = 0;
     ++m_reqGen;
+    m_truncationPolicy = TruncationPolicy::Fail;
+    // A conversation turn is prose the user reads, so a cut-off reply still has
+    // value — show it with a notice rather than discarding it (see
+    // TruncationPolicy). The one-shot analyze()/analyzeUrl() paths keep Fail:
+    // their result is machine-parsed.
+    m_truncationPolicy = TruncationPolicy::ShowPartial;
 
     // Use /api/chat which supports messages array natively
     QJsonObject requestBody;
@@ -1571,7 +1839,7 @@ void OllamaProvider::onAnalysisReply(QNetworkReply* reply)
         if (!body.isEmpty())
             qWarning() << "Ollama request failed"
                        << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
-                       << "-" << body;
+                       << "-" << logSafeErrorBody(body);
         emit analysisFailed(friendlyNetworkError(reply));
         return;
     }
@@ -1585,16 +1853,40 @@ void OllamaProvider::onAnalysisReply(QNetworkReply* reply)
     }
 
     // Support both /api/chat (message.content) and /api/generate (response) formats
-    QString response = root["message"].toObject()["content"].toString();
+    const QJsonObject message = root["message"].toObject();
+    QString response = message["content"].toString();
     if (response.isEmpty()) {
         response = root["response"].toString();
-        if (!response.isEmpty()) {
-            qDebug() << "OllamaProvider: Used /api/generate response format (fallback)";
-        }
+        // Warn, not qDebug: taking the /api/generate shape off what may have
+        // been an /api/chat request means one of the two assumptions is wrong,
+        // and this fallback otherwise masks a legitimately-empty chat reply
+        // (truncation, refusal, thinking-only) behind a shape probe.
+        if (!response.isEmpty())
+            qWarning() << "OllamaProvider: /api/chat message.content was empty; "
+                          "fell back to the /api/generate response field";
     }
-    if (response.isEmpty()) {
-        emit analysisFailed(tr_("ai.ollama.emptyResponse", "Ollama returned empty response"));
-        return;
+
+    // This app sets no token cap for Ollama, but that is not the same as "it
+    // cannot truncate": num_predict and num_ctx live in the USER's Modelfile
+    // and server config, and Ollama reports done_reason "length" when either
+    // one stops generation. Without this check a locally-truncated reply was
+    // emitted as complete — the same defect this change fixes on the four
+    // cloud providers, on the fifth.
+    const QString doneReason = root["done_reason"].toString();
+    const bool truncated = doneReason == QLatin1String("length");
+
+    if (response.isEmpty() || truncated) {
+        // Thinking models (deepseek-r1, qwen3) return reasoning in
+        // message.thinking with a possibly-empty message.content — literally
+        // #1691's shape, on a local model. Say so rather than logging nothing,
+        // which is what this branch did.
+        qWarning() << "Ollama: model" << m_model << "done_reason" << doneReason
+                   << "content chars" << response.size()
+                   << "thinking chars" << message["thinking"].toString().size()
+                   << "eval_count" << root["eval_count"].toInt();
+        if (dispatchTruncatedOrEmpty(response, truncated,
+                tr_("ai.ollama.emptyResponse", "Ollama returned empty response")))
+            return;
     }
 
     emit analysisComplete(response);
