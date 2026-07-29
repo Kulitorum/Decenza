@@ -1,3 +1,8 @@
+// The two extraction-view Components and the `layer.effect` blocks read this file's
+// `espressoPage` id; Bound makes it statically resolvable. Neither Component takes an
+// injected model role, so nothing here needs a `required property`.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -160,8 +165,8 @@ Page {
     Connections {
         target: MachineState
         function onPhaseChanged() {
-            if (!accessibilityEnabled()) return
-            var announcement = getPhaseAnnouncement(MachineState.phase)
+            if (!espressoPage.accessibilityEnabled()) return
+            var announcement = espressoPage.getPhaseAnnouncement(MachineState.phase)
             if (announcement) {
                 AccessibilityManager.announce(announcement, true)
             }
@@ -175,8 +180,8 @@ Page {
             // Reset frame name so previous shot's last frame doesn't linger
             espressoPage.displayedFrameName = ""
 
-            if (!accessibilityEnabled()) return
-            lastAnnouncedWeight = 0
+            if (!espressoPage.accessibilityEnabled()) return
+            espressoPage.lastAnnouncedWeight = 0
             AccessibilityManager.announce(
                 TranslationManager.translate("espresso.accessibility.started", "Extraction started"),
                 true
@@ -188,13 +193,13 @@ Page {
     Connections {
         target: MachineState
         function onShotEnded() {
-            if (!accessibilityEnabled()) return
+            if (!espressoPage.accessibilityEnabled()) return
             accessibilityUpdateTimer.stop()
             // Wait a moment then announce final status
             Qt.callLater(function() {
                 var finalStatus = TranslationManager.translate("espresso.accessibility.ended", "Extraction finished") + ". "
-                finalStatus += getAccessibilityValue(1) + ". "  // Time
-                finalStatus += getAccessibilityValue(5)         // Weight
+                finalStatus += espressoPage.getAccessibilityValue(1) + ". "  // Time
+                finalStatus += espressoPage.getAccessibilityValue(5)         // Weight
                 AccessibilityManager.announce(finalStatus, true)
             })
         }
@@ -204,7 +209,7 @@ Page {
     Connections {
         target: MachineState
         function onTargetWeightReached() {
-            if (!accessibilityEnabled()) return
+            if (!espressoPage.accessibilityEnabled()) return
             AccessibilityManager.announce(
                 TranslationManager.translate("espresso.accessibility.targetReached", "Target weight reached"),
                 true
@@ -216,7 +221,7 @@ Page {
     Connections {
         target: MachineState
         function onScaleWeightChanged() {
-            if (!accessibilityEnabled()) return
+            if (!espressoPage.accessibilityEnabled()) return
             if (!AccessibilityManager.extractionAnnouncementsEnabled) return
             // Only announce milestones if mode includes milestones
             var mode = AccessibilityManager.extractionAnnouncementMode
@@ -224,10 +229,10 @@ Page {
 
             var w = MachineState.scaleWeight
             // Announce every 10g milestone
-            if (Math.floor(w / 10) > Math.floor(lastAnnouncedWeight / 10) && w > 0) {
+            if (Math.floor(w / 10) > Math.floor(espressoPage.lastAnnouncedWeight / 10) && w > 0) {
                 AccessibilityManager.announce(Math.floor(w) + " " +
                     TranslationManager.translate("espresso.accessibility.grams", "grams"))
-                lastAnnouncedWeight = w
+                espressoPage.lastAnnouncedWeight = w
             }
         }
     }
@@ -237,7 +242,7 @@ Page {
         id: accessibilityUpdateTimer
         interval: AccessibilityManager.extractionAnnouncementInterval * 1000
         repeat: true
-        running: accessibilityEnabled() &&
+        running: espressoPage.accessibilityEnabled() &&
                  AccessibilityManager.extractionAnnouncementsEnabled &&
                  (AccessibilityManager.extractionAnnouncementMode === "timed" ||
                   AccessibilityManager.extractionAnnouncementMode === "both") &&
@@ -266,14 +271,14 @@ Page {
             }
 
             if (transitionReason === "" || frameName === "") return
-            var text = _transitionText(transitionReason)
+            var text = espressoPage._transitionText(transitionReason)
             frameTransitionLifecycle.stop()
             frameTransitionLabel.text = text
-            frameTransitionPill.color = _transitionColor(transitionReason)
+            frameTransitionPill.color = espressoPage._transitionColor(transitionReason)
             frameTransitionPill.opacity = 1
             frameTransitionPill.scale = 1.0
             frameTransitionLifecycle.start()
-            if (accessibilityEnabled()) {
+            if (espressoPage.accessibilityEnabled()) {
                 AccessibilityManager.announce(text)
             }
         }
@@ -418,8 +423,8 @@ Page {
             activeFocusOnTab: true
             KeyNavigation.tab: espressoBackButton
             KeyNavigation.backtab: skipFrameButton.visible ? skipFrameButton : espressoBackButton
-            Keys.onReturnPressed: { viewSelectorDialog.open(); event.accepted = true }
-            Keys.onSpacePressed:  { viewSelectorDialog.open(); event.accepted = true }
+            Keys.onReturnPressed: function(event) { viewSelectorDialog.open(); event.accepted = true }
+            Keys.onSpacePressed:  function(event) { viewSelectorDialog.open(); event.accepted = true }
             onAccessibleClicked: viewSelectorDialog.open()
         }
     }
@@ -614,13 +619,13 @@ Page {
         border.width: Theme.scaled(2)
 
         activeFocusOnTab: true
-        Keys.onReturnPressed: {
+        Keys.onReturnPressed: function(event) {
             AppShell.stopReason = "manual"
             DE1Device.stopOperation()
             AppShell.idleRequested()
             event.accepted = true
         }
-        Keys.onSpacePressed: {
+        Keys.onSpacePressed: function(event) {
             AppShell.stopReason = "manual"
             DE1Device.stopOperation()
             AppShell.idleRequested()
@@ -692,13 +697,13 @@ Page {
                     DE1Device.stopOperation()
                     AppShell.idleRequested()
                 }
-                Keys.onReturnPressed: {
+                Keys.onReturnPressed: function(event) {
                     AppShell.stopReason = "manual"
                     DE1Device.stopOperation()
                     AppShell.idleRequested()
                     event.accepted = true
                 }
-                Keys.onSpacePressed: {
+                Keys.onSpacePressed: function(event) {
                     AppShell.stopReason = "manual"
                     DE1Device.stopOperation()
                     AppShell.idleRequested()

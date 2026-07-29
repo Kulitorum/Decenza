@@ -1,3 +1,10 @@
+// The phase-pill Repeater delegate, the resize-grip Repeater and the `layer.effect`
+// block read this file's ids (`shotComparisonPage`, `comparisonGraph`,
+// `resizeMouseArea`); Bound makes them statically resolvable. The phase-pill delegate
+// already declares its one injected role, `modelData`, required, and the resize-grip
+// delegate takes none, so Bound cannot break role injection here.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Effects
@@ -187,7 +194,7 @@ Page {
 
                 // Window navigation bar (only show when more shots than display window)
                 Row {
-                    visible: comparisonModel.totalShots > 3
+                    visible: shotComparisonPage.comparisonModel.totalShots > 3
                     anchors.bottom: resizeHandle.top
                     anchors.horizontalCenter: parent.horizontalCenter
                     anchors.bottomMargin: Theme.spacingSmall
@@ -197,7 +204,7 @@ Page {
                         width: Theme.scaled(28)
                         height: Theme.scaled(24)
                         radius: Theme.scaled(12)
-                        color: comparisonModel.canShiftLeft ? Qt.rgba(0, 0, 0, 0.6) : Qt.rgba(0, 0, 0, 0.3)
+                        color: shotComparisonPage.comparisonModel.canShiftLeft ? Qt.rgba(0, 0, 0, 0.6) : Qt.rgba(0, 0, 0, 0.3)
                         Accessible.role: Accessible.Button
                         Accessible.name: TranslationManager.translate("comparison.previousShots", "Previous shots")
                         Accessible.focusable: true
@@ -207,14 +214,14 @@ Page {
                             anchors.centerIn: parent
                             text: "\u25C0"
                             font.pixelSize: Theme.captionFont.pixelSize
-                            color: comparisonModel.canShiftLeft ? Theme.primaryContrastColor : Qt.alpha(Theme.primaryContrastColor, 0.4)
+                            color: shotComparisonPage.comparisonModel.canShiftLeft ? Theme.primaryContrastColor : Qt.alpha(Theme.primaryContrastColor, 0.4)
                             Accessible.ignored: true
                         }
                         MouseArea {
                             id: prevMouseArea
                             anchors.fill: parent
-                            enabled: comparisonModel.canShiftLeft
-                            onClicked: comparisonModel.shiftWindowLeft()
+                            enabled: shotComparisonPage.comparisonModel.canShiftLeft
+                            onClicked: shotComparisonPage.comparisonModel.shiftWindowLeft()
                         }
                     }
 
@@ -226,9 +233,9 @@ Page {
                         Text {
                             id: windowPositionText
                             anchors.centerIn: parent
-                            text: (comparisonModel.windowStart + 1) + "-" +
-                                  Math.min(comparisonModel.windowStart + 3, comparisonModel.totalShots) +
-                                  " / " + comparisonModel.totalShots
+                            text: (shotComparisonPage.comparisonModel.windowStart + 1) + "-" +
+                                  Math.min(shotComparisonPage.comparisonModel.windowStart + 3, shotComparisonPage.comparisonModel.totalShots) +
+                                  " / " + shotComparisonPage.comparisonModel.totalShots
                             font: Theme.captionFont
                             color: Theme.primaryContrastColor
                             Accessible.ignored: true
@@ -239,7 +246,7 @@ Page {
                         width: Theme.scaled(28)
                         height: Theme.scaled(24)
                         radius: Theme.scaled(12)
-                        color: comparisonModel.canShiftRight ? Qt.rgba(0, 0, 0, 0.6) : Qt.rgba(0, 0, 0, 0.3)
+                        color: shotComparisonPage.comparisonModel.canShiftRight ? Qt.rgba(0, 0, 0, 0.6) : Qt.rgba(0, 0, 0, 0.3)
                         Accessible.role: Accessible.Button
                         Accessible.name: TranslationManager.translate("comparison.nextShots", "Next shots")
                         Accessible.focusable: true
@@ -249,14 +256,14 @@ Page {
                             anchors.centerIn: parent
                             text: "\u25B6"
                             font.pixelSize: Theme.captionFont.pixelSize
-                            color: comparisonModel.canShiftRight ? Theme.primaryContrastColor : Qt.alpha(Theme.primaryContrastColor, 0.4)
+                            color: shotComparisonPage.comparisonModel.canShiftRight ? Theme.primaryContrastColor : Qt.alpha(Theme.primaryContrastColor, 0.4)
                             Accessible.ignored: true
                         }
                         MouseArea {
                             id: nextMouseArea
                             anchors.fill: parent
-                            enabled: comparisonModel.canShiftRight
-                            onClicked: comparisonModel.shiftWindowRight()
+                            enabled: shotComparisonPage.comparisonModel.canShiftRight
+                            onClicked: shotComparisonPage.comparisonModel.shiftWindowRight()
                         }
                     }
                 }
@@ -353,6 +360,7 @@ Page {
                             model: shotComparisonPage.phaseEntries
 
                             Rectangle {
+                                id: phasePill
                                 required property var modelData
                                 property color phaseColor: comparisonGraph.phaseColors[modelData.phaseIndex % comparisonGraph.phaseColors.length]
                                 property bool phaseOn: !comparisonGraph.hiddenPhaseLabels[modelData.label]
@@ -378,13 +386,13 @@ Page {
                                     Rectangle {
                                         width: Theme.scaled(6); height: Theme.scaled(6); radius: Theme.scaled(3)
                                         anchors.verticalCenter: parent.verticalCenter
-                                        color: phaseColor
+                                        color: phasePill.phaseColor
                                         Accessible.ignored: true
                                     }
                                     Text {
-                                        text: modelData.label
+                                        text: phasePill.modelData.label
                                         font: Theme.captionFont
-                                        color: phaseOn ? phaseColor : Theme.textSecondaryColor
+                                        color: phasePill.phaseOn ? phasePill.phaseColor : Theme.textSecondaryColor
                                         anchors.verticalCenter: parent.verticalCenter
                                         Accessible.ignored: true
                                     }
@@ -392,7 +400,7 @@ Page {
 
                                 MouseArea {
                                     anchors.fill: parent
-                                    onClicked: comparisonGraph.togglePhaseLabel(modelData.label)
+                                    onClicked: comparisonGraph.togglePhaseLabel(phasePill.modelData.label)
                                 }
                             }
                         }
@@ -426,7 +434,7 @@ Page {
     BottomBar {
         id: bottomBar
         title: TranslationManager.translate("comparison.title", "Compare Shots")
-        rightText: comparisonModel.shotCount + " " + TranslationManager.translate("comparison.shots", "shots")
+        rightText: shotComparisonPage.comparisonModel.shotCount + " " + TranslationManager.translate("comparison.shots", "shots")
         onBackClicked: AppShell.backRequested()
     }
 }
