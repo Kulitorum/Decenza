@@ -8,8 +8,11 @@
     <string>Decenza</string>
     <key>CFBundleExecutable</key>
     <string>Decenza</string>
+    <!-- Substituted by CMake from MACOS_BUNDLE_ID (see CMakeLists.txt). Defaults
+         to the shipping id; overridable for local dev builds so they get their
+         own Local Network permission subject. -->
     <key>CFBundleIdentifier</key>
-    <string>io.github.kulitorum.decenza</string>
+    <string>${MACOSX_BUNDLE_GUI_IDENTIFIER}</string>
     <key>CFBundleName</key>
     <string>Decenza</string>
     <key>CFBundlePackageType</key>
@@ -29,6 +32,13 @@
     <key>NSBonjourServices</key>
     <array>
         <string>_http._tcp</string>
+        <!-- The Half Decent Scale's DNS-SD advertisement (openscale v3.0.9+).
+             macOS only permits browsing service types listed here: omitting it
+             makes DNSServiceBrowse fail with kDNSServiceErr_NoAuth (-65555),
+             which reads like a denied Local Network permission and sends you
+             looking at System Settings instead of at this file.
+             Keep in step with ios/Info.plist. -->
+        <string>_decentscale._tcp</string>
     </array>
     <key>NSHighResolutionCapable</key>
     <true/>

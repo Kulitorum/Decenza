@@ -42,6 +42,16 @@ public:
     void startPolling();
     void stopPolling();
 
+    // Run a poll pass NOW instead of waiting up to POLL_INTERVAL_MS for the next
+    // tick, and report completion via probeFinished().
+    //
+    // Exists because "Scan for Devices" means find my devices, not find my
+    // Bluetooth devices. USB detection is otherwise a free-running background
+    // poll that the scan button does not touch, so a scale plugged in moments
+    // before a scan appeared only when the timer happened to come round — and
+    // the scan indicator never accounted for USB at all.
+    void probeNow();
+
     // Create + open the UsbDecentScale for the currently-available USB scale and
     // emit scaleDiscovered() so main.cpp wires it active. No-op if no scale is
     // available or one is already connected. Called when the user selects the
@@ -65,12 +75,20 @@ signals:
     // entry and auto-connects only when it's the saved primary.
     void usbScaleAvailable();
     void usbScaleUnavailable();
+    // A probeNow() pass has finished. Used by the scan to know when the USB
+    // third of "Scanning..." is done.
+    void probeFinished();
     void logMessage(const QString& message);
 
 private slots:
     void onPollTimerTick();
 
 private:
+    // Emits probeFinished() exactly once per scan-initiated pass, from the point
+    // the probe actually settles rather than the point it was started.
+    void finishScanProbe();
+    bool m_scanProbePending = false;
+
     QTimer m_pollTimer;
     UsbDecentScale* m_scale = nullptr;
     bool m_hasLoggedInitialPorts = false;

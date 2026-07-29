@@ -43,6 +43,13 @@ function(add_decenza_test name)
         ${CMAKE_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}       # For mocks/
     )
+    # Any test that compiles mdnsresolver.cpp needs the header-only mjansson
+    # library, which the main target gets separately. SYSTEM for the same reason
+    # it is SYSTEM there: the header is -Wcast-align-dirty BSD socket code and
+    # these targets are -Werror too. Guarded because iOS never fetches it.
+    if(NOT IOS AND mdns_lib_SOURCE_DIR)
+        target_include_directories(${name} SYSTEM PRIVATE ${mdns_lib_SOURCE_DIR})
+    endif()
     add_test(NAME ${name} COMMAND ${name})
 endfunction()
 
@@ -204,6 +211,14 @@ target_include_directories(decenza_shotlib PUBLIC ${CMAKE_BINARY_DIR})
 
 add_decenza_test(tst_binarycodec
     tst_binarycodec.cpp
+)
+
+# --- tst_wifiscaleresult: pure WiFi-scale discovery result logic (TXT parsing,
+# address dedupe, row labelling). Deliberately separate from the mDNS transport,
+# which needs real packets on a real LAN and so cannot be covered here. ---
+add_decenza_test(tst_wifiscaleresult
+    tst_wifiscaleresult.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/wifiscaleresult.cpp
 )
 
 # --- tst_aborted_shot_classifier: header-only "did the shot start?" classifier (issue #899) ---
@@ -862,6 +877,8 @@ target_link_libraries(tst_decentscalewifi PRIVATE
 add_decenza_test(tst_wifiscalediscovery
     tst_wifiscalediscovery.cpp
     ${CMAKE_SOURCE_DIR}/src/network/wifiscalediscovery.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/wifiscaleresult.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/mdnsresolver.cpp
 )
 
 # --- tst_difluidr2: DiFluid R2 refractometer packet parsing and name matching ---

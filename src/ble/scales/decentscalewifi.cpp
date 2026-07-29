@@ -82,6 +82,13 @@ void DecentScaleWifi::connectToDevice(const QBluetoothDeviceInfo& device) {
     connectToHost(m_hostname.isEmpty() ? QStringLiteral("hds.local") : m_hostname);
 }
 
+void DecentScaleWifi::setEndpoint(quint16 port, const QString& path) {
+    if (port != 0)
+        m_wsPort = port;
+    if (!path.isEmpty())
+        m_wsPath = path.startsWith(QLatin1Char('/')) ? path : QLatin1Char('/') + path;
+}
+
 void DecentScaleWifi::connectToHost(const QString& hostname, const QString& preferredIp) {
     m_hostname = hostname;
     m_userInitiatedShutdown = false;
@@ -184,7 +191,13 @@ void DecentScaleWifi::attemptTarget(const QString& target, bool isHostname) {
     // architecturally correct.
     recreateSocket();
 
-    const QUrl url(QStringLiteral("ws://%1/snapshot").arg(target));
+    // Endpoint from the scale's own DNS-SD advertisement when we have it,
+    // falling back to the firmware's current :80/snapshot otherwise. The port
+    // is omitted from the URL when it's the HTTP default, so logs and the
+    // existing 403-diagnosis paths keep reading the way they always have.
+    const QString hostPort = m_wsPort == 80 ? target
+                                            : QStringLiteral("%1:%2").arg(target).arg(m_wsPort);
+    const QUrl url(QStringLiteral("ws://%1%2").arg(hostPort, m_wsPath));
     WIFI_LOG(QString("Connecting to %1 (%2)").arg(
         url.toString(), isHostname ? QStringLiteral("hostname") : QStringLiteral("cached IP")));
     // ORDER MATTERS: arm the recognition window BEFORE open(), never after.

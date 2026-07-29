@@ -207,6 +207,61 @@ void UsbScaleManager::startPolling()
     m_pollTimer.start();
 }
 
+void UsbScaleManager::probeNow()
+{
+    qDebug() << "[USB Scale] On-demand probe requested (scan)";
+    m_scanProbePending = true;
+
+#ifndef Q_OS_ANDROID
+    // Forget which ports have already been probed, so a user-initiated scan
+    // RETRIES one that previously failed to answer.
+    //
+    // The background poll deliberately probes each port once — re-probing every
+    // 2 s would hammer a device that isn't a scale. But "Scan for Devices" is an
+    // explicit request to look again, and a port that timed out earlier (a scale
+    // still booting, a cable reseated, a transient) would otherwise be skipped
+    // for the rest of the session with "nothing new to probe".
+    //
+    // Not cleared when a scale is already connected: m_confirmedPortName is in
+    // this set and re-probing the live port would disturb the connection.
+    if (!m_scale)
+        m_knownPorts.clear();
+#endif
+
+    onPollTimerTick();
+
+    // A pass does not always start a probe: onPollTimerTick only probes when
+    // there is an un-probed candidate port and no scale is already connected.
+    // When it didn't, there is nothing to wait for — say so rather than leaving
+    // the scan indicator pinned on a probe that never began.
+    //
+    // An earlier version emitted probeFinished() unconditionally right here,
+    // which made the whole thing inert: the signal round-tripped through
+    // BLEManager synchronously and cleared the in-flight flag before the
+    // composite `scanning` property was ever read, so USB never actually
+    // contributed to it.
+    const bool probeRunning =
+#ifdef Q_OS_ANDROID
+        m_androidProbeTimer != nullptr;
+#else
+        m_probePort != nullptr;
+#endif
+    if (probeRunning) {
+        emit logMessage(QStringLiteral("[USB Scale] Probing for USB scale (scan)"));
+    } else {
+        emit logMessage(QStringLiteral("[USB Scale] Scan: nothing new to probe"));
+        finishScanProbe();
+    }
+}
+
+void UsbScaleManager::finishScanProbe()
+{
+    if (!m_scanProbePending)
+        return;
+    m_scanProbePending = false;
+    emit probeFinished();
+}
+
 void UsbScaleManager::stopPolling()
 {
     m_pollTimer.stop();
@@ -393,6 +448,9 @@ void UsbScaleManager::onAndroidProbeTimeout()
 
 void UsbScaleManager::cleanupAndroidProbe(bool closeConnection)
 {
+    // Android's equivalent of cleanupProbe(): the single point a probe pass ends.
+    finishScanProbe();
+
     if (m_androidProbeTimer) {
         m_androidProbeTimer->stop();
         m_androidProbeTimer->deleteLater();
@@ -553,6 +611,30 @@ void UsbScaleManager::onProbeReadyRead()
 
     m_probeBuffer.append(m_probePort->readAll());
 
+    // The scale ALWAYS emits a plain-text weight line —
+    // "<millis> Weight: <value>" from sendUsbTextWeight(), which is ungated in
+    // firmware. The binary packet below is gated on b_usbweight_enabled, which
+    // defaults to false and is only turned on by the 0x20 command we send on
+    // probe. A scale that is busy serving BLE or WiFi does not act on that
+    // command, so binary never arrives and the probe used to time out — the
+    // scale was plugged in, streaming, and reported as absent.
+    //
+    // Accepting the text line fixes that: the scale is listed on all three
+    // transports regardless of which one is currently in use, and the user picks
+    // one. Binary streaming is (re)requested by connectToScale() when USB is
+    // actually selected, which is the point at which it matters.
+    if (m_probeBuffer.contains(" Weight: ")) {
+        const QString confirmedPort = m_probingPortInfo.portName();
+        qDebug() << "[USB Scale] Scale confirmed on" << confirmedPort
+                 << "(text weight stream)";
+        emit logMessage(QStringLiteral("[USB Scale] Half Decent Scale found on %1")
+                            .arg(confirmedPort));
+        cleanupProbe();
+        m_confirmedPortName = confirmedPort;
+        setScaleAvailable(true);
+        return;
+    }
+
     // Look for valid weight packet: 0x03, 0xCE/0xCA, ..., XOR
     for (int i = 0; i <= m_probeBuffer.size() - 7; i++) {
         uint8_t b0 = static_cast<uint8_t>(m_probeBuffer[i]);
@@ -591,11 +673,27 @@ void UsbScaleManager::onProbeTimeout()
     emit logMessage(QStringLiteral("[USB Scale] Probe timeout on %1")
                         .arg(m_probingPortInfo.portName()));
 
+    // Dump what actually arrived when the port talked but we rejected all of
+    // it. "Received N bytes" alone cannot distinguish a device that is not a
+    // scale from a scale whose framing we fail to parse — and the latter looks
+    // identical to a dead port from the user's side.
+    if (!m_probeBuffer.isEmpty()) {
+        const QByteArray head = m_probeBuffer.left(64);
+        emit logMessage(QStringLiteral("[USB Scale] Rejected %1 bytes; first %2: %3")
+                            .arg(m_probeBuffer.size())
+                            .arg(head.size())
+                            .arg(QString::fromLatin1(head.toHex(' '))));
+    }
+
     cleanupProbe();
 }
 
 void UsbScaleManager::cleanupProbe()
 {
+    // The one place a desktop probe pass ends — success, failure or timeout.
+    // A scan is waiting on this, not on the pass merely having been started.
+    finishScanProbe();
+
     if (m_probeTimer) {
         m_probeTimer->stop();
         m_probeTimer->deleteLater();

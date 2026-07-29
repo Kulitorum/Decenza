@@ -1245,7 +1245,7 @@ int main(int argc, char *argv[])
     // actually served the shot, not the one nominated as primary in Settings. The two
     // diverge whenever the WiFi-primary Half Decent Scale is unreachable and the app falls
     // back to its BLE transport: that path deliberately skips setPrimaryScale() (see
-    // isFallbackConnect in the scaleFound handler), so settings.scaleType() keeps answering
+    // isFallbackConnect in the resultFound handler), so settings.scaleType() keeps answering
     // "decent-wifi" while every weight sample arrives over BLE. Writing BLE-served shots
     // into the WiFi pool corrupts a learned model the user cannot see or reset separately.
     // Observed on-device: four consecutive BLE-served shots logged scale="decent-wifi".
@@ -2571,6 +2571,11 @@ int main(int argc, char *argv[])
                         // selection), hand the IP to connectToHost() as its
                         // preferredIp so it dials the known IP directly instead
                         // of asking Qt's resolver to re-resolve ".local".
+                        // Use the endpoint the scale advertised over DNS-SD
+                        // rather than assuming :80/snapshot (defaults to that
+                        // when discovery had no TXT data).
+                        wifi->setEndpoint(bleManager.pendingWifiPort(),
+                                          bleManager.pendingWifiPath());
                         wifi->connectToHost(bleManager.pendingWifiHostname(),
                                             bleManager.pendingWifiResolvedIp());
                     }
@@ -2594,7 +2599,11 @@ int main(int argc, char *argv[])
         const QString hostname = isWifi ? bleManager.pendingWifiHostname() : QString();
         const QString deviceId = isWifi ? (QStringLiteral("wifi:") + hostname)
                                          : getDeviceIdentifier(device);
-        const QString displayName = isWifi ? QStringLiteral("Half Decent Scale (WiFi)")
+        // Hostname-derived label rather than a generic one — with two WiFi
+        // scales paired, one identical name for both makes Known Devices
+        // useless. See pendingWifiDisplayName() for why the DNS-SD instance
+        // name is deliberately NOT what this is built from.
+        const QString displayName = isWifi ? bleManager.pendingWifiDisplayName()
                                             : device.name();
         // Manual "Add WiFi Scale" entries DEFER persistence until the WS
         // endpoint actually validates as an HDS scale. Without this, a typo or
@@ -2871,6 +2880,7 @@ int main(int argc, char *argv[])
                 // (never cached until verified). Empty for manual-typed entries
                 // and cache-driven reconnects — those fall through to the cached
                 // IP / hostname-resolve path (see BLEManager call sites).
+                wifi->setEndpoint(bleManager.pendingWifiPort(), bleManager.pendingWifiPath());
                 wifi->connectToHost(hostname, bleManager.pendingWifiResolvedIp());
             }
         } else {
@@ -3329,6 +3339,18 @@ int main(int argc, char *argv[])
     QObject::connect(&bleManager, &BLEManager::usbConnectRequested,
                      [&usbScaleManager]() {
         usbScaleManager.connectToScale();
+    });
+
+    // "Scan for Devices" covers USB too, not just BLE and WiFi. BLEManager asks
+    // (it doesn't own UsbScaleManager) and the completion feeds back so the
+    // composite "Scanning..." indicator waits for all three transports.
+    QObject::connect(&bleManager, &BLEManager::usbProbeRequested,
+                     [&usbScaleManager]() {
+        usbScaleManager.probeNow();
+    });
+    QObject::connect(&usbScaleManager, &UsbScaleManager::probeFinished,
+                     [&bleManager]() {
+        bleManager.onUsbProbeFinished();
     });
 
     // Forward USB scale manager log messages to BOTH logs: the scale log (so the
