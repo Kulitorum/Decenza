@@ -17,69 +17,69 @@ class SettingsBrew : public QObject {
     Q_OBJECT
 
     // Espresso
-    Q_PROPERTY(double espressoTemperature READ espressoTemperature WRITE setEspressoTemperature NOTIFY espressoTemperatureChanged)
-    Q_PROPERTY(double targetWeight READ targetWeight WRITE setTargetWeight NOTIFY targetWeightChanged)
-    Q_PROPERTY(double lastUsedRatio READ lastUsedRatio WRITE setLastUsedRatio NOTIFY lastUsedRatioChanged)
+    Q_PROPERTY(double espressoTemperature READ espressoTemperature WRITE setEspressoTemperature NOTIFY espressoTemperatureChanged FINAL)
+    Q_PROPERTY(double targetWeight READ targetWeight WRITE setTargetWeight NOTIFY targetWeightChanged FINAL)
+    Q_PROPERTY(double lastUsedRatio READ lastUsedRatio WRITE setLastUsedRatio NOTIFY lastUsedRatioChanged FINAL)
     // Home-screen quick-select brew-ratio presets (Ristretto / Normale / Lungo),
     // used by the ratioQuickSelect layout widget. Default 1 / 2 / 3.
-    Q_PROPERTY(double ratioPreset1 READ ratioPreset1 WRITE setRatioPreset1 NOTIFY ratioPreset1Changed)
-    Q_PROPERTY(double ratioPreset2 READ ratioPreset2 WRITE setRatioPreset2 NOTIFY ratioPreset2Changed)
-    Q_PROPERTY(double ratioPreset3 READ ratioPreset3 WRITE setRatioPreset3 NOTIFY ratioPreset3Changed)
+    Q_PROPERTY(double ratioPreset1 READ ratioPreset1 WRITE setRatioPreset1 NOTIFY ratioPreset1Changed FINAL)
+    Q_PROPERTY(double ratioPreset2 READ ratioPreset2 WRITE setRatioPreset2 NOTIFY ratioPreset2Changed FINAL)
+    Q_PROPERTY(double ratioPreset3 READ ratioPreset3 WRITE setRatioPreset3 NOTIFY ratioPreset3Changed FINAL)
     // Dose cup tare: empty weight of the dosing vessel, subtracted from the scale
     // reading in "Get from scale" so the dose is net beans. Default 0 = no tare.
-    Q_PROPERTY(double doseCupTareWeight READ doseCupTareWeight WRITE setDoseCupTareWeight NOTIFY doseCupTareWeightChanged)
+    Q_PROPERTY(double doseCupTareWeight READ doseCupTareWeight WRITE setDoseCupTareWeight NOTIFY doseCupTareWeightChanged FINAL)
     // Master toggle for weight-timed steaming (UI label "Weight-timed steaming").
     // When off, steam time is never scaled from milk weight. Default OFF; setting a
     // pitcher's reference milk (setSteamPitcherCalibration) turns it on automatically.
-    Q_PROPERTY(bool milkAutoCaptureEnabled READ milkAutoCaptureEnabled WRITE setMilkAutoCaptureEnabled NOTIFY milkAutoCaptureEnabledChanged)
+    Q_PROPERTY(bool milkAutoCaptureEnabled READ milkAutoCaptureEnabled WRITE setMilkAutoCaptureEnabled NOTIFY milkAutoCaptureEnabledChanged FINAL)
     // Whether the confirmation "ding" plays when a dose/milk auto-captures. Default
     // off — toggled by the bell on the Dose cup row.
-    Q_PROPERTY(bool doseCaptureSoundEnabled READ doseCaptureSoundEnabled WRITE setDoseCaptureSoundEnabled NOTIFY doseCaptureSoundEnabledChanged)
+    Q_PROPERTY(bool doseCaptureSoundEnabled READ doseCaptureSoundEnabled WRITE setDoseCaptureSoundEnabled NOTIFY doseCaptureSoundEnabledChanged FINAL)
     // Last actual steam session (milk weight + steam time), saved so the steam
     // setup can adopt them as a new reference baseline.
-    Q_PROPERTY(double lastSteamMilkG READ lastSteamMilkG WRITE setLastSteamMilkG NOTIFY lastSteamMilkGChanged)
-    Q_PROPERTY(double lastSteamTimeS READ lastSteamTimeS WRITE setLastSteamTimeS NOTIFY lastSteamTimeSChanged)
+    Q_PROPERTY(double lastSteamMilkG READ lastSteamMilkG WRITE setLastSteamMilkG NOTIFY lastSteamMilkGChanged FINAL)
+    Q_PROPERTY(double lastSteamTimeS READ lastSteamTimeS WRITE setLastSteamTimeS NOTIFY lastSteamTimeSChanged FINAL)
     // Global weight-timed steam rate (seconds of steam per gram of milk). One
     // calibration for every pitcher (assumes a consistent steam flow — a
     // simplification, not a physical guarantee), replacing per-pitcher
     // reference-milk scaling. 0 = uncalibrated. Clamped >= 0.
-    Q_PROPERTY(double steamSecondsPerGram READ steamSecondsPerGram WRITE setSteamSecondsPerGram NOTIFY steamSecondsPerGramChanged)
+    Q_PROPERTY(double steamSecondsPerGram READ steamSecondsPerGram WRITE setSteamSecondsPerGram NOTIFY steamSecondsPerGramChanged FINAL)
 
     // Steam
-    Q_PROPERTY(double steamTemperature READ steamTemperature WRITE setSteamTemperature NOTIFY steamTemperatureChanged)
-    Q_PROPERTY(int steamTimeout READ steamTimeout WRITE setSteamTimeout NOTIFY steamTimeoutChanged)
-    Q_PROPERTY(int steamFlow READ steamFlow WRITE setSteamFlow NOTIFY steamFlowChanged)
+    Q_PROPERTY(double steamTemperature READ steamTemperature WRITE setSteamTemperature NOTIFY steamTemperatureChanged FINAL)
+    Q_PROPERTY(int steamTimeout READ steamTimeout WRITE setSteamTimeout NOTIFY steamTimeoutChanged FINAL)
+    Q_PROPERTY(int steamFlow READ steamFlow WRITE setSteamFlow NOTIFY steamFlowChanged FINAL)
     // Session-only flag (no QSettings backing) — used during descaling to suppress
     // the steam heater. Setter is Q_INVOKABLE rather than a property WRITE so the
     // public API doesn't pretend this value persists across restarts.
-    Q_PROPERTY(bool steamDisabled READ steamDisabled NOTIFY steamDisabledChanged)
-    Q_PROPERTY(bool keepSteamHeaterOn READ keepSteamHeaterOn WRITE setKeepSteamHeaterOn NOTIFY keepSteamHeaterOnChanged)
-    Q_PROPERTY(int steamAutoFlushSeconds READ steamAutoFlushSeconds WRITE setSteamAutoFlushSeconds NOTIFY steamAutoFlushSecondsChanged)
+    Q_PROPERTY(bool steamDisabled READ steamDisabled NOTIFY steamDisabledChanged FINAL)
+    Q_PROPERTY(bool keepSteamHeaterOn READ keepSteamHeaterOn WRITE setKeepSteamHeaterOn NOTIFY keepSteamHeaterOnChanged FINAL)
+    Q_PROPERTY(int steamAutoFlushSeconds READ steamAutoFlushSeconds WRITE setSteamAutoFlushSeconds NOTIFY steamAutoFlushSecondsChanged FINAL)
 
     // Steam pitcher presets
-    Q_PROPERTY(QVariantList steamPitcherPresets READ steamPitcherPresets NOTIFY steamPitcherPresetsChanged)
-    Q_PROPERTY(int selectedSteamPitcher READ selectedSteamPitcher WRITE setSelectedSteamCup NOTIFY selectedSteamPitcherChanged)
+    Q_PROPERTY(QVariantList steamPitcherPresets READ steamPitcherPresets NOTIFY steamPitcherPresetsChanged FINAL)
+    Q_PROPERTY(int selectedSteamPitcher READ selectedSteamPitcher WRITE setSelectedSteamCup NOTIFY selectedSteamPitcherChanged FINAL)
 
     // Hot water
-    Q_PROPERTY(double waterTemperature READ waterTemperature WRITE setWaterTemperature NOTIFY waterTemperatureChanged)
-    Q_PROPERTY(int waterVolume READ waterVolume WRITE setWaterVolume NOTIFY waterVolumeChanged)
-    Q_PROPERTY(QString waterVolumeMode READ waterVolumeMode WRITE setWaterVolumeMode NOTIFY waterVolumeModeChanged)
-    Q_PROPERTY(double hotWaterSawOffset READ hotWaterSawOffset WRITE setHotWaterSawOffset NOTIFY hotWaterSawOffsetChanged)
-    Q_PROPERTY(int hotWaterSawSampleCount READ hotWaterSawSampleCount WRITE setHotWaterSawSampleCount NOTIFY hotWaterSawSampleCountChanged)
+    Q_PROPERTY(double waterTemperature READ waterTemperature WRITE setWaterTemperature NOTIFY waterTemperatureChanged FINAL)
+    Q_PROPERTY(int waterVolume READ waterVolume WRITE setWaterVolume NOTIFY waterVolumeChanged FINAL)
+    Q_PROPERTY(QString waterVolumeMode READ waterVolumeMode WRITE setWaterVolumeMode NOTIFY waterVolumeModeChanged FINAL)
+    Q_PROPERTY(double hotWaterSawOffset READ hotWaterSawOffset WRITE setHotWaterSawOffset NOTIFY hotWaterSawOffsetChanged FINAL)
+    Q_PROPERTY(int hotWaterSawSampleCount READ hotWaterSawSampleCount WRITE setHotWaterSawSampleCount NOTIFY hotWaterSawSampleCountChanged FINAL)
 
     // Hot water vessel presets
-    Q_PROPERTY(QVariantList waterVesselPresets READ waterVesselPresets NOTIFY waterVesselPresetsChanged)
-    Q_PROPERTY(int selectedWaterVessel READ selectedWaterVessel WRITE setSelectedWaterCup NOTIFY selectedWaterVesselChanged)
+    Q_PROPERTY(QVariantList waterVesselPresets READ waterVesselPresets NOTIFY waterVesselPresetsChanged FINAL)
+    Q_PROPERTY(int selectedWaterVessel READ selectedWaterVessel WRITE setSelectedWaterCup NOTIFY selectedWaterVesselChanged FINAL)
 
     // Flush presets
-    Q_PROPERTY(QVariantList flushPresets READ flushPresets NOTIFY flushPresetsChanged)
-    Q_PROPERTY(int selectedFlushPreset READ selectedFlushPreset WRITE setSelectedFlushPreset NOTIFY selectedFlushPresetChanged)
-    Q_PROPERTY(double flushFlow READ flushFlow WRITE setFlushFlow NOTIFY flushFlowChanged)
-    Q_PROPERTY(double flushSeconds READ flushSeconds WRITE setFlushSeconds NOTIFY flushSecondsChanged)
+    Q_PROPERTY(QVariantList flushPresets READ flushPresets NOTIFY flushPresetsChanged FINAL)
+    Q_PROPERTY(int selectedFlushPreset READ selectedFlushPreset WRITE setSelectedFlushPreset NOTIFY selectedFlushPresetChanged FINAL)
+    Q_PROPERTY(double flushFlow READ flushFlow WRITE setFlushFlow NOTIFY flushFlowChanged FINAL)
+    Q_PROPERTY(double flushSeconds READ flushSeconds WRITE setFlushSeconds NOTIFY flushSecondsChanged FINAL)
 
     // Temperature override (persistent)
-    Q_PROPERTY(double temperatureOverride READ temperatureOverride WRITE setTemperatureOverride NOTIFY temperatureOverrideChanged)
-    Q_PROPERTY(bool hasTemperatureOverride READ hasTemperatureOverride NOTIFY temperatureOverrideChanged)
+    Q_PROPERTY(double temperatureOverride READ temperatureOverride WRITE setTemperatureOverride NOTIFY temperatureOverrideChanged FINAL)
+    Q_PROPERTY(bool hasTemperatureOverride READ hasTemperatureOverride NOTIFY temperatureOverrideChanged FINAL)
 
     // Brew parameter overrides (persistent). The yield override is the SESSION
     // YIELD ANCHOR (add-yield-ratio-anchor): {value, mode} where mode is
@@ -89,12 +89,12 @@ class SettingsBrew : public QObject {
     // anchors an ABSOLUTE (grams); ratio writers use setBrewRatioAnchor().
     // hasBrewYieldOverride is defined as mode != none — never inferred by
     // comparing a resolved gram value against the profile target.
-    Q_PROPERTY(double brewYieldOverride READ brewYieldOverride WRITE setBrewYieldOverride NOTIFY brewOverridesChanged)
-    Q_PROPERTY(QString brewYieldMode READ brewYieldMode NOTIFY brewOverridesChanged)
-    Q_PROPERTY(bool hasBrewYieldOverride READ hasBrewYieldOverride NOTIFY brewOverridesChanged)
+    Q_PROPERTY(double brewYieldOverride READ brewYieldOverride WRITE setBrewYieldOverride NOTIFY brewOverridesChanged FINAL)
+    Q_PROPERTY(QString brewYieldMode READ brewYieldMode NOTIFY brewOverridesChanged FINAL)
+    Q_PROPERTY(bool hasBrewYieldOverride READ hasBrewYieldOverride NOTIFY brewOverridesChanged FINAL)
 
     // Stop-at-volume gating when a BLE scale provides weight data
-    Q_PROPERTY(bool ignoreVolumeWithScale READ ignoreVolumeWithScale WRITE setIgnoreVolumeWithScale NOTIFY ignoreVolumeWithScaleChanged)
+    Q_PROPERTY(bool ignoreVolumeWithScale READ ignoreVolumeWithScale WRITE setIgnoreVolumeWithScale NOTIFY ignoreVolumeWithScaleChanged FINAL)
 
 public:
     explicit SettingsBrew(QObject* parent = nullptr);

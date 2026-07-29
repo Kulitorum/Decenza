@@ -72,43 +72,53 @@ class Settings : public QObject {
     // qmlRegisterUncreatableType<> calls in main.cpp, which qmltyperegistrar cannot see).
     // Without it QML can't discover the type and chained access resolves to `undefined` at
     // runtime while still compiling clean.
-    Q_PROPERTY(SettingsMqtt* mqtt READ mqtt CONSTANT)
-    Q_PROPERTY(SettingsAutoWake* autoWake READ autoWake CONSTANT)
-    Q_PROPERTY(SettingsHardware* hardware READ hardware CONSTANT)
-    Q_PROPERTY(SettingsAI* ai READ ai CONSTANT)
-    Q_PROPERTY(SettingsTheme* theme READ theme CONSTANT)
-    Q_PROPERTY(SettingsVisualizer* visualizer READ visualizer CONSTANT)
-    Q_PROPERTY(SettingsMcp* mcp READ mcp CONSTANT)
-    Q_PROPERTY(SettingsBrew* brew READ brew CONSTANT)
-    Q_PROPERTY(SettingsDye* dye READ dye CONSTANT)
-    Q_PROPERTY(SettingsNetwork* network READ network CONSTANT)
-    Q_PROPERTY(SettingsApp* app READ app CONSTANT)
-    Q_PROPERTY(SettingsCalibration* calibration READ calibration CONSTANT)
+    //
+    // FINAL is not decoration. Without it qmlcachegen refuses to compile any chained lookup
+    // through these accessors — `Settings.theme.x` degrades the base to `var` and bails with
+    // "Cannot use shadowable base type for further lookups", because a subclass could in
+    // principle shadow the member. `qqmljsshadowcheck.cpp:196-198` returns NotShadowable for a
+    // final property and that is the only escape. It cost 574 AOT skips across 89 files, 97 of
+    // them on `theme` alone; Theme.qml is read on every page construction, so this was the one
+    // warm bucket. Nothing subclasses Settings and no QML redeclares these names — FINAL states
+    // a fact that was already true. Do not drop it to make room for a subclass without
+    // re-reading that trade.
+    Q_PROPERTY(SettingsMqtt* mqtt READ mqtt CONSTANT FINAL)
+    Q_PROPERTY(SettingsAutoWake* autoWake READ autoWake CONSTANT FINAL)
+    Q_PROPERTY(SettingsHardware* hardware READ hardware CONSTANT FINAL)
+    Q_PROPERTY(SettingsAI* ai READ ai CONSTANT FINAL)
+    Q_PROPERTY(SettingsTheme* theme READ theme CONSTANT FINAL)
+    Q_PROPERTY(SettingsVisualizer* visualizer READ visualizer CONSTANT FINAL)
+    Q_PROPERTY(SettingsMcp* mcp READ mcp CONSTANT FINAL)
+    Q_PROPERTY(SettingsBrew* brew READ brew CONSTANT FINAL)
+    Q_PROPERTY(SettingsDye* dye READ dye CONSTANT FINAL)
+    Q_PROPERTY(SettingsNetwork* network READ network CONSTANT FINAL)
+    Q_PROPERTY(SettingsApp* app READ app CONSTANT FINAL)
+    Q_PROPERTY(SettingsCalibration* calibration READ calibration CONSTANT FINAL)
 
     // Machine settings
-    Q_PROPERTY(QString machineAddress READ machineAddress WRITE setMachineAddress NOTIFY machineAddressChanged)
-    Q_PROPERTY(QString scaleAddress READ scaleAddress WRITE setScaleAddress NOTIFY scaleAddressChanged)
-    Q_PROPERTY(QString scaleType READ scaleType WRITE setScaleType NOTIFY scaleTypeChanged)
-    Q_PROPERTY(bool keepScaleOn READ keepScaleOn WRITE setKeepScaleOn NOTIFY keepScaleOnChanged)
-    Q_PROPERTY(QString scaleName READ scaleName WRITE setScaleName NOTIFY scaleNameChanged)
+    Q_PROPERTY(QString machineAddress READ machineAddress WRITE setMachineAddress NOTIFY machineAddressChanged FINAL)
+    Q_PROPERTY(QString scaleAddress READ scaleAddress WRITE setScaleAddress NOTIFY scaleAddressChanged FINAL)
+    Q_PROPERTY(QString scaleType READ scaleType WRITE setScaleType NOTIFY scaleTypeChanged FINAL)
+    Q_PROPERTY(bool keepScaleOn READ keepScaleOn WRITE setKeepScaleOn NOTIFY keepScaleOnChanged FINAL)
+    Q_PROPERTY(QString scaleName READ scaleName WRITE setScaleName NOTIFY scaleNameChanged FINAL)
 
     // Multi-scale management
-    Q_PROPERTY(QVariantList knownScales READ knownScales NOTIFY knownScalesChanged)
-    Q_PROPERTY(QString primaryScaleAddress READ primaryScaleAddress NOTIFY knownScalesChanged)
+    Q_PROPERTY(QVariantList knownScales READ knownScales NOTIFY knownScalesChanged FINAL)
+    Q_PROPERTY(QString primaryScaleAddress READ primaryScaleAddress NOTIFY knownScalesChanged FINAL)
 
     // FlowScale (virtual scale from flow data)
-    Q_PROPERTY(bool useFlowScale READ useFlowScale WRITE setUseFlowScale NOTIFY useFlowScaleChanged)
+    Q_PROPERTY(bool useFlowScale READ useFlowScale WRITE setUseFlowScale NOTIFY useFlowScaleChanged FINAL)
 
     // Allow user to disable modal scale connection alert dialogs
-    Q_PROPERTY(bool showScaleDialogs READ showScaleDialogs WRITE setShowScaleDialogs NOTIFY showScaleDialogsChanged)
+    Q_PROPERTY(bool showScaleDialogs READ showScaleDialogs WRITE setShowScaleDialogs NOTIFY showScaleDialogsChanged FINAL)
 
     // Refractometer (DiFluid R2)
-    Q_PROPERTY(QString savedRefractometerAddress READ savedRefractometerAddress WRITE setSavedRefractometerAddress NOTIFY savedRefractometerChanged)
-    Q_PROPERTY(QString savedRefractometerName READ savedRefractometerName WRITE setSavedRefractometerName NOTIFY savedRefractometerChanged)
+    Q_PROPERTY(QString savedRefractometerAddress READ savedRefractometerAddress WRITE setSavedRefractometerAddress NOTIFY savedRefractometerChanged FINAL)
+    Q_PROPERTY(QString savedRefractometerName READ savedRefractometerName WRITE setSavedRefractometerName NOTIFY savedRefractometerChanged FINAL)
 
     // Enable USB serial polling for DE1 connection. Off by default to save battery
     // (polling every 2 s). Only needed when connecting the DE1 via USB-C cable.
-    Q_PROPERTY(bool usbSerialEnabled READ usbSerialEnabled WRITE setUsbSerialEnabled NOTIFY usbSerialEnabledChanged)
+    Q_PROPERTY(bool usbSerialEnabled READ usbSerialEnabled WRITE setUsbSerialEnabled NOTIFY usbSerialEnabledChanged FINAL)
 
 public:
     explicit Settings(QObject* parent = nullptr);

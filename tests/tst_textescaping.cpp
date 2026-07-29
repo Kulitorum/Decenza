@@ -72,7 +72,30 @@ void TestTextEscaping::initTestCase()
         for (; i < src.size(); ++i) {
             if (src[i] == '{') ++depth;
             else if (src[i] == '}') {
-                if (--depth == 0) return src.mid(start, i - start + 1);
+                if (--depth == 0) {
+                    QString fn = src.mid(start, i - start + 1);
+                    // Strip QML type annotations from the SIGNATURE only, because what comes
+                    // back is evaluated by a plain QJSEngine below and `function f(s: string)`
+                    // is a JavaScript SyntaxError ("Type annotations are not permitted in
+                    // function parameters in JavaScript functions"). The annotations exist so
+                    // qmlcachegen will compile these ahead of time — Theme.qml is read on every
+                    // page construction and was the worst-compiled file in the app at 11.5%.
+                    // Without this the test dictates that the hottest QML in the project stay
+                    // un-annotated, which is the tail wagging the dog.
+                    //
+                    // Signature only: the body legitimately contains ':' in ternaries and object
+                    // literals. The cut is bounded to the first ')' followed by an optional
+                    // return annotation and the opening brace.
+                    const qsizetype open = fn.indexOf('(');
+                    const qsizetype close = fn.indexOf(')', open);
+                    const qsizetype brace = fn.indexOf('{', close);
+                    if (open > 0 && close > open && brace > close) {
+                        QString params = fn.mid(open + 1, close - open - 1);
+                        params.remove(QRegularExpression(QStringLiteral("\\s*:\\s*[A-Za-z_][\\w.<>]*")));
+                        fn = fn.left(open + 1) + params + QStringLiteral(") ") + fn.mid(brace);
+                    }
+                    return fn;
+                }
             }
         }
         return QString();

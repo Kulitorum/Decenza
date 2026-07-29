@@ -16,27 +16,27 @@ class SettingsApp : public QObject {
     Q_OBJECT
 
     // Platform capabilities (compile-time)
-    Q_PROPERTY(bool hasQuick3D READ hasQuick3D CONSTANT)
-    Q_PROPERTY(bool use12HourTime READ use12HourTime CONSTANT)
-    Q_PROPERTY(bool isDebugBuild READ isDebugBuild CONSTANT)
+    Q_PROPERTY(bool hasQuick3D READ hasQuick3D CONSTANT FINAL)
+    Q_PROPERTY(bool use12HourTime READ use12HourTime CONSTANT FINAL)
+    Q_PROPERTY(bool isDebugBuild READ isDebugBuild CONSTANT FINAL)
 
     // Launcher mode (Android only — registers app as the home screen launcher
     // via the LauncherAlias activity-alias)
-    Q_PROPERTY(bool launcherMode READ launcherMode WRITE setLauncherMode NOTIFY launcherModeChanged)
+    Q_PROPERTY(bool launcherMode READ launcherMode WRITE setLauncherMode NOTIFY launcherModeChanged FINAL)
 
     // Profile management
-    Q_PROPERTY(QVariantList favoriteProfiles READ favoriteProfiles NOTIFY favoriteProfilesChanged)
-    Q_PROPERTY(int selectedFavoriteProfile READ selectedFavoriteProfile WRITE setSelectedFavoriteProfile NOTIFY selectedFavoriteProfileChanged)
-    Q_PROPERTY(QStringList selectedBuiltInProfiles READ selectedBuiltInProfiles WRITE setSelectedBuiltInProfiles NOTIFY selectedBuiltInProfilesChanged)
-    Q_PROPERTY(QStringList hiddenProfiles READ hiddenProfiles WRITE setHiddenProfiles NOTIFY hiddenProfilesChanged)
-    Q_PROPERTY(QString currentProfile READ currentProfile WRITE setCurrentProfile NOTIFY currentProfileChanged)
-    Q_PROPERTY(QString autoLoadProfileFilename READ autoLoadProfileFilename WRITE setAutoLoadProfileFilename NOTIFY autoLoadProfileFilenameChanged)
-    Q_PROPERTY(int autoLoadRevertMinutes READ autoLoadRevertMinutes WRITE setAutoLoadRevertMinutes NOTIFY autoLoadRevertMinutesChanged)
+    Q_PROPERTY(QVariantList favoriteProfiles READ favoriteProfiles NOTIFY favoriteProfilesChanged FINAL)
+    Q_PROPERTY(int selectedFavoriteProfile READ selectedFavoriteProfile WRITE setSelectedFavoriteProfile NOTIFY selectedFavoriteProfileChanged FINAL)
+    Q_PROPERTY(QStringList selectedBuiltInProfiles READ selectedBuiltInProfiles WRITE setSelectedBuiltInProfiles NOTIFY selectedBuiltInProfilesChanged FINAL)
+    Q_PROPERTY(QStringList hiddenProfiles READ hiddenProfiles WRITE setHiddenProfiles NOTIFY hiddenProfilesChanged FINAL)
+    Q_PROPERTY(QString currentProfile READ currentProfile WRITE setCurrentProfile NOTIFY currentProfileChanged FINAL)
+    Q_PROPERTY(QString autoLoadProfileFilename READ autoLoadProfileFilename WRITE setAutoLoadProfileFilename NOTIFY autoLoadProfileFilenameChanged FINAL)
+    Q_PROPERTY(int autoLoadRevertMinutes READ autoLoadRevertMinutes WRITE setAutoLoadRevertMinutes NOTIFY autoLoadRevertMinutesChanged FINAL)
 
     // Auto-update
-    Q_PROPERTY(bool autoCheckUpdates READ autoCheckUpdates WRITE setAutoCheckUpdates NOTIFY autoCheckUpdatesChanged)
-    Q_PROPERTY(bool betaUpdatesEnabled READ betaUpdatesEnabled WRITE setBetaUpdatesEnabled NOTIFY betaUpdatesEnabledChanged)
-    Q_PROPERTY(qint64 lastKnownApkSizeBytes READ lastKnownApkSizeBytes WRITE setLastKnownApkSizeBytes NOTIFY lastKnownApkSizeBytesChanged)
+    Q_PROPERTY(bool autoCheckUpdates READ autoCheckUpdates WRITE setAutoCheckUpdates NOTIFY autoCheckUpdatesChanged FINAL)
+    Q_PROPERTY(bool betaUpdatesEnabled READ betaUpdatesEnabled WRITE setBetaUpdatesEnabled NOTIFY betaUpdatesEnabledChanged FINAL)
+    Q_PROPERTY(qint64 lastKnownApkSizeBytes READ lastKnownApkSizeBytes WRITE setLastKnownApkSizeBytes NOTIFY lastKnownApkSizeBytesChanged FINAL)
 
     // One-time "enable Appear on top to auto-reopen after updates" prompt
     // has been shown. Persists across app restarts; once true, the prompt
@@ -44,51 +44,51 @@ class SettingsApp : public QObject {
     // user is asked once at the teachable moment, no permanent in-app UI.
     // READ-only on the Q_PROPERTY so QML cannot accidentally re-arm the
     // prompt by writing false; UpdateChecker mutates via the C++ setter.
-    Q_PROPERTY(bool autoRelaunchPromptShown READ autoRelaunchPromptShown NOTIFY autoRelaunchPromptShownChanged)
+    Q_PROPERTY(bool autoRelaunchPromptShown READ autoRelaunchPromptShown NOTIFY autoRelaunchPromptShownChanged FINAL)
 
     // DE1 firmware update channel. When false (default), firmware comes
     // from fast.decentespresso.com/download/sync/de1plus; when true,
     // from .../de1nightly. Independent from betaUpdatesEnabled, which
     // controls the Decenza *app* update channel.
-    Q_PROPERTY(bool firmwareNightlyChannel READ firmwareNightlyChannel WRITE setFirmwareNightlyChannel NOTIFY firmwareNightlyChannelChanged)
+    Q_PROPERTY(bool firmwareNightlyChannel READ firmwareNightlyChannel WRITE setFirmwareNightlyChannel NOTIFY firmwareNightlyChannelChanged FINAL)
 
     // Daily backup
-    Q_PROPERTY(int dailyBackupHour READ dailyBackupHour WRITE setDailyBackupHour NOTIFY dailyBackupHourChanged)
+    Q_PROPERTY(int dailyBackupHour READ dailyBackupHour WRITE setDailyBackupHour NOTIFY dailyBackupHourChanged FINAL)
 
     // Water level / refill
-    Q_PROPERTY(QString waterLevelDisplayUnit READ waterLevelDisplayUnit WRITE setWaterLevelDisplayUnit NOTIFY waterLevelDisplayUnitChanged)
-    Q_PROPERTY(QString temperatureUnit READ temperatureUnit WRITE setTemperatureUnit NOTIFY temperatureUnitChanged)
+    Q_PROPERTY(QString waterLevelDisplayUnit READ waterLevelDisplayUnit WRITE setWaterLevelDisplayUnit NOTIFY waterLevelDisplayUnitChanged FINAL)
+    Q_PROPERTY(QString temperatureUnit READ temperatureUnit WRITE setTemperatureUnit NOTIFY temperatureUnitChanged FINAL)
 
     // Water refill level (mm threshold for refill warning, sent to machine)
-    Q_PROPERTY(int waterRefillPoint READ waterRefillPoint WRITE setWaterRefillPoint NOTIFY waterRefillPointChanged)
+    Q_PROPERTY(int waterRefillPoint READ waterRefillPoint WRITE setWaterRefillPoint NOTIFY waterRefillPointChanged FINAL)
 
     // Refill kit override (0=force off, 1=force on, 2=auto-detect)
-    Q_PROPERTY(int refillKitOverride READ refillKitOverride WRITE setRefillKitOverride NOTIFY refillKitOverrideChanged)
+    Q_PROPERTY(int refillKitOverride READ refillKitOverride WRITE setRefillKitOverride NOTIFY refillKitOverrideChanged FINAL)
 
     // Developer settings
-    Q_PROPERTY(bool developerTranslationUpload READ developerTranslationUpload WRITE setDeveloperTranslationUpload NOTIFY developerTranslationUploadChanged)
-    Q_PROPERTY(bool simulationMode READ simulationMode WRITE setSimulationMode NOTIFY simulationModeChanged)
+    Q_PROPERTY(bool developerTranslationUpload READ developerTranslationUpload WRITE setDeveloperTranslationUpload NOTIFY developerTranslationUploadChanged FINAL)
+    Q_PROPERTY(bool simulationMode READ simulationMode WRITE setSimulationMode NOTIFY simulationModeChanged FINAL)
     // Whether the paired refractometer should measure by itself when it detects a
     // sample. The device stores this too, but the R2 is only connected while the
     // post-shot review page is open — so the setting has to live here for the user
     // to be able to change it at any time. Applied to the device on every connect.
-    Q_PROPERTY(bool refractometerAutoTest READ refractometerAutoTest WRITE setRefractometerAutoTest NOTIFY refractometerAutoTestChanged)
+    Q_PROPERTY(bool refractometerAutoTest READ refractometerAutoTest WRITE setRefractometerAutoTest NOTIFY refractometerAutoTestChanged FINAL)
     // False on builds with no simulator compiled in (tablet release). QML gates
     // every Simulation Mode affordance on this, so the feature is absent from
     // the UI rather than present and dead. CONSTANT: it is a build property, so
     // it cannot change while the app is running.
-    Q_PROPERTY(bool simulatorAvailable READ simulatorAvailable CONSTANT)
-    Q_PROPERTY(bool hideGhcSimulator READ hideGhcSimulator WRITE setHideGhcSimulator NOTIFY hideGhcSimulatorChanged)
-    Q_PROPERTY(bool simulatedScaleEnabled READ simulatedScaleEnabled WRITE setSimulatedScaleEnabled NOTIFY simulatedScaleEnabledChanged)
-    Q_PROPERTY(bool screenCaptureEnabled READ screenCaptureEnabled WRITE setScreenCaptureEnabled NOTIFY screenCaptureEnabledChanged)
+    Q_PROPERTY(bool simulatorAvailable READ simulatorAvailable CONSTANT FINAL)
+    Q_PROPERTY(bool hideGhcSimulator READ hideGhcSimulator WRITE setHideGhcSimulator NOTIFY hideGhcSimulatorChanged FINAL)
+    Q_PROPERTY(bool simulatedScaleEnabled READ simulatedScaleEnabled WRITE setSimulatedScaleEnabled NOTIFY simulatedScaleEnabledChanged FINAL)
+    Q_PROPERTY(bool screenCaptureEnabled READ screenCaptureEnabled WRITE setScreenCaptureEnabled NOTIFY screenCaptureEnabledChanged FINAL)
 
     // During-steam live coaching cues (LiveSteamCoach). Two independent opt-ins,
     // both OFF by default: `steamCoachVisualEnabled` shows the on-screen banner on
     // the steam page, `steamCoachAudioEnabled` speaks the cues. Neither implies the
     // other, and the audio path is routed independently of the accessibility
     // master switch (AccessibilityManager::announceCoaching).
-    Q_PROPERTY(bool steamCoachVisualEnabled READ steamCoachVisualEnabled WRITE setSteamCoachVisualEnabled NOTIFY steamCoachVisualEnabledChanged)
-    Q_PROPERTY(bool steamCoachAudioEnabled READ steamCoachAudioEnabled WRITE setSteamCoachAudioEnabled NOTIFY steamCoachAudioEnabledChanged)
+    Q_PROPERTY(bool steamCoachVisualEnabled READ steamCoachVisualEnabled WRITE setSteamCoachVisualEnabled NOTIFY steamCoachVisualEnabledChanged FINAL)
+    Q_PROPERTY(bool steamCoachAudioEnabled READ steamCoachAudioEnabled WRITE setSteamCoachAudioEnabled NOTIFY steamCoachAudioEnabledChanged FINAL)
 
 public:
     explicit SettingsApp(QObject* parent = nullptr);

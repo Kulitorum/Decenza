@@ -17,24 +17,24 @@ class SettingsTheme : public QObject {
     Q_OBJECT
 
     // Skin (asset folder selection)
-    Q_PROPERTY(QString skin READ skin WRITE setSkin NOTIFY skinChanged)
-    Q_PROPERTY(QString skinPath READ skinPath NOTIFY skinChanged)
+    Q_PROPERTY(QString skin READ skin WRITE setSkin NOTIFY skinChanged FINAL)
+    Q_PROPERTY(QString skinPath READ skinPath NOTIFY skinChanged FINAL)
 
     // Theme palette
-    Q_PROPERTY(QVariantMap customThemeColors READ customThemeColors WRITE setCustomThemeColors NOTIFY customThemeColorsChanged)
-    Q_PROPERTY(QVariantList colorGroups READ colorGroups WRITE setColorGroups NOTIFY colorGroupsChanged)
-    Q_PROPERTY(QString activeThemeName READ activeThemeName WRITE setActiveThemeName NOTIFY activeThemeNameChanged)
-    Q_PROPERTY(QString darkThemeName READ darkThemeName WRITE setDarkThemeName NOTIFY darkThemeNameChanged)
-    Q_PROPERTY(QString lightThemeName READ lightThemeName WRITE setLightThemeName NOTIFY lightThemeNameChanged)
-    Q_PROPERTY(QStringList themeNames READ themeNames NOTIFY themeNamesChanged)
+    Q_PROPERTY(QVariantMap customThemeColors READ customThemeColors WRITE setCustomThemeColors NOTIFY customThemeColorsChanged FINAL)
+    Q_PROPERTY(QVariantList colorGroups READ colorGroups WRITE setColorGroups NOTIFY colorGroupsChanged FINAL)
+    Q_PROPERTY(QString activeThemeName READ activeThemeName WRITE setActiveThemeName NOTIFY activeThemeNameChanged FINAL)
+    Q_PROPERTY(QString darkThemeName READ darkThemeName WRITE setDarkThemeName NOTIFY darkThemeNameChanged FINAL)
+    Q_PROPERTY(QString lightThemeName READ lightThemeName WRITE setLightThemeName NOTIFY lightThemeNameChanged FINAL)
+    Q_PROPERTY(QStringList themeNames READ themeNames NOTIFY themeNamesChanged FINAL)
     // Translucent "glass" chrome — scrimmed cards, bars and dialogs. An OPTION rather
     // than a theme: glassiness is orthogonal to light/dark, so any theme can be glass.
     // It started life as a built-in "Glass" theme and that was the wrong shape — a theme
     // occupies one polarity slot, so it could only ever be half-applied, and it could not
     // be combined with the user's own colours.
-    Q_PROPERTY(bool glassChrome READ glassChrome WRITE setGlassChrome NOTIFY glassChromeChanged)
-    Q_PROPERTY(double screenBrightness READ screenBrightness WRITE setScreenBrightness NOTIFY screenBrightnessChanged)
-    Q_PROPERTY(QVariantMap customFontSizes READ customFontSizes WRITE setCustomFontSizes NOTIFY customFontSizesChanged)
+    Q_PROPERTY(bool glassChrome READ glassChrome WRITE setGlassChrome NOTIFY glassChromeChanged FINAL)
+    Q_PROPERTY(double screenBrightness READ screenBrightness WRITE setScreenBrightness NOTIFY screenBrightnessChanged FINAL)
+    Q_PROPERTY(QVariantMap customFontSizes READ customFontSizes WRITE setCustomFontSizes NOTIFY customFontSizesChanged FINAL)
     // Defaults merged with the user's overrides — the single value QML should render at.
     // A PROPERTY, not an invokable: a binding re-evaluates when a NOTIFY fires for a
     // property it READ during its last evaluation. A Q_INVOKABLE call registers no such
@@ -42,31 +42,31 @@ class SettingsTheme : public QObject {
     // when a slider moves. (An invokable CAN work if the same expression also reads a
     // notifying property — see Tr.qml, which reads translationVersion for exactly that
     // reason — but relying on that is a trap, so the value is exposed as a property.)
-    Q_PROPERTY(QVariantMap effectiveFontSizes READ effectiveFontSizes NOTIFY customFontSizesChanged)
+    Q_PROPERTY(QVariantMap effectiveFontSizes READ effectiveFontSizes NOTIFY customFontSizesChanged FINAL)
 
     // The bundled UI font family main.cpp actually registered, or empty if registration
     // failed. CONSTANT: main.cpp sets it before the QML engine is created and it never
     // changes, so no notify is needed. Exists so Theme.qml can state the family on every
     // font role explicitly instead of relying on application-font inheritance (#1537).
-    Q_PROPERTY(QString bundledFontFamily READ bundledFontFamily CONSTANT)
+    Q_PROPERTY(QString bundledFontFamily READ bundledFontFamily CONSTANT FINAL)
 
     // Symbol fallback family, chained after bundledFontFamily in Theme's font roles so
     // arrows and geometric shapes come from the bundle rather than a per-machine host
     // font. Empty when registration failed, which Theme must treat as "omit it" — a
     // stray empty string in a families list resolves to the application default and
     // would silently reinstate the platform fallback this exists to remove.
-    Q_PROPERTY(QString symbolFontFamily READ symbolFontFamily CONSTANT)
+    Q_PROPERTY(QString symbolFontFamily READ symbolFontFamily CONSTANT FINAL)
 
     // Theme mode (light/dark/system)
-    Q_PROPERTY(QString themeMode READ themeMode WRITE setThemeMode NOTIFY themeModeChanged)
-    Q_PROPERTY(bool isDarkMode READ isDarkMode NOTIFY isDarkModeChanged)
-    Q_PROPERTY(QString editingPalette READ editingPalette WRITE setEditingPalette NOTIFY editingPaletteChanged)
+    Q_PROPERTY(QString themeMode READ themeMode WRITE setThemeMode NOTIFY themeModeChanged FINAL)
+    Q_PROPERTY(bool isDarkMode READ isDarkMode NOTIFY isDarkModeChanged FINAL)
+    Q_PROPERTY(QString editingPalette READ editingPalette WRITE setEditingPalette NOTIFY editingPaletteChanged FINAL)
 
     // Custom background image, applied app-wide (see add-custom-background).
     // Absolute filesystem path; empty = today's flat Theme.backgroundColor. Same image in
     // both light and dark mode. Sourced from the screensaver media library (personal
     // uploads + locally-cached catalog images) — see ScreensaverVideoManager.
-    Q_PROPERTY(QString backgroundImagePath READ backgroundImagePath WRITE setBackgroundImagePath NOTIFY backgroundImagePathChanged)
+    Q_PROPERTY(QString backgroundImagePath READ backgroundImagePath WRITE setBackgroundImagePath NOTIFY backgroundImagePathChanged FINAL)
 
     // Built-in background colour — a curated flat colour for users who want a calmer
     // backdrop than a screensaver photo. The pattern is a separate axis; see below. Holds a catalogue id
@@ -78,7 +78,7 @@ class SettingsTheme : public QObject {
     // while one is active. It is not carried as a qrc: path in backgroundImagePath
     // because ScreensaverVideoManager compares that setting against real file paths and
     // clears it when the backing file is deleted; a preset has no backing file.
-    Q_PROPERTY(QString backgroundPreset READ backgroundPreset WRITE setBackgroundPreset NOTIFY backgroundPresetChanged)
+    Q_PROPERTY(QString backgroundPreset READ backgroundPreset WRITE setBackgroundPreset NOTIFY backgroundPresetChanged FINAL)
 
     // Which KIND of background is active: "none", "colour", "image" or "shot".
     //
@@ -93,12 +93,12 @@ class SettingsTheme : public QObject {
     // the clearing becomes quadratic and the failure is two sources live at once, where
     // whichever renderer tests first wins. Existing installs are migrated by derivation on
     // read (see backgroundSource()), not by rewriting stored values.
-    Q_PROPERTY(QString backgroundSource READ backgroundSource NOTIFY backgroundSourceChanged)
+    Q_PROPERTY(QString backgroundSource READ backgroundSource NOTIFY backgroundSourceChanged FINAL)
 
     // For the "shot" source: whether the advanced curve set is drawn. A property of the
     // chosen ENTRY, deliberately not a mirror of shotReview/advancedMode — that toggle is
     // used to inspect one shot and must not repaint the whole app.
-    Q_PROPERTY(bool backgroundShotAdvanced READ backgroundShotAdvanced NOTIFY backgroundSourceChanged)
+    Q_PROPERTY(bool backgroundShotAdvanced READ backgroundShotAdvanced NOTIFY backgroundSourceChanged FINAL)
 
     // Optional pattern drawn over the background colour. A SECOND axis rather than a
     // property of each colour: baking the two together produced a catalogue where half the
@@ -107,34 +107,34 @@ class SettingsTheme : public QObject {
     // Not drawn over an image or a shot chart; the chooser disables the row there rather
     // than accepting a selection that does nothing, and the stored value is retained so
     // returning to a colour restores it.
-    Q_PROPERTY(QString backgroundPattern READ backgroundPattern WRITE setBackgroundPattern NOTIFY backgroundPatternChanged)
+    Q_PROPERTY(QString backgroundPattern READ backgroundPattern WRITE setBackgroundPattern NOTIFY backgroundPatternChanged FINAL)
 
     // The two catalogues, for the chooser.
-    Q_PROPERTY(QVariantList backgroundPresets READ backgroundPresets CONSTANT)
-    Q_PROPERTY(QVariantList backgroundPatterns READ backgroundPatterns CONSTANT)
+    Q_PROPERTY(QVariantList backgroundPresets READ backgroundPresets CONSTANT FINAL)
+    Q_PROPERTY(QVariantList backgroundPatterns READ backgroundPatterns CONSTANT FINAL)
 
     // The active colour and pattern as maps (empty when none). Properties rather than
     // invokables so a QML binding re-runs when the selection changes — an invokable would
     // register no dependency.
-    Q_PROPERTY(QVariantMap activeBackgroundPreset READ activeBackgroundPreset NOTIFY backgroundPresetChanged)
-    Q_PROPERTY(QVariantMap activeBackgroundPattern READ activeBackgroundPattern NOTIFY backgroundPatternChanged)
+    Q_PROPERTY(QVariantMap activeBackgroundPreset READ activeBackgroundPreset NOTIFY backgroundPresetChanged FINAL)
+    Q_PROPERTY(QVariantMap activeBackgroundPattern READ activeBackgroundPattern NOTIFY backgroundPatternChanged FINAL)
 
     // Everything the app paints on the active background colour — text, secondary text,
     // card/bar surface, action tile, border — computed in C++ by BackgroundPresets::derive
     // so the contrast tests measure the shipped arithmetic rather than a copy of it.
     // Empty when no colour is selected.
-    Q_PROPERTY(QVariantMap derivedBackgroundColors READ derivedBackgroundColors NOTIFY backgroundPresetChanged)
+    Q_PROPERTY(QVariantMap derivedBackgroundColors READ derivedBackgroundColors NOTIFY backgroundPresetChanged FINAL)
 
     // Screen shaders
-    Q_PROPERTY(QString activeShader READ activeShader WRITE setActiveShader NOTIFY activeShaderChanged)
-    Q_PROPERTY(QVariantMap shaderParams READ shaderParams NOTIFY shaderParamsChanged)
+    Q_PROPERTY(QString activeShader READ activeShader WRITE setActiveShader NOTIFY activeShaderChanged FINAL)
+    Q_PROPERTY(QVariantMap shaderParams READ shaderParams NOTIFY shaderParamsChanged FINAL)
 
     // Theme flash (in-memory only, for identifying colors on device)
-    Q_PROPERTY(QString flashColorName READ flashColorName NOTIFY flashColorNameChanged)
-    Q_PROPERTY(int flashPhase READ flashPhase NOTIFY flashPhaseChanged)
+    Q_PROPERTY(QString flashColorName READ flashColorName NOTIFY flashColorNameChanged FINAL)
+    Q_PROPERTY(int flashPhase READ flashPhase NOTIFY flashPhaseChanged FINAL)
 
     // Colors detected on the current page (set from QML tree walker)
-    Q_PROPERTY(QStringList currentPageColors READ currentPageColors WRITE setCurrentPageColors NOTIFY currentPageColorsChanged)
+    Q_PROPERTY(QStringList currentPageColors READ currentPageColors WRITE setCurrentPageColors NOTIFY currentPageColorsChanged FINAL)
 
 public:
     explicit SettingsTheme(QObject* parent = nullptr);

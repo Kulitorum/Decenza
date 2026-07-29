@@ -16,40 +16,40 @@ class SettingsNetwork : public QObject {
     Q_OBJECT
 
     // Saved searches & shot history sort
-    Q_PROPERTY(QStringList savedSearches READ savedSearches WRITE setSavedSearches NOTIFY savedSearchesChanged)
-    Q_PROPERTY(QString shotHistorySortField READ shotHistorySortField WRITE setShotHistorySortField NOTIFY shotHistorySortFieldChanged)
-    Q_PROPERTY(QString shotHistorySortDirection READ shotHistorySortDirection WRITE setShotHistorySortDirection NOTIFY shotHistorySortDirectionChanged)
+    Q_PROPERTY(QStringList savedSearches READ savedSearches WRITE setSavedSearches NOTIFY savedSearchesChanged FINAL)
+    Q_PROPERTY(QString shotHistorySortField READ shotHistorySortField WRITE setShotHistorySortField NOTIFY shotHistorySortFieldChanged FINAL)
+    Q_PROPERTY(QString shotHistorySortDirection READ shotHistorySortDirection WRITE setShotHistorySortDirection NOTIFY shotHistorySortDirectionChanged FINAL)
 
     // Recipes page sort (recipe-list-organization)
-    Q_PROPERTY(QString recipeSortField READ recipeSortField WRITE setRecipeSortField NOTIFY recipeSortFieldChanged)
-    Q_PROPERTY(QString recipeSortDirection READ recipeSortDirection WRITE setRecipeSortDirection NOTIFY recipeSortDirectionChanged)
+    Q_PROPERTY(QString recipeSortField READ recipeSortField WRITE setRecipeSortField NOTIFY recipeSortFieldChanged FINAL)
+    Q_PROPERTY(QString recipeSortDirection READ recipeSortDirection WRITE setRecipeSortDirection NOTIFY recipeSortDirectionChanged FINAL)
 
     // Shot server (HTTP API)
-    Q_PROPERTY(bool shotServerEnabled READ shotServerEnabled WRITE setShotServerEnabled NOTIFY shotServerEnabledChanged)
-    Q_PROPERTY(QString shotServerHostname READ shotServerHostname WRITE setShotServerHostname NOTIFY shotServerHostnameChanged)
-    Q_PROPERTY(int shotServerPort READ shotServerPort WRITE setShotServerPort NOTIFY shotServerPortChanged)
-    Q_PROPERTY(bool webSecurityEnabled READ webSecurityEnabled WRITE setWebSecurityEnabled NOTIFY webSecurityEnabledChanged)
+    Q_PROPERTY(bool shotServerEnabled READ shotServerEnabled WRITE setShotServerEnabled NOTIFY shotServerEnabledChanged FINAL)
+    Q_PROPERTY(QString shotServerHostname READ shotServerHostname WRITE setShotServerHostname NOTIFY shotServerHostnameChanged FINAL)
+    Q_PROPERTY(int shotServerPort READ shotServerPort WRITE setShotServerPort NOTIFY shotServerPortChanged FINAL)
+    Q_PROPERTY(bool webSecurityEnabled READ webSecurityEnabled WRITE setWebSecurityEnabled NOTIFY webSecurityEnabledChanged FINAL)
 
     // Auto-favorites
-    Q_PROPERTY(QString autoFavoritesGroupBy READ autoFavoritesGroupBy WRITE setAutoFavoritesGroupBy NOTIFY autoFavoritesGroupByChanged)
-    Q_PROPERTY(int autoFavoritesMaxItems READ autoFavoritesMaxItems WRITE setAutoFavoritesMaxItems NOTIFY autoFavoritesMaxItemsChanged)
-    Q_PROPERTY(bool autoFavoritesOpenBrewSettings READ autoFavoritesOpenBrewSettings WRITE setAutoFavoritesOpenBrewSettings NOTIFY autoFavoritesOpenBrewSettingsChanged)
-    Q_PROPERTY(bool autoFavoritesHideUnrated READ autoFavoritesHideUnrated WRITE setAutoFavoritesHideUnrated NOTIFY autoFavoritesHideUnratedChanged)
+    Q_PROPERTY(QString autoFavoritesGroupBy READ autoFavoritesGroupBy WRITE setAutoFavoritesGroupBy NOTIFY autoFavoritesGroupByChanged FINAL)
+    Q_PROPERTY(int autoFavoritesMaxItems READ autoFavoritesMaxItems WRITE setAutoFavoritesMaxItems NOTIFY autoFavoritesMaxItemsChanged FINAL)
+    Q_PROPERTY(bool autoFavoritesOpenBrewSettings READ autoFavoritesOpenBrewSettings WRITE setAutoFavoritesOpenBrewSettings NOTIFY autoFavoritesOpenBrewSettingsChanged FINAL)
+    Q_PROPERTY(bool autoFavoritesHideUnrated READ autoFavoritesHideUnrated WRITE setAutoFavoritesHideUnrated NOTIFY autoFavoritesHideUnratedChanged FINAL)
 
     // Shot export
-    Q_PROPERTY(bool exportShotsToFile READ exportShotsToFile WRITE setExportShotsToFile NOTIFY exportShotsToFileChanged)
+    Q_PROPERTY(bool exportShotsToFile READ exportShotsToFile WRITE setExportShotsToFile NOTIFY exportShotsToFileChanged FINAL)
 
     // Layout configuration
-    Q_PROPERTY(QString layoutConfiguration READ layoutConfiguration WRITE setLayoutConfiguration NOTIFY layoutConfigurationChanged)
+    Q_PROPERTY(QString layoutConfiguration READ layoutConfiguration WRITE setLayoutConfiguration NOTIFY layoutConfigurationChanged FINAL)
     // One-time recipes-first layout upgrade offer (recipes-idle-layout-upgrade)
-    Q_PROPERTY(bool recipesUpgradeOffered READ recipesUpgradeOffered WRITE setRecipesUpgradeOffered NOTIFY recipesUpgradeOfferedChanged)
+    Q_PROPERTY(bool recipesUpgradeOffered READ recipesUpgradeOffered WRITE setRecipesUpgradeOffered NOTIFY recipesUpgradeOfferedChanged FINAL)
 
     // Discuss Shot URLs
-    Q_PROPERTY(int discussShotApp READ discussShotApp WRITE setDiscussShotApp NOTIFY discussShotAppChanged)
-    Q_PROPERTY(QString discussShotCustomUrl READ discussShotCustomUrl WRITE setDiscussShotCustomUrl NOTIFY discussShotCustomUrlChanged)
-    Q_PROPERTY(QString claudeRcSessionUrl READ claudeRcSessionUrl WRITE setClaudeRcSessionUrl NOTIFY claudeRcSessionUrlChanged)
-    Q_PROPERTY(int discussAppNone READ discussAppNone CONSTANT)
-    Q_PROPERTY(int discussAppClaudeDesktop READ discussAppClaudeDesktop CONSTANT)
+    Q_PROPERTY(int discussShotApp READ discussShotApp WRITE setDiscussShotApp NOTIFY discussShotAppChanged FINAL)
+    Q_PROPERTY(QString discussShotCustomUrl READ discussShotCustomUrl WRITE setDiscussShotCustomUrl NOTIFY discussShotCustomUrlChanged FINAL)
+    Q_PROPERTY(QString claudeRcSessionUrl READ claudeRcSessionUrl WRITE setClaudeRcSessionUrl NOTIFY claudeRcSessionUrlChanged FINAL)
+    Q_PROPERTY(int discussAppNone READ discussAppNone CONSTANT FINAL)
+    Q_PROPERTY(int discussAppClaudeDesktop READ discussAppClaudeDesktop CONSTANT FINAL)
 
 public:
     explicit SettingsNetwork(QObject* parent = nullptr);
