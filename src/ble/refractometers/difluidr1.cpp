@@ -1,6 +1,7 @@
 #include "difluidr1.h"
 
 #include "../protocol/de1characteristics.h"
+#include "../scales/scalelogging.h"
 #include "../transport/scalebletransport.h"
 #include "aes128.h"
 
@@ -9,17 +10,10 @@
 #include <cmath>
 #include <utility>
 
-#define R1_LOG(msg) do { \
-    QString _msg = QString("[BLE DiFluidR1] ") + msg; \
-    qDebug().noquote() << _msg; \
-    emit logMessage(_msg); \
-} while(0)
-
-#define R1_WARN(msg) do { \
-    QString _msg = QString("[BLE DiFluidR1] ") + msg; \
-    qWarning().noquote() << _msg; \
-    emit logMessage(_msg); \
-} while(0)
+// Aliases over the shared macros (scalelogging.h) rather than a hand-copied
+// body: the [Scale] marker and the double-write shape then live in one place.
+#define R1_LOG(msg)  SCALE_LOG("DiFluidR1", msg)
+#define R1_WARN(msg) SCALE_WARN("DiFluidR1", msg)
 
 DiFluidR1::DiFluidR1(ScaleBleTransport* transport, QObject* parent)
     : RefractometerDevice(parent)

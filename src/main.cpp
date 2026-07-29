@@ -3442,18 +3442,17 @@ int main(int argc, char *argv[])
     // the scale "Share Log" export includes them — appendScaleLog records into
     // m_scaleLogMessages) and the app/DE1 log (unchanged from before).
     // (Lambda, not a pointer-to-member slot: appendScaleLog takes a defaulted
-    // second parameter.) Mirroring stays ON here, unlike the BLE scale and
-    // refractometer forwarders: UsbScaleManager writes its own text, not the
-    // emitted text — most sites do qDebug one wording and emit another (e.g.
-    // usbscalemanager.cpp "open() failed — scale did not connect" vs "Connect
-    // failed — retrying discovery"), and four sites emit with no qDebug at all.
-    // So this connection is the only outlet for the emitted string. The cost is
-    // that ~21 of 25 USB sites announce the same EVENT to stderr twice in
-    // different words; if that is ever worth removing, fix it at the source by
-    // reconciling the two wordings, not by suppressing here.
+    // second parameter.) Record-only, exactly like the BLE scale and
+    // refractometer forwarders: UsbScaleManager and UsbDecentScale now log
+    // through UsbScaleManager::log()/warn() and USB_SCALE_LOG/WARN, which write
+    // stderr at the right severity before emitting, so mirroring here would
+    // print every USB line twice. This used to mirror because the two outputs
+    // had drifted — 73 hand-rolled prefixes, and at 21 sites the qDebug and the
+    // emit described one event in different words, so neither was redundant.
+    // Centralizing them removed the reason.
     QObject::connect(&usbScaleManager, &UsbScaleManager::logMessage,
                      &bleManager, [&bleManager](const QString& msg) {
-        bleManager.appendScaleLog(msg);
+        bleManager.appendScaleLog(msg, /*mirrorToSystemLog=*/false);
     });
     QObject::connect(&usbScaleManager, &UsbScaleManager::logMessage,
                      &bleManager, &BLEManager::de1LogMessage);

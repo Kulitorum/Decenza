@@ -84,6 +84,19 @@ private slots:
     void onPollTimerTick();
 
 private:
+    // The ONLY way this class writes a log line. Each does the [Scale][USB Scale]
+    // prefix, the stderr write at the right severity, and the logMessage emit that
+    // feeds the in-app scale log and its shareable export — so the prefix and the
+    // wording exist once per event instead of once per output.
+    //
+    // Every site used to hand-roll all of that: 73 inline "[USB Scale] " prefixes,
+    // and at 21 of them the qDebug and the logMessage had drifted into describing
+    // the same event in different words. Do not reintroduce a bare qDebug or a bare
+    // emit here; use these. (Free functions in the .cpp cannot be used instead —
+    // the emit needs the instance.)
+    void log(const QString& message);
+    void warn(const QString& message);
+
     // Emits probeFinished() exactly once per scan-initiated pass, from the point
     // the probe actually settles rather than the point it was started.
     void finishScanProbe();
