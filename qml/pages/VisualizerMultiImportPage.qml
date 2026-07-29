@@ -1,3 +1,9 @@
+// The shared-shot list delegate reads this file's ids (`multiImportPage`, `shotList`);
+// Bound makes them statically resolvable. It declares both injected roles it uses,
+// `modelData` and `index`, required in the same edit -- without that, Bound stops role
+// injection and every shot row renders blank at RUNTIME, silently.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -59,17 +65,17 @@ Page {
         target: MainController.visualizerImporter
 
         function onSharedShotsChanged() {
-            selectedShot = null
+            multiImportPage.selectedShot = null
             // Don't clear importedIds - keep tracking what was imported this session
-            selectionVersion++  // Force UI rebind to show updated checkmarks
+            multiImportPage.selectionVersion++  // Force UI rebind to show updated checkmarks
         }
 
         function onImportSuccess(profileTitle) {
             // Mark the profile as imported
-            if (renameProfileId !== "") {
-                importedIds[renameProfileId] = true
-                selectionVersion++
-                renameProfileId = ""
+            if (multiImportPage.renameProfileId !== "") {
+                multiImportPage.importedIds[multiImportPage.renameProfileId] = true
+                multiImportPage.selectionVersion++
+                multiImportPage.renameProfileId = ""
             }
             resultText.text = TranslationManager.translate("visualizerImport.imported", "Imported:") + " " + profileTitle
             resultText.color = Theme.successColor
@@ -219,7 +225,7 @@ Page {
                 Layout.preferredHeight: Theme.scaled(40)
                 enabled: !MainController.visualizerImporter.fetching &&
                          !MainController.visualizerImporter.importing
-                visible: !showCodeInput
+                visible: !multiImportPage.showCodeInput
 
                 onClicked: MainController.visualizerImporter.fetchSharedShots()
 
@@ -251,10 +257,10 @@ Page {
                     primary: true
                     width: Theme.scaled(120)
                     height: Theme.scaled(40)
-                    visible: !showCodeInput
+                    visible: !multiImportPage.showCodeInput
 
                     onClicked: {
-                        showCodeInput = true
+                        multiImportPage.showCodeInput = true
                         codeInput.text = ""
                         codeInput.forceActiveFocus()
                     }
@@ -263,7 +269,7 @@ Page {
                 // Code input field (shown when Add by Code is clicked)
                 Row {
                     spacing: Theme.spacingSmall
-                    visible: showCodeInput
+                    visible: multiImportPage.showCodeInput
 
                     StyledTextField {
                         id: codeInput
@@ -284,10 +290,10 @@ Page {
                         Keys.onReturnPressed: {
                             if (text.length === 4) {
                                 MainController.visualizerImporter.importFromShareCode(text)
-                                showCodeInput = false
+                                multiImportPage.showCodeInput = false
                             }
                         }
-                        Keys.onEscapePressed: showCodeInput = false
+                        Keys.onEscapePressed: multiImportPage.showCodeInput = false
                     }
 
                     AccessibleButton {
@@ -301,7 +307,7 @@ Page {
                         onClicked: {
                             Keyboard.commit()
                             MainController.visualizerImporter.importFromShareCode(codeInput.text)
-                            showCodeInput = false
+                            multiImportPage.showCodeInput = false
                         }
                     }
 
@@ -311,7 +317,7 @@ Page {
                         width: Theme.scaled(60)
                         height: Theme.scaled(40)
 
-                        onClicked: showCodeInput = false
+                        onClicked: multiImportPage.showCodeInput = false
                     }
                 }
             }
@@ -374,13 +380,16 @@ Page {
 
                             delegate: Rectangle {
                                 id: shotDelegate
+                                required property var modelData
+                                required property int index
+
                                 width: shotList.width
                                 height: Math.max(Theme.scaled(60), vizContentRow.implicitHeight + Theme.spacingSmall * 2)
-                                color: selectedShot === modelData ? Theme.primaryColor.darker(1.5) :
-                                       (index % 2 === 0 ? "transparent" : Theme.backgroundColor)
+                                color: multiImportPage.selectedShot === shotDelegate.modelData ? Theme.primaryColor.darker(1.5) :
+                                       (shotDelegate.index % 2 === 0 ? "transparent" : Theme.backgroundColor)
 
                                 // Include selectionVersion to force re-evaluation when imports change
-                                property bool isImported: selectionVersion >= 0 && importedIds[modelData.id] === true
+                                property bool isImported: multiImportPage.selectionVersion >= 0 && multiImportPage.importedIds[shotDelegate.modelData.id] === true
 
                                 RowLayout {
                                     id: vizContentRow
@@ -394,9 +403,9 @@ Page {
                                         Layout.preferredHeight: Theme.scaled(36)
                                         color: "transparent"
 
-                                        property bool isBuiltIn: modelData.source === "B"
-                                        property bool isIdentical: modelData.identical === true
-                                        property bool isInvalid: modelData.invalid === true
+                                        property bool isBuiltIn: shotDelegate.modelData.source === "B"
+                                        property bool isIdentical: shotDelegate.modelData.identical === true
+                                        property bool isInvalid: shotDelegate.modelData.invalid === true
 
                                         // Can click to import:
                                         // - Invalid profiles: no
@@ -465,7 +474,7 @@ Page {
                                             anchors.centerIn: parent
                                             width: Theme.scaled(24)
                                             height: Theme.scaled(24)
-                                            running: MainController.visualizerImporter.importing && renameProfileId === modelData.id
+                                            running: MainController.visualizerImporter.importing && multiImportPage.renameProfileId === shotDelegate.modelData.id
                                             visible: running
                                         }
 
@@ -474,12 +483,12 @@ Page {
                                             anchors.fill: parent
                                             enabled: parent.canImport && !MainController.visualizerImporter.importing
                                             onClicked: {
-                                                if (parent.isBuiltIn && modelData.exists) {
+                                                if (parent.isBuiltIn && shotDelegate.modelData.exists) {
                                                     // D profile with different frames - show rename dialog
-                                                    showRenameForBuiltIn(modelData)
+                                                    multiImportPage.showRenameForBuiltIn(shotDelegate.modelData)
                                                 } else {
                                                     // Import immediately
-                                                    importProfile(modelData)
+                                                    multiImportPage.importProfile(shotDelegate.modelData)
                                                 }
                                             }
                                         }
@@ -491,7 +500,7 @@ Page {
                                         spacing: Theme.scaled(2)
 
                                         Text {
-                                            text: modelData.profile_title || TranslationManager.translate("visualizerImport.unknownProfile", "Unknown Profile")
+                                            text: shotDelegate.modelData.profile_title || TranslationManager.translate("visualizerImport.unknownProfile", "Unknown Profile")
                                             color: Theme.textColor
                                             font: Theme.bodyFont
                                             elide: Text.ElideRight
@@ -499,27 +508,27 @@ Page {
                                         }
 
                                         Text {
-                                            text: (modelData.bean_brand ? modelData.bean_brand + " " : "") +
-                                                  (modelData.bean_type || "")
+                                            text: (shotDelegate.modelData.bean_brand ? shotDelegate.modelData.bean_brand + " " : "") +
+                                                  (shotDelegate.modelData.bean_type || "")
                                             color: Theme.textSecondaryColor
                                             font: Theme.captionFont
                                             elide: Text.ElideRight
                                             width: parent.width
-                                            visible: modelData.bean_brand || modelData.bean_type
+                                            visible: shotDelegate.modelData.bean_brand || shotDelegate.modelData.bean_type
                                         }
                                     }
 
                                     // Status badge
                                     Rectangle {
-                                        visible: modelData.exists
+                                        visible: shotDelegate.modelData.exists
                                         Layout.preferredWidth: Theme.scaled(24)
                                         Layout.preferredHeight: Theme.scaled(24)
                                         radius: Theme.scaled(12)
-                                        color: sourceColor(modelData.source)
+                                        color: multiImportPage.sourceColor(shotDelegate.modelData.source)
 
                                         Text {
                                             anchors.centerIn: parent
-                                            text: sourceLetter(modelData.source)
+                                            text: multiImportPage.sourceLetter(shotDelegate.modelData.source)
                                             color: Theme.primaryContrastColor
                                             font.pixelSize: Theme.scaled(12)
                                             font.bold: true
@@ -532,10 +541,10 @@ Page {
                                     anchors.leftMargin: Theme.scaled(40)  // Don't overlap star
                                     onClicked: {
                                         // Toggle selection - clicking again deselects
-                                        if (selectedShot === modelData) {
-                                            selectedShot = null
+                                        if (multiImportPage.selectedShot === shotDelegate.modelData) {
+                                            multiImportPage.selectedShot = null
                                         } else {
-                                            selectedShot = modelData
+                                            multiImportPage.selectedShot = shotDelegate.modelData
                                         }
                                     }
                                 }
@@ -560,17 +569,17 @@ Page {
                     MouseArea {
                         id: detailsDeselectArea
                         anchors.fill: parent
-                        onClicked: selectedShot = null
+                        onClicked: multiImportPage.selectedShot = null
                     }
 
                     Column {
                         anchors.fill: parent
                         anchors.margins: Theme.spacingMedium
                         spacing: Theme.spacingMedium
-                        visible: selectedShot !== null
+                        visible: multiImportPage.selectedShot !== null
 
                         Text {
-                            text: selectedShot ? selectedShot.profile_title : ""
+                            text: multiImportPage.selectedShot ? multiImportPage.selectedShot.profile_title : ""
                             color: Theme.textColor
                             font: Theme.headingFont
                             wrapMode: Text.Wrap
@@ -593,19 +602,19 @@ Page {
                             Text { text: TranslationManager.translate("visualizerImport.status", "Status:"); color: Theme.textSecondaryColor; font: Theme.captionFont }
                             Text {
                                 text: {
-                                    if (!selectedShot) return ""
-                                    if (selectedShot.invalid) return selectedShot.invalidReason || TranslationManager.translate("visualizerImport.invalidProfile", "Invalid profile")
-                                    if (selectedShot.identical) return TranslationManager.translate("visualizerImport.identicalProfile", "You have this profile already, with the same frames")
-                                    if (!selectedShot.exists) return TranslationManager.translate("visualizerImport.newProfile", "New profile")
-                                    if (selectedShot.source === "B") return TranslationManager.translate("visualizerImport.builtInDifferent", "Built-in with different frames (will import as copy)")
+                                    if (!multiImportPage.selectedShot) return ""
+                                    if (multiImportPage.selectedShot.invalid) return multiImportPage.selectedShot.invalidReason || TranslationManager.translate("visualizerImport.invalidProfile", "Invalid profile")
+                                    if (multiImportPage.selectedShot.identical) return TranslationManager.translate("visualizerImport.identicalProfile", "You have this profile already, with the same frames")
+                                    if (!multiImportPage.selectedShot.exists) return TranslationManager.translate("visualizerImport.newProfile", "New profile")
+                                    if (multiImportPage.selectedShot.source === "B") return TranslationManager.translate("visualizerImport.builtInDifferent", "Built-in with different frames (will import as copy)")
                                     return TranslationManager.translate("visualizerImport.alreadyDownloaded", "Already downloaded (different frames)")
                                 }
                                 color: {
-                                    if (!selectedShot) return Theme.textColor
-                                    if (selectedShot.invalid) return Theme.errorColor
-                                    if (selectedShot.identical) return Theme.successColor
-                                    if (!selectedShot.exists) return Theme.successColor
-                                    return sourceColor(selectedShot.source)
+                                    if (!multiImportPage.selectedShot) return Theme.textColor
+                                    if (multiImportPage.selectedShot.invalid) return Theme.errorColor
+                                    if (multiImportPage.selectedShot.identical) return Theme.successColor
+                                    if (!multiImportPage.selectedShot.exists) return Theme.successColor
+                                    return multiImportPage.sourceColor(multiImportPage.selectedShot.source)
                                 }
                                 font: Theme.captionFont
                                 wrapMode: Text.Wrap
@@ -614,14 +623,14 @@ Page {
 
                             Text { text: TranslationManager.translate("visualizerImport.author", "Author:"); color: Theme.textSecondaryColor; font: Theme.captionFont }
                             Text {
-                                text: selectedShot ? selectedShot.user_name : ""
+                                text: multiImportPage.selectedShot ? multiImportPage.selectedShot.user_name : ""
                                 color: Theme.textColor
                                 font: Theme.captionFont
                             }
 
                             Text { text: TranslationManager.translate("visualizerImport.beans", "Beans:"); color: Theme.textSecondaryColor; font: Theme.captionFont }
                             Text {
-                                text: selectedShot ? ((selectedShot.bean_brand || "") + " " + (selectedShot.bean_type || "")).trim() : ""
+                                text: multiImportPage.selectedShot ? ((multiImportPage.selectedShot.bean_brand || "") + " " + (multiImportPage.selectedShot.bean_type || "")).trim() : ""
                                 color: Theme.textColor
                                 font: Theme.captionFont
                                 wrapMode: Text.Wrap
@@ -630,31 +639,31 @@ Page {
 
                             Text { text: TranslationManager.translate("visualizerImport.dose", "Dose:"); color: Theme.textSecondaryColor; font: Theme.captionFont }
                             Text {
-                                text: selectedShot && selectedShot.bean_weight ? selectedShot.bean_weight + "g" : "-"
+                                text: multiImportPage.selectedShot && multiImportPage.selectedShot.bean_weight ? multiImportPage.selectedShot.bean_weight + "g" : "-"
                                 color: Theme.textColor
                                 font: Theme.captionFont
                             }
 
                             Text { text: TranslationManager.translate("visualizerImport.yield", "Yield:"); color: Theme.textSecondaryColor; font: Theme.captionFont }
                             Text {
-                                text: selectedShot && selectedShot.drink_weight ? selectedShot.drink_weight + "g" : "-"
+                                text: multiImportPage.selectedShot && multiImportPage.selectedShot.drink_weight ? multiImportPage.selectedShot.drink_weight + "g" : "-"
                                 color: Theme.textColor
                                 font: Theme.captionFont
                             }
 
                             Text { text: TranslationManager.translate("visualizerImport.duration", "Duration:"); color: Theme.textSecondaryColor; font: Theme.captionFont }
                             Text {
-                                text: selectedShot ? Math.round(selectedShot.duration) + "s" : "-"
+                                text: multiImportPage.selectedShot ? Math.round(multiImportPage.selectedShot.duration) + "s" : "-"
                                 color: Theme.textColor
                                 font: Theme.captionFont
                             }
 
                             Text { text: TranslationManager.translate("visualizerImport.grinder", "Grinder:"); color: Theme.textSecondaryColor; font: Theme.captionFont }
                             Text {
-                                text: selectedShot && (selectedShot.grinder_model || selectedShot.grinder_setting) ?
-                                      (selectedShot.grinder_model || "") +
-                                      (selectedShot.grinder_model && selectedShot.grinder_setting ? " @ " : "") +
-                                      (selectedShot.grinder_setting || "") : "-"
+                                text: multiImportPage.selectedShot && (multiImportPage.selectedShot.grinder_model || multiImportPage.selectedShot.grinder_setting) ?
+                                      (multiImportPage.selectedShot.grinder_model || "") +
+                                      (multiImportPage.selectedShot.grinder_model && multiImportPage.selectedShot.grinder_setting ? " @ " : "") +
+                                      (multiImportPage.selectedShot.grinder_setting || "") : "-"
                                 color: Theme.textColor
                                 font: Theme.captionFont
                                 wrapMode: Text.Wrap
@@ -663,8 +672,8 @@ Page {
 
                             Text { text: TranslationManager.translate("visualizerImport.shotTime", "Shot time:"); color: Theme.textSecondaryColor; font: Theme.captionFont }
                             Text {
-                                text: selectedShot && selectedShot.start_time ?
-                                      new Date(selectedShot.start_time).toLocaleString(Qt.locale(), Settings.app.use12HourTime ? "MMM d, yyyy h:mm AP" : "MMM d, yyyy HH:mm") : "-"
+                                text: multiImportPage.selectedShot && multiImportPage.selectedShot.start_time ?
+                                      new Date(multiImportPage.selectedShot.start_time).toLocaleString(Qt.locale(), Settings.app.use12HourTime ? "MMM d, yyyy h:mm AP" : "MMM d, yyyy HH:mm") : "-"
                                 color: Theme.textColor
                                 font: Theme.captionFont
                             }
@@ -676,7 +685,7 @@ Page {
                         anchors.centerIn: parent
                         width: parent.width - Theme.scaled(40)
                         spacing: Theme.spacingMedium
-                        visible: selectedShot === null
+                        visible: multiImportPage.selectedShot === null
 
                         Text {
                             text: TranslationManager.translate("visualizerImport.selectProfile", "Select a profile to see details")
@@ -839,7 +848,7 @@ Page {
         anchors.topMargin: Theme.pageTopMargin
         height: visible ? Theme.scaled(60) : 0
         color: Theme.cardBackgroundColor
-        visible: showRenameDialog
+        visible: multiImportPage.showRenameDialog
         z: 100
 
         RowLayout {
@@ -867,13 +876,13 @@ Page {
                     if (text.trim().length > 0) {
                         Keyboard.hide()
                         renameInput.focus = false
-                        MainController.visualizerImporter.importFromShotIdWithName(renameProfileId, text.trim())
-                        showRenameDialog = false
+                        MainController.visualizerImporter.importFromShotIdWithName(multiImportPage.renameProfileId, text.trim())
+                        multiImportPage.showRenameDialog = false
                     }
                 }
                 Keys.onEscapePressed: {
                     Keyboard.hide()
-                    showRenameDialog = false
+                    multiImportPage.showRenameDialog = false
                 }
             }
 
@@ -889,8 +898,8 @@ Page {
                     Keyboard.commit()
                     Keyboard.hide()
                     renameInput.focus = false
-                    MainController.visualizerImporter.importFromShotIdWithName(renameProfileId, renameInput.text.trim())
-                    showRenameDialog = false
+                    MainController.visualizerImporter.importFromShotIdWithName(multiImportPage.renameProfileId, renameInput.text.trim())
+                    multiImportPage.showRenameDialog = false
                 }
             }
 
@@ -903,7 +912,7 @@ Page {
                 onClicked: {
                     Keyboard.hide()
                     renameInput.focus = false
-                    showRenameDialog = false
+                    multiImportPage.showRenameDialog = false
                 }
             }
         }

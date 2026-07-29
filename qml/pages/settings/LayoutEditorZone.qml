@@ -1,3 +1,9 @@
+// The zone-item DelegateModel row and the add-item list delegate read this file's ids
+// (`root`, `visualModel`, `addPopup`, `dragLayer`, `addListView`); Bound makes them
+// statically resolvable. Both declare their injected role, `modelData`, required --
+// the zone row already did, and the add-item row does now in the same edit.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -204,7 +210,7 @@ Rectangle {
                             // options (custom orange retained; others use accent).
                             border.color: dragMa.drag.active ? Theme.primaryColor
                                 : (chipDelegate.hasOptions && !chipDelegate.isSelected
-                                    ? (modelData.type === "custom" ? "orange" : Theme.primaryColor)
+                                    ? (chipDelegate.modelData.type === "custom" ? "orange" : Theme.primaryColor)
                                     : Theme.borderColor)
                             border.width: (dragMa.drag.active || (chipDelegate.hasOptions && !chipDelegate.isSelected)) ? 2 : 1
                             scale: dragMa.drag.active ? 1.05 : 1.0
@@ -227,14 +233,14 @@ Rectangle {
 
                             Accessible.role: Accessible.Button
                             Accessible.name: {
-                                var nm = modelData.type === "custom"
-                                    ? root.getTextChipLabel(modelData)
-                                    : getItemDisplayName(modelData.type)
+                                var nm = chipDelegate.modelData.type === "custom"
+                                    ? root.getTextChipLabel(chipDelegate.modelData)
+                                    : root.getItemDisplayName(chipDelegate.modelData.type)
                                 var suffix = chipDelegate.isSelected ? ", " + TranslationManager.translate("layoutEditor.selected", "selected") : ""
                                 return TranslationManager.translate("layoutEditor.widgetItem", "%1 widget").arg(nm) + suffix
                             }
                             Accessible.focusable: true
-                            Accessible.onPressAction: root.itemTapped(modelData.id)
+                            Accessible.onPressAction: root.itemTapped(chipDelegate.modelData.id)
 
                             RowLayout {
                                 id: chipRow
@@ -253,36 +259,36 @@ Rectangle {
                                     active: chipDelegate.isSelected
                                     activeColor: Theme.primaryContrastColor
                                     accessibleName: TranslationManager.translate("layoutEditor.moveToStart", "Move toward start")
-                                    onClicked: root.moveLeft(modelData.id)
+                                    onClicked: root.moveLeft(chipDelegate.modelData.id)
                                 }
 
                                 // Standard label for non-text items
                                 Text {
-                                    visible: modelData.type !== "custom"
-                                    text: getItemDisplayName(modelData.type)
+                                    visible: chipDelegate.modelData.type !== "custom"
+                                    text: root.getItemDisplayName(chipDelegate.modelData.type)
                                     color: chipDelegate.isSelected
                                         ? Theme.primaryContrastColor
-                                        : ((modelData.type === "spacer" || modelData.type === "separator" || modelData.type === "weather") ? "orange"
-                                        : ((modelData.type.startsWith("screensaver") || modelData.type === "lastShot") ? "#64B5F6" : Theme.textColor))
+                                        : ((chipDelegate.modelData.type === "spacer" || chipDelegate.modelData.type === "separator" || chipDelegate.modelData.type === "weather") ? "orange"
+                                        : ((chipDelegate.modelData.type.startsWith("screensaver") || chipDelegate.modelData.type === "lastShot") ? "#64B5F6" : Theme.textColor))
                                     font: Theme.bodyFont
                                 }
 
                                 // Mini preview for text items
                                 Row {
-                                    visible: modelData.type === "custom"
+                                    visible: chipDelegate.modelData.type === "custom"
                                     spacing: Theme.scaled(3)
                                     Layout.alignment: Qt.AlignVCenter
 
                                     Image {
-                                        visible: (modelData.emoji || "") !== ""
-                                        source: visible ? Theme.emojiToImage(modelData.emoji || "") : ""
+                                        visible: (chipDelegate.modelData.emoji || "") !== ""
+                                        source: visible ? Theme.emojiToImage(chipDelegate.modelData.emoji || "") : ""
                                         sourceSize.width: Theme.scaled(18)
                                         sourceSize.height: Theme.scaled(18)
                                         anchors.verticalCenter: parent.verticalCenter
                                     }
 
                                     Text {
-                                        text: root.getTextChipLabel(modelData)
+                                        text: root.getTextChipLabel(chipDelegate.modelData)
                                         color: chipDelegate.isSelected ? Theme.primaryContrastColor : "orange"
                                         font: Theme.captionFont
                                         anchors.verticalCenter: parent.verticalCenter
@@ -301,7 +307,7 @@ Rectangle {
                                     active: chipDelegate.isSelected
                                     activeColor: Theme.primaryContrastColor
                                     accessibleName: TranslationManager.translate("layoutEditor.moveToEnd", "Move toward end")
-                                    onClicked: root.moveRight(modelData.id)
+                                    onClicked: root.moveRight(chipDelegate.modelData.id)
                                 }
 
                                 // Options button \u2014 persistent has-options indicator
@@ -315,8 +321,8 @@ Rectangle {
                                     icon.height: Theme.scaled(15)
                                     active: chipDelegate.isSelected
                                     activeColor: Theme.primaryContrastColor
-                                    accessibleName: TranslationManager.translate("layoutEditor.editOptions", "Edit %1 options").arg(getItemDisplayName(modelData.type))
-                                    onClicked: root.editCustomRequested(modelData.id, root.zoneName)
+                                    accessibleName: TranslationManager.translate("layoutEditor.editOptions", "Edit %1 options").arg(root.getItemDisplayName(chipDelegate.modelData.type))
+                                    onClicked: root.editCustomRequested(chipDelegate.modelData.id, root.zoneName)
                                 }
 
                                 // Remove button. Always occupies its slot so
@@ -334,7 +340,7 @@ Rectangle {
                                     active: true
                                     opacity: (chipDelegate.isSelected || chipHover.hovered) ? 1.0 : 0.4
                                     accessibleName: TranslationManager.translate("layoutEditor.removeWidget", "Remove widget")
-                                    onClicked: root.itemRemoved(modelData.id)
+                                    onClicked: root.itemRemoved(chipDelegate.modelData.id)
                                     Behavior on opacity { NumberAnimation { duration: 100 } }
                                 }
                             }
@@ -366,12 +372,12 @@ Rectangle {
                                     if (drag.active) root._dragging = true
                                 }
                                 onClicked: {
-                                    if (!drag.active && !_held) root.itemTapped(modelData.id)
+                                    if (!drag.active && !_held) root.itemTapped(chipDelegate.modelData.id)
                                 }
                                 onPressAndHold: {
                                     if (!drag.active && chipDelegate.hasOptions) {
                                         _held = true
-                                        root.editCustomRequested(modelData.id, root.zoneName)
+                                        root.editCustomRequested(chipDelegate.modelData.id, root.zoneName)
                                     }
                                 }
                                 onReleased: {
@@ -505,42 +511,45 @@ Rectangle {
                             }
 
                             delegate: Rectangle {
+                                id: addItemRow
+                                required property var modelData
+
                                 width: addListView.width
-                                height: modelData.isHeader ? Theme.scaled(24) : Theme.scaled(36)
-                                color: (!modelData.isHeader && delegateMa.containsMouse) ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.12) : "transparent"
+                                height: addItemRow.modelData.isHeader ? Theme.scaled(24) : Theme.scaled(36)
+                                color: (!addItemRow.modelData.isHeader && delegateMa.containsMouse) ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.12) : "transparent"
                                 radius: Theme.scaled(4)
 
-                                Accessible.role: modelData.isHeader ? Accessible.StaticText : Accessible.MenuItem
-                                Accessible.name: modelData.isHeader
-                                    ? modelData.label
-                                    : TranslationManager.translate("layoutEditor.addWidget", "Add %1").arg(modelData.label)
-                                Accessible.focusable: !modelData.isHeader
+                                Accessible.role: addItemRow.modelData.isHeader ? Accessible.StaticText : Accessible.MenuItem
+                                Accessible.name: addItemRow.modelData.isHeader
+                                    ? addItemRow.modelData.label
+                                    : TranslationManager.translate("layoutEditor.addWidget", "Add %1").arg(addItemRow.modelData.label)
+                                Accessible.focusable: !addItemRow.modelData.isHeader
                                 Accessible.onPressAction: {
-                                    if (modelData.isHeader) return
-                                    root.addItemRequested(modelData.type)
+                                    if (addItemRow.modelData.isHeader) return
+                                    root.addItemRequested(addItemRow.modelData.type)
                                     addPopup.close()
                                 }
 
                                 // Category header
                                 Text {
-                                    visible: modelData.isHeader
+                                    visible: addItemRow.modelData.isHeader
                                     anchors.left: parent.left
                                     anchors.leftMargin: Theme.scaled(10)
                                     anchors.bottom: parent.bottom
-                                    text: modelData.label
+                                    text: addItemRow.modelData.label
                                     color: Theme.textSecondaryColor
                                     font: Theme.captionFont
                                 }
 
                                 // Widget row
                                 Text {
-                                    visible: !modelData.isHeader
+                                    visible: !addItemRow.modelData.isHeader
                                     anchors.left: parent.left
                                     anchors.leftMargin: Theme.scaled(12)
                                     anchors.verticalCenter: parent.verticalCenter
-                                    text: modelData.label
-                                    color: (modelData.type.startsWith("screensaver") || modelData.type === "lastShot") ? "#64B5F6"
-                                        : (modelData.type === "spacer" || modelData.type === "separator" || modelData.type === "custom" || modelData.type === "weather") ? "orange" : Theme.textColor
+                                    text: addItemRow.modelData.label
+                                    color: (addItemRow.modelData.type.startsWith("screensaver") || addItemRow.modelData.type === "lastShot") ? "#64B5F6"
+                                        : (addItemRow.modelData.type === "spacer" || addItemRow.modelData.type === "separator" || addItemRow.modelData.type === "custom" || addItemRow.modelData.type === "weather") ? "orange" : Theme.textColor
                                     font: Theme.bodyFont
                                 }
 
@@ -548,9 +557,9 @@ Rectangle {
                                     id: delegateMa
                                     anchors.fill: parent
                                     hoverEnabled: true
-                                    enabled: !modelData.isHeader
+                                    enabled: !addItemRow.modelData.isHeader
                                     onClicked: {
-                                        root.addItemRequested(modelData.type)
+                                        root.addItemRequested(addItemRow.modelData.type)
                                         addPopup.close()
                                     }
                                 }

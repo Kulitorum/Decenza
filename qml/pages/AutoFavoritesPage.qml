@@ -1,3 +1,9 @@
+// The favourites-list delegate reads this file's ids (`autoFavoritesPage`,
+// `favoritesListView`); Bound makes them statically resolvable. It declares its one
+// injected role, `model`, required in the same edit -- without that, Bound stops role
+// injection and every favourite card renders blank at RUNTIME, silently.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -115,7 +121,7 @@ Page {
         target: MainController.shotHistory
         function onShotSaved(shotId) {
             if (autoFavoritesPage.visible) {
-                loadFavorites()
+                autoFavoritesPage.loadFavorites()
             }
         }
     }
@@ -190,6 +196,8 @@ Page {
 
             delegate: Rectangle {
                 id: favoriteDelegate
+                required property var model
+
                 width: favoritesListView.width
                 height: contentColumn.implicitHeight + Theme.spacingMedium * 2
                 radius: Theme.cardRadius
@@ -198,23 +206,23 @@ Page {
 
                 property string _beanText: {
                     var parts = []
-                    if (model.beanBrand) parts.push(model.beanBrand)
-                    if (model.beanType) parts.push(model.beanType)
+                    if (favoriteDelegate.model.beanBrand) parts.push(favoriteDelegate.model.beanBrand)
+                    if (favoriteDelegate.model.beanType) parts.push(favoriteDelegate.model.beanType)
                     return parts.join(" - ")
                 }
-                property bool _hasBean: !!(model.beanBrand || model.beanType)
-                property bool _hasProfile: !!(model.profileName && model.profileName.length > 0)
+                property bool _hasBean: !!(favoriteDelegate.model.beanBrand || favoriteDelegate.model.beanType)
+                property bool _hasProfile: !!(favoriteDelegate.model.profileName && favoriteDelegate.model.profileName.length > 0)
                 property bool _hasGrinder: Settings.network.autoFavoritesGroupBy.indexOf("grinder") >= 0 &&
-                    !!(model.grinderBrand || model.grinderModel || model.grinderSetting)
+                    !!(favoriteDelegate.model.grinderBrand || favoriteDelegate.model.grinderModel || favoriteDelegate.model.grinderSetting)
                 property string _grinderText: {
-                    var name = ((model.grinderBrand || "") + " " + (model.grinderModel || "")).trim()
-                    return name + (model.grinderSetting ? " @ " + model.grinderSetting : "")
+                    var name = ((favoriteDelegate.model.grinderBrand || "") + " " + (favoriteDelegate.model.grinderModel || "")).trim()
+                    return name + (favoriteDelegate.model.grinderSetting ? " @ " + favoriteDelegate.model.grinderSetting : "")
                 }
                 property string _groupByText: autoFavoritesPage.buildGroupByText(
-                    model.beanBrand, model.beanType, model.profileName,
-                    model.grinderBrand, model.grinderModel, model.grinderSetting,
-                    model.doseWeightG, model.targetWeightG, model.finalWeightG,
-                    model.shotCount, model.avgEnjoyment)
+                    favoriteDelegate.model.beanBrand, favoriteDelegate.model.beanType, favoriteDelegate.model.profileName,
+                    favoriteDelegate.model.grinderBrand, favoriteDelegate.model.grinderModel, favoriteDelegate.model.grinderSetting,
+                    favoriteDelegate.model.doseWeightG, favoriteDelegate.model.targetWeightG, favoriteDelegate.model.finalWeightG,
+                    favoriteDelegate.model.shotCount, favoriteDelegate.model.avgEnjoyment)
 
                 // Whole card announces full details based on groupBy setting
                 AccessibleMouseArea {
@@ -262,7 +270,7 @@ Page {
                             }
 
                             Text {
-                                text: model.profileName || ""
+                                text: favoriteDelegate.model.profileName || ""
                                 font.family: Theme.subtitleFont.family
                                 font.pixelSize: Theme.subtitleFont.pixelSize
                                 color: Theme.primaryColor
@@ -299,8 +307,8 @@ Page {
                             spacing: Theme.spacingLarge
 
                             Text {
-                                text: (model.doseWeightG || 0).toFixed(1) + "g \u2192 " +
-                                      autoFavoritesPage.recipeYield(model.targetWeightG, model.finalWeightG).toFixed(1) + "g"
+                                text: (favoriteDelegate.model.doseWeightG || 0).toFixed(1) + "g \u2192 " +
+                                      autoFavoritesPage.recipeYield(favoriteDelegate.model.targetWeightG, favoriteDelegate.model.finalWeightG).toFixed(1) + "g"
                                 font.family: Theme.labelFont.family
                                 font.pixelSize: Theme.labelFont.pixelSize
                                 color: Theme.textSecondaryColor
@@ -308,7 +316,7 @@ Page {
                             }
 
                             Text {
-                                text: model.shotCount + " " +
+                                text: favoriteDelegate.model.shotCount + " " +
                                       TranslationManager.translate("autofavorites.shots", "shots")
                                 font.family: Theme.labelFont.family
                                 font.pixelSize: Theme.labelFont.pixelSize
@@ -317,11 +325,11 @@ Page {
                             }
 
                             Text {
-                                text: model.avgEnjoyment > 0 ? model.avgEnjoyment + "%" : ""
+                                text: favoriteDelegate.model.avgEnjoyment > 0 ? favoriteDelegate.model.avgEnjoyment + "%" : ""
                                 font.family: Theme.labelFont.family
                                 font.pixelSize: Theme.labelFont.pixelSize
                                 color: Theme.warningColor
-                                visible: model.avgEnjoyment > 0
+                                visible: favoriteDelegate.model.avgEnjoyment > 0
                                 Accessible.ignored: true
                             }
                         }
@@ -356,18 +364,18 @@ Page {
                                 // shot's raw dose (shown on the card). Pass the bucket so the
                                 // Info page's averages cover the same shots the card aggregates.
                                 AppShell.autoFavoriteInfoRequested({
-                                    shotId: model.shotId,
+                                    shotId: favoriteDelegate.model.shotId,
                                     groupBy: Settings.network.autoFavoritesGroupBy,
-                                    beanBrand: model.beanBrand || "",
-                                    beanType: model.beanType || "",
-                                    profileName: model.profileName || "",
-                                    grinderBrand: model.grinderBrand || "",
-                                    grinderModel: model.grinderModel || "",
-                                    grinderSetting: model.grinderSetting || "",
-                                    doseBucket: model.doseBucket || 0,
-                                    targetWeight: model.targetWeightG || 0,
-                                    avgEnjoyment: model.avgEnjoyment || 0,
-                                    shotCount: model.shotCount || 0
+                                    beanBrand: favoriteDelegate.model.beanBrand || "",
+                                    beanType: favoriteDelegate.model.beanType || "",
+                                    profileName: favoriteDelegate.model.profileName || "",
+                                    grinderBrand: favoriteDelegate.model.grinderBrand || "",
+                                    grinderModel: favoriteDelegate.model.grinderModel || "",
+                                    grinderSetting: favoriteDelegate.model.grinderSetting || "",
+                                    doseBucket: favoriteDelegate.model.doseBucket || 0,
+                                    targetWeight: favoriteDelegate.model.targetWeightG || 0,
+                                    avgEnjoyment: favoriteDelegate.model.avgEnjoyment || 0,
+                                    shotCount: favoriteDelegate.model.shotCount || 0
                                 })
                             }
                         }
@@ -397,19 +405,19 @@ Page {
                                 ". " + favoriteDelegate._groupByText
                             accessibleItem: showButton
                             onAccessibleClicked: {
-                                var includes = getGroupByIncludes()
+                                var includes = autoFavoritesPage.getGroupByIncludes()
                                 var filter = {}
 
                                 if (includes.bean) {
-                                    if (model.beanBrand) filter.beanBrand = model.beanBrand
-                                    if (model.beanType) filter.beanType = model.beanType
+                                    if (favoriteDelegate.model.beanBrand) filter.beanBrand = favoriteDelegate.model.beanBrand
+                                    if (favoriteDelegate.model.beanType) filter.beanType = favoriteDelegate.model.beanType
                                 }
-                                if (includes.profile && model.profileName)
-                                    filter.profileName = model.profileName
+                                if (includes.profile && favoriteDelegate.model.profileName)
+                                    filter.profileName = favoriteDelegate.model.profileName
                                 if (includes.grinder) {
-                                    if (model.grinderBrand) filter.grinderBrand = model.grinderBrand
-                                    if (model.grinderModel) filter.grinderModel = model.grinderModel
-                                    if (model.grinderSetting) filter.grinderSetting = model.grinderSetting
+                                    if (favoriteDelegate.model.grinderBrand) filter.grinderBrand = favoriteDelegate.model.grinderBrand
+                                    if (favoriteDelegate.model.grinderModel) filter.grinderModel = favoriteDelegate.model.grinderModel
+                                    if (favoriteDelegate.model.grinderSetting) filter.grinderSetting = favoriteDelegate.model.grinderSetting
                                 }
                                 // In weight mode the card also represents a specific 0.5 g dose
                                 // bucket and an exact target yield. Mirror the bucket range and
@@ -417,7 +425,7 @@ Page {
                                 // shots the card aggregates, even though the card itself displays
                                 // the latest shot's raw dose.
                                 if (Settings.network.autoFavoritesGroupBy === "bean_profile_grinder_weight") {
-                                    var bucket = model.doseBucket || 0
+                                    var bucket = favoriteDelegate.model.doseBucket || 0
                                     if (bucket > 0) {
                                         filter.minDose = bucket - 0.25
                                         filter.maxDose = bucket + 0.25
@@ -427,7 +435,7 @@ Page {
                                     // by exact target yield. minYield/maxYield would filter
                                     // actual pour weight, which almost never equals the target
                                     // to float precision.
-                                    var t = model.targetWeightG || 0
+                                    var t = favoriteDelegate.model.targetWeightG || 0
                                     if (t > 0)
                                         filter.targetWeight = t
                                 }
@@ -469,7 +477,7 @@ Page {
                                 autoFavoritesPage._waitingForShotLoad = true
                                 // Pass the latest shot's raw dose so the loaded recipe matches
                                 // what the card displays (and what the user last dialled in).
-                                MainController.loadShotWithMetadata(model.shotId, model.doseWeightG || 0)
+                                MainController.loadShotWithMetadata(favoriteDelegate.model.shotId, favoriteDelegate.model.doseWeightG || 0)
                             }
                         }
                     }
@@ -500,7 +508,7 @@ Page {
                                 ". " + favoriteDelegate._groupByText
                             accessibleItem: favRecipeButton
                             onAccessibleClicked: {
-                                AppShell.recipeWizardRequested("create", { promoteShotId: model.shotId })
+                                AppShell.recipeWizardRequested("create", { promoteShotId: favoriteDelegate.model.shotId })
                             }
                         }
                     }
@@ -594,7 +602,7 @@ Page {
                     onActivated: {
                         var values = ["bean", "profile", "bean_profile", "bean_profile_grinder", "bean_profile_grinder_weight"]
                         Settings.network.autoFavoritesGroupBy = values[currentIndex]
-                        loadFavorites()
+                        autoFavoritesPage.loadFavorites()
                         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
                             AccessibilityManager.announce(
                                 TranslationManager.translate("autofavorites.groupby", "Group by") +
@@ -626,7 +634,7 @@ Page {
                         ", " + value
                     onValueModified: function(newValue) {
                         Settings.network.autoFavoritesMaxItems = newValue
-                        loadFavorites()
+                        autoFavoritesPage.loadFavorites()
                     }
                 }
             }
@@ -650,7 +658,7 @@ Page {
                     accessibleName: TranslationManager.translate("autofavorites.hideUnrated", "Hide unrated favorites")
                     onToggled: {
                         Settings.network.autoFavoritesHideUnrated = checked
-                        loadFavorites()
+                        autoFavoritesPage.loadFavorites()
                     }
                 }
             }
