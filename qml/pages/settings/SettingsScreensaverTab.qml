@@ -272,13 +272,38 @@ Item {
         spacing: Theme.scaled(15)
 
         // Column 1: Auto-Wake + Screen Timing (always visible)
+        //
+        // fillWidth with a maximum, NOT a bare preferredWidth: `Layout.fillWidth: false` makes a
+        // child FIXED — the layout will not shrink it either. With both fixed columns holding
+        // their full width, a window narrower than their sum starves column 3 (the only fill
+        // child) to zero width, and their own contents paint outside them.
         Item {
-            Layout.preferredWidth: Theme.scaled(280)
-            Layout.fillWidth: false
+            // 340, not the old 280: the Wake row (label + switch + two time steppers) needs
+            // roughly 300 scaled units, so 280 never actually fitted it — which is what made
+            // the row overrun the card in the first place.
+            Layout.preferredWidth: Theme.scaled(340)
+            Layout.maximumWidth: Theme.scaled(340)
+            Layout.minimumWidth: Theme.scaled(190)
+            Layout.fillWidth: true
             Layout.fillHeight: true
+            clip: true
+
+            // Scrollable rather than sized to fit: this column's height is content-driven
+            // (three cards, the last of which grows with the Auto-Wake rows), and a longer
+            // translation or a larger accessibility font size pushes it past the page. Fitting
+            // it for today's strings would only move the problem. Matches the Flickable pattern
+            // in SettingsMachineTab.
+            Flickable {
+                anchors.fill: parent
+                contentHeight: column1Layout.implicitHeight
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+                flickableDirection: Flickable.VerticalFlick
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
             ColumnLayout {
-                anchors.fill: parent
+                id: column1Layout
+                width: parent.width
                 spacing: Theme.scaled(10)
 
             // Screen card (Sleep only)
@@ -529,7 +554,16 @@ Item {
                             Item { Layout.fillWidth: true }
 
                             ValueInput {
+                                // Shrinkable: at a bare preferredWidth these are fixed, and the
+                                // row (Wake label + switch + two steppers) overruns a narrow card.
                                 Layout.preferredWidth: Theme.scaled(80)
+                                Layout.maximumWidth: Theme.scaled(80)
+                                // The floor is the stepper's OWN natural width, not a guessed
+                                // number: implicitWidth is sc(56) for the +/- glyphs plus the
+                                // value's text metrics, so anything smaller squeezes the value
+                                // out and leaves a bare "- +".
+                                Layout.minimumWidth: implicitWidth
+                                Layout.fillWidth: true
                                 Layout.preferredHeight: Theme.scaled(34)
                                 from: 0
                                 to: 23
@@ -553,7 +587,16 @@ Item {
                             }
 
                             ValueInput {
+                                // Shrinkable: at a bare preferredWidth these are fixed, and the
+                                // row (Wake label + switch + two steppers) overruns a narrow card.
                                 Layout.preferredWidth: Theme.scaled(80)
+                                Layout.maximumWidth: Theme.scaled(80)
+                                // The floor is the stepper's OWN natural width, not a guessed
+                                // number: implicitWidth is sc(56) for the +/- glyphs plus the
+                                // value's text metrics, so anything smaller squeezes the value
+                                // out and leaves a bare "- +".
+                                Layout.minimumWidth: implicitWidth
+                                Layout.fillWidth: true
                                 Layout.preferredHeight: Theme.scaled(34)
                                 from: 0
                                 to: 59
@@ -617,15 +660,19 @@ Item {
                     }
                 }
 
-            Item { Layout.fillHeight: true }
             } // ColumnLayout
+            } // Flickable
         }
 
         // Column 2: Video Category (videos mode only, full height)
         Item {
-            Layout.preferredWidth: Theme.scaled(220)
-            Layout.fillWidth: false
+            // See column 1 — fixed width is what let these two overrun the page.
+            Layout.preferredWidth: Theme.scaled(260)
+            Layout.maximumWidth: Theme.scaled(260)
+            Layout.minimumWidth: Theme.scaled(150)
+            Layout.fillWidth: true
             Layout.fillHeight: true
+            clip: true
             visible: ScreensaverManager.screensaverType === "videos"
 
             Rectangle {
