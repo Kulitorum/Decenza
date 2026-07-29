@@ -82,7 +82,7 @@
     "qml/pages/settings/AddLanguagePage.qml": 13,
     "qml/pages/settings/LayoutEditorZone.qml": 77,
     "qml/pages/settings/SettingsAITab.qml": 35,
-    "qml/pages/settings/SettingsConnectionsTab.qml": 39,
+    "qml/pages/settings/SettingsConnectionsTab.qml": 41,
     "qml/pages/settings/SettingsDebugTab.qml": 7,
     "qml/pages/settings/SettingsFirmwareTab.qml": 52,
     "qml/pages/settings/SettingsHistoryDataTab.qml": 17,
@@ -232,6 +232,6 @@
     "qml/pages/settings/SettingsVisualizerTab.qml"
   ],
   "observed_categories": {
-    "unqualified": 2283
+    "unqualified": 2285
   }
 }
