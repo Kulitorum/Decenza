@@ -74,8 +74,10 @@ struct McpTestFixture {
     // Matched on the message text, so it has to track it: the line reads
     // "[DE1][Device] Profile upload FAILED — <reason>" (src/ble/de1device.cpp).
     // Capitalisation matters — a stale lower-case "profile" here stopped matching
-    // and turned four suites red at once, with a failure that pointed at the
-    // upload code rather than at this pattern.
+    // and turned every fixture user that exercises an upload red at once
+    // (tst_mcptools_profiles, tst_mcptools_write, tst_recipeeditorapppath,
+    // tst_profilemanager), with a failure that pointed at the upload code rather
+    // than at this pattern.
     ScopedWarningFilter uploadFilter{"Profile upload FAILED — (BLE disconnect during upload|superseded by a new upload|command queue cleared during upload)"};
     DE1Device device;
     MachineState machineState;

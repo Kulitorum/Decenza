@@ -255,9 +255,16 @@ void USBManager::onAndroidProbeRead()
 
     m_probeBuffer.append(data);
 
+    // toHex, matching the two sibling probe lines. The qDebug this replaced was a
+    // PLAIN one (no .noquote()), so QDebug escaped and quoted the QByteArray. The
+    // macro applies .noquote() and fromLatin1 escapes nothing, so the raw serial
+    // bytes went through verbatim — and DE1 responses are \n-terminated, so a
+    // successful probe embedded a newline, split the line, and left the
+    // continuation carrying no [DE1] marker at all. That defeats the one property
+    // this whole change exists to create.
     USB_LOG(QStringLiteral("Probe received %1 bytes, total: %2 data: %3")
                 .arg(data.size()).arg(m_probeBuffer.size())
-                .arg(QString::fromLatin1(m_probeBuffer)));
+                .arg(QString::fromLatin1(m_probeBuffer.toHex(' '))));
 
     // Look for [M] in the response — confirms this is a DE1
     if (m_probeBuffer.contains("[M]")) {
@@ -298,13 +305,20 @@ void USBManager::onAndroidProbeRead()
 
 void USBManager::onAndroidProbeTimeout()
 {
-    // DEBUG, unlike the desktop timeout below: Android has no PID filter — any
-    // attached USB serial device gets probed — so "did not answer <+M>" is the
-    // ordinary result for everything that is not a DE1, and warning on it would
-    // fire on a user's keyboard dongle.
-    USB_LOG(QStringLiteral("Android USB probe timeout (received %1 bytes: %2)")
-                .arg(m_probeBuffer.size())
-                .arg(QString::fromLatin1(m_probeBuffer.toHex())));
+    // WARN, for the same reason as the desktop timeout below: Android applies the
+    // SAME VID/PID filter (AndroidUsbSerial.findDevice() matches VENDOR_ID_WCH +
+    // PRODUCT_ID_DE1, byte-identical to the constants in usbmanager.h), and
+    // probeAndroid() is only reachable through it. So a device that gets probed
+    // here already advertises itself as DE1 hardware, and failing to answer <+M>
+    // is a machine the user expects to be connected and is not.
+    //
+    // This was DEBUG on the belief that Android probes anything attached and
+    // would warn on a keyboard dongle. It does not, and the belief cost the
+    // primary platform its warning for a real failure.
+    USB_WARN(QStringLiteral("Android USB probe timeout — DE1 hardware did not answer <+M> "
+                            "(received %1 bytes: %2)")
+                 .arg(m_probeBuffer.size())
+                 .arg(QString::fromLatin1(m_probeBuffer.toHex())));
     cleanupAndroidProbe(true);
 }
 

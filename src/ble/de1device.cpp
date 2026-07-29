@@ -1,4 +1,5 @@
 #include "de1device.h"
+#include "bledeviceid.h"
 #include "de1logging.h"
 #include "de1transport.h"
 #include "bletransport.h"
@@ -15,18 +16,34 @@
 #include <cmath>
 #include <QDebug>
 
-// Alias the shared DE1 helpers (src/ble/de1logging.h) — never copy a body. The
-// tags are the sub-prefixes this file already used ([MMR], [firmware], [Phase],
-// [WaterLevel], [ShotSettings]); they now sit inside the [DE1] marker, so the
-// per-area greps still work AND one [DE1] search returns the whole machine.
+// Alias the shared DE1 helpers (src/ble/de1logging.h) — never copy a body.
 //
-// DEBUG uses the _STDERR_ variants deliberately: the connections-page DE1 view
-// shows INFO and above, so a DEBUG line has no view to reach and emitting
-// logMessage for it would be signal traffic nothing reads. It also keeps these
-// usable from const members, where a signal emit will not compile.
+// The tags are the sub-prefixes this file already used, now inside the [DE1]
+// marker, so one [DE1] search returns the whole machine. Most per-area greps
+// still work by substring — `[MMR]`, `[Phase]`, `[ShotSettings]` are unchanged
+// inside `[DE1][MMR]` and so on. TWO DELIBERATELY DO NOT:
+//   - `[firmware]` is now the tag "Firmware". A case-sensitive
+//     `grep '\[firmware\]'` returns nothing; search `[DE1][Firmware]`.
+//   - `[WaterLevels]` (plural, setWaterRefillLevel) and `[WaterLevel]`
+//     (singular, parseWaterLevel) were two spellings of one area and are now
+//     both "WaterLevel".
+// Between those two and `[BLE DE1]`/`[DE1]`, this file carried nine distinct
+// prefixes before this change, not five.
+//
+// DEBUG uses the _STDERR_ variants (no `emit logMessage`) so DEBUG detail stops
+// flowing into the connections-page DE1 view. Note what that view is TODAY: an
+// unfiltered `de1LogText.text += message` with no level, no cap and no Clear
+// button (SettingsConnectionsTab.qml), so every DEBUG line grew a QML string for
+// the process lifetime. Sourcing it from the system log at INFO+ is task 5.1/5.2
+// of the openspec change; this anticipates that contract rather than waiting for
+// it, and shrinks an unbounded accumulation meanwhile.
 #define DEVICE_LOG(msg)         DE1_LOG_STDERR_TAGGED("Device", msg)
 #define DEVICE_INFO(msg)        DE1_INFO_TAGGED("Device", msg)
 #define DEVICE_WARN(msg)        DE1_WARN_TAGGED("Device", msg)
+// The two _WARN_STDERR aliases are NOT a tier choice — they are required. Their
+// only call sites are the const members dropDeviceWriteIfFirmwareFlash() and
+// dropIfFirmwareFlashInProgress(), and moc generates signal emitters as non-const
+// so `emit logMessage(...)` will not compile in one.
 #define DEVICE_WARN_STDERR(msg) DE1_WARN_STDERR_TAGGED("Device", msg)
 #define MMR_LOG(msg)            DE1_LOG_STDERR_TAGGED("MMR", msg)
 #define MMR_WARN(msg)           DE1_WARN_TAGGED("MMR", msg)
@@ -161,14 +178,47 @@ void DE1Device::onTransportConnected() {
 }
 
 void DE1Device::onTransportDisconnected() {
-    // INFO, not WARN. A bare "the machine disconnected" cannot tell an
-    // unrequested mid-shot drop from the app being closed — it fires on every
-    // shutdown — so warning on it is the same cry-wolf failure as the routine
-    // WARNs removed from the scale subsystem. What makes a disconnect a PROBLEM
-    // is logged where it is known: de1LinkFault, the write-abandoned warning,
-    // the reconnect ladder. (ScaleDevice still warns on its counterpart; that is
-    // long-shipped behaviour and the inconsistency is recorded, not copied.)
-    DEVICE_INFO(QStringLiteral("DE1 DISCONNECTED"));
+    // Tier by whether the machine was BUSY, because that is what separates a
+    // fault from a shutdown, and nothing else here can.
+    //
+    // I first wrote this as a flat INFO, reasoning that a bare disconnect fires
+    // on every app close so WARN would cry wolf, and that a real fault is warned
+    // elsewhere. The second half was wrong — all three backstops I named fail on
+    // the path that matters:
+    //   - de1LinkFault fires on controller errors, write-retry exhaustion and
+    //     zombie links. BLEManager::onDe1LinkFault's own contract says it fires
+    //     "never on plain device-absence" — and a machine switched off at the
+    //     wall IS plain absence.
+    //   - The write-abandoned WARN needs a write in flight. Mid-shot the app is
+    //     mostly receiving, so m_writeTimeoutTimer is not even running.
+    //   - The reconnect ladder in main.cpp logs entirely at qDebug, with no
+    //     marker. It is not a backstop at any tier.
+    // And on Apple platforms Qt raises no error to reach onControllerError at
+    // all: qlowenergycontroller_darwin.mm's _q_disconnected() emits disconnected()
+    // without setError() (RemoteHostClosedError appears only in the bluez and
+    // winrt backends). So a mid-shot DE1 drop on macOS/iOS produced ZERO lines
+    // above INFO — while pulling the USB cable produced three WARNs.
+    //
+    // Gating on the state resolves the ambiguity instead of surrendering to it: a
+    // drop while the machine is doing something is unambiguously a fault, and an
+    // idle/sleeping drop is the shutdown case that must stay quiet.
+    // Listed as the QUIET states rather than the busy ones, so a firmware state
+    // added later defaults to being reported rather than to silence. Init and
+    // NoRequest are in here because they are transient/unknown at startup and a
+    // false alarm there would be its own cry-wolf.
+    const bool wasResting = (m_state == DE1::State::Sleep
+                             || m_state == DE1::State::GoingToSleep
+                             || m_state == DE1::State::Idle
+                             || m_state == DE1::State::SchedIdle
+                             || m_state == DE1::State::Init
+                             || m_state == DE1::State::NoRequest);
+    if (!wasResting) {
+        DEVICE_WARN(QStringLiteral("DE1 DISCONNECTED while %1 — unrequested drop")
+                        .arg(DE1::stateToString(m_state)));
+    } else {
+        DEVICE_INFO(QStringLiteral("DE1 DISCONNECTED (was %1)")
+                        .arg(DE1::stateToString(m_state)));
+    }
     m_sawStopWritePending = false;
     m_lastSawTriggerMs = 0;
     m_lastSawWriteMs = 0;
@@ -263,8 +313,10 @@ void DE1Device::onTransportWriteComplete(const QBluetoothUuid& uuid, const QByte
     // SAW stop latency instrumentation (worker trigger -> urgent write -> BLE ack).
     // Deliberately still bare "[SAW-Latency]" and not a [DE1] helper: this
     // measures stop-at-weight, which is shot logic, not the machine. Whether SAW
-    // earns a marker of its own is an open decision (see the openspec change's
-    // tasks.md) — it is not an oversight in this file.
+    // earns a marker of its own is an open decision — task 2b.9 of the openspec
+    // change replace-scale-log-with-system-log-filter. Note this is a THIRD SAW
+    // prefix, distinct from the `[SAW]` and `[SAW-Worker]` that task counts, and
+    // this is its only site. Not an oversight in this file.
     if (m_sawStopWritePending
         && uuid == DE1::Characteristic::REQUESTED_STATE
         && data.size() == 1
@@ -432,6 +484,15 @@ void DE1Device::connectToDevice(const QBluetoothDeviceInfo& device) {
 
     m_connecting = true;
     emit connectingChanged();
+
+    // The one INFO for "an attempt started", at the one layer EVERY caller passes
+    // through. BLEManager's scan and direct-wake paths announce themselves before
+    // getting here, but the other two callers — the `devices_connect_de1` MCP tool
+    // and the connections-page device list — do not, so an attempt initiated by an
+    // assistant left nothing at INFO+ for that same assistant to read back.
+    // BleTransport's equivalent stays DEBUG; see the note there.
+    DEVICE_INFO(QStringLiteral("Connect attempt starting for %1")
+                    .arg(getDeviceIdentifier(device)));
 
     // Create a new BleTransport and wire it up (DE1Device owns it)
     auto* bleTransport = new BleTransport(this);

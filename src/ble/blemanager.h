@@ -16,6 +16,7 @@
 #include <atomic>
 
 #include "blecapability.h"
+#include "bledeviceid.h"
 #include "network/wifiscaleresult.h"
 
 class ScaleDevice;
@@ -52,42 +53,9 @@ struct ScaleEntry {
                                    // non-Android — see connectToScale()).
 };
 
-// Canonical identity for a discovered BLE device — the string persisted as a
-// saved scale / DE1 / refractometer address.
-//
-// The check is at RUNTIME, on whether the backend actually gave us a MAC. It
-// used to be `#ifdef Q_OS_IOS`, which was wrong on macOS: Qt's Bluetooth
-// backend there is CoreBluetooth too, and CoreBluetooth never exposes MAC
-// addresses. So `address().toString()` returned the null address
-// "00:00:00:00:00:00" for EVERY device, and every scale, DE1 and refractometer
-// paired on a Mac was persisted under that one colliding identity — which also
-// made deviceIdentifiersMatch() below return true for any device at all.
-//
-// The rest of the codebase already used this null-check form
-// (difluidr1.cpp, difluidr2.cpp, bletransport.cpp, qtscalebletransport.cpp,
-// bookooscale.cpp); only these two helpers — the ones whose output is written
-// to settings — did not. A runtime check is correct on every platform and does
-// not require maintaining a list of which backends expose MACs.
-inline QString getDeviceIdentifier(const QBluetoothDeviceInfo& device) {
-    return device.address().isNull() ? device.deviceUuid().toString()
-                                     : device.address().toString();
-}
-
-// Compare a discovered device against a saved identifier. Must derive the
-// device's side through getDeviceIdentifier so the two stay in lockstep — a
-// direct address()/deviceUuid() comparison here is how the platform-guard bug
-// above stayed hidden.
-//
-// Identifiers persisted by a pre-fix build on macOS are the null address, which
-// identifies nothing. Those are deliberately NOT special-cased: such an entry
-// matches no real device now, so the stale pairing simply stops connecting and
-// the user re-scans. (Before this fix it matched EVERY device, which is worse
-// than not matching — with two BLE scales paired, it connected whichever was
-// seen first.)
-inline bool deviceIdentifiersMatch(const QBluetoothDeviceInfo& device, const QString& identifier) {
-    if (identifier.isEmpty()) return false;
-    return getDeviceIdentifier(device).compare(identifier, Qt::CaseInsensitive) == 0;
-}
+// getDeviceIdentifier() / deviceIdentifiersMatch() moved to ble/bledeviceid.h so
+// layers below BLEManager can use them instead of hand-copying the expression.
+// Still reachable through this header for every existing includer.
 
 class BLEManager : public QObject {
     Q_OBJECT
@@ -597,15 +565,32 @@ private:
     // carry the diagnosis; the rest only carry "still absent", which the ladder
     // lines already say.
     void scaleRepeatFailure(const QString& message);
-    int m_consecutiveScaleFailures = 0;
+    // The DE1 equivalent, sharing the budget map. Same shape, [DE1] marker.
+    void de1RepeatFailure(const QString& message);
+    // Clears every message's warn budget. Call on a successful connect (either
+    // device) and on any fresh user-initiated attempt — see the definition for
+    // why the latter is not optional.
+    //
+    // Coarse on purpose: it clears both subsystems' budgets. Re-arming a warning
+    // that did not need re-arming costs one line; failing to re-arm one costs a
+    // silent failure, so the coarse direction is the safe one.
+    void resetRepeatFailureBudget();
+    // Keyed per MESSAGE, deliberately: a subsystem-wide counter suppressed a
+    // genuinely NEW failure arriving mid-run, because an unrelated repeat had
+    // already spent the budget.
+    QHash<QString, int> m_repeatFailureCounts;
     static constexpr int kScaleFailuresAtWarn = 3;
 
     // The same three tiers for the DE1 half, carrying [DE1] instead of [Scale].
+    //
     // BLEManager narrates the machine too — permissions, scan lifecycle, "found
-    // DE1", direct wake — and until now those lines went ONLY to de1LogMessage,
-    // i.e. only to the connections-page window. They were absent from every
-    // submitted log, so the machine's discovery story could not be read after
-    // the fact at all. These write it.
+    // DE1", direct wake. MOST of those lines went only to de1LogMessage, i.e.
+    // only to the connections-page window, so they were absent from every
+    // submitted log and the machine's discovery story could not be read after the
+    // fact. Four DID also reach stderr — "Found DE1", the two direct-wake lines
+    // and the scan error — but each did so in DIFFERENT WORDS from its emitted
+    // twin, which is the drift these helpers exist to make impossible. Both
+    // problems have the one fix: log once, at a tier, from one call.
     void de1Debug(const QString& message);
     void de1Info(const QString& message);
     void de1Warn(const QString& message);

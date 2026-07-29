@@ -283,6 +283,7 @@ void BLEManager::noteDe1Connected(bool connected)
         m_wedgeSince = QDateTime();
         m_lastDe1FaultTime = QDateTime();
         m_lastDe1ErrorShown.clear();  // Healthy again — allow a future DE1 error to surface
+        resetRepeatFailureBudget();   // ...and let the next failure of each kind be loud
     }
 }
 
@@ -985,6 +986,7 @@ void BLEManager::connectToSavedScale() {
     // doesn't flash "Not found" during the new connect (mirrors scanForDevices()).
     m_scaleConnectionFailed = false;
     m_flowScaleFallbackEmitted = false;
+    resetRepeatFailureBudget();  // ...and let this attempt's failure be loud
     emit scaleConnectionFailedChanged();
 
     // Drop the currently-connected scale (if any) so the new primary can take over.
@@ -1085,8 +1087,18 @@ void BLEManager::requestBluetoothPermission() {
         de1Info(QStringLiteral("Requesting Bluetooth permission — needed to reach the DE1"));
         qApp->requestPermission(bluetoothPermission, this, [this](const QPermission& permission) {
             if (permission.status() == Qt::PermissionStatus::Granted) {
-                // No "granted" line: the scan that follows within milliseconds
-                // proves it, and a granted permission is the non-event.
+                // This line is back at INFO, and the reason is a mistake worth
+                // recording. It was deleted as a non-event on the grounds that
+                // "Scanning for devices..." follows within milliseconds and
+                // proves it — and then the very next commit demoted THAT line to
+                // DEBUG for overclaiming the [DE1] marker on a shared scan. The
+                // cited evidence disappeared, which left the INFO+ log stopping
+                // dead right after "Requesting Bluetooth permission", making
+                // three states indistinguishable: granted-and-scanning, dialog
+                // still waiting on the user, and wedged in this callback. The
+                // retained "Requesting" line only works as a signal if a GRANT
+                // does not also end the log.
+                de1Info(QStringLiteral("Bluetooth permission granted"));
                 // isBluetoothAvailable() now switches from the Undetermined bypass
                 // to the real hostMode() check. Notify QML bindings so any "Bluetooth
                 // unavailable" UI re-evaluates immediately.
@@ -1112,7 +1124,9 @@ void BLEManager::requestBluetoothPermission() {
             "Bluetooth permission required. Please enable in Settings."));
         return;
     case Qt::PermissionStatus::Granted:
-        // Nothing to say: doStartScan() logs "Scanning for devices..." next.
+        // Nothing to say here: this is the already-granted steady state, reached
+        // on every scan after the first, and it has no prompt to explain. The
+        // grant EDGE is what gets an INFO, in the callback above.
         break;
     }
 #endif
@@ -1367,6 +1381,21 @@ void BLEManager::onScanFinished() {
     // scan cycle IS the narrative — it is what the reconnect ladder drives.
     de1Debug(QStringLiteral("Scan complete"));
     scaleInfo(QStringLiteral("Scan complete"));
+
+    // State the DE1's OUTCOME, because nothing else did. With the scan-lifecycle
+    // lines at DEBUG and "Found DE1:" only firing on success, a machine that was
+    // expected and never appeared left ZERO [DE1] lines at INFO or above for the
+    // whole session — so "the app can't find my machine" was indistinguishable in
+    // the log from "the app never looked". The DE1 has no counterpart to the
+    // scale's "connection timeout — not found" anywhere, at any tier.
+    //
+    // Gated on a machine actually being expected: with no saved DE1 and no
+    // discovery, there is nothing to report. One line per cycle.
+    if (!m_de1Connected && m_de1Devices.isEmpty() && !m_savedDE1Address.isEmpty()) {
+        de1RepeatFailure(QStringLiteral("Scan finished with no DE1 found (saved machine %1 "
+                                        "did not appear)").arg(m_savedDE1Address));
+    }
+
     emit scanningChanged();
 
     // Hunt mode (post-shot review page): restart the scan back-to-back so a
@@ -1538,7 +1567,7 @@ void BLEManager::onScaleConnectedChanged() {
         m_scaleDirectAbortTimer->stop();
         m_directConnectInProgress = false;
         m_directConnectAddress.clear();
-        m_consecutiveScaleFailures = 0;     // Next failure run warns again
+        resetRepeatFailureBudget();          // Next failure of each kind warns again
         m_wifiFallbackToBleActive = false;  // Reset for the next saved-scale cycle
         m_manualWifiConnect = false;        // Manual WiFi add resolved (connected)
         m_lastScanErrorShown.clear();       // Healthy state — allow a future fresh scan error to pop again
@@ -1694,8 +1723,13 @@ void BLEManager::beginWifiFallbackToBleScan() {
     // user-initiated scan could trip the isFallbackCandidate gate in
     // onDeviceDiscovered, auto-connecting to any Decent BLE scale found.
     if (!isBluetoothAvailable()) {
-        qWarning() << "BLEManager: WiFi fallback to BLE skipped - Bluetooth unavailable";
-        scaleRepeatFailure(QString("WiFi scale %1 unreachable and Bluetooth unavailable").arg(hostname));
+        // One line, marked. The bare qWarning that used to sit here said the same
+        // thing in different words AND carried no [Scale] marker, so it was
+        // invisible to the marker-filtered query that is the whole point of the
+        // marker — while being the only WARN rescuing the line below once its
+        // budget was spent.
+        scaleRepeatFailure(QString("WiFi scale %1 unreachable and Bluetooth unavailable "
+                                   "— fallback to BLE skipped").arg(hostname));
         m_scaleConnectionFailed = true;
         emit scaleConnectionFailedChanged();
         if (!m_flowScaleFallbackEmitted) {
@@ -2122,6 +2156,7 @@ void BLEManager::scanForDevices() {
     scaleInfo("Starting device scan...");
     m_scaleConnectionFailed = false;
     m_flowScaleFallbackEmitted = false;  // User-initiated scan resets the dialog guard
+    resetRepeatFailureBudget();           // ...and the failure-warning budget
     emit scaleConnectionFailedChanged();
 
     // NOTE: Bluetooth availability gates ONLY the BLE leg, below. It used to
@@ -2701,20 +2736,50 @@ void BLEManager::scaleWarn(const QString& message) {
 }
 
 void BLEManager::scaleRepeatFailure(const QString& message) {
-    if (++m_consecutiveScaleFailures <= kScaleFailuresAtWarn) {
+    // Counted PER MESSAGE, not per subsystem. A single subsystem counter looked
+    // simpler and was wrong twice over:
+    //
+    //   - It suppressed NOVELTY. A genuinely different failure arriving mid-run
+    //     — "WiFi scale X unreachable and Bluetooth unavailable", i.e. the user
+    //     just turned the radio off, which is actionable — was logged at DEBUG
+    //     because an unrelated timeout had already spent the budget.
+    //   - Its numbers skipped, because one attempt reports several messages, so
+    //     "(repeat 4)" appeared on a line that had been printed twice.
+    //
+    // Per-message fixes both: each distinct failure gets its own first few
+    // warnings, and the count means what it says. Cardinality is bounded — these
+    // are literals with at most a host name interpolated.
+    const int count = ++m_repeatFailureCounts[message];
+    if (count <= kScaleFailuresAtWarn) {
         scaleWarn(message);
     } else {
         // Same event, still true, nothing new. Kept at DEBUG so the log still
         // proves the ladder is running without another alarm.
-        //
-        // The count is of consecutive failures in the SUBSYSTEM, not of this
-        // message — one attempt reports several ("timeout", then "unreachable —
-        // trying Bluetooth"), so the numbers a reader sees on one message will
-        // skip. It is worded that way for exactly that reason: "(repeat 4)" on a
-        // line that has appeared twice reads as a bug in the counter.
-        scaleDebug(QString("%1 (consecutive failure %2)")
-                       .arg(message).arg(m_consecutiveScaleFailures));
+        scaleDebug(QString("%1 (repeat %2)").arg(message).arg(count));
     }
+}
+
+// Clears the per-message warn budgets so the next failure of each kind is loud
+// again. Called on a successful connect AND on any fresh user-initiated attempt:
+// a user who plugs the scale in and taps Connect after an hour of a dead ladder
+// is asking a new question, and the answer must not arrive at DEBUG because the
+// ladder had already used up the budget. Missing the user-initiated half was the
+// actual defect — the two sibling latches (m_scaleConnectionFailed,
+// m_flowScaleFallbackEmitted) were reset on those paths and this was not.
+// Same budget, [DE1] marker. Needed because the DE1's "no machine found" outcome
+// is reported once per scan cycle and the reconnect ladder scans forever, so a
+// flat WARN there would be the cry-wolf pattern all over again.
+void BLEManager::de1RepeatFailure(const QString& message) {
+    const int count = ++m_repeatFailureCounts[message];
+    if (count <= kScaleFailuresAtWarn) {
+        de1Warn(message);
+    } else {
+        de1Debug(QString("%1 (repeat %2)").arg(message).arg(count));
+    }
+}
+
+void BLEManager::resetRepeatFailureBudget() {
+    m_repeatFailureCounts.clear();
 }
 
 // The DE1 tiers. The signal still carries the BARE message so the existing

@@ -1961,6 +1961,15 @@ private slots:
         QCOMPARE(f.machineState.phase(), MachineState::Phase::Pouring);
 
         // The radio drops mid-pour: isConnected() goes false.
+        //
+        // ignoreMessage, not a filter: this ASSERTS the warning. A drop while the
+        // machine is busy is the case that used to produce nothing above INFO —
+        // de1LinkFault never fires on plain absence, no write is in flight
+        // mid-pour, and on Apple platforms Qt raises no controller error at all.
+        // DE1Device tiers this by state precisely so this scenario warns, and
+        // ignoreMessage fails if it stops doing so.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("\\[DE1\\]\\[Device\\] DE1 DISCONNECTED while Espresso"));
         f.transport.setConnectedSim(false);
         f.machineState.updatePhase();
 

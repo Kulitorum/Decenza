@@ -7,6 +7,7 @@
 #endif
 
 #include <QDebug>
+#include <QMetaEnum>
 
 // Alias the shared DE1 helpers — never copy a body. Tag "Serial" so the DE1's
 // serial link is distinguishable from the USB discovery that found it, while
@@ -308,7 +309,17 @@ void SerialTransport::onErrorOccurred(QSerialPort::SerialPortError error)
     }
 
     QString errorStr = m_port->errorString();
-    SERIAL_WARN(QStringLiteral("Port error: %1 %2").arg(static_cast<int>(error)).arg(errorStr));
+    // valueToKey, not a bare int: QSerialPort::SerialPortError is a Q_ENUM, so the
+    // `qDebug() << error` this replaced printed the ENUMERATOR NAME via QDebug's
+    // generic Q_ENUM operator. Streaming it through arg() prints "2", which needs a
+    // Qt header to decode — in a subsystem diagnosed from user-submitted logs. This
+    // is the line that classifies a serial failure, so it keeps the name.
+    const char* errorName =
+        QMetaEnum::fromType<QSerialPort::SerialPortError>().valueToKey(error);
+    SERIAL_WARN(QStringLiteral("Port error: %1 (%2) %3")
+                    .arg(errorName ? QLatin1String(errorName) : QLatin1String("Unknown"))
+                    .arg(static_cast<int>(error))
+                    .arg(errorStr));
 
     // Resource errors (device unplugged, etc.) are fatal. Both arms are
     // log-only: the fatal one drops the DE1 to offline, which the connection
@@ -387,15 +398,23 @@ void SerialTransport::processLine(const QString& line)
     QByteArray data = hexStringToBytes(hexData);
 
     // No per-frame RX line. It used to log one "RX [M] 19 bytes" for every
-    // notification — roughly 20 a second across the four subscribed
-    // characteristics, ~600 lines per shot — and it went only to the
-    // connections-page window, which is a bounded ring, so nobody paid for it.
+    // notification. subscribeAll() subscribes to seven characteristics, of which
+    // the periodically-notifying ones (ShotSample alone runs ~5 Hz — see
+    // docs/CLAUDE_MD/BLE_PROTOCOL.md) put this on the order of 20 lines a second,
+    // roughly 600 per shot.
+    //
+    // It went only to the connections-page DE1 window — which is not a bounded
+    // ring but an uncapped `de1LogText.text += message` with no Clear button
+    // (SettingsConnectionsTab.qml), so those 600 lines a shot accumulated in a
+    // QML string for the process lifetime. That is a reason to delete it, not a
+    // reason it was free.
+    //
     // Routing it to the log the way the rest of this file now is would have made
     // the DE1's telemetry the single largest thing in a submitted log while
-    // answering no question: that a frame arrived is what the shot record and
-    // the parsed values above already prove, and BleTransport has never logged
-    // its equivalent notification at all. The two anomaly cases above ARE
-    // logged, because those are the ones a reader is looking for.
+    // answering no question: that a frame arrived is what the parsed values and
+    // the shot record already prove, and BleTransport::onCharacteristicChanged
+    // logs no equivalent. The two anomaly cases above ARE logged — those are the
+    // ones a reader is looking for.
     emit dataReceived(uuid, data);
 }
 

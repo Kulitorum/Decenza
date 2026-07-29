@@ -441,11 +441,13 @@ void DecentScaleWifi::onDisconnected() {
     // socket keeps a stale value across reconnects, so on an abnormal drop
     // closeCode() is stale/default (1000), never 1006.
     //
-    // The handshake check comes first because a FAILED CONNECT arrives here too,
-    // and none of the branches below describe one. Qt delivers `disconnected`
-    // before `errorOccurred` for a failed connect, so m_socketErrorThisConnect
-    // is still false and the classifier used to fall through to the peer-close
-    // branch and print the socket's stale closeCode — reporting an unreachable
+    // The handshake check comes first because a FAILED CONNECT arrives here too
+    // (QWebSocket synthesizes a `disconnected` for one — see m_wsHandshakeDone's
+    // declaration for both Qt sources), and none of the branches below describe
+    // one. `disconnected` is delivered before `errorOccurred`, so
+    // m_socketErrorThisConnect is still false and the classifier used to fall
+    // through to the peer-close branch and print the stale closeCode — reporting
+    // an unreachable
     // host as "disconnected (unexpected) — peer close (code 1000)", i.e. a clean
     // goodbye from a peer that never answered. Observed live on every WiFi
     // attempt to an unreachable scale. This is DEBUG, not INFO: the attempt

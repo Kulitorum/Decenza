@@ -1,5 +1,6 @@
 #include "bletransport.h"
 #include "blecapability.h"
+#include "bledeviceid.h"
 #include "blecontrollererror.h"
 #include "bleserviceerror.h"
 #include "de1logging.h"
@@ -415,9 +416,7 @@ bool BleTransport::isConnected() const {
 // -- BLE-specific public API --
 
 void BleTransport::connectToDevice(const QBluetoothDeviceInfo& device) {
-    QString deviceId = device.address().isNull()
-        ? device.deviceUuid().toString()
-        : device.address().toString();
+    const QString deviceId = getDeviceIdentifier(device);
 
     bool zombieReconnect = false;
     if (isConnected()) {
@@ -468,7 +467,13 @@ void BleTransport::connectToDevice(const QBluetoothDeviceInfo& device) {
     // otherwise be invisible, then checked what actually precedes it: on the
     // scan path BLEManager has just logged "Found DE1: <name> (<id>)" with the
     // same identifier, and on the direct-wake path "Direct wake: connecting to
-    // <name> at <addr>". It is a third telling of the same fact on both paths.
+    // <name> at <addr>". A third telling of the same fact on BOTH THOSE PATHS.
+    //
+    // Not on all four, though — DE1Device::connectToDevice is also called by the
+    // `devices_connect_de1` MCP tool and by the connections-page device list, and
+    // neither is preceded by either line (the list's "Found DE1:" may be many
+    // minutes old). DE1Device::connectToDevice carries the INFO for those, at the
+    // one layer every caller passes through.
     log(QStringLiteral("Connecting to DE1 at %1").arg(deviceId));
 
     if (!setupController(device)) {

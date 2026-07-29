@@ -239,7 +239,7 @@ public slots:
     // setShotSettings dedup pattern — the session log showed ~30 identical
     // flush-flow MMR bursts in 2.5 s when settings sliders emitted convergent
     // change signals. `reason` is an optional caller tag that appears in the
-    // [MMR] write / write skipped log lines. Pass `force=true` to bypass the
+    // [DE1][MMR] write / write skipped log lines. Pass `force=true` to bypass the
     // dedup check (the DE1's USB-charger register has a 10-minute auto-enable
     // timeout that requires us to keep reasserting the commanded value).
     void writeMMR(uint32_t address, uint32_t value,
