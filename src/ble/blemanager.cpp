@@ -1461,7 +1461,19 @@ void BLEManager::onScanFinished() {
     //
     // Gated on a machine actually being expected: with no saved DE1 and no
     // discovery, there is nothing to report. One line per cycle.
-    if (!m_de1Connected && m_de1Devices.isEmpty() && !m_savedDE1Address.isEmpty()) {
+    //
+    // NOT in simulator mode, and that gate is not a nicety — without it this line
+    // was a pure false alarm, seen on screen in a running sim session: "Scan
+    // finished with no DE1 found (saved machine E5:5A:… did not appear)" at WARN,
+    // while the status read "Simulated". The machine is absent because the user
+    // replaced it with a simulator. Scale scanning stays enabled in simulator mode
+    // on purpose (scanForDevices' note: real scales tested against a simulated
+    // DE1), so scans DO complete here with no DE1 — which is the configuration
+    // working, not a fault. Warning about it three times per the repeat budget and
+    // then falling to DEBUG is exactly the cry-wolf pattern this change exists to
+    // end, aimed at the one user who cannot act on it.
+    if (!m_disabled && !m_de1Connected && m_de1Devices.isEmpty()
+        && !m_savedDE1Address.isEmpty()) {
         de1RepeatFailure(QStringLiteral("Scan finished with no DE1 found (saved machine %1 "
                                         "did not appear)").arg(m_savedDE1Address));
     }

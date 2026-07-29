@@ -141,6 +141,9 @@ extern "C" const char* __ubsan_default_options()
 #include "network/crashreporter.h"
 #include "core/profilestorage.h"
 #include "ble/blemanager.h"
+// For the [DE1][Simulator] attach line below — main.cpp owns the simulator's
+// lifetime, so it is the only place that can report it.
+#include "ble/de1logging.h"
 #include "ble/de1device.h"
 #include "ble/de1transport.h"
 #ifndef Q_OS_IOS
@@ -3761,14 +3764,24 @@ int main(int argc, char *argv[])
 #endif
 
     if (settings.app()->simulationMode()) {
-        qDebug() << "Creating DE1 Simulator...";
-
         // Create the DE1 machine simulator
         de1SimulatorPtr = std::make_unique<DE1Simulator>();
         auto& de1Simulator = *de1SimulatorPtr;
 
         // Set simulator on DE1Device so commands are relayed to it
         de1Device.setSimulator(&de1Simulator);
+
+        // Marked and at INFO, replacing a bare `qDebug() << "Creating DE1
+        // Simulator..."`. This is the machine's counterpart to
+        // "DE1 CONNECTED (BLE)" and it is the one line that says WHICH machine the
+        // app is talking to. Without it the DE1 view opened empty until the user
+        // happened to change a profile or start a shot, and nothing on the page
+        // distinguished "simulated machine attached" from "no machine at all" —
+        // the simulator is also why no real DE1 will ever appear, which is the
+        // question a reader of that log is most likely to be asking.
+        DE1_INFO_STDERR_TAGGED("Simulator",
+            QStringLiteral("Simulated DE1 attached — no real machine will be "
+                           "scanned for or connected this session"));
 
         // Give it the current profile from ProfileManager
         auto* pm = mainController.profileManager();
