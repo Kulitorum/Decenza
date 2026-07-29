@@ -1,5 +1,6 @@
 #include "blemanager.h"
 
+#include "bluetoothlogging.h"
 #include "core/fileshare.h"
 #include "network/webdebuglogger.h"
 #include "refractometers/refractometerlogging.h"
@@ -133,15 +134,14 @@ BLEManager::BLEManager(QObject* parent)
             // Either powerOff() never reported HostPoweredOff, or the power-on
             // leg never brought it back. Make one more attempt to re-enable, then
             // let finishAdapterRecovery(false) surface it — never leave BT off.
-            qWarning() << "BLEManager: adapter still powered off"
-                       << (kAdapterRecoverySafetyMs / 1000) << "s into recovery — forcing power-on (#1309)";
+            BT_WARN_TAGGED("BLEManager", QStringLiteral("adapter still powered off") + QStringLiteral(" ") + QString("%1").arg((kAdapterRecoverySafetyMs / 1000)) + QStringLiteral(" ") + QStringLiteral("s into recovery — forcing power-on (#1309)"));
             setAdapterPower(true);
             finishAdapterRecovery(false);
         } else {
             // Adapter is on but we missed the HostConnectable event (or powerOff
             // was a no-op and it was never actually off). Treat as recovered.
-            qWarning() << "BLEManager: recovery watchdog — adapter is on without an explicit "
-                          "HostConnectable event; treating as recovered (#1309)";
+            BT_WARN_TAGGED("BLEManager", QStringLiteral("recovery watchdog — adapter is on without an explicit "
+                          "HostConnectable event; treating as recovered (#1309)"));
             finishAdapterRecovery(true);
         }
     });
@@ -193,7 +193,7 @@ bool BLEManager::isBluetoothAvailable() const
 
 void BLEManager::onHostModeStateChanged(QBluetoothLocalDevice::HostMode mode)
 {
-    qDebug() << "BLEManager: Bluetooth host mode changed to" << mode;
+    BT_LOG_TAGGED("BLEManager", QStringLiteral("Bluetooth host mode changed to") + QStringLiteral(" ") + QString("%1").arg(mode));
 
 #ifndef Q_OS_IOS
     // Drive the wedge-recovery power-cycle off observed adapter transitions
@@ -206,7 +206,7 @@ void BLEManager::onHostModeStateChanged(QBluetoothLocalDevice::HostMode mode)
             // the power-ON leg is itself covered (powerOn never landing must not
             // leave the radio off).
             m_recoverySawPoweredOff = true;
-            qDebug() << "BLEManager: adapter powered off during recovery — powering back on (#1309)";
+            BT_LOG_TAGGED("BLEManager", QStringLiteral("adapter powered off during recovery — powering back on (#1309)"));
             setAdapterPower(true);
             m_adapterRecoverySafetyTimer->start();
         } else {
@@ -231,7 +231,7 @@ void BLEManager::setAdapterPower(bool on)
         "android/bluetooth/BluetoothAdapter", "getDefaultAdapter",
         "()Landroid/bluetooth/BluetoothAdapter;");
     if (!adapter.isValid()) {
-        qWarning() << "BLEManager: no BluetoothAdapter — cannot" << (on ? "enable" : "disable") << "(#1309)";
+        BT_WARN_TAGGED("BLEManager", QStringLiteral("no BluetoothAdapter — cannot") + QStringLiteral(" ") + QString("%1").arg((on ? "enable" : "disable")) + QStringLiteral(" ") + QStringLiteral("(#1309)"));
         return;
     }
     adapter.callMethod<jboolean>(on ? "enable" : "disable");
@@ -254,7 +254,7 @@ void BLEManager::finishAdapterRecovery(bool adapterOn)
     if (adapterOn) {
         m_recoveryLeftAdapterOff = false;
         m_lastDe1FaultTime = QDateTime();  // stale faults shouldn't re-trip immediately
-        qDebug() << "BLEManager: adapter recovered — re-arming DE1 + scale reconnect (#1309)";
+        BT_INFO_TAGGED("BLEManager", QStringLiteral("adapter recovered — re-arming DE1 + scale reconnect (#1309)"));
         emit bleStackRecovered();          // main.cpp resets the DE1 reconnect budget + retries
         if (!m_savedScaleAddress.isEmpty())
             tryDirectConnectToScale();     // scale side re-arm
@@ -263,8 +263,8 @@ void BLEManager::finishAdapterRecovery(bool adapterOn)
         // powers it on instead of treating OFF as user intent) and tell the
         // user — do NOT emit bleStackRecovered(), the stack is not recovered.
         m_recoveryLeftAdapterOff = true;
-        qWarning() << "BLEManager: automatic Bluetooth restart did not bring the adapter "
-                      "back up — asking the user to toggle it manually (#1309)";
+        BT_WARN_TAGGED("BLEManager", QStringLiteral("automatic Bluetooth restart did not bring the adapter "
+                      "back up — asking the user to toggle it manually (#1309)"));
         scaleWarn(QStringLiteral("Auto Bluetooth restart failed — adapter still off (#1309)"));
         emit errorOccurred(translateUiString(
             QStringLiteral("ble.error.bluetoothRestartFailed"),
@@ -362,8 +362,8 @@ void BLEManager::maybeRecoverWedgedStack(const QString& reason)
             if (!m_lastAdapterRecovery.isValid()
                 || m_lastAdapterRecovery.msecsTo(t) >= kAdapterRecoveryBackoffMs) {
                 m_lastAdapterRecovery = t;
-                qWarning() << "BLEManager: adapter still off from a prior failed recovery — "
-                              "retrying power-on (#1309)";
+                BT_WARN_TAGGED("BLEManager", QStringLiteral("adapter still off from a prior failed recovery — "
+                              "retrying power-on (#1309)"));
                 setAdapterPower(true);
             }
         }
@@ -373,8 +373,7 @@ void BLEManager::maybeRecoverWedgedStack(const QString& reason)
     const QDateTime now = QDateTime::currentDateTime();
     if (m_lastAdapterRecovery.isValid()
         && m_lastAdapterRecovery.msecsTo(now) < kAdapterRecoveryBackoffMs) {
-        qDebug() << "BLEManager: BLE stack still appears wedged (" << reason
-                 << ") but within recovery backoff — not cycling adapter yet (#1309)";
+        BT_LOG_TAGGED("BLEManager", QStringLiteral("BLE stack still appears wedged (") + QStringLiteral(" ") + QString("%1").arg(reason) + QStringLiteral(" ") + QStringLiteral(") but within recovery backoff — not cycling adapter yet (#1309)"));
         return;
     }
 
@@ -383,9 +382,7 @@ void BLEManager::maybeRecoverWedgedStack(const QString& reason)
     m_lastAdapterRecovery = now;
     m_adapterRecoveryCount++;
     m_wedgeSince = QDateTime();
-    qWarning() << "BLEManager: BLE stack appears wedged (" << reason
-               << ") — power-cycling Bluetooth adapter, recovery #" << m_adapterRecoveryCount
-               << "this session (#1309)";
+    BT_WARN_TAGGED("BLEManager", QStringLiteral("BLE stack appears wedged (") + QStringLiteral(" ") + QString("%1").arg(reason) + QStringLiteral(" ") + QStringLiteral(") — power-cycling Bluetooth adapter, recovery #") + QStringLiteral(" ") + QString("%1").arg(m_adapterRecoveryCount) + QStringLiteral(" ") + QStringLiteral("this session (#1309)"));
     scaleWarn(QStringLiteral("BLE stack wedged — auto power-cycling Bluetooth adapter (#1309)"));
     emit bleStackRecoveryStarted();
 
@@ -693,7 +690,7 @@ void BLEManager::setDisabled(bool disabled) {
             // business tearing down a real scale the user is weighing with —
             // that teardown is now setScaleSimulated's job.
         }
-        qDebug() << "BLEManager: DE1 BLE operations" << (disabled ? "disabled (simulator mode)" : "enabled");
+        de1Debug(QStringLiteral("DE1 BLE operations") + QStringLiteral(" ") + QString("%1").arg((disabled ? "disabled (simulator mode)" : "enabled")));
         emit disabledChanged();
     }
 }
@@ -707,8 +704,7 @@ void BLEManager::setScaleSimulated(bool simulated) {
         m_scaleConnectionTimer->stop();
         emit disconnectScaleRequested();
     }
-    qDebug() << "BLEManager: real-scale connects"
-             << (simulated ? "blocked (simulated scale active)" : "allowed");
+    scaleDebug(QStringLiteral("real-scale connects") + QStringLiteral(" ") + QString("%1").arg((simulated ? "blocked (simulated scale active)" : "allowed")));
     // MUST be emitted on BOTH edges. The rising edge stops the connection timer
     // and drops the physical scale; nothing restarts either of those, so without
     // a falling-edge signal for main.cpp to hang a re-arm on, switching the
@@ -817,7 +813,7 @@ void BLEManager::connectToScale(const QString& address) {
         }
         return;
     }
-    qWarning() << "Scale not found in discovered list:" << address;
+    scaleWarn(QStringLiteral("Scale not found in discovered list: %1").arg(address));
 }
 
 void BLEManager::setUsbScaleAvailable(bool available, const QString& name) {
@@ -1032,7 +1028,7 @@ void BLEManager::startScan() {
     if (m_disabled && !m_scanningForScales) {
         // In simulator mode, suppress DE1 scanning but allow scale/refractometer scans
         // (m_scanningForScales is set by scanForDevices() before calling here).
-        qDebug() << "BLEManager: DE1 scan request ignored (simulator mode)";
+        de1Debug(QStringLiteral("DE1 scan request ignored (simulator mode)"));
         return;
     }
 
@@ -1041,7 +1037,7 @@ void BLEManager::startScan() {
     }
 
     if (!isBluetoothAvailable()) {
-        qDebug() << "BLEManager: Scan request ignored (Bluetooth is powered off)";
+        BT_INFO_TAGGED("BLEManager", QStringLiteral("Scan request ignored (Bluetooth is powered off)"));
         // Callers (tryDirectConnectToRefractometer, scanForDevices) set the
         // scan flags before calling here on the assumption a scan will run.
         // A scan that never starts must not leave them latched — they are
@@ -1659,11 +1655,11 @@ void BLEManager::onScaleConnectedChanged() {
             m_scaleConnectionFailed = false;
             emit scaleConnectionFailedChanged();
         }
-        qDebug() << "BLEManager: Scale connected";
+        scaleDebug(QStringLiteral("Scale connected"));
         emit scaleConnected();  // UI auto-dismisses the scale-disconnect / no-scale notice on reconnect
     } else {
         // Scale disconnected - notify UI immediately
-        qDebug() << "BLEManager: Scale disconnected";
+        scaleDebug(QStringLiteral("Scale disconnected"));
         scaleInfo("Scale disconnected");
         emit scaleDisconnected();
     }
@@ -1939,7 +1935,7 @@ void BLEManager::switchToWifiPrimary() {
         return;  // primary isn't a WiFi scale — nothing to switch back to
     }
     const QString hostname = m_savedScaleAddress.mid(QStringLiteral("wifi:").size());
-    qDebug() << "BLEManager: WiFi primary reachable again — switching back from backup to" << hostname;
+    scaleInfo(QStringLiteral("WiFi primary reachable again — switching back from backup to") + QStringLiteral(" ") + QString("%1").arg(hostname));
     scaleInfo(QString("WiFi primary %1 reachable — switching back from backup").arg(hostname));
 
     // Drop the current backup scale, then connect the WiFi primary. main.cpp's
@@ -2197,17 +2193,17 @@ void BLEManager::clearSavedDE1() {
 
 void BLEManager::tryDirectConnectToDE1() {
     if (m_disabled) {
-        qDebug() << "BLEManager: tryDirectConnectToDE1 - disabled (simulator mode)";
+        de1Debug(QStringLiteral("tryDirectConnectToDE1 - disabled (simulator mode)"));
         return;
     }
 
     if (m_savedDE1Address.isEmpty()) {
-        qDebug() << "BLEManager: tryDirectConnectToDE1 - no saved DE1 address";
+        de1Debug(QStringLiteral("tryDirectConnectToDE1 - no saved DE1 address"));
         return;
     }
 
     if (!isBluetoothAvailable()) {
-        qDebug() << "BLEManager: tryDirectConnectToDE1 - Bluetooth is powered off, skipping";
+        de1Debug(QStringLiteral("tryDirectConnectToDE1 - Bluetooth is powered off, skipping"));
         return;
     }
 
@@ -2291,7 +2287,7 @@ void BLEManager::scanForDevices() {
         // No radio: skip the BLE leg but still run WiFi and USB. Clear the
         // request flags startScan() would otherwise have consumed, so they
         // don't leak into the next scan.
-        qDebug() << "BLEManager: Bluetooth unavailable — scanning WiFi and USB only";
+        BT_INFO_TAGGED("BLEManager", QStringLiteral("Bluetooth unavailable — scanning WiFi and USB only"));
         scaleInfo(QStringLiteral("Bluetooth unavailable — scanning WiFi and USB only"));
         m_scanningForScales = false;
         m_userInitiatedScaleScan = false;
@@ -2572,7 +2568,7 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
     }
 
     if (m_savedScaleAddress.isEmpty() || m_savedScaleType.isEmpty()) {
-        qDebug() << "BLEManager: tryDirectConnectToScale - no saved scale address/type";
+        scaleDebug(QStringLiteral("tryDirectConnectToScale - no saved scale address/type"));
         return;
     }
 
@@ -2597,7 +2593,7 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
     // change is about. USB is likewise radio-independent.
 
     if (m_scaleDevice && m_scaleDevice->isConnected()) {
-        qDebug() << "BLEManager: tryDirectConnectToScale - scale already connected";
+        scaleDebug(QStringLiteral("tryDirectConnectToScale - scale already connected"));
         return;
     }
 
@@ -2657,8 +2653,8 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
     // (which connects when the saved primary is "usb:decent"). Don't fall
     // through to the BLE connect/scan below — "usb:decent" is not a MAC.
     if (m_savedScaleAddress.startsWith(QStringLiteral("usb:"), Qt::CaseInsensitive)) {
-        qDebug() << "BLEManager: tryDirectConnectToScale - saved scale is USB; "
-                    "reconnect handled by UsbScaleManager";
+        scaleDebug(QStringLiteral("Direct connect skipped — saved scale is USB; "
+                                  "reconnect is handled by UsbScaleManager"));
         return;
     }
 
@@ -2666,7 +2662,7 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
     // everything below (the passive scan and the direct connectToDevice) needs a
     // powered BLE adapter, whereas the WiFi and USB paths above did not.
     if (!isBluetoothAvailable()) {
-        qDebug() << "BLEManager: tryDirectConnectToScale - Bluetooth is powered off, skipping";
+        scaleDebug(QStringLiteral("tryDirectConnectToScale - Bluetooth is powered off, skipping"));
         return;
     }
 
@@ -2704,8 +2700,7 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
     if (QBluetoothAddress(m_savedScaleAddress.toUpper()).isNull()) {
         // Direct connect with just a UUID rarely works — find the device by
         // scanning and match on identity when it advertises.
-        qDebug() << "BLEManager: Direct wake (no MAC) - scanning for" << deviceName
-                 << "id:" << m_savedScaleAddress;
+        scaleDebug(QStringLiteral("Direct wake (no MAC) - scanning for") + QStringLiteral(" ") + QString("%1").arg(deviceName) + QStringLiteral(" ") + QStringLiteral("id:") + QStringLiteral(" ") + QString("%1").arg(m_savedScaleAddress));
         scaleInfo(QString("Direct wake: scanning for %1 (identifier is not a MAC)").arg(deviceName));
 
         m_directConnectInProgress = true;
@@ -2729,7 +2724,7 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
     if (m_de1DirectConnectInFlight) {
         m_scaleConnectDeferred = true;
         if (!m_de1WaitTimer->isActive()) m_de1WaitTimer->start();
-        qDebug() << "BLEManager: deferring scale direct-connect until DE1 settles (15 s cap)";
+        scaleDebug(QStringLiteral("deferring scale direct-connect until DE1 settles (15 s cap)"));
         scaleInfo("Waiting for the DE1 to finish connecting before connecting the scale (15 s cap)");
         return;
     }
@@ -2739,7 +2734,7 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
     QBluetoothAddress address(upperAddress);
     QBluetoothDeviceInfo deviceInfo(address, deviceName, QBluetoothDeviceInfo::LowEnergyCoreConfiguration);
 
-    qDebug() << "BLEManager: Direct wake - connecting to" << deviceName << "at" << upperAddress;
+    scaleDebug(QStringLiteral("Direct wake - connecting to") + QStringLiteral(" ") + QString("%1").arg(deviceName) + QStringLiteral(" ") + QStringLiteral("at") + QStringLiteral(" ") + QString("%1").arg(upperAddress));
     scaleInfo(QString("Direct wake: connecting to %1 at %2").arg(deviceName, m_savedScaleAddress));
 
     // Mark that we're doing a direct connect - but we won't skip scan results
@@ -2794,6 +2789,8 @@ void BLEManager::openLocationSettings()
         activity.callMethod<void>("startActivity", "(Landroid/content/Intent;)V", intent.object());
     }
 #else
+    // log-marker-exempt: platform-availability note about a UI action, not a
+    // subsystem event — no device or radio state is being reported.
     qDebug() << "openLocationSettings is only available on Android";
 #endif
 }
@@ -2821,6 +2818,8 @@ void BLEManager::openBluetoothSettings()
     // macOS: Open System Settings to Bluetooth privacy pane
     QDesktopServices::openUrl(QUrl("x-apple.systempreferences:com.apple.preference.security?Privacy_Bluetooth"));
 #else
+    // log-marker-exempt: as above — a note that a settings deep-link has no
+    // implementation here, not a report about the radio.
     qDebug() << "openBluetoothSettings is not implemented for this platform";
 #endif
 }

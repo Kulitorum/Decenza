@@ -1,4 +1,5 @@
 #include "blecapability.h"
+#include "bluetoothlogging.h"
 
 #include <QCoreApplication>
 #include <QDebug>
@@ -33,8 +34,10 @@ void ensureChecked()
                 g_setcapCommand =
                     QStringLiteral("sudo setcap 'cap_net_admin+eip' %1")
                         .arg(QCoreApplication::applicationFilePath());
-                qWarning().noquote() << "BleCapability: CAP_NET_ADMIN missing — BLE connects to random-address devices (including the DE1) will fail. Fix:"
-                                     << g_setcapCommand;
+                BT_WARN_TAGGED("Capability",
+                    QStringLiteral("CAP_NET_ADMIN missing — BLE connects to "
+                                   "random-address devices (including the DE1) will "
+                                   "fail. Fix: %1").arg(g_setcapCommand));
             }
             return;
         }
@@ -66,34 +69,35 @@ void logProcStatusCaps()
         const QByteArray line = f.readLine();
         if (line.startsWith("CapEff:") || line.startsWith("CapBnd:")
             || line.startsWith("CapInh:") || line.startsWith("CapAmb:")) {
-            qInfo().noquote() << "BtDiagnostics:" << QString::fromUtf8(line).trimmed();
+            BT_INFO_TAGGED("Diagnostics", QString::fromUtf8(line).trimmed());
         }
     }
 }
 
 void collectAndLogDiagnostics()
 {
-    qInfo().noquote() << "BtDiagnostics: ---- Linux BT diagnostics (one-shot) ----";
-    qInfo().noquote() << "BtDiagnostics: binary =" << QCoreApplication::applicationFilePath();
+    BT_INFO_TAGGED("Diagnostics", QStringLiteral("---- Linux BT diagnostics (one-shot) ----"));
+    BT_INFO_TAGGED("Diagnostics",
+                   QStringLiteral("binary = %1").arg(QCoreApplication::applicationFilePath()));
     logProcStatusCaps();
 
     const QString getcap = runBriefly(QStringLiteral("getcap"),
                                       {QCoreApplication::applicationFilePath()});
     if (!getcap.isEmpty())
-        qInfo().noquote() << "BtDiagnostics: getcap =" << getcap;
+        BT_INFO_TAGGED("Diagnostics", QStringLiteral("getcap = %1").arg(getcap));
 
     const QString bluezVersion = runBriefly(QStringLiteral("bluetoothctl"),
                                             {QStringLiteral("--version")});
     if (!bluezVersion.isEmpty())
-        qInfo().noquote() << "BtDiagnostics: bluetoothctl =" << bluezVersion;
+        BT_INFO_TAGGED("Diagnostics", QStringLiteral("bluetoothctl = %1").arg(bluezVersion));
 
     const QString hci = runBriefly(QStringLiteral("hciconfig"), {QStringLiteral("-a")});
     if (!hci.isEmpty()) {
         const auto lines = hci.split(u'\n');
         for (const QString& l : lines)
-            qInfo().noquote() << "BtDiagnostics: hciconfig:" << l;
+            BT_INFO_TAGGED("Diagnostics", QStringLiteral("hciconfig: %1").arg(l));
     }
-    qInfo().noquote() << "BtDiagnostics: ---- end ----";
+    BT_INFO_TAGGED("Diagnostics", QStringLiteral("---- end ----"));
 }
 #endif
 } // namespace

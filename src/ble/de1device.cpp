@@ -325,6 +325,11 @@ void DE1Device::onTransportWriteComplete(const QBluetoothUuid& uuid, const QByte
         qint64 dispatchMs = m_lastSawWriteMs - m_lastSawTriggerMs;
         qint64 bleAckMs = ackMs - m_lastSawWriteMs;
         qint64 totalMs = ackMs - m_lastSawTriggerMs;
+        // log-marker-exempt: deliberately kept as a standalone [SAW-Latency] tag.
+        // SAW spans the DE1, the scale and the predictor, so it is not one
+        // subsystem's line; whether SAW becomes a registered marker of its own is
+        // task 2b.9 of the openspec change, and stamping it [DE1] first would
+        // prejudge that and split the SAW story across two prefixes.
         qDebug() << "[SAW-Latency] dispatch=" << dispatchMs
                  << "ms, bleAck=" << bleAckMs
                  << "ms, total=" << totalMs << "ms";

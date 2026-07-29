@@ -99,12 +99,12 @@ Found while converting group 3: `[Scale]`/`[DE1]`/`[Refractometer]` are not yet 
 
 ## 7. Documentation, discoverability and enforcement
 
-- [ ] 7.1 Build `debug_get_log`'s tool description from the registry so the markers and tier convention are named without being restated; include the warning that a bracketed marker is a substring, not a regex (`[Scale]` under `regex: true` is a character class matching almost every line).
-- [ ] 7.2 Write `docs/CLAUDE_MD/LOGGING.md`: marker grammar, the three tiers with guidance, how to add a helper, how to register a subsystem, and how to retrieve a subsystem's narrative from a log and over MCP. Write it as the blueprint for new logging, not as a record of this change.
-- [ ] 7.3 Add `LOGGING.md` to the reference-document table in `CLAUDE.md`.
-- [ ] 7.4 Add `scripts/check_log_markers.py`: verify every covered-subsystem logging helper applies a registered marker and that no covered call site hand-rolls a bracketed prefix. Parse the registry rather than hard-coding markers. Must run with no compiler and no Qt.
-- [ ] 7.5 Wire the check into `text-invariants.yml` (the build-free PR gate) and confirm it fails, not warns, on a deliberately broken helper.
-- [ ] 7.6 Update the wiki manual: it must ask users for the system log, not a scale log. Check for any other reference to the removed file.
+- [x] 7.1 Build `debug_get_log`'s tool description from the registry so the markers and tier convention are named without being restated; include the warning that a bracketed marker is a substring, not a regex (`[Scale]` under `regex: true` is a character class matching almost every line).
+- [x] 7.2 Write `docs/CLAUDE_MD/LOGGING.md`: marker grammar, the three tiers with guidance, how to add a helper, how to register a subsystem, and how to retrieve a subsystem's narrative from a log and over MCP. Write it as the blueprint for new logging, not as a record of this change.
+- [x] 7.3 Add `LOGGING.md` to the reference-document table in `CLAUDE.md`.
+- [x] 7.4 Add `scripts/check_log_markers.py`: verify every covered-subsystem logging helper applies a registered marker and that no covered call site hand-rolls a bracketed prefix. Parse the registry rather than hard-coding markers. Must run with no compiler and no Qt.
+- [x] 7.5 Wire the check into `text-invariants.yml` (the build-free PR gate) and confirm it fails, not warns, on a deliberately broken helper.
+- [x] 7.6 Update the wiki manual: it must ask users for the system log, not a scale log. Check for any other reference to the removed file.
 
 ## 8. Close out
 

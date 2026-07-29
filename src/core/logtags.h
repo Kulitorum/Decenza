@@ -30,11 +30,14 @@
 // description does not mention is invisible to the assistant that would have
 // used it.
 //
-// NOTE: this invariant is NOT machine-checked yet. An earlier version of this
-// comment said `scripts/check_log_markers.py` parses this header; no such script
-// exists — it is task 7.4 of the openspec change
-// replace-scale-log-with-system-log-filter. Stating a check that does not exist
-// is worse than stating none, because the next editor trusts it.
+// This IS machine-checked: `scripts/check_log_markers.py` parses the literals below
+// and runs on every PR touching src/** (.github/workflows/text-invariants.yml). It
+// fails on a bare qDebug in a covered file, on a registered marker typed into a
+// message, and on a helper header applying a marker this registry does not declare.
+//
+// (An earlier version of this comment claimed the same thing while no such script
+// existed. It was corrected to say so, because a stated check that does not exist is
+// worse than none — the next editor trusts it. Now it does exist.)
 //
 // A marker is a published name. Renaming one breaks every saved query, filter
 // and habit built on it, so treat it as API, not an implementation detail.
@@ -67,6 +70,7 @@
 #define DECENZA_LOG_MARKER_SCALE         "Scale"
 #define DECENZA_LOG_MARKER_DE1           "DE1"
 #define DECENZA_LOG_MARKER_REFRACTOMETER "Refractometer"
+#define DECENZA_LOG_MARKER_BLUETOOTH     "Bluetooth"
 
 // The registry. Each row: (marker literal, what the subsystem covers).
 // The description is user/assistant-facing — it reaches the MCP tool
@@ -81,7 +85,13 @@
     X(DECENZA_LOG_MARKER_REFRACTOMETER,                                        \
       "DiFluid R1/R2 refractometers. Separate from Scale because these are a "  \
       "different instrument answering different questions, even though they "    \
-      "share the scale BLE transports and appear in the same connections view")
+      "share the scale BLE transports and appear in the same connections view") \
+    X(DECENZA_LOG_MARKER_BLUETOOTH,                                            \
+      "The local Bluetooth radio itself: adapter power state, wedge detection "  \
+      "and automatic recovery, and platform capability problems. Separate from " \
+      "Scale and DE1 because it is BENEATH both — when the adapter is off or "   \
+      "wedged, neither device can connect, and attributing that to one of them " \
+      "sends a reader looking for a fault in the wrong place")
 
 // ---- The one place a log line's shape is built -------------------------
 //
