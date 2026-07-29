@@ -1,3 +1,9 @@
+// The equipment-card Repeater delegate below reads this file's ids (`flickable`,
+// `switchEquipmentDialog`); Bound makes them statically resolvable. The delegate declares
+// its one injected model role required in the same edit -- without that, Bound stops
+// role injection and `modelData` goes undefined at RUNTIME, silently.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -121,6 +127,8 @@ Page {
                     model: equipmentPage.inventoryPackages
 
                     EquipmentCard {
+                        required property var modelData
+
                         pkg: modelData
                         width: {
                             var avail = flickable.width

@@ -1,3 +1,9 @@
+// The two Repeater delegates below read this file's ids (`settingsPage`,
+// `saveThemeDialog`); Bound makes them statically resolvable. Both delegates already
+// declare every injected model role they use as a required property, so Bound cannot
+// break role injection here.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -300,7 +306,7 @@ Page {
             target: Keyboard
             function onVisibleChanged() {
                 if (Keyboard.visible && saveThemeDialog.visible) {
-                    saveThemeDialog.keyboardOffset = parent.height * 0.25
+                    saveThemeDialog.keyboardOffset = saveThemeDialog.parent.height * 0.25
                 } else {
                     saveThemeDialog.keyboardOffset = 0
                 }
@@ -413,7 +419,7 @@ Page {
             settingsPage.highlightCardId = cardId || ""
             settingsPage.markTabLoaded(tabIndex)
             tabBar.currentIndex = tabIndex
-            if (cardId) scrollToCard(tabIndex, cardId)
+            if (cardId) settingsPage.scrollToCard(tabIndex, cardId)
         }
     }
 

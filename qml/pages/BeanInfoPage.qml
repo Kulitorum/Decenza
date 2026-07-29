@@ -1,3 +1,9 @@
+// The bag-card Repeater delegate below reads this file's ids (`flickable`,
+// `changeBeansDialog`); Bound makes them statically resolvable. The delegate declares
+// its one injected model role required in the same edit -- without that, Bound stops
+// role injection and `modelData` goes undefined at RUNTIME, silently.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -150,6 +156,8 @@ Page {
                     model: bagInventoryPage.inventoryBags
 
                     BagCard {
+                        required property var modelData
+
                         bag: modelData
                         width: {
                             var avail = flickable.width
