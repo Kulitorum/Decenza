@@ -1143,7 +1143,16 @@ void BLEManager::doStartScan() {
     m_scanning = true;
     emit scanningChanged();
     emit scanStarted();  // Notify that scan has actually started
-    de1Info(QStringLiteral("Scanning for devices..."));
+    // DEBUG, not INFO, and the live log is why. One BLE scan serves the DE1, the
+    // scales and the refractometers, so bracketing it under [DE1] claims the app
+    // went looking for the machine when usually it did not: a real session showed
+    // "[DE1] Scanning for devices..." followed 207 ms later by "[DE1] Scan
+    // stopped", which reads in a [DE1] filter as "looked for the machine, gave
+    // up" — while the [Scale] lines in between show the scan was a WiFi-to-BLE
+    // scale fallback that found its scale and stopped. The machine's story is
+    // "Found DE1:" below, which is unambiguous; the scan's story belongs to
+    // whoever asked for it.
+    de1Debug(QStringLiteral("Scanning for devices..."));
 
     // Scan for BLE devices only
     ensureDiscoveryAgent();
@@ -1169,7 +1178,7 @@ void BLEManager::stopScan() {
     // WiFi discovery genuinely is still running.
     if (!m_scanning) return;
 
-    de1Info(QStringLiteral("Scan stopped"));
+    de1Debug(QStringLiteral("Scan stopped (superseded, or torn down)"));
     if (m_discoveryAgent)
         m_discoveryAgent->stop();
     m_scanning = false;
@@ -1353,7 +1362,10 @@ void BLEManager::onScanFinished() {
     m_scanning = false;
     m_scanningForScales = false;
     m_userInitiatedScaleScan = false;
-    de1Info(QStringLiteral("Scan complete"));
+    // Same reasoning as "Scanning for devices..." above: DEBUG on the DE1 side
+    // (the scan is rarely the machine's story), INFO on the scale side, where the
+    // scan cycle IS the narrative — it is what the reconnect ladder drives.
+    de1Debug(QStringLiteral("Scan complete"));
     scaleInfo(QStringLiteral("Scan complete"));
     emit scanningChanged();
 
