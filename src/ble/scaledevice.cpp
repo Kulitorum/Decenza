@@ -1,6 +1,7 @@
 #include "scaledevice.h"
 
 #include "core/logtags.h"
+#include "scales/scalelogging.h"
 #include <QDebug>
 
 ScaleDevice::ScaleDevice(QObject* parent)
@@ -94,10 +95,24 @@ void ScaleDevice::setConnected(bool connected) {
             // the connections view — and the view shows INFO and above. Its
             // DISCONNECTED counterpart below is already WARN, so a connect at
             // DEBUG meant the log showed scales dropping and never arriving.
-            qInfo() << "[" DECENZA_LOG_MARKER_SCALE "]" << name() << "CONNECTED";
+            // "[Scale][ScaleDevice]", not a bare "[Scale]". Every other line in this
+            // subsystem carries a source tag, and in a real log this one stood out as
+            // the only exception — visibly so, since it sits directly above
+            // "[Scale][USB Scale] Polling started" describing the same device. A
+            // reader filtering the subsystem down to one source lost precisely the
+            // line that says the scale started working.
+            //
+            // The tag is this base class, deliberately, rather than the driver: the
+            // line is emitted here for all 13 of them, and naming the driver would
+            // mean either a virtual or a per-driver copy of the wording, which is
+            // how "First weight received" and "Scale confirmed working" became two
+            // names for one event. The scale's own NAME is in the message.
+            SCALE_INFO_STDERR_TAGGED("ScaleDevice",
+                QStringLiteral("%1 CONNECTED").arg(name()));
             m_keepAliveTimer.start();
         } else {
-            qWarning() << "[" DECENZA_LOG_MARKER_SCALE "]" << name() << "DISCONNECTED";
+            SCALE_WARN_STDERR_TAGGED("ScaleDevice",
+                QStringLiteral("%1 DISCONNECTED").arg(name()));
             m_keepAliveTimer.stop();
             setBatteryLevel(-1);   // Clear stale reading for reconnect
             setCharging(false);    // Mirror — the next status frame will re-assert if still charging

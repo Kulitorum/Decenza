@@ -2638,9 +2638,14 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
     // Decent scale (see onScaleConnectionTimeout and beginWifiFallbackToBleScan).
     if (m_savedScaleAddress.startsWith(QStringLiteral("wifi:"), Qt::CaseInsensitive)) {
         const QString hostname = m_savedScaleAddress.mid(QStringLiteral("wifi:").size());
-        qDebug() << "BLEManager: Direct wake (WiFi) - connecting to" << hostname
-                 << "(cached IP first, mDNS fallback)";
-        scaleInfo(QString("Direct wake (WiFi): connecting to %1").arg(hostname));
+        // One line. This was a drift pair that survived the earlier sweep and was
+        // caught by reading a real log rather than the source: an unmarked
+        // `qDebug() << "BLEManager: Direct wake (WiFi) - connecting to" ...` and a
+        // marked scaleInfo saying the same thing in different words, 1 ms apart. A
+        // [Scale] search returned one of them, so the marker did not in fact return
+        // the whole story, and an unfiltered reader saw the event twice.
+        scaleInfo(QStringLiteral("Direct wake (WiFi): connecting to %1 "
+                                 "(cached IP first, mDNS fallback)").arg(hostname));
 
         // Reconnect through the scale driver's own connect path instead of
         // gating on a fresh mDNS probe. DecentScaleWifi::connectToHost() tries

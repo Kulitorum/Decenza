@@ -37,7 +37,15 @@ void SimulatedScale::simulateConnection() {
 }
 
 void SimulatedScale::simulateDisconnection() {
-    SIMSCALE_INFO(QStringLiteral("Simulated scale disconnected"));
+    // Only report a disconnect that actually disconnected something. This is called
+    // unconditionally when the simulated-scale setting is applied at startup, so
+    // with the feature OFF it announced "Simulated scale disconnected" at INFO for a
+    // scale that had never connected — seen in a real log directly beneath the real
+    // scale's CONNECTED line, where it reads as the app having just lost a scale.
+    // Same defect class as the DE1's unconditional DISCONNECTED.
+    if (isConnected()) {
+        SIMSCALE_INFO(QStringLiteral("Simulated scale disconnected"));
+    }
     m_lastTime = 0;
     setConnected(false);
 }
