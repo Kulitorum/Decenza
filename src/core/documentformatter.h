@@ -77,6 +77,17 @@ public:
     // Compile segments to HTML (static — can be called without a document)
     Q_INVOKABLE static QString segmentsToHtml(const QVariantList &segments);
 
+#ifdef DECENZA_TESTING
+public:
+    // Point the formatter at a bare QTextDocument. The QML path goes through
+    // QQuickTextDocument, which needs a QQuickItem to exist — a headless test has no reason
+    // to build one, and the logic under test only ever touches the QTextDocument beneath.
+    //
+    // Its own `public:` on purpose: moc rejects a plain member declared under `signals:`
+    // with "Not a signal declaration", which is what an earlier placement here produced.
+    void setTextDocumentForTesting(QTextDocument *doc) { m_testDocument = doc; }
+#endif
+
 signals:
     void documentChanged();
     void selectionStartChanged();
@@ -85,12 +96,6 @@ signals:
     void formatChanged();
     void savedSelectionChanged();
 
-#ifdef DECENZA_TESTING
-    // Point the formatter at a bare QTextDocument. The QML path goes through
-    // QQuickTextDocument, which needs a QQuickItem to exist — a headless test has no reason
-    // to build one, and the logic under test only ever touches the QTextDocument beneath.
-    void setTextDocumentForTesting(QTextDocument *doc) { m_testDocument = doc; }
-#endif
 
 private:
     QTextCursor textCursor() const;
