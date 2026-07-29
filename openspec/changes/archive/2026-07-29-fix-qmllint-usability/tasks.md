@@ -75,12 +75,35 @@ the gate could be built. Read task 1.1 before trusting a number in these documen
     unpatched run on **167 of 168** files it had reached, the sole difference being CustomItem
     itself (36 partial → 122 complete). Independently, restructuring the QML instead — splitting
     the oversized `substituteVariables` into two functions — also yields exactly 122.
-  - Still open: whether sharing a conversion between callers is safe. `createConversion`
-    allocates a fresh pool entry per call today; if any consumer depends on identity rather than
-    value, this is a behaviour change wearing a performance change's clothing. qtdeclarative's
-    `tst_qmllint` is the check.
-  - `tst_qmllint`: **742 passed, 0 failed** against the patched build. That is the check the
-    speedup cannot give — it says the memoization does not change analysis results.
+  - **Was open, now settled: sharing a conversion between callers is NOT safe as first written**,
+    and upstream review (Olivier De Cannière) asked the right question. Register contents are
+    edited in place — `adjustType()` rewrites the contained type, `storeType()` and
+    `generalizeType()` fill in `m_storage`/`m_shadowed` — and those run in the passes *after*
+    `QQmlJSTypePropagator` while the resolver lives for the whole document. The full pipeline
+    runs per function (`qqmljslintercodegen.cpp:95`, `qqmljscompiler.cpp:747`), so an entry made
+    for function N was liable to be mutated by function N's later passes and then handed to
+    function N+1. Patch v2 closes it two ways: the cache holds a private clone that no caller can
+    reach, and `QQmlJSTypePropagator::run()` clears the cache per function. Nothing outside the
+    propagator merges register contents and the blowup is within one function, so per-function
+    scoping is free. Measured cost of the extra safety on `CustomItem.qml`: 10.4s→11.2s,
+    441→490 MB.
+    What stays shared is `m_scope`, the conversion origins and the result scope — and nothing
+    mutates those: the three mutating calls only ever take a register a pass was handed directly,
+    or that register's own `storage()`/`original()` chain. Scope sharing is pre-existing anyway,
+    since `mergeScopes()` returns `a` verbatim when `a == b`.
+  - `tst_qmllint`: **743 passed, 0 failed** against the patched build (742 before the new
+    regression fixture). That is the check the speedup cannot give — it says the memoization does
+    not change analysis results. `tst_qmlcppcodegen` is behind `QT_FEATURE_private_tests`, off in
+    this build tree; Olivier ran it upstream against v1.
+  - **The blowup needs three ingredients, and a synthetic file with fewer is free.** Reducing
+    `CustomItem.qml` mechanically (oracle: stock qmllint hangs) landed on 27 lines, and building
+    up from scratch confirmed what matters: **unresolved names** (so merged types keep differing
+    and merge()'s `a == b` early return never fires), **a chain of assignments to one variable**,
+    and **a branch after the chain** (so the propagator merges the accumulation at the join).
+    Straight-line code never triggers it; nor does the same code with every type resolved — which
+    is why Qt's own clean test corpus never hit this and app code does. Upstream now carries
+    `tests/auto/qml/qmllint/data/deeplyMergedTypes.qml` with 20 chain lines: unpatched 0.85s /
+    965 MB, patched 0.04s / 27 MB, doubling per added line (24 lines = 24s / 2.6 GB).
   - **Do NOT install the patched framework over `~/Qt/.../lib/QtQmlCompiler.framework`.** Tried,
     and it breaks the Decenza build outright: `qmlimportscanner` is signed by The Qt Company
     (Team `A5GTH44LYL`) and macOS refuses to map a locally-built framework into it — *"mapping
@@ -92,7 +115,17 @@ the gate could be built. Read task 1.1 before trusting a number in these documen
     `--timeout` (default 600s) that fails with a message naming this bug and the remedy, because
     the symptom in CI would otherwise be an unexplained hang on an unrelated change.
   - **Submitted upstream**: [qtdeclarative/+/755657](https://codereview.qt-project.org/c/qt/qtdeclarative/+/755657),
-    `Pick-to: 6.12 6.11`.
+    `Pick-to: 6.12 6.11`. Reviewed by Olivier De Cannière and Sami Shalayel; patch set 2 answers
+    all four comments (in-place-mutation safety, regression fixture, autotest-not-manual).
+  - **6.8 is NOT affected**, which the review asked. There `merge()`'s scopes are
+    `QQmlJSScope::ConstPtr`, so both `mergeScopes()` calls resolve to the ConstPtr overload and
+    the function never recurses into itself. 6.9 is the first branch carrying the recursive form
+    (verified against `origin/6.8`, `origin/6.9`, `origin/6.10`, `origin/6.11`).
+  - **Rebuilding the patched binary is part of touching the patch.** Both clones share the one
+    build tree, so `ninja qmllint` in `~/Development/GitHub/qtdeclarative` (~5 min from cold,
+    ~2 min for a qmlcompiler-only change) is what propagates an upstream fix to the Decenza gate.
+    Re-verify with `python3 scripts/qmllint_report.py --check --qmllint <that binary>`; v2 gives
+    **222/222 clean in 7.5s**, unchanged.
   - **How CI gets a patched qmllint: it does not.** Building one per CI run (2m44s) or caching
     5.5 MB of artifacts, both needing a rebuild on every Qt bump, is a large standing cost to
     check *one file*. CI runs stock with `--skip-unlintable`, which drops exactly the files named
