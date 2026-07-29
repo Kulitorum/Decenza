@@ -105,6 +105,18 @@
 #define DECENZA_SUBSYS_LOG_STDERR(marker, tag, msg, qFn) \
     qFn().noquote() << (QString("[" marker "][" tag "] ") + (msg))
 
+// As above, but `tag` is a runtime QString instead of a literal. Only for a
+// helper that logs on behalf of SEVERAL sources — one whose own class name would
+// be the wrong answer. BLEManager's refractometer tiers are the case: main.cpp
+// owns the Refractometer instance, so a shared forwarder hard-coding
+// "BLEManager" would stamp main.cpp's lifecycle lines with a source that never
+// wrote them, and a log reader has no way to tell.
+//
+// Prefer the literal form everywhere else: it costs no runtime concatenation and
+// a literal cannot be handed the wrong value by a caller.
+#define DECENZA_SUBSYS_LOG_STDERR_DYN(marker, tag, msg, qFn) \
+    qFn().noquote() << (QLatin1String("[" marker "][") + (tag) + QLatin1String("] ") + (msg))
+
 // ---- Canonical wording for the shared BLE device lifecycle ------------
 //
 // Thirteen scale drivers and two refractometers report the SAME handful of
@@ -130,6 +142,18 @@
     QStringLiteral("Reporting connected (%1)").arg(trigger)
 #define DECENZA_BLE_MSG_NOTIFY_SCHEDULED(ms) \
     QStringLiteral("Scheduling notification enable in %1 ms (de1app timing)").arg(ms)
+// Suffix for a disconnect/error callback that fires on BOTH a link that worked
+// and then dropped AND a connect attempt that never got as far as usable. The
+// canonical wording above cannot tell them apart and they are different
+// diagnoses; append this when `ready` is false, and nothing when it is true, so
+// a normal disconnect stays the plain canonical line.
+//
+// Centralized because it is emitted from four callbacks across two refractometer
+// drivers, and the whole reason those drivers share DECENZA_BLE_MSG_* is that a
+// reader comparing two devices' logs must not have to first decide whether two
+// different sentences mean the same thing.
+#define DECENZA_BLE_MSG_INCOMPLETE_SUFFIX(ready) \
+    ((ready) ? QString() : QStringLiteral(" (connect attempt never reached ready)"))
 
 namespace DecenzaLog {
 

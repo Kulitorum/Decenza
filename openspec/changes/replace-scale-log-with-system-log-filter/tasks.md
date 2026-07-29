@@ -69,9 +69,9 @@ Three reviewers ran on #1705. Nine findings were real; seven are fixed in the PR
 
 Found while converting group 3: `[Scale]`/`[DE1]`/`[Refractometer]` are not yet the only prefixes in `blemanager.cpp`.
 
-- [ ] 3b.1 `[R2-diag]` — 21 sites (12 in `blemanager.cpp`, 5 in `main.cpp`, 4 in `difluidr2.cpp`). Refractometer diagnostics with a bare hand-rolled prefix; route through the `[Refractometer]` helpers so the registered marker returns them.
-- [ ] 3b.2 `[BLE]` — the remaining bare-`[BLE]` sites in `blemanager.cpp` (backoff policy, skip-HIGH latch, found refractometer/scale/WiFi scale, transient permission error). These are scale/refractometer lines group 2 should have caught; assign the right marker per line rather than mapping the family wholesale.
-- [ ] 3b.3 Build and run the full suite.
+- [x] 3b.1 `[R2-diag]` — 21 sites (12 in `blemanager.cpp`, 5 in `main.cpp`, 4 in `difluidr2.cpp`). Refractometer diagnostics with a bare hand-rolled prefix; route through the `[Refractometer]` helpers so the registered marker returns them.
+- [x] 3b.2 `[BLE]` — the remaining bare-`[BLE]` sites in `blemanager.cpp` (backoff policy, skip-HIGH latch, found refractometer/scale/WiFi scale, transient permission error). These are scale/refractometer lines group 2 should have caught; assign the right marker per line rather than mapping the family wholesale.
+- [x] 3b.3 Build and run the full suite.
 
 ## 4. Logger plumbing
 

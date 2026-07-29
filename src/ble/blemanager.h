@@ -532,6 +532,22 @@ public:
     // lambda.
     void appendScaleLog(const QString& message, bool mirrorToSystemLog = true);
 
+    // Public, unlike their scale siblings below, because BLEManager is not the
+    // only narrator of this subsystem: main.cpp owns the Refractometer instance
+    // and drives its creation, teardown and reconnect tick. Those lines are part
+    // of the same story as the ones in here and must carry the same marker and
+    // land in the same view, so they go through the same two tiers rather than a
+    // second copy of the shape. See the tier note under `private:`.
+    //
+    // `source` is the bracketed source tag and therefore MUST name who actually
+    // wrote the line — it is defaulted only for this class's own calls. A shared
+    // forwarder that hard-coded its own class name would stamp main.cpp's
+    // lifecycle lines "BLEManager", and nothing in the log would contradict it.
+    void refractometerDebug(const QString& message,
+                            const QString& source = QStringLiteral("BLEManager"));
+    void refractometerInfo(const QString& message,
+                           const QString& source = QStringLiteral("BLEManager"));
+
 private:
     // How BLEManager logs its own narrative. Pick by AUDIENCE, per the tier
     // rules in core/logtags.h:
@@ -548,12 +564,22 @@ private:
     // macros directly: they `emit logMessage(...)`, and this class's signal is
     // named scaleLogMessage.
     //
-    // refractometerInfo exists because BLEManager narrates both subsystems and
-    // a refractometer line must carry [Refractometer], not [Scale].
+    // refractometerDebug/refractometerInfo (declared public above) exist because
+    // BLEManager narrates both subsystems and a refractometer line must carry
+    // [Refractometer], not [Scale]. There are two tiers rather than the INFO-only
+    // one this class used to have because the refractometer's own story — hunt
+    // on/off, instance churn, why an auto-reconnect did nothing — has a developer
+    // half too, and that half was written as bare `qDebug() << "[R2-diag] ..."`:
+    // 17 lines under an ad-hoc debug-session prefix that no registered marker
+    // matched, so a [Refractometer] search returned the driver's packets and NOT
+    // the connect/churn story they were added to explain.
+    //
+    // There is deliberately no refractometerWarn: nothing BLEManager or main.cpp
+    // reports about this device is a problem — the failures all belong to the
+    // driver, which has R2_WARN. Add one when a call site needs it, not before.
     void scaleDebug(const QString& message);
     void scaleInfo(const QString& message);
     void scaleWarn(const QString& message);
-    void refractometerInfo(const QString& message);
 
     // A connect failure that REPEATS while nothing changes. Warns for the first
     // few, then drops to DEBUG until the next successful connect.

@@ -133,8 +133,6 @@ DiFluidR2::DiFluidR2(ScaleBleTransport* transport, QObject* parent)
         if (!m_transport || !m_characteristicsReady) return;
         m_transport->enableNotifications(Refractometer::DiFluidR2::SERVICE,
                                          Refractometer::DiFluidR2::CHARACTERISTIC);
-        R2_LOG(QString("[R2-diag] connectedChanged -> TRUE (instance=%1)")
-               .arg(QString::number(reinterpret_cast<quintptr>(this), 16)));
         m_connected = true;
         emit connectedChanged();
         R2_INFO("Connected and ready for measurements");
@@ -386,19 +384,27 @@ void DiFluidR2::requestAveragedMeasurement(int testCount) {
 
 // === Transport callbacks ===
 
+// The instance address rides on this DEBUG line and nowhere else in the driver.
+// It is here for the churn case — a second DiFluidR2 created while the first was
+// still live — and one address per connect attempt is enough to see that, paired
+// with BLEManager's "Holder: old=… new=…". The INFO/WARN lines below deliberately
+// stay clean: they are what the connections view shows a user, and a hex pointer
+// is not part of anybody's story but a developer's.
 void DiFluidR2::onTransportConnected() {
-    R2_LOG(QString("[R2-diag] transport connected (instance=%1) — starting service discovery")
-           .arg(QString::number(reinterpret_cast<quintptr>(this), 16)));
-    R2_LOG(DECENZA_BLE_MSG_TRANSPORT_CONNECTED);
+    R2_LOG(DECENZA_BLE_MSG_TRANSPORT_CONNECTED
+           + QStringLiteral(" (instance=%1)")
+                 .arg(QString::number(reinterpret_cast<quintptr>(this), 16)));
     m_transport->discoverServices();
 }
 
 void DiFluidR2::onTransportDisconnected() {
-    R2_LOG(QString("[R2-diag] %1 (instance=%2) reason=transport-disconnected")
-           .arg(m_connected ? QStringLiteral("connectedChanged -> FALSE")
-                            : QStringLiteral("connect attempt failed before ready (was not connected)"),
-                QString::number(reinterpret_cast<quintptr>(this), 16)));
-    R2_INFO(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);
+    // Says WHICH disconnect this is. The canonical wording alone cannot: a link
+    // that dropped after working and a connect attempt that never got as far as
+    // ready are different diagnoses, and both arrive through this one callback.
+    // (Same distinction DecentScaleWifi draws with its handshake flag.) Read
+    // before the state is cleared below.
+    R2_INFO(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED
+            + DECENZA_BLE_MSG_INCOMPLETE_SUFFIX(m_connected));
     m_measurementTimer.stop();
     m_initTimer.stop();
     m_connected = false;
@@ -410,11 +416,8 @@ void DiFluidR2::onTransportDisconnected() {
 }
 
 void DiFluidR2::onTransportError(const QString& message) {
-    R2_WARN(QString("[R2-diag] %1 (instance=%2) reason=transport-error")
-            .arg(m_connected ? QStringLiteral("connectedChanged -> FALSE")
-                             : QStringLiteral("connect attempt failed before ready (was not connected)"),
-                 QString::number(reinterpret_cast<quintptr>(this), 16)));
-    R2_WARN(QString("Transport error: %1").arg(message));
+    R2_WARN(QString("Transport error: %1%2")
+                .arg(message, DECENZA_BLE_MSG_INCOMPLETE_SUFFIX(m_connected)));
     m_measurementTimer.stop();
     m_initTimer.stop();
     m_connected = false;

@@ -47,6 +47,14 @@
 #define REFRACTOMETER_WARN_STDERR_TAGGED(tag, msg) \
     DECENZA_SUBSYS_LOG_STDERR(DECENZA_LOG_MARKER_REFRACTOMETER, tag, msg, qWarning)
 
+// Runtime-tag variants, for a forwarder that logs on behalf of more than one
+// source (see DECENZA_SUBSYS_LOG_STDERR_DYN). BLEManager's refractometer tiers
+// use these so a line main.cpp wrote is not stamped "BLEManager".
+#define REFRACTOMETER_LOG_STDERR_DYN(tag, msg) \
+    DECENZA_SUBSYS_LOG_STDERR_DYN(DECENZA_LOG_MARKER_REFRACTOMETER, tag, msg, qDebug)
+#define REFRACTOMETER_INFO_STDERR_DYN(tag, msg) \
+    DECENZA_SUBSYS_LOG_STDERR_DYN(DECENZA_LOG_MARKER_REFRACTOMETER, tag, msg, qInfo)
+
 // BLE-driver shorthand, matching SCALE_LOG's "BLE <x>" tagging.
 #define REFRACTOMETER_LOG(prefix, msg)  REFRACTOMETER_LOG_TAGGED("BLE " prefix, msg)
 #define REFRACTOMETER_INFO(prefix, msg) REFRACTOMETER_INFO_TAGGED("BLE " prefix, msg)

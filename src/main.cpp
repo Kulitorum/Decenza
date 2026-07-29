@@ -3024,15 +3024,19 @@ int main(int argc, char *argv[])
 
     QObject::connect(&bleManager, &BLEManager::refractometerDiscovered, handlerScope.get(),
                      [&refractometer, &refractometerProxy, &bleManager, &settings](const QBluetoothDeviceInfo& device) {
-        qDebug().noquote() << QString("[R2-diag] refractometerDiscovered dev=%1 existingInstance=%2 existingConnected=%3")
-            .arg(getDeviceIdentifier(device),
-                 refractometer ? QString::number(reinterpret_cast<quintptr>(refractometer.get()), 16)
-                                : QStringLiteral("none"),
-                 (refractometer && refractometer->isConnected()) ? QStringLiteral("true")
-                                                                 : QStringLiteral("false"));
+        bleManager.refractometerDebug(
+            QStringLiteral("Discovered %1 (existing instance=%2, connected=%3)")
+                .arg(getDeviceIdentifier(device),
+                     refractometer ? QString::number(reinterpret_cast<quintptr>(refractometer.get()), 16)
+                                    : QStringLiteral("none"),
+                     (refractometer && refractometer->isConnected()) ? QStringLiteral("true")
+                                                                     : QStringLiteral("false")),
+            QStringLiteral("main"));
         if (refractometer && refractometer->isConnected()) {
             if (getDeviceIdentifier(device) == settings.savedRefractometerAddress()) {
-                qDebug().noquote() << "[R2-diag] same device already connected — ignoring discovery (no churn)";
+                bleManager.refractometerDebug(
+                    QStringLiteral("Same device already connected — ignoring discovery (no churn)"),
+                    QStringLiteral("main"));
                 return;  // Same device already connected — nothing to do
             }
             // Different device selected — continue to cleanup + create
@@ -3041,9 +3045,11 @@ int main(int argc, char *argv[])
         // Clean up old refractometer before replacing — disconnect first (emits
         // signals while pointers are still valid), then clear raw pointer holders
         if (refractometer) {
-            qDebug().noquote() << QString("[R2-diag] tearing down previous Refractometer instance=%1 connected=%2 to recreate")
-                .arg(QString::number(reinterpret_cast<quintptr>(refractometer.get()), 16),
-                     refractometer->isConnected() ? QStringLiteral("true") : QStringLiteral("false"));
+            bleManager.refractometerDebug(
+                QStringLiteral("Tearing down previous instance=%1 (connected=%2) to recreate")
+                    .arg(QString::number(reinterpret_cast<quintptr>(refractometer.get()), 16),
+                         refractometer->isConnected() ? QStringLiteral("true") : QStringLiteral("false")),
+                QStringLiteral("main"));
             refractometer->disconnectFromDevice();
             bleManager.setRefractometerDevice(nullptr);
             refractometerProxy.setTarget(nullptr);
@@ -3062,8 +3068,15 @@ int main(int argc, char *argv[])
         } else {
             refractometer = std::make_unique<DiFluidR2>(transport);
         }
-        qDebug().noquote() << QString("[R2-diag] created Refractometer instance=%1 connecting to %2")
-            .arg(QString::number(reinterpret_cast<quintptr>(refractometer.get()), 16), device.name());
+        // INFO: the connect attempt starting is the user's story — it is what
+        // precedes either "Connected and ready for measurements" or silence. The
+        // instance address rides along because this is the line that pairs with a
+        // teardown above when churn happens.
+        bleManager.refractometerInfo(
+            QStringLiteral("Connecting to %1 (instance=%2)")
+                .arg(device.name(),
+                     QString::number(reinterpret_cast<quintptr>(refractometer.get()), 16)),
+            QStringLiteral("main"));
         // The refractometer reuses the scale transport class but is not a
         // scale: a 3rd forced-HIGH BLE link contends with the DE1 + scale and
         // the platform GATT scheduler tears the weakest one (this) down. Keep
@@ -3159,44 +3172,59 @@ int main(int argc, char *argv[])
     QObject::connect(&refractometerReconnectTimer, &QTimer::timeout,
                      [&bleManager, &settings, &refractometerReconnectAttempt,
                       &refractometerReconnectTimer, &reconnectDelays]() {
+        // Every reason this tick stops, decided in one place, reported in one
+        // line. There were four `qDebug() << "Refractometer reconnect: …"` lines
+        // here, none of them marked, so the reason a paired refractometer had
+        // quietly stopped retrying appeared in NO search for [Refractometer] —
+        // the exact question these lines exist to answer.
+        //
+        // Each of these stops the tick rather than rescheduling it. Nothing is
+        // lost: the corresponding change (hunt reopened, BLE re-enabled, a new
+        // address saved) has its own handler that re-arms the timer. Ticking on
+        // regardless is what used to write a user-visible "R2 auto-reconnect
+        // attempt N" every minute forever while doing nothing at all.
+        QString stopReason;
         if (settings.savedRefractometerAddress().isEmpty()) {
-            qDebug() << "Refractometer reconnect: no saved address, stopping retries";
+            stopReason = QStringLiteral("no refractometer is paired");
+        } else if (!bleManager.isRefractometerHunt()) {
+            // The R2 is only used on the post-shot review page (the "hunt").
+            // setRefractometerHunt(true) resumes it directly — an immediate scan
+            // plus onScanFinished chaining — so this timer is not needed to drive
+            // on-page reconnects. The scale's reconnect is a separate always-on
+            // timer and is unaffected by any of this.
+            stopReason = QStringLiteral("the review page is closed — will resume when it reopens");
+        } else if (bleManager.isRefractometerConnected()) {
+            stopReason = QStringLiteral("already connected");
+        } else if (bleManager.isDisabled()) {
+            stopReason = QStringLiteral("BLE is off (simulator mode) — will resume when it is re-enabled");
+        }
+        if (!stopReason.isEmpty()) {
+            bleManager.refractometerDebug(
+                QStringLiteral("Auto-reconnect tick stopping: %1").arg(stopReason),
+                QStringLiteral("main"));
             return;
         }
-        // The R2 is only used on the post-shot review page (the "hunt"). Off that
-        // page we don't need it, so stop the tick rather than reschedule — no
-        // scanning, no log spam, no BLE contention. setRefractometerHunt(true)
-        // resumes the hunt directly (immediate scan + onScanFinished chaining),
-        // so this timer isn't needed to drive on-page reconnects. The scale's
-        // reconnect is a separate always-on timer and is unaffected.
-        if (!bleManager.isRefractometerHunt()) {
-            qDebug() << "Refractometer reconnect: review page closed — stopping retries until it reopens";
-            return;
-        }
-        if (bleManager.isRefractometerConnected()) {
-            qDebug() << "Refractometer reconnect: already connected, stopping retries";
-            return;
-        }
-        // BLE off (simulator mode) means tryDirectConnectToRefractometer below
-        // returns without scanning, so ticking is pure noise: it announced an
-        // attempt, wrote a user-visible "R2 auto-reconnect attempt N" line, and
-        // then did nothing — once a minute, forever. Stop instead, and let the
-        // disabledChanged handler re-arm when BLE comes back. Same shape as the
-        // two guards above, which also stop rather than reschedule.
-        if (bleManager.isDisabled()) {
-            qDebug() << "Refractometer reconnect: BLE disabled (simulator mode), "
-                        "pausing retries until BLE is re-enabled";
-            return;
-        }
-        // Past every guard, so this really does scan. It previously said
-        // "— will scan" before the disabled check existed, and then no-op'd.
-        qDebug().noquote() << QString("[R2-diag] reconnect tick attempt=%1 — scanning")
-            .arg(refractometerReconnectAttempt + 1);
-        qDebug() << "Refractometer reconnect: attempt" << (refractometerReconnectAttempt + 1);
-        // Bounded ramp only in the user-visible log (the 60s tail is endless).
+
+        // One line for the attempt, where there were three: an unmarked
+        // "[R2-diag] reconnect tick attempt=N — scanning", an unmarked
+        // "Refractometer reconnect: attempt N", and an appendScaleLog that reached
+        // the view but not the marker. Past every guard, so this really does scan
+        // — an earlier version said "— will scan" before the BLE-disabled check
+        // existed, and then did not.
+        //
+        // INFO while the ramp is walking, DEBUG on the endless 60s tail. The tail
+        // never stops while the page is open with the device absent, so at a flat
+        // INFO it would dominate the view forever and say the same thing each
+        // time; the first few attempts carry the news. Same reasoning as
+        // BLEManager's repeat-failure budget, bounded here by the ramp itself
+        // rather than a counter, because the ramp already knows where "still
+        // trying, nothing new" begins.
+        const int attempt = refractometerReconnectAttempt + 1;
+        const QString attemptMsg = QStringLiteral("Auto-reconnect attempt %1").arg(attempt);
         if (refractometerReconnectAttempt < static_cast<int>(reconnectDelays.size())) {
-            bleManager.appendScaleLog(QString("R2 auto-reconnect attempt %1")
-                                      .arg(refractometerReconnectAttempt + 1));
+            bleManager.refractometerInfo(attemptMsg, QStringLiteral("main"));
+        } else {
+            bleManager.refractometerDebug(attemptMsg, QStringLiteral("main"));
         }
         bleManager.tryDirectConnectToRefractometer();
         refractometerReconnectAttempt++;
