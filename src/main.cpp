@@ -3504,9 +3504,11 @@ int main(int argc, char *argv[])
     LibrarySharingForeign::s_singletonInstance = &librarySharing;
     ShotHistoryExporterForeign::s_singletonInstance = &shotHistoryExporter;
 #ifndef Q_OS_IOS
-    // On iOS these two are never published and their create() returns null, so QML reads the name
-    // as undefined — which is what every call site there already guards for. See
-    // decenzaOptionalSingleton() in contextsingletons_qml.h for why that is not an error.
+    // The objects, the Foreign structs and the types themselves are all absent on iOS — that
+    // platform builds no part of src/usb/ and links no SerialPort module. So the QML names do not
+    // resolve there and evaluating one is a ReferenceError; every call site short-circuits on
+    // Qt.platform.os before the read. See the note above USBManagerForeign in
+    // contextsingletons_qml.h.
     USBManagerForeign::s_singletonInstance = &usbManager;
     UsbScaleManagerForeign::s_singletonInstance = &usbScaleManager;
 #endif

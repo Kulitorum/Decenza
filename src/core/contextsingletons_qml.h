@@ -43,8 +43,11 @@
 // §4 and the LIFETIME note below for how each obstacle was actually removed.
 //
 // "Inside `#ifndef Q_OS_IOS`" used to be listed here as a blocker for USBManager and
-// UsbScaleManager. It was a real obstacle but a small one, and it is gone: see
-// decenzaOptionalSingleton() below. "Types already registered uncreatable in their own headers"
+// UsbScaleManager. decenzaOptionalSingleton() below removes it for the INSTANCE — a name may be
+// registered on a build that never publishes one. It does not remove it for the TYPE: on iOS these
+// two are not registered at all, because naming them means including headers that include
+// <QSerialPort>, which that platform does not build or link. See the note above USBManagerForeign.
+// "Types already registered uncreatable in their own headers"
 // was listed as a blocker too — that one was simply wrong. Only SteamHealthTracker was ever in
 // that shape, and the registration just moved here.
 //
@@ -92,8 +95,14 @@
 #include "../models/flowcalibrationmodel.h"
 #include "../ble/scaledeviceproxy.h"
 #include "../ble/refractometers/refractometerproxy.h"
+// iOS has no USB path at all: CMakeLists.txt builds none of src/usb/ there and does not
+// find_package or link Qt6::SerialPort, while usbmanager.h/usbscalemanager.h include <QSerialPort>
+// on every platform except Android. Including them here unguarded broke the iOS release build with
+// `fatal error: 'QSerialPort' file not found` — see the note above USBManagerForeign below.
+#ifndef Q_OS_IOS
 #include "../usb/usbmanager.h"
 #include "../usb/usbscalemanager.h"
+#endif
 
 // Guarded on DECENZA_SIMULATOR, which is what ghcsimulator.h itself guards on: the class drives
 // DE1Simulator and cannot exist without it. True for every desktop configuration and for Debug on
@@ -135,9 +144,12 @@ T* decenzaPublishedSingleton(T* instance, QJSEngine* engine, const char* qmlName
 // The same publish, for a name whose instance legitimately does not exist on some builds.
 //
 // decenzaPublishedSingleton() treats a null instance as always a defect, which is right for a
-// name main() unconditionally owns and wrong for one behind a platform guard: USBManager and
-// UsbScaleManager are declared inside `#ifndef Q_OS_IOS`, so on iOS there is nothing to publish
-// and a qCritical on every launch would be noise reporting the intended state.
+// name main() unconditionally owns and wrong for one whose object is optional on a build that does
+// register the type — a qCritical on every launch would be noise reporting the intended state.
+//
+// USBManager and UsbScaleManager were the original callers and remain so, but note that on iOS
+// they are not registered at ALL now (see the note above USBManagerForeign), so this template is
+// not what covers them there.
 //
 // CRITICAL, AND NOT WHAT THIS COMMENT USED TO SAY: a null instance does NOT make the name read as
 // `undefined` in QML. It used to claim that, and every `typeof X !== "undefined"` guard written
@@ -482,17 +494,29 @@ public:
     }
 };
 
-// USBManager and UsbScaleManager are declared inside `#ifndef Q_OS_IOS` in main.cpp, so on iOS
-// there is no instance and create() returns null — hence decenzaOptionalSingleton() rather than
+// USBManager and UsbScaleManager are declared inside `#ifndef Q_OS_IOS` in main.cpp, so where the
+// types exist at all there may still be no instance — hence decenzaOptionalSingleton() rather than
 // the loud form. That guard was the whole reason these two stayed context properties.
 //
-// Registering them does NOT make the name resolve to an object on iOS, and it must not: the QML
-// side guards every use (`Qt.platform.os !== "ios"`, `typeof USBManager !== "undefined"`) and
-// those guards stay. What it buys is that the MEMBER is checked everywhere — `USBManager.de1Connected`
-// and `UsbScaleManager.scaleConnected` are typed now, on every platform including iOS, so a
-// misspelling fails the build rather than reading undefined on the one platform that has the object.
+// The pair is NOT registered on iOS. This comment used to claim the opposite — that the member was
+// "typed now, on every platform including iOS" — and that is what broke the v2.0.1 iOS build: the
+// types cannot be named on iOS without including their headers, the headers include <QSerialPort>,
+// and iOS builds no part of src/usb/ and links no SerialPort module. Typing them there was never
+// one `#include` away; it needs an iOS-buildable USB header, which is work with no payoff on a
+// platform that has no USB.
+//
+// Consequence, and it is the pre-#1687 behaviour restored: on iOS the NAMES do not resolve, so
+// evaluating one is a ReferenceError, not `undefined`. Every call site already short-circuits on
+// `Qt.platform.os` before the read (SettingsConnectionsTab's `usbAvailable`, main.qml:1576,
+// ScaleWeightItem.qml:61) — keep it that way, and never guard these two by the member alone.
+//
+// Nothing is lost on the qmllint gate, which runs on Linux where both types are registered.
+//
+// This defect is the six-platform rule in CI_CD.md, in the smallest possible form: the include
+// compiled on five platforms, and only a tag push ever compiles the sixth.
 
 // 8 references across 1 QML file.
+#ifndef Q_OS_IOS
 struct USBManagerForeign
 {
     Q_GADGET
@@ -523,6 +547,7 @@ public:
         return decenzaOptionalSingleton(s_singletonInstance, engine, "UsbScaleManager");
     }
 };
+#endif // !Q_OS_IOS
 
 // 3 references in main.qml, plus GHCSimulatorWindow.qml which its own engine loads.
 //
