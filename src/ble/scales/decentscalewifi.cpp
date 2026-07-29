@@ -199,7 +199,7 @@ void DecentScaleWifi::attemptTarget(const QString& target, bool isHostname) {
     const QString hostPort = m_wsPort == 80 ? target
                                             : QStringLiteral("%1:%2").arg(target).arg(m_wsPort);
     const QUrl url(QStringLiteral("ws://%1%2").arg(hostPort, m_wsPath));
-    WIFI_INFO(QString("Connecting to %1 (%2)").arg(
+    WIFI_LOG(QString("Connecting to %1 (%2)").arg(
         url.toString(), isHostname ? QStringLiteral("hostname") : QStringLiteral("cached IP")));
     // ORDER MATTERS: arm the recognition window BEFORE open(), never after.
     // open() can fail synchronously — an address the OS rejects at the routing

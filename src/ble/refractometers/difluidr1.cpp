@@ -204,7 +204,7 @@ void DiFluidR1::connectToDevice(const QBluetoothDeviceInfo& device) {
     m_phase = Phase::Disconnected;
     if (nameChange) emit nameChanged();
 
-    R1_INFO(QString("Connecting to %1 (%2)")
+    R1_LOG(QString("Connecting to %1 (%2)")
                .arg(m_name,
                     device.address().isNull() ? device.deviceUuid().toString()
                                               : device.address().toString()));
@@ -253,13 +253,13 @@ void DiFluidR1::requestMeasurement() {
 // === Transport callbacks ===
 
 void DiFluidR1::onTransportConnected() {
-    R1_LOG("Transport connected, starting service discovery");
+    R1_LOG(DECENZA_BLE_MSG_TRANSPORT_CONNECTED);
     m_phase = Phase::ServiceDiscovery;
     m_transport->discoverServices();
 }
 
 void DiFluidR1::onTransportDisconnected() {
-    R1_INFO("Transport disconnected");
+    R1_INFO(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);
     resetLinkState();
 }
 
@@ -283,7 +283,7 @@ void DiFluidR1::onServicesDiscoveryFinished() {
 void DiFluidR1::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& serviceUuid) {
     if (serviceUuid != Refractometer::DiFluidR1::SERVICE) return;
     if (m_phase >= Phase::CharacteristicsReady) {
-        R1_LOG("Characteristics already set up, ignoring duplicate callback");
+        R1_LOG(DECENZA_BLE_MSG_DUPLICATE_CHARACTERISTICS);
         return;
     }
     R1_LOG("Characteristics discovered, enabling notifications");

@@ -52,7 +52,8 @@
 // promoted to INFO puts the firehose back on screen.
 //
 // Apply markers and tiers only inside a logging helper, never at a call site.
-// See src/ble/scales/scalelogging.h for the canonical helper set, and
+// See src/ble/scales/scalelogging.h for the canonical helper set (and
+// refractometerlogging.h for a second subsystem built on the same base), and
 // docs/CLAUDE_MD/LOGGING.md for the full guide.
 
 // Marker literals. Usable inside string-literal concatenation, which is how
@@ -97,6 +98,32 @@
 // JNI shims. Same marker, so the line is still found by the one search.
 #define DECENZA_SUBSYS_LOG_STDERR(marker, tag, msg, qFn) \
     qFn().noquote() << (QString("[" marker "][" tag "] ") + (msg))
+
+// ---- Canonical wording for the shared BLE device lifecycle ------------
+//
+// Thirteen scale drivers and two refractometers report the SAME handful of
+// events, so they must report them in the same words — otherwise comparing two
+// models' logs means first working
+// out whether "First weight received, marking as connected" and "Scale
+// confirmed working, reporting connected" are the same thing (they were), and
+// whether a model that says neither is broken or just worded differently.
+//
+// Use these instead of typing the message. Anything genuinely model-specific
+// (which characteristic, which extra notification) stays a literal at the call
+// site — this is for the events every driver has.
+#define DECENZA_BLE_MSG_TRANSPORT_CONNECTED \
+    QStringLiteral("Transport connected, starting service discovery")
+#define DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED \
+    QStringLiteral("Transport disconnected")
+#define DECENZA_BLE_MSG_DUPLICATE_CHARACTERISTICS \
+    QStringLiteral("Characteristics already set up, ignoring duplicate callback")
+// The connect moment — the one INFO line a user looks for, so it reads the same
+// for every model. `trigger` names what proved the scale live (a weight frame, a
+// status frame), because that part legitimately differs.
+#define DECENZA_BLE_MSG_CONNECTED(trigger) \
+    QStringLiteral("Reporting connected (%1)").arg(trigger)
+#define DECENZA_BLE_MSG_NOTIFY_SCHEDULED(ms) \
+    QStringLiteral("Scheduling notification enable in %1 ms (de1app timing)").arg(ms)
 
 namespace DecenzaLog {
 

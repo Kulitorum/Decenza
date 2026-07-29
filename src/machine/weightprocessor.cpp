@@ -161,7 +161,10 @@ void WeightProcessor::processWeight(double weight)
         && (m_lastConstantSampleLogMs == 0
             || wallClock - m_lastConstantSampleLogMs >= 2000)) {
         m_lastConstantSampleLogMs = wallClock;
-        qInfo().noquote()
+        // qDebug, not qInfo: this line exists to prove a NON-bug (a static
+        // reading is a live feed, not a stalled one). 59 of them in a 48 h
+        // capture, on a 2 s dedupe window, none of which a user needs.
+        qDebug().noquote()
             << "[ScaleFeed] alive: constant weight"
             << QString::number(weight, 'f', 1)
             << "g still streaming via weightSampleReceived"

@@ -75,7 +75,7 @@ void TimemoreScale::connectToDevice(const QBluetoothDeviceInfo& device) {
     m_serviceFound = false;
     m_characteristicsReady = false;
 
-    TIMEMORE_INFO(QString("Connecting to %1 (%2)")
+    TIMEMORE_LOG(QString("Connecting to %1 (%2)")
                  .arg(device.name())
                  .arg(device.address().toString()));
 
@@ -83,12 +83,12 @@ void TimemoreScale::connectToDevice(const QBluetoothDeviceInfo& device) {
 }
 
 void TimemoreScale::onTransportConnected() {
-    TIMEMORE_LOG("Transport connected, starting service discovery");
+    TIMEMORE_LOG(DECENZA_BLE_MSG_TRANSPORT_CONNECTED);
     m_transport->discoverServices();
 }
 
 void TimemoreScale::onTransportDisconnected() {
-    TIMEMORE_INFO("Transport disconnected");
+    TIMEMORE_INFO(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);
     setConnected(false);
 }
 
@@ -117,7 +117,7 @@ void TimemoreScale::onServicesDiscoveryFinished() {
 void TimemoreScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& serviceUuid) {
     if (serviceUuid != Scale::Generic::SERVICE) return;
     if (m_characteristicsReady) {
-        TIMEMORE_LOG("Characteristics already set up, ignoring duplicate callback");
+        TIMEMORE_LOG(DECENZA_BLE_MSG_DUPLICATE_CHARACTERISTICS);
         return;
     }
 

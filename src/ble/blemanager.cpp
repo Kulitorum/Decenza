@@ -425,12 +425,25 @@ void BLEManager::setSettings(SettingsHardware* settings)
     // build-change safety valve below. Absent/unrecognized ⇒ Enforce.
     m_backoffMode.store(backoffModeFromString(m_settings->cpMode()),
                         std::memory_order_relaxed);
-    if (observeMode()) {
-        qWarning().noquote()
-            << "[BLE] Backoff policy mode = OBSERVE (persisted) — connection-"
-               "priority detection runs but takes NO action and the scale "
-               "link is forced HIGH (any latch is overridden, not erased). "
-               "Set enforce via MCP to restore the dual-HIGH backoff.";
+    // Announce the mode ONLY when it changes. This function runs on every
+    // settings load, and at WARN it produced 11 identical alarms in a 48 h
+    // capture for a condition that had not changed once. Still prominent —
+    // enforcement being off is worth seeing — but stated once per transition.
+    //
+    // Guards the LOGGING only. Everything below (the latch, the build-change
+    // safety valve) must run on every load regardless, so no early return here.
+    const bool observeNow = observeMode();
+    if (observeNow != m_loggedObserveMode) {
+        m_loggedObserveMode = observeNow;
+        if (observeNow) {
+            qWarning().noquote()
+                << "[BLE] Backoff policy mode = OBSERVE (persisted) — connection-"
+                   "priority detection runs but takes NO action and the scale "
+                   "link is forced HIGH (any latch is overridden, not erased). "
+                   "Set enforce via MCP to restore the dual-HIGH backoff.";
+        } else {
+            qInfo().noquote() << "[BLE] Backoff policy mode = ENFORCE";
+        }
     }
 
     if (!m_settings->cpLatched()) {
@@ -1493,6 +1506,7 @@ void BLEManager::onScaleConnectedChanged() {
         m_scaleDirectAbortTimer->stop();
         m_directConnectInProgress = false;
         m_directConnectAddress.clear();
+        m_consecutiveScaleFailures = 0;     // Next failure run warns again
         m_wifiFallbackToBleActive = false;  // Reset for the next saved-scale cycle
         m_manualWifiConnect = false;        // Manual WiFi add resolved (connected)
         m_lastScanErrorShown.clear();       // Healthy state — allow a future fresh scan error to pop again
@@ -1584,7 +1598,7 @@ void BLEManager::onScaleConnectionTimeout() {
     const QString manualHost = m_pendingWifiHostname;
     m_manualWifiConnect = false;
 
-    qWarning() << "BLEManager: Scale connection timeout - not found";
+    scaleRepeatFailure(QStringLiteral("Scale connection timeout — not found"));
 
     // Heartbeat for the BLE-stack-wedge detector (#1309): a scale that keeps
     // failing to connect is one half of the wedge fingerprint. The detector
@@ -1649,7 +1663,7 @@ void BLEManager::beginWifiFallbackToBleScan() {
     // onDeviceDiscovered, auto-connecting to any Decent BLE scale found.
     if (!isBluetoothAvailable()) {
         qWarning() << "BLEManager: WiFi fallback to BLE skipped - Bluetooth unavailable";
-        scaleWarn(QString("WiFi scale %1 unreachable and Bluetooth unavailable").arg(hostname));
+        scaleRepeatFailure(QString("WiFi scale %1 unreachable and Bluetooth unavailable").arg(hostname));
         m_scaleConnectionFailed = true;
         emit scaleConnectionFailedChanged();
         if (!m_flowScaleFallbackEmitted) {
@@ -1667,7 +1681,7 @@ void BLEManager::beginWifiFallbackToBleScan() {
     }
 
     m_wifiFallbackToBleActive = true;
-    scaleWarn(QString("WiFi scale %1 unreachable — trying Bluetooth").arg(hostname));
+    scaleRepeatFailure(QString("WiFi scale %1 unreachable — trying Bluetooth").arg(hostname));
     emit wifiUnreachableFallingBackToBle(hostname);
 
     // Re-arm the connection timer so the fallback BLE scan has a bounded
@@ -2655,6 +2669,16 @@ void BLEManager::scaleInfo(const QString& message) {
 void BLEManager::scaleWarn(const QString& message) {
     SCALE_WARN_STDERR_TAGGED("BLEManager", message);
     appendScaleLog(message, /*mirrorToSystemLog=*/false);
+}
+
+void BLEManager::scaleRepeatFailure(const QString& message) {
+    if (++m_consecutiveScaleFailures <= kScaleFailuresAtWarn) {
+        scaleWarn(message);
+    } else {
+        // Same event, still true, nothing new. Kept at DEBUG so the log still
+        // proves the ladder is running without another alarm.
+        scaleDebug(QString("%1 (repeat %2)").arg(message).arg(m_consecutiveScaleFailures));
+    }
 }
 
 void BLEManager::refractometerInfo(const QString& message) {

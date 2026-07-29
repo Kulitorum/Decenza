@@ -60,7 +60,7 @@ void VariaAkuScale::connectToDevice(const QBluetoothDeviceInfo& device) {
     m_serviceFound = false;
     m_characteristicsReady = false;
 
-    VARIA_INFO(QString("Connecting to %1 (%2)")
+    VARIA_LOG(QString("Connecting to %1 (%2)")
               .arg(device.name())
               .arg(device.address().toString()));
 
@@ -68,12 +68,12 @@ void VariaAkuScale::connectToDevice(const QBluetoothDeviceInfo& device) {
 }
 
 void VariaAkuScale::onTransportConnected() {
-    VARIA_LOG("Transport connected, starting service discovery");
+    VARIA_LOG(DECENZA_BLE_MSG_TRANSPORT_CONNECTED);
     m_transport->discoverServices();
 }
 
 void VariaAkuScale::onTransportDisconnected() {
-    VARIA_WARN("Transport disconnected - BLE connection lost!");
+    VARIA_WARN(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);
     stopWatchdog();
     setConnected(false);
 }
@@ -106,7 +106,7 @@ void VariaAkuScale::onServicesDiscoveryFinished() {
 void VariaAkuScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& serviceUuid) {
     if (serviceUuid != Scale::VariaAku::SERVICE) return;
     if (m_characteristicsReady) {
-        VARIA_LOG("Characteristics already set up, ignoring duplicate callback");
+        VARIA_LOG(DECENZA_BLE_MSG_DUPLICATE_CHARACTERISTICS);
         return;
     }
 
@@ -165,7 +165,7 @@ void VariaAkuScale::tickleWatchdog() {
         // NOW we can report connected — we have proof the scale is functional
         if (!isConnected()) {
             setConnected(true);
-            VARIA_INFO("Scale confirmed working, reporting connected");
+            VARIA_INFO(DECENZA_BLE_MSG_CONNECTED("scale confirmed working"));
         }
     }
 

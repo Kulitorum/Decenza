@@ -18,6 +18,18 @@
 - [x] 2.7 Review the resulting INFO set as a whole: read the INFO-only scale lines for a full scan → connect → shot → disconnect cycle and judge it as a narrative. Fix anything that reads as noise or has a hole. Do not evaluate sites in isolation.
 - [x] 2.8 Build and run the full suite; confirm no test newly trips `QTest::failOnWarning()`.
 
+## 2b. Act on the 48 h capture (build 3507)
+
+- [x] 2b.1 Demote `[ScaleFeed] alive: constant weight …` from qInfo to qDebug — 59 lines proving a NON-bug, on a 2 s dedupe window.
+- [x] 2b.2 Demote `Battery byte changed: … (62 → 61)` from WARN to DEBUG; ordinary discharge read as a fault in every log. Test expectation updated.
+- [x] 2b.3 Log the backoff policy mode only on transition, not on every settings load (11 identical WARNs for an unchanged condition). Guards the logging only — the latch load below must still run.
+- [x] 2b.4 Add `scaleRepeatFailure()`: WARN for the first 3 of a failure run, DEBUG after, reset on connect. Fixes 46 × "connection timeout" + 24 × "unreachable" at flat WARN.
+- [x] 2b.5 Demote the driver-level "Connecting to X" lines back to DEBUG — BLEManager already logs one INFO per attempt, so at INFO these repeated once per retry forever.
+- [x] 2b.6 Unify the multi-model wording: canonical `DECENZA_BLE_MSG_*` constants in the registry header for the events every driver reports, replacing 4 different spellings of the connect moment and one disconnect outlier.
+- [x] 2b.7 Route the last hand-rolled markers through helpers (both BLE transports, machinestate's weight trace) so no call site composes `[Scale]` itself.
+- [ ] 2b.8 Re-capture 48 h on a build with #1700/#1703 + this work and re-measure. The 1,147 duplicate lines and the 20 s/60 s-forever reconnect cadence are already fixed on main, so the baseline is stale — confirm the new shape rather than assuming it.
+- [ ] 2b.9 Decide whether `[SAW]` / `[SAW-Worker]` (218 lines) should join the registry. Already DEBUG so out of the views and out of INFO queries; it is shot logic rather than a device, so it is out of this change's scope by design. Left as an explicit decision, not an oversight.
+
 ## 3. DE1 helpers, marker and tiers
 
 - [ ] 3.1 Add DE1 logging helpers with the `[DE1]` marker from the registry, three tiers plus stderr-only variants, mirroring the scale set. Alias the shared macro bodies — do not copy them.

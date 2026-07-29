@@ -50,7 +50,7 @@ void FelicitaScale::connectToDevice(const QBluetoothDeviceInfo& device) {
     m_serviceFound = false;
     m_characteristicsReady = false;
 
-    FELICITA_INFO(QString("Connecting to %1 (%2)")
+    FELICITA_LOG(QString("Connecting to %1 (%2)")
                  .arg(device.name())
                  .arg(device.address().toString()));
 
@@ -58,12 +58,12 @@ void FelicitaScale::connectToDevice(const QBluetoothDeviceInfo& device) {
 }
 
 void FelicitaScale::onTransportConnected() {
-    FELICITA_LOG("Transport connected, starting service discovery");
+    FELICITA_LOG(DECENZA_BLE_MSG_TRANSPORT_CONNECTED);
     m_transport->discoverServices();
 }
 
 void FelicitaScale::onTransportDisconnected() {
-    FELICITA_INFO("Transport disconnected");
+    FELICITA_INFO(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);
     setConnected(false);
 }
 
@@ -92,7 +92,7 @@ void FelicitaScale::onServicesDiscoveryFinished() {
 void FelicitaScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& serviceUuid) {
     if (serviceUuid != Scale::Felicita::SERVICE) return;
     if (m_characteristicsReady) {
-        FELICITA_LOG("Characteristics already set up, ignoring duplicate callback");
+        FELICITA_LOG(DECENZA_BLE_MSG_DUPLICATE_CHARACTERISTICS);
         return;
     }
 

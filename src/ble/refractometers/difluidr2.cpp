@@ -230,7 +230,7 @@ void DiFluidR2::connectToDevice(const QBluetoothDeviceInfo& device) {
     m_autoTestRequested = -1;
     if (nameChange) emit nameChanged();
 
-    R2_INFO(QString("Connecting to %1 (%2)")
+    R2_LOG(QString("Connecting to %1 (%2)")
                .arg(device.name())
                .arg(device.address().isNull() ? device.deviceUuid().toString()
                                               : device.address().toString()));
@@ -389,7 +389,7 @@ void DiFluidR2::requestAveragedMeasurement(int testCount) {
 void DiFluidR2::onTransportConnected() {
     R2_LOG(QString("[R2-diag] transport connected (instance=%1) — starting service discovery")
            .arg(QString::number(reinterpret_cast<quintptr>(this), 16)));
-    R2_LOG("Transport connected, starting service discovery");
+    R2_LOG(DECENZA_BLE_MSG_TRANSPORT_CONNECTED);
     m_transport->discoverServices();
 }
 
@@ -398,7 +398,7 @@ void DiFluidR2::onTransportDisconnected() {
            .arg(m_connected ? QStringLiteral("connectedChanged -> FALSE")
                             : QStringLiteral("connect attempt failed before ready (was not connected)"),
                 QString::number(reinterpret_cast<quintptr>(this), 16)));
-    R2_INFO("Transport disconnected");
+    R2_INFO(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);
     m_measurementTimer.stop();
     m_initTimer.stop();
     m_connected = false;
@@ -446,7 +446,7 @@ void DiFluidR2::onServicesDiscoveryFinished() {
 void DiFluidR2::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& serviceUuid) {
     if (serviceUuid != Refractometer::DiFluidR2::SERVICE) return;
     if (m_characteristicsReady) {
-        R2_LOG("Characteristics already set up, ignoring duplicate callback");
+        R2_LOG(DECENZA_BLE_MSG_DUPLICATE_CHARACTERISTICS);
         return;
     }
 

@@ -56,18 +56,18 @@ void BookooScale::connectToDevice(const QBluetoothDeviceInfo& device) {
     QString deviceId = device.address().isNull()
         ? device.deviceUuid().toString()
         : device.address().toString();
-    BOOKOO_INFO(QString("Connecting to %1 (%2)").arg(device.name(), deviceId));
+    BOOKOO_LOG(QString("Connecting to %1 (%2)").arg(device.name(), deviceId));
 
     m_transport->connectToDevice(device);
 }
 
 void BookooScale::onTransportConnected() {
-    BOOKOO_LOG("Transport connected, starting service discovery");
+    BOOKOO_LOG(DECENZA_BLE_MSG_TRANSPORT_CONNECTED);
     m_transport->discoverServices();
 }
 
 void BookooScale::onTransportDisconnected() {
-    BOOKOO_INFO("Transport disconnected");
+    BOOKOO_INFO(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);
     setConnected(false);
 }
 
@@ -103,7 +103,7 @@ void BookooScale::onServicesDiscoveryFinished() {
 void BookooScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& serviceUuid) {
     if (serviceUuid != Scale::Bookoo::SERVICE) return;
     if (m_characteristicsReady) {
-        BOOKOO_LOG("Characteristics already set up, ignoring duplicate callback");
+        BOOKOO_LOG(DECENZA_BLE_MSG_DUPLICATE_CHARACTERISTICS);
         return;
     }
 

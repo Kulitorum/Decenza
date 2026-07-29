@@ -61,7 +61,7 @@ void AtomheartEclairScale::connectToDevice(const QBluetoothDeviceInfo& device) {
     m_serviceFound = false;
     m_characteristicsReady = false;
 
-    ECLAIR_INFO(QString("Connecting to %1 (%2)")
+    ECLAIR_LOG(QString("Connecting to %1 (%2)")
                .arg(device.name())
                .arg(device.address().toString()));
 
@@ -69,12 +69,12 @@ void AtomheartEclairScale::connectToDevice(const QBluetoothDeviceInfo& device) {
 }
 
 void AtomheartEclairScale::onTransportConnected() {
-    ECLAIR_LOG("Transport connected, starting service discovery");
+    ECLAIR_LOG(DECENZA_BLE_MSG_TRANSPORT_CONNECTED);
     m_transport->discoverServices();
 }
 
 void AtomheartEclairScale::onTransportDisconnected() {
-    ECLAIR_INFO("Transport disconnected");
+    ECLAIR_INFO(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);
     stopWatchdog();
     setConnected(false);
 }
@@ -105,7 +105,7 @@ void AtomheartEclairScale::onServicesDiscoveryFinished() {
 void AtomheartEclairScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& serviceUuid) {
     if (serviceUuid != Scale::AtomheartEclair::SERVICE) return;
     if (m_characteristicsReady) {
-        ECLAIR_LOG("Characteristics already set up, ignoring duplicate callback");
+        ECLAIR_LOG(DECENZA_BLE_MSG_DUPLICATE_CHARACTERISTICS);
         return;
     }
 
@@ -196,7 +196,7 @@ void AtomheartEclairScale::tickleWatchdog() {
     if (!m_updatesReceived) {
         m_updatesReceived = true;
         m_watchdogTimer->stop();
-        ECLAIR_INFO("First weight update received, reporting connected");
+        ECLAIR_INFO(DECENZA_BLE_MSG_CONNECTED("first weight frame"));
         if (!isConnected()) {
             setConnected(true);
         }

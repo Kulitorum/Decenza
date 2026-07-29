@@ -587,6 +587,19 @@ private:
     void scaleWarn(const QString& message);
     void refractometerInfo(const QString& message);
 
+    // A connect failure that REPEATS while nothing changes. Warns for the first
+    // few, then drops to DEBUG until the next successful connect.
+    //
+    // The failure is real every time, but the reconnect ladder retries forever,
+    // so at a flat WARN an absent scale produced 46 "connection timeout" and 24
+    // "unreachable" warnings in one 48 h capture — enough to train a reader to
+    // skim past the tier that is supposed to mean "look here". The first ones
+    // carry the diagnosis; the rest only carry "still absent", which the ladder
+    // lines already say.
+    void scaleRepeatFailure(const QString& message);
+    int m_consecutiveScaleFailures = 0;
+    static constexpr int kScaleFailuresAtWarn = 3;
+
 public:
 
 public slots:
@@ -1031,6 +1044,10 @@ private:
     QMetaObject::Connection m_refractometerDestroyedConn;
 
     // Scale debug log
+    // Last observe/enforce value we announced, so the mode is logged on
+    // transition instead of on every settings load (it was 11 identical WARNs
+    // in a 48 h capture). Not the mode itself — that is m_backoffMode.
+    bool m_loggedObserveMode = false;
     QStringList m_scaleLogMessages;
     QString m_scaleLogFilePath;
     void writeScaleLogToFile();

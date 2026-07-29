@@ -50,7 +50,7 @@ void EurekaPrecisaScale::connectToDevice(const QBluetoothDeviceInfo& device) {
     m_serviceFound = false;
     m_characteristicsReady = false;
 
-    EUREKA_INFO(QString("Connecting to %1 (%2)")
+    EUREKA_LOG(QString("Connecting to %1 (%2)")
                .arg(device.name())
                .arg(device.address().toString()));
 
@@ -58,12 +58,12 @@ void EurekaPrecisaScale::connectToDevice(const QBluetoothDeviceInfo& device) {
 }
 
 void EurekaPrecisaScale::onTransportConnected() {
-    EUREKA_LOG("Transport connected, starting service discovery");
+    EUREKA_LOG(DECENZA_BLE_MSG_TRANSPORT_CONNECTED);
     m_transport->discoverServices();
 }
 
 void EurekaPrecisaScale::onTransportDisconnected() {
-    EUREKA_INFO("Transport disconnected");
+    EUREKA_INFO(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);
     setConnected(false);
 }
 
@@ -92,7 +92,7 @@ void EurekaPrecisaScale::onServicesDiscoveryFinished() {
 void EurekaPrecisaScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& serviceUuid) {
     if (serviceUuid != Scale::Generic::SERVICE) return;
     if (m_characteristicsReady) {
-        EUREKA_LOG("Characteristics already set up, ignoring duplicate callback");
+        EUREKA_LOG(DECENZA_BLE_MSG_DUPLICATE_CHARACTERISTICS);
         return;
     }
 

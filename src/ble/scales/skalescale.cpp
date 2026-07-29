@@ -50,7 +50,7 @@ void SkaleScale::connectToDevice(const QBluetoothDeviceInfo& device) {
     m_serviceFound = false;
     m_characteristicsReady = false;
 
-    SKALE_INFO(QString("Connecting to %1 (%2)")
+    SKALE_LOG(QString("Connecting to %1 (%2)")
               .arg(device.name())
               .arg(device.address().toString()));
 
@@ -58,12 +58,12 @@ void SkaleScale::connectToDevice(const QBluetoothDeviceInfo& device) {
 }
 
 void SkaleScale::onTransportConnected() {
-    SKALE_LOG("Transport connected, starting service discovery");
+    SKALE_LOG(DECENZA_BLE_MSG_TRANSPORT_CONNECTED);
     m_transport->discoverServices();
 }
 
 void SkaleScale::onTransportDisconnected() {
-    SKALE_INFO("Transport disconnected");
+    SKALE_INFO(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);
     setConnected(false);
 }
 
@@ -92,7 +92,7 @@ void SkaleScale::onServicesDiscoveryFinished() {
 void SkaleScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& serviceUuid) {
     if (serviceUuid != Scale::Skale::SERVICE) return;
     if (m_characteristicsReady) {
-        SKALE_LOG("Characteristics already set up, ignoring duplicate callback");
+        SKALE_LOG(DECENZA_BLE_MSG_DUPLICATE_CHARACTERISTICS);
         return;
     }
 

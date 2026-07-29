@@ -50,7 +50,7 @@ void SmartChefScale::connectToDevice(const QBluetoothDeviceInfo& device) {
     m_serviceFound = false;
     m_characteristicsReady = false;
 
-    SMARTCHEF_INFO(QString("Connecting to %1 (%2)")
+    SMARTCHEF_LOG(QString("Connecting to %1 (%2)")
                   .arg(device.name())
                   .arg(device.address().toString()));
 
@@ -58,12 +58,12 @@ void SmartChefScale::connectToDevice(const QBluetoothDeviceInfo& device) {
 }
 
 void SmartChefScale::onTransportConnected() {
-    SMARTCHEF_LOG("Transport connected, starting service discovery");
+    SMARTCHEF_LOG(DECENZA_BLE_MSG_TRANSPORT_CONNECTED);
     m_transport->discoverServices();
 }
 
 void SmartChefScale::onTransportDisconnected() {
-    SMARTCHEF_INFO("Transport disconnected");
+    SMARTCHEF_INFO(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);
     setConnected(false);
 }
 
@@ -92,7 +92,7 @@ void SmartChefScale::onServicesDiscoveryFinished() {
 void SmartChefScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& serviceUuid) {
     if (serviceUuid != Scale::Generic::SERVICE) return;
     if (m_characteristicsReady) {
-        SMARTCHEF_LOG("Characteristics already set up, ignoring duplicate callback");
+        SMARTCHEF_LOG(DECENZA_BLE_MSG_DUPLICATE_CHARACTERISTICS);
         return;
     }
 
