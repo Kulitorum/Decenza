@@ -88,12 +88,20 @@ class MainController : public QObject {
 
     // Non-profile QML properties (profile properties are on ProfileManager)
     //
-    // FINAL on every sub-object accessor below is load-bearing, not decoration: without it
-    // qmlcachegen will not compile a chained lookup like `MainController.aiManager.x`, because
-    // a subclass could shadow the member. It degrades the base to `var` and reports "Cannot use
-    // shadowable base type for further lookups" (`qqmljsshadowcheck.cpp:196-198` — a final
-    // property is the only thing that returns NotShadowable). Nothing subclasses MainController.
-    // Keep FINAL on any accessor added here, or it silently drops out of AOT.
+    // FINAL on the pointer-typed sub-object accessors below is load-bearing, not decoration:
+    // without it qmlcachegen will not compile a chained lookup like `MainController.aiManager.x`,
+    // because a subclass could shadow the member. The read itself still works — it degrades to
+    // `var` with a qmlCompiler log line (qqmljsshadowcheck.cpp:203-205) — and it is the NEXT
+    // lookup off that base that fails with "Cannot use shadowable base type for further lookups"
+    // (:248). Marking the property final is what makes the member NotShadowable here
+    // (:197-198); that file has other NotShadowable paths, but none that apply to a plain
+    // singleton's property.
+    //
+    // That is also why the scalar leaf properties further down (currentFrameName,
+    // filteredGoalPressure, selectedRecipeId, …) are deliberately NOT final: nothing chains off
+    // them, so they never reach the shadow check. Keep FINAL on any accessor added here whose
+    // value gets a property read on it, or every chained lookup through it silently drops out
+    // of AOT. Nothing subclasses MainController today.
     Q_PROPERTY(VisualizerUploader* visualizer READ visualizer CONSTANT FINAL)
     Q_PROPERTY(VisualizerImporter* visualizerImporter READ visualizerImporter CONSTANT FINAL)
     Q_PROPERTY(BeanBaseClient* beanbase READ beanbase CONSTANT FINAL)

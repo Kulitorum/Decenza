@@ -22,7 +22,7 @@ The split was tricky to get right — the rules below capture every gotcha that 
 
 Edit `src/core/settings_<domain>.h` and `.cpp`. Add:
 
-1. `Q_PROPERTY(...)` line in the header
+1. `Q_PROPERTY(... FINAL)` line in the header — include `FINAL`; see step 3 of "Adding a new domain" below for why omitting it silently costs AOT compilation
 2. Getter + setter declarations in the header
 3. NOTIFY signal in `signals:` section
 4. Getter/setter bodies in the `.cpp`, reading/writing through `m_settings.value(...)` / `m_settings.setValue(...)` with the domain's existing key prefix (e.g. `mqtt/`, `theme/`)
@@ -36,7 +36,8 @@ Full checklist (8 steps — missing one will silently break things):
 1. **Create `src/core/settings_<domain>.h` + `.cpp`**. Inherit `QObject`, own a `mutable AppSettings m_settings` (default-constructed — `AppSettings` names the store, see `src/core/appsettings.h`), declare properties + getters + setters + NOTIFY signals.
 2. **Add `#include "settings_<domain>.h"` to `src/core/settings.h`** with the other eleven.
    *(This reverses earlier guidance, which said never to include it. See "Why the includes are back" below — the short version is that avoiding it required erasing the property type, which blinded qmllint, `qmlcachegen` and the language server to 1,310 QML call sites.)*
-3. **Add `Q_PROPERTY(Settings<Domain>* <domain> READ <domain> CONSTANT)` to `Settings`** — the CONCRETE type, never `QObject*`. This is what lets every tool follow `Settings.<domain>.<prop>` through to the property.
+3. **Add `Q_PROPERTY(Settings<Domain>* <domain> READ <domain> CONSTANT FINAL)` to `Settings`** — the CONCRETE type, never `QObject*`. This is what lets every tool follow `Settings.<domain>.<prop>` through to the property.
+   *`FINAL` is required, not stylistic: without it `qmlcachegen` will not compile ANY chained lookup through the accessor. A non-final property could be shadowed by a subclass, so the base degrades to `var` and the next lookup off it fails with "Cannot use shadowable base type for further lookups" (`qqmljsshadowcheck.cpp:248`; `:197-198` is the final-property escape). Omitting it silently costs AOT compilation everywhere `Settings.<domain>.<prop>` is read — no error, no warning.*
 4. **Add typed inline accessor in header**: `Settings<Domain>* <domain>() const { return m_<domain>; }`. C++ callers use this (they include `settings_<domain>.h` themselves).
 5. *(No `QObject*` accessor. The `Q_PROPERTY` READs the typed accessor from step 4 directly — the old `<domain>QObject()` pair existed only to support the erased property type and has been deleted.)*
 6. **Construct in `Settings::Settings()` member-init list**: `, m_<domain>(new Settings<Domain>(this))`. Add the `#include "settings_<domain>.h"` in `settings.cpp`.

@@ -42,7 +42,7 @@
 // too. The domain SPLIT still does its job — implementations stay in their own .cpp files, and a
 // narrow consumer taking Settings<Domain>* still rebuilds only on its own header — and the
 // recompile win that motivated the split is unaffected by declaring the façade's property types
-// honestly. See openspec/changes/fix-qmllint-usability/design.md D2a for the full measurement.
+// honestly. See openspec/changes/archive/2026-07-29-fix-qmllint-usability/design.md D2a for the full measurement.
 //
 // C++ callers may still use the typed accessors (e.g. `settings->mqtt()`); they no longer need
 // to include the domain header themselves.
@@ -74,14 +74,26 @@ class Settings : public QObject {
     // runtime while still compiling clean.
     //
     // FINAL is not decoration. Without it qmlcachegen refuses to compile any chained lookup
-    // through these accessors — `Settings.theme.x` degrades the base to `var` and bails with
-    // "Cannot use shadowable base type for further lookups", because a subclass could in
-    // principle shadow the member. `qqmljsshadowcheck.cpp:196-198` returns NotShadowable for a
-    // final property and that is the only escape. It cost 574 AOT skips across 89 files, 97 of
-    // them on `theme` alone; Theme.qml is read on every page construction, so this was the one
-    // warm bucket. Nothing subclasses Settings and no QML redeclares these names — FINAL states
-    // a fact that was already true. Do not drop it to make room for a subclass without
-    // re-reading that trade.
+    // through these accessors — `Settings.theme.x` degrades the base to `var`, and the NEXT
+    // lookup off that base fails with "Cannot use shadowable base type for further lookups"
+    // (qqmljsshadowcheck.cpp:248), because a subclass could in principle shadow the member.
+    // For a plain (non-extended) singleton, marking the property final is what makes the
+    // member NotShadowable — qqmljsshadowcheck.cpp:197-198. It is not the only path to
+    // NotShadowable in that file (an extended singleton takes :176, for instance), but it is
+    // the one available here.
+    //
+    // Measured: these twelve accessors accounted for 429 of the project's 574 shadowable-base
+    // skips, and FINAL on them recovered 394 AOT-compiled bindings. Note `Settings.theme` (the
+    // SettingsTheme domain object) is not `qml/Theme.qml` (the styling singleton) despite the
+    // shared word — the bucket concentrates there because Theme.qml holds 85 of the repo's 174
+    // `Settings.theme.` reads. Whether that is worth anything at runtime is a separate
+    // question; docs/CLAUDE_MD/BUILD_PERFORMANCE.md is where the AOT numbers and the
+    // "is AOT worth it here" argument live.
+    //
+    // QML cannot shadow these names structurally: Settings is QML_SINGLETON and every domain
+    // type is QML_UNCREATABLE (settings_qml.h), so no QML type can derive from them. The C++
+    // side is an audit rather than a guarantee — nothing subclasses Settings today. Do not drop
+    // FINAL to make room for a subclass without re-reading that trade.
     Q_PROPERTY(SettingsMqtt* mqtt READ mqtt CONSTANT FINAL)
     Q_PROPERTY(SettingsAutoWake* autoWake READ autoWake CONSTANT FINAL)
     Q_PROPERTY(SettingsHardware* hardware READ hardware CONSTANT FINAL)

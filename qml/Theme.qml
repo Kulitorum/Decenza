@@ -55,7 +55,7 @@ QtObject {
     // Convert emoji character to pre-rendered SVG image path.
     // Passes through qrc:/icons/... paths unchanged.
     // Returns "" when no asset is bundled — see _emojiAssetPath.
-    function emojiToImage(emoji: string): string {
+    function emojiToImage(emoji: var): string {
         if (!emoji) return ""
         if (emoji.indexOf("qrc:") === 0) return emoji
         var cps = []
@@ -194,7 +194,7 @@ QtObject {
     // screensaver authors, GitHub release notes -- cannot inject tags into the
     // RichText/StyledText renderer. Getting this wrong should fail visibly (raw
     // tags on screen), not silently.
-    function replaceEmojiWithImg(text: string, pixelSize: var, allowMarkup: var): string {
+    function replaceEmojiWithImg(text: var, pixelSize: var, allowMarkup: var): string {
         if (!text) return ""
         var size = pixelSize || 16
         var result = ""
@@ -265,7 +265,7 @@ QtObject {
 
     // Strip emoji Unicode characters from a string entirely.
     // Use for plain-text Text elements where <img> tags aren't supported.
-    function stripEmoji(text: string): string {
+    function stripEmoji(text: var): string {
         if (!text) return ""
         var result = ""
         var i = 0
@@ -283,7 +283,7 @@ QtObject {
     // Strip HTML tags and emoji from a string for accessible names.
     // Use on text that has been through replaceEmojiWithImg() to get
     // a clean plain-text string for TalkBack/VoiceOver.
-    function toAccessibleText(html: string): string {
+    function toAccessibleText(html: var): string {
         if (!html) return ""
         // Decode entities as well as stripping tags. Callers now pass MarkdownRenderer output,
         // where QTextDocument::toHtml() has escaped & < > " and emitted &nbsp; — without this a
@@ -349,6 +349,12 @@ QtObject {
     // Truncate a UTF-16 string at `cap` code units and append an ellipsis,
     // backing off one unit if cap would split a surrogate pair so we
     // don't emit an orphaned high surrogate to the accessibility tree.
+    //
+    // `cap: int` is only safe because BOTH callers resolve `maxLen ?? 2000` into a real
+    // number before calling. Forward an optional maxLen straight through and int coerces
+    // undefined to 0: `s.length <= 0` is false, charCodeAt(-1) is NaN, cut is 0, and every
+    // string becomes a bare ellipsis. That exact bug was hit and reverted on the `maxLen`
+    // parameters below, which is why they are `var`. Keep the `??` at the call site.
     function _truncateWithEllipsis(s: string, cap: int): string {
         if (s.length <= cap) return s
         var c = s.charCodeAt(cap - 1)
@@ -365,7 +371,7 @@ QtObject {
     // nested or malformed spans (e.g. ***bold-italic***, unclosed **bold) —
     // those pass through partially un-stripped, which is acceptable for an
     // accessibility hint.
-    function stripMarkdown(text: string, maxLen: var): string {
+    function stripMarkdown(text: var, maxLen: var): string {
         if (!text) return ""
         var cap = maxLen ?? 2000
         var s = text
@@ -392,7 +398,7 @@ QtObject {
     // strings (log output, crash dumps) don't flood the accessibility
     // tree. Default cap: 2000 characters. For Markdown-formatted content,
     // use stripMarkdown instead so formatting chars aren't read literally.
-    function capAccessibleText(text: string, maxLen: var): string {
+    function capAccessibleText(text: var, maxLen: var): string {
         if (!text) return ""
         var cap = maxLen ?? 2000
         return _truncateWithEllipsis(text, cap)
@@ -403,6 +409,16 @@ QtObject {
     // tst_temperaturedisplay). These wrappers read Settings.app.temperatureUnit in
     // JS — that read is what makes bindings re-evaluate on a unit toggle (property
     // reads inside C++ methods are invisible to the QML binding engine).
+    //
+    // DO NOT ADD TYPE ANNOTATIONS TO THESE SEVEN. They are the only unannotated
+    // functions left in this file and that is deliberate, not an oversight. Annotating
+    // them (`tempUnitSuffix(): string` etc.) made qmlcachegen compile tempUnitSuffix()
+    // into something that returns undefined, which showed up in the running app as
+    //     RecipeEditorPage.qml:435: Unable to assign [undefined] to QString
+    // on `suffix: Theme.tempUnitSuffix()`. The C++ side is not at fault —
+    // TemperatureDisplay::unitSuffix(bool) returns QString (src/profile/temperaturedisplay.h:92).
+    // The mechanism is NOT understood, so the annotations were reverted rather than
+    // worked around. If you want them compiled, reproduce that failure first.
     function tempIsFahrenheit() { return Settings.app.temperatureUnit === "fahrenheit" }
     function tempUnitSuffix() { return TemperatureDisplay.unitSuffix(tempIsFahrenheit()) }
     function cToDisplay(celsius) { return TemperatureDisplay.cToDisplay(celsius, tempIsFahrenheit()) }
