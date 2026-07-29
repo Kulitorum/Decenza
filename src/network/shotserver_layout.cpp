@@ -4067,13 +4067,31 @@ QString ShotServer::generateLayoutPage() const
     // never saved — it exists only between these two statements.
     function clearTextColor() {
         restoreSelection();
+
+        // Nothing selected: bail BEFORE the sentinel. execCommand("foreColor") on a collapsed
+        // caret creates no node — the browser records it as the pending TYPING style, so the
+        // strip loop below finds nothing and the next characters typed come out #010203, which
+        // domToSegments() then stores as a real near-black colour. That is worse than the bug
+        // this function replaced: no user could ever pick #010203, so they cannot undo it by
+        // choosing the same shade again. Same guard as execFontSize() above, and it matches the
+        // app side, where clearColorOnRange() also refuses an empty range.
+        var sel = window.getSelection();
+        if (!sel.rangeCount || sel.isCollapsed) {
+            showLibToast('Select some text first');
+            return;
+        }
+
         var SENTINEL = "#010203";
         document.execCommand("foreColor", false, SENTINEL);
 
         // Both spellings: execCommand emits <font color> or a style depending on the browser
         // and on styleWithCSS. Compare through rgbToHex rather than against a literal
         // "rgb(1, 2, 3)", whose spacing is a browser normalisation detail.
-        var marked = wysiwygEl.querySelectorAll('[style*="color"], font[color]');
+        // Include wysiwygEl itself: querySelectorAll never matches its own root, but
+        // domToSegments() DOES read the root's style, so a browser that applies the colour to
+        // the editing host (select-all) would leak the sentinel onto every segment.
+        var marked = [wysiwygEl].concat(Array.prototype.slice.call(
+            wysiwygEl.querySelectorAll('[style*="color"], font[color]')));
         for (var i = 0; i < marked.length; i++) {
             var n = marked[i];
             var isSentinel = (n.style && rgbToHex(n.style.color) === SENTINEL)
@@ -4189,7 +4207,9 @@ QString ShotServer::generateLayoutPage() const
         var swatch = document.getElementById("textColorSwatch");
         swatch.style.background = color || "transparent";
         swatch.title = color || "Default (follows the app theme)";
-        if (color) document.getElementById("textColorInput").value = color;
+        // Reset rather than leave the previous shade behind: the swatch would read Default
+        // while this still held the old colour, and its onchange handler is still wired.
+        document.getElementById("textColorInput").value = color || "#ffffff";
     }
 
     function insertVar(token) {

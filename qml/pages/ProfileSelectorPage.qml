@@ -781,7 +781,12 @@ Page {
                                     : ""
 
                                 onClicked: {
-                                    if (!editFavoriteAction.row) return
+                                    if (!editFavoriteAction.row) {
+                                        // A tap that does nothing at all is the hardest kind of
+                                        // defect to report; say so in the log.
+                                        console.warn("ProfileSelectorPage: edit tapped with no row bound")
+                                        return
+                                    }
                                     Settings.app.selectedFavoriteProfile = editFavoriteAction.rowIndex
                                     ProfileManager.loadProfile(editFavoriteAction.row.filename)
                                     AppShell.profileEditorRequested()

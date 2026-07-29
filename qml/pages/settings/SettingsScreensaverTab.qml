@@ -283,7 +283,12 @@ Item {
             // the row overrun the card in the first place.
             Layout.preferredWidth: Theme.scaled(340)
             Layout.maximumWidth: Theme.scaled(340)
-            Layout.minimumWidth: Theme.scaled(190)
+            // Never below what the Wake row itself needs (~sc(292) plus the card's sc(10)
+            // margins). The Flickable below only scrolls VERTICALLY, so a width under that
+            // leaves the minute stepper clipped by two clip:true layers and unreachable —
+            // strictly worse than the overrun this change replaced, which was at least visible
+            // and tappable.
+            Layout.minimumWidth: Theme.scaled(315)
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
@@ -554,16 +559,15 @@ Item {
                             Item { Layout.fillWidth: true }
 
                             ValueInput {
-                                // Shrinkable: at a bare preferredWidth these are fixed, and the
-                                // row (Wake label + switch + two steppers) overruns a narrow card.
-                                Layout.preferredWidth: Theme.scaled(80)
-                                Layout.maximumWidth: Theme.scaled(80)
-                                // The floor is the stepper's OWN natural width, not a guessed
-                                // number: implicitWidth is sc(56) for the +/- glyphs plus the
-                                // value's text metrics, so anything smaller squeezes the value
-                                // out and leaves a bare "- +".
-                                Layout.minimumWidth: implicitWidth
-                                Layout.fillWidth: true
+                                // Natural width, no cap. A cap of sc(80) alongside
+                                // `minimumWidth: implicitWidth` was dead: ValueInput's
+                                // implicitWidth is sc(56) + text metrics + sc(16) ≈ sc(91), so
+                                // the minimum EXCEEDED the maximum and Qt resolves that in
+                                // favour of the minimum (qgridlayoutengine.cpp:87,
+                                // q_maximumSize = qMax(q_minimumSize, maxMax)) — the steppers
+                                // ended up wider than the sc(80) they had before, which is the
+                                // opposite of what the cap was for.
+                                Layout.preferredWidth: implicitWidth
                                 Layout.preferredHeight: Theme.scaled(34)
                                 from: 0
                                 to: 23
@@ -587,16 +591,15 @@ Item {
                             }
 
                             ValueInput {
-                                // Shrinkable: at a bare preferredWidth these are fixed, and the
-                                // row (Wake label + switch + two steppers) overruns a narrow card.
-                                Layout.preferredWidth: Theme.scaled(80)
-                                Layout.maximumWidth: Theme.scaled(80)
-                                // The floor is the stepper's OWN natural width, not a guessed
-                                // number: implicitWidth is sc(56) for the +/- glyphs plus the
-                                // value's text metrics, so anything smaller squeezes the value
-                                // out and leaves a bare "- +".
-                                Layout.minimumWidth: implicitWidth
-                                Layout.fillWidth: true
+                                // Natural width, no cap. A cap of sc(80) alongside
+                                // `minimumWidth: implicitWidth` was dead: ValueInput's
+                                // implicitWidth is sc(56) + text metrics + sc(16) ≈ sc(91), so
+                                // the minimum EXCEEDED the maximum and Qt resolves that in
+                                // favour of the minimum (qgridlayoutengine.cpp:87,
+                                // q_maximumSize = qMax(q_minimumSize, maxMax)) — the steppers
+                                // ended up wider than the sc(80) they had before, which is the
+                                // opposite of what the cap was for.
+                                Layout.preferredWidth: implicitWidth
                                 Layout.preferredHeight: Theme.scaled(34)
                                 from: 0
                                 to: 59

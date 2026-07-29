@@ -670,6 +670,14 @@ Dialog {
                         }
                     }
 
+                    // Grouped at spacingSmall rather than sitting loose in the outer column at
+                    // spacingMedium: four switch rows at the wider gap were the largest block of
+                    // dead space in this dialog, and pushed Preview past the 85%-of-window height
+                    // cap so the whole thing scrolled.
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.spacingSmall
+
                     StyledSwitch {
                         // ON, profile anchor available (Profile shown with a profile loaded):
                         // the "Brew … of Espresso, using … at …" scaffold (its own word order)
@@ -709,6 +717,7 @@ Dialog {
                         checked: popup.shotPlanShowSteamPlan
                         onToggled: popup.shotPlanShowSteamPlan = checked
                     }
+                    } // switch group
 
                     Text {
                         text: TranslationManager.translate("shotPlanEditor.preview", "Preview")

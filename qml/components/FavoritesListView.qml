@@ -234,9 +234,14 @@ Item {
                         onLoaded: {
                             var action = item as FavoritesRowAction
                             if (!action) {
+                                // Hide it rather than leave a button that looks live and does
+                                // nothing — a control that swallows taps silently is harder to
+                                // report than one that is simply absent. Same call as
+                                // LayoutItemDelegate, which says outright that the widget will
+                                // not render.
                                 console.warn("FavoritesListView: trailingActionDelegate does not "
-                                             + "root at FavoritesRowAction — it will not receive "
-                                             + "the row and its actions will be inert")
+                                             + "root at FavoritesRowAction — it will not render")
+                                trailingActionLoader.visible = false
                                 return
                             }
                             action.row = Qt.binding(function() { return rowDelegate.rowData })

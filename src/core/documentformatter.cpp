@@ -253,15 +253,26 @@ void DocumentFormatter::setColorOnRange(const QString &color, int selStart, int 
 void DocumentFormatter::clearColorOnRange(int selStart, int selEnd)
 {
     QTextDocument *doc = textDocument();
-    if (!doc || selStart == selEnd) {
-        qDebug() << "DocumentFormatter::clearColorOnRange: no document or empty range";
+    if (!doc)
         return;
+
+    // An empty range falls back the same way every other format action does — live selection,
+    // then saved selection, then select-all (textCursorForFormat). Without this, "Default" was
+    // the one control in the toolbar that silently did nothing when the user had clicked into
+    // the text rather than dragged across it, while Bold in the same bar applied to everything.
+    // Its own bg-mode branch in CustomEditorPopup is unconditional too, so the same button had
+    // two different reliabilities depending on which mode it was in.
+    int from = qBound(0, qMin(selStart, selEnd), doc->characterCount() - 1);
+    int to = qBound(0, qMax(selStart, selEnd), doc->characterCount() - 1);
+    if (from == to) {
+        const QTextCursor fallback = textCursorForFormat();
+        if (!fallback.hasSelection()) {
+            qDebug() << "DocumentFormatter::clearColorOnRange: no selection after fallback chain";
+            return;
+        }
+        from = fallback.selectionStart();
+        to = fallback.selectionEnd();
     }
-    const int maxPos = doc->characterCount() - 1;
-    const int from = qBound(0, qMin(selStart, selEnd), maxPos);
-    const int to = qBound(0, qMax(selStart, selEnd), maxPos);
-    if (from == to)
-        return;
 
     struct Edit { int start; int end; QTextCharFormat fmt; };
     QList<Edit> edits;
