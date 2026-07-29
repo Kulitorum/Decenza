@@ -94,6 +94,14 @@ void WifiScaleDiscovery::probe(const QStringList& hostnames, int timeoutMs) {
             MdnsResolver::ResolveStats rs;
             const QString ip = MdnsResolver::resolveHostname(hostname, timeoutMs,
                                                              &rs, cancel.get());
+            // STDERR_TAGGED, not the emitting SCALE_INFO_TAGGED used elsewhere in this
+            // file: these lambdas run detached from any `this`, reaching the object
+            // only through the QPointer `self` the null-check above guards. The macro's
+            // `emit logMessage(...)` needs `this` in scope, which none of these six
+            // sites has. (There is also no longer anything to emit to — the last
+            // connection to this class's logMessage signal was removed elsewhere in
+            // this change, which is why the signal itself was deleted rather than kept
+            // for a listener that no longer exists.)
             QMetaObject::invokeMethod(qApp, [self, hostname, ip, generation, rs]() {
                 if (!self) return;
                 if (generation != self->m_probeGeneration) return;  // cancelled/timed out
@@ -105,10 +113,10 @@ void WifiScaleDiscovery::probe(const QStringList& hostnames, int timeoutMs) {
                     // sleeping scale or the wrong SSID — so say which happened
                     // instead of logging one guess for both.
                     if (!rs.error.isEmpty()) {
-                        emit self->logMessage(
+                        SCALE_WARN_STDERR_TAGGED("WifiScaleDiscovery",
                             QString("mDNS lookup of %1 could not run: %2").arg(hostname, rs.error));
                     } else {
-                        emit self->logMessage(
+                        SCALE_INFO_STDERR_TAGGED("WifiScaleDiscovery",
                             QString("mDNS no responder for %1 (%2 queries sent, %3 records seen)")
                                 .arg(hostname).arg(rs.queries).arg(rs.recordsSeen));
                     }
@@ -117,7 +125,8 @@ void WifiScaleDiscovery::probe(const QStringList& hostnames, int timeoutMs) {
                     r.foundBy = WifiScaleResult::Source::Fallback;
                     r.hostname = hostname;
                     r.address = ip;
-                    emit self->logMessage(QString("mDNS resolved %1 to %2").arg(hostname, ip));
+                    SCALE_INFO_STDERR_TAGGED("WifiScaleDiscovery",
+                        QString("mDNS resolved %1 to %2").arg(hostname, ip));
                     emit self->resultFound(r);
                 }
                 self->finishOneLookup();
@@ -204,7 +213,7 @@ void WifiScaleDiscovery::browse(int timeoutMs) {
 
                     const WifiScaleResult r = WifiScaleResultUtil::fromBrowseTxt(
                         si.instanceName, si.hostname, si.address, si.port, si.txt);
-                    emit self->logMessage(
+                    SCALE_INFO_STDERR_TAGGED("WifiScaleDiscovery",
                         QString("DNS-SD found %1 at %2 (%3) fw=%4")
                             .arg(r.instanceName.isEmpty() ? r.hostname : r.instanceName,
                                  r.address, r.hostname,
@@ -226,7 +235,7 @@ void WifiScaleDiscovery::browse(int timeoutMs) {
             // stale" are three very different failures that look identical in
             // the device list, so the outcome has to reach the shareable log as
             // data rather than being inferred from its absence.
-            emit self->logMessage(
+            SCALE_INFO_STDERR_TAGGED("WifiScaleDiscovery",
                 QString("DNS-SD browse finished via %1 in %2 ms — %3 resolved, "
                         "%4 named but unresolved, %5 withdrawn")
                     .arg(stats.backend.isEmpty() ? QStringLiteral("?") : stats.backend)
@@ -236,7 +245,7 @@ void WifiScaleDiscovery::browse(int timeoutMs) {
                     .arg(stats.withdrawals < 0 ? QStringLiteral("not measured")
                                                : QString::number(stats.withdrawals)));
             if (!stats.error.isEmpty()) {
-                emit self->logMessage(
+                SCALE_WARN_STDERR_TAGGED("WifiScaleDiscovery",
                     QStringLiteral("DNS-SD browse ERROR: ") + stats.error);
             }
             // `ran` is false when the browse could not actually run. Reporting

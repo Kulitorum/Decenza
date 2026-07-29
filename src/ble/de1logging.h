@@ -29,15 +29,14 @@
 //   DE1_INFO_TAGGED   qInfo    the user-facing narrative
 //   DE1_WARN_TAGGED   qWarning problems
 //
-// Pick by AUDIENCE, not by authorship or by how important the event feels.
-// `debug_get_log` with minLevel INFO shows exactly the INFO-and-above set today.
-// The connections-page DE1 view does NOT yet — it is an unfiltered append of
-// every line that reaches `de1LogMessage`, and `de1LogMessage(QString)` carries
-// no level, so it cannot filter. Re-sourcing it from the system log at INFO+ is
-// task 5.1/5.2 of the openspec change `replace-scale-log-with-system-log-filter`.
-// Choose tiers for the INFO+ contract regardless: it is what the MCP query
-// already honours and what the view will honour, and a line assigned by today's
-// unfiltered view would have to be re-judged when 5.1 lands.
+// Pick by AUDIENCE, not by authorship or by how important the event feels. Both
+// consumers now honour the same contract: `debug_get_log` with minLevel INFO, and
+// the connections-page DE1 view, which reads the system log for [DE1] at INFO and
+// above. So a tier chosen here decides both, and DEBUG genuinely means "not on
+// screen".
+//
+// (This note used to say the view could not filter, because it was an unfiltered
+// append of a level-less `de1LogMessage` signal. That signal no longer exists.)
 //
 // So:
 //
@@ -77,21 +76,45 @@
 //
 //   1. DE1 code with no logMessage signal to emit — free functions, static
 //      helpers, JNI shims.
-//   2. A `const` member function. moc generates signal emitters as NON-const, so
-//      `emit logMessage(...)` will not compile in one; this is why
+//   2. A `const` member function. Our `logMessage` signals are declared non-const
+//      (`de1device.h:361`, `de1transport.h:163`), so `emit logMessage(...)` will
+//      not compile in one; this is why
 //      `DE1Device::dropDeviceWriteIfFirmwareFlash` and
 //      `dropIfFirmwareFlashInProgress` use DE1_WARN_STDERR_TAGGED and not the
-//      emitting form. That is a hard constraint, not a preference.
+//      emitting form.
 //
-// Same marker either way, so the line still turns up in the one search. It does
-// not reach the in-app view BY ITSELF — but a class may pair one with its own
-// `emit`, which is exactly what BLEManager's de1Debug/de1Info/de1Warn do: they
-// send the bare text to the window and the marked text to stderr, so the window
-// keeps rendering as it always has. All three tiers exist so nobody hand-rolls
-// the missing one.
+//      This used to read "moc generates signal emitters as NON-const … a hard
+//      constraint, not a preference." That is FALSE, and it was written with no
+//      citation: moc honours a const signal and emits a const emitter that
+//      const_casts `this` (qtbase/src/tools/moc/generator.cpp:1297-1300, and
+//      moc.cpp:604 parses the qualifier without complaint). So declaring the
+//      signal const IS available if the emitting form is ever wanted in a const
+//      member — the limit is our declaration, not the toolchain. Recorded because
+//      an un-sourced claim about Qt gets believed and then closes off a real
+//      option; see CLAUDE.md.
+//
+// Same marker either way, so the line still turns up in the one search. These do
+// NOT reach the in-app views, and nothing pairs them with an emit any more: the
+// views are now filtered reads of the system log, so the marker alone is what
+// puts a line on screen. All three tiers exist so nobody hand-rolls the missing
+// one.
 #define DE1_LOG_STDERR_TAGGED(tag, msg) \
     DECENZA_SUBSYS_LOG_STDERR(DECENZA_LOG_MARKER_DE1, tag, msg, qDebug)
 #define DE1_INFO_STDERR_TAGGED(tag, msg) \
     DECENZA_SUBSYS_LOG_STDERR(DECENZA_LOG_MARKER_DE1, tag, msg, qInfo)
 #define DE1_WARN_STDERR_TAGGED(tag, msg) \
     DECENZA_SUBSYS_LOG_STDERR(DECENZA_LOG_MARKER_DE1, tag, msg, qWarning)
+
+// As above, but `tag` is a runtime QString rather than a literal — for a helper
+// that logs on behalf of SEVERAL sources, where a hard-coded tag would be the
+// wrong answer for at least one of them. BLEManager::de1Debug/de1Info/de1Warn use
+// this: main.cpp drives the DE1 reconnect ladder through those forwarders, and a
+// hard-coded "BLEManager" tag would stamp main.cpp's own lines with a source that
+// never wrote them. Mirrors scalelogging.h's *_STDERR_DYN, added for the same
+// reason on the scale side.
+#define DE1_LOG_STDERR_DYN(tag, msg) \
+    DECENZA_SUBSYS_LOG_STDERR_DYN(DECENZA_LOG_MARKER_DE1, tag, msg, qDebug)
+#define DE1_INFO_STDERR_DYN(tag, msg) \
+    DECENZA_SUBSYS_LOG_STDERR_DYN(DECENZA_LOG_MARKER_DE1, tag, msg, qInfo)
+#define DE1_WARN_STDERR_DYN(tag, msg) \
+    DECENZA_SUBSYS_LOG_STDERR_DYN(DECENZA_LOG_MARKER_DE1, tag, msg, qWarning)

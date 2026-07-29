@@ -30,11 +30,14 @@
 // description does not mention is invisible to the assistant that would have
 // used it.
 //
-// NOTE: this invariant is NOT machine-checked yet. An earlier version of this
-// comment said `scripts/check_log_markers.py` parses this header; no such script
-// exists — it is task 7.4 of the openspec change
-// replace-scale-log-with-system-log-filter. Stating a check that does not exist
-// is worse than stating none, because the next editor trusts it.
+// This IS machine-checked: `scripts/check_log_markers.py` parses the literals below
+// and runs on every PR touching src/** (.github/workflows/text-invariants.yml). It
+// fails on a bare qDebug in a covered file, on a registered marker typed into a
+// message, and on a helper header applying a marker this registry does not declare.
+//
+// (An earlier version of this comment claimed the same thing while no such script
+// existed. It was corrected to say so, because a stated check that does not exist is
+// worse than none — the next editor trusts it. Now it does exist.)
 //
 // A marker is a published name. Renaming one breaks every saved query, filter
 // and habit built on it, so treat it as API, not an implementation detail.
@@ -67,6 +70,7 @@
 #define DECENZA_LOG_MARKER_SCALE         "Scale"
 #define DECENZA_LOG_MARKER_DE1           "DE1"
 #define DECENZA_LOG_MARKER_REFRACTOMETER "Refractometer"
+#define DECENZA_LOG_MARKER_BLUETOOTH     "Bluetooth"
 
 // The registry. Each row: (marker literal, what the subsystem covers).
 // The description is user/assistant-facing — it reaches the MCP tool
@@ -81,7 +85,13 @@
     X(DECENZA_LOG_MARKER_REFRACTOMETER,                                        \
       "DiFluid R1/R2 refractometers. Separate from Scale because these are a "  \
       "different instrument answering different questions, even though they "    \
-      "share the scale BLE transports and appear in the same connections view")
+      "share the scale BLE transports and appear in the same connections view") \
+    X(DECENZA_LOG_MARKER_BLUETOOTH,                                            \
+      "The local Bluetooth radio itself: adapter power state, wedge detection "  \
+      "and automatic recovery, and platform capability problems. Separate from " \
+      "Scale and DE1 because it is BENEATH both — when the adapter is off or "   \
+      "wedged, neither device can connect, and attributing that to one of them " \
+      "sends a reader looking for a fault in the wrong place")
 
 // ---- The one place a log line's shape is built -------------------------
 //
@@ -104,6 +114,18 @@
 // JNI shims. Same marker, so the line is still found by the one search.
 #define DECENZA_SUBSYS_LOG_STDERR(marker, tag, msg, qFn) \
     qFn().noquote() << (QString("[" marker "][" tag "] ") + (msg))
+
+// As above, but `tag` is a runtime QString instead of a literal. Only for a
+// helper that logs on behalf of SEVERAL sources — one whose own class name would
+// be the wrong answer. BLEManager's refractometer tiers are the case: main.cpp
+// owns the Refractometer instance, so a shared forwarder hard-coding
+// "BLEManager" would stamp main.cpp's lifecycle lines with a source that never
+// wrote them, and a log reader has no way to tell.
+//
+// Prefer the literal form everywhere else: it costs no runtime concatenation and
+// a literal cannot be handed the wrong value by a caller.
+#define DECENZA_SUBSYS_LOG_STDERR_DYN(marker, tag, msg, qFn) \
+    qFn().noquote() << (QLatin1String("[" marker "][") + (tag) + QLatin1String("] ") + (msg))
 
 // ---- Canonical wording for the shared BLE device lifecycle ------------
 //
@@ -130,6 +152,18 @@
     QStringLiteral("Reporting connected (%1)").arg(trigger)
 #define DECENZA_BLE_MSG_NOTIFY_SCHEDULED(ms) \
     QStringLiteral("Scheduling notification enable in %1 ms (de1app timing)").arg(ms)
+// Suffix for a disconnect/error callback that fires on BOTH a link that worked
+// and then dropped AND a connect attempt that never got as far as usable. The
+// canonical wording above cannot tell them apart and they are different
+// diagnoses; append this when `ready` is false, and nothing when it is true, so
+// a normal disconnect stays the plain canonical line.
+//
+// Centralized because it is emitted from four callbacks across two refractometer
+// drivers, and the whole reason those drivers share DECENZA_BLE_MSG_* is that a
+// reader comparing two devices' logs must not have to first decide whether two
+// different sentences mean the same thing.
+#define DECENZA_BLE_MSG_INCOMPLETE_SUFFIX(ready) \
+    ((ready) ? QString() : QStringLiteral(" (connect attempt never reached ready)"))
 
 namespace DecenzaLog {
 

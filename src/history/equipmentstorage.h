@@ -115,6 +115,11 @@ public:
     void initialize(const QString& dbPath);
     QString databasePath() const { return m_dbPath; }
 
+    // True when no background CRUD work is queued, running, or waiting to
+    // deliver its result — see ShotHistoryStorage::isDbWorkIdle() for the full
+    // rationale (same shape, same worker type).
+    bool isDbWorkIdle() const;
+
     // Async queries — results via signals.
     Q_INVOKABLE void requestInventory();                       // inventoryReady()
     Q_INVOKABLE void requestPackage(qint64 packageId);         // packageReady()

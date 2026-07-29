@@ -19,10 +19,14 @@ namespace McpLogFilter {
 // `lastLine` are only meaningful after dedupeConsecutive() — a plain
 // filterLines() result always has count == 1 and lastLine == line.
 struct LineMatch {
-    qsizetype line;      // absolute line number of the first occurrence
-    QString text;        // text of the first occurrence
-    qsizetype count = 1; // consecutive occurrences collapsed into this entry
-    qsizetype lastLine = -1; // absolute line number of the last occurrence
+    qsizetype line = 0;      // absolute line number of the first occurrence
+    QString text;            // text of the first occurrence
+    qsizetype count = 1;     // consecutive occurrences collapsed into this entry
+    // Absolute line of the last occurrence. Defaults to match `line` rather than to
+    // a -1 sentinel: no code path ever leaves it at -1 (filterLines() sets it equal
+    // to `line`, dedupeConsecutive() only widens it), and a sentinel that cannot
+    // occur invites a check for it that can never fire.
+    qsizetype lastLine = 0;
 };
 
 // DEBUG < INFO < WARN < ERROR < FATAL; -1 for anything else (session markers,
@@ -47,6 +51,33 @@ inline QString lineLevel(const QString& line)
     static const QRegularExpression re(QStringLiteral(R"(^\[[^\]]*\]\s*([A-Za-z]+))"));
     const auto m = re.match(line);
     return m.hasMatch() ? m.captured(1).toUpper() : QString();
+}
+
+// True when `line` belongs to any of the given subsystems. `markers` are the
+// BRACKETED tokens ("[Scale]", "[DE1]") that DecenzaLog::markerFilter() composes;
+// an empty list matches nothing, which is what a caller asking for no subsystem
+// should get rather than everything.
+//
+// Case-SENSITIVE, unlike filterLines()' `filter` below, and the asymmetry is
+// deliberate. That one takes a free string a human typed and being forgiving is a
+// kindness. A marker is a fixed token emitted by a macro: "[scale]" is not one,
+// and matching it would only ever be a false positive on prose that happened to
+// contain the word.
+//
+// Substring, never a pattern. A bracketed marker read as a regex is a character
+// class — "[Scale]" would match any line containing S, c, a, l or e, i.e. very
+// nearly every line — so this deliberately offers no regex mode to reach for.
+//
+// Lives here rather than beside its caller so that "a line belonging to subsystem
+// X" has one definition shared by the connections-page views and the MCP tools.
+// Two implementations of that predicate would be free to disagree about exactly
+// the queries the markers were introduced to make answerable.
+inline bool matchesAnyMarker(const QString& line, const QStringList& markers)
+{
+    for (const QString& marker : markers) {
+        if (!marker.isEmpty() && line.contains(marker, Qt::CaseSensitive)) return true;
+    }
+    return false;
 }
 
 // Filters `lines` (whose element 0 is absolute line number `startLine` within
@@ -138,7 +169,12 @@ inline QList<LineMatch> paginate(const QList<LineMatch>& matches, qsizetype offs
         return matches.mid(start);
     }
     if (offset < 0 || offset >= matches.size()) return {};
-    return matches.mid(offset, limit);
+    // Clamp here, not only at the callers. QList::mid() treats a NEGATIVE length as
+    // "to the end", so an unclamped limit < 0 would silently return the whole log
+    // from `offset` — an unbounded MCP response that looks like an ordinary page.
+    // Both call sites currently qBound() it, which means the policy already exists
+    // twice; this is the copy that cannot be forgotten.
+    return matches.mid(offset, qMax(qsizetype(0), limit));
 }
 
 } // namespace McpLogFilter

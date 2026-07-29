@@ -358,6 +358,15 @@ public:
     // Close the database (for factory reset before file deletion)
     void close();
 
+    // True when no background CRUD work is queued, running, or waiting to deliver
+    // its result. False only while something is in flight.
+    //
+    // For callers that must not continue until the DB work has really finished —
+    // a test tearing this object down, a factory reset about to delete the file —
+    // so they can wait on the CONDITION instead of guessing a duration. Always
+    // true when no async work has ever been posted (the worker is lazily created).
+    bool isDbWorkIdle() const;
+
     // Checkpoint WAL to main database file
     void checkpoint();
 

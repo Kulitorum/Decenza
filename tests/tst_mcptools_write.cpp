@@ -56,6 +56,31 @@ class tst_McpToolsWrite : public QObject {
     Q_OBJECT
 
 private:
+    // Wait for a storage's background DB work to actually finish, before letting it
+    // go out of scope.
+    //
+    // This replaced five copies of `for (i < 20) { processEvents(); msleep(25); }`
+    // — a fixed 500 ms guess at how long a background write takes. That is the
+    // "timers as guards" anti-pattern CLAUDE.md forbids by name, and it behaved
+    // exactly as that rule predicts: fine when run alone, fine on retry, and
+    // intermittently NOT fine in the full parallel suite, where every binary is
+    // ASan- and UBSan-instrumented and competing for cores. A duration cannot be
+    // long enough, because the thing it is standing in for has no bound.
+    //
+    // Waiting matters rather than just being tidy: ~SerialDbWorker quit()s, which
+    // DISCARDS queued-but-unstarted tasks, and close() calls
+    // QSqlDatabase::removeDatabase(), which qWarns if a connection is still in use
+    // — and init()'s failOnWarning turns that into a failure. So a task still in
+    // flight at scope exit is either silently dropped or a warning, depending on
+    // timing. QTRY_VERIFY spins the event loop (which is what delivers the result
+    // callbacks) and fails loudly if the work never completes, instead of
+    // continuing regardless the way the sleep did.
+    static void drainDbWork(ShotHistoryStorage& storage) {
+        QTRY_VERIFY(storage.isDbWorkIdle());
+        // One more pass for anything the final callback itself posted.
+        QCoreApplication::processEvents();
+    }
+
     // Load a minimal D-Flow profile
     static void loadDFlowProfile(McpTestFixture& f, const QString& title = "D-Flow / Test") {
         QJsonObject json;
@@ -393,11 +418,12 @@ private slots:
         QVERIFY(result3["success"].toBool());
         QVERIFY(!result3["bag"].toObject().contains("beanBase"));
 
+        // Drain BEFORE close(). close() calls QSqlDatabase::removeDatabase(), which
+        // qWarns "connection is still in use" if background work still holds one —
+        // and failOnWarning makes that a failure. Closing first was the original
+        // order, with the sleep afterwards hoping the work had already finished.
+        drainDbWork(storage);
         storage.close();
-        for (int i = 0; i < 20; i++) {
-            QCoreApplication::processEvents();
-            QThread::msleep(25);
-        }
     }
 
     // equipment_update: a name-only rename must be REPORTED as a success, not
@@ -445,11 +471,12 @@ private slots:
         });
         QCOMPARE(stored, QString("Bench Grinder (renamed)"));
 
+        // Drain BEFORE close(). close() calls QSqlDatabase::removeDatabase(), which
+        // qWarns "connection is still in use" if background work still holds one —
+        // and failOnWarning makes that a failure. Closing first was the original
+        // order, with the sleep afterwards hoping the work had already finished.
+        drainDbWork(storage);
         storage.close();
-        for (int i = 0; i < 20; i++) {
-            QCoreApplication::processEvents();
-            QThread::msleep(25);
-        }
     }
 
     // bag_create (add-recipe-wizard-tea): kind stamped at creation, gated in
@@ -500,11 +527,12 @@ private slots:
         QJsonObject empty; empty["kind"] = "tea";
         QVERIFY(f.callAsyncTool("bag_create", empty).contains("error"));
 
+        // Drain BEFORE close(). close() calls QSqlDatabase::removeDatabase(), which
+        // qWarns "connection is still in use" if background work still holds one —
+        // and failOnWarning makes that a failure. Closing first was the original
+        // order, with the sleep afterwards hoping the work had already finished.
+        drainDbWork(storage);
         storage.close();
-        for (int i = 0; i < 20; i++) {
-            QCoreApplication::processEvents();
-            QThread::msleep(25);
-        }
     }
 
     // bag_update kind gate runs on the static path (nullptr bagStorage): tea
@@ -543,11 +571,12 @@ private slots:
         QVERIFY2(r["success"].toBool(), qPrintable(QJsonDocument(r).toJson()));
         QCOMPARE(r["bag"].toObject()["teaType"].toString(), QString("black"));
 
+        // Drain BEFORE close(). close() calls QSqlDatabase::removeDatabase(), which
+        // qWarns "connection is still in use" if background work still holds one —
+        // and failOnWarning makes that a failure. Closing first was the original
+        // order, with the sleep afterwards hoping the work had already finished.
+        drainDbWork(storage);
         storage.close();
-        for (int i = 0; i < 20; i++) {
-            QCoreApplication::processEvents();
-            QThread::msleep(25);
-        }
     }
 
     // The linked-bag case is where the MCP wiring does real work: the tool
@@ -603,11 +632,12 @@ private slots:
         QCOMPARE(result2["bag"].toObject()["beanBase"].toObject()
                      ["canonical"].toObject()["origin"].toString(), QString("Colombia"));
 
+        // Drain BEFORE close(). close() calls QSqlDatabase::removeDatabase(), which
+        // qWarns "connection is still in use" if background work still holds one —
+        // and failOnWarning makes that a failure. Closing first was the original
+        // order, with the sleep afterwards hoping the work had already finished.
+        drainDbWork(storage);
         storage.close();
-        for (int i = 0; i < 20; i++) {
-            QCoreApplication::processEvents();
-            QThread::msleep(25);
-        }
     }
 
     // ===== recipe_get/set/clear_auto_load (recipe-auto-load) =====

@@ -2,6 +2,7 @@
 
 #include "ble/scales/scalelogging.h"
 #include "../blecapability.h"
+#include "../bledeviceid.h"
 #include "../blecontrollererror.h"
 #include "../bleserviceerror.h"
 #include "../blemanager.h"
@@ -73,10 +74,7 @@ void QtScaleBleTransport::connectToDevice(const QString& address, const QString&
 }
 
 void QtScaleBleTransport::connectToDevice(const QBluetoothDeviceInfo& device) {
-    // Get device identifier (UUID on iOS, address on other platforms)
-    QString deviceId = device.address().isNull()
-        ? device.deviceUuid().toString()
-        : device.address().toString();
+    const QString deviceId = getDeviceIdentifier(device);
 
     // Diagnostic logging - detect duplicate connect calls
     QT_TRANSPORT_LOG(QString("connectToDevice() called for %1 (%2). controller=%3 state=%4")
@@ -101,7 +99,6 @@ void QtScaleBleTransport::connectToDevice(const QBluetoothDeviceInfo& device) {
         disconnectFromDevice();
     }
 
-    m_deviceAddress = device.address().toString();
     m_deviceName = device.name();
     m_deviceId = deviceId;
 

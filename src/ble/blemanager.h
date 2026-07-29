@@ -521,39 +521,88 @@ public:
     // Reset connection state flags so retry attempts can proceed
     void resetScaleConnectionState();
 
-    // Scale debug logging
-    Q_INVOKABLE void clearScaleLog();
-    Q_INVOKABLE void shareScaleLog();
-    Q_INVOKABLE QString getScaleLogPath() const;
-    // For use by scale implementations. mirrorToSystemLog=false when the caller
-    // already wrote the line to stderr itself (the SCALE_LOG/R2_LOG macro
-    // family) — see the definition. Note the defaulted second parameter makes
-    // this unusable as a pointer-to-member slot: forwarders connect through a
-    // lambda.
-    void appendScaleLog(const QString& message, bool mirrorToSystemLog = true);
+    // Share the system log (debug.log) — the only log share there is now.
+    // clearScaleLog(), shareScaleLog(), getScaleLogPath() and appendScaleLog() are
+    // gone with the private scale-log channel; see the note where they used to be
+    // defined in blemanager.cpp. Clearing is now view-local (SubsystemLogView).
+    Q_INVOKABLE void shareSystemLog();
 
-private:
-    // How BLEManager logs its own narrative. Pick by AUDIENCE, per the tier
-    // rules in core/logtags.h:
+    // Public, unlike their scale siblings below, because BLEManager is not the
+    // only narrator of this subsystem: main.cpp owns the Refractometer instance
+    // and drives its creation, teardown and reconnect tick. Those lines are part
+    // of the same story as the ones in here and must carry the same marker and
+    // land in the same view, so they go through the same two tiers rather than a
+    // second copy of the shape. See the tier note under `private:`.
+    //
+    // `source` is the bracketed source tag and therefore MUST name who actually
+    // wrote the line — it is defaulted only for this class's own calls. A shared
+    // forwarder that hard-coded its own class name would stamp main.cpp's
+    // lifecycle lines "BLEManager", and nothing in the log would contradict it.
+    void refractometerDebug(const QString& message,
+                            const QString& source = QStringLiteral("BLEManager"));
+    void refractometerInfo(const QString& message,
+                           const QString& source = QStringLiteral("BLEManager"));
+
+    // How the scale subsystem's narrative is logged. Pick by AUDIENCE, per the
+    // tier rules in core/logtags.h:
     //
     //   scaleDebug  developer detail — periodic probes, ignored transients,
-    //               mechanism notes. Kept out of the on-screen view.
+    //               mechanism notes. Below what the connections view shows.
     //   scaleInfo   the narrative a user needs: scanning, found, connecting,
     //               connected, disconnected, transport fallback, reconnects.
     //   scaleWarn   problems: refusals, timeouts, unreachable, teardowns.
     //
-    // Each writes stderr at its tier with the subsystem marker AND records the
-    // line for the connections-page view, from one call — so the two can never
-    // describe the same event differently. BLEManager cannot use the SCALE_*
-    // macros directly: they `emit logMessage(...)`, and this class's signal is
-    // named scaleLogMessage.
+    // Public for the same reason as the refractometer pair above: main.cpp drives
+    // the scale reconnect ladder and its lines belong to this subsystem's story.
+    // They used to go through appendScaleLog(), which reached only the in-app view
+    // — so the ladder was absent from every submitted log. `source` must name who
+    // actually wrote the line; it is defaulted only for this class's own calls.
     //
-    // refractometerInfo exists because BLEManager narrates both subsystems and
-    // a refractometer line must carry [Refractometer], not [Scale].
-    void scaleDebug(const QString& message);
-    void scaleInfo(const QString& message);
-    void scaleWarn(const QString& message);
-    void refractometerInfo(const QString& message);
+    // BLEManager cannot use the SCALE_* macros directly: those `emit
+    // logMessage(...)`, which this class does not have.
+    void scaleDebug(const QString& message,
+                    const QString& source = QStringLiteral("BLEManager"));
+    void scaleInfo(const QString& message,
+                   const QString& source = QStringLiteral("BLEManager"));
+    void scaleWarn(const QString& message,
+                   const QString& source = QStringLiteral("BLEManager"));
+
+    // The same three tiers for the DE1 half, carrying [DE1] instead of [Scale].
+    //
+    // BLEManager narrates the machine too — permissions, scan lifecycle, "found
+    // DE1", direct wake. MOST of those lines went only to de1LogMessage, i.e.
+    // only to the connections-page window, so they were absent from every
+    // submitted log and the machine's discovery story could not be read after the
+    // fact. Four DID also reach stderr — "Found DE1", the two direct-wake lines
+    // and the scan error — but each did so in DIFFERENT WORDS from its emitted
+    // twin, which is the drift these helpers exist to make impossible. Both
+    // problems have the one fix: log once, at a tier, from one call.
+    // `source` defaulted the same way as scaleDebug/Info/Warn above, and for the
+    // same reason: main.cpp drives the DE1 reconnect ladder through these
+    // forwarders too, and its lines must not be stamped "BLEManager". Public for
+    // the same reason scaleDebug/Info/Warn are — main.cpp calls it directly.
+    void de1Debug(const QString& message,
+                  const QString& source = QStringLiteral("BLEManager"));
+    void de1Info(const QString& message,
+                 const QString& source = QStringLiteral("BLEManager"));
+    void de1Warn(const QString& message,
+                 const QString& source = QStringLiteral("BLEManager"));
+
+private:
+    //
+    // refractometerDebug/refractometerInfo (declared public above) exist because
+    // BLEManager narrates both subsystems and a refractometer line must carry
+    // [Refractometer], not [Scale]. There are two tiers rather than the INFO-only
+    // one this class used to have because the refractometer's own story — hunt
+    // on/off, instance churn, why an auto-reconnect did nothing — has a developer
+    // half too, and that half was written as bare `qDebug() << "[R2-diag] ..."`:
+    // 17 lines under an ad-hoc debug-session prefix that no registered marker
+    // matched, so a [Refractometer] search returned the driver's packets and NOT
+    // the connect/churn story they were added to explain.
+    //
+    // There is deliberately no refractometerWarn: nothing BLEManager or main.cpp
+    // reports about this device is a problem — the failures all belong to the
+    // driver, which has R2_WARN. Add one when a call site needs it, not before.
 
     // A connect failure that REPEATS while nothing changes. Warns for the first
     // few, then drops to DEBUG until the next successful connect.
@@ -580,20 +629,6 @@ private:
     // already spent the budget.
     QHash<QString, int> m_repeatFailureCounts;
     static constexpr int kScaleFailuresAtWarn = 3;
-
-    // The same three tiers for the DE1 half, carrying [DE1] instead of [Scale].
-    //
-    // BLEManager narrates the machine too — permissions, scan lifecycle, "found
-    // DE1", direct wake. MOST of those lines went only to de1LogMessage, i.e.
-    // only to the connections-page window, so they were absent from every
-    // submitted log and the machine's discovery story could not be read after the
-    // fact. Four DID also reach stderr — "Found DE1", the two direct-wake lines
-    // and the scan error — but each did so in DIFFERENT WORDS from its emitted
-    // twin, which is the drift these helpers exist to make impossible. Both
-    // problems have the one fix: log once, at a tier, from one call.
-    void de1Debug(const QString& message);
-    void de1Info(const QString& message);
-    void de1Warn(const QString& message);
 
 public:
 
@@ -662,8 +697,11 @@ signals:
     // owns UsbScaleManager, so BLEManager asks rather than calling directly.
     void usbProbeRequested();
     void errorOccurred(const QString& error);
-    void de1LogMessage(const QString& message);
-    void scaleLogMessage(const QString& message);
+    // No de1LogMessage / scaleLogMessage. Both existed only to feed the two
+    // connections-page views, which now read the system log directly, and being
+    // view-only was their defect: everything sent through them was absent from
+    // every log a user submitted. Their content reaches the log through the tier
+    // helpers instead.
     void flowScaleFallback();  // Emitted when no physical scale found, using FlowScale (gated to fire once per saved-scale cycle so the "No Scale Found" dialog doesn't re-show on every retry)
     void scaleRetryNeeded();   // Emitted on EVERY connection-failure path (including the post-WiFi→BLE-fallback give-up), regardless of the flowScaleFallback gate, so the persistent reconnect ladder in main.cpp survives the scale-type-change timer stop. Don't bind UI to this — it's for re-arming the retry timer only.
     void scaleDisconnected();  // Emitted when physical scale disconnects
@@ -1029,23 +1067,18 @@ private:
     // Handles for the two connections setRefractometerDevice() installs, so it
     // can sever exactly those. It must NOT use a blanket
     // disconnect(device, nullptr, this, nullptr): main.cpp also connects the
-    // device's logMessage to appendScaleLog and errorOccurred to our
-    // errorOccurred, and those have to survive until the device is actually
-    // destroyed. Forget nulls the holder BEFORE disconnecting the device (that
+    // device's errorOccurred to our errorOccurred, and that has to survive until
+    // the device is actually destroyed. Forget nulls the holder BEFORE disconnecting the device (that
     // order is load-bearing — see the timer-stop note on
     // disconnectRefractometerRequested in main.cpp), so a blanket disconnect
     // there silently swallowed every log line the disconnect itself produced.
     QMetaObject::Connection m_refractometerConnectedConn;
     QMetaObject::Connection m_refractometerDestroyedConn;
 
-    // Scale debug log
     // Last observe/enforce value we announced, so the mode is logged on
     // transition instead of on every settings load (it was 11 identical WARNs
     // in a 48 h capture). Not the mode itself — that is m_backoffMode.
     bool m_loggedObserveMode = false;
-    QStringList m_scaleLogMessages;
-    QString m_scaleLogFilePath;
-    void writeScaleLogToFile();
 
     static BLEManager* s_instance;
 };

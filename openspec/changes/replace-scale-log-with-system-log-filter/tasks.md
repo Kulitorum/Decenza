@@ -61,50 +61,50 @@
 
 Three reviewers ran on #1705. Nine findings were real; seven are fixed in the PR (per-message repeat budget + its missing user-initiated reset, the Android probe-timeout tier, the lost `SerialPortError` enum name, unescaped probe bytes splitting a line, the state-gated `DE1 DISCONNECTED`, the restored permission-grant INFO, the missing "no DE1 found" outcome, plus six wrong comment claims). These two are not.
 
-- [ ] 3c.1 Port `BleTransport`'s notification-liveness idea to `SerialTransport`. There is no stall detector on the serial path at all — `m_notificationLiveness` / `NOTIFICATION_STALE_MS` exist only in `bletransport.cpp`. So a USB DE1 whose port opens and whose subscribes are written but which never starts notifying (or stops mid-session) produces: `Port opened`, maybe `Machine info`, then silence forever. No WARN, and `Disconnected:` never fires because the port is still open. Deleting the per-frame RX line (3.12) was right on volume, but it was the only evidence of the negative case. One monotonic timestamp restarted in `processLine`, checked on the existing poll, one `SERIAL_WARN` past a threshold — strictly better than 600 DEBUG lines a shot.
-- [ ] 3c.2 Finish centralising `getDeviceIdentifier()`. It moved out of `blemanager.h` into `ble/bledeviceid.h` in #1705 and `bletransport.cpp`'s hand-copy now calls it, but the expression is still copied in `difluidr1.cpp`, `difluidr2.cpp`, `qtscalebletransport.cpp` and `bookooscale.cpp` (the canonical header names them). Route those through the shared helper too — the copies are why the settings-writing versions were the ones that got the macOS null-address bug.
-- [ ] 3c.3 `[Scale]` INFO+ shows `Scan complete` with no matching start. `doStartScan()`/`stopScan()` log only on the DE1 side (now DEBUG), and ladder-driven scans never pass through `scanForDevices()`, which is the only place `Starting device scan...` is logged. So the scale view shows unpaired completions appearing from nowhere. Add scale-side counterparts gated on `m_scanningForScales`, or drop `Scan complete` to DEBUG there too.
+- [x] 3c.1 Port `BleTransport`'s notification-liveness idea to `SerialTransport`. There is no stall detector on the serial path at all — `m_notificationLiveness` / `NOTIFICATION_STALE_MS` exist only in `bletransport.cpp`. So a USB DE1 whose port opens and whose subscribes are written but which never starts notifying (or stops mid-session) produces: `Port opened`, maybe `Machine info`, then silence forever. No WARN, and `Disconnected:` never fires because the port is still open. Deleting the per-frame RX line (3.12) was right on volume, but it was the only evidence of the negative case. One monotonic timestamp restarted in `processLine`, checked on the existing poll, one `SERIAL_WARN` past a threshold — strictly better than 600 DEBUG lines a shot.
+- [x] 3c.2 Finish centralising `getDeviceIdentifier()`. It moved out of `blemanager.h` into `ble/bledeviceid.h` in #1705 and `bletransport.cpp`'s hand-copy now calls it, but the expression is still copied in `difluidr1.cpp`, `difluidr2.cpp`, `qtscalebletransport.cpp` and `bookooscale.cpp` (the canonical header names them). Route those through the shared helper too — the copies are why the settings-writing versions were the ones that got the macOS null-address bug.
+- [x] 3c.3 `[Scale]` INFO+ shows `Scan complete` with no matching start. `doStartScan()`/`stopScan()` log only on the DE1 side (now DEBUG), and ladder-driven scans never pass through `scanForDevices()`, which is the only place `Starting device scan...` is logged. So the scale view shows unpaired completions appearing from nowhere. Add scale-side counterparts gated on `m_scanningForScales`, or drop `Scan complete` to DEBUG there too.
 
 ## 3b. The last two prefix families
 
 Found while converting group 3: `[Scale]`/`[DE1]`/`[Refractometer]` are not yet the only prefixes in `blemanager.cpp`.
 
-- [ ] 3b.1 `[R2-diag]` — 21 sites (12 in `blemanager.cpp`, 5 in `main.cpp`, 4 in `difluidr2.cpp`). Refractometer diagnostics with a bare hand-rolled prefix; route through the `[Refractometer]` helpers so the registered marker returns them.
-- [ ] 3b.2 `[BLE]` — the remaining bare-`[BLE]` sites in `blemanager.cpp` (backoff policy, skip-HIGH latch, found refractometer/scale/WiFi scale, transient permission error). These are scale/refractometer lines group 2 should have caught; assign the right marker per line rather than mapping the family wholesale.
-- [ ] 3b.3 Build and run the full suite.
+- [x] 3b.1 `[R2-diag]` — 21 sites (12 in `blemanager.cpp`, 5 in `main.cpp`, 4 in `difluidr2.cpp`). Refractometer diagnostics with a bare hand-rolled prefix; route through the `[Refractometer]` helpers so the registered marker returns them.
+- [x] 3b.2 `[BLE]` — the remaining bare-`[BLE]` sites in `blemanager.cpp` (backoff policy, skip-HIGH latch, found refractometer/scale/WiFi scale, transient permission error). These are scale/refractometer lines group 2 should have caught; assign the right marker per line rather than mapping the family wholesale.
+- [x] 3b.3 Build and run the full suite.
 
 ## 4. Logger plumbing
 
-- [ ] 4.1 Add `lineAppended(QtMsgType, QString)` to `WebDebugLogger`. Snapshot under the existing mutex and emit **after** releasing it — emitting under the lock deadlocks any slot that logs.
-- [ ] 4.2 Add a session-scoped filtered accessor returning the current session's lines matching a marker at or above a minimum level, implemented with `McpLogFilter` so the view and MCP share one definition of "a scale line".
-- [ ] 4.3 Expose `WebDebugLogger` to QML by macro in the header — never `setContextProperty`, never a runtime `qmlRegisterType` (see `QML_GOTCHAS.md`); add the `qt_add_qml_module` `DEPENDENCIES` entry if needed.
-- [ ] 4.4 Extend `tst_webdebuglogger`: the accessor returns only the current session, only matching markers, only at/above the level; `lineAppended` fires once per line with the right type; a slot that logs does not deadlock or recurse.
-- [ ] 4.5 Build and run the full suite.
+- [x] 4.1 Add `lineAppended(QtMsgType, QString)` to `WebDebugLogger`. Snapshot under the existing mutex and emit **after** releasing it — emitting under the lock deadlocks any slot that logs.
+- [x] 4.2 Add a session-scoped filtered accessor returning the current session's lines matching a marker at or above a minimum level, implemented with `McpLogFilter` so the view and MCP share one definition of "a scale line".
+- [x] 4.3 Expose `WebDebugLogger` to QML by macro in the header — never `setContextProperty`, never a runtime `qmlRegisterType` (see `QML_GOTCHAS.md`); add the `qt_add_qml_module` `DEPENDENCIES` entry if needed.
+- [x] 4.4 Extend `tst_webdebuglogger`: the accessor returns only the current session, only matching markers, only at/above the level; `lineAppended` fires once per line with the right type; a slot that logs does not deadlock or recurse.
+- [x] 4.5 Build and run the full suite.
 
 ## 5. Re-source the two views
 
-- [ ] 5.1 `SettingsConnectionsTab.qml` — DE1 view: populate from the accessor on build (`[DE1]`, INFO+), then append on `lineAppended` for matching lines. Ensure the append handler logs nothing.
-- [ ] 5.2 Same for the scale view, matching **both** `[Scale]` and `[Refractometer]` at INFO+ — the refractometers appear here on screen even though they are a separate subsystem for querying.
-- [ ] 5.3 Make Clear view-local: hide what is shown, keep following new lines, touch neither the log nor the other view. The DE1 view has **no Clear button at all** today (the scale view does) and no cap either — it is `de1LogText.text += message` growing for the process lifetime, which is why 3.12's deleted per-frame RX line mattered. Both views need the bounded behaviour, not just the button.
-- [ ] 5.4 Retarget the share action from `scale_debug_log.txt` to the system log, reusing the existing platform share plumbing.
-- [ ] 5.5 Fix any pre-existing accessibility violations on the two views while in the file, per the CLAUDE.md rule.
+- [x] 5.1 `SettingsConnectionsTab.qml` — DE1 view: populate from the accessor on build (`[DE1]`, INFO+), then append on `lineAppended` for matching lines. Ensure the append handler logs nothing.
+- [x] 5.2 Same for the scale view, matching **both** `[Scale]` and `[Refractometer]` at INFO+ — the refractometers appear here on screen even though they are a separate subsystem for querying.
+- [x] 5.3 Make Clear view-local: hide what is shown, keep following new lines, touch neither the log nor the other view. The DE1 view has **no Clear button at all** today (the scale view does) and no cap either — it is `de1LogText.text += message` growing for the process lifetime, which is why 3.12's deleted per-frame RX line mattered. Both views need the bounded behaviour, not just the button.
+- [x] 5.4 Retarget the share action from `scale_debug_log.txt` to the system log, reusing the existing platform share plumbing.
+- [x] 5.5 Fix any pre-existing accessibility violations on the two views while in the file, per the CLAUDE.md rule.
 - [ ] 5.6 Manually verify on device: both views populate when the page is opened after activity, follow live, survive leaving and returning, exclude prior sessions, show no DEBUG chatter, and Clear behaves. QML has no test harness — this step is the coverage.
 
 ## 6. Remove the private channels
 
-- [ ] 6.1 Delete `appendScaleLog`, `m_scaleLogMessages`, `m_scaleLogFilePath`, `writeScaleLogToFile`, `clearScaleLog`, `shareScaleLog`, `getScaleLogPath`, the `scaleLogMessage` signal and the `mirrorToSystemLog` parameter; convert every remaining caller to a helper call.
-- [ ] 6.2 Delete the `de1LogMessage` signal and its remaining forwards in `main.cpp`.
-- [ ] 6.3 Confirm `scale_debug_log.txt` is no longer created, and that nothing reads it (including ShotServer endpoints and any data-migration payload).
-- [ ] 6.4 Build and run the full suite.
+- [x] 6.1 Delete `appendScaleLog`, `m_scaleLogMessages`, `m_scaleLogFilePath`, `writeScaleLogToFile`, `clearScaleLog`, `shareScaleLog`, `getScaleLogPath`, the `scaleLogMessage` signal and the `mirrorToSystemLog` parameter; convert every remaining caller to a helper call.
+- [x] 6.2 Delete the `de1LogMessage` signal and its remaining forwards in `main.cpp`.
+- [x] 6.3 Confirm `scale_debug_log.txt` is no longer created, and that nothing reads it (including ShotServer endpoints and any data-migration payload).
+- [x] 6.4 Build and run the full suite.
 
 ## 7. Documentation, discoverability and enforcement
 
-- [ ] 7.1 Build `debug_get_log`'s tool description from the registry so the markers and tier convention are named without being restated; include the warning that a bracketed marker is a substring, not a regex (`[Scale]` under `regex: true` is a character class matching almost every line).
-- [ ] 7.2 Write `docs/CLAUDE_MD/LOGGING.md`: marker grammar, the three tiers with guidance, how to add a helper, how to register a subsystem, and how to retrieve a subsystem's narrative from a log and over MCP. Write it as the blueprint for new logging, not as a record of this change.
-- [ ] 7.3 Add `LOGGING.md` to the reference-document table in `CLAUDE.md`.
-- [ ] 7.4 Add `scripts/check_log_markers.py`: verify every covered-subsystem logging helper applies a registered marker and that no covered call site hand-rolls a bracketed prefix. Parse the registry rather than hard-coding markers. Must run with no compiler and no Qt.
-- [ ] 7.5 Wire the check into `text-invariants.yml` (the build-free PR gate) and confirm it fails, not warns, on a deliberately broken helper.
-- [ ] 7.6 Update the wiki manual: it must ask users for the system log, not a scale log. Check for any other reference to the removed file.
+- [x] 7.1 Build `debug_get_log`'s tool description from the registry so the markers and tier convention are named without being restated; include the warning that a bracketed marker is a substring, not a regex (`[Scale]` under `regex: true` is a character class matching almost every line).
+- [x] 7.2 Write `docs/CLAUDE_MD/LOGGING.md`: marker grammar, the three tiers with guidance, how to add a helper, how to register a subsystem, and how to retrieve a subsystem's narrative from a log and over MCP. Write it as the blueprint for new logging, not as a record of this change.
+- [x] 7.3 Add `LOGGING.md` to the reference-document table in `CLAUDE.md`.
+- [x] 7.4 Add `scripts/check_log_markers.py`: verify every covered-subsystem logging helper applies a registered marker and that no covered call site hand-rolls a bracketed prefix. Parse the registry rather than hard-coding markers. Must run with no compiler and no Qt.
+- [x] 7.5 Wire the check into `text-invariants.yml` (the build-free PR gate) and confirm it fails, not warns, on a deliberately broken helper.
+- [x] 7.6 Update the wiki manual: it must ask users for the system log, not a scale log. Check for any other reference to the removed file.
 
 ## 8. Close out
 

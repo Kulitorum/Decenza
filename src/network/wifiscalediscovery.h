@@ -114,10 +114,14 @@ signals:
      */
     void browseFinished(bool ran);
 
-    // User-facing diagnostic stream — forwarded by BLEManager into the
-    // shareable scale debug log, so an mDNS-layer failure (multicast filtered
-    // by the AP, scale on the wrong SSID, captive portal) is visible in a
-    // user-shared log rather than only in a console.
+    // Required by SCALE_INFO_TAGGED/SCALE_WARN_TAGGED at the call sites inside
+    // this class's own member functions (i.e. everywhere `this` is in scope) —
+    // that macro's `emit logMessage(...)` needs the signal declared even though
+    // nothing connects to it any more. Emitting with zero connections is a legal
+    // no-op; do NOT delete this just because grep finds no `connect()` to it.
+    // (Not to be confused with the STDERR_TAGGED sites inside this file's
+    // detached QMetaObject::invokeMethod lambdas, which have no `this` and so
+    // cannot use this signal at all — see the comment above the first one.)
     void logMessage(const QString& message);
 
 private:

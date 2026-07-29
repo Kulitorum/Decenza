@@ -4,4 +4,11 @@
     <cache-path name="cache" path="." />
     <!-- External cache as fallback -->
     <external-cache-path name="external_cache" path="." />
+    <!-- debug.log lives at getExternalStoragePublicDirectory(DIRECTORY_DOCUMENTS)/
+         Decenza/logs (StorageHelper.getLogsPath()), which is neither cache root
+         above. Without this, FileProvider.getUriForFile() throws
+         IllegalArgumentException on every Share Log tap, on every device — this
+         path was added when the shared log moved under Documents; the two
+         cache roots above predate that move and were never widened. -->
+    <external-path name="external_files" path="Documents/Decenza" />
 </paths>

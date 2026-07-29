@@ -1,5 +1,6 @@
 #include "difluidr1.h"
 
+#include "../bledeviceid.h"
 #include "../protocol/de1characteristics.h"
 #include "refractometerlogging.h"
 #include "../transport/scalebletransport.h"
@@ -17,6 +18,7 @@
 #define R1_LOG(msg)  REFRACTOMETER_LOG("DiFluidR1", msg)
 #define R1_INFO(msg) REFRACTOMETER_INFO("DiFluidR1", msg)
 #define R1_WARN(msg) REFRACTOMETER_WARN("DiFluidR1", msg)
+
 
 DiFluidR1::DiFluidR1(ScaleBleTransport* transport, QObject* parent)
     : RefractometerDevice(parent)
@@ -205,9 +207,7 @@ void DiFluidR1::connectToDevice(const QBluetoothDeviceInfo& device) {
     if (nameChange) emit nameChanged();
 
     R1_LOG(QString("Connecting to %1 (%2)")
-               .arg(m_name,
-                    device.address().isNull() ? device.deviceUuid().toString()
-                                              : device.address().toString()));
+               .arg(m_name, getDeviceIdentifier(device)));
 
     m_transport->connectToDevice(device);
 }
@@ -252,19 +252,31 @@ void DiFluidR1::requestMeasurement() {
 
 // === Transport callbacks ===
 
+// The instance address is on this DEBUG line only, matching the R2. It is here
+// for the churn case — a second refractometer driver created while the first is
+// still live — and pairs with main.cpp's teardown/create lines and BLEManager's
+// "Holder: old=… new=…". main.cpp picks R1 or R2 by advertised name from one
+// handler, so churn is a property of that shared path, not of either driver: the
+// evidence has to read the same on both.
 void DiFluidR1::onTransportConnected() {
-    R1_LOG(DECENZA_BLE_MSG_TRANSPORT_CONNECTED);
+    R1_LOG(DECENZA_BLE_MSG_TRANSPORT_CONNECTED
+           + QStringLiteral(" (instance=%1)")
+                 .arg(QString::number(reinterpret_cast<quintptr>(this), 16)));
     m_phase = Phase::ServiceDiscovery;
     m_transport->discoverServices();
 }
 
+// Both read isConnected() BEFORE resetLinkState(), which returns the phase to
+// Disconnected and would make every drop look like a failed connect.
 void DiFluidR1::onTransportDisconnected() {
-    R1_INFO(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);
+    R1_INFO(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED
+            + DECENZA_BLE_MSG_INCOMPLETE_SUFFIX(isConnected()));
     resetLinkState();
 }
 
 void DiFluidR1::onTransportError(const QString& message) {
-    R1_WARN(QString("Transport error: %1").arg(message));
+    R1_WARN(QString("Transport error: %1%2")
+                .arg(message, DECENZA_BLE_MSG_INCOMPLETE_SUFFIX(isConnected())));
     resetLinkState();
 }
 
@@ -398,8 +410,16 @@ void DiFluidR1::handleMeasurementFrame(const QByteArray& ciphertext) {
         return;
     }
 
-    R1_LOG(QString("Frame ct=%1").arg(QString(ciphertext.toHex(' '))));
-    R1_LOG(QString("Frame pt=%1").arg(QString(pt.toHex(' '))));
+    // One line per reading, not three. The "Frame ct=" / "Frame pt=" hex pair
+    // that used to precede this said nothing the decoded line below does not: the
+    // plaintext IS these four values, and the ciphertext is only interpretable
+    // with the key, which is logged once at connect. They were three lines per
+    // measurement against the R2's one for the same event — the R1 reading noisier
+    // than the R2 for no reason a reader benefits from.
+    //
+    // Both failure paths above keep the hex, which is where it is actually
+    // evidence: a frame arriving before key derivation, and a decrypt that
+    // produced unparseable plaintext, both quote ct (and pt) in full.
     R1_LOG(QString("Reading: T=%1°C  Brix=%2%  RI=%3  raw=%4")
                .arg(tempC, 0, 'f', 2)
                .arg(brix, 0, 'f', 2)

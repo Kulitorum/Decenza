@@ -18,6 +18,11 @@
 // wrong (see below). A canonical form nobody can include is a canonical form in
 // name only.
 //
+// All five copies now call this. Do not write a sixth: every one of them carried
+// the comment "UUID on iOS, address on other platforms", which is the belief that
+// produced the bug below — the rule is not restatable in a comment, because it is
+// not about iOS.
+//
 // The check is at RUNTIME, on whether the backend actually gave us a MAC. It used
 // to be `#ifdef Q_OS_IOS`, which was wrong on macOS: Qt's Bluetooth backend there
 // is CoreBluetooth too, and CoreBluetooth never exposes MAC addresses. So

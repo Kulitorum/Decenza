@@ -35,6 +35,18 @@ name: Text invariants
 #     found by reading warnings out of a running app's log — a poor way to discover something
 #     a grep finds at commit time.
 #
+#   check_log_markers.py — every log line in a registered subsystem carries that subsystem's
+#     marker, applied by a helper rather than typed at the call site. The markers exist so ONE
+#     grep over a user-submitted log returns a whole subsystem's story, and that property is
+#     worth nothing unless it holds for every line: a site with its own hand-rolled prefix is
+#     invisible to the search AND the reader cannot tell it was missed, because the log looks
+#     complete. Blocking, because there is always a correct fix (call the helper) and because
+#     the failure is silent by construction. While the markers were being introduced, NINE
+#     hand-rolled prefix families were found in code already believed converted — including 40
+#     `DE1Simulator:` lines that left the connections page's DE1 view completely empty on a
+#     simulator session — and every one was found by a person reading a running app's log
+#     rather than by the tree. A grep finds them in milliseconds; guidance did not.
+#
 #   check_font_glyph_coverage.py — every non-emoji symbol in the QML has a glyph in a bundled
 #     font. A symbol that falls through to a host font is why the same screen used to measure
 #     differently on two machines. Advisory: it reports, and does not fail the job, because the
@@ -49,6 +61,7 @@ on:
   pull_request:
     paths:
       - 'qml/**'
+      - 'src/**'
       - 'scripts/check_*.py'
       - 'resources/fonts/**'
       - '.github/workflows/text-invariants.yml'
@@ -56,6 +69,7 @@ on:
     branches: [main]
     paths:
       - 'qml/**'
+      - 'src/**'
       - 'scripts/check_*.py'
       - 'resources/fonts/**'
       - '.github/workflows/text-invariants.yml'
@@ -86,6 +100,11 @@ jobs:
       # correct fix.
       - name: No hardcoded font.family literals in QML
         run: python3 scripts/check_font_family_literals.py
+
+      # Blocking: an unmarked log line is invisible to the search the markers exist for, and
+      # nothing in a log reveals that a line is missing from it.
+      - name: Subsystem log lines carry a registered marker
+        run: python3 scripts/check_log_markers.py
 
       # Advisory by the `|| true`, not by the script: it exits non-zero for any uncovered glyph
       # outside AddLanguagePage, which it already exempts. Non-blocking because bundling another

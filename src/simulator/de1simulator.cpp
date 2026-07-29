@@ -4,12 +4,31 @@
 #ifdef DECENZA_SIMULATOR
 
 #include "de1simulator.h"
+#include "ble/de1logging.h"
 #include <QDebug>
 #include <QDateTime>
 #include <QtMath>
 #include <QRandomGenerator>
 #include <algorithm>
 #include <numeric>
+
+// Alias the shared DE1 helpers — never copy a body. The simulator IS the machine
+// as far as the rest of the app is concerned, so its story belongs under [DE1]
+// beside the real one; the "Simulator" tag is what distinguishes them.
+//
+// These were 37 bare `qDebug() << "DE1Simulator: ..."` lines: a hand-rolled prefix
+// no registered marker matched, every one of them at DEBUG. The consequence was
+// found by looking at the app rather than the code — with the connections page's
+// DE1 view filtering [DE1] at INFO and above, a session running on the simulator
+// showed an ENTIRELY EMPTY DE1 log. Nothing else fills it in simulator mode either:
+// BLE is disabled, so BLEManager's scan/permission/"Found DE1" lines never fire.
+// The machine that the whole page is about was the one thing it could not report.
+//
+// STDERR variants because DE1Simulator has no logMessage signal. It needs none —
+// the marker is what makes these findable, in the view and in a submitted log.
+#define SIM_LOG(msg)  DE1_LOG_STDERR_TAGGED("Simulator", msg)
+#define SIM_INFO(msg) DE1_INFO_STDERR_TAGGED("Simulator", msg)
+#define SIM_WARN(msg) DE1_WARN_STDERR_TAGGED("Simulator", msg)
 
 DE1Simulator::DE1Simulator(QObject* parent)
     : QObject(parent)
@@ -113,14 +132,14 @@ double DE1Simulator::channelNoise(double time)
 void DE1Simulator::setProfile(const Profile& profile)
 {
     m_profile = profile;
-    qDebug() << "DE1Simulator: Profile set:" << profile.title()
-             << "with" << profile.steps().size() << "frames";
+    SIM_INFO(QStringLiteral("Profile set: %1 (%2 frames)")
+                 .arg(profile.title()).arg(profile.steps().size()));
 }
 
 void DE1Simulator::setDose(double grams)
 {
     m_dose = qBound(10.0, grams, 25.0);  // Reasonable dose range
-    qDebug() << "DE1Simulator: Dose set to" << m_dose << "g";
+    SIM_INFO(QStringLiteral("Dose set to %1 g").arg(m_dose, 0, 'f', 1));
 }
 
 void DE1Simulator::setGrindSetting(const QString& setting)
@@ -133,12 +152,23 @@ void DE1Simulator::setGrindSetting(const QString& setting)
         // grindFactor = reference / actual, so lower setting = higher factor
         // Clamp to reasonable range (0.5x to 3x resistance)
         m_grindFactor = qBound(0.5, REFERENCE_GRIND / grindValue, 3.0);
-        qDebug() << "DE1Simulator: Grind setting" << setting
-                 << "-> factor" << m_grindFactor;
-    } else {
-        // Can't parse or invalid - use neutral
+        SIM_LOG(QStringLiteral("Grind setting %1 -> factor %2")
+                    .arg(setting).arg(m_grindFactor, 0, 'f', 3));
+    } else if (setting.isEmpty()) {
+        // The default. dyeGrinderSetting is free text and starts empty, and
+        // main.cpp calls setGrindSetting() unconditionally during simulator init,
+        // so this is the expected path on a fresh profile — nothing is wrong.
+        // It was briefly a WARN, which put a false alarm in the [DE1] view at every
+        // simulator launch, in the very view this change exists to make readable.
         m_grindFactor = 1.0;
-        qDebug() << "DE1Simulator: Grind setting not parseable, using factor 1.0";
+        SIM_LOG(QStringLiteral("No grind setting, using neutral factor 1.0"));
+    } else {
+        // Non-empty and still not a number — "medium-fine", "3 clicks". Also not
+        // wrong (the field is free text by design), so it stays off the WARN tier;
+        // worth a line because it explains why the simulator ignored what you typed.
+        m_grindFactor = 1.0;
+        SIM_LOG(QStringLiteral("Grind setting \"%1\" is not numeric, using neutral "
+                               "factor 1.0").arg(setting));
     }
 }
 
@@ -151,11 +181,11 @@ void DE1Simulator::setState(DE1::State state, DE1::SubState subState)
     m_subState = subState;
 
     if (stateChanged) {
-        qDebug() << "DE1Simulator: State ->" << DE1::stateToString(state);
+        SIM_INFO(QStringLiteral("State -> %1").arg(DE1::stateToString(state)));
         emit this->stateChanged();
     }
     if (subStateChanged) {
-        qDebug() << "DE1Simulator: SubState ->" << DE1::subStateToString(subState);
+        SIM_LOG(QStringLiteral("SubState -> %1").arg(DE1::subStateToString(subState)));
         emit this->subStateChanged();
     }
 }
@@ -167,11 +197,12 @@ void DE1Simulator::startEspresso()
     }
 
     if (m_state != DE1::State::Idle) {
-        qDebug() << "DE1Simulator: Cannot start espresso, not idle";
+        SIM_WARN(QStringLiteral("Cannot start espresso — machine is not idle (state %1)")
+                     .arg(DE1::stateToString(m_state)));
         return;
     }
 
-    qDebug() << "DE1Simulator: Starting espresso";
+    SIM_INFO(QStringLiteral("Starting espresso"));
 
     // Reset shot state
     m_currentFrameIndex = 0;
@@ -215,7 +246,7 @@ void DE1Simulator::startEspresso()
 void DE1Simulator::startSteam()
 {
     if (m_state == DE1::State::Sleep) wakeUp();
-    qDebug() << "DE1Simulator: Starting steam";
+    SIM_INFO(QStringLiteral("Starting steam"));
     startOperation(DE1::State::Steam);
     setState(DE1::State::Steam, DE1::SubState::Pouring);
 }
@@ -230,7 +261,8 @@ void DE1Simulator::setTargetSteamTemp(double targetC)
     double newSteamTemp = (targetC <= 0.0) ? kAmbientC : targetC;
     if (qFuzzyCompare(newSteamTemp, m_steamTemp)) return;
     m_steamTemp = newSteamTemp;
-    qDebug() << "DE1Simulator: target steam temp=" << targetC << "C -> m_steamTemp=" << m_steamTemp;
+    SIM_LOG(QStringLiteral("Target steam temp %1C -> simulated %2C")
+                .arg(targetC, 0, 'f', 1).arg(m_steamTemp, 0, 'f', 1));
     // Only emit when idle — during active steam, the tick loop is already
     // producing real shot samples at 5Hz and we'd inject a zero-pressure /
     // zero-flow sample into the steam graph. The +5s/-5s buttons route
@@ -244,7 +276,7 @@ void DE1Simulator::setTargetSteamTemp(double targetC)
 void DE1Simulator::startHotWater()
 {
     if (m_state == DE1::State::Sleep) wakeUp();
-    qDebug() << "DE1Simulator: Starting hot water";
+    SIM_INFO(QStringLiteral("Starting hot water"));
     resetYield();
     startOperation(DE1::State::HotWater);
     setState(DE1::State::HotWater, DE1::SubState::Pouring);
@@ -253,7 +285,7 @@ void DE1Simulator::startHotWater()
 void DE1Simulator::startFlush()
 {
     if (m_state == DE1::State::Sleep) wakeUp();
-    qDebug() << "DE1Simulator: Starting flush";
+    SIM_INFO(QStringLiteral("Starting flush"));
     resetYield();
     startOperation(DE1::State::HotWaterRinse);
     setState(DE1::State::HotWaterRinse, DE1::SubState::Pouring);
@@ -277,7 +309,7 @@ void DE1Simulator::resetYield()
 void DE1Simulator::startDescale()
 {
     if (m_state == DE1::State::Sleep) wakeUp();
-    qDebug() << "DE1Simulator: Starting descale";
+    SIM_INFO(QStringLiteral("Starting descale"));
     m_descaleStep = 8;  // DescaleInit
     m_descaleStepStart = 0.0;
     startOperation(DE1::State::Descale);
@@ -287,7 +319,7 @@ void DE1Simulator::startDescale()
 void DE1Simulator::startClean()
 {
     if (m_state == DE1::State::Sleep) wakeUp();
-    qDebug() << "DE1Simulator: Starting clean";
+    SIM_INFO(QStringLiteral("Starting clean"));
     m_descaleStep = 13;  // CleanInit (clean substates are 13-16)
     m_descaleStepStart = 0.0;
     startOperation(DE1::State::Clean);
@@ -297,7 +329,7 @@ void DE1Simulator::startClean()
 void DE1Simulator::startAirPurge()
 {
     if (m_state == DE1::State::Sleep) wakeUp();
-    qDebug() << "DE1Simulator: Starting air purge (transport mode)";
+    SIM_INFO(QStringLiteral("Starting air purge (transport mode)"));
     m_descaleStepStart = 0.0;  // reused as the air-purge start marker
     startOperation(DE1::State::AirPurge);
     setState(DE1::State::AirPurge, DE1::SubState::Ready);  // no dedicated air-purge substate
@@ -305,7 +337,7 @@ void DE1Simulator::startAirPurge()
 
 void DE1Simulator::stop()
 {
-    qDebug() << "DE1Simulator: Stop requested";
+    SIM_INFO(QStringLiteral("Stop requested"));
     stopOperation();
 }
 
@@ -313,11 +345,11 @@ void DE1Simulator::skipFrame()
 {
     if (m_state != DE1::State::Espresso ||
         (m_subState != DE1::SubState::Preinfusion && m_subState != DE1::SubState::Pouring)) {
-        qDebug() << "DE1Simulator: skipFrame ignored (state=" << static_cast<int>(m_state)
-                 << "subState=" << static_cast<int>(m_subState) << ")";
+        SIM_WARN(QStringLiteral("Skip frame ignored — not pouring (state %1, subState %2)")
+                     .arg(DE1::stateToString(m_state), DE1::subStateToString(m_subState)));
         return;
     }
-    qDebug() << "DE1Simulator: skipFrame requested at frame" << m_currentFrameIndex;
+    SIM_INFO(QStringLiteral("Skip frame requested at frame %1").arg(m_currentFrameIndex));
     advanceToNextFrame();
 }
 
@@ -332,7 +364,7 @@ void DE1Simulator::goToSleep()
 void DE1Simulator::wakeUp()
 {
     if (m_state == DE1::State::Sleep) {
-        qDebug() << "DE1Simulator: Waking up";
+        SIM_INFO(QStringLiteral("Waking up"));
         // Machine heats up when waking - simulate already heated state
         // (real machine would go through Heating phase, but for UX we skip that)
         m_groupTemp = 93.0;
@@ -414,10 +446,10 @@ void DE1Simulator::onSimulationTimerTick()
                 m_descaleStep++;
                 m_descaleStepStart = elapsed;
                 setState(m_state, static_cast<DE1::SubState>(m_descaleStep));
-                qDebug() << "DE1Simulator: Descale/clean step" << m_descaleStep;
+                SIM_LOG(QStringLiteral("Descale/clean step %1").arg(m_descaleStep));
             } else {
                 // All steps complete
-                qDebug() << "DE1Simulator: Descale/clean complete";
+                SIM_INFO(QStringLiteral("Descale/clean complete"));
                 stopOperation();
                 return;
             }
@@ -432,7 +464,7 @@ void DE1Simulator::onSimulationTimerTick()
         // short fixed duration for testing (m_descaleStepStart is the start).
         static constexpr double AIRPURGE_DURATION = 12.0;  // seconds
         if (elapsed - m_descaleStepStart >= AIRPURGE_DURATION) {
-            qDebug() << "DE1Simulator: Air purge complete";
+            SIM_INFO(QStringLiteral("Air purge complete"));
             stopOperation();
             return;
         }
@@ -475,7 +507,7 @@ void DE1Simulator::onSimulationTimerTick()
 void DE1Simulator::executeFrame()
 {
     if (m_profile.steps().isEmpty()) {
-        qDebug() << "DE1Simulator: No profile frames!";
+        SIM_WARN(QStringLiteral("No profile frames — nothing to run"));
         stopOperation();
         return;
     }
@@ -544,8 +576,8 @@ void DE1Simulator::executeFrame()
             m_valveOpen = true;
             m_frameStartTime = shotTime;
             m_waterInPuck = true;
-            qDebug() << "DE1Simulator: Valve opening, pressure=" << m_plumbingPressure
-                     << "bar, releasing into puck";
+            SIM_LOG(QStringLiteral("Valve opening at %1 bar, releasing into puck")
+                        .arg(m_plumbingPressure, 0, 'f', 2));
 
             if (m_profile.preinfuseFrameCount() > 0) {
                 setState(DE1::State::Espresso, DE1::SubState::Preinfusion);
@@ -558,7 +590,7 @@ void DE1Simulator::executeFrame()
 
     // ========== EXTRACTION PHASE ==========
     if (m_currentFrameIndex >= m_profile.steps().size()) {
-        qDebug() << "DE1Simulator: Shot complete (all frames done)";
+        SIM_INFO(QStringLiteral("Shot complete (all frames done)"));
         m_endingStartTime = m_shotTimer.elapsed() / 1000.0;
         setState(DE1::State::Espresso, DE1::SubState::Ending);
         return;  // executeEnding() will handle pressure decay
@@ -675,7 +707,7 @@ void DE1Simulator::executeFrame()
     // ========== YIELD (SCALE WEIGHT) ==========
     if (!m_puckFilled && m_totalVolume >= PUCK_FILL_VOLUME) {
         m_puckFilled = true;
-        qDebug() << "DE1Simulator: Puck saturated, coffee starting to drip";
+        SIM_LOG(QStringLiteral("Puck saturated, coffee starting to drip"));
     }
 
     if (m_puckFilled) {
@@ -732,14 +764,15 @@ void DE1Simulator::executeFrame()
     // poured its entire yield through the ramp-in step at the pour flow rate and
     // never reached Flow Extraction, which is where the doubled rate lives.
     if (frameTime >= frame.seconds) {
-        qDebug() << "DE1Simulator: Frame" << m_currentFrameIndex
-                 << (frame.seconds > 0 ? "timeout" : "skipped (zero length)");
+        SIM_LOG(QStringLiteral("Frame %1 %2").arg(m_currentFrameIndex)
+                    .arg(frame.seconds > 0 ? QStringLiteral("timeout")
+                                           : QStringLiteral("skipped (zero length)")));
         advanceToNextFrame();
         return;
     }
 
     if (frame.volume > 0 && m_frameVolume >= frame.volume) {
-        qDebug() << "DE1Simulator: Frame" << m_currentFrameIndex << "volume reached";
+        SIM_LOG(QStringLiteral("Frame %1 volume reached").arg(m_currentFrameIndex));
         advanceToNextFrame();
         return;
     }
@@ -793,10 +826,10 @@ void DE1Simulator::executeEnding(double dt)
     // End simulation when pressure has fully bled off or timeout reached
     double endingTime = shotTime - m_endingStartTime;
     if (m_pressure < MIN_ENDING_PRESSURE) {
-        qDebug() << "DE1Simulator: Pressure bled off, shot complete";
+        SIM_INFO(QStringLiteral("Pressure bled off, shot complete"));
         stopOperation();
     } else if (endingTime > MAX_ENDING_TIME) {
-        qDebug() << "DE1Simulator: Ending timeout, shot complete";
+        SIM_INFO(QStringLiteral("Ending timeout, shot complete"));
         stopOperation();
     }
 }
@@ -806,19 +839,23 @@ bool DE1Simulator::checkExitCondition(const ProfileFrame& frame)
     if (!frame.exitIf) return false;
 
     if (frame.exitType == "pressure_over" && m_pressure > frame.exitPressureOver) {
-        qDebug() << "DE1Simulator: Exit condition - pressure over" << frame.exitPressureOver;
+        SIM_LOG(QStringLiteral("Exit condition: pressure over %1")
+                    .arg(frame.exitPressureOver, 0, 'f', 2));
         return true;
     }
     if (frame.exitType == "pressure_under" && m_pressure < frame.exitPressureUnder && m_pressure > 0.5) {
-        qDebug() << "DE1Simulator: Exit condition - pressure under" << frame.exitPressureUnder;
+        SIM_LOG(QStringLiteral("Exit condition: pressure under %1")
+                    .arg(frame.exitPressureUnder, 0, 'f', 2));
         return true;
     }
     if (frame.exitType == "flow_over" && m_flow > frame.exitFlowOver) {
-        qDebug() << "DE1Simulator: Exit condition - flow over" << frame.exitFlowOver;
+        SIM_LOG(QStringLiteral("Exit condition: flow over %1")
+                    .arg(frame.exitFlowOver, 0, 'f', 2));
         return true;
     }
     if (frame.exitType == "flow_under" && m_flow < frame.exitFlowUnder && m_flow > 0.1) {
-        qDebug() << "DE1Simulator: Exit condition - flow under" << frame.exitFlowUnder;
+        SIM_LOG(QStringLiteral("Exit condition: flow under %1")
+                    .arg(frame.exitFlowUnder, 0, 'f', 2));
         return true;
     }
 
@@ -836,19 +873,21 @@ void DE1Simulator::advanceToNextFrame()
     m_frameStartTime = m_shotTimer.elapsed() / 1000.0;
     m_frameVolume = 0.0;
 
-    qDebug() << "DE1Simulator: Frame" << prevFrame << "ended after" << actualTime
-             << "sec (expected:" << prevFrameDuration << "sec)";
+    SIM_LOG(QStringLiteral("Frame %1 ended after %2 s (expected %3 s)")
+                .arg(prevFrame).arg(actualTime, 0, 'f', 1).arg(prevFrameDuration, 0, 'f', 1));
 
     if (m_currentFrameIndex >= m_profile.steps().size()) {
-        qDebug() << "DE1Simulator: All" << m_profile.steps().size() << "frames complete, entering Ending";
+        SIM_LOG(QStringLiteral("All %1 frames complete, entering Ending")
+                    .arg(m_profile.steps().size()));
         m_endingStartTime = m_shotTimer.elapsed() / 1000.0;
         setState(DE1::State::Espresso, DE1::SubState::Ending);
         return;  // executeEnding() will handle pressure decay
     }
 
     const auto& nextFrame = m_profile.steps()[m_currentFrameIndex];
-    qDebug() << "DE1Simulator: Starting frame" << m_currentFrameIndex
-             << "-" << nextFrame.name << "(duration:" << nextFrame.seconds << "sec)";
+    SIM_LOG(QStringLiteral("Starting frame %1 - %2 (duration %3 s)")
+                .arg(m_currentFrameIndex).arg(nextFrame.name)
+                .arg(nextFrame.seconds, 0, 'f', 1));
 
     if (m_currentFrameIndex < m_profile.preinfuseFrameCount()) {
         setState(DE1::State::Espresso, DE1::SubState::Preinfusion);

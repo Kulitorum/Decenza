@@ -75,6 +75,13 @@ void ShotHistoryStorage::runOnDbThread(std::function<void()> task)
     m_dbWorker->post(std::move(task));
 }
 
+bool ShotHistoryStorage::isDbWorkIdle() const
+{
+    // No worker means nothing was ever posted, which is idle by definition — the
+    // worker is created lazily on first use (runOnDbThread).
+    return !m_dbWorker || m_dbWorker->isIdle();
+}
+
 void ShotHistoryStorage::close()
 {
     if (m_db.isOpen()) {

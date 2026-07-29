@@ -6,6 +6,7 @@
 #include "../controllers/profilemanager.h"
 #include "../history/shothistorystorage.h"
 #include "../history/bagid.h"
+#include "../core/logtags.h"
 #include "../core/memorymonitor.h"
 #include "../core/settings.h"
 #include "../core/settings_dye.h"
@@ -345,6 +346,39 @@ static void appendLogFields(QJsonObject& result, const QList<McpLogFilter::LineM
 
 void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
 {
+    // The subsystem-marker paragraph, BUILT FROM THE REGISTRY (core/logtags.h) rather
+    // than restated here.
+    //
+    // This matters more than it looks. The whole point of the markers is that an
+    // assistant reading a user's log can retrieve one subsystem's story with one
+    // query — and it can only do that if this description names the markers that
+    // exist. A hand-written list here would be a second copy free to drift, and the
+    // failure mode is invisible: a marker the description omits is a marker the
+    // assistant never tries, so the story simply looks absent.
+    QString markerHelp =
+        QStringLiteral("\n\nSUBSYSTEM MARKERS. Device and radio log lines begin with a "
+                       "bracketed subsystem marker, then optionally their own source "
+                       "(\"[Scale][BLE AcaiaScale] tare sent\"). Pass one as `filter` to "
+                       "retrieve that subsystem's whole narrative. Registered markers:");
+    for (const DecenzaLog::Subsystem& sub : DecenzaLog::subsystems()) {
+        markerHelp += QStringLiteral("\n  %1 — %2")
+                          .arg(DecenzaLog::markerFilter(sub.marker), QLatin1String(sub.description));
+    }
+    markerHelp += QStringLiteral(
+        "\n\nA bracketed marker is a SUBSTRING, not a pattern: pass it with `regex` "
+        "false/absent. Under `regex: true`, \"[Scale]\" is a character class matching "
+        "any line containing S, c, a, l or e — i.e. almost every line — which looks "
+        "like a working query returning everything.\n\n"
+        "Severity carries audience, so `minLevel: \"INFO\"` plus a marker is the "
+        "user-facing story for that subsystem and nothing else: DEBUG is developer "
+        "detail (protocol frames, per-poll state), INFO is the narrative a user may "
+        "need (lifecycle, discovery outcomes, connect/disconnect, fallback), WARN and "
+        "above are problems. That pairing is the same predicate the app's own "
+        "connections page uses, so these lines are the ones a user can read on "
+        "screen — but the page shows only the current session and only its last few "
+        "hundred lines, while you are addressing the whole file. Expect to see more "
+        "than the user does, not less.");
+
     // debug_get_log — chunked access to the persisted debug log with session awareness
     registry->registerTool(
         "debug_get_log",
@@ -358,7 +392,8 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
         "identical apart from each line's own leading timestamp into one entry carrying `count` "
         "and `lastLine` (non-consecutive repeats are not collapsed). `tail` (last N qualifying/"
         "deduped entries) takes precedence over `offset` when both are given. Every returned line "
-        "carries its absolute line number in the `lines` array.",
+        "carries its absolute line number in the `lines` array."
+        + markerHelp,
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{

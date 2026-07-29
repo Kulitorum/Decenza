@@ -92,9 +92,17 @@ private:
 
     QLowEnergyController* m_controller = nullptr;
     QMap<QBluetoothUuid, QLowEnergyService*> m_services;
-    QString m_deviceAddress;
     QString m_deviceName;
-    QString m_deviceId;  // UUID on iOS, address on other platforms - for duplicate detection
+    // Canonical identity from getDeviceIdentifier() (ble/bledeviceid.h), used for
+    // duplicate-connect detection. The comment here used to say "UUID on iOS,
+    // address on other platforms", which is the belief that caused the macOS
+    // null-address bug — macOS is CoreBluetooth too and exposes no MAC either.
+    // Ask the shared helper, do not restate the rule.
+    //
+    // An `m_deviceAddress` sat beside this holding a bare `address().toString()`,
+    // i.e. the unguarded form. It was written on every connect and read nowhere,
+    // so it was a live copy of the bug waiting for its first reader; deleted.
+    QString m_deviceId;
     bool m_connected = false;
     // True from EspressoPreheating through shot end (fed by MachineState in
     // main.cpp). Gates triggerScaleBackoff(): defer the teardown while a shot

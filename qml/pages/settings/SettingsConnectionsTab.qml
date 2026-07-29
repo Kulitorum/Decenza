@@ -199,8 +199,12 @@ Item {
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
                         onClicked: {
+                            // The SYSTEM log, not the scale log. Users have been
+                            // asked for the system log for a while now, and the
+                            // scale-only file was a subset that omitted the DE1 and
+                            // everything else that ran alongside the failure.
                             shareLogDialog.close()
-                            BLEManager.shareScaleLog()
+                            BLEManager.shareSystemLog()
                         }
                     }
                 }
@@ -622,58 +626,30 @@ Item {
                         onClicked: USBManager.disconnectUsb()
                     }
 
-                    // USB-C connection log
-                    Rectangle {
+                    // USB-C connection log. Reads [DE1] out of the system log, exactly
+                    // like the BLE branch below — this panel and that one are the same
+                    // machine, reached over a different wire, so they must not disagree
+                    // about what happened to it.
+                    //
+                    // This replaced two hand-rolled `Connections` handlers appending to
+                    // an uncapped `text +=`, and one of them had gone dead: it listened
+                    // for BLEManager's `de1LogMessage`, which this change deleted. QML
+                    // resolves signal handlers at runtime, so nothing failed at build
+                    // time and the panel simply stopped showing DE1Device and
+                    // SerialTransport lines — including this change's own new inbound
+                    // stall warning, on the one screen a user with a silent USB machine
+                    // would be looking at. Reading the log by marker cannot rot that
+                    // way: there is no per-signal wiring left to go stale.
+                    //
+                    // [Bluetooth] rides along because the radio sits beneath the whole
+                    // page. A machine on USB does not need it, but the scale paired in
+                    // the panel below does, and an adapter that is off or wedged is a
+                    // fault neither device's marker reports.
+                    SubsystemLogView {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        color: Qt.darker(Theme.cardBackgroundColor, 1.2)
-                        radius: Theme.scaled(4)
-
-                        ScrollView {
-                            id: usbLogScroll
-                            anchors.fill: parent
-                            anchors.margins: Theme.scaled(8)
-                            clip: true
-
-                            TextArea {
-                                id: usbLogText
-                                readOnly: true
-                                color: Theme.textSecondaryColor
-                                font.pixelSize: Theme.scaled(11)
-                                font.family: Theme.monoFontFamily
-                                wrapMode: Text.Wrap
-                                background: null
-                                text: ""
-
-                                Accessible.role: Accessible.EditableText
-                                Accessible.name: TranslationManager.translate("settings.connections.usbLog", "USB connection log")
-                                Accessible.description: Theme.capAccessibleText(text)
-                                Accessible.focusable: true
-                                activeFocusOnTab: true
-                            }
-                        }
-
-                        Connections {
-                            target: connectionsTab.usbAvailable ? USBManager : null
-                            function onLogMessage(message) {
-                                usbLogText.text += message + "\n"
-                                usbLogScroll.ScrollBar.vertical.position = 1.0 - usbLogScroll.ScrollBar.vertical.size
-                            }
-                        }
-
-                        // Also show DE1 transport logs in the USB log panel. TX only —
-                        // the per-frame RX line was removed (~20/s, ~600 per shot, and
-                        // this panel is an uncapped `text +=`), so this no longer pairs
-                        // request with response. Anomalous frames still appear
-                        // ("RX unknown", "RX unknown letter"). See serialtransport.cpp.
-                        Connections {
-                            target: BLEManager
-                            enabled: connectionsTab.usbAvailable && USBManager.de1Connected
-                            function onDe1LogMessage(message) {
-                                usbLogText.text += message + "\n"
-                                usbLogScroll.ScrollBar.vertical.position = 1.0 - usbLogScroll.ScrollBar.vertical.size
-                            }
-                        }
+                        markers: ["[DE1]", "[Bluetooth]"]
+                        accessibleName: TranslationManager.translate("settings.connections.usbLog", "USB connection log")
                     }
                 }
 
@@ -831,44 +807,25 @@ Item {
                         }
                     }
 
-                    // DE1 scan log
-                    Rectangle {
+                    // DE1 connection log — the machine's story at INFO and above,
+                    // read from the system log rather than from a private signal.
+                    //
+                    // This used to follow BLEManager::de1LogMessage, which reached
+                    // ONLY this window: none of it was in a submitted log, so the
+                    // machine's discovery story could not be read after the fact.
+                    // Now the same [DE1] lines a user's log contains are the ones on
+                    // screen, and the view gains the two things it never had — a cap
+                    // and a Clear button.
+                    // [Bluetooth] is here because the radio sits BENEATH the machine:
+                    // when the adapter is off or wedged the DE1 cannot connect, and
+                    // that fault carries neither device's marker. Without it this view
+                    // says "the machine never appeared" and cannot say why — the one
+                    // answer a log reader must never be given.
+                    SubsystemLogView {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        color: Qt.darker(Theme.surfaceColor, 1.2)
-                        radius: Theme.scaled(4)
-
-                        ScrollView {
-                            id: de1LogScroll
-                            anchors.fill: parent
-                            anchors.margins: Theme.scaled(8)
-                            clip: true
-
-                            TextArea {
-                                id: de1LogText
-                                readOnly: true
-                                color: Theme.textSecondaryColor
-                                font.pixelSize: Theme.scaled(11)
-                                font.family: Theme.monoFontFamily
-                                wrapMode: Text.Wrap
-                                background: null
-                                text: ""
-
-                                Accessible.role: Accessible.EditableText
-                                Accessible.name: TranslationManager.translate("settings.connections.de1Log", "DE1 connection log")
-                                Accessible.description: Theme.capAccessibleText(text)
-                                Accessible.focusable: true
-                                activeFocusOnTab: true
-                            }
-                        }
-
-                        Connections {
-                            target: BLEManager
-                            function onDe1LogMessage(message) {
-                                de1LogText.text += message + "\n"
-                                de1LogScroll.ScrollBar.vertical.position = 1.0 - de1LogScroll.ScrollBar.vertical.size
-                            }
-                        }
+                        markers: ["[DE1]", "[Bluetooth]"]
+                        accessibleName: TranslationManager.translate("settings.connections.de1Log", "DE1 connection log")
                     }
                 }
 
@@ -1864,72 +1821,24 @@ Item {
                         }
                     }
 
-                    // Scale scan log
-                    Rectangle {
+                    // Scale connection log, at INFO and above.
+                    //
+                    // Matches [Refractometer] as well as [Scale]. They are separate
+                    // subsystems for QUERYING — a TDS problem and a weight problem
+                    // are different questions — but they share this screen, so the
+                    // view asks for both. That is the whole reason the filter takes a
+                    // list rather than one marker.
+                    //
+                    // [Bluetooth] joins them for the same reason it appears on the
+                    // machine panel: the adapter is beneath every device paired here,
+                    // and "the scale never appeared" with no radio line is a dead end.
+                    SubsystemLogView {
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.scaled(150)
-                        color: Qt.darker(Theme.surfaceColor, 1.2)
-                        radius: Theme.scaled(4)
-
-                        ColumnLayout {
-                            anchors.fill: parent
-                            anchors.margins: Theme.scaled(8)
-                            spacing: Theme.scaled(4)
-
-                            ScrollView {
-                                id: scaleLogScroll
-                                Layout.fillWidth: true
-                                Layout.fillHeight: true
-                                clip: true
-
-                                TextArea {
-                                    id: scaleLogText
-                                    readOnly: true
-                                    color: Theme.textSecondaryColor
-                                    font.pixelSize: Theme.scaled(11)
-                                    font.family: Theme.monoFontFamily
-                                    wrapMode: Text.Wrap
-                                    background: null
-                                    text: ""
-
-                                    Accessible.role: Accessible.EditableText
-                                    Accessible.name: TranslationManager.translate("settings.connections.bleScaleLog", "Bluetooth scale connection log")
-                                    Accessible.description: Theme.capAccessibleText(text)
-                                    Accessible.focusable: true
-                                    activeFocusOnTab: true
-                                }
-                            }
-
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: Theme.scaled(8)
-
-                                Item { Layout.fillWidth: true }
-
-                                AccessibleButton {
-                                    text: TranslationManager.translate("settings.bluetooth.clearLog", "Clear")
-                                    accessibleName: TranslationManager.translate("connections.clearScaleLog", "Clear scale log")
-                                    onClicked: {
-                                        scaleLogText.text = ""
-                                        BLEManager.clearScaleLog()
-                                    }
-                                }
-
-                                AccessibleButton {
-                                    text: TranslationManager.translate("settings.bluetooth.shareLog", "Share Log")
-                                    accessibleName: TranslationManager.translate("connections.shareScaleDebugLog", "Share scale debug log")
-                                    onClicked: shareLogDialog.open()
-                                }
-                            }
-                        }
-
-                        Connections {
-                            target: BLEManager
-                            function onScaleLogMessage(message) {
-                                scaleLogText.text += message + "\n"
-                                scaleLogScroll.ScrollBar.vertical.position = 1.0 - scaleLogScroll.ScrollBar.vertical.size
-                            }
-                        }
+                        markers: ["[Scale]", "[Refractometer]", "[Bluetooth]"]
+                        showShare: true
+                        accessibleName: TranslationManager.translate("settings.connections.bleScaleLog", "Bluetooth scale connection log")
+                        onShareRequested: shareLogDialog.open()
                     }
                 }
 

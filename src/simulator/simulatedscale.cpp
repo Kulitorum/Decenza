@@ -4,8 +4,22 @@
 #ifdef DECENZA_SIMULATOR
 
 #include "simulatedscale.h"
+#include "ble/scales/scalelogging.h"
 #include <QDebug>
 #include <QDateTime>
+
+// Alias the shared scale helpers — never copy a body. Same reasoning as
+// de1simulator.cpp: the simulated scale IS the scale as far as the app is
+// concerned, so it belongs under [Scale] beside the real drivers, with
+// "Simulator" naming which one it is. These were three bare
+// `qDebug() << "SimulatedScale: ..."` lines that no [Scale] search returned, so a
+// sim session's scale view showed connects and tares from real hardware and
+// nothing from the scale it was actually using.
+//
+// STDERR variants: ScaleDevice has a logMessage signal, but these three fire from
+// contexts where the paired-emit adds nothing the marker does not already give.
+#define SIMSCALE_INFO(msg) SCALE_INFO_STDERR_TAGGED("Simulator", msg)
+#define SIMSCALE_LOG(msg)  SCALE_LOG_STDERR_TAGGED("Simulator", msg)
 
 SimulatedScale::SimulatedScale(QObject* parent)
     : ScaleDevice(parent)
@@ -18,12 +32,20 @@ void SimulatedScale::connectToDevice(const QBluetoothDeviceInfo& device) {
 }
 
 void SimulatedScale::simulateConnection() {
-    qDebug() << "SimulatedScale: Connected";
+    SIMSCALE_INFO(QStringLiteral("Simulated scale connected"));
     setConnected(true);
 }
 
 void SimulatedScale::simulateDisconnection() {
-    qDebug() << "SimulatedScale: Disconnected";
+    // Only report a disconnect that actually disconnected something. This is called
+    // unconditionally when the simulated-scale setting is applied at startup, so
+    // with the feature OFF it announced "Simulated scale disconnected" at INFO for a
+    // scale that had never connected — seen in a real log directly beneath the real
+    // scale's CONNECTED line, where it reads as the app having just lost a scale.
+    // Same defect class as the DE1's unconditional DISCONNECTED.
+    if (isConnected()) {
+        SIMSCALE_INFO(QStringLiteral("Simulated scale disconnected"));
+    }
     m_lastTime = 0;
     setConnected(false);
 }
@@ -34,7 +56,7 @@ void SimulatedScale::tare() {
     m_lastTime = 0;
     setWeight(0.0);
     setFlowRate(0.0);
-    qDebug() << "SimulatedScale: Tared at" << m_tareOffset << "g";
+    SIMSCALE_LOG(QStringLiteral("Tared at %1 g").arg(m_tareOffset, 0, 'f', 2));
 }
 
 void SimulatedScale::setSimulatedWeight(double weight) {
