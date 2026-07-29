@@ -199,8 +199,12 @@ Item {
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
                         onClicked: {
+                            // The SYSTEM log, not the scale log. Users have been
+                            // asked for the system log for a while now, and the
+                            // scale-only file was a subset that omitted the DE1 and
+                            // everything else that ran alongside the failure.
                             shareLogDialog.close()
-                            BLEManager.shareScaleLog()
+                            BLEManager.shareSystemLog()
                         }
                     }
                 }
@@ -831,44 +835,20 @@ Item {
                         }
                     }
 
-                    // DE1 scan log
-                    Rectangle {
+                    // DE1 connection log — the machine's story at INFO and above,
+                    // read from the system log rather than from a private signal.
+                    //
+                    // This used to follow BLEManager::de1LogMessage, which reached
+                    // ONLY this window: none of it was in a submitted log, so the
+                    // machine's discovery story could not be read after the fact.
+                    // Now the same [DE1] lines a user's log contains are the ones on
+                    // screen, and the view gains the two things it never had — a cap
+                    // and a Clear button.
+                    SubsystemLogView {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        color: Qt.darker(Theme.surfaceColor, 1.2)
-                        radius: Theme.scaled(4)
-
-                        ScrollView {
-                            id: de1LogScroll
-                            anchors.fill: parent
-                            anchors.margins: Theme.scaled(8)
-                            clip: true
-
-                            TextArea {
-                                id: de1LogText
-                                readOnly: true
-                                color: Theme.textSecondaryColor
-                                font.pixelSize: Theme.scaled(11)
-                                font.family: Theme.monoFontFamily
-                                wrapMode: Text.Wrap
-                                background: null
-                                text: ""
-
-                                Accessible.role: Accessible.EditableText
-                                Accessible.name: TranslationManager.translate("settings.connections.de1Log", "DE1 connection log")
-                                Accessible.description: Theme.capAccessibleText(text)
-                                Accessible.focusable: true
-                                activeFocusOnTab: true
-                            }
-                        }
-
-                        Connections {
-                            target: BLEManager
-                            function onDe1LogMessage(message) {
-                                de1LogText.text += message + "\n"
-                                de1LogScroll.ScrollBar.vertical.position = 1.0 - de1LogScroll.ScrollBar.vertical.size
-                            }
-                        }
+                        markers: ["[DE1]"]
+                        accessibleName: TranslationManager.translate("settings.connections.de1Log", "DE1 connection log")
                     }
                 }
 
@@ -1864,72 +1844,20 @@ Item {
                         }
                     }
 
-                    // Scale scan log
-                    Rectangle {
+                    // Scale connection log, at INFO and above.
+                    //
+                    // Matches [Refractometer] as well as [Scale]. They are separate
+                    // subsystems for QUERYING — a TDS problem and a weight problem
+                    // are different questions — but they share this screen, so the
+                    // view asks for both. That is the whole reason the filter takes a
+                    // list rather than one marker.
+                    SubsystemLogView {
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.scaled(150)
-                        color: Qt.darker(Theme.surfaceColor, 1.2)
-                        radius: Theme.scaled(4)
-
-                        ColumnLayout {
-                            anchors.fill: parent
-                            anchors.margins: Theme.scaled(8)
-                            spacing: Theme.scaled(4)
-
-                            ScrollView {
-                                id: scaleLogScroll
-                                Layout.fillWidth: true
-                                Layout.fillHeight: true
-                                clip: true
-
-                                TextArea {
-                                    id: scaleLogText
-                                    readOnly: true
-                                    color: Theme.textSecondaryColor
-                                    font.pixelSize: Theme.scaled(11)
-                                    font.family: Theme.monoFontFamily
-                                    wrapMode: Text.Wrap
-                                    background: null
-                                    text: ""
-
-                                    Accessible.role: Accessible.EditableText
-                                    Accessible.name: TranslationManager.translate("settings.connections.bleScaleLog", "Bluetooth scale connection log")
-                                    Accessible.description: Theme.capAccessibleText(text)
-                                    Accessible.focusable: true
-                                    activeFocusOnTab: true
-                                }
-                            }
-
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: Theme.scaled(8)
-
-                                Item { Layout.fillWidth: true }
-
-                                AccessibleButton {
-                                    text: TranslationManager.translate("settings.bluetooth.clearLog", "Clear")
-                                    accessibleName: TranslationManager.translate("connections.clearScaleLog", "Clear scale log")
-                                    onClicked: {
-                                        scaleLogText.text = ""
-                                        BLEManager.clearScaleLog()
-                                    }
-                                }
-
-                                AccessibleButton {
-                                    text: TranslationManager.translate("settings.bluetooth.shareLog", "Share Log")
-                                    accessibleName: TranslationManager.translate("connections.shareScaleDebugLog", "Share scale debug log")
-                                    onClicked: shareLogDialog.open()
-                                }
-                            }
-                        }
-
-                        Connections {
-                            target: BLEManager
-                            function onScaleLogMessage(message) {
-                                scaleLogText.text += message + "\n"
-                                scaleLogScroll.ScrollBar.vertical.position = 1.0 - scaleLogScroll.ScrollBar.vertical.size
-                            }
-                        }
+                        markers: ["[Scale]", "[Refractometer]"]
+                        showShare: true
+                        accessibleName: TranslationManager.translate("settings.connections.bleScaleLog", "Bluetooth scale connection log")
+                        onShareRequested: shareLogDialog.open()
                     }
                 }
 

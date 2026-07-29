@@ -1,5 +1,7 @@
 #include "blemanager.h"
 
+#include "core/fileshare.h"
+#include "network/webdebuglogger.h"
 #include "refractometers/refractometerlogging.h"
 #include "de1logging.h"
 #include "scales/scalelogging.h"
@@ -3009,125 +3011,39 @@ void BLEManager::shareScaleLog() {
     // First write the log to a file
     writeScaleLogToFile();
 
-    if (m_scaleLogFilePath.isEmpty()) {
-        qWarning() << "No log file path available";
+    // The ~130 lines of Android JNI / iOS UIActivityViewController / desktop
+    // fallback that used to live here are now FileShare::shareFile
+    // (core/fileshare.h). They moved because the connections page needed to share
+    // the SYSTEM log too, and the alternative was a second copy of all three
+    // platform branches — see shareSystemLog() below.
+    const FileShare::Result r =
+        FileShare::shareFile(m_scaleLogFilePath, QStringLiteral("Share Scale Debug Log"));
+    if (!r.message.isEmpty()) {
+        // Still reported into the scale log, as before, so the button keeps its
+        // existing feedback. Note this is the odd shape the extraction exposed: a
+        // failure to share the scale log is reported *into* the scale log.
+        appendScaleLog(r.message, /*mirrorToSystemLog=*/false);
+    }
+    if (!r.ok) {
+        scaleWarn(QStringLiteral("Share failed: %1").arg(r.message));
+    }
+}
+
+void BLEManager::shareSystemLog() {
+    // The system log is what users are asked for now, and it is already on disk —
+    // nothing to assemble first, unlike the scale log above.
+    WebDebugLogger* logger = WebDebugLogger::instance();
+    if (!logger) {
+        scaleWarn(QStringLiteral("Cannot share the debug log: the logger is not installed"));
         return;
     }
-
-#ifdef Q_OS_ANDROID
-    // Use Android's share intent
-    QJniObject context = QNativeInterface::QAndroidApplication::context();
-
-    // Create a file URI using FileProvider for Android 7+
-    QJniObject fileObj = QJniObject::fromString(m_scaleLogFilePath);
-    QJniObject file("java/io/File", "(Ljava/lang/String;)V", fileObj.object<jstring>());
-
-    // Get the app's package name for FileProvider authority
-    QJniObject packageName = context.callObjectMethod("getPackageName", "()Ljava/lang/String;");
-    QString authority = packageName.toString() + ".fileprovider";
-    QJniObject authorityObj = QJniObject::fromString(authority);
-
-    // Get content URI via FileProvider
-    QJniObject uri = QJniObject::callStaticObjectMethod(
-        "androidx/core/content/FileProvider",
-        "getUriForFile",
-        "(Landroid/content/Context;Ljava/lang/String;Ljava/io/File;)Landroid/net/Uri;",
-        context.object(),
-        authorityObj.object<jstring>(),
-        file.object());
-
-    if (!uri.isValid()) {
-        qWarning() << "Failed to get content URI for file";
-        // Fallback: just notify user of file location
-        emit scaleLogMessage("Log saved to: " + m_scaleLogFilePath);
-        return;
+    const FileShare::Result r =
+        FileShare::shareFile(logger->logFilePath(), QStringLiteral("Share Debug Log"));
+    if (!r.ok) {
+        scaleWarn(QStringLiteral("Share failed: %1").arg(r.message));
+    } else if (!r.message.isEmpty()) {
+        scaleInfo(r.message);
     }
-
-    // Create share intent
-    QJniObject actionSend = QJniObject::fromString("android.intent.action.SEND");
-    QJniObject intent("android/content/Intent", "(Ljava/lang/String;)V", actionSend.object<jstring>());
-
-    QJniObject mimeType = QJniObject::fromString("text/plain");
-    intent.callObjectMethod("setType", "(Ljava/lang/String;)Landroid/content/Intent;", mimeType.object<jstring>());
-
-    QJniObject extraStream = QJniObject::getStaticObjectField<jstring>("android/content/Intent", "EXTRA_STREAM");
-    intent.callObjectMethod("putExtra", "(Ljava/lang/String;Landroid/os/Parcelable;)Landroid/content/Intent;",
-                           extraStream.object<jstring>(), uri.object());
-
-    // Add grant read permission flag
-    intent.callObjectMethod("addFlags", "(I)Landroid/content/Intent;", 1);  // FLAG_GRANT_READ_URI_PERMISSION
-
-    // Create chooser
-    QJniObject chooserTitle = QJniObject::fromString("Share Scale Debug Log");
-    QJniObject chooser = QJniObject::callStaticObjectMethod(
-        "android/content/Intent",
-        "createChooser",
-        "(Landroid/content/Intent;Ljava/lang/CharSequence;)Landroid/content/Intent;",
-        intent.object(),
-        chooserTitle.object<jstring>());
-
-    chooser.callObjectMethod("addFlags", "(I)Landroid/content/Intent;", 0x10000000);  // FLAG_ACTIVITY_NEW_TASK
-
-    // Start the chooser activity
-    context.callMethod<void>("startActivity", "(Landroid/content/Intent;)V", chooser.object());
-
-    emit scaleLogMessage("Opening share dialog...");
-
-#elif defined(Q_OS_IOS)
-    // iOS: Use UIActivityViewController for sharing
-    NSString* filePath = m_scaleLogFilePath.toNSString();
-    NSURL* fileURL = [NSURL fileURLWithPath:filePath];
-
-    if (![[NSFileManager defaultManager] fileExistsAtPath:filePath]) {
-        qWarning() << "Log file does not exist:" << m_scaleLogFilePath;
-        emit scaleLogMessage("Error: Log file not found");
-        return;
-    }
-
-    // Create activity view controller with the file URL
-    NSArray* activityItems = @[fileURL];
-    UIActivityViewController* activityVC = [[UIActivityViewController alloc]
-        initWithActivityItems:activityItems
-        applicationActivities:nil];
-
-    // Get the root view controller to present from
-    UIWindow* keyWindow = nil;
-    for (UIScene* scene in [UIApplication sharedApplication].connectedScenes) {
-        if ([scene isKindOfClass:[UIWindowScene class]]) {
-            UIWindowScene* windowScene = (UIWindowScene*)scene;
-            for (UIWindow* window in windowScene.windows) {
-                if (window.isKeyWindow) {
-                    keyWindow = window;
-                    break;
-                }
-            }
-        }
-        if (keyWindow) break;
-    }
-
-    UIViewController* rootVC = keyWindow.rootViewController;
-    if (rootVC) {
-        // For iPad, we need to set the popover presentation
-        if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad) {
-            activityVC.popoverPresentationController.sourceView = rootVC.view;
-            activityVC.popoverPresentationController.sourceRect = CGRectMake(
-                rootVC.view.bounds.size.width / 2,
-                rootVC.view.bounds.size.height / 2,
-                0, 0);
-        }
-
-        [rootVC presentViewController:activityVC animated:YES completion:nil];
-        emit scaleLogMessage("Opening share dialog...");
-    } else {
-        qWarning() << "Could not find root view controller for sharing";
-        emit scaleLogMessage("Error: Could not open share dialog");
-    }
-
-#else
-    // Desktop: just show the file path
-    emit scaleLogMessage("Log saved to: " + m_scaleLogFilePath);
-    qDebug() << "Scale log saved to:" << m_scaleLogFilePath;
-#endif
 }
 
 QString BLEManager::translateUiString(const QString& key, const QString& fallback) const {

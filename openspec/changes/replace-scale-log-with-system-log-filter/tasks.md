@@ -83,11 +83,11 @@ Found while converting group 3: `[Scale]`/`[DE1]`/`[Refractometer]` are not yet 
 
 ## 5. Re-source the two views
 
-- [ ] 5.1 `SettingsConnectionsTab.qml` — DE1 view: populate from the accessor on build (`[DE1]`, INFO+), then append on `lineAppended` for matching lines. Ensure the append handler logs nothing.
-- [ ] 5.2 Same for the scale view, matching **both** `[Scale]` and `[Refractometer]` at INFO+ — the refractometers appear here on screen even though they are a separate subsystem for querying.
-- [ ] 5.3 Make Clear view-local: hide what is shown, keep following new lines, touch neither the log nor the other view. The DE1 view has **no Clear button at all** today (the scale view does) and no cap either — it is `de1LogText.text += message` growing for the process lifetime, which is why 3.12's deleted per-frame RX line mattered. Both views need the bounded behaviour, not just the button.
-- [ ] 5.4 Retarget the share action from `scale_debug_log.txt` to the system log, reusing the existing platform share plumbing.
-- [ ] 5.5 Fix any pre-existing accessibility violations on the two views while in the file, per the CLAUDE.md rule.
+- [x] 5.1 `SettingsConnectionsTab.qml` — DE1 view: populate from the accessor on build (`[DE1]`, INFO+), then append on `lineAppended` for matching lines. Ensure the append handler logs nothing.
+- [x] 5.2 Same for the scale view, matching **both** `[Scale]` and `[Refractometer]` at INFO+ — the refractometers appear here on screen even though they are a separate subsystem for querying.
+- [x] 5.3 Make Clear view-local: hide what is shown, keep following new lines, touch neither the log nor the other view. The DE1 view has **no Clear button at all** today (the scale view does) and no cap either — it is `de1LogText.text += message` growing for the process lifetime, which is why 3.12's deleted per-frame RX line mattered. Both views need the bounded behaviour, not just the button.
+- [x] 5.4 Retarget the share action from `scale_debug_log.txt` to the system log, reusing the existing platform share plumbing.
+- [x] 5.5 Fix any pre-existing accessibility violations on the two views while in the file, per the CLAUDE.md rule.
 - [ ] 5.6 Manually verify on device: both views populate when the page is opened after activity, follow live, survive leaving and returning, exclude prior sessions, show no DEBUG chatter, and Clear behaves. QML has no test harness — this step is the coverage.
 
 ## 6. Remove the private channels

@@ -637,6 +637,7 @@ set(SOURCES
     src/core/translationmanager.cpp
     src/core/updatechecker.cpp
     src/core/firmwareassetcache.cpp
+    src/core/fileshare.cpp
     src/ble/protocol/binarycodec.cpp
     src/ble/blecapability.cpp
     src/ble/blemanager.cpp
@@ -1307,6 +1308,7 @@ set(QML_FILES
     qml/components/ColorEditor.qml
     qml/components/ColorSwatch.qml
     qml/components/StyledTextField.qml
+    qml/components/SubsystemLogView.qml
     qml/components/SuggestionField.qml
     qml/components/BeanBaseSearchBar.qml
     qml/components/BeanBaseDetailsPopup.qml

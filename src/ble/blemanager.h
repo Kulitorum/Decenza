@@ -524,6 +524,11 @@ public:
     // Scale debug logging
     Q_INVOKABLE void clearScaleLog();
     Q_INVOKABLE void shareScaleLog();
+    // Share the SYSTEM log (debug.log) — what users are actually asked for now.
+    // The scale log above is on its way out with the rest of the private channel;
+    // both go through FileShare::shareFile so there is one copy of the platform
+    // share code.
+    Q_INVOKABLE void shareSystemLog();
     Q_INVOKABLE QString getScaleLogPath() const;
     // For use by scale implementations. mirrorToSystemLog=false when the caller
     // already wrote the line to stderr itself (the SCALE_LOG/R2_LOG macro
