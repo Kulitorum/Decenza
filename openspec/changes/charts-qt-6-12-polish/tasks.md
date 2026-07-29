@@ -1,15 +1,13 @@
 # Tasks: Qt 6.12 polish for charts migration
 
 **Precondition**: `upgrade-qt-6-12` change archived and Decenza building cleanly on Qt 6.12 GA
-(2026-09-22). That change now exists — `../upgrade-qt-6-12/` — and is itself **blocked on a product
-decision**: Qt 6.12 raises the iOS minimum to iOS 18, which drops a device class including the iPad
-used for iOS testing. If that decision goes to "hold iOS on 6.11.1" or "defer the upgrade", this
-change stays deferred with it.
+(2026-09-22). That change now exists — `../upgrade-qt-6-12/` — and is **ready, not blocked**: the iOS
+floor question it raised was decided on 2026-07-29 (take Qt 6.12's iOS 18 minimum, one Qt version
+everywhere), so nothing about the iOS decision defers the charts work.
 
-Two of its §0 tasks feed directly into the sections below, so read them before starting here:
-whether Gerrit 735089 gets picked to 6.12 (irrelevant to charts, but it gates the upgrade PR), and
-**whether the installed Qt 6.12 has `graphs-2d-high-performance-backend` compiled in** — that answer
-is §3's gate below, and `upgrade-qt-6-12` is where it gets recorded.
+One of its §0 items feeds directly into §3 below: **whether the installed Qt 6.12 has
+`graphs-2d-high-performance-backend` compiled in**. That answer is §3's gate, and `upgrade-qt-6-12` is
+where it gets recorded.
 
 Each numbered section is a candidate PR. Items can ship independently; only the precondition above is
 shared. §1 and §2 are already resolved by the 2026-07-29 source verification — see the proposal's

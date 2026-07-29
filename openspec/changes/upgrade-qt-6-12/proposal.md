@@ -1,11 +1,19 @@
 # Change: Upgrade Qt from 6.11.1 to 6.12
 
-## Status: BLOCKED ON A PRODUCT DECISION — Qt 6.12 drops iOS 17
+## Status: READY — starts after Qt 6.12 GA (2026-09-22)
 
 Qt 6.12 GA is **2026-09-22** (feature freeze was 2026-06-02; Beta 2 shipped 2026-07-14, Beta 3 is
-2026-08-18, RC 2026-09-08). The upgrade itself is routine, but **Qt 6.12 raises the iOS minimum from
-17.0 to iOS 18** — see §"iOS 18 is a hard floor" below. That is a user-facing support decision, not a
-build detail, and it needs Jeff's call before any work starts.
+2026-08-18, RC 2026-09-08).
+
+**Decision taken 2026-07-29: take iOS 18.** Qt 6.12 raises the iOS minimum from 17.0 to iOS 18, and
+Decenza follows it on one Qt version across every platform. Holding iOS back or deferring the whole
+upgrade were both considered and rejected — the world moves on, and paying for two Qt versions in CI
+to keep a 2017 iPad alive is the wrong trade.
+
+**The one obligation that comes with it**: the release notes must say plainly *why* the iOS minimum
+rose — it is Qt's floor, inherited from the framework upgrade, not a Decenza choice — and name the
+device classes affected, so an iOS 17 user who stops getting updates can see the cause. See §"iOS 18
+is a hard floor" and `tasks.md` §2.
 
 ## Why
 
@@ -40,20 +48,26 @@ higher"**. Qt 6.11 was iOS 17. Consequences:
 4. macOS minimum also rises to **14.4** (from 13). Not a problem for this Mac (macOS 26) but it is a
    published support change.
 
-**Options, for Jeff to choose:**
+**Decided (2026-07-29): take iOS 18, single Qt version everywhere.** Recorded here so the two
+rejected options are not re-proposed later:
 
-- **(a) Take iOS 18.** Accept the device-support loss, get 6.12 everywhere, buy or borrow an A12+
-  iPad for testing. Android is the primary platform (`project_android_is_primary_platform`), and the
-  iOS user base is small, so the practical cost may be low — but it is real and it is permanent.
-- **(b) Upgrade everything except iOS**, keeping the iOS workflow on 6.11.1. Costs: two Qt versions in
-  CI, a second `install-qt-action` version pin, and a divergence risk in shared C++/QML (a 6.12-only
-  API used anywhere non-`#ifdef`'d breaks the iOS build). The Home Screen widget work has iOS as its
-  driver (`feedback_ios_primary_driver`), so the iOS build cannot be allowed to rot.
-- **(c) Defer the whole upgrade** past 6.12 and stay on 6.11.1 until the iOS 17 install base is
-  negligible. `charts-qt-6-12-polish` stays deferred with it.
+- **Rejected — upgrade everything except iOS**, keeping the iOS workflow on 6.11.1. Costs two Qt
+  versions in CI, a second `install-qt-action` pin, and a standing divergence risk in shared C++/QML
+  (any 6.12-only API used outside an `#ifdef` breaks the iOS build silently until a tag push). The
+  Home Screen widget has iOS as its driver (`feedback_ios_primary_driver`), so a rotting iOS build is
+  not survivable.
+- **Rejected — defer the upgrade** until the iOS 17 install base is negligible. That parks
+  `charts-qt-6-12-polish` indefinitely and accumulates Qt debt for a shrinking device class.
 
-This proposal is written for **(a)** — the single-version path — and flags the (b) branch points in
-`tasks.md`. Nothing else in the change depends on which option is chosen.
+**What the decision obliges us to do**, and the only part that is not mechanical:
+
+- **Say why, in the release notes.** The iOS minimum rose because Qt 6.12 requires iOS 18 — an
+  upstream framework floor Decenza inherits, not a product decision to drop anyone. Name the affected
+  devices (pre-A12: iPad Pro 1st/2nd gen, iPad 6th gen, iPhone X and earlier) so a user who stops
+  seeing updates can find the reason instead of assuming the app broke. This is the whole ask: the
+  cause is external, and the notes should make that legible without sounding defensive.
+- **Get an A12+ iPad for testing.** Not a blocker for starting, but iOS ships untested without it,
+  and the Simulator is not available on this Mac (`project_qt_ios_simulator_gap`).
 
 ## Android accessibility overrides — delete two thirds, keep the crash patch
 
@@ -111,7 +125,10 @@ QAccessible::ButtonDropDown to correct classname".
 - **iOS Xcode pin**: `ios-release.yml` pins Xcode 26.4.1 for a libc++ ABI reason. Qt 6.12 requires
   Xcode 16+, which 26.4.1 satisfies; verify the pin is still needed at all against 6.12's prebuilt
   binaries.
-- **`CMakeLists.txt`**: iOS deployment target 17.0 → 18.0 (option (a)); check for new `QTP` policies
+- **Release notes**: an entry stating that the iOS minimum is now 18 **because Qt 6.12 requires it**,
+  with the affected device list. Per `feedback_release_notes_user_visible` this is exactly the kind of
+  proven user-visible change that belongs there.
+- **`CMakeLists.txt`**: iOS deployment target 17.0 → 18.0; check for new `QTP` policies
   introduced in 6.12 and set them NEW inside the existing `VERSION_GREATER_EQUAL "6.5.0"` guard;
   `cmake_minimum_required(VERSION 3.21)` stays valid (Qt 6.12 requires ≥ 3.16 in that command) but
   **CMake 3.25 is the recommended configuring tool version** — confirm the CMake that Qt Creator and

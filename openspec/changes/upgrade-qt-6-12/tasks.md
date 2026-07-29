@@ -1,19 +1,21 @@
 # Tasks: Upgrade Qt from 6.11.1 to 6.12
 
-**Do not start §2 onward until §0 is answered.** Qt 6.12 drops iOS 17, which removes a device class
-and Jeff's only iOS test device. Everything else is routine.
+Work starts at Qt 6.12 GA (**2026-09-22**; Beta 3 **2026-08-18**, RC **2026-09-08**). Nothing here is
+blocked.
 
-Qt 6.12 GA is **2026-09-22**. Beta 3 **2026-08-18**, RC **2026-09-08**.
+## 0. Decisions
 
-## 0. Decisions required before any work
-
-- [ ] **iOS floor**: pick (a) take iOS 18 everywhere, (b) upgrade all platforms except iOS and hold
-      iOS on 6.11.1, or (c) defer the whole upgrade. Proposal §"iOS 18 is a hard floor" has the
-      trade-offs. Tasks below assume **(a)**; each (b)-divergent task is marked `[(b) differs]`
-- [ ] If (a): decide how iOS gets tested at all — an A12+ iPad is required, since the iPad7,4 cannot
-      install a 6.12 build and the iOS Simulator is unusable on this Mac
-      (`project_qt_ios_simulator_gap`). The Home Screen widget has iOS as its driver, so "we'll test
-      it later" is not an option
+- [x] **iOS floor — decided 2026-07-29: take iOS 18, one Qt version on every platform.** Qt 6.12
+      requires iOS 18, so Decenza inherits that floor. Holding iOS on 6.11.1 and deferring the
+      upgrade were both rejected; proposal §"iOS 18 is a hard floor" records why, so they are not
+      re-proposed
+- [ ] **Carries one obligation, tracked in §2**: the release notes must state that the iOS minimum
+      rose *because of the Qt upgrade* — an upstream floor, not a decision to drop anyone — and name
+      the affected devices. Do not ship the upgrade without it
+- [ ] Acquire an **A12+ iPad** for iOS testing. Not a blocker for starting, but the iPad7,4 cannot
+      install a 6.12 build at all and the Simulator is unusable on this Mac
+      (`project_qt_ios_simulator_gap`), so iOS ships untested until this exists. The Home Screen
+      widget has iOS as its driver, which makes "test it later" expensive
 - [ ] **Gerrit 735089 first**: ask for the `AndroidDeadlockProtector` fix to be picked to 6.12 before
       rebuilding any override. If it lands, `android/qt-overrides/` is deleted outright and §4 shrinks
       to a deletion. Both a11y patches went upstream through the same account, so this is a
@@ -43,7 +45,7 @@ Qt 6.12 GA is **2026-09-22**. Beta 3 **2026-08-18**, RC **2026-09-08**.
 
 - [ ] `CMakeLists.txt`:
   - [ ] iOS `CMAKE_OSX_DEPLOYMENT_TARGET "17.0"` → `"18.0"` (line ≈160) and update its comment to say
-        Qt 6.12 requires iOS 18 `[(b) differs: keep 17.0 while iOS stays on 6.11.1]`
+        Qt 6.12 requires iOS 18
   - [ ] After the first configure, check for new `QTP` policy warnings and set any new ones NEW inside
         the existing `Qt6_VERSION VERSION_GREATER_EQUAL "6.5.0"` guard (≈:129-132). Zero policy
         warnings is a `build-config` spec requirement, so this is not optional
@@ -59,6 +61,17 @@ Qt 6.12 GA is **2026-09-22**. Beta 3 **2026-08-18**, RC **2026-09-08**.
 - [ ] `docs/CLAUDE_MD/BUILD_PERFORMANCE.md`: if its measurements were taken on 6.11.1, either
       re-measure or label them as 6.11.1 numbers rather than leaving them to be read as current
 - [ ] Tell Jeff to update `CLAUDE.local.md` build-dir paths himself (uncommitted, his file)
+- [ ] **Release notes — the §0 obligation.** State that iOS now requires **iOS 18 or newer**, that the
+      cause is the **Qt 6.12 framework upgrade** (Qt dropped iOS 17 support; every Qt app on 6.12
+      inherits the same floor), and name the devices that cannot go to iOS 18 (pre-A12: iPad Pro
+      1st/2nd gen, iPad 6th gen, iPhone X and earlier). Factual and short — the cause is external, so
+      say so without apologising or padding. An iOS 17 user who stops seeing updates should be able to
+      find this line and understand it. Android, desktop and Linux users are unaffected; say that too,
+      so nobody reads a platform floor as an app-wide one
+- [ ] Check whether the wiki manual states a minimum iOS version anywhere
+      (https://github.com/Kulitorum/Decenza/wiki/Manual — separate repo, `Kulitorum/Decenza.wiki.git`).
+      If it does, update it in the same change; per `project_wiki_edits_held_for_release`, ask before
+      pushing the wiki edit
 
 ## 3. CI workflows (7 files)
 
@@ -68,7 +81,6 @@ Qt 6.12 GA is **2026-09-22**. Beta 3 **2026-08-18**, RC **2026-09-08**.
 - [ ] `macos-release.yml`: version bump
 - [ ] `ios-release.yml`: version bump; re-check whether the Xcode 26.4.1 pin is still needed for
       6.12's prebuilt iOS binaries (Qt 6.12 requires Xcode 16+, which it satisfies either way)
-      `[(b) differs: this file stays on 6.11.1 entirely]`
 - [ ] `android-release.yml`: `env.QT_VERSION` bump; **`java-version: '17'` → `'21'`** (≈:69 — Qt 6.12
       requires JDK 21); confirm the derived `QT_NDK_VERSION` (≈:88-97) resolves to r27c
       `27.2.12479018`, the same revision 6.11.1 used

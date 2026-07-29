@@ -1,9 +1,6 @@
 # build-config Specification (delta)
 
-**Note**: the iOS scenarios below assume decision **(a)** from `proposal.md` §"iOS 18 is a hard
-floor" — one Qt version across all platforms. If (b) is chosen (iOS held on 6.11.1), the framework
-requirement and the iOS deployment-target requirement both need rewriting to name two Qt versions,
-and this delta must be revised before implementation starts.
+Decided 2026-07-29: one Qt version across every platform, taking Qt 6.12's iOS 18 floor with it.
 
 ## RENAMED Requirements
 
@@ -41,6 +38,12 @@ The iOS build SHALL target iOS 18.0 as the minimum deployment target, matching t
 - **WHEN** the iOS deployment target rises above what an existing test or user device can run
 - **THEN** the change that raises it SHALL record which device classes are dropped
 - **AND** SHALL NOT be merged on the assumption that "the build is green" means iOS is still covered — a green iOS build proves compilation, not that any available device can run it
+
+#### Scenario: A raised platform minimum is explained to users
+- **WHEN** a release raises the minimum OS version on any platform
+- **THEN** the release notes SHALL state the new minimum, the cause, and the device classes affected
+- **AND** where the cause is an upstream framework requirement rather than a Decenza decision, the notes SHALL say so plainly, so a user who stops receiving updates can identify why
+- **AND** SHALL state which platforms are unaffected, so a single-platform floor is not read as an app-wide one
 
 ## ADDED Requirements
 
