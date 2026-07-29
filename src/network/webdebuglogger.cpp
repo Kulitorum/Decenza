@@ -34,10 +34,15 @@ void WebDebugLogger::install()
 
 WebDebugLogger* WebDebugLogger::create(QQmlEngine*, QJSEngine*)
 {
-    // Never constructs. install() has already run from main() before the QML engine
-    // exists, and this object owns the global Qt message handler — a second
-    // instance would either fight for it or capture nothing at all while looking
-    // fully functional to the view bound to it.
+    // Calls install() rather than assuming main() already did. install() is
+    // idempotent (the `if (!s_instance)` above) and needs nothing from the QML
+    // engine, so there is no real case where this should ever return null — and
+    // every caller in QML was written as if it could anyway (the #1661 truthy-
+    // singleton trap: a registered type with no instance is TRUTHY, so
+    // `WebDebugLogger &&  WebDebugLogger.foo` still reaches the member read).
+    // Calling install() here removes the null case instead of asking every
+    // future view to keep guessing whether it needs a guard.
+    install();
     return s_instance;
 }
 

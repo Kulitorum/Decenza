@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ble/de1transport.h"
+#include "usb/serialstall.h"
 
 #include <QElapsedTimer>
 #include <QSet>
@@ -101,12 +102,15 @@ private:
     // per-frame RX line was right on volume — ~600 DEBUG lines a shot — but it was
     // the only evidence of that negative case, so this replaces it with one line.
     //
-    // Checked on WRITE, not on a timer. DE1Device writes continuously while
-    // connected (keepalive MMR reads, state polls), so a write already is the
-    // periodic event, and it makes the signature exactly BleTransport's: we are
-    // still talking to the machine and it has stopped answering. Event-driven also
-    // keeps this out of the "timers as guards" trap — nothing here needs a timer to
-    // exist.
+    // Checked on WRITE, not on a timer. In practice the write that keeps this
+    // fed is BatteryManager's 60 s forced setUsbChargerOn (its gate is transport-
+    // level isConnected(), so it fires even if the DE1 itself never notifies) —
+    // DE1Device has no periodic write of its own once connected. Either way a
+    // write already is the periodic event, and it makes the signature exactly
+    // BleTransport's: we are still talking to the machine and it has stopped
+    // answering. Event-driven also keeps this out of the "timers as guards" trap
+    // — nothing here needs a timer to exist. (If BatteryManager's cadence or gate
+    // ever changes, re-check that this detector still gets fed.)
     //
     // Diagnostic only: it warns and does nothing else. BleTransport's equivalent
     // tears the link down, which is why that one is evaluated solely at a reconnect
@@ -119,16 +123,16 @@ private:
     // 5.2 / 8.5) — and Sleep in particular is unverified: if the firmware stops
     // pushing water level while asleep, a tighter threshold would warn on every
     // sleep. Tighten it once the raw cadence is measured on hardware, not before.
-    // The decision itself lives in usb/serialstall.h as a pure predicate, because
-    // none of this class is reachable from a test: open() needs a real port and
-    // write() early-returns without one. See that header.
-    QElapsedTimer m_inboundLiveness;
+    // The decision itself lives in usb/serialstall.h as a self-contained
+    // Detector, because none of this class is reachable from a test: open()
+    // needs a real port and write() early-returns without one. See that header
+    // for the full lifecycle (arm/disarm/noteInbound/shouldWarn) and why it
+    // replaced a free function taking four interchangeable parameters.
     static constexpr int INBOUND_STALE_MS = 60000;
-    // One WARN per stall episode, not one per write. Writes are frequent, so an
-    // unlatched check would produce exactly the flat-repeat noise this change
-    // exists to remove. Cleared when inbound traffic resumes, so a second stall
-    // warns again.
-    bool m_inboundStallWarned = false;
+    SerialStall::Detector m_stall{INBOUND_STALE_MS};
+    // Wall-clock source for the detector — a stopwatch read on demand, not a
+    // firing timer, so this is data, not the "timers as guards" pattern.
+    QElapsedTimer m_clock;
 
 #ifdef Q_OS_ANDROID
     QTimer m_readTimer;  ///< Polls AndroidUsbHelper::readAvailable() at ~20ms

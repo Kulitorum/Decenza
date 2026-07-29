@@ -150,8 +150,12 @@ Result shareFile(const QString& filePath, const QString& title)
 
 #else
     Q_UNUSED(title)
-    // Desktop: no share sheet. The path is the answer.
-    return {true, QStringLiteral("Log saved to: %1").arg(filePath)};
+    // Desktop: no share sheet. The path is the answer. Generic wording — this
+    // is a file-sharing utility with no idea what it was handed; "Log saved to"
+    // was the one caller's vocabulary leaking into a shared function, and the
+    // day a second caller shares something that isn't a log, the message would
+    // have been wrong for it.
+    return {true, QStringLiteral("File saved to: %1").arg(filePath)};
 #endif
 }
 
