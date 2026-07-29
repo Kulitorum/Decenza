@@ -5,9 +5,11 @@
 *.jks
 *.keystore
 
-# Build directories
+# Build directories. Anchored to the repo root on purpose: unanchored `build-*/`
+# also matched `openspec/**/specs/build-config/`, silently ignoring delta specs for
+# the build-config capability (a `git add` of the change directory just skipped them).
 build/
-build-*/
+/build-*/
 cmake-build-*/
 
 # CTest artifacts (regenerated on every test run; a stray top-level Testing/
