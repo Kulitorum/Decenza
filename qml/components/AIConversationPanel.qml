@@ -77,9 +77,9 @@ Item {
         StyledTextField {
             id: followUpInput
             Layout.fillWidth: true
-            visible: root.showFollowUpInput && conversation && conversation.hasHistory
+            visible: root.showFollowUpInput && root.conversation && root.conversation.hasHistory
             placeholder: root.followUpPlaceholder
-            enabled: conversation && !conversation.busy
+            enabled: root.conversation && !root.conversation.busy
 
             Keys.onReturnPressed: askButton.clicked()
             Keys.onEnterPressed: askButton.clicked()
@@ -95,14 +95,14 @@ Item {
                 id: askButton
                 Layout.fillWidth: true
                 primary: true
-                text: conversation && conversation.busy ? "..." : root._buttonText
-                accessibleName: conversation && conversation.hasHistory
+                text: root.conversation && root.conversation.busy ? "..." : root._buttonText
+                accessibleName: root.conversation && root.conversation.hasHistory
                     ? TranslationManager.translate("aiConversation.sendFollowUp", "Send follow-up question to AI")
                     : TranslationManager.translate("aiConversation.askForRecommendation", "Ask AI for recommendation")
                 enabled: root._canAsk
 
                 onClicked: {
-                    if (!conversation) return
+                    if (!root.conversation) return
 
                     // Commit any pending IME composition before reading text.
                     // On mobile keyboards the last typed word stays in a "pre-edit"
@@ -115,10 +115,10 @@ Item {
 
                     if (!prompt) return
 
-                    if (conversation.hasHistory) {
-                        conversation.followUp(prompt)
+                    if (root.conversation.hasHistory) {
+                        root.conversation.followUp(prompt)
                     } else {
-                        conversation.ask(root.systemPrompt, prompt)
+                        root.conversation.ask(root.systemPrompt, prompt)
                     }
 
                     // Clear follow-up input after sending
@@ -133,12 +133,12 @@ Item {
                 id: clearButton
                 text: TranslationManager.translate("ai.clear", "Clear")
                 accessibleName: TranslationManager.translate("aiConversation.clearHistory", "Clear AI conversation history")
-                visible: conversation && conversation.hasHistory
-                enabled: conversation && !conversation.busy
+                visible: root.conversation && root.conversation.hasHistory
+                enabled: root.conversation && !root.conversation.busy
 
                 onClicked: {
-                    if (conversation) {
-                        conversation.clearHistory()
+                    if (root.conversation) {
+                        root.conversation.clearHistory()
                     }
                 }
             }
@@ -147,8 +147,8 @@ Item {
         // Error message (if any)
         Text {
             Layout.fillWidth: true
-            visible: conversation && conversation.errorMessage
-            text: conversation ? conversation.errorMessage : ""
+            visible: root.conversation && root.conversation.errorMessage
+            text: root.conversation ? root.conversation.errorMessage : ""
             color: Theme.errorColor
             font.pixelSize: Theme.scaled(11)
             wrapMode: Text.WordWrap
@@ -157,7 +157,7 @@ Item {
 
     // Forward signals from conversation
     Connections {
-        target: conversation
+        target: root.conversation
         function onResponseReceived(response) {
             root.responseReceived(response)
         }

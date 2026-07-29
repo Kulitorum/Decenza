@@ -1,3 +1,10 @@
+// The colour-category, colour-swatch and preset-theme Repeater delegates read this
+// file's ids (`themesTab`, `colorRepeater`, `presetRepeater`); Bound makes them
+// statically resolvable. Each declares every injected role it uses required in the
+// same edit -- without that, Bound stops role injection and the whole colour list and
+// preset row render blank at RUNTIME, silently.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -177,24 +184,30 @@ KeyboardAwareContainer {
                                 model: themesTab.colorDefinitions
 
                                 ColumnLayout {
+                                    id: categorySection
+                                    required property var modelData
+                                    required property int index
+
                                     Layout.fillWidth: true
                                     spacing: Theme.scaled(4)
 
                                     // Category header
                                     Text {
-                                        text: modelData.category
+                                        text: categorySection.modelData.category
                                         color: Theme.textSecondaryColor
                                         font: Theme.labelFont
-                                        topPadding: index > 0 ? Theme.spacingSmall : 0
+                                        topPadding: categorySection.index > 0 ? Theme.spacingSmall : 0
                                     }
 
                                     // Color swatches in this category
                                     Repeater {
                                         id: colorRepeater
-                                        property var colorList: modelData.colors
+                                        property var colorList: categorySection.modelData.colors
                                         model: colorList.length
 
                                         ColorSwatch {
+                                            required property int index
+
                                             property var colorData: colorRepeater.colorList[index]
                                             Layout.fillWidth: true
                                             colorName: colorData.name
@@ -256,7 +269,7 @@ KeyboardAwareContainer {
                             StyledTextField {
                                 id: hexField
                                 Layout.preferredWidth: Theme.scaled(120)
-                                text: themesTab.colorToHex(selectedColorValue)
+                                text: themesTab.colorToHex(themesTab.selectedColorValue)
                                 font.family: Theme.monoFontFamily
                                 font.pixelSize: Theme.bodyFont.pixelSize
                                 inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText
@@ -342,6 +355,9 @@ KeyboardAwareContainer {
                                 model: Settings.theme.getPresetThemes()
 
                                 Rectangle {
+                                    id: presetChip
+                                    required property var modelData
+
                                     height: Theme.scaled(36)
                                     width: presetRow.width + (modelData.isBuiltIn ? 0 : deleteBtn.width + 4)
                                     color: modelData.primaryColor
@@ -362,7 +378,7 @@ KeyboardAwareContainer {
                                         anchors.top: parent.top
                                         anchors.bottom: parent.bottom
                                         anchors.right: deleteBtn.visible ? deleteBtn.left : parent.right
-                                        onClicked: Settings.theme.applyPresetTheme(modelData.name)
+                                        onClicked: Settings.theme.applyPresetTheme(presetChip.modelData.name)
                                     }
 
                                     Row {
@@ -370,10 +386,10 @@ KeyboardAwareContainer {
                                         anchors.left: parent.left
                                         anchors.verticalCenter: parent.verticalCenter
                                         leftPadding: Theme.scaled(12)
-                                        rightPadding: modelData.isBuiltIn ? 12 : 4
+                                        rightPadding: presetChip.modelData.isBuiltIn ? 12 : 4
 
                                         Text {
-                                            text: modelData.name
+                                            text: presetChip.modelData.name
                                             color: Theme.primaryContrastColor
                                             font: Theme.labelFont
                                             anchors.verticalCenter: parent.verticalCenter
@@ -384,7 +400,7 @@ KeyboardAwareContainer {
                                     // Delete button for user themes
                                     Rectangle {
                                         id: deleteBtn
-                                        visible: !modelData.isBuiltIn
+                                        visible: !presetChip.modelData.isBuiltIn
                                         width: Theme.scaled(24)
                                         height: Theme.scaled(24)
                                         radius: Theme.scaled(12)
@@ -394,7 +410,7 @@ KeyboardAwareContainer {
                                         anchors.verticalCenter: parent.verticalCenter
 
                                         Accessible.role: Accessible.Button
-                                        Accessible.name: TranslationManager.translate("settings.themes.delete", "Delete theme") + " " + modelData.name
+                                        Accessible.name: TranslationManager.translate("settings.themes.delete", "Delete theme") + " " + presetChip.modelData.name
                                         Accessible.focusable: true
                                         Accessible.onPressAction: deleteArea.clicked(null)
 
@@ -411,7 +427,7 @@ KeyboardAwareContainer {
                                             id: deleteArea
                                             anchors.fill: parent
                                             onClicked: {
-                                                Settings.theme.deleteUserTheme(modelData.name)
+                                                Settings.theme.deleteUserTheme(presetChip.modelData.name)
                                                 presetRepeater.model = Settings.theme.getPresetThemes()
                                             }
                                         }
