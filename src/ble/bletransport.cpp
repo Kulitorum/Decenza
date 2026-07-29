@@ -2,6 +2,7 @@
 #include "blecapability.h"
 #include "blecontrollererror.h"
 #include "bleserviceerror.h"
+#include "de1logging.h"
 #ifndef DECENZA_TESTING
 #include "blemanager.h"
 #endif
@@ -22,7 +23,7 @@ static void storeDE1AddressForShutdown(const QString& address) {
         "()Landroid/content/Context;");
 
     if (!context.isValid()) {
-        qWarning() << "[BLE DE1] storeDE1AddressForShutdown: Android context is invalid";
+        DE1_WARN_STDERR_TAGGED("Android", QStringLiteral("storeDE1AddressForShutdown: Android context is invalid"));
         return;
     }
 
@@ -41,7 +42,7 @@ static void clearDE1AddressForShutdown() {
         "()Landroid/content/Context;");
 
     if (!context.isValid()) {
-        qWarning() << "[BLE DE1] clearDE1AddressForShutdown: Android context is invalid";
+        DE1_WARN_STDERR_TAGGED("Android", QStringLiteral("clearDE1AddressForShutdown: Android context is invalid"));
         return;
     }
 
@@ -59,7 +60,7 @@ static void startBleConnectionService() {
         "()Landroid/content/Context;");
 
     if (!context.isValid()) {
-        qWarning() << "[BLE DE1] startBleConnectionService: Android context is invalid";
+        DE1_WARN_STDERR_TAGGED("Android", QStringLiteral("startBleConnectionService: Android context is invalid"));
         return;
     }
 
@@ -77,7 +78,7 @@ static void stopBleConnectionService() {
         "()Landroid/content/Context;");
 
     if (!context.isValid()) {
-        qWarning() << "[BLE DE1] stopBleConnectionService: Android context is invalid";
+        DE1_WARN_STDERR_TAGGED("Android", QStringLiteral("stopBleConnectionService: Android context is invalid"));
         return;
     }
 
@@ -463,7 +464,12 @@ void BleTransport::connectToDevice(const QBluetoothDeviceInfo& device) {
     m_retryTimer.stop();
     m_disconnectedEmittedForAttempt = false;
 
-    log(QString("Connecting to DE1 at %1").arg(deviceId));
+    // DEBUG. I promoted this to INFO on the argument that a failed connect would
+    // otherwise be invisible, then checked what actually precedes it: on the
+    // scan path BLEManager has just logged "Found DE1: <name> (<id>)" with the
+    // same identifier, and on the direct-wake path "Direct wake: connecting to
+    // <name> at <addr>". It is a third telling of the same fact on both paths.
+    log(QStringLiteral("Connecting to DE1 at %1").arg(deviceId));
 
     if (!setupController(device)) {
         m_pendingDevice = QBluetoothDeviceInfo();
@@ -476,7 +482,10 @@ void BleTransport::connectToDevice(const QBluetoothDeviceInfo& device) {
 // -- Private slots --
 
 void BleTransport::onControllerConnected() {
-    log("Controller connected, starting service discovery");
+    // The one shared BLE lifecycle event, in the shared words: the same line
+    // every scale driver prints, so a reader comparing a DE1 log to a scale log
+    // is comparing identical text.
+    info(DECENZA_BLE_MSG_TRANSPORT_CONNECTED);
 
     // Connection-priority for the DE1 link (#342, #1093/#1176, design D8).
     // A default-constructed QLowEnergyConnectionParameters has minimumInterval
@@ -528,7 +537,7 @@ void BleTransport::onControllerConnected() {
 }
 
 void BleTransport::onControllerDisconnected() {
-    log("Controller disconnected");
+    info(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);
 #ifdef Q_OS_ANDROID
     clearDE1AddressForShutdown();
     stopBleConnectionService();
@@ -763,13 +772,13 @@ void BleTransport::onServiceDiscoveryFinished() {
             }
             m_retryTimer.start();
         } else {
-            log("DE1 service not found after all retries");
+            warn(QStringLiteral("DE1 service not found after all retries"));
             emit errorOccurred("DE1 service not found after " + QString::number(MAX_RETRIES) + " retries. Try toggling Bluetooth off/on.");
             m_pendingDevice = QBluetoothDeviceInfo();
             disconnect();
         }
     } else {
-        log("Service discovery complete - DE1 service found");
+        info(QStringLiteral("Service discovery complete — DE1 service found"));
         // Success - clear pending device
         m_pendingDevice = QBluetoothDeviceInfo();
         m_retryCount = 0;
@@ -780,7 +789,10 @@ void BleTransport::onServiceStateChanged(QLowEnergyService::ServiceState state) 
     if (state == QLowEnergyService::RemoteServiceDiscovered) {
         setupService();
         m_characteristicsReady = true;
-        log(QString("Characteristics ready: %1 registered").arg(m_characteristics.size()));
+        // INFO: the machine is addressable from here on, which is the moment a
+        // user is waiting for. Its absence after "service found" is the
+        // fingerprint of a half-open link.
+        info(QString("Characteristics ready: %1 registered").arg(m_characteristics.size()));
         // Discovery window closed — peer scales can resume normal write traffic.
         setServiceDiscoveryActive(false);
 
@@ -859,15 +871,15 @@ void BleTransport::setServiceDiscoveryActive(bool active) {
 }
 
 void BleTransport::log(const QString& message) {
-    QString msg = QString("[BLE DE1] ") + message;
-    qDebug().noquote() << msg;
-    emit logMessage(msg);
+    DE1_LOG_TAGGED("BLE", message);
+}
+
+void BleTransport::info(const QString& message) {
+    DE1_INFO_TAGGED("BLE", message);
 }
 
 void BleTransport::warn(const QString& message) {
-    QString msg = QString("[BLE DE1] ") + message;
-    qWarning().noquote() << msg;
-    emit logMessage(msg);
+    DE1_WARN_TAGGED("BLE", message);
 }
 
 bool BleTransport::setupController(const QBluetoothDeviceInfo& device) {

@@ -1,4 +1,5 @@
 #include "de1device.h"
+#include "de1logging.h"
 #include "de1transport.h"
 #include "bletransport.h"
 #include "protocol/binarycodec.h"
@@ -13,6 +14,29 @@
 #include <QDateTime>
 #include <cmath>
 #include <QDebug>
+
+// Alias the shared DE1 helpers (src/ble/de1logging.h) — never copy a body. The
+// tags are the sub-prefixes this file already used ([MMR], [firmware], [Phase],
+// [WaterLevel], [ShotSettings]); they now sit inside the [DE1] marker, so the
+// per-area greps still work AND one [DE1] search returns the whole machine.
+//
+// DEBUG uses the _STDERR_ variants deliberately: the connections-page DE1 view
+// shows INFO and above, so a DEBUG line has no view to reach and emitting
+// logMessage for it would be signal traffic nothing reads. It also keeps these
+// usable from const members, where a signal emit will not compile.
+#define DEVICE_LOG(msg)         DE1_LOG_STDERR_TAGGED("Device", msg)
+#define DEVICE_INFO(msg)        DE1_INFO_TAGGED("Device", msg)
+#define DEVICE_WARN(msg)        DE1_WARN_TAGGED("Device", msg)
+#define DEVICE_WARN_STDERR(msg) DE1_WARN_STDERR_TAGGED("Device", msg)
+#define MMR_LOG(msg)            DE1_LOG_STDERR_TAGGED("MMR", msg)
+#define MMR_WARN(msg)           DE1_WARN_TAGGED("MMR", msg)
+#define MMR_WARN_STDERR(msg)    DE1_WARN_STDERR_TAGGED("MMR", msg)
+#define FW_LOG(msg)             DE1_LOG_STDERR_TAGGED("Firmware", msg)
+#define FW_INFO(msg)            DE1_INFO_TAGGED("Firmware", msg)
+#define FW_WARN(msg)            DE1_WARN_TAGGED("Firmware", msg)
+#define PHASE_LOG(msg)          DE1_LOG_STDERR_TAGGED("Phase", msg)
+#define WATER_LOG(msg)          DE1_LOG_STDERR_TAGGED("WaterLevel", msg)
+#define SHOTSETTINGS_LOG(msg)   DE1_LOG_STDERR_TAGGED("ShotSettings", msg)
 #include <QStringList>
 #include <chrono>
 #include <memory>
@@ -107,6 +131,13 @@ QString DE1Device::connectionType() const {
 // -- Transport signal handlers --
 
 void DE1Device::onTransportConnected() {
+    // The canonical "the machine is usable now" line, and the counterpart in
+    // onTransportDisconnected below. Every transport announces its own
+    // connection in its own terms ("Transport connected" for BLE, "Port opened"
+    // for serial); neither says the DE1 is up, and reading the INFO set as a
+    // story left a hole exactly where a user looks first. Names the transport
+    // because which one carried the session is the next question asked.
+    DEVICE_INFO(QStringLiteral("DE1 CONNECTED (%1)").arg(connectionType()));
     m_connecting = false;
     emit connectingChanged();
     emit connectedChanged();
@@ -130,6 +161,14 @@ void DE1Device::onTransportConnected() {
 }
 
 void DE1Device::onTransportDisconnected() {
+    // INFO, not WARN. A bare "the machine disconnected" cannot tell an
+    // unrequested mid-shot drop from the app being closed — it fires on every
+    // shutdown — so warning on it is the same cry-wolf failure as the routine
+    // WARNs removed from the scale subsystem. What makes a disconnect a PROBLEM
+    // is logged where it is known: de1LinkFault, the write-abandoned warning,
+    // the reconnect ladder. (ScaleDevice still warns on its counterpart; that is
+    // long-shipped behaviour and the inconsistency is recorded, not copied.)
+    DEVICE_INFO(QStringLiteral("DE1 DISCONNECTED"));
     m_sawStopWritePending = false;
     m_lastSawTriggerMs = 0;
     m_lastSawWriteMs = 0;
@@ -209,19 +248,23 @@ void DE1Device::onTransportDataReceived(const QBluetoothUuid& uuid, const QByteA
     } else if (uuid == DE1::Characteristic::READ_FROM_MMR) {
         parseMMRResponse(data);
     } else if (uuid == DE1::Characteristic::FW_MAP_REQUEST) {
-        qDebug().noquote() << "[firmware] A009 notify:" << data.toHex(' ');
+        FW_LOG(QStringLiteral("A009 notify: %1").arg(QString::fromLatin1(data.toHex(' '))));
         auto parsed = DE1::Firmware::parseFWMapNotification(data);
         if (parsed) {
             emit fwMapResponse(parsed->fwToErase, parsed->fwToMap,
                                QByteArray(reinterpret_cast<const char*>(parsed->firstError.data()), 3));
         } else {
-            qWarning().noquote() << "[firmware] A009 notify too short to parse:" << data.size() << "bytes";
+            FW_WARN(QStringLiteral("A009 notify too short to parse: %1 bytes").arg(data.size()));
         }
     }
 }
 
 void DE1Device::onTransportWriteComplete(const QBluetoothUuid& uuid, const QByteArray& data) {
-    // SAW stop latency instrumentation (worker trigger -> urgent write -> BLE ack)
+    // SAW stop latency instrumentation (worker trigger -> urgent write -> BLE ack).
+    // Deliberately still bare "[SAW-Latency]" and not a [DE1] helper: this
+    // measures stop-at-weight, which is shot logic, not the machine. Whether SAW
+    // earns a marker of its own is an open decision (see the openspec change's
+    // tasks.md) — it is not an oversight in this file.
     if (m_sawStopWritePending
         && uuid == DE1::Characteristic::REQUESTED_STATE
         && data.size() == 1
@@ -267,8 +310,8 @@ void DE1Device::setSimulationMode(bool enabled) {
     // head temp) and makes isConnected() true, which is exactly the dead
     // "simulating with no engine" UI this build is meant to be free of.
     if (enabled) {
-        qWarning() << "DE1Device: simulation mode requested, but no simulator is "
-                      "compiled into this build - ignoring";
+        DEVICE_WARN(QStringLiteral("Simulation mode requested, but no simulator is compiled "
+                                   "into this build — ignoring"));
         return;
     }
 #endif
@@ -374,11 +417,11 @@ void DE1Device::connectToDevice(const QString& address) {
 void DE1Device::connectToDevice(const QBluetoothDeviceInfo& device) {
     // Don't reconnect if already connected or connecting
     if (isConnected()) {
-        qDebug() << "DE1Device::connectToDevice skipped - already connected";
+        DEVICE_LOG(QStringLiteral("connectToDevice skipped — already connected"));
         return;
     }
     if (m_connecting) {
-        qDebug() << "DE1Device::connectToDevice skipped - already connecting";
+        DEVICE_LOG(QStringLiteral("connectToDevice skipped — already connecting"));
         return;
     }
 
@@ -452,12 +495,12 @@ void DE1Device::parseStateInfo(const QByteArray& data) {
     bool subStateChanged = (newSubState != m_subState);
 
     if (stateChanged) {
-        qDebug().noquote() << QString("[Phase] %1 → %2 (water raw=%3 mm, displayed=%4 mm, %5 ml)")
-            .arg(DE1::stateToString(m_state))
-            .arg(DE1::stateToString(newState))
-            .arg(m_waterLevelMm - 5.0, 0, 'f', 1)
-            .arg(m_waterLevelMm, 0, 'f', 1)
-            .arg(m_waterLevelMl);
+        PHASE_LOG(QStringLiteral("%1 → %2 (water raw=%3 mm, displayed=%4 mm, %5 ml)")
+                      .arg(DE1::stateToString(m_state))
+                      .arg(DE1::stateToString(newState))
+                      .arg(m_waterLevelMm - 5.0, 0, 'f', 1)
+                      .arg(m_waterLevelMm, 0, 'f', 1)
+                      .arg(m_waterLevelMl));
     }
 
     m_state = newState;
@@ -567,10 +610,10 @@ void DE1Device::parseWaterLevel(const QByteArray& data) {
     // Only emit when water level changes by at least 0.5% or ml changes
     if (qAbs(m_waterLevel - m_lastEmittedWaterLevel) >= 0.5
         || m_waterLevelMl != m_lastEmittedWaterLevelMl) {
-        qDebug().noquote() << QString("[WaterLevel] raw=%1 mm displayed=%2 mm %3 ml")
-            .arg(rawMm, 0, 'f', 1)
-            .arg(m_waterLevelMm, 0, 'f', 1)
-            .arg(m_waterLevelMl);
+        WATER_LOG(QStringLiteral("raw=%1 mm displayed=%2 mm %3 ml")
+                      .arg(rawMm, 0, 'f', 1)
+                      .arg(m_waterLevelMm, 0, 'f', 1)
+                      .arg(m_waterLevelMl));
         m_lastEmittedWaterLevel = m_waterLevel;
         m_lastEmittedWaterLevelMl = m_waterLevelMl;
         emit waterLevelChanged();
@@ -647,7 +690,9 @@ void DE1Device::rebuildVersionLine3() {
     m_firmwareVersion += QStringLiteral("\n") + parts.join(QStringLiteral(", "));
     emit firmwareVersionChanged();
 
-    qDebug() << "[BLE DE1] Machine info:" << parts.join(", ");
+    // INFO: firmware version, serial and model are the first thing anyone asks
+    // for when triaging a machine report.
+    DEVICE_INFO(QStringLiteral("Machine info: %1").arg(parts.join(QStringLiteral(", "))));
 }
 
 void DE1Device::sendMMRReadRequest(uint32_t address) const {
@@ -686,21 +731,20 @@ void DE1Device::checkMMRReadTimeouts() {
     for (uint32_t address : toRetry) {
         auto it = m_pendingMMRReads.find(address);
         it.value().attemptsRemaining--;
-        qWarning().noquote() << QString(
-            "[MMR] read timeout, retrying (%1 left): 0x%2 [%3]")
-            .arg(it.value().attemptsRemaining)
-            .arg(address, 6, 16, QLatin1Char('0'))
-            .arg(it.value().reason);
+        MMR_WARN(QStringLiteral("read timeout, retrying (%1 left): 0x%2 [%3]")
+                     .arg(it.value().attemptsRemaining)
+                     .arg(address, 6, 16, QLatin1Char('0'))
+                     .arg(it.value().reason));
         sendMMRReadRequest(address);
         it.value().deadlineMs = now + MMR_READ_TIMEOUT_MS;
     }
 
     for (uint32_t address : toExpire) {
         const QString reason = m_pendingMMRReads.value(address).reason;
-        qWarning().noquote() << QString(
-            "[MMR] read FAILED after retries: 0x%1 [%2] — leaving existing/default value")
-            .arg(address, 6, 16, QLatin1Char('0'))
-            .arg(reason);
+        MMR_WARN(QStringLiteral("read FAILED after retries: 0x%1 [%2] — leaving "
+                                "existing/default value")
+                     .arg(address, 6, 16, QLatin1Char('0'))
+                     .arg(reason));
 
         // GHC_INFO is the one exhausted read with a behavioral (not just
         // display) consequence: isHeadless stays at its permissive default, so
@@ -708,10 +752,9 @@ void DE1Device::checkMMRReadTimeouts() {
         // actually confirm with the machine. Spell that out — the other reads
         // (identity strings, heater voltage, refill-kit) only affect display.
         if (address == DE1::MMR::GHC_INFO) {
-            qWarning().noquote() << QStringLiteral(
-                "[MMR] GHC status unconfirmed after retries — in-app start "
-                "availability reflects the permissive default (isHeadless=true), "
-                "not a confirmed machine state");
+            MMR_WARN(QStringLiteral(
+                "GHC status unconfirmed after retries — in-app start availability reflects "
+                "the permissive default (isHeadless=true), not a confirmed machine state"));
         }
 
         m_pendingMMRReads.remove(address);
@@ -720,10 +763,10 @@ void DE1Device::checkMMRReadTimeouts() {
         // verification pending forever with no signal — the write itself
         // may well have succeeded, but we have no way to confirm it now.
         if (m_pendingMMRVerifies.contains(address)) {
-            qWarning().noquote() << QString(
-                "[MMR] verify abandoned for 0x%1 — no read-back response after retries [%2]")
-                .arg(address, 6, 16, QLatin1Char('0'))
-                .arg(m_pendingMMRVerifies.value(address).reason);
+            MMR_WARN(QStringLiteral("verify abandoned for 0x%1 — no read-back response "
+                                    "after retries [%2]")
+                         .arg(address, 6, 16, QLatin1Char('0'))
+                         .arg(m_pendingMMRVerifies.value(address).reason));
             m_pendingMMRVerifies.remove(address);
         }
     }
@@ -763,12 +806,13 @@ void DE1Device::parseMMRResponse(const QByteArray& data) {
         }
 
         bool canStartFromApp = (ghcStatus == 0 || ghcStatus == 1 || ghcStatus == 2 || ghcStatus == 4);
-        QString logMsg = QString("GHC status: %1 → app %2 start operations")
-            .arg(statusName)
-            .arg(canStartFromApp ? "CAN" : "CANNOT");
+        // INFO: whether the app may start operations at all is the single most
+        // consequential thing this device reports about itself.
+        const QString logMsg = QStringLiteral("GHC status: %1 → app %2 start operations")
+                                   .arg(statusName)
+                                   .arg(canStartFromApp ? "CAN" : "CANNOT");
 
-        qDebug().noquote() << logMsg;
-        emit logMessage(logMsg);
+        DEVICE_INFO(logMsg);
 
         if (m_isHeadless != canStartFromApp) {
             m_isHeadless = canStartFromApp;
@@ -818,7 +862,7 @@ void DE1Device::parseMMRResponse(const QByteArray& data) {
             int voltage = static_cast<int>(val);
             if (voltage != m_heaterVoltage) {
                 m_heaterVoltage = voltage;
-                qDebug() << "Heater voltage:" << m_heaterVoltage << "V";
+                DEVICE_INFO(QStringLiteral("Heater voltage: %1 V").arg(m_heaterVoltage));
                 emit heaterVoltageChanged();
             }
         }
@@ -830,9 +874,7 @@ void DE1Device::parseMMRResponse(const QByteArray& data) {
         int detected = (kitStatus > 0) ? 1 : 0;
         QString statusName = detected ? "detected" : "not detected";
 
-        QString logMsg = QString("Refill kit: %1").arg(statusName);
-        qDebug().noquote() << logMsg;
-        emit logMessage(logMsg);
+        DEVICE_INFO(QStringLiteral("Refill kit: %1").arg(statusName));
 
         if (m_refillKitDetected != detected) {
             m_refillKitDetected = detected;
@@ -854,10 +896,10 @@ void DE1Device::parseMMRResponse(const QByteArray& data) {
             static_cast<uint32_t>(static_cast<uint8_t>(d[4]));
 
         if (actualValue == verifyIt.value().expectedValue) {
-            qDebug().noquote() << QString("[MMR] verify ok: 0x%1 = %2 [%3]")
-                .arg(address, 6, 16, QLatin1Char('0'))
-                .arg(actualValue)
-                .arg(verifyIt.value().reason);
+            MMR_LOG(QStringLiteral("verify ok: 0x%1 = %2 [%3]")
+                        .arg(address, 6, 16, QLatin1Char('0'))
+                        .arg(actualValue)
+                        .arg(verifyIt.value().reason));
             m_pendingMMRVerifies.remove(address);
         } else {
             retryMMRVerify(address,
@@ -937,10 +979,10 @@ void DE1Device::startEspresso() {
     // shot fails to start, the debug log shows whether the BLE command was even
     // issued and the machine state at the time. The gate that can block BEFORE
     // this point (isHeadless / machine-ready) is logged QML-side.
-    qDebug().noquote() << QString("[BLE DE1] startEspresso: state=%1 headless=%2 sim=%3")
-                              .arg(DE1::stateToString(m_state))
-                              .arg(m_isHeadless ? "yes" : "no")
-                              .arg(m_simulationMode ? "yes" : "no");
+    DEVICE_LOG(QStringLiteral("startEspresso: state=%1 headless=%2 sim=%3")
+                   .arg(DE1::stateToString(m_state))
+                   .arg(m_isHeadless ? "yes" : "no")
+                   .arg(m_simulationMode ? "yes" : "no"));
 
     // Settle window after a profile upload before the Espresso state change is
     // allowed through. The DE1 firmware writes the shot descriptor to internal
@@ -960,9 +1002,8 @@ void DE1Device::startEspresso() {
         if (sinceUploadMs < PROFILE_UPLOAD_SETTLE_MS) {
             const int remainingMs =
                 static_cast<int>(PROFILE_UPLOAD_SETTLE_MS - sinceUploadMs);
-            qDebug().noquote() << QString(
-                "[BLE DE1] startEspresso: deferring %1ms for profile-upload settle")
-                .arg(remainingMs);
+            DEVICE_LOG(QStringLiteral("startEspresso: deferring %1 ms for profile-upload settle")
+                           .arg(remainingMs));
             // Arm a single deferred start via the stoppable member timer. The
             // flag (not zeroing the timestamp) is what a concurrent second
             // startEspresso() checks below — so a double-tap inside the window
@@ -1087,13 +1128,14 @@ void DE1Device::goToSleep() {
     // guard catches MMR traffic but sleep uses a direct writeUrgent on
     // REQUESTED_STATE and would otherwise bypass it.
     if (m_firmwareFlashInProgress) {
-        qWarning() << "DE1Device: Sleep requested during firmware flash, dropping";
+        DEVICE_WARN(QStringLiteral("Sleep requested during firmware flash, dropping"));
         return;
     }
 
     // If a profile upload is in progress, defer sleep until it completes.
     if (m_profileUploadInProgress) {
-        qDebug() << "DE1Device: Sleep requested during profile upload, deferring until upload completes";
+        DEVICE_LOG(QStringLiteral("Sleep requested during profile upload, deferring until "
+                                  "upload completes"));
         m_sleepPendingAfterUpload = true;
         return;
     }
@@ -1308,12 +1350,16 @@ void DE1Device::finishProfileUpload(bool success, const QString& reason)
         // this upload (the recipe-activation path) settles for the firmware's
         // internal flash write before requesting the state change.
         m_lastProfileUploadCompleteMs = monotonicMsNow();
-        qDebug().noquote() << QStringLiteral("DE1Device: profile upload verified — %1 frame(s) ACKed in order for profile %2")
-                                 .arg(m_uploadExpectedFrameBytes.size())
-                                 .arg(m_uploadProfileTitle);
+        // INFO both ways: whether the machine took the profile is the difference
+        // between "my shot ran the wrong curve" being a bug report and being
+        // answerable from the log.
+        DEVICE_INFO(QStringLiteral("Profile upload verified — %1 frame(s) ACKed in order for "
+                                  "profile %2")
+                        .arg(m_uploadExpectedFrameBytes.size())
+                        .arg(m_uploadProfileTitle));
     } else {
-        qWarning().noquote() << QStringLiteral("DE1Device: profile upload FAILED — %1")
-                                    .arg(reason.isEmpty() ? QStringLiteral("unknown reason") : reason);
+        DEVICE_WARN(QStringLiteral("Profile upload FAILED — %1")
+                        .arg(reason.isEmpty() ? QStringLiteral("unknown reason") : reason));
     }
 
     // Clear accumulated tracking state so a subsequent upload starts clean.
@@ -1330,7 +1376,7 @@ void DE1Device::finishProfileUpload(bool success, const QString& reason)
     if (m_sleepPendingAfterUpload) {
         m_sleepPendingAfterUpload = false;
         if (success) {
-            qDebug() << "DE1Device: Profile upload complete, now sending deferred sleep";
+            DEVICE_LOG(QStringLiteral("Profile upload complete, now sending deferred sleep"));
             goToSleep();
         }
     }
@@ -1369,14 +1415,15 @@ QByteArray DE1Device::buildMMRPayload(uint32_t address, uint32_t value) {
 void DE1Device::setFirmwareFlashInProgress(bool inProgress) {
     if (m_firmwareFlashInProgress == inProgress) return;
     m_firmwareFlashInProgress = inProgress;
-    qDebug() << "[firmware] DE1Device MMR-write guard"
-             << (inProgress ? "ENGAGED" : "cleared");
+    // DEBUG: the flash's own progress is the story; this is how it is enforced.
+    FW_LOG(QStringLiteral("MMR-write guard %1")
+               .arg(inProgress ? QStringLiteral("ENGAGED") : QStringLiteral("cleared")));
 }
 
 bool DE1Device::dropDeviceWriteIfFirmwareFlash(const char* label) const {
     if (!m_firmwareFlashInProgress) return false;
-    qWarning().noquote() << QString("[DE1] %1 DROPPED (firmware flash in progress)")
-        .arg(QString::fromLatin1(label));
+    DEVICE_WARN_STDERR(QStringLiteral("%1 DROPPED (firmware flash in progress)")
+                           .arg(QString::fromLatin1(label)));
     return true;
 }
 
@@ -1384,12 +1431,12 @@ bool DE1Device::dropIfFirmwareFlashInProgress(uint32_t address, uint32_t value,
                                               const QString& reason,
                                               const char* label) const {
     if (!m_firmwareFlashInProgress) return false;
-    qWarning().noquote() << QString(
-        "[MMR] %1 DROPPED (firmware flash in progress): 0x%2 = %3%4")
-        .arg(QString::fromLatin1(label))
-        .arg(address, 6, 16, QLatin1Char('0'))
-        .arg(value)
-        .arg(reason.isEmpty() ? QString() : QStringLiteral(" [%1]").arg(reason));
+    MMR_WARN_STDERR(QStringLiteral("%1 DROPPED (firmware flash in progress): 0x%2 = %3%4")
+                        .arg(QString::fromLatin1(label))
+                        .arg(address, 6, 16, QLatin1Char('0'))
+                        .arg(value)
+                        .arg(reason.isEmpty() ? QString()
+                                              : QStringLiteral(" [%1]").arg(reason)));
     return true;
 }
 
@@ -1427,20 +1474,21 @@ void DE1Device::writeMMR(uint32_t address, uint32_t value,
     const bool valueUnchanged = (it != m_lastMMRValues.constEnd() && it.value() == value);
 
     if (!force && valueUnchanged) {
-        qDebug().noquote() << QString(
-            "[MMR] write skipped: 0x%1 unchanged (%2)%3")
-            .arg(address, 6, 16, QLatin1Char('0'))
-            .arg(value)
-            .arg(reasonSuffix);
+        MMR_LOG(QStringLiteral("write skipped: 0x%1 unchanged (%2)%3")
+                    .arg(address, 6, 16, QLatin1Char('0'))
+                    .arg(value)
+                    .arg(reasonSuffix));
         return;
     }
 
     // Log the dispatched write. Three tags so grep counts stay accurate:
-    //   "[MMR] write:"       — value changed since the last write to this addr.
-    //   "[MMR] retry-write:" — writeMMRVerified retry (force=true + unchanged
-    //                          because the cache holds the expected value, and
-    //                          reason carries the "-retry" suffix).
-    //   "[MMR] keepalive:"   — force=true + unchanged from any other caller.
+    //   "[DE1][MMR] write:"       — value changed since the last write to this
+    //                                 address.
+    //   "[DE1][MMR] retry-write:" — writeMMRVerified retry (force=true +
+    //                                 unchanged because the cache holds the
+    //                                 expected value, and reason carries the
+    //                                 "-retry" suffix).
+    //   "[DE1][MMR] keepalive:"   — force=true + unchanged from any other caller.
     //                          In practice that's only BatteryManager's 60 s
     //                          USB-charger refresh.
     // Before this split a wedge log showed a 5 s "Write timeout" out of nowhere
@@ -1455,11 +1503,11 @@ void DE1Device::writeMMR(uint32_t address, uint32_t value,
     } else {
         tag = QStringLiteral("keepalive");
     }
-    qDebug().noquote() << QString("[MMR] %1: 0x%2 = %3%4")
-        .arg(tag)
-        .arg(address, 6, 16, QLatin1Char('0'))
-        .arg(value)
-        .arg(reasonSuffix);
+    MMR_LOG(QStringLiteral("%1: 0x%2 = %3%4")
+                .arg(tag)
+                .arg(address, 6, 16, QLatin1Char('0'))
+                .arg(value)
+                .arg(reasonSuffix));
 
     m_lastMMRValues.insert(address, value);
     m_transport->write(DE1::Characteristic::WRITE_TO_MMR, buildMMRPayload(address, value));
@@ -1474,10 +1522,10 @@ void DE1Device::writeMMRUrgent(uint32_t address, uint32_t value, const QString& 
 
     const QString reasonSuffix = reason.isEmpty()
         ? QString() : QStringLiteral(" [%1]").arg(reason);
-    qDebug().noquote() << QString("[MMR] write urgent: 0x%1 = %2%3")
-        .arg(address, 6, 16, QLatin1Char('0'))
-        .arg(value)
-        .arg(reasonSuffix);
+    MMR_LOG(QStringLiteral("write urgent: 0x%1 = %2%3")
+                .arg(address, 6, 16, QLatin1Char('0'))
+                .arg(value)
+                .arg(reasonSuffix));
 
     // Urgent writes always go through (no dedup check), but we still update
     // the cache so a subsequent non-urgent writeMMR with the same value
@@ -1491,11 +1539,12 @@ void DE1Device::writeMMRUrgent(uint32_t address, uint32_t value, const QString& 
 void DE1Device::writeFWMapRequest(uint8_t fwToErase, uint8_t fwToMap,
                                   std::array<uint8_t, 3> firstError) {
     if (!m_transport) {
-        qWarning() << "[firmware] writeFWMapRequest dropped: no transport";
+        FW_WARN(QStringLiteral("writeFWMapRequest dropped: no transport"));
         return;
     }
     const QByteArray packet = DE1::Firmware::buildFWMapRequest(fwToErase, fwToMap, firstError);
-    qDebug().noquote() << "[firmware] A009 write FWMapRequest:" << packet.toHex(' ');
+    FW_LOG(QStringLiteral("A009 write FWMapRequest: %1")
+               .arg(QString::fromLatin1(packet.toHex(' '))));
     m_transport->write(DE1::Characteristic::FW_MAP_REQUEST, packet);
 }
 
@@ -1515,10 +1564,10 @@ void DE1Device::writeFirmwareChunk(uint32_t address, const QByteArray& payload16
 
 void DE1Device::subscribeFirmwareNotifications() {
     if (!m_transport) {
-        qWarning() << "[firmware] subscribeFirmwareNotifications dropped: no transport";
+        FW_WARN(QStringLiteral("subscribeFirmwareNotifications dropped: no transport"));
         return;
     }
-    qDebug() << "[firmware] subscribing to A009 (FW_MAP_REQUEST) notifications";
+    FW_LOG(QStringLiteral("Subscribing to A009 (FW_MAP_REQUEST) notifications"));
     m_transport->subscribe(DE1::Characteristic::FW_MAP_REQUEST);
 }
 
@@ -1571,23 +1620,21 @@ void DE1Device::retryMMRVerify(uint32_t address, const QString& cause) {
     it.value().attemptsRemaining--;
 
     if (it.value().attemptsRemaining <= 0) {
-        qWarning().noquote() << QString(
-            "[MMR] verify FAILED for 0x%1 expected=%2 [%3 / %4]")
-            .arg(address, 6, 16, QLatin1Char('0'))
-            .arg(it.value().expectedValue)
-            .arg(it.value().reason)
-            .arg(cause);
+        MMR_WARN(QStringLiteral("verify FAILED for 0x%1 expected=%2 [%3 / %4]")
+                     .arg(address, 6, 16, QLatin1Char('0'))
+                     .arg(it.value().expectedValue)
+                     .arg(it.value().reason)
+                     .arg(cause));
         m_pendingMMRVerifies.remove(address);
         return;
     }
 
-    qDebug().noquote() << QString(
-        "[MMR] verify retry for 0x%1 expected=%2 attempts_left=%3 [%4 / %5]")
-        .arg(address, 6, 16, QLatin1Char('0'))
-        .arg(it.value().expectedValue)
-        .arg(it.value().attemptsRemaining)
-        .arg(it.value().reason)
-        .arg(cause);
+    MMR_LOG(QStringLiteral("verify retry for 0x%1 expected=%2 attempts_left=%3 [%4 / %5]")
+                .arg(address, 6, 16, QLatin1Char('0'))
+                .arg(it.value().expectedValue)
+                .arg(it.value().attemptsRemaining)
+                .arg(it.value().reason)
+                .arg(cause));
 
     writeMMR(address, it.value().expectedValue,
              it.value().reason + QStringLiteral("-retry"), /*force=*/true);
@@ -1621,7 +1668,8 @@ void DE1Device::setUsbChargerOn(bool on, bool force) {
 
 void DE1Device::setUsbChargerOnUrgent(bool on) {
     if (!m_transport) {
-        qWarning() << "DE1Device::setUsbChargerOnUrgent: no transport, cannot set charger" << (on ? "ON" : "OFF");
+        DEVICE_WARN(QStringLiteral("setUsbChargerOnUrgent: no transport, cannot set charger %1")
+                        .arg(on ? QStringLiteral("ON") : QStringLiteral("OFF")));
         return;
     }
     bool stateChanged = (m_usbChargerOn != on);
@@ -1642,7 +1690,7 @@ void DE1Device::setWaterRefillLevel(int refillPointMm) {
     data.append(BinaryCodec::encodeShortBE(BinaryCodec::encodeU16P8(0)));
     data.append(BinaryCodec::encodeShortBE(BinaryCodec::encodeU16P8(static_cast<double>(refillPointMm))));
 
-    qDebug() << "[WaterLevels] write: StartFillLevel =" << refillPointMm << "mm";
+    WATER_LOG(QStringLiteral("write: StartFillLevel = %1 mm").arg(refillPointMm));
     m_transport->write(DE1::Characteristic::WATER_LEVELS, data);
 }
 
@@ -1783,15 +1831,15 @@ void DE1Device::setShotSettings(double steamTemp, int steamDuration,
     // attributes the elided call to its origin so we can see which convergent
     // signal fired.
     if (data == m_lastShotSettingsPayload) {
-        qDebug().noquote() << QString(
-            "[ShotSettings] write skipped: payload unchanged "
+        SHOTSETTINGS_LOG(QStringLiteral(
+            "write skipped: payload unchanged "
             "(steam=%1C duration=%2s hotWater=%3C vol=%4ml groupTemp=%5C)%6")
             .arg(steamTemp, 0, 'f', 1)
             .arg(steamDuration)
             .arg(hotWaterTemp, 0, 'f', 1)
             .arg(hotWaterVolume)
             .arg(groupTemp, 0, 'f', 2)
-            .arg(reasonSuffix);
+            .arg(reasonSuffix));
         return;
     }
 
@@ -1810,14 +1858,14 @@ void DE1Device::setShotSettings(double steamTemp, int steamDuration,
     // debug log alongside the DE1-reported values from parseShotSettings().
     // This is what lets us tell apart "we never wrote it" vs "we wrote it and
     // the DE1 ignored us" vs "stale indication crossed our new write".
-    qDebug().noquote() << QString(
-        "[ShotSettings] write: steam=%1C duration=%2s hotWater=%3C vol=%4ml groupTemp=%5C%6")
+    SHOTSETTINGS_LOG(QStringLiteral(
+        "write: steam=%1C duration=%2s hotWater=%3C vol=%4ml groupTemp=%5C%6")
         .arg(steamTemp, 0, 'f', 1)
         .arg(steamDuration)
         .arg(hotWaterTemp, 0, 'f', 1)
         .arg(hotWaterVolume)
         .arg(groupTemp, 0, 'f', 2)
-        .arg(reasonSuffix);
+        .arg(reasonSuffix));
 
     m_transport->write(DE1::Characteristic::SHOT_SETTINGS, data);
 
@@ -1841,7 +1889,7 @@ void DE1Device::parseShotSettings(const QByteArray& data) {
     //   byte 6   TargetEspressoVol   (u8p0, ml)
     //   bytes 7-8 TargetGroupTemp    (u16p8 big-endian, °C)
     if (data.size() < 9) {
-        qWarning() << "[BLE DE1] parseShotSettings: short payload, size=" << data.size();
+        DEVICE_WARN(QStringLiteral("parseShotSettings: short payload, size=%1").arg(data.size()));
         return;
     }
     const auto d = reinterpret_cast<const uint8_t*>(data.constData());
@@ -1852,17 +1900,17 @@ void DE1Device::parseShotSettings(const QByteArray& data) {
     const uint16_t groupRaw = BinaryCodec::decodeShortBE(data, 7);
     const double groupTargetC = BinaryCodec::decodeU16P8(groupRaw);
 
-    // Trace every DE1-reported value. Pair with the [ShotSettings] write:
+    // Trace every DE1-reported value. Pair with the "[DE1][ShotSettings] write:"
     // lines above to reconstruct the request/response timeline when
     // diagnosing "heater didn't heat" or "steam didn't stop" reports.
-    qDebug().noquote() << QString(
-        "[ShotSettings] reported: steam=%1C duration=%2s hotWater=%3C vol=%4ml group=%5C (%6 bytes)")
+    SHOTSETTINGS_LOG(QStringLiteral(
+        "reported: steam=%1C duration=%2s hotWater=%3C vol=%4ml group=%5C (%6 bytes)")
         .arg(steamTargetC, 0, 'f', 1)
         .arg(steamDurationSec)
         .arg(hotWaterTempC, 0, 'f', 1)
         .arg(hotWaterVolMl)
         .arg(groupTargetC, 0, 'f', 2)
-        .arg(data.size());
+        .arg(data.size()));
 
     m_deviceSteamTargetC = steamTargetC;
     m_deviceSteamDurationSec = steamDurationSec;
@@ -1876,13 +1924,14 @@ void DE1Device::parseShotSettings(const QByteArray& data) {
 void DE1Device::resendLastShotSettings() {
     if (!m_transport || m_lastShotSettingsPayload.isEmpty()) return;
     if (dropDeviceWriteIfFirmwareFlash("resendLastShotSettings")) return;
-    qDebug().noquote() << QString(
-        "[ShotSettings] resend: repeating last payload (steam=%1C duration=%2s hotWater=%3C vol=%4ml group=%5C)")
+    SHOTSETTINGS_LOG(QStringLiteral(
+        "resend: repeating last payload "
+        "(steam=%1C duration=%2s hotWater=%3C vol=%4ml group=%5C)")
         .arg(m_commandedSteamTargetC, 0, 'f', 1)
         .arg(m_commandedSteamDurationSec)
         .arg(m_commandedHotWaterTempC, 0, 'f', 1)
         .arg(m_commandedHotWaterVolMl)
-        .arg(m_commandedGroupTargetC, 0, 'f', 2);
+        .arg(m_commandedGroupTargetC, 0, 'f', 2));
     m_lastShotSettingsWriteMs = QDateTime::currentMSecsSinceEpoch();
     m_transport->write(DE1::Characteristic::SHOT_SETTINGS, m_lastShotSettingsPayload);
 }

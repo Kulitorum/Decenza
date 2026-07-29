@@ -71,7 +71,12 @@ struct McpTestFixture {
     //
     // Declared before `device` so the filter outlives ~DE1Device (members are
     // destroyed in reverse declaration order).
-    ScopedWarningFilter uploadFilter{"profile upload FAILED — (BLE disconnect during upload|superseded by a new upload|command queue cleared during upload)"};
+    // Matched on the message text, so it has to track it: the line reads
+    // "[DE1][Device] Profile upload FAILED — <reason>" (src/ble/de1device.cpp).
+    // Capitalisation matters — a stale lower-case "profile" here stopped matching
+    // and turned four suites red at once, with a failure that pointed at the
+    // upload code rather than at this pattern.
+    ScopedWarningFilter uploadFilter{"Profile upload FAILED — (BLE disconnect during upload|superseded by a new upload|command queue cleared during upload)"};
     DE1Device device;
     MachineState machineState;
     // Suppress expected warnings during ProfileManager construction — test env has

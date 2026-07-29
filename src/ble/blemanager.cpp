@@ -1,6 +1,7 @@
 #include "blemanager.h"
 
 #include "refractometers/refractometerlogging.h"
+#include "de1logging.h"
 #include "scales/scalelogging.h"
 #include "blecapability.h"
 #include "scaledevice.h"
@@ -1033,7 +1034,10 @@ void BLEManager::clearScanRequestFlags() {
 
 void BLEManager::requestBluetoothPermission() {
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
-    emit de1LogMessage("Checking permissions...");
+    // No "Checking permissions..." line here, deliberately. These lines have
+    // never appeared in a log before this change, so each one had to justify
+    // itself rather than just being promoted: this one said nothing the next
+    // line does not — a request, a denial, or the scan starting.
 
 #ifdef Q_OS_ANDROID
     // First check/request location permission (required for BLE scanning on Android)
@@ -1041,13 +1045,21 @@ void BLEManager::requestBluetoothPermission() {
     locationPermission.setAccuracy(QLocationPermission::Precise);
 
     if (qApp->checkPermission(locationPermission) == Qt::PermissionStatus::Undetermined) {
-        emit de1LogMessage("Requesting location permission...");
+        // INFO: a system dialog is about to appear and what happens next is the
+        // user's answer, so this is the one line that explains a gap in the log.
+        // Says WHY the permission is wanted — that is the part nobody knows, and
+        // the part that generates the support question.
+        de1Info(QStringLiteral("Requesting location permission — Android requires it to scan "
+                               "for BLE devices"));
         qApp->requestPermission(locationPermission, this, [this](const QPermission& permission) {
             if (permission.status() == Qt::PermissionStatus::Granted) {
-                emit de1LogMessage("Location permission granted");
+                // DEBUG: granted is the non-event. "Scanning for devices..."
+                // follows within milliseconds and says it louder.
+                de1Debug(QStringLiteral("Location permission granted"));
                 requestBluetoothPermission();  // Continue with Bluetooth permission
             } else {
-                emit de1LogMessage("Location permission denied");
+                de1Warn(QStringLiteral("Location permission DENIED — BLE scanning cannot work "
+                                       "until it is granted in Android Settings"));
                 clearScanRequestFlags();  // No scan will start; don't latch the request flags
                 emit errorOccurred(translateUiString("ble.error.locationPermissionDeniedForBluetooth",
                     "Location permission denied - required for Bluetooth scanning"));
@@ -1055,7 +1067,8 @@ void BLEManager::requestBluetoothPermission() {
         });
         return;
     } else if (qApp->checkPermission(locationPermission) == Qt::PermissionStatus::Denied) {
-        emit de1LogMessage("Location permission denied");
+        de1Warn(QStringLiteral("Location permission DENIED — BLE scanning cannot work until it "
+                               "is granted in Android Settings"));
         clearScanRequestFlags();  // No scan will start; don't latch the request flags
         emit errorOccurred(translateUiString("ble.error.locationPermissionRequired",
             "Location permission required. Please enable in Settings."));
@@ -1069,17 +1082,19 @@ void BLEManager::requestBluetoothPermission() {
 
     switch (qApp->checkPermission(bluetoothPermission)) {
     case Qt::PermissionStatus::Undetermined:
-        emit de1LogMessage("Requesting Bluetooth permission...");
+        de1Info(QStringLiteral("Requesting Bluetooth permission — needed to reach the DE1"));
         qApp->requestPermission(bluetoothPermission, this, [this](const QPermission& permission) {
             if (permission.status() == Qt::PermissionStatus::Granted) {
-                emit de1LogMessage("Bluetooth permission granted");
+                // No "granted" line: the scan that follows within milliseconds
+                // proves it, and a granted permission is the non-event.
                 // isBluetoothAvailable() now switches from the Undetermined bypass
                 // to the real hostMode() check. Notify QML bindings so any "Bluetooth
                 // unavailable" UI re-evaluates immediately.
                 emit bluetoothAvailableChanged();
                 doStartScan();
             } else {
-                emit de1LogMessage("Bluetooth permission denied");
+                de1Warn(QStringLiteral("Bluetooth permission DENIED — no device can be reached "
+                                       "until it is granted in system Settings"));
                 // Transition Undetermined → Denied also flips isBluetoothAvailable()
                 // from true to false (via the hostMode() fall-through).
                 emit bluetoothAvailableChanged();
@@ -1090,13 +1105,14 @@ void BLEManager::requestBluetoothPermission() {
         });
         return;
     case Qt::PermissionStatus::Denied:
-        emit de1LogMessage("Bluetooth permission denied");
+        de1Warn(QStringLiteral("Bluetooth permission DENIED — no device can be reached until it "
+                               "is granted in system Settings"));
         clearScanRequestFlags();  // No scan will start; don't latch the request flags
         emit errorOccurred(translateUiString("ble.error.bluetoothPermissionRequired",
             "Bluetooth permission required. Please enable in Settings."));
         return;
     case Qt::PermissionStatus::Granted:
-        emit de1LogMessage("Permissions OK");
+        // Nothing to say: doStartScan() logs "Scanning for devices..." next.
         break;
     }
 #endif
@@ -1127,7 +1143,7 @@ void BLEManager::doStartScan() {
     m_scanning = true;
     emit scanningChanged();
     emit scanStarted();  // Notify that scan has actually started
-    emit de1LogMessage("Scanning for devices...");
+    de1Info(QStringLiteral("Scanning for devices..."));
 
     // Scan for BLE devices only
     ensureDiscoveryAgent();
@@ -1153,7 +1169,7 @@ void BLEManager::stopScan() {
     // WiFi discovery genuinely is still running.
     if (!m_scanning) return;
 
-    emit de1LogMessage("Scan stopped");
+    de1Info(QStringLiteral("Scan stopped"));
     if (m_discoveryAgent)
         m_discoveryAgent->stop();
     m_scanning = false;
@@ -1185,8 +1201,8 @@ void BLEManager::onDeviceDiscovered(const QBluetoothDeviceInfo& device) {
         }
         m_de1Devices.append(device);
         emit devicesChanged();
-        qDebug() << "[BLE] Found DE1:" << device.name() << "at" << getDeviceIdentifier(device);
-        emit de1LogMessage(QString("Found DE1: %1 (%2)").arg(device.name()).arg(getDeviceIdentifier(device)));
+        de1Info(QStringLiteral("Found DE1: %1 (%2)")
+                    .arg(device.name(), getDeviceIdentifier(device)));
         emit de1Discovered(device);
         return;
     }
@@ -1337,8 +1353,8 @@ void BLEManager::onScanFinished() {
     m_scanning = false;
     m_scanningForScales = false;
     m_userInitiatedScaleScan = false;
-    emit de1LogMessage("Scan complete");
-    scaleInfo("Scan complete");
+    de1Info(QStringLiteral("Scan complete"));
+    scaleInfo(QStringLiteral("Scan complete"));
     emit scanningChanged();
 
     // Hunt mode (post-shot review page): restart the scan back-to-back so a
@@ -1406,9 +1422,13 @@ void BLEManager::onScanError(QBluetoothDeviceDiscoveryAgent::Error error) {
                 "Bluetooth error (code %1)").arg(static_cast<int>(error));
             break;
     }
-    qWarning() << "BLEManager scan error:" << errorMsg << "code:" << static_cast<int>(error);
-    emit de1LogMessage(QString("Error: %1").arg(errorMsg));
-    scaleWarn(QString("Error: %1").arg(errorMsg));
+    // One wording, both subsystems: a scan error affects the machine and the
+    // scale equally, and this used to say it three times in two phrasings.
+    const QString scanErrorLine = QStringLiteral("Scan error: %1 (code %2)")
+                                      .arg(errorMsg)
+                                      .arg(static_cast<int>(error));
+    de1Warn(scanErrorLine);
+    scaleWarn(scanErrorLine);
     // Debounce the user-visible popup: scan errors from the refractometer/
     // scale auto-reconnect cycle would otherwise re-fire the same error toast
     // every ~30 s (e.g. macOS Tahoe sometimes returns MissingPermissionsError
@@ -1637,7 +1657,7 @@ void BLEManager::onScaleConnectionTimeout() {
 
     if (!m_flowScaleFallbackEmitted) {
         m_flowScaleFallbackEmitted = true;
-        scaleWarn("Scale not found - using FlowScale");
+        scaleWarn(QStringLiteral("Scale not found — using FlowScale"));
         emit flowScaleFallback();
     }
 
@@ -2051,10 +2071,8 @@ void BLEManager::tryDirectConnectToDE1() {
     QString upperAddress = m_savedDE1Address.toUpper();
     QBluetoothAddress address(upperAddress);
     if (address.isNull()) {
-        qDebug() << "BLEManager: DE1 direct wake - identifier is not a MAC, scanning for"
-                 << deviceName << "id:" << m_savedDE1Address;
-        emit de1LogMessage(QString("Direct wake: scanning for %1 (identifier is not a MAC)")
-                           .arg(deviceName));
+        de1Info(QStringLiteral("Direct wake: scanning for %1 (identifier %2 is not a MAC)")
+                    .arg(deviceName, m_savedDE1Address));
         if (!m_scanning) {
             startScan();
         }
@@ -2062,8 +2080,7 @@ void BLEManager::tryDirectConnectToDE1() {
     }
     QBluetoothDeviceInfo deviceInfo(address, deviceName, QBluetoothDeviceInfo::LowEnergyCoreConfiguration);
 
-    qDebug() << "BLEManager: DE1 direct wake - connecting to" << deviceName << "at" << upperAddress;
-    emit de1LogMessage(QString("Direct wake: connecting to %1 at %2").arg(deviceName, upperAddress));
+    de1Info(QStringLiteral("Direct wake: connecting to %1 at %2").arg(deviceName, upperAddress));
 
     // A DE1 direct-wake connect is now being initiated — gate the scale's BLE
     // direct-connect behind it (two concurrent GATT connects collide on the
@@ -2677,8 +2694,33 @@ void BLEManager::scaleRepeatFailure(const QString& message) {
     } else {
         // Same event, still true, nothing new. Kept at DEBUG so the log still
         // proves the ladder is running without another alarm.
-        scaleDebug(QString("%1 (repeat %2)").arg(message).arg(m_consecutiveScaleFailures));
+        //
+        // The count is of consecutive failures in the SUBSYSTEM, not of this
+        // message — one attempt reports several ("timeout", then "unreachable —
+        // trying Bluetooth"), so the numbers a reader sees on one message will
+        // skip. It is worded that way for exactly that reason: "(repeat 4)" on a
+        // line that has appeared twice reads as a bug in the counter.
+        scaleDebug(QString("%1 (consecutive failure %2)")
+                       .arg(message).arg(m_consecutiveScaleFailures));
     }
+}
+
+// The DE1 tiers. The signal still carries the BARE message so the existing
+// connections-page window renders exactly as before; the marker is added only on
+// the way to the system log, where it is what makes the line findable.
+void BLEManager::de1Debug(const QString& message) {
+    DE1_LOG_STDERR_TAGGED("BLEManager", message);
+    emit de1LogMessage(message);
+}
+
+void BLEManager::de1Info(const QString& message) {
+    DE1_INFO_STDERR_TAGGED("BLEManager", message);
+    emit de1LogMessage(message);
+}
+
+void BLEManager::de1Warn(const QString& message) {
+    DE1_WARN_STDERR_TAGGED("BLEManager", message);
+    emit de1LogMessage(message);
 }
 
 void BLEManager::refractometerInfo(const QString& message) {

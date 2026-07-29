@@ -75,7 +75,7 @@ private slots:
         QVERIFY(f.device.m_pendingMMRReads.contains(DE1::MMR::GHC_INFO));
 
         // Status 3 = active GHC → app CANNOT start → isHeadless false.
-        QTest::ignoreMessage(QtDebugMsg,
+        QTest::ignoreMessage(QtInfoMsg,
             QRegularExpression("GHC status: active"));
         emit f.transport.dataReceived(DE1::Characteristic::READ_FROM_MMR, ghcResponse(3));
 
@@ -91,7 +91,7 @@ private slots:
         QCOMPARE(countReadRequests(f.transport), qsizetype(1));
 
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression("\\[MMR\\] read timeout, retrying"));
+            QRegularExpression("\\[DE1\\]\\[MMR\\] read timeout, retrying"));
         expireAndSweep(f.device);
 
         // The read request was re-sent, and the entry is still pending with one
@@ -105,11 +105,11 @@ private slots:
         f.device.issueMMRReadWithRetry(DE1::MMR::GHC_INFO, QStringLiteral("GHC info"));
 
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression("\\[MMR\\] read timeout, retrying"));
+            QRegularExpression("\\[DE1\\]\\[MMR\\] read timeout, retrying"));
         expireAndSweep(f.device);
 
         // Response finally arrives on the retry.
-        QTest::ignoreMessage(QtDebugMsg, QRegularExpression("GHC status: active"));
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression("GHC status: active"));
         emit f.transport.dataReceived(DE1::Characteristic::READ_FROM_MMR, ghcResponse(7));
 
         QCOMPARE(f.device.isHeadless(), false);
@@ -125,13 +125,13 @@ private slots:
 
         // MMR_READ_MAX_RETRIES retries, then one more sweep to expire.
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression("\\[MMR\\] read timeout, retrying"));
+            QRegularExpression("\\[DE1\\]\\[MMR\\] read timeout, retrying"));
         expireAndSweep(f.device);
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression("\\[MMR\\] read timeout, retrying"));
+            QRegularExpression("\\[DE1\\]\\[MMR\\] read timeout, retrying"));
         expireAndSweep(f.device);
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression("\\[MMR\\] read FAILED after retries"));
+            QRegularExpression("\\[DE1\\]\\[MMR\\] read FAILED after retries"));
         // GHC exhaustion additionally logs the capability-unconfirmed advisory.
         QTest::ignoreMessage(QtWarningMsg,
             QRegularExpression("GHC status unconfirmed after retries"));
@@ -157,15 +157,15 @@ private slots:
         QVERIFY(f.device.m_pendingMMRReads.contains(addr));
 
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression("\\[MMR\\] read timeout, retrying"));
+            QRegularExpression("\\[DE1\\]\\[MMR\\] read timeout, retrying"));
         expireAndSweep(f.device);
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression("\\[MMR\\] read timeout, retrying"));
+            QRegularExpression("\\[DE1\\]\\[MMR\\] read timeout, retrying"));
         expireAndSweep(f.device);
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression("\\[MMR\\] read FAILED after retries"));
+            QRegularExpression("\\[DE1\\]\\[MMR\\] read FAILED after retries"));
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression("\\[MMR\\] verify abandoned"));
+            QRegularExpression("\\[DE1\\]\\[MMR\\] verify abandoned"));
         expireAndSweep(f.device);
 
         // Both the read tracking and the verify entry are cleared — the verify
@@ -195,7 +195,7 @@ private slots:
         QVERIFY(f.device.m_mmrReadRetryTimer.isActive());
 
         // The last response drains the table and stops the timer.
-        QTest::ignoreMessage(QtDebugMsg, QRegularExpression("GHC status: active"));
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression("GHC status: active"));
         emit f.transport.dataReceived(DE1::Characteristic::READ_FROM_MMR, ghcResponse(3));
         QVERIFY(f.device.m_pendingMMRReads.isEmpty());
         QVERIFY(!f.device.m_mmrReadRetryTimer.isActive());
@@ -215,8 +215,8 @@ private slots:
             for (auto it = f.device.m_pendingMMRReads.begin();
                  it != f.device.m_pendingMMRReads.end(); ++it) {
                 QTest::ignoreMessage(QtWarningMsg,
-                    QRegularExpression(round < 2 ? "\\[MMR\\] read timeout, retrying"
-                                                 : "\\[MMR\\] read FAILED after retries"));
+                    QRegularExpression(round < 2 ? "\\[DE1\\]\\[MMR\\] read timeout, retrying"
+                                                 : "\\[DE1\\]\\[MMR\\] read FAILED after retries"));
             }
             expireAndSweep(f.device);
         }

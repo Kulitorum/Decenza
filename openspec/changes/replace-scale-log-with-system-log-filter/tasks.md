@@ -32,14 +32,32 @@
 
 ## 3. DE1 helpers, marker and tiers
 
-- [ ] 3.1 Add DE1 logging helpers with the `[DE1]` marker from the registry, three tiers plus stderr-only variants, mirroring the scale set. Alias the shared macro bodies — do not copy them.
-- [ ] 3.2 `bletransport.cpp` — its existing `log()`/`warn()` helpers gain the marker and an INFO tier; `[BLE DE1]` becomes `[DE1][BLE]`.
-- [ ] 3.3 `serialtransport.cpp` — add the helpers it lacks; convert its 11 hand-rolled `[USB]` sites to `[DE1][Serial]`.
-- [ ] 3.4 `usbmanager.cpp` — add helpers; convert its 23 hand-rolled `[USB]` sites to `[DE1][USB]`.
-- [ ] 3.5 `de1device.cpp` — route its 10 hand-rolled `[BLE DE1]` prefixes and ~33 unprefixed stderr lines through the helpers, assigning a tier to each.
-- [ ] 3.6 Convert the 17 `emit de1LogMessage(...)` sites in `blemanager.cpp` to INFO helper calls (permissions, scan lifecycle, DE1 found, direct-wake, errors). Keep the signal emitting for now so the existing window is unaffected.
-- [ ] 3.7 Review the DE1 INFO set as a narrative, as in 2.7 — this is the first time these lines land in a log, so read them as a stranger would.
-- [ ] 3.8 Build and run the full suite.
+- [x] 3.1 Add DE1 logging helpers with the `[DE1]` marker from the registry, three tiers plus stderr-only variants, mirroring the scale set. Alias the shared macro bodies — do not copy them. (`src/ble/de1logging.h`.)
+- [x] 3.2 `bletransport.cpp` — its existing `log()`/`warn()` helpers gain the marker and an INFO tier; `[BLE DE1]` becomes `[DE1][BLE]`. The four Android JNI shims go to `[DE1][Android]`.
+- [x] 3.3 `serialtransport.cpp` — add the helpers it lacks; convert its 21 hand-rolled `[USB]` sites to `[DE1][Serial]`. (21, not the estimated 11.) Ten of them were `emit logMessage` with no stderr write at all, so they reached the window and never the log.
+- [x] 3.4 `usbmanager.cpp` — add helpers; convert its 41 hand-rolled `[USB]` sites to `[DE1][USB]`. (41, not 23 — 15 were qDebug/emit PAIRS describing one event in two different wordings, now one call each.) Also removed an unreachable `if (ports.isEmpty())` nested inside `if (!ports.isEmpty())`.
+- [x] 3.5 `de1device.cpp` — route its hand-rolled prefixes and unprefixed stderr lines through the helpers, assigning a tier to each. The five existing sub-prefixes (`[MMR]`, `[firmware]`, `[Phase]`, `[WaterLevel]`, `[ShotSettings]`) became tags inside `[DE1]`, so the per-area greps still work. DEBUG uses the stderr-only variants deliberately: below the view threshold there is nothing to emit to, and it keeps them usable from `const` members.
+- [x] 3.6 Convert the 18 `emit de1LogMessage(...)` sites in `blemanager.cpp` to tiered helper calls (permissions, scan lifecycle, DE1 found, direct-wake, errors). The signal still carries the BARE message so the existing window renders unchanged. Also collapsed three more qDebug/emit drift pairs and a triple (`scan error` said itself three times in two phrasings).
+- [x] 3.7 Review the DE1 INFO set as a narrative, as in 2.7 — this is the first time these lines land in a log, so read them as a stranger would. Found three holes and fixed them: (a) no canonical "the machine is usable now" line at all — every transport announced its own connection in its own terms and none said the DE1 was up, so `DE1Device` now logs `DE1 CONNECTED (<transport>)` / `DE1 DISCONNECTED`; (b) no INFO for the connect *attempt* on the scan-discovered path, so a connect that never completed read as a scan that found the machine and stopped; (c) `MMR-write guard ENGAGED` was my own over-promotion — flash mechanism, not narrative, back to DEBUG.
+- [x] 3.8 Build and run the full suite. 108/108, 0 warnings.
+- [x] 3.9 `DE1 DISCONNECTED` is INFO, not WARN (unlike `ScaleDevice`'s counterpart). A bare disconnect line cannot tell a mid-shot drop from the app closing — it fires on every shutdown — so warning on it is the cry-wolf pattern 2b removed. What makes a disconnect a problem is warned where that is known (`de1LinkFault`, write-abandoned, the reconnect ladder). Recorded rather than copied to the scale side; see 3.11.
+- [x] 3.10 Deleted `src/ble/new_permission_func.txt` and `src/ble/blemanager_patch.txt` — a tracked, stale copy of the very permission function being edited here, plus a one-line note. A checked-in copy of live code is the drift hazard this change exists to remove.
+- [ ] 3.11 Decide whether `ScaleDevice`'s `DISCONNECTED` should follow 3.9 down to INFO. It is long-shipped at WARN and the two subsystems now disagree; the argument for INFO is identical. Not changed blind.
+- [x] 3.12 Audit every line that has never been in a log before deciding to keep it — the goal is a smaller, wholly useful log, not a tagged version of the old one. Net result: **six sites deleted, not re-tagged**, and the remaining ones made to say something.
+  - `serialtransport.cpp`'s per-frame `RX [M] 19 bytes` — **deleted.** One line per notification, ~20/s across four subscribed characteristics, ~600 per shot. It reached only the connections-page ring, so nobody paid for it; routing it to the log would have made DE1 telemetry the largest single thing in a submitted log while proving only that a frame arrived — which the parsed values and the shot record already do, and which `BleTransport` has never logged for its equivalent. The two anomaly cases (`RX unknown`, `RX unknown letter`) are kept: those are what a reader is hunting.
+  - `"Checking permissions..."`, `"Permissions OK"`, `"Location permission granted"`, `"Bluetooth permission granted"` — **deleted.** Each is a non-event whose successor line says it louder ("Scanning for devices..." follows within milliseconds).
+  - The two `"Requesting <X> permission..."` lines — **kept at INFO and rewritten to say why** the permission is wanted. They are the only explanation for a log that stops dead because a system dialog is waiting on the user.
+  - The four `"denied"` lines — **kept at WARN and rewritten to say it is terminal** until changed in OS Settings. "Denied" alone does not earn a WARN; the consequence is the content.
+  - `bletransport.cpp`'s `"Connecting to DE1 at %1"` — **reverted to DEBUG.** I promoted it, then checked what precedes it: `"Found DE1: <name> (<id>)"` on the scan path and `"Direct wake: connecting to <name> at <addr>"` on the other, both with the same identifier. A third telling of one fact.
+- [ ] 3.13 Measure `[DE1][MMR] keepalive:` before deciding on it. BatteryManager's 60 s USB-charger refresh means one identical line a minute — an estimated ~2,900 lines in a 48 h capture (~14% of the last one). It is NOT deleted, because the three-way MMR tag split is documented as load-bearing for #1309 (a wedge log showed a 5 s write timeout with nothing logged for the write that started it), and `debug_get_log`'s `dedupe` collapses consecutive repeats at read time. Judge it with the re-capture in 2b.8, not by arithmetic.
+
+## 3b. The last two prefix families
+
+Found while converting group 3: `[Scale]`/`[DE1]`/`[Refractometer]` are not yet the only prefixes in `blemanager.cpp`.
+
+- [ ] 3b.1 `[R2-diag]` — 21 sites (12 in `blemanager.cpp`, 5 in `main.cpp`, 4 in `difluidr2.cpp`). Refractometer diagnostics with a bare hand-rolled prefix; route through the `[Refractometer]` helpers so the registered marker returns them.
+- [ ] 3b.2 `[BLE]` — the remaining bare-`[BLE]` sites in `blemanager.cpp` (backoff policy, skip-HIGH latch, found refractometer/scale/WiFi scale, transient permission error). These are scale/refractometer lines group 2 should have caught; assign the right marker per line rather than mapping the family wholesale.
+- [ ] 3b.3 Build and run the full suite.
 
 ## 4. Logger plumbing
 

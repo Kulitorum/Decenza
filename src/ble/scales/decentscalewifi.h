@@ -325,6 +325,21 @@ private:
     // (attemptTarget); set in onError only when m_userInitiatedShutdown is false.
     bool m_socketErrorThisConnect = false;
     QString m_lastSocketErrorString;
+    // Whether the WS handshake ever completed on THIS attempt, i.e. whether
+    // there is a connection for a later `disconnected` to be about.
+    //
+    // Qt emits `disconnected` BEFORE `errorOccurred` when a connect fails
+    // (qtwebsockets/src/websockets/qwebsocket_p.cpp — the socket-state change
+    // is delivered first), so onDisconnected cannot use
+    // m_socketErrorThisConnect to recognise a failed connect: the error has not
+    // arrived yet. Without this flag the classifier fell through to its
+    // peer-close branch and read the socket's stale closeCode, reporting a host
+    // that was never reachable as "disconnected (unexpected) — peer close (code
+    // 1000)" — a clean close from a peer that never answered.
+    //
+    // Set in onConnected, cleared per attempt (attemptTarget) and per connect
+    // cycle (connectToHost).
+    bool m_wsHandshakeDone = false;
     // Set in sleep() when we send the firmware power-off JSON. The scale
     // echoes back a `power_off` frame (reason "disabled", code 0) on receipt;
     // this flag lets handlePowerFrame log the echo at LOG level (app-initiated)

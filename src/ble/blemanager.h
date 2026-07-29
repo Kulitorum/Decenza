@@ -600,6 +600,16 @@ private:
     int m_consecutiveScaleFailures = 0;
     static constexpr int kScaleFailuresAtWarn = 3;
 
+    // The same three tiers for the DE1 half, carrying [DE1] instead of [Scale].
+    // BLEManager narrates the machine too — permissions, scan lifecycle, "found
+    // DE1", direct wake — and until now those lines went ONLY to de1LogMessage,
+    // i.e. only to the connections-page window. They were absent from every
+    // submitted log, so the machine's discovery story could not be read after
+    // the fact at all. These write it.
+    void de1Debug(const QString& message);
+    void de1Info(const QString& message);
+    void de1Warn(const QString& message);
+
 public:
 
 public slots:
