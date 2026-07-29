@@ -143,6 +143,7 @@ Dialog {
 
     // Label/value row; hides itself when the value is empty.
     component InfoRow: RowLayout {
+        id: infoRow
         property string label: ""
         property string value: ""
         Layout.fillWidth: true
@@ -150,7 +151,7 @@ Dialog {
         visible: value.length > 0
 
         Text {
-            text: label + ":"
+            text: infoRow.label + ":"
             font: Theme.labelFont
             color: Theme.textSecondaryColor
             // Fixed preferred width would clip/collide with the value when a
@@ -164,11 +165,11 @@ Dialog {
         Text {
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
-            text: value
+            text: infoRow.value
             font: Theme.bodyFont
             color: Theme.textColor
             Accessible.role: Accessible.StaticText
-            Accessible.name: label + ": " + value
+            Accessible.name: infoRow.label + ": " + infoRow.value
         }
     }
 }

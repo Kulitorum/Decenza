@@ -1,3 +1,8 @@
+// The right-axis-label Repeater delegate reads this file's ids (`chart`, `rightAxisLabels`);
+// Bound makes them statically resolvable. That delegate already declares its one injected
+// role, `index`, required, so Bound cannot break role injection here.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtGraphs
 import Decenza

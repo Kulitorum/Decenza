@@ -1,3 +1,8 @@
+// The swatch Repeater delegate below reads this file's `picker` id; Bound makes it
+// statically resolvable. That delegate already declares its one injected role,
+// `modelData`, required, so Bound cannot break role injection here.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Layouts
 import Decenza
@@ -32,6 +37,7 @@ ColumnLayout {
         Repeater {
             model: WidgetColor.choices
             delegate: Rectangle {
+                id: swatchCell
                 required property var modelData
                 readonly property bool sel: picker.colorChoice === modelData.value
                 Layout.fillWidth: true
@@ -52,18 +58,18 @@ ColumnLayout {
                         implicitWidth: Theme.scaled(20)
                         implicitHeight: Theme.scaled(20)
                         radius: width / 2
-                        color: WidgetColor.swatch(modelData.value)
+                        color: WidgetColor.swatch(swatchCell.modelData.value)
                         border.color: Theme.borderColor
                         border.width: 1
                     }
                     Text {
                         Layout.alignment: Qt.AlignHCenter
-                        text: modelData.label
+                        text: swatchCell.modelData.label
                         color: Theme.textColor
                         font: Theme.labelFont
                     }
                 }
-                MouseArea { id: swatchMa; anchors.fill: parent; onClicked: picker.pick(modelData.value) }
+                MouseArea { id: swatchMa; anchors.fill: parent; onClicked: picker.pick(swatchCell.modelData.value) }
             }
         }
     }

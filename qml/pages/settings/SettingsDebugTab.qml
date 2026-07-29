@@ -1,3 +1,9 @@
+// The window-resolution ComboBox delegate reads this file's `resolutionCombo` id; Bound
+// makes it statically resolvable. It declares both injected roles it uses, `modelData`
+// and `index`, required in the same edit -- without that, Bound stops role injection
+// and every resolution row renders blank at RUNTIME, silently.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -74,16 +80,20 @@ Item {
                             displayText: Window.window ? (Window.window.width + " x " + Window.window.height) : "Select..."
 
                             delegate: ItemDelegate {
+                                id: resolutionRow
+                                required property var modelData
+                                required property int index
+
                                 width: resolutionCombo.width
                                 contentItem: Text {
-                                    text: modelData.name + " (" + modelData.width + "x" + modelData.height + ")"
+                                    text: resolutionRow.modelData.name + " (" + resolutionRow.modelData.width + "x" + resolutionRow.modelData.height + ")"
                                     color: Theme.textColor
                                     font.pixelSize: Theme.scaled(13)
                                     verticalAlignment: Text.AlignVCenter
                                 }
                                 highlighted: resolutionCombo.highlightedIndex === index
                                 background: Rectangle {
-                                    color: highlighted ? Theme.accentColor : Theme.surfaceColor
+                                    color: resolutionRow.highlighted ? Theme.accentColor : Theme.surfaceColor
                                 }
                             }
 

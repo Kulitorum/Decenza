@@ -1,3 +1,8 @@
+// The DayOfWeekRow and MonthGrid delegates read this file's ids (`root`, `monthGrid`);
+// Bound makes them statically resolvable. Both already declare their one injected role,
+// `model`, required, so Bound cannot break role injection here.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
