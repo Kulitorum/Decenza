@@ -1,59 +1,114 @@
 # Tasks: Qt 6.12 polish for charts migration
 
-**Precondition**: `upgrade-qt-6-12` change archived and Decenza building cleanly on Qt 6.12 GA.
+**Precondition**: `upgrade-qt-6-12` change archived and Decenza building cleanly on Qt 6.12 GA
+(2026-09-22). That change does not exist yet.
 
-Each numbered section is a candidate PR. Items can ship independently; only the precondition above is shared.
+Each numbered section is a candidate PR. Items can ship independently; only the precondition above is
+shared. §1 and §2 are already resolved by the 2026-07-29 source verification — see the proposal's
+"Verification against Qt 6.12" table for what was checked and how.
 
-## 0. Pre-Qt 6.12 GA monitoring (active until 2026-09-22)
+## 0. Pre-Qt 6.12 GA monitoring
 
-Moved from `migrate-charting-to-qt-graphs` Pre-Stage 0 §P.4 when that change archived. These items run before the precondition above is met.
+Moved from `migrate-charting-to-qt-graphs` Pre-Stage 0 §P.4 when that change archived.
 
-- [ ] Watch `qt/qtgraphs.git` `dev` branch for landings up to feature freeze 2026-05-29. Two major items already landed: `QCanvasPainter` backend ([QTBUG-140734](https://qt-project.atlassian.net/browse/QTBUG-140734)) and declarative XYSeries data API (QTBUG-134005, QTBUG-141139).
-- [ ] At each 6.12 beta (2026-06-11 / 2026-07-16 / 2026-08-18), re-check `dev` log for any new legend / auto-ranging / dashed-stroke / coord-mapping landings. None present as of 2026-05-13; do not plan around them appearing.
-- [ ] If a new property or API lands that closes an item in §1–§6 below, annotate that section's checklist with the property name before 6.12 GA so the polish PRs can pick it up immediately.
+- [x] Watch `qt/qtgraphs.git` for landings up to feature freeze (actual freeze **2026-06-02**, not
+      05-29). Done 2026-07-29 against the `6.12` branch: `useCanvasPainter` + `dynamicLabelMargins`
+      on `GraphsView`, `values` / `valueMapping` / `valueMin` / `stepSize` on `XYSeries`,
+      `labelPostFormat` on `ValueAxis`, logarithmic axis support. Nothing for ticks or label anchors.
+- [x] Beta re-check for the legend / auto-ranging / dashed-stroke / coord-mapping gaps. Still absent
+      on the `6.12` branch — all four Stage 0 bridges stay ours. Do not re-check per beta; the branch
+      is feature-frozen, only bug fixes land now.
+- [ ] At RC (**2026-09-08**) confirm nothing in §3–§6 regressed, then close this section. Remaining
+      beta dates for reference: Beta 3 **2026-08-18**.
 
-## 1. Re-check tick-mark length API
+## 1. Tick-mark length — CLOSED, upstream suggestion only
 
-- [ ] Open Qt 6.12 GA docs for `GraphsTheme` and `GraphsLine` ([qt-project.org doc.qt.io/qt-6.12/qml-qtgraphs-graphstheme.html](https://doc.qt.io/qt-6.12/qml-qtgraphs-graphstheme.html) once GA)
-- [ ] Search `qt/qtgraphs.git` `dev` log for: `tickLength`, `tickVisible`, `labelsMargin`, `clipGridToPlotArea`, `tickWidth`
-- [ ] If a new property exists: set it in `qml/components/graphs/DecenzaGraphsTheme.qml`, build, on-device verify against the Stage 0 baseline screenshot
-- [ ] If no new property: file an upstream Qt suggestion citing the four levers tried (`subWidth: 0`, `mainWidth: 1`, `subTickCount: 0`, no custom overlay) and link this change
+No property exists and the geometry is not parameterized: `tickershader.frag` draws major ticks
+unconditionally over the full ticker item, which `axisrenderer.cpp` sizes to the axis rect. Details
+and line citations in the proposal §1.
 
-## 2. Re-check leftmost label alignment
+- [x] Verify 6.12 `GraphsTheme` / `GraphsLine` property set — unchanged (five members)
+- [x] Search the tree for `tickLength`, `tickVisible`, `labelsMargin`, `clipGridToPlotArea`,
+      `tickWidth` — only private/3D/bar-series hits
+- [ ] File the upstream Qt suggestion: expose a `tickLength` uniform + `GraphsLine` property
+      mirroring the existing private `AxisTicker.subTickLength`. Cite `tickershader.frag` `main()`
+      (major-line branch has no length gate), the four levers already tried (`subWidth: 0`,
+      `mainWidth: 1`, `subTickCount: 0`, no custom overlay), and this change. Gerrit/JIRA per
+      `reference_qt_gerrit` conventions — a JIRA suggestion, not a patch, unless we choose to write it
+- [ ] Independent of 6.12: test whether the residual strokes are gridlines by toggling
+      `clipPlotArea` (since 6.10, so testable on 6.11 today). If they vanish, item 1 was never a tick
+      problem and the upstream ask changes
 
-- [ ] Search Qt 6.12 docs and `qt/qtgraphs.git` log for `labelsAnchor`, `labelsAlignment`, `firstLabelAnchor`
-- [ ] If found: apply in `DecenzaGraphsTheme.qml` or per-axis; on-device verify the "0" label sits flush under the Y axis spine
-- [ ] If not: close this item as "accept gap"
+## 2. Leftmost label alignment — CLOSED, accept gap
 
-## 3. Flip `useCanvasPainter: true` on every migrated `GraphsView`
+- [x] Confirm no `labelsAnchor` / `labelsAlignment` / `firstLabelAnchor` on 6.12 `ValueAxis` or
+      `GraphsTheme`
+- [ ] After §6 enables `dynamicLabelMargins`, look once more at the "0" label position; if the reflow
+      fixed it, note that in the §6 PR and delete this section
 
-- [ ] `qml/pages/FlowCalibrationPage.qml`
-- [ ] `qml/components/SteamGraph.qml` (post-Stage 2)
-- [ ] `qml/components/ShotGraph.qml` (post-Stage 3a)
-- [ ] `qml/components/HistoryShotGraph.qml` (post-Stage 3b)
-- [ ] `qml/components/ComparisonGraph.qml` (post-Stage 3c)
-- [ ] `qml/components/ProfileGraph.qml` (post-Stage 3d)
-- [ ] Re-measure FPS on Decent tablet (Samsung SM-X210) at each flip; record in `docs/CLAUDE_MD/PERFORMANCE_BASELINE.md`
+## 3. `useCanvasPainter` — resolve the build feature FIRST
+
+The property is `REVISION(6, 12)` on `GraphsView`, but both accessors are `#ifdef
+USE_PAINTER_BACKEND` and the setter is a silent no-op otherwise. The define comes from CMake feature
+`graphs-2d-high-performance-backend`, which is `AUTODETECT OFF`. Proposal §3 has the citations.
+
+- [ ] **Gate**: on the installed Qt 6.12, check whether the feature is on. Read
+      `<QtDir>/lib/cmake/Qt6Graphs/*Config*.cmake` (or `qtgraphs` `qconfig`-style feature header) for
+      `graphs_2d_high_performance_backend`; alternatively confirm `Qt6::CanvasPainter` is a link
+      dependency of `Qt6::Graphs`
+- [ ] If OFF: **do not write the flip PR.** Record the finding here, and raise the "build qtgraphs
+      from source with `-DFEATURE_graphs_2d_high_performance_backend=ON`" question in
+      `upgrade-qt-6-12` — it is a shipping-a-non-stock-Qt-module decision across Android/iOS/desktop,
+      not a polish PR
+- [ ] If ON: verify the property is actually live before measuring — set `useCanvasPainter: true` on
+      one graph and confirm the `useCanvasPainterChanged` signal fires (a no-op build emits nothing).
+      Only then trust any FPS number
+- [ ] Flip, one line per file: `qml/pages/FlowCalibrationPage.qml`,
+      `qml/components/SteamGraph.qml`, `ShotGraph.qml`, `HistoryShotGraph.qml`,
+      `ComparisonGraph.qml`, `ProfileGraph.qml` (all six are migrated; no stage gating left)
+- [ ] Re-measure FPS on Decent tablet (Samsung SM-X210) at each flip; record in
+      `docs/CLAUDE_MD/PERFORMANCE_BASELINE.md`
 - [ ] Single PR titled `feat(charts): switch all GraphsView to QCanvasPainter (Qt 6.12)`
 
-## 4. Adopt declarative `XYSeries.data` for static/computed series
+## 4. Adopt declarative `XYSeries.values` for one-shot series
 
-- [ ] Audit each migrated graph for static / computed series (goal curves, preview lines)
-- [ ] Replace `Component.onCompleted: series.replace(...)` with `data: ...` binding where the data is QML-bindable
-- [ ] Keep `QXYSeries::replace()` from C++ for live ~5 Hz extraction series
-- [ ] Single PR per graph or one bundled PR if changes are small
+Property is **`values`** (`QVariantList`, `REVISION(6, 12)`), not `data`. `setValues()` converts once
+and calls `replace()`, so it costs the same as the C++ path.
+
+- [ ] `qml/components/HistoryShotGraph.qml:143-158` — replace the per-point `append()` loop over the
+      six series with one `values` assignment each. Highest-value site
+- [ ] `qml/pages/FlowCalibrationPage.qml:264-272` — same pattern, two series
+- [ ] `qml/components/ProfileGraph.qml:342-490` (`updateCurves()`) — build arrays, assign once. Do
+      last; largest rewrite
+- [ ] Check whether any of the above is evenly sampled in X; if so evaluate `valueMapping` +
+      `valueMin` + `stepSize` (numbers-only list) instead of point pairs
+- [ ] Keep `QXYSeries::replace()` from C++ for live ~5 Hz extraction series — do not touch
+- [ ] Do **not** touch `qml/components/graphs/DashedLineSeries.qml`; it is a `ShapePath` overlay, not
+      an `XYSeries`
+- [ ] One bundled PR if the diffs stay small; split `ProfileGraph` out if it grows
 
 ## 5. Adopt `ValueAxis.labelPostFormat`
 
-- [ ] Verify the property exists on Qt 6.12 GA `ValueAxis` / `LogValueAxis`
-- [ ] Replace `labelFormat: "%.1f"` + `titleText: "<unit>"` with `labelPostFormat: "%.1f <unit>"` where it improves readability
+- [x] Property confirmed present on 6.12 `ValueAxis`
+- [ ] Adopt only where one axis carries one unit — `FlowCalibrationPage.qml:50-51` (`"s"`) first
+- [ ] Leave the shared multi-unit axes (`"bar / mL/s"`, `"bar / mL·g/s"`: `ShotGraph.qml:147-148`,
+      `HistoryShotGraph.qml:446-448`, `SteamGraph.qml:135-136`, `ComparisonGraph.qml:373-374`) with
+      the unit in `titleText`
+- [ ] Any suffix that replaces a translated `titleText` (`ShotGraph.qml:136`,
+      `HistoryShotGraph.qml:437`, `SteamGraph.qml:124`) must stay a `TranslationManager.translate`
+      binding — never a hardcoded string
 - [ ] One PR
 
-## 6. Verify multi-axis margin fix
+## 6. Verify multi-axis margin fix + try `dynamicLabelMargins`
 
-- [ ] Take pre-upgrade screenshots of `ShotGraph`, `SteamGraph`, `ComparisonGraph` on Decent tablet (these share axes across multiple series)
-- [ ] After Qt 6.12 upgrade, take new screenshots
-- [ ] Document any visual margin change in the PR description for the `upgrade-qt-6-12` change (this verification doesn't need a separate PR)
+- [ ] Take pre-upgrade screenshots of `ShotGraph`, `SteamGraph`, `ComparisonGraph`,
+      `HistoryShotGraph` on Decent tablet (these share axes across multiple series)
+- [ ] After the Qt 6.12 upgrade, take new screenshots; document any margin change in the
+      `upgrade-qt-6-12` PR description
+- [ ] Try `dynamicLabelMargins: true` (new in 6.12, default `false`) on the dual-unit graphs; check
+      it does not fight the hand-tuned `marginLeft` / `marginRight` values from the migration. Remove
+      any margin override it makes redundant
+- [ ] Re-check §2's leftmost-label complaint with the new margins in place
 
 ## Cross-stage acceptance criteria
 
