@@ -21,7 +21,7 @@
     "qml/components/EquipmentInfoDialog.qml": 4,
     "qml/components/ExpandableTextArea.qml": 1,
     "qml/components/ExtractionViewSelector.qml": 20,
-    "qml/components/FavoritesListView.qml": 39,
+    "qml/components/FavoritesListView.qml": 38,
     "qml/components/FlipClockScreensaver.qml": 102,
     "qml/components/GrindPickerDialog.qml": 10,
     "qml/components/HistoryShotGraph.qml": 53,
@@ -44,7 +44,7 @@
     "qml/components/graphs/CustomLegend.qml": 10,
     "qml/components/layout/EmojiPicker.qml": 17,
     "qml/components/layout/ReadoutOptionsPopup.qml": 8,
-    "qml/components/layout/ScreensaverEditorPopup.qml": 40,
+    "qml/components/layout/ScreensaverEditorPopup.qml": 39,
     "qml/components/layout/WidgetColorPicker.qml": 5,
     "qml/components/layout/ZoneOptionsPopup.qml": 4,
     "qml/components/layout/items/AutoFavoritesItem.qml": 1,
@@ -80,7 +80,7 @@
     "qml/pages/VisualizerBrowserPage.qml": 13,
     "qml/pages/VisualizerMultiImportPage.qml": 97,
     "qml/pages/settings/AddLanguagePage.qml": 13,
-    "qml/pages/settings/LayoutEditorZone.qml": 79,
+    "qml/pages/settings/LayoutEditorZone.qml": 77,
     "qml/pages/settings/SettingsAITab.qml": 35,
     "qml/pages/settings/SettingsConnectionsTab.qml": 39,
     "qml/pages/settings/SettingsDebugTab.qml": 7,
@@ -123,7 +123,7 @@
     "qml/components/DrinkType.qml",
     "qml/components/EquipmentCard.qml",
     "qml/components/EquipmentSummary.qml",
-    "qml/components/FavoritesRowActionSlot.qml",
+    "qml/components/FavoritesRowAction.qml",
     "qml/components/FocusIndicator.qml",
     "qml/components/GraphInspectBar.qml",
     "qml/components/GraphLegend.qml",
@@ -232,6 +232,6 @@
     "qml/pages/settings/SettingsVisualizerTab.qml"
   ],
   "observed_categories": {
-    "unqualified": 2287
+    "unqualified": 2283
   }
 }

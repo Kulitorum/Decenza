@@ -448,6 +448,11 @@ Dialog {
 
                                 delegate: RepeaterDelegateItem {
                                     id: planChip
+                                    // Required, not injected: RepeaterDelegateItem declares `itemIndex` required, and a delegate
+                                    // with ANY required property stops receiving model roles as context properties — bare
+                                    // `modelData` becomes undefined. Declaring it required is what puts it back.
+                                    required property var modelData
+
                                     width: planChipBody.width
                                     height: planChipBody.height
 

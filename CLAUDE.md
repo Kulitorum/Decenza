@@ -143,6 +143,16 @@ colour glyph reach the platform renderer, which **crashes the render thread on m
 - **`pragma ComponentBehavior: Bound` breaks delegates that take injected model roles**, at runtime
   and silently. Check for `Repeater`/`delegate:` first; with none, the pragma alone is safe. With
   delegates, add `required property` to each in the same edit.
+  - **The same break comes from ONE `required property` anywhere on a delegate — no pragma
+    involved.** A delegate with any required property stops receiving model roles as context
+    properties, so bare `modelData` / `index` / `model` go `undefined` everywhere in it,
+    including nested scopes. Adding a required property to a delegate's **base type** does it
+    too, at a distance: making `RepeaterDelegateItem.itemIndex` required broke `modelData` in
+    three delegates in other files that had never declared a required property themselves.
+    Declare every role the delegate reads, in the same edit.
+  - Neither failure is visible to the compiler, to qmllint, or to the test suite — the symptom
+    is `ReferenceError: modelData is not defined` in the running app. If you touch a delegate
+    or its base type, open the screen.
 - **When qualifying identifiers, go by qmllint's line and column, never by text search.** One name
   can be several things in a file (a function-local `var step` and a nested `property var step`),
   and only the flagged occurrences may move.
