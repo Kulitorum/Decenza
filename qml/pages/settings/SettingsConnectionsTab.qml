@@ -661,7 +661,11 @@ Item {
                             }
                         }
 
-                        // Also show DE1 transport logs (SerialTransport TX/RX) in the USB log panel
+                        // Also show DE1 transport logs in the USB log panel. TX only —
+                        // the per-frame RX line was removed (~20/s, ~600 per shot, and
+                        // this panel is an uncapped `text +=`), so this no longer pairs
+                        // request with response. Anomalous frames still appear
+                        // ("RX unknown", "RX unknown letter"). See serialtransport.cpp.
                         Connections {
                             target: BLEManager
                             enabled: connectionsTab.usbAvailable && USBManager.de1Connected

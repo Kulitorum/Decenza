@@ -96,6 +96,7 @@ void DecentScaleWifi::connectToHost(const QString& hostname, const QString& pref
     m_triedHostnameFallback = false;
     m_pendingHostnameFallback = false;
     m_socketErrorThisConnect = false;
+    m_wsHandshakeDone = false;
     m_lastSocketErrorString.clear();
     // Reset the app-initiated-power-off latch — if a prior cycle armed it via
     // sleep() but the firmware echo never arrived (e.g. socket dropped first),
@@ -184,6 +185,7 @@ void DecentScaleWifi::attemptTarget(const QString& target, bool isHostname) {
     m_currentTargetIsHostname = isHostname;
     m_recognized = false;
     m_socketErrorThisConnect = false;
+    m_wsHandshakeDone = false;
     m_lastSocketErrorString.clear();
     if (isHostname) m_triedHostnameFallback = true;
 
@@ -400,6 +402,7 @@ void DecentScaleWifi::onConnected() {
     // (e.g. wired + WiFi on the same subnet) it names the egress interface the
     // OS bound this connection to, which is the datum needed to diagnose a
     // connect that leaves via the wrong / a down interface.
+    m_wsHandshakeDone = true;
     WIFI_INFO(QString("WebSocket connected — peer=%1:%2 local=%3:%4")
              .arg(peerIp).arg(peerPort).arg(localIp).arg(localPort));
     setConnected(true);
@@ -436,13 +439,26 @@ void DecentScaleWifi::onDisconnected() {
     // use closeCode() as the abnormality signal: Qt sets closeCode()/
     // closeReason() only when a real close frame is received, and the reused
     // socket keeps a stale value across reconnects, so on an abnormal drop
-    // closeCode() is stale/default (1000), never 1006. onError records a
-    // transport error ONLY for a genuine (not self-inflicted) failure, so the
-    // transport-error branch always means an abnormal drop and the peer-close
-    // branch is reached only when a clean close frame was received (where
-    // closeCode()/closeReason() ARE meaningful).
+    // closeCode() is stale/default (1000), never 1006.
+    //
+    // The handshake check comes first because a FAILED CONNECT arrives here too
+    // (QWebSocket synthesizes a `disconnected` for one — see m_wsHandshakeDone's
+    // declaration for both Qt sources), and none of the branches below describe
+    // one. `disconnected` is delivered before `errorOccurred`, so
+    // m_socketErrorThisConnect is still false and the classifier used to fall
+    // through to the peer-close branch and print the stale closeCode — reporting
+    // an unreachable
+    // host as "disconnected (unexpected) — peer close (code 1000)", i.e. a clean
+    // goodbye from a peer that never answered. Observed live on every WiFi
+    // attempt to an unreachable scale. This is DEBUG, not INFO: the attempt
+    // itself was already announced, and the WARN that follows one line later
+    // carries the actual reason, so an INFO here only contradicts it.
     QString disconnectLog;
-    if (!m_lastPowerEventReason.isEmpty()) {
+    if (!m_wsHandshakeDone) {
+        WIFI_LOG(QStringLiteral("Connect attempt ended without a WebSocket handshake"));
+        // Fall through to the normal post-disconnect bookkeeping below — the
+        // fallback and reconnect paths must still run for a failed connect.
+    } else if (!m_lastPowerEventReason.isEmpty()) {
         disconnectLog = QStringLiteral("WebSocket disconnected (expected) — scale power-off: ")
                         + m_lastPowerEventReason;
     } else if (m_socketErrorThisConnect) {
@@ -458,7 +474,9 @@ void DecentScaleWifi::onDisconnected() {
             disconnectLog += QString(", reason=\"%1\"").arg(closeReason);
         disconnectLog += QStringLiteral(")");
     }
-    WIFI_INFO(disconnectLog);
+    // Empty only on the failed-connect branch, which logged its own line above.
+    if (!disconnectLog.isEmpty())
+        WIFI_INFO(disconnectLog);
 
     // Pending hostname fallback (cached IP didn't validate): the recognition
     // timer marked this disconnect as the one we were waiting for. Run the

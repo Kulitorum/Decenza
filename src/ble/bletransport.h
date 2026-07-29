@@ -75,7 +75,11 @@ private slots:
     void processCommandQueue();
 
 private:
+    // The three audience tiers — see src/ble/de1logging.h. DEBUG for protocol
+    // detail, INFO for the connect/disconnect narrative a user reads in the
+    // connections view, WARN for problems.
     void log(const QString& message);
+    void info(const QString& message);
     void warn(const QString& message);
     // Update m_serviceDiscoveryActive and emit serviceDiscoveryActiveChanged()
     // only on transitions. Coalesces the four reset call sites (chars-ready,

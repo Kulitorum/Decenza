@@ -96,7 +96,7 @@ private slots:
         // that's the behaviour we want to verify is still happening, so mark
         // it as expected rather than letting it show up as noise.
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression("profile upload FAILED — frame sequence mismatch"));
+            QRegularExpression("Profile upload FAILED — frame sequence mismatch"));
 
         device.uploadProfile(makeSimpleProfile());
 
@@ -136,7 +136,7 @@ private slots:
         QSignalSpy spy(&device, &DE1Device::profileUploaded);
 
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression("profile upload FAILED — frame sequence mismatch"));
+            QRegularExpression("Profile upload FAILED — frame sequence mismatch"));
 
         device.uploadProfile(makeSimpleProfile());
 
@@ -294,7 +294,7 @@ private slots:
         QSignalSpy spy(&device, &DE1Device::profileUploaded);
 
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression("profile upload FAILED — BLE disconnect during upload"));
+            QRegularExpression("Profile upload FAILED — BLE disconnect during upload"));
 
         device.uploadProfile(makeSimpleProfile());
         // Ack header, then tear down — the listener must see a failure
@@ -327,7 +327,7 @@ private slots:
 
         QSignalSpy spy(&device, &DE1Device::profileUploaded);
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression("profile upload FAILED — BLE disconnect during upload"));
+            QRegularExpression("Profile upload FAILED — BLE disconnect during upload"));
 
         device.uploadProfile(makeSimpleProfile());
         // Ack header to get the tracker past its first write, then simulate

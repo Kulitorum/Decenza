@@ -1,4 +1,5 @@
 #include "usb/usbmanager.h"
+#include "ble/de1logging.h"
 #include "usb/serialtransport.h"
 
 #ifdef Q_OS_ANDROID
@@ -6,6 +7,12 @@
 #endif
 
 #include <QDebug>
+
+// Alias the shared DE1 helpers — never copy a body. Tag "USB" for discovery;
+// the link this hands off to logs under "Serial" (see serialtransport.cpp).
+#define USB_LOG(msg)  DE1_LOG_TAGGED("USB", msg)
+#define USB_INFO(msg) DE1_INFO_TAGGED("USB", msg)
+#define USB_WARN(msg) DE1_WARN_TAGGED("USB", msg)
 
 USBManager::USBManager(QObject* parent)
     : QObject(parent)
@@ -35,10 +42,8 @@ bool USBManager::isDe1Connected() const
 
 void USBManager::discardUnopenedTransport(SerialTransport* transport, const QString& portLabel)
 {
-    qWarning() << "[USB] Transport failed to open on" << portLabel
-               << "— discarding and re-arming discovery";
-    emit logMessage(QStringLiteral("[USB] Connect failed on %1 — retrying discovery")
-                        .arg(portLabel));
+    USB_WARN(QStringLiteral("Transport failed to open on %1 — discarding and re-arming "
+                            "discovery").arg(portLabel));
 
     // deleteLater, not delete: open() may have emitted queued signals on it.
     transport->deleteLater();
@@ -76,8 +81,7 @@ void USBManager::startPolling()
         return;
     }
 
-    qDebug() << "[USB] Starting port polling every" << POLL_INTERVAL_MS << "ms";
-    emit logMessage(QStringLiteral("[USB] Polling started"));
+    USB_INFO(QStringLiteral("Polling started (every %1 ms)").arg(POLL_INTERVAL_MS));
 
     // Do an immediate poll, then start the timer
     onPollTimerTick();
@@ -98,8 +102,7 @@ void USBManager::disconnectUsb()
 {
     if (!m_transport) return;
 
-    qDebug() << "[USB] User-initiated USB disconnect";
-    emit logMessage(QStringLiteral("[USB] Disconnecting..."));
+    USB_INFO(QStringLiteral("User-initiated USB disconnect"));
 
     // Prevent auto-reconnect while cable is still physically connected.
     // Flag is cleared when the device physically disappears (cable unplugged).
@@ -145,14 +148,12 @@ void USBManager::onPollTimerTickAndroid()
     if (!m_hasLoggedInitialPorts && devicePresent) {
         m_hasLoggedInitialPorts = true;
         QString info = AndroidUsbHelper::deviceInfo();
-        qDebug() << "[USB] Android USB device found:" << info;
-        emit logMessage(QStringLiteral("[USB] Device found: %1").arg(info));
+        USB_INFO(QStringLiteral("Android USB device found: %1").arg(info));
     }
 
     // Check if connected device disappeared
     if (m_transport && !devicePresent) {
-        qWarning() << "[USB] Connected USB device disappeared";
-        emit logMessage(QStringLiteral("[USB] USB device disconnected"));
+        USB_WARN(QStringLiteral("Connected USB device disappeared"));
 
         m_connectedPortName.clear();
         m_connectedSerialNumber.clear();
@@ -166,7 +167,7 @@ void USBManager::onPollTimerTickAndroid()
 
     // Check if probing device disappeared
     if (m_androidProbing && !devicePresent) {
-        qDebug() << "[USB] Probing device disappeared, aborting probe";
+        USB_LOG(QStringLiteral("Probing device disappeared, aborting probe"));
         cleanupAndroidProbe(true);
         return;
     }
@@ -177,8 +178,8 @@ void USBManager::onPollTimerTickAndroid()
             m_userDisconnected = false;
             m_androidPermissionRequested = false;
             m_hasLoggedInitialPorts = false;
-            qDebug() << "[USB] Device unplugged after user disconnect — ready to reconnect";
-            emit logMessage(QStringLiteral("[USB] Ready for reconnection"));
+            USB_INFO(QStringLiteral("Device unplugged after user disconnect — ready to "
+                                    "reconnect"));
         }
         return;
     }
@@ -201,8 +202,7 @@ void USBManager::onPollTimerTickAndroid()
     if (!AndroidUsbHelper::hasPermission()) {
         if (!m_androidPermissionRequested) {
             m_androidPermissionRequested = true;
-            qDebug() << "[USB] Requesting Android USB permission...";
-            emit logMessage(QStringLiteral("[USB] Requesting USB permission..."));
+            USB_INFO(QStringLiteral("Requesting Android USB permission..."));
             AndroidUsbHelper::requestPermission();
         }
         return;
@@ -218,13 +218,11 @@ void USBManager::probeAndroid()
     m_probeBuffer.clear();
 
     QString info = AndroidUsbHelper::deviceInfo();
-    qDebug() << "[USB] Probing Android USB device:" << info;
-    emit logMessage(QStringLiteral("[USB] Probing USB device: %1").arg(info));
+    USB_LOG(QStringLiteral("Probing Android USB device: %1").arg(info));
 
     if (!AndroidUsbHelper::open()) {
         QString err = AndroidUsbHelper::lastError();
-        qWarning() << "[USB] Failed to open Android USB:" << err;
-        emit logMessage(QStringLiteral("[USB] Failed to open: %1").arg(err));
+        USB_WARN(QStringLiteral("Failed to open Android USB: %1").arg(err));
         m_androidProbing = false;
         return;
     }
@@ -233,7 +231,7 @@ void USBManager::probeAndroid()
     // If a DE1 is on the other end, it will respond with [M] data
     QByteArray probeCmd = QByteArrayLiteral("<+M>\n");
     int written = AndroidUsbHelper::write(probeCmd);
-    qDebug() << "[USB] Sent probe <+M>, wrote" << written << "bytes";
+    USB_LOG(QStringLiteral("Sent probe <+M>, wrote %1 bytes").arg(written));
 
     // Set up timeout timer
     m_androidProbeTimer = new QTimer(this);
@@ -257,8 +255,16 @@ void USBManager::onAndroidProbeRead()
 
     m_probeBuffer.append(data);
 
-    qDebug() << "[USB] Probe received" << data.size() << "bytes, total:" << m_probeBuffer.size()
-             << "data:" << m_probeBuffer;
+    // toHex, matching the two sibling probe lines. The qDebug this replaced was a
+    // PLAIN one (no .noquote()), so QDebug escaped and quoted the QByteArray. The
+    // macro applies .noquote() and fromLatin1 escapes nothing, so the raw serial
+    // bytes went through verbatim — and DE1 responses are \n-terminated, so a
+    // successful probe embedded a newline, split the line, and left the
+    // continuation carrying no [DE1] marker at all. That defeats the one property
+    // this whole change exists to create.
+    USB_LOG(QStringLiteral("Probe received %1 bytes, total: %2 data: %3")
+                .arg(data.size()).arg(m_probeBuffer.size())
+                .arg(QString::fromLatin1(m_probeBuffer.toHex(' '))));
 
     // Look for [M] in the response — confirms this is a DE1
     if (m_probeBuffer.contains("[M]")) {
@@ -267,9 +273,8 @@ void USBManager::onAndroidProbeRead()
         QStringList parts = info.split(QLatin1Char(':'));
         QString sn = (parts.size() > 2) ? parts[2] : QString();
 
-        qDebug() << "[USB] DE1 confirmed via Android USB! S/N:" << sn;
-        emit logMessage(QStringLiteral("[USB] DE1 found via Android USB (S/N: %1)")
-                            .arg(sn.isEmpty() ? QStringLiteral("N/A") : sn));
+        USB_INFO(QStringLiteral("DE1 found via Android USB (S/N: %1)")
+                     .arg(sn.isEmpty() ? QStringLiteral("N/A") : sn));
 
         // Stop probe timers but DON'T close the connection — SerialTransport will use it
         cleanupAndroidProbe(false);
@@ -300,10 +305,20 @@ void USBManager::onAndroidProbeRead()
 
 void USBManager::onAndroidProbeTimeout()
 {
-    qDebug() << "[USB] Android USB probe timeout (received" << m_probeBuffer.size()
-             << "bytes:" << m_probeBuffer.toHex() << ")";
-    emit logMessage(QStringLiteral("[USB] Probe timeout (got %1 bytes)")
-                        .arg(m_probeBuffer.size()));
+    // WARN, for the same reason as the desktop timeout below: Android applies the
+    // SAME VID/PID filter (AndroidUsbSerial.findDevice() matches VENDOR_ID_WCH +
+    // PRODUCT_ID_DE1, byte-identical to the constants in usbmanager.h), and
+    // probeAndroid() is only reachable through it. So a device that gets probed
+    // here already advertises itself as DE1 hardware, and failing to answer <+M>
+    // is a machine the user expects to be connected and is not.
+    //
+    // This was DEBUG on the belief that Android probes anything attached and
+    // would warn on a keyboard dongle. It does not, and the belief cost the
+    // primary platform its warning for a real failure.
+    USB_WARN(QStringLiteral("Android USB probe timeout — DE1 hardware did not answer <+M> "
+                            "(received %1 bytes: %2)")
+                 .arg(m_probeBuffer.size())
+                 .arg(QString::fromLatin1(m_probeBuffer.toHex())));
     cleanupAndroidProbe(true);
 }
 
@@ -345,22 +360,19 @@ void USBManager::onPollTimerTickDesktop()
     if (!m_hasLoggedInitialPorts && !ports.isEmpty()) {
         m_hasLoggedInitialPorts = true;
         for (const auto& port : ports) {
-            qDebug() << "[USB] Found port:" << port.portName()
-                     << "VID:" << Qt::hex << port.vendorIdentifier()
-                     << "PID:" << port.productIdentifier() << Qt::dec
-                     << "desc:" << port.description()
-                     << "mfg:" << port.manufacturer()
-                     << "serial:" << port.serialNumber()
-                     << "sysLoc:" << port.systemLocation();
-            emit logMessage(QStringLiteral("[USB] Port %1 VID:%2 PID:%3 %4")
-                                .arg(port.portName())
-                                .arg(port.vendorIdentifier(), 4, 16, QLatin1Char('0'))
-                                .arg(port.productIdentifier(), 4, 16, QLatin1Char('0'))
-                                .arg(port.description()));
+            // One line carrying every field: the two this used to print
+            // (a rich qDebug, a four-field logMessage) meant the log a user sent
+            // in had the short one and the terminal had the long one.
+            USB_LOG(QStringLiteral("Found port %1 VID:%2 PID:%3 desc:\"%4\" mfg:\"%5\" "
+                                   "serial:%6 sysLoc:%7")
+                        .arg(port.portName())
+                        .arg(port.vendorIdentifier(), 4, 16, QLatin1Char('0'))
+                        .arg(port.productIdentifier(), 4, 16, QLatin1Char('0'))
+                        .arg(port.description(), port.manufacturer(), port.serialNumber(),
+                             port.systemLocation()));
         }
-        if (ports.isEmpty()) {
-            qDebug() << "[USB] No serial ports found";
-        }
+        // No "no ports found" line here: this block only runs when !ports.isEmpty(),
+        // so the `if (ports.isEmpty())` that used to sit here could never be true.
     }
 
     // Build set of currently-present port names (filtered by VID)
@@ -384,8 +396,7 @@ void USBManager::onPollTimerTickDesktop()
 
     // Check if our connected port disappeared
     if (!m_connectedPortName.isEmpty() && !currentPorts.contains(m_connectedPortName)) {
-        qWarning() << "[USB] Connected port" << m_connectedPortName << "disappeared";
-        emit logMessage(QStringLiteral("[USB] Port %1 disconnected").arg(m_connectedPortName));
+        USB_WARN(QStringLiteral("Connected port %1 disappeared").arg(m_connectedPortName));
 
         m_connectedPortName.clear();
         m_connectedSerialNumber.clear();
@@ -402,8 +413,8 @@ void USBManager::onPollTimerTickDesktop()
         if (currentPorts.isEmpty()) {
             m_userDisconnected = false;
             m_hasLoggedInitialPorts = false;
-            qDebug() << "[USB] Device unplugged after user disconnect — ready to reconnect";
-            emit logMessage(QStringLiteral("[USB] Ready for reconnection"));
+            USB_INFO(QStringLiteral("Device unplugged after user disconnect — ready to "
+                                    "reconnect"));
         }
         m_knownPorts = currentPorts;
         return;
@@ -411,7 +422,8 @@ void USBManager::onPollTimerTickDesktop()
 
     // Check if a port being probed disappeared
     if (m_probePort && !currentPorts.contains(m_probingPortInfo.portName())) {
-        qDebug() << "[USB] Probing port" << m_probingPortInfo.portName() << "disappeared, aborting probe";
+        USB_LOG(QStringLiteral("Probing port %1 disappeared, aborting probe")
+                    .arg(m_probingPortInfo.portName()));
         cleanupProbe();
     }
 
@@ -434,12 +446,11 @@ void USBManager::probePort(const QSerialPortInfo& portInfo)
         return;
     }
 
-    qDebug() << "[USB] Probing port" << portInfo.portName()
-             << "VID:" << Qt::hex << portInfo.vendorIdentifier()
-             << "PID:" << portInfo.productIdentifier() << Qt::dec
-             << "sysLoc:" << portInfo.systemLocation();
-    emit logMessage(QStringLiteral("[USB] Probing %1 (%2)")
-                        .arg(portInfo.portName(), portInfo.systemLocation()));
+    USB_LOG(QStringLiteral("Probing port %1 VID:%2 PID:%3 sysLoc:%4")
+                .arg(portInfo.portName())
+                .arg(portInfo.vendorIdentifier(), 4, 16, QLatin1Char('0'))
+                .arg(portInfo.productIdentifier(), 4, 16, QLatin1Char('0'))
+                .arg(portInfo.systemLocation()));
 
     m_probingPortInfo = portInfo;
     m_probingPorts.insert(portInfo.portName());
@@ -454,10 +465,8 @@ void USBManager::probePort(const QSerialPortInfo& portInfo)
     m_probePort->setFlowControl(QSerialPort::NoFlowControl);
 
     if (!m_probePort->open(QIODevice::ReadWrite)) {
-        qWarning() << "[USB] Failed to open" << portInfo.portName()
-                    << "for probing:" << m_probePort->errorString();
-        emit logMessage(QStringLiteral("[USB] FAILED to open %1: %2")
-                            .arg(portInfo.portName(), m_probePort->errorString()));
+        USB_WARN(QStringLiteral("Failed to open %1 for probing: %2")
+                     .arg(portInfo.portName(), m_probePort->errorString()));
         cleanupProbe();
         return;
     }
@@ -488,10 +497,8 @@ void USBManager::onProbeReadyRead()
         QString confirmedPortName = m_probingPortInfo.portName();
         QString sn = m_probingPortInfo.serialNumber();
 
-        qDebug() << "[USB] DE1 confirmed on port" << confirmedPortName
-                 << "serial:" << sn;
-        emit logMessage(QStringLiteral("[USB] DE1 found on %1 (S/N: %2)")
-                            .arg(confirmedPortName, sn.isEmpty() ? QStringLiteral("N/A") : sn));
+        USB_INFO(QStringLiteral("DE1 found on %1 (S/N: %2)")
+                     .arg(confirmedPortName, sn.isEmpty() ? QStringLiteral("N/A") : sn));
 
         cleanupProbe();
 
@@ -522,12 +529,14 @@ void USBManager::onProbeTimeout()
         return;
     }
 
-    qDebug() << "[USB] Probe timeout on" << m_probingPortInfo.portName()
-             << "- not a DE1 (received:" << m_probeBuffer.size() << "bytes:"
-             << m_probeBuffer.toHex() << ")";
-    emit logMessage(QStringLiteral("[USB] Probe timeout on %1 (got %2 bytes)")
-                        .arg(m_probingPortInfo.portName())
-                        .arg(m_probeBuffer.size()));
+    // WARN, unlike the Android timeout above: this port already passed the
+    // VID/PID filter, so it advertises itself as DE1 hardware and then failed to
+    // answer <+M>. That is a machine the user expects to be connected and is not.
+    USB_WARN(QStringLiteral("Probe timeout on %1 — DE1 hardware did not answer <+M> "
+                            "(received %2 bytes: %3)")
+                 .arg(m_probingPortInfo.portName())
+                 .arg(m_probeBuffer.size())
+                 .arg(QString::fromLatin1(m_probeBuffer.toHex())));
 
     cleanupProbe();
 }

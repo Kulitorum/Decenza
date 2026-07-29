@@ -59,7 +59,7 @@ private slots:
         // early-return path intentionally logs a qWarning; that's the
         // behaviour under test.
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression(R"(\[firmware\] writeFWMapRequest dropped: no transport)"));
+            QRegularExpression(R"(\[DE1\]\[Firmware\] writeFWMapRequest dropped: no transport)"));
         DE1Device bare;
         bare.writeFWMapRequest(1, 1);  // expect no crash, no writes
     }
@@ -162,7 +162,7 @@ private slots:
     void fwMapResponseSignal_ignoresShortBuffer() {
         TestFixture f;
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression(R"(\[firmware\] A009 notify too short to parse)"));
+            QRegularExpression(R"(\[DE1\]\[Firmware\] A009 notify too short to parse)"));
         QSignalSpy spy(&f.device, &DE1Device::fwMapResponse);
         emit f.transport.dataReceived(DE1::Characteristic::FW_MAP_REQUEST,
                                       QByteArray(6, 0));

@@ -1,4 +1,5 @@
 #include "usb/serialtransport.h"
+#include "ble/de1logging.h"
 #include "ble/protocol/de1characteristics.h"
 
 #ifdef Q_OS_ANDROID
@@ -6,6 +7,14 @@
 #endif
 
 #include <QDebug>
+#include <QMetaEnum>
+
+// Alias the shared DE1 helpers — never copy a body. Tag "Serial" so the DE1's
+// serial link is distinguishable from the USB discovery that found it, while
+// one [DE1] search still returns both.
+#define SERIAL_LOG(msg)  DE1_LOG_TAGGED("Serial", msg)
+#define SERIAL_INFO(msg) DE1_INFO_TAGGED("Serial", msg)
+#define SERIAL_WARN(msg) DE1_WARN_TAGGED("Serial", msg)
 
 // ===========================================================================
 // Constructor / Destructor
@@ -60,13 +69,14 @@ void SerialTransport::write(const QBluetoothUuid& uuid, const QByteArray& data)
     // "{0000a002-0000-1000-8000-00805f9b34fb}" in a dialog box, which is the
     // same unreportable-diagnostic failure as #1586's "Service error: 5". (#1658)
     if (!m_connected) {
-        qWarning() << "[USB] Serial port not open — dropping write to" << uuid.toString();
+        SERIAL_WARN(QStringLiteral("Serial port not open — dropping write to %1")
+                        .arg(uuid.toString()));
         return;
     }
 
     char letter = uuidToLetter(uuid);
     if (letter == '\0') {
-        qWarning() << "[USB] Unknown UUID for serial write:" << uuid.toString();
+        SERIAL_WARN(QStringLiteral("Unknown UUID for serial write: %1").arg(uuid.toString()));
         return;
     }
 
@@ -77,10 +87,10 @@ void SerialTransport::write(const QBluetoothUuid& uuid, const QByteArray& data)
     // Serial writes are synchronous — signal immediately that the queue is drained
     emit queueDrained();
 
-    emit logMessage(QStringLiteral("[USB] TX <%1> %2 bytes: %3")
-                        .arg(QChar(letter))
-                        .arg(data.size())
-                        .arg(bytesToHexString(data)));
+    SERIAL_LOG(QStringLiteral("TX <%1> %2 bytes: %3")
+                   .arg(QChar(letter))
+                   .arg(data.size())
+                   .arg(bytesToHexString(data)));
 
     // Serial writes are effectively synchronous (buffered by OS/USB), so signal
     // completion immediately. DE1Device relies on this to track pending writes.
@@ -106,7 +116,7 @@ void SerialTransport::subscribe(const QBluetoothUuid& uuid)
     char letter = uuidToLetter(uuid);
     if (letter == '\0') {
         // Programming error in our characteristic table, not a user condition.
-        qWarning() << "[USB] Unknown UUID for serial subscribe:" << uuid.toString();
+        SERIAL_WARN(QStringLiteral("Unknown UUID for serial subscribe: %1").arg(uuid.toString()));
         return;
     }
 
@@ -119,7 +129,7 @@ void SerialTransport::subscribe(const QBluetoothUuid& uuid)
     writeRaw(command.toLatin1());
     m_subscribed.insert(letter);
 
-    emit logMessage(QStringLiteral("[USB] Subscribe %1 (UUID %2)").arg(QChar(letter), uuid.toString()));
+    SERIAL_LOG(QStringLiteral("Subscribe %1 (UUID %2)").arg(QChar(letter), uuid.toString()));
 }
 
 void SerialTransport::subscribeAll()
@@ -151,7 +161,7 @@ void SerialTransport::disconnect()
     m_buffer.clear();
 
     if (wasConnected) {
-        emit logMessage(QStringLiteral("[USB] Disconnected: %1").arg(m_portName));
+        SERIAL_INFO(QStringLiteral("Disconnected: %1").arg(m_portName));
         emit disconnected();
     }
 }
@@ -190,7 +200,7 @@ void SerialTransport::open()
     // On Android, AndroidUsbHelper is already open (USBManager probe opened it).
     // Just verify the connection is live.
     if (!AndroidUsbHelper::isOpen()) {
-        qWarning() << "[USB] Android USB connection not open — connect aborted";
+        SERIAL_WARN(QStringLiteral("Android USB connection not open — connect aborted"));
         return;
     }
 
@@ -201,7 +211,7 @@ void SerialTransport::open()
     // Start polling for incoming data (20ms = 50Hz — responsive for ~5Hz shot data)
     m_readTimer.start(20);
 
-    emit logMessage(QStringLiteral("[USB] Android USB connection active"));
+    SERIAL_INFO(QStringLiteral("Android USB connection active"));
 #else
     m_port->setPortName(m_portName);
 
@@ -218,13 +228,15 @@ void SerialTransport::open()
         // discards the unopened transport and re-arms discovery, and the status
         // bar's machineStatus widget shows the DE1 as Disconnected meanwhile, so
         // the failure is neither invisible nor terminal. (#1658)
-        qWarning() << "[USB] Failed to open serial port" << m_portName << ":"
-                   << m_port->errorString();
+        SERIAL_WARN(QStringLiteral("Failed to open serial port %1: %2")
+                        .arg(m_portName, m_port->errorString()));
         if (m_port->error() == QSerialPort::PermissionError) {
-            qWarning() << "[USB] *** ADVISORY: the OS refused access to" << m_portName
-                       << "— on Linux add your user to the 'dialout' group "
-                          "(sudo usermod -aG dialout $USER) and log out and back in. "
-                          "Otherwise another application is holding the port.";
+            SERIAL_WARN(QStringLiteral(
+                            "*** ADVISORY: the OS refused access to %1 — on Linux add your "
+                            "user to the 'dialout' group (sudo usermod -aG dialout $USER) and "
+                            "log out and back in. Otherwise another application is holding "
+                            "the port.")
+                            .arg(m_portName));
         }
         return;
     }
@@ -237,7 +249,7 @@ void SerialTransport::open()
     m_buffer.clear();
     m_subscribed.clear();
 
-    emit logMessage(QStringLiteral("[USB] Port opened: %1 (115200 8N1)").arg(m_portName));
+    SERIAL_INFO(QStringLiteral("Port opened: %1 (115200 8N1)").arg(m_portName));
 #endif
 
     // Subscribe to all standard DE1 notifications
@@ -253,7 +265,7 @@ void SerialTransport::open()
     if (versionLetter != '\0') {
         QString cmd = QStringLiteral("<%1>\n").arg(QChar(versionLetter));
         writeRaw(cmd.toLatin1());
-        emit logMessage(QStringLiteral("[USB] Requested version (<%1>)").arg(QChar(versionLetter)));
+        SERIAL_LOG(QStringLiteral("Requested version (<%1>)").arg(QChar(versionLetter)));
     }
 }
 
@@ -270,7 +282,7 @@ void SerialTransport::onAndroidReadTimer()
         // The cable came out. disconnect() drops the DE1 to offline, which the
         // status bar's machineStatus widget already says in words — a modal
         // repeating it adds nothing to an action the user just took. (#1658)
-        qWarning() << "[USB] Android USB connection lost";
+        SERIAL_WARN(QStringLiteral("Android USB connection lost"));
         disconnect();
         return;
     }
@@ -297,17 +309,27 @@ void SerialTransport::onErrorOccurred(QSerialPort::SerialPortError error)
     }
 
     QString errorStr = m_port->errorString();
-    qWarning() << "[USB] Port error:" << error << errorStr;
+    // valueToKey, not a bare int: QSerialPort::SerialPortError is a Q_ENUM, so the
+    // `qDebug() << error` this replaced printed the ENUMERATOR NAME via QDebug's
+    // generic Q_ENUM operator. Streaming it through arg() prints "2", which needs a
+    // Qt header to decode — in a subsystem diagnosed from user-submitted logs. This
+    // is the line that classifies a serial failure, so it keeps the name.
+    const char* errorName =
+        QMetaEnum::fromType<QSerialPort::SerialPortError>().valueToKey(error);
+    SERIAL_WARN(QStringLiteral("Port error: %1 (%2) %3")
+                    .arg(errorName ? QLatin1String(errorName) : QLatin1String("Unknown"))
+                    .arg(static_cast<int>(error))
+                    .arg(errorStr));
 
     // Resource errors (device unplugged, etc.) are fatal. Both arms are
     // log-only: the fatal one drops the DE1 to offline, which the connection
     // indicator shows, and the non-fatal one is a transient the link rides out.
     // Neither produced a message a user could act on — both put a raw
-    // QSerialPort::errorString() behind a "[USB]" log prefix into a modal. (#1658)
+    // QSerialPort::errorString() behind a log prefix into a modal. (#1658)
     if (error == QSerialPort::ResourceError
         || error == QSerialPort::DeviceNotFoundError
         || error == QSerialPort::PermissionError) {
-        qWarning() << "[USB] Serial port lost:" << errorStr;
+        SERIAL_WARN(QStringLiteral("Serial port lost: %1").arg(errorStr));
         disconnect();
     }
 }
@@ -323,7 +345,7 @@ void SerialTransport::writeRaw(const QByteArray& data)
 #ifdef Q_OS_ANDROID
     int written = AndroidUsbHelper::write(data);
     if (written < 0) {
-        qWarning() << "[USB] Android USB write failed";
+        SERIAL_WARN(QStringLiteral("Android USB write failed"));
     }
 #else
     if (m_port && m_port->isOpen()) {
@@ -351,7 +373,7 @@ void SerialTransport::processBuffer()
 
     // Safety: prevent unbounded buffer growth from garbage data
     if (m_buffer.size() > 4096) {
-        qWarning() << "[USB] Buffer overflow, discarding" << m_buffer.size() << "bytes";
+        SERIAL_WARN(QStringLiteral("Buffer overflow, discarding %1 bytes").arg(m_buffer.size()));
         m_buffer.clear();
     }
 }
@@ -361,21 +383,38 @@ void SerialTransport::processLine(const QString& line)
     // Response format: [LETTER]hexdata
     // Minimum valid line: [X] (3 chars, possibly with empty hex data)
     if (line.length() < 3 || line[0] != QLatin1Char('[') || line[2] != QLatin1Char(']')) {
-        emit logMessage(QStringLiteral("[USB] RX unknown: %1").arg(line));
+        SERIAL_LOG(QStringLiteral("RX unknown: %1").arg(line));
         return;
     }
 
     char letter = line[1].toLatin1();
     QBluetoothUuid uuid = letterToUuid(letter);
     if (uuid.isNull()) {
-        emit logMessage(QStringLiteral("[USB] RX unknown letter: %1").arg(QChar(letter)));
+        SERIAL_LOG(QStringLiteral("RX unknown letter: %1").arg(QChar(letter)));
         return;
     }
 
     QString hexData = line.mid(3);  // Everything after [X]
     QByteArray data = hexStringToBytes(hexData);
 
-    emit logMessage(QStringLiteral("[USB] RX [%1] %2 bytes").arg(QChar(letter)).arg(data.size()));
+    // No per-frame RX line. It used to log one "RX [M] 19 bytes" for every
+    // notification. subscribeAll() subscribes to seven characteristics, of which
+    // the periodically-notifying ones (ShotSample alone runs ~5 Hz — see
+    // docs/CLAUDE_MD/BLE_PROTOCOL.md) put this on the order of 20 lines a second,
+    // roughly 600 per shot.
+    //
+    // It went only to the connections-page DE1 window — which is not a bounded
+    // ring but an uncapped `de1LogText.text += message` with no Clear button
+    // (SettingsConnectionsTab.qml), so those 600 lines a shot accumulated in a
+    // QML string for the process lifetime. That is a reason to delete it, not a
+    // reason it was free.
+    //
+    // Routing it to the log the way the rest of this file now is would have made
+    // the DE1's telemetry the single largest thing in a submitted log while
+    // answering no question: that a frame arrived is what the parsed values and
+    // the shot record already prove, and BleTransport::onCharacteristicChanged
+    // logs no equivalent. The two anomaly cases above ARE logged — those are the
+    // ones a reader is looking for.
     emit dataReceived(uuid, data);
 }
 

@@ -231,7 +231,7 @@ private slots:
         // Expected qWarning from parseShotSettings — silence so the test
         // passes cleanly (otherwise QTest flags it as "passed with warning").
         QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression("\\[BLE DE1\\] parseShotSettings: short payload"));
+            QRegularExpression("\\[DE1\\]\\[Device\\] parseShotSettings: short payload"));
 
         QByteArray truncated(8, 0);
         emit f.transport.dataReceived(DE1::Characteristic::SHOT_SETTINGS, truncated);
@@ -336,7 +336,7 @@ private slots:
         // identical write should be skipped to avoid wasted BLE traffic.
         TestFixture f;
         QTest::ignoreMessage(QtDebugMsg,
-            QRegularExpression("\\[ShotSettings\\] write skipped"));
+            QRegularExpression("\\[DE1\\]\\[ShotSettings\\] write skipped"));
 
         f.device.setShotSettings(160, 120, 80, 200, 93.0);
         f.transport.clearWrites();
@@ -350,7 +350,7 @@ private slots:
         // fire. Dedup compares against the LAST sent payload, not historical.
         TestFixture f;
         QTest::ignoreMessage(QtDebugMsg,
-            QRegularExpression("\\[ShotSettings\\] write skipped"));
+            QRegularExpression("\\[DE1\\]\\[ShotSettings\\] write skipped"));
 
         f.device.setShotSettings(160, 120, 80, 200, 93.0);
         f.device.setShotSettings(160, 120, 80, 200, 93.0);  // skipped

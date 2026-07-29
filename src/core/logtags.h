@@ -25,10 +25,16 @@
 //
 // Two edits, both here: a DECENZA_LOG_MARKER_<NAME> literal, and a row in
 // DECENZA_LOG_SUBSYSTEMS. Everything else derives from those — the MCP
-// debug_get_log description is built from the table below, and
-// scripts/check_log_markers.py parses this header. Do NOT restate the marker
-// list anywhere else; a copy is free to drift, and a marker the description
-// does not mention is invisible to the assistant that would have used it.
+// debug_get_log description is built from the table below. Do NOT restate the
+// marker list anywhere else; a copy is free to drift, and a marker the
+// description does not mention is invisible to the assistant that would have
+// used it.
+//
+// NOTE: this invariant is NOT machine-checked yet. An earlier version of this
+// comment said `scripts/check_log_markers.py` parses this header; no such script
+// exists — it is task 7.4 of the openspec change
+// replace-scale-log-with-system-log-filter. Stating a check that does not exist
+// is worse than stating none, because the next editor trusts it.
 //
 // A marker is a published name. Renaming one breaks every saved query, filter
 // and habit built on it, so treat it as API, not an implementation detail.
