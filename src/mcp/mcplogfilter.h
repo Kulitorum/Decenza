@@ -19,10 +19,14 @@ namespace McpLogFilter {
 // `lastLine` are only meaningful after dedupeConsecutive() — a plain
 // filterLines() result always has count == 1 and lastLine == line.
 struct LineMatch {
-    qsizetype line;      // absolute line number of the first occurrence
-    QString text;        // text of the first occurrence
-    qsizetype count = 1; // consecutive occurrences collapsed into this entry
-    qsizetype lastLine = -1; // absolute line number of the last occurrence
+    qsizetype line = 0;      // absolute line number of the first occurrence
+    QString text;            // text of the first occurrence
+    qsizetype count = 1;     // consecutive occurrences collapsed into this entry
+    // Absolute line of the last occurrence. Defaults to match `line` rather than to
+    // a -1 sentinel: no code path ever leaves it at -1 (filterLines() sets it equal
+    // to `line`, dedupeConsecutive() only widens it), and a sentinel that cannot
+    // occur invites a check for it that can never fire.
+    qsizetype lastLine = 0;
 };
 
 // DEBUG < INFO < WARN < ERROR < FATAL; -1 for anything else (session markers,
@@ -165,7 +169,12 @@ inline QList<LineMatch> paginate(const QList<LineMatch>& matches, qsizetype offs
         return matches.mid(start);
     }
     if (offset < 0 || offset >= matches.size()) return {};
-    return matches.mid(offset, limit);
+    // Clamp here, not only at the callers. QList::mid() treats a NEGATIVE length as
+    // "to the end", so an unclamped limit < 0 would silently return the whole log
+    // from `offset` — an unbounded MCP response that looks like an ordinary page.
+    // Both call sites currently qBound() it, which means the policy already exists
+    // twice; this is the copy that cannot be forgotten.
+    return matches.mid(offset, qMax(qsizetype(0), limit));
 }
 
 } // namespace McpLogFilter

@@ -107,9 +107,16 @@ Rectangle {
         target: root._loggerReady ? WebDebugLogger : null
 
         // MUST NOT LOG. Anything logged here re-enters the global message handler
-        // from inside its own emit; WebDebugLogger guards against the recursion,
-        // but the guard's cost is that the line's signal is dropped, so a log call
-        // here silently makes the view miss lines. No console.log in this function.
+        // from inside its own emit. WebDebugLogger's per-thread guard stops the
+        // recursion, but its cost is that the line logged from HERE is never
+        // emitted: it reaches the ring buffer and the file, but no lineAppended
+        // observer, so this view and a reload of the same session disagree about
+        // it. Only that one line is affected — the guard clears when the outer
+        // emit returns, so later lines are fine.
+        //
+        // A bare `console.log` carries no registered marker, so lineMatches()
+        // would filter it anyway; the real hazard is calling into C++ that logs
+        // through a helper, because that line IS one this view would have shown.
         function onLineAppended(type, line) {
             // `type` is intentionally unused: the line text carries its own level
             // tag and lineMatches() reads it from there, so QML never needs to know

@@ -16,7 +16,7 @@ the tree. Two of the worst:
   - `[R2-diag]`, 21 sites. A debug-session prefix that no registered marker matched,
     so a [Refractometer] search returned the driver's packets but NOT the
     connect/churn story those lines were added to explain.
-  - `DE1Simulator:`, 40 sites, all at DEBUG. On a simulator session the entire DE1
+  - `DE1Simulator:`, 37 sites, all at DEBUG. On a simulator session the entire DE1
     view was EMPTY — the machine the page is about was the one thing it could not
     report — and nothing in the tree said so.
 
@@ -29,11 +29,21 @@ Within the covered files (see COVERED_GLOBS):
   1. No bare qDebug/qInfo/qWarning/qCritical. Log through the subsystem's helper,
      which is the only place the marker and tier are applied. Suppressible per line
      with a `// log-marker-exempt: <reason>` comment on or above the call.
-  2. No hand-rolled bracketed prefix inside a log message. `qFn() << "[Foo] ..."` or
-     `HELPER("[Foo] ...")` means the marker was typed at the call site, which is how
-     `[Scale] [BLE DecentScaleWifi] …` double prefixes and `[R2-diag]` happened.
+  2. No REGISTERED marker typed into a log message. `HELPER("[Scale] ...")` means the
+     marker was applied twice, once by hand and once by the helper — the
+     `[Scale] [BLE DecentScaleWifi] …` shape. Note the narrowness: an UNregistered
+     prefix (`"[Foo] ..."`) is deliberately not flagged, because `[M]` is a DE1
+     protocol byte and `[observe]` is a mode qualifier. The consequence is real
+     though — `HELPER("[R2-diag] foo")` would pass rule 1 (it uses the helper) and
+     rule 2 (unregistered), so a hand-rolled prefix inside a helper call is caught
+     by nothing here. Rule 1 caught the historical cases only because they sat on
+     bare qDebug calls, which is a fact about the past, not an invariant.
   3. Every marker literal a helper header applies is one the registry declares, so a
-     helper cannot quietly invent a fourth subsystem.
+     helper cannot quietly invent a subsystem. The header set is derived from the
+     tree, not listed — see helper_headers().
+  4. Every bracketed marker literal in qml/ is one the registry declares. The two
+     on-screen log views name their subsystems as plain QML strings, so a rename
+     would otherwise pass rules 1-3 and leave a view silently empty.
 
 The registry is PARSED from src/core/logtags.h, never restated here. A copy of the
 marker list in this script would be one more thing to drift, which is the exact
@@ -60,16 +70,44 @@ COVERED_GLOBS = [
     "src/usb/**/*.cpp",
     "src/simulator/de1simulator.cpp",
     "src/simulator/simulatedscale.cpp",
+    # Both already log through SCALE_*, so the rationale above does not describe
+    # them — they have somewhere to log to. wifiscalediscovery.cpp especially:
+    # it is the home of the "[DecentScaleWifi]" family that logtags.h cites as the
+    # original sin, and leaving it uncovered means a future bare qDebug there is
+    # the one place nobody would think to check.
+    "src/network/wifiscalediscovery.cpp",
+    "src/core/settings_hardware.cpp",
 ]
 
 # Helper headers define the macros; they are allowed to name markers and to contain
 # the qFn tokens the macros expand to.
-HELPER_HEADERS = {
-    "src/core/logtags.h",
-    "src/ble/de1logging.h",
-    "src/ble/scales/scalelogging.h",
-    "src/ble/refractometers/refractometerlogging.h",
-}
+#
+# DERIVED, not listed. A hand-maintained list failed the moment it was written: the
+# four names originally hard-coded here omitted src/ble/bluetoothlogging.h, the
+# fourth subsystem added in the very change that introduced this script — so rule 3,
+# whose stated job is "a helper cannot quietly invent a fourth subsystem", could not
+# see the fourth subsystem. Anything a reviewer must remember to update is a check
+# that silently narrows. A header EARNS review by using the macros, so ask the tree.
+def helper_headers():
+    found = set()
+    for path in REPO.glob("src/**/*.h"):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if "DECENZA_LOG_MARKER_" in text or "DECENZA_SUBSYS_LOG" in text:
+            found.add(path.relative_to(REPO).as_posix())
+    if not found:
+        sys.exit("error: no logging helper headers found under src/. The macros were "
+                 "renamed or moved; fix this parser rather than deleting the check.")
+    return sorted(found)
+
+
+# Where the two on-screen log views name the subsystems they show. These are plain
+# QML string literals, so a marker rename compiles clean, passes rules 1-3, and
+# leaves a view permanently empty — presenting as "this subsystem logged nothing",
+# the single false answer this whole change exists to stop a reader being given.
+# logtags.h calls a marker "API, not an implementation detail"; rule 4 is what makes
+# the QML side of that true.
+QML_GLOBS = ["qml/**/*.qml"]
+QML_MARKER_RE = re.compile(r'"\[([A-Z][A-Za-z0-9]*)\]"')
 
 BARE_LOG_RE = re.compile(r"\bq(Debug|Info|Warning|Critical)\s*\(\s*\)")
 EXEMPT_RE = re.compile(r"log-marker-exempt")
@@ -108,12 +146,20 @@ def registered_markers():
 
 
 def covered_files():
+    # COVERED_GLOBS matches only .cpp/.mm, so helper headers cannot appear here and
+    # need no exclusion.
     seen = {}
     for pattern in COVERED_GLOBS:
         for path in REPO.glob(pattern):
-            rel = path.relative_to(REPO).as_posix()
-            if rel not in HELPER_HEADERS:
-                seen[rel] = path
+            seen[path.relative_to(REPO).as_posix()] = path
+    return sorted(seen.items())
+
+
+def qml_files():
+    seen = {}
+    for pattern in QML_GLOBS:
+        for path in REPO.glob(pattern):
+            seen[path.relative_to(REPO).as_posix()] = path
     return sorted(seen.items())
 
 
@@ -176,12 +222,8 @@ def main():
                     f"source tag name the source.")
 
     # Rule 3: helper headers may only apply registered markers.
-    for rel in sorted(HELPER_HEADERS):
+    for rel in helper_headers():
         path = REPO / rel
-        if not path.exists():
-            failures.append(f"{rel}: listed as a helper header but does not exist — "
-                            f"update HELPER_HEADERS in {Path(__file__).name}.")
-            continue
         for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             for name in MARKER_USE_RE.findall(line.split("//", 1)[0]):
                 if name not in markers:
@@ -190,6 +232,19 @@ def main():
                         f"src/core/logtags.h. Add it to the registry (a literal AND a row in "
                         f"DECENZA_LOG_SUBSYSTEMS) so debug_get_log's description names it.")
 
+    # Rule 4: a bracketed marker literal in QML must be one the registry declares.
+    for rel, path in qml_files():
+        for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            code = line.split("//", 1)[0]
+            for inner in QML_MARKER_RE.findall(code):
+                if inner not in tokens:
+                    failures.append(
+                        f"{rel}:{n}: \"[{inner}]\" looks like a log marker but the registry "
+                        f"does not declare it. A log view asking for an unregistered marker "
+                        f"shows NOTHING, and reads as \"this subsystem never logged\" — add "
+                        f"it to DECENZA_LOG_SUBSYSTEMS in src/core/logtags.h, or fix the "
+                        f"spelling.")
+
     if failures:
         print("Log-marker invariant violated:\n")
         for f in failures:
@@ -197,8 +252,11 @@ def main():
         print(f"{len(failures)} violation(s). See docs/CLAUDE_MD/LOGGING.md.")
         return 1
 
-    n_files = len(covered_files())
-    print(f"OK: {n_files} covered file(s) log through marked helpers; "
+    # Print what was actually scanned. Three of the four sets are derived from the
+    # tree, so a glob that silently matches nothing would otherwise pass as clean.
+    print(f"OK: {len(covered_files())} covered file(s) log through marked helpers, "
+          f"{len(helper_headers())} helper header(s) apply only registered markers, "
+          f"{len(qml_files())} QML file(s) name only registered markers; "
           f"markers registered: {', '.join(sorted(tokens))}")
     return 0
 

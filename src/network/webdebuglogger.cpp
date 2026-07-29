@@ -70,6 +70,10 @@ WebDebugLogger::WebDebugLogger(QObject* parent)
     if (file.open(QIODevice::Append | QIODevice::Text)) {
         QTextStream stream(&file);
         stream << "\n========== SESSION START: " << m_startTime.toString(Qt::ISODate) << " ==========\n";
+    } else {
+        m_writeFailureWarned = true;
+        qWarning() << "WebDebugLogger: cannot write session marker to" << m_logFilePath
+                   << "-" << file.errorString() << "- this session's log will not persist.";
     }
 }
 
@@ -188,6 +192,18 @@ void WebDebugLogger::writeToFile(const QString& line)
         if (file.size() > MAX_LOG_FILE_SIZE) {
             trimLogFile();
         }
+    } else if (!m_writeFailureWarned) {
+        // Once only: every subsequent line hits the same open() and would
+        // otherwise repeat this at the very moment logging is already broken.
+        // Unmarked and to stderr deliberately — it cannot go through a
+        // registered-subsystem helper (this IS the persistence layer those
+        // helpers write through), and it cannot reach the connections views
+        // either, since they read this same file.
+        m_writeFailureWarned = true;
+        qWarning() << "WebDebugLogger: cannot write" << m_logFilePath
+                   << "-" << file.errorString()
+                   << "- all subsequent log lines will be lost from the persisted "
+                      "file, the connections views, Share, and debug_get_log.";
     }
 }
 
@@ -257,6 +273,12 @@ QStringList WebDebugLogger::getPersistedLogChunk(qsizetype offset, qsizetype lim
             result.append(line);
         }
         lineNum++;
+        // Stop once the page is full — but only when nobody asked for the total,
+        // because that is a count of the WHOLE file and needs every line. Without
+        // this the loop read to EOF even for a satisfied 400-line request, so the
+        // connections views paid a full 2 MB scan on top of sessionIndex()'s.
+        if (!totalLines && result.size() >= limit)
+            break;
     }
 
     if (totalLines) *totalLines = lineNum;
@@ -319,6 +341,9 @@ QStringList WebDebugLogger::sessionLinesMatching(const QStringList& markers,
     // log would put the whole firehose on screen — the exact failure this change
     // exists to end — while looking like it worked.
     if (markers.isEmpty()) {
+        qWarning() << "WebDebugLogger: sessionLinesMatching() called with an empty "
+                      "marker list — a wiring mistake in whichever view called this. "
+                      "Returning no lines rather than the unfiltered log.";
         return {};
     }
 
@@ -367,6 +392,17 @@ bool WebDebugLogger::lineMatches(const QString& line, const QStringList& markers
     // rather than silently putting the firehose back on screen.
     const int minRank = McpLogFilter::levelRank(minLevel);
     if (minRank < 0) {
+        // Latched, not per-call: this runs on every live line, and the point is a
+        // developer typo ("WARNING", "TRACE") reverting a view to the unfiltered
+        // firehose with no sign why — one warning is enough to find it.
+        static bool warned = false;
+        if (!warned) {
+            warned = true;
+            qWarning() << "WebDebugLogger: unrecognised minLevel" << minLevel
+                       << "- treating as no level constraint (every line, including "
+                          "DEBUG, will match). Valid values: DEBUG, INFO, WARN, "
+                          "ERROR, FATAL.";
+        }
         return true;
     }
     return McpLogFilter::levelRank(McpLogFilter::lineLevel(line)) >= minRank;

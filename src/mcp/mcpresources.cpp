@@ -373,8 +373,11 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
         "user-facing story for that subsystem and nothing else: DEBUG is developer "
         "detail (protocol frames, per-poll state), INFO is the narrative a user may "
         "need (lifecycle, discovery outcomes, connect/disconnect, fallback), WARN and "
-        "above are problems. That pairing is the same query the app's own connections "
-        "page runs, so what you get back is what the user sees on screen.");
+        "above are problems. That pairing is the same predicate the app's own "
+        "connections page uses, so these lines are the ones a user can read on "
+        "screen — but the page shows only the current session and only its last few "
+        "hundred lines, while you are addressing the whole file. Expect to see more "
+        "than the user does, not less.");
 
     // debug_get_log — chunked access to the persisted debug log with session awareness
     registry->registerTool(

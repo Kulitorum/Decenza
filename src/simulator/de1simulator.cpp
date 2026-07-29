@@ -154,10 +154,21 @@ void DE1Simulator::setGrindSetting(const QString& setting)
         m_grindFactor = qBound(0.5, REFERENCE_GRIND / grindValue, 3.0);
         SIM_LOG(QStringLiteral("Grind setting %1 -> factor %2")
                     .arg(setting).arg(m_grindFactor, 0, 'f', 3));
-    } else {
-        // Can't parse or invalid - use neutral
+    } else if (setting.isEmpty()) {
+        // The default. dyeGrinderSetting is free text and starts empty, and
+        // main.cpp calls setGrindSetting() unconditionally during simulator init,
+        // so this is the expected path on a fresh profile — nothing is wrong.
+        // It was briefly a WARN, which put a false alarm in the [DE1] view at every
+        // simulator launch, in the very view this change exists to make readable.
         m_grindFactor = 1.0;
-        SIM_WARN(QStringLiteral("Grind setting not parseable, using factor 1.0"));
+        SIM_LOG(QStringLiteral("No grind setting, using neutral factor 1.0"));
+    } else {
+        // Non-empty and still not a number — "medium-fine", "3 clicks". Also not
+        // wrong (the field is free text by design), so it stays off the WARN tier;
+        // worth a line because it explains why the simulator ignored what you typed.
+        m_grindFactor = 1.0;
+        SIM_LOG(QStringLiteral("Grind setting \"%1\" is not numeric, using neutral "
+                               "factor 1.0").arg(setting));
     }
 }
 

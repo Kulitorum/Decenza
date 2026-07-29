@@ -7,8 +7,12 @@
 
 // Logging helpers for the local Bluetooth RADIO, as distinct from the devices on it.
 //
-//     [Bluetooth][BLEManager] Adapter recovered — re-arming DE1 + scale reconnect
-//     [Bluetooth][Capability] hcitool present but lacks CAP_NET_RAW
+//     [Bluetooth][BLEManager] adapter recovered — re-arming DE1 + scale reconnect (#1309)
+//     [Bluetooth][Capability] CAP_NET_ADMIN missing — BLE connects to ...
+//
+// (Both copied verbatim from blemanager.cpp:257 and blecapability.cpp:38, so they
+// can be grepped. An earlier version of this block invented a CAP_NET_RAW/hcitool
+// line that nothing logs.)
 //
 // Why a marker of its own rather than folding these into [Scale] or [DE1]: the
 // adapter is BENEATH both. When it is powered off or wedged, neither device can
@@ -16,9 +20,11 @@
 // the wrong place — a user whose radio is off does not have a scale problem.
 //
 // It also earns its own grep. "Is my Bluetooth working?" is a different question
-// from "did my scale connect?", and answering the first used to mean reading
-// 31 lines that all began `qDebug() << "BLEManager: ..."` — a hand-rolled prefix
-// that matched no registered marker, so neither device search returned them.
+// from "did my scale connect?", and answering the first used to mean picking the
+// radio lines out of 29 that carried a hand-rolled `BLEManager: ` prefix (23
+// qDebug, 6 qWarning) matching no registered marker, so neither device search
+// returned them. Counted on origin/main before the conversion; an earlier draft of
+// this comment said "31 lines that all began qDebug", which was wrong twice.
 //
 // Tiers, by the usual audience rule (see core/logtags.h):
 //

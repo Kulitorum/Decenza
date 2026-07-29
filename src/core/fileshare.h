@@ -16,7 +16,7 @@
 // scale log).
 namespace FileShare {
 
-struct Result {
+struct [[nodiscard]] Result {
     bool ok = false;
     // Ready to show a user. Empty on success where there is nothing to say — the
     // share sheet is its own feedback.
@@ -28,6 +28,13 @@ struct Result {
 //
 // On desktop there is no share sheet, so this succeeds and returns the path in
 // `message` for the caller to show — the file IS the deliverable there.
-Result shareFile(const QString& filePath, const QString& title);
+//
+// Android's `ok` is not a strong guarantee: a background-activity-launch drop
+// (Android 14+, e.g. the app not in foreground when tapped) is not a Java
+// exception, so nothing here catches it — that is a platform restriction with
+// no callback at all, not a gap in this function. Everything that DOES throw
+// (no app can handle ACTION_SEND, URI permission refused, a null chooser) is
+// caught and reported through `ok`.
+[[nodiscard]] Result shareFile(const QString& filePath, const QString& title);
 
 } // namespace FileShare

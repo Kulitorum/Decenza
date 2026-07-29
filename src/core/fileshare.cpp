@@ -11,6 +11,7 @@
 
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
+#include <QJniEnvironment>
 #include <QCoreApplication>
 #include <QtCore/private/qandroidextras_p.h>
 #endif
@@ -77,9 +78,32 @@ Result shareFile(const QString& filePath, const QString& title)
         intent.object(),
         chooserTitle.object<jstring>());
 
+    // createChooser can return a null/invalid Intent (e.g. a thrown
+    // ActivityNotFoundException already cleared below would otherwise leave
+    // `chooser` invalid and startActivity would crash on a null jobject).
+    if (!chooser.isValid()) {
+        QJniEnvironment().checkAndClearExceptions();
+        return {false, QStringLiteral("Could not build the share chooser for %1")
+                            .arg(filePath)};
+    }
+
     chooser.callObjectMethod("addFlags", "(I)Landroid/content/Intent;", 0x10000000);  // FLAG_ACTIVITY_NEW_TASK
 
     context.callMethod<void>("startActivity", "(Landroid/content/Intent;)V", chooser.object());
+
+    // startActivity is void, so its only failure signal is a pending Java
+    // exception (ActivityNotFoundException: no app can handle ACTION_SEND;
+    // SecurityException: URI permission refused). Qt's own JNI wrapper prints and
+    // clears these on its own (qjnienvironment.cpp), which is why they were
+    // reaching debug.log unmarked and invisible to the connections view while
+    // this function still reported success. checkAndClearExceptions() here
+    // reports the same failure through the channel this file's caller expects.
+    if (QJniEnvironment().checkAndClearExceptions()) {
+        return {false, QStringLiteral("Could not open the share dialog for %1 — no "
+                                      "app handled it, or permission was refused")
+                            .arg(filePath)};
+    }
+
     return {true, QStringLiteral("Opening share dialog...")};
 
 #elif defined(Q_OS_IOS)
@@ -108,7 +132,10 @@ Result shareFile(const QString& filePath, const QString& title)
 
     UIViewController* rootVC = keyWindow.rootViewController;
     if (!rootVC) {
-        return {false, QStringLiteral("Could not open the share dialog")};
+        // Matches the Android branch's convention: not fatal for the user, the
+        // file is written and its path is actionable even if the sheet can't open.
+        return {false, QStringLiteral("Could not open the share dialog; file is at %1")
+                            .arg(filePath)};
     }
     // iPad requires an anchor for the popover or the presentation throws.
     if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad) {

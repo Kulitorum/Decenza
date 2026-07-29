@@ -42,8 +42,10 @@
 #define DEVICE_WARN(msg)        DE1_WARN_TAGGED("Device", msg)
 // The two _WARN_STDERR aliases are NOT a tier choice — they are required. Their
 // only call sites are the const members dropDeviceWriteIfFirmwareFlash() and
-// dropIfFirmwareFlashInProgress(), and moc generates signal emitters as non-const
-// so `emit logMessage(...)` will not compile in one.
+// dropIfFirmwareFlashInProgress(), and `logMessage` is declared non-const
+// (de1device.h:361) so `emit logMessage(...)` will not compile in one. (Not a moc
+// limitation, which this comment used to claim without a citation — moc emits a
+// const signal fine, qtbase/src/tools/moc/generator.cpp:1297-1300.)
 #define DEVICE_WARN_STDERR(msg) DE1_WARN_STDERR_TAGGED("Device", msg)
 #define MMR_LOG(msg)            DE1_LOG_STDERR_TAGGED("MMR", msg)
 #define MMR_WARN(msg)           DE1_WARN_TAGGED("MMR", msg)

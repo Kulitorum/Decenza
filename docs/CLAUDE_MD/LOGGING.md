@@ -61,12 +61,16 @@ ACAIA_LOG(QStringLiteral("Notify enabled on %1").arg(uuid.toString()));
 
 The helper headers, one per subsystem:
 
-| Subsystem | Header | Macro family |
-|---|---|---|
-| `[Scale]` | `src/ble/scales/scalelogging.h` | `SCALE_LOG/INFO/WARN` |
-| `[DE1]` | `src/ble/de1logging.h` | `DE1_LOG/INFO/WARN_TAGGED` |
-| `[Refractometer]` | `src/ble/refractometers/refractometerlogging.h` | `REFRACTOMETER_LOG/INFO/WARN` |
-| `[Bluetooth]` | `src/ble/bluetoothlogging.h` | `BT_LOG/INFO/WARN_TAGGED` |
+| Subsystem | Header | Macro family | Note |
+|---|---|---|---|
+| `[Scale]` | `src/ble/scales/scalelogging.h` | `SCALE_LOG/INFO/WARN` | short form tags `"BLE <prefix>"`; `*_TAGGED` takes the tag verbatim |
+| `[DE1]` | `src/ble/de1logging.h` | `DE1_LOG/INFO/WARN_TAGGED` | |
+| `[Refractometer]` | `src/ble/refractometers/refractometerlogging.h` | `REFRACTOMETER_LOG/INFO/WARN` | same `"BLE "` short form |
+| `[Bluetooth]` | `src/ble/bluetoothlogging.h` | `BT_LOG/INFO/WARN_TAGGED` | **stderr-only by construction** — nothing here has a `logMessage`, so there is no `BT_*_STDERR_TAGGED` and `BT_*_TAGGED` does not emit |
+
+All four families stop at `WARN`. There is no marked CRITICAL/FATAL tier — a genuine
+`qCritical` in a covered file has to take an exemption, which is deliberate: nothing
+in these subsystems is unrecoverable enough to warrant aborting.
 
 **Alias the macro, never copy its body.** `difluidr1.cpp` and `difluidr2.cpp` each
 hand-copied `SCALE_LOG`'s body once, so a one-line fix to the shared macro had to be
@@ -77,9 +81,12 @@ found and applied in three places, and the two copies were identical only by luc
 - **`*_TAGGED(tag, msg)`** — the normal form. `tag` names the source and is a string
   literal.
 - **`*_STDERR_TAGGED`** — for code with no `logMessage` signal in scope: free
-  functions, static helpers, JNI shims, simulators. Note `DECENZA_SUBSYS_LOG` emits
-  as well as writing, and **moc generates signal emitters as non-const**, so a `const`
-  member function must use the `_STDERR_` form or it will not compile.
+  functions, static helpers, JNI shims, simulators. Also for a `const` member
+  function: `DECENZA_SUBSYS_LOG` emits as well as writing, and our `logMessage`
+  signals are declared non-const (`de1device.h:361`), so `emit` will not compile
+  there. (moc itself is fine with a const signal — it const_casts `this`,
+  `qtbase/src/tools/moc/generator.cpp:1297-1300` — so the limit is our declaration.
+  This note previously blamed moc, uncited and wrongly.)
 - **`*_STDERR_DYN(tag, msg)`** — only when one helper logs on behalf of several
   sources, so a hard-coded tag would name the wrong one. `BLEManager`'s scale and
   refractometer tiers use it because `main.cpp` drives the reconnect ladders and its
@@ -212,18 +219,36 @@ registry rather than restating it, and checks:
 
 1. No bare `qDebug`/`qInfo`/`qWarning`/`qCritical` in a covered file.
 2. No registered marker typed into a message (the helper already applies it — typing
-   one produces `[Scale] [BLE DecentScaleWifi] …`).
-3. No helper header applying a marker the registry does not declare.
+   one produces `[Scale] [BLE DecentScaleWifi] …`). Only *registered* tokens, because
+   `[M]` is a DE1 protocol byte and `[observe]` a mode qualifier. So an unregistered
+   prefix inside a helper call — `SCALE_LOG("Acaia", "[R2-diag] …")` — is caught by
+   nothing. Don't do it.
+3. No helper header applying a marker the registry does not declare. The header set is
+   derived by grepping for the macros, so a new helper is covered the day it lands.
+4. No bracketed marker literal in `qml/` that the registry does not declare — the
+   views name their subsystems as plain strings, and a rename would otherwise empty a
+   view while every other rule passed.
 
 If a line genuinely cannot go through a helper, append
 `// log-marker-exempt: <reason>` on or just above it. Give a real reason; the window
-is several lines precisely so the reason can be a sentence.
+is the call line plus six above, precisely so the reason can be a sentence. It must
+be a `//` comment — block comments are stripped before the check, so a `/* */`
+exemption is invisible — and for rule 2 it must be on the same line.
 
 This is a gate rather than guidance because guidance did not hold. While the markers
 were being introduced, **nine** hand-rolled prefix families were found in code already
-believed converted — including 40 `DE1Simulator:` lines, all at DEBUG, which left the
+believed converted — including 37 `DE1Simulator:` lines, all at DEBUG, which left the
 connections page's DE1 view **completely empty** on a simulator session. Every one was
-found by a person reading a running app's log. A grep finds them in milliseconds.
+found by a person reading a running app's log, not by the tree. A grep finds them in
+milliseconds. (The families are gone from `main`, so the count of nine is no longer
+checkable from a checkout; it is the tally across commits `460fb8e9` and `3d022dd5`.)
+
+The gate is not the whole invariant, and the difference matters. Rule 1 covers
+`COVERED_GLOBS` — `src/ble`, `src/usb`, the two simulator files. Other files carry
+subsystem lines and are **not** covered, `src/main.cpp` most of all: it drives the
+scale and refractometer reconnect ladders and has ~127 bare log calls. "Every line
+carries its marker" is the rule you follow; the gate enforces it where the helpers
+live.
 
 ## Verify against a running app, not just the source
 

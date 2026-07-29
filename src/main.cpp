@@ -2176,7 +2176,14 @@ int main(int argc, char *argv[])
                      [&bleManager, &settings, &scaleReconnectAttempt, &scaleReconnectTimer,
                       &reconnectDelays]() {   // the two const tail constants need no capture
         if (settings.scaleAddress().isEmpty()) {
-            qDebug() << "Scale reconnect: no saved scale address, stopping retries";
+            // scaleReconnectTimer is single-shot (see its setSingleShot(true) at
+            // construction), so this return does not re-arm — the ladder is
+            // permanently dead from this point on. Worth a line above DEBUG: it was
+            // a bare qDebug, invisible to a [Scale] search, so "why did it stop
+            // trying to reconnect my scale" had no answer in a submitted log.
+            bleManager.scaleInfo(QStringLiteral(
+                "Scale reconnect: no saved scale address, stopping retries"),
+                QStringLiteral("main"));
             return;
         }
         // USB scales are owned by UsbScaleManager and reconnect via its
@@ -2186,9 +2193,12 @@ int main(int argc, char *argv[])
         // below would needlessly stop the BLE connection timer each tick).
         // Stop the timer when the saved scale is USB.
         if (!scaleAddressIsLadderDialable(settings.scaleAddress())) {
-            qDebug() << "Scale reconnect: saved scale is not dialable by this ladder"
-                     << "(USB is handled by UsbScaleManager; sim: is the simulator's"
-                     << "synthetic entry) — stopping retries";
+            // Also a ladder-ending return on a single-shot timer — same reasoning
+            // as above.
+            bleManager.scaleInfo(QStringLiteral(
+                "Scale reconnect: saved scale is not dialable by this ladder "
+                "(USB is handled by UsbScaleManager; sim: is the simulator's "
+                "synthetic entry) — stopping retries"), QStringLiteral("main"));
             return;
         }
         // One line, INFO while the ramp walks and DEBUG on the endless 60 s tail.
@@ -2412,17 +2422,33 @@ int main(int argc, char *argv[])
     QObject::connect(&de1ReconnectTimer, &QTimer::timeout,
                      [&bleManager, &de1Device, &settings, &de1ReconnectAttempt, &de1ReconnectTimer]() {
         if (settings.machineAddress().isEmpty()) {
-            qDebug() << "DE1 reconnect: no saved DE1 address, stopping retries";
+            // de1ReconnectTimer is single-shot, so this return does not re-arm —
+            // the ladder is permanently dead from here. Was a bare qDebug,
+            // invisible to a [DE1] search; the scale ladder's equivalent lines
+            // were converted, this one was missed.
+            bleManager.de1Info(QStringLiteral(
+                "DE1 reconnect: no saved DE1 address, stopping retries"),
+                QStringLiteral("main"));
             return;
         }
         if (de1Device.isConnected() || de1Device.isConnecting()) {
-            qDebug() << "DE1 reconnect: already connected/connecting, stopping retries";
+            bleManager.de1Info(QStringLiteral(
+                "DE1 reconnect: already connected/connecting, stopping retries"),
+                QStringLiteral("main"));
             return;
         }
         // Clamp the counter at the cap so it doesn't grow without bound across
-        // days of slow retries; once capped we stay on the slow tier.
-        if (de1ReconnectAttempt < kDE1MaxReconnectAttempts) de1ReconnectAttempt++;
-        qDebug() << "DE1 reconnect: attempt" << de1ReconnectAttempt << "of" << kDE1MaxReconnectAttempts;
+        // days of slow retries; once capped we stay on the slow tier. Track
+        // whether THIS tick is the one that reached the cap — unlike the scale
+        // ladder's counter (unclamped, so `== kScaleFastTailAttempts` is
+        // naturally one-shot), this one stops moving once capped, so an
+        // uncorrected `==` check below would be true on every slow tick forever
+        // rather than once.
+        const bool justHitCap = de1ReconnectAttempt < kDE1MaxReconnectAttempts
+                                 && ++de1ReconnectAttempt == kDE1MaxReconnectAttempts;
+        bleManager.de1Debug(QStringLiteral("DE1 reconnect: attempt %1 of %2")
+                                 .arg(de1ReconnectAttempt).arg(kDE1MaxReconnectAttempts),
+                             QStringLiteral("main"));
         bleManager.tryDirectConnectToDE1();
 
         if (de1ReconnectAttempt < kDE1MaxReconnectAttempts) {
@@ -2431,8 +2457,17 @@ int main(int argc, char *argv[])
             int delay = de1ReconnectAttempt == 1 ? 30000 : 60000;
             de1ReconnectTimer.start(delay);
         } else {
-            qDebug() << "DE1 reconnect: fast retries exhausted — slow background retry in"
-                     << kDE1SlowReconnectMs << "ms";
+            if (justHitCap) {
+                // Announce the one crossing, not every slow cycle — mirrors the
+                // scale ladder's identical crossing (main.cpp,
+                // scaleReconnectTimer handler). WARN is what makes the crossing
+                // findable in a submitted log — without it, a machine gone for
+                // 10+ minutes reads as a ladder that silently died.
+                bleManager.de1Warn(QStringLiteral(
+                    "DE1 still absent after %1 attempts — slowing retries to every %2 min")
+                        .arg(de1ReconnectAttempt).arg(kDE1SlowReconnectMs / 60000),
+                    QStringLiteral("main"));
+            }
             de1ReconnectTimer.start(kDE1SlowReconnectMs);
         }
     });

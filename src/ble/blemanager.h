@@ -567,6 +567,27 @@ public:
     void scaleWarn(const QString& message,
                    const QString& source = QStringLiteral("BLEManager"));
 
+    // The same three tiers for the DE1 half, carrying [DE1] instead of [Scale].
+    //
+    // BLEManager narrates the machine too — permissions, scan lifecycle, "found
+    // DE1", direct wake. MOST of those lines went only to de1LogMessage, i.e.
+    // only to the connections-page window, so they were absent from every
+    // submitted log and the machine's discovery story could not be read after the
+    // fact. Four DID also reach stderr — "Found DE1", the two direct-wake lines
+    // and the scan error — but each did so in DIFFERENT WORDS from its emitted
+    // twin, which is the drift these helpers exist to make impossible. Both
+    // problems have the one fix: log once, at a tier, from one call.
+    // `source` defaulted the same way as scaleDebug/Info/Warn above, and for the
+    // same reason: main.cpp drives the DE1 reconnect ladder through these
+    // forwarders too, and its lines must not be stamped "BLEManager". Public for
+    // the same reason scaleDebug/Info/Warn are — main.cpp calls it directly.
+    void de1Debug(const QString& message,
+                  const QString& source = QStringLiteral("BLEManager"));
+    void de1Info(const QString& message,
+                 const QString& source = QStringLiteral("BLEManager"));
+    void de1Warn(const QString& message,
+                 const QString& source = QStringLiteral("BLEManager"));
+
 private:
     //
     // refractometerDebug/refractometerInfo (declared public above) exist because
@@ -608,20 +629,6 @@ private:
     // already spent the budget.
     QHash<QString, int> m_repeatFailureCounts;
     static constexpr int kScaleFailuresAtWarn = 3;
-
-    // The same three tiers for the DE1 half, carrying [DE1] instead of [Scale].
-    //
-    // BLEManager narrates the machine too — permissions, scan lifecycle, "found
-    // DE1", direct wake. MOST of those lines went only to de1LogMessage, i.e.
-    // only to the connections-page window, so they were absent from every
-    // submitted log and the machine's discovery story could not be read after the
-    // fact. Four DID also reach stderr — "Found DE1", the two direct-wake lines
-    // and the scan error — but each did so in DIFFERENT WORDS from its emitted
-    // twin, which is the drift these helpers exist to make impossible. Both
-    // problems have the one fix: log once, at a tier, from one call.
-    void de1Debug(const QString& message);
-    void de1Info(const QString& message);
-    void de1Warn(const QString& message);
 
 public:
 

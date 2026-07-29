@@ -234,6 +234,17 @@ public:
     ~SerialDbWorker() {
         if (!m_thread)
             return;
+        // Report the discard below, not just document it. This was a documented
+        // property with no signal anywhere it happened — a queued write (a shot's
+        // edited notes/rating, a Visualizer id) silently vanishes if the owner is
+        // destroyed before the worker drains, with no error, no warning, and the
+        // caller left thinking either outcome occurred. A caller that must not
+        // lose queued work should wait on isIdle() before destroying the owner;
+        // this warning is the backstop for the one that didn't.
+        if (const int pending = m_outstanding->load(std::memory_order_acquire); pending > 0) {
+            qWarning() << m_name << "destroyed with" << pending
+                       << "DB task(s) still queued — those writes are being discarded.";
+        }
         m_thread->quit();
         m_thread->wait();
         // The thread's event loop has stopped, so nothing else touches m_context;

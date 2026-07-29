@@ -95,10 +95,23 @@ public:
     // supposed to be readable apart from. The buffer is the right size for the web
     // poller and the wrong source for "what happened this session".
     //
-    // Cost: one pass over the current session's slice of a file bounded by
-    // MAX_LOG_FILE_SIZE, on the calling thread. Intended for a one-shot at page
-    // open, with live lines arriving via lineAppended() afterwards — do not call
-    // it per line.
+    // Cost, stated honestly because it runs on the GUI thread: a cold call reads
+    // the whole file TWICE. sessionIndex() rebuilds by reading every line whenever
+    // the file's size or mtime changed, materialising up to 100,000 QStrings, and
+    // getPersistedLogChunk() then streams from line 0 again regardless of `offset`
+    // (webdebuglogger.cpp:254-260 — the loop visits every line and only appends
+    // those in range). A warm call skips the first read. The file is bounded by
+    // MAX_LOG_FILE_SIZE (2 MB), which is what keeps this tolerable.
+    //
+    // So: a one-shot at page open, with live lines arriving via lineAppended()
+    // afterwards. Never per line, and never in a loop. CLAUDE.md forbids disk I/O
+    // on the main thread and grants no exemption for this; it is here because a
+    // bounded 2 MB read at page open is a hitch rather than a hang. If it ever
+    // needs to run anywhere hotter, move it to a worker first.
+    //
+    // (An earlier version of this comment said "one pass over the current
+    // session's slice", which understated the work by two full passes. Left on the
+    // record because an understated cost is what licenses the call that hangs.)
     Q_INVOKABLE QStringList sessionLinesMatching(const QStringList& markers,
                                                  const QString& minLevel) const;
 
@@ -191,6 +204,13 @@ private:
     // File persistence
     QString m_logFilePath;
     static constexpr qint64 MAX_LOG_FILE_SIZE = 2 * 1024 * 1024;  // 2MB - several days of sessions
+    // Set the first time writeToFile() fails to open the file. Both connections
+    // views now read ONLY the persisted file — the in-memory buffers they used to
+    // fall back on are gone — so a silently unwritable log used to just mean
+    // "no user-visible symptom"; now it means both views permanently empty and
+    // debug_get_log/Share reporting nothing, none of it explained anywhere. This
+    // latches so the failure is reported once rather than once per line.
+    bool m_writeFailureWarned = false;
 
     // Session-index cache (see sessionIndex()). Separate mutex from m_mutex,
     // which guards the in-memory ring buffer, not the persisted file.
