@@ -49,6 +49,61 @@ project had when a `ReferenceError` reached a release.
 - **WHEN** a branch is pushed
 - **THEN** the QML diagnostics run, rather than waiting for a tag-triggered release build
 
+### Requirement: The Gate Runs In The Default Build, And Costs Nothing When Idle
+The QML diagnostics check SHALL run as part of the default build target on desktop platforms, so a
+regression fails the build of the developer who wrote it rather than a nightly job hours later.
+
+It SHALL be skipped when nothing it reads has changed. A check that re-runs on every build taxes
+edits it cannot possibly be affected by, and the first response to that tax is to switch the check
+off — which costs more than the check ever saved.
+
+It SHALL NOT prevent a binary from being produced. The check runs after linking, so a developer is
+never blocked from running the application to investigate the very thing they are working on.
+
+A failure SHALL NOT be recorded as done: the next build re-runs the check rather than treating the
+previous failure as satisfied.
+
+#### Scenario: A QML regression is written
+- **WHEN** a developer introduces a non-exempt diagnostic and builds
+- **THEN** the build fails, naming the file, the count and the fix — and explicitly refusing the
+  wrong fix of adding the file to the baseline
+
+#### Scenario: A C++-only edit is rebuilt
+- **WHEN** a build changes no QML source, no gate script and no baseline
+- **THEN** the check does not run at all
+
+#### Scenario: A release build for a mobile platform
+- **WHEN** the target platform is Android or iOS
+- **THEN** the check is not part of the default build, because the same QML has already been
+  checked on desktop and a release must not acquire a new way to fail
+
+### Requirement: A Bundled Tool May Close A Toolchain Gap, But Never Silently
+Where the released `qmllint` cannot analyse a file, the project MAY ship a patched tool so that
+platform reaches full coverage.
+
+Such a bundle SHALL be complete. Shipping only the driver, while the fix lives in a library loaded
+from elsewhere, produces a tool that behaves exactly like the unpatched one while the build config
+asserts full coverage — strictly worse than not shipping it, and the same silent-blindness defect
+the rest of this capability exists to remove.
+
+It SHALL be pinned to the toolchain version it was built against, and a mismatch SHALL degrade to
+the released tool with a warning rather than load a mismatched library or fail the build.
+
+It SHALL be proven at configure time by executing it, not by its presence on disk.
+
+It SHALL carry no absolute path belonging to the developer who built it.
+
+Platforms the bundle does not cover SHALL be stated, not implied by its absence.
+
+#### Scenario: The bundled tool cannot resolve its libraries
+- **WHEN** configure stages the bundle and the executable fails to run
+- **THEN** configure warns with a readable message and falls back to the released tool
+
+#### Scenario: The toolchain is upgraded past the pinned version
+- **WHEN** the project is configured against a different Qt version
+- **THEN** the bundle is not used, a warning names the version mismatch, and coverage degrades
+  rather than the build breaking
+
 ### Requirement: The `unqualified` Category Is Never Exempt
 The `unqualified` category SHALL NOT appear on the exemption list, and SHALL NOT be disabled
 per-file, per-line, or via configuration.

@@ -25,7 +25,19 @@ the gate could be built. Read task 1.1 before trusting a number in these documen
   `ALL` and not a dependency *of* `Decenza`: the run takes minutes and a gate people route around
   is not a gate. Both depend *on* `Decenza`, so the script's refusal to lint a stale build becomes
   a rebuild rather than an error message.
-- [ ] 1.3 Decide the CI trigger. **The lint itself is not the cost — the full tree takes 8.1
+- [x] 1.3 **DECIDED and wired**: a step on `nightly-sanitizers.yml` (ubsan leg only), exactly the
+  "likeliest host" guessed below. ~8 s and no extra build, because the `.rsp` is written at
+  CONFIGURE time and the qmltypes already exist via `tst_qmlregistration`'s dependency on the
+  `Decenza` target. It hard-errors if the `qmllint_check` target is absent rather than letting
+  `ninja` no-op — a gate that silently does not exist is the failure this whole change exists to
+  end. The open question below is also answered: **`install-qt-action` does ship a `qmllint` on
+  Linux** — run `30429323523` printed `QML diagnostics gate passed. clean: 134/221`. Superseded in
+  part by 7.1, which puts the same check in every developer's build, so a regression now fails
+  locally before it can reach a PR.
+
+  Original text follows.
+
+  Decide the CI trigger. **The lint itself is not the cost — the full tree takes 8.1
   seconds.** Every larger figure this change previously quoted (2 minutes, then 7–10) was one
   pathological file, not the corpus; see 1.11. What remains expensive is the *build* the lint
   depends on: it needs the generated qmldir, the type registrations and the response file, so it
@@ -38,7 +50,16 @@ the gate could be built. Read task 1.1 before trusting a number in these documen
   locally before it is useful there. Whoever wires it should confirm rather than assume that
   `install-qt-action` puts a `qmllint` in Qt's `bin/` on Linux.
 
-- [ ] 1.11 **`qml/components/layout/items/CustomItem.qml` cannot be linted by stock qmllint
+- [x] 1.11 **RESOLVED ON macOS, still open elsewhere** (see 7.2). `tools/qmllint-macos/` ships a
+  patched `qmllint` *and* the patched `QtQmlCompiler.framework`, so a Mac build lints 222/222 in
+  ~11 s and never sees a skip. Linux, Windows and CI still run the released tool with
+  `--skip-unlintable`, so this file is checked on a Mac before push and nowhere else. The entry
+  stays in `UNLINTABLE_BY_TOOL_BUG` because the released tool is still the fallback everywhere
+  else; it goes away when Qt ships the fix, not before.
+
+  Original analysis follows — it is the provenance for the bundled binaries.
+
+  **`qml/components/layout/items/CustomItem.qml` cannot be linted by stock qmllint
   6.11.1**, and that is a Qt bug, not a problem with the file.
   `QQmlJSTypeResolver::merge(QQmlJSRegisterContent, QQmlJSRegisterContent)` recurses into itself
   twice — once per `mergeScopes()` call in its return statement — allocating a pool conversion at
@@ -601,10 +622,17 @@ re-using it as a reason.
 - [x] 5.1 Add `import Decenza` to the 13 QML files that lack it — done under 3.3; see the entry
   there. Note the sequel recorded as 6.2 below: three components had `import Decenza` *removed*
   as dead one commit before it became load-bearing.
-- [ ] 5.2 Re-run the report from 1.1 and confirm the clean list reached 103 of 212 files
-- [ ] 5.3 Confirm `qml/Theme.qml` is on the clean list — that file is the specific regression this change exists to prevent, and it is the acceptance test for the whole change
-- [ ] 5.4 Triage the categories the noise was hiding — 310 `missing-property`, 27 `import`, 25 `index`, and the singleton `incompatible-type` / `equality-type-coercion` / `unresolved-type` findings — and fix or exempt each explicitly
-- [ ] 5.5 Full test suite green via `mcp__qtcreator__run_tests` (scope `all`)
+- [x] 5.2 ~~Re-run the report from 1.1 and confirm the clean list reached 103 of 212 files~~ —
+  **the target was wrong and confirming it would have locked in a mistake.** "103 of 212" was never
+  a measurement; it is the shape of a run qmllint never finished, because the script did not check
+  exit status and a file it never reached prints no warnings and therefore counts as clean. The
+  real outcome is **222 of 222**, reached over three PRs (#1688, #1690, #1695): `unqualified`
+  2285 -> 0, `missing-property` 87 -> 0, zero ceilings, `CATEGORY_EXEMPTIONS` empty
+- [x] 5.3 Confirm `qml/Theme.qml` is on the clean list — that file is the specific regression this change exists to prevent, and it is the acceptance test for the whole change. **Verified**: it is on the baseline's clean list, and the whole tree is at zero, so the acceptance test passes by the strongest available margin
+- [x] 5.4 Triage the categories the noise was hiding — 310 `missing-property`, 27 `import`, 25 `index`, and the singleton `incompatible-type` / `equality-type-coercion` / `unresolved-type` findings — and fix or exempt each explicitly. **All fixed, none exempted**; `observed_categories` is empty
+- [x] 5.5 Full test suite green via `mcp__qtcreator__run_tests` (scope `all`) — **108 passed, 0
+  failed, 0 skipped, 0 with warnings** in 43 s, on the branch carrying the default-build gate and
+  the bundled macOS qmllint (section 7)
 - [x] 5.6 Update the qmllint instruction in `CLAUDE.md` and `docs/CLAUDE_MD/QML_GOTCHAS.md`, which currently point at a command whose output is unreadable
 - [x] 5.7 Record in `QML_GOTCHAS.md` that new C++ objects exposed to QML are registered as singletons, never via `setContextProperty()`
 - [ ] 5.8 Archive this change with `openspec archive fix-qmllint-usability` as the last commit on the branch
@@ -705,3 +733,81 @@ and the confirmed defects are in [`bugs-found.md`](bugs-found.md) entries 3–7 
   `incompatible-type` and `unresolved-type` cleared entirely — the former was
   `StrangeAttractorScreensaver.qml` binding `target: renderer`, unresolvable while that type was
   registered at runtime.
+
+## 7. The gate in the default build, and full coverage on macOS
+
+Reaching zero (5.2) changed what the gate is for. A ratchet that only runs nightly on `main` is a
+backstop; a check that runs when you press Build is a gate. These two tasks close that distance.
+
+- [x] 7.1 **`qmllint_check` now runs as part of the default build.** The block keeping it out said
+  "a full-tree qmllint run takes minutes" — never measured, and wrong: **11.1 s** with the stock
+  tool, **11.0 s** with the patched one, on a 2023 MacBook Pro. At that price nobody should have to
+  remember to ask.
+
+  It is an `add_custom_command` producing a stamp, **not** a second `add_custom_target`. A target
+  with no outputs is always dirty and would re-lint on every build, including a one-line C++ edit
+  that cannot change a QML diagnostic. Measured: **15.9 s** for a build that lints, **1.0 s** for
+  an unchanged rebuild that skips it. Without the stamp the first thing anyone would do is switch
+  it off.
+
+  Verified by inducing a failure, not by watching a check pass: one unqualified identifier injected
+  into `ConnectionIndicator.qml` produced
+
+      QML diagnostics gate FAILED:
+        - qml/components/ConnectionIndicator.qml: 1 unqualified warning(s) in a file that had none.
+      ninja: build stopped: subcommand failed.
+
+  exit 1, then green again on revert. Two properties that keep it livable: the gate is the LAST
+  step, after `Linking CXX executable Decenza.app`, so a runnable binary always exists and you are
+  never blocked from running the app to debug what you are working on; and the stamp is a second
+  `COMMAND` that never runs on failure, so the next build re-lints instead of treating the failure
+  as done.
+
+  Off `ALL` for `ANDROID`/`IOS`: the QML is identical so a desktop run has already checked it, and
+  those are the tag-push release workflows — not worth a new way for a release to fail.
+
+  **Known gap, documented at the site.** `DEPENDS` covers the QML sources, the script and the
+  baseline, not the generated `Decenza.qmltypes`. A pure-C++ change that drops a `Q_PROPERTY` can
+  invalidate a QML binding without re-triggering this. Depending on the qmltypes path directly was
+  not done because it is a Qt-internal output location and naming it wrong breaks the build for
+  everyone; `--target qmllint_check` always re-runs unconditionally as the escape hatch.
+
+- [x] 7.2 **`tools/qmllint-macos/` — 222/222 on macOS instead of 221/222.** 5.1 MB: a 266 KB
+  universal `qmllint` plus the 4.8 MB universal `QtQmlCompiler.framework`.
+
+  **Both pieces are mandatory and that is the whole point.** `QQmlJSTypeResolver::merge` lives in
+  `src/qmlcompiler/qqmljstyperesolver.cpp`, i.e. in `QtQmlCompiler`, not in the driver. Shipping
+  the 266 KB executable alone — the obvious cheap version of this — would have been *worse than
+  nothing*: it would load the stock `QtQmlCompiler`, behave exactly like the released tool, and
+  drive a 313 GB OOM the moment anyone set `QMLLINT_SKIP_UNLINTABLE=OFF`, while the build config
+  asserted full coverage. Silent blindness dressed as a fix, which is the exact defect class this
+  change exists to remove.
+
+  `QtQml`/`QtNetwork`/`QtCore` are NOT bundled; they come from the developer's own stock 6.11.1.
+  That mix had never been run before — the maintainer's binary loaded his own qtdeclarative build
+  for all four — so it was verified before anything was written: `DYLD_PRINT_LIBRARIES` confirms
+  the bundled compiler and stock `QtQml` load together, and the result is 222/222 in 11.0 s with
+  no OOM.
+
+  The tracked copy carries ONE rpath, `@executable_path/../lib`, so no developer's home directory
+  is in the repo. CMake stages it into the build dir, adds *that machine's* Qt lib path, re-signs
+  (`install_name_tool` invalidates a signature and an arm64 Mach-O with a broken one will not
+  execute at all), then runs `--version` as proof — a bundle that cannot resolve its libraries
+  fails at configure time with a readable message instead of as a mystery gate failure.
+
+  Guarded on `Qt6_VERSION VERSION_EQUAL 6.11.1`, degrading to stock + `--skip-unlintable` with a
+  `WARNING`. **`QT_VERSION` was the first thing written here and it is never set in this project**
+  — that only exists under the `find_package(QT NAMES Qt6 Qt5)` idiom, and line 82 is a direct
+  `find_package(Qt6)`. It would have compared against an empty string, always warned and never used
+  the bundle. Caught by reading `Qt6Config.cmake` rather than trusting the name.
+
+  `QMLLINT_SKIP_UNLINTABLE` defaults OFF where the bundle is in use — otherwise the fix ships and
+  is not used. `option()` only sets a default on the FIRST configure, so a build dir created before
+  this keeps `ON` and silently stays at 221/222; CMake prints a `STATUS` line saying exactly that.
+
+  **ABI lock — the same liability as `android/qt-overrides/`.** A Qt bump invalidates these
+  binaries. The version guard degrades rather than breaks, but that is a safety net, not a licence
+  to leave a stale binary in the tree. `tools/qmllint-macos/README.md` carries the rebuild recipe
+  and says to delete the whole directory once the Gerrit change ships in a targeted Qt release.
+
+  **Not covered:** Linux, Windows and all of CI. See 1.11.
