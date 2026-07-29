@@ -279,12 +279,22 @@ Two mechanical traps when adding `QML_ELEMENT` to a header:
   guard passes, and the next member access dereferences null. `USBManager` and `UsbScaleManager`
   hit exactly this: three bindings in `SettingsConnectionsTab.qml` would have thrown on iOS, and
   a `visible:` gate does not save you, because an invisible element's bindings still evaluate.
+  - **`USBManager` and `UsbScaleManager` are no longer the live example — they are unregistered on
+    iOS again** (#1696). Registering them there meant naming the types, naming them meant including
+    headers that include `<QSerialPort>`, and iOS builds no part of `src/usb/` and links no
+    SerialPort module — it broke the iOS release build outright. So for those two on iOS the name
+    does not resolve at all: `typeof` is `"undefined"` and a bare reference is a **ReferenceError**,
+    not a truthy wrapper. Both failure modes are real; which one you get depends on whether the
+    TYPE is registered on that platform, and that is the question to answer before writing a guard.
   - Fix: guard on the **condition**, not on the name's existence — the file's own
-    `readonly property bool usbAvailable: Qt.platform.os !== "ios"`, or a plain truthiness test
-    (`X ? X.member : ...`), both of which are correct for a null singleton *and* an absent one.
-  - Use `decenzaOptionalSingleton()` (not `decenzaPublishedSingleton()`) for a name whose instance
-    legitimately does not exist on some builds; the loud helper would `qCritical` on every launch
-    of the platform that is behaving correctly.
+    `readonly property bool usbAvailable: Qt.platform.os !== "ios"`. A plain truthiness test
+    (`X ? X.member : ...`) is correct only for a registered-but-null singleton; on an unregistered
+    name the bare `X` throws before the `?` is reached, so it is not a substitute.
+  - Use `decenzaOptionalSingleton()` (not `decenzaPublishedSingleton()`) only where the type is
+    registered on a build that cannot publish an instance — `GHCSimulator` is the one such case
+    left; the loud helper would `qCritical` on every launch of the platform that is behaving
+    correctly. Where the registration and the publish share one `#ifdef`, use the loud form: a null
+    there is a real defect, not a platform.
   - Grep for `typeof <Name>` before migrating. If there are none, check anyway for
     `Qt.platform.os` tests near the uses — those are the same guard written a different way, and
     they are the ones that stay correct.
@@ -478,7 +488,14 @@ So the name passes both halves of the usual guard and the first method call thro
 
 **Guard the member you are about to use, or use a platform check** (`Qt.platform.os !== "ios"`),
 which short-circuits before the member read — that is why `USBManager`'s call sites were never
-affected while `GHCSimulator`'s were. `GHCSimulator` is registered wherever `DECENZA_SIMULATOR` is
+affected while `GHCSimulator`'s were.
+
+The member guard is right for *this* case and wrong for its mirror image: a type that is **not
+registered on the build at all** (`USBManager` and `UsbScaleManager` on iOS, since #1696). There
+the name resolves to nothing and Qt throws — `qv4qmlcontext.cpp:552-553` ends the lookup with
+`engine->throwReferenceError(name->toQString())` — so the bare name in `X.doThing !== undefined`
+throws before the member is reached. A platform check is the one idiom correct in both cases; use
+it whenever a `#ifdef` decides whether the type exists. `GHCSimulator` is registered wherever `DECENZA_SIMULATOR` is
 defined (every desktop config) but instanced only on a **debug** Windows/macOS build, so the broken
 guard passed — and threw on every window activation — on Linux, on Release desktop and on mobile
 Debug, while working on exactly the two configurations it gets tested on.

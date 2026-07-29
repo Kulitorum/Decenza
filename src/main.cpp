@@ -3506,9 +3506,9 @@ int main(int argc, char *argv[])
 #ifndef Q_OS_IOS
     // The objects, the Foreign structs and the types themselves are all absent on iOS — that
     // platform builds no part of src/usb/ and links no SerialPort module. So the QML names do not
-    // resolve there and evaluating one is a ReferenceError; every call site short-circuits on
-    // Qt.platform.os before the read. See the note above USBManagerForeign in
-    // contextsingletons_qml.h.
+    // resolve there and evaluating one is a ReferenceError; every call site is short-circuited on
+    // Qt.platform.os before the read, or unreachable behind one. See the note above
+    // USBManagerForeign in contextsingletons_qml.h.
     USBManagerForeign::s_singletonInstance = &usbManager;
     UsbScaleManagerForeign::s_singletonInstance = &usbScaleManager;
 #endif
