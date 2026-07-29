@@ -20,8 +20,8 @@ import Decenza
 //   selectedIndex: external index of the selected row (or -1)
 //   displayTextFn(row, index), accessibleNameFn(row, index), deleteAccessibleNameFn(row, index)
 //   removeConfirmFn(row, index): return false to cancel delete
-//   trailingActionDelegate: Component loaded into a FavoritesRowActionSlot, so its root reads
-//     the row through `(parent as FavoritesRowActionSlot).row` / `.rowIndex` / `.selected`
+//   trailingActionDelegate: Component whose root must be a FavoritesRowAction; the row,
+//     its live index and its selected state are bound onto that root when it loads
 //   showDeleteButton: toggles the X button column
 //   rowAccessibleDescription: TalkBack/VoiceOver hint describing the long-press/double-tap action
 //
@@ -215,16 +215,29 @@ Item {
                         Accessible.ignored: true
                     }
 
-                    // Trailing action slot
-                    FavoritesRowActionSlot {
+                    // Trailing action slot. The contract is bound onto the loaded delegate
+                    // rather than exposed on this Loader for it to reach back through — see
+                    // FavoritesRowAction, and LayoutItemDelegate for the same pattern.
+                    Loader {
+                        id: trailingActionLoader
                         active: root.trailingActionDelegate !== null
                         visible: active
                         sourceComponent: root.trailingActionDelegate
                         Layout.preferredWidth: Theme.scaled(36)
                         Layout.preferredHeight: Theme.scaled(36)
-                        row: rowDelegate.rowData
-                        rowIndex: rowDelegate.itemIndex
-                        selected: rowDelegate.selected
+
+                        onLoaded: {
+                            var action = item as FavoritesRowAction
+                            if (!action) {
+                                console.warn("FavoritesListView: trailingActionDelegate does not "
+                                             + "root at FavoritesRowAction — it will not receive "
+                                             + "the row and its actions will be inert")
+                                return
+                            }
+                            action.row = Qt.binding(function() { return rowDelegate.rowData })
+                            action.rowIndex = Qt.binding(function() { return rowDelegate.itemIndex })
+                            action.selected = Qt.binding(function() { return rowDelegate.selected })
+                        }
                     }
 
                     // Delete button

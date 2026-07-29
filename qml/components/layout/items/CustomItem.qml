@@ -40,8 +40,8 @@ LayoutWidgetItem {
 
     // Action tiles use Theme.actionTileColor (neutral over a custom background
     // image so they match the bars/cards, standard accent otherwise); an explicit
-    // per-widget bgColor still wins. (zoneFillOverride below is set by LayoutPreview when
-    // previewing an unapplied background colour, and is otherwise transparent.)
+    // per-widget bgColor still wins. (zoneFillOverride is inherited from LayoutWidgetItem;
+    // see there for who sets it.)
     readonly property color _themeTileColor: hasAction ? Theme.actionTileColor : Theme.surfaceColor
     readonly property color _parsedBgColor: bgColor !== "" ? bgColor
         : (zoneFillOverride.a > 0 ? zoneFillOverride : _themeTileColor)
@@ -497,20 +497,27 @@ LayoutWidgetItem {
             Text {
                 text: root.resolvedText
                 // RichText, because the editor saves per-range styling as CSS spans
-                // (`<span style="color:…; font-size:…px">`, documentformatter.cpp:400-411)
-                // and StyledText parses attributes for `<font>` ONLY
-                // (qquickstyledtext.cpp:422) — the span was dropped and every custom
-                // widget rendered at the default colour and size no matter what was saved.
+                // (`<span style="color:…; font-size:…px">`, documentformatter.cpp:400-411) and
+                // StyledText has no `<span>` handler and never reads a
+                // `style=` attribute. The only tag whose attributes reach the character format
+                // is `<font>` (qquickstyledtext.cpp:421-422); `<a>`, `<img>`, `<ol>` and `<ul>`
+                // attributes are parsed too but carry no styling — and `<img>` is why emoji
+                // (Theme.replaceEmojiWithImg) rendered correctly here all along.
+                // So the span was dropped and every custom widget rendered at the default
+                // colour and size no matter what was saved.
                 //
-                // Qt ignores `elide` on RichText, so this clips at the edge instead of
-                // ellipsing. That is the trade for showing the styling the editor promises;
-                // `clip` keeps the cut clean rather than mid-glyph.
+                // Qt ignores BOTH `elide` and `maximumLineCount` on RichText — the rich path
+                // in QQuickTextPrivate::updateSize() never reaches setupTextLayout(), which is
+                // the only place either is consulted. So neither is declared here: a property
+                // that provably does nothing is the thing this branch is removing elsewhere.
+                // `clip` bounds the paint instead, and content with a line break grows the row
+                // rather than being clamped — the trade for rendering the styling the editor
+                // promises.
                 textFormat: Text.RichText
                 clip: true
                 color: Theme.textColor
                 font: Theme.bodyFont
                 horizontalAlignment: root.qtAlignment
-                maximumLineCount: 1
                 Accessible.ignored: true
             }
         }

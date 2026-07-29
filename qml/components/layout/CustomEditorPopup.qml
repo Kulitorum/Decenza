@@ -467,8 +467,9 @@ Dialog {
                                 id: fpEmojiText
                                 text: previewCol.previewHtml
                                 // RichText, matching CustomItem — the saved format is CSS
-                                // spans, which StyledText drops entirely (it parses
-                                // attributes for `<font>` only). This preview claims a 1:1
+                                // spans, which StyledText drops entirely: it has no `<span>`
+                                // handler and never reads a `style=` attribute
+                                // (qquickstyledtext.cpp:421-422). This preview claims a 1:1
                                 // match with the live widget and previously shared its
                                 // blindness to every colour and size the editor sets.
                                 textFormat: Text.RichText
@@ -531,14 +532,14 @@ Dialog {
 
                             Text {
                                 text: previewCol.previewHtml
-                                // RichText + clip, matching CustomItem's compact rendering:
-                                // Qt ignores elide on RichText, so the bar preview clips at
-                                // the edge exactly as the live bar widget now does.
+                                // RichText + clip, matching CustomItem's compact rendering.
+                                // Qt ignores elide AND maximumLineCount on RichText, so neither
+                                // is declared — the preview clips exactly as the live bar
+                                // widget now does.
                                 textFormat: Text.RichText
                                 clip: true
                                 color: Theme.textColor
                                 font: Theme.bodyFont
-                                maximumLineCount: 1
                             }
                         }
                     }
@@ -1171,6 +1172,7 @@ Dialog {
                     Repeater {
                         model: [
                             { color: "#ffffff", label: TranslationManager.translate("customEditor.colorWhite", "White") },
+                            { color: "#000000", label: TranslationManager.translate("customEditor.colorBlack", "Black") },
                             { color: Theme.temperatureColor, label: TranslationManager.translate("customEditor.colorTemperature", "Temperature") },
                             { color: Theme.errorColor, label: TranslationManager.translate("customEditor.colorError", "Error") },
                             { color: Theme.warningColor, label: TranslationManager.translate("customEditor.colorWarning", "Warning") },
@@ -1208,6 +1210,49 @@ Dialog {
                                     }
                                     colorPickerPopup.close()
                                 }
+                            }
+                        }
+                    }
+
+                    // "Default" — stores NO colour, so the text follows the widget's theme
+                    // colour and keeps following it when the theme changes. Its own control
+                    // rather than a shade in the palette above: black used to double as this
+                    // sentinel, so picking black gave you theme-coloured text, which on a dark
+                    // theme is the opposite of what was asked for.
+                    Rectangle {
+                        id: defaultColorChip
+                        height: Theme.scaled(22)
+                        width: defaultColorLabel.implicitWidth + Theme.scaled(16)
+                        radius: Theme.scaled(11)
+                        color: "transparent"
+                        border.color: defaultColorMa.containsMouse ? Theme.primaryContrastColor : Theme.borderColor
+                        border.width: defaultColorMa.containsMouse ? 2 : 1
+                        Accessible.role: Accessible.Button
+                        Accessible.name: TranslationManager.translate("customEditor.colorDefault", "Default")
+                        Accessible.focusable: true
+                        Accessible.onPressAction: defaultColorMa.clicked(null)
+
+                        Text {
+                            id: defaultColorLabel
+                            anchors.centerIn: parent
+                            text: TranslationManager.translate("customEditor.colorDefault", "Default")
+                            color: Theme.textColor
+                            font: Theme.captionFont
+                            Accessible.ignored: true
+                        }
+
+                        MouseArea {
+                            id: defaultColorMa
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            onClicked: {
+                                if (colorPickerPopup.mode === "text") {
+                                    formatter.clearColorOnRange(formatter.savedSelectionStart,
+                                                                formatter.savedSelectionEnd)
+                                } else {
+                                    popup.textBackgroundColor = ""
+                                }
+                                colorPickerPopup.close()
                             }
                         }
                     }

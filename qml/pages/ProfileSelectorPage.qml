@@ -765,27 +765,27 @@ Page {
                     }
 
                     trailingActionDelegate: Component {
-                        StyledIconButton {
-                            id: editFavoriteButton
+                        FavoritesRowAction {
+                            id: editFavoriteAction
 
-                            readonly property FavoritesRowActionSlot slot: parent as FavoritesRowActionSlot
+                            StyledIconButton {
+                                anchors.fill: parent
+                                icon.source: "qrc:/icons/edit.svg"
+                                icon.width: Theme.scaled(18)
+                                icon.height: Theme.scaled(18)
+                                icon.color: editFavoriteAction.selected ? Theme.primaryContrastColor
+                                                                        : Theme.textColor
+                                accessibleName: editFavoriteAction.row
+                                    ? (TranslationManager.translate("profileselector.accessible.edit", "Edit") + " "
+                                       + AccessibilityManager.cleanForSpeech(editFavoriteAction.row.name))
+                                    : ""
 
-                            anchors.fill: parent
-                            icon.source: "qrc:/icons/edit.svg"
-                            icon.width: Theme.scaled(18)
-                            icon.height: Theme.scaled(18)
-                            icon.color: editFavoriteButton.slot && editFavoriteButton.slot.selected
-                                        ? Theme.primaryContrastColor : Theme.textColor
-                            accessibleName: editFavoriteButton.slot && editFavoriteButton.slot.row
-                                ? (TranslationManager.translate("profileselector.accessible.edit", "Edit") + " "
-                                   + AccessibilityManager.cleanForSpeech(editFavoriteButton.slot.row.name))
-                                : ""
-
-                            onClicked: {
-                                if (!editFavoriteButton.slot || !editFavoriteButton.slot.row) return
-                                Settings.app.selectedFavoriteProfile = editFavoriteButton.slot.rowIndex
-                                ProfileManager.loadProfile(editFavoriteButton.slot.row.filename)
-                                AppShell.profileEditorRequested()
+                                onClicked: {
+                                    if (!editFavoriteAction.row) return
+                                    Settings.app.selectedFavoriteProfile = editFavoriteAction.rowIndex
+                                    ProfileManager.loadProfile(editFavoriteAction.row.filename)
+                                    AppShell.profileEditorRequested()
+                                }
                             }
                         }
                     }

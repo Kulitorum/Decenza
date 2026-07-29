@@ -7,8 +7,10 @@ import Decenza
 // each of the seven properties below was set or probed by unchecked member access, and a
 // renamed one would have failed silently at runtime rather than at lint time. Declaring the
 // contract once gives the delegate a type to cast to, and gives a new widget a single place
-// to inherit it from instead of copying seven lines (all 35 widgets had byte-identical
-// copies before this existed).
+// to inherit from. Before this existed all 35 widgets re-declared some subset of these by
+// hand — every copy byte-identical, but no file carried all seven and the most any one
+// carried was five, so a widget silently opted out of zone styling by omission. That is how
+// the styling bugs the deleted per-file comments describe kept happening.
 //
 // Adding a widget: root it at this type, register it in the three places CLAUDE.md lists
 // (CMakeLists.txt, LayoutItemDelegate's switch, widgetCatalogTable()), and declare only what
@@ -18,9 +20,6 @@ Item {
     // zone the widget landed in.
     property bool isCompact: false
 
-    // The widget instance's layout id, unique within the layout.
-    property string itemId: ""
-
     // The widget's entry from the layout model, carrying its per-instance options.
     property var modelData: ({})
 
@@ -28,6 +27,9 @@ Item {
     // text colour and value emphasis; a widget that renders a filled chip also keys off
     // zoneStyle. Widgets that do not care simply never read them.
     property color zoneTextColor: Theme.textColor
+    // Transparent = unset, use Theme. Set only by LayoutPreview, when it is previewing a
+    // background colour that has not been applied and Theme's own values still describe the
+    // CURRENT background.
     property color zoneFillOverride: "transparent"
     property bool zoneValueBold: false
     property string zoneStyle: "standard"

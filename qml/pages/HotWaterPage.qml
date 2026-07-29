@@ -91,6 +91,11 @@ Page {
     // needs the cast to its declared root type. Kept to this one place rather than
     // repeated at the six sites that need it.
     function vesselFocusTarget(i: int): Item {
+        // Range-checked as well as null-checked: Repeater.count is the MODEL size and is
+        // emitted before the delegates exist (regenerate() returns early until
+        // componentComplete(), qquickrepeater.cpp:379-396), so `count > 0` with a null
+        // itemAt() is normal while a creation-time binding first evaluates.
+        if (i < 0 || i >= vesselRepeater.count) return null
         var it = vesselRepeater.itemAt(i) as RepeaterDelegateItem
         return it ? it.focusTarget : null
     }
@@ -537,7 +542,14 @@ Page {
                                 DropArea {
                                     anchors.fill: parent
                                     onEntered: function(drag) {
-                                        var fromIndex = (drag.source as RepeaterDelegateItem).itemIndex
+                                        // Guarded like the DelegateModel drop targets in
+                                        // FavoritesListView / LayoutEditorZone. `itemIndex` is a
+                                        // SHARED property now, so a drag from an unrelated
+                                        // reorderable list would answer with a plausible integer
+                                        // instead of undefined and silently reorder this list.
+                                        var src = drag.source as RepeaterDelegateItem
+                                        if (!src || src === vesselDelegate) return
+                                        var fromIndex = src.itemIndex
                                         var toIndex = vesselDelegate.itemIndex
                                         if (fromIndex !== toIndex) {
                                             Settings.brew.moveWaterVesselPreset(fromIndex, toIndex)

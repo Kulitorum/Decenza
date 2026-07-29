@@ -42,7 +42,13 @@ QtObject {
     // Here rather than on the window root for the reason stated above: page/mode state gets
     // ONE reactive home. The window-root copy these replaced was reached through
     // `Window.window`, a QQuickWindow — so a one-sided rename was invisible to the compiler
-    // and the widget carried a runtime warn-once probe to notice it. That is now a lint error.
+    // and the widget carried a runtime warn-once probe to notice it.
+    //
+    // Renaming one of these now fails the qmllint gate on the READER side (DoseWeightItem and
+    // PageTitleItem read them as typed singleton members). The WRITER side is not covered:
+    // `Binding { target: Theme; property: "doseLiveNetG" }` names the property with a runtime
+    // string, which qmllint does not resolve against the target type. Deleting or misnaming
+    // that Binding still fails only at runtime, as a Qt console warning.
     property real doseLiveNetG: -1
     property bool doseCaptureFlash: false
 

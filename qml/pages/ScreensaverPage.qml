@@ -187,9 +187,10 @@ Page {
         target: Qt.application
         // qmllint disable missing-property
         // `Qt.application.state` is real: in a QtQuick app the object is a QQuickApplication
-        // (qquickglobal.cpp:239-241), which declares `state`
-        // (qtquick/util/qquickapplication_p.h:38). qmllint types it as the qtqml base class
-        // QQmlApplication, which does not — a tool limitation, not a missing property.
+        // (qtdeclarative/src/quick/util/qquickglobal.cpp:239-241), which declares `state`
+        // (qtdeclarative/src/quick/util/qquickapplication_p.h:38). qmllint types it as the
+        // qtqml base class QQmlApplication, which does not — a tool limitation, not a
+        // missing property.
         function onStateChanged() {
             if (Qt.application.state === Qt.ApplicationSuspended) {
                 screensaverPage.appSuspended = true
@@ -331,15 +332,16 @@ Page {
         // Ignore stale signals from a destroyed MediaPlayer
         if (!mediaPlayerLoader.item) return
 
-        // Prevent handling the same failure twice
         // The video surface is an inline sourceComponent, so `mediaPlayerLoader.item` has no type
         // name to cast to and every read of its `player`/`output` aliases is a QObject member
         // access. Extracting it to a file is the real fix and is deliberately NOT done here: the
-        // component reaches back into this page for six things (playNextMedia, handleVideoFailure,
-        // videoFailCount, lastFailedSource, isVideosMode, mediaPlaying), so the extraction is an
-        // interface design, and this screen carries the Qt FFmpeg MediaCodec leak history that makes
-        // an untested change here expensive. Left as a marked debt rather than a silent one.
+        // component reaches back into this page for seven things (playNextMedia,
+        // handleVideoFailure, videoFailCount, lastFailedSource, isVideosMode, mediaPlaying,
+        // isCurrentItemImage), so the extraction is an interface design, and this screen carries
+        // the Qt FFmpeg MediaCodec leak history that makes an untested change here expensive.
+        // Left as a marked debt rather than a silent one.
         // qmllint disable missing-property
+        // Prevent handling the same failure twice
         var playerSource = mediaPlayerLoader.item.player.source.toString()
         // qmllint enable missing-property
         if (playerSource === lastFailedSource) return

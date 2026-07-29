@@ -115,8 +115,8 @@ Page {
             default: return
         }
         scrollingFromSelection = true
-        var scrollTarget = Math.max(0, targetY - editorScrollView.height / 4)
-        (editorScrollView.contentItem as Flickable).contentY = scrollTarget
+        var flick = editorScrollView.contentItem as Flickable
+        flick.contentY = Math.max(0, targetY - editorScrollView.height / 4)
         // Clear flag after synchronous binding updates have propagated
         Qt.callLater(function() { scrollingFromSelection = false })
     }

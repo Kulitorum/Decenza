@@ -103,8 +103,8 @@ Page {
 
         scrollingFromSelection = true
         // Center the section in the view
-        var scrollTarget = Math.max(0, targetY - recipeScrollView.height / 4)
-        (recipeScrollView.contentItem as Flickable).contentY = scrollTarget
+        var flick = recipeScrollView.contentItem as Flickable
+        flick.contentY = Math.max(0, targetY - recipeScrollView.height / 4)
         // Clear flag after synchronous binding updates have propagated
         Qt.callLater(function() { scrollingFromSelection = false })
     }

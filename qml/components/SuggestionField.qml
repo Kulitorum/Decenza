@@ -454,7 +454,6 @@ Item {
                 height: suggestionDelegate.itemDesc.length > 0 ? Theme.scaled(58) : Theme.scaled(44)
                 highlighted: suggestionDelegate.index === suggestionList.currentIndex
 
-                // Store reference to avoid scope issues
                 property string itemText: suggestionDelegate.modelData
                 // Optional differentiator subtitle for this value (empty when none).
                 property string itemDesc: root.descriptions && root.descriptions[suggestionDelegate.modelData] !== undefined

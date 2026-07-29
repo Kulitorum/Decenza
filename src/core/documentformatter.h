@@ -64,6 +64,9 @@ public:
     Q_INVOKABLE void toggleItalic();
     Q_INVOKABLE void setColor(const QString &color);
     Q_INVOKABLE void setColorOnRange(const QString &color, int selStart, int selEnd);
+    // Return the range to the widget's theme colour. Distinct from setting black — the
+    // absence of a stored colour is what makes a custom widget follow the theme.
+    Q_INVOKABLE void clearColorOnRange(int selStart, int selEnd);
     Q_INVOKABLE void setFontSize(int pixelSize);
     Q_INVOKABLE void clearFormatting();
 
@@ -82,6 +85,13 @@ signals:
     void formatChanged();
     void savedSelectionChanged();
 
+#ifdef DECENZA_TESTING
+    // Point the formatter at a bare QTextDocument. The QML path goes through
+    // QQuickTextDocument, which needs a QQuickItem to exist — a headless test has no reason
+    // to build one, and the logic under test only ever touches the QTextDocument beneath.
+    void setTextDocumentForTesting(QTextDocument *doc) { m_testDocument = doc; }
+#endif
+
 private:
     QTextCursor textCursor() const;
     QTextCursor textCursorForFormat() const;
@@ -91,6 +101,9 @@ private:
     void updateSavedSelection();
 
     QQuickTextDocument *m_document = nullptr;
+#ifdef DECENZA_TESTING
+    QTextDocument *m_testDocument = nullptr;
+#endif
     int m_selectionStart = 0;
     int m_selectionEnd = 0;
     int m_cursorPosition = 0;

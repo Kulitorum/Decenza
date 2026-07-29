@@ -41,6 +41,27 @@ Page {
     }
 
     // Get current preset values
+    // Repeater.itemAt() is typed QQuickItem, so reaching the delegate's own `focusTarget`
+    // needs the cast to its declared root type. Guarded and kept to one place, matching
+    // SteamPage.pitcherFocusTarget() / HotWaterPage.vesselFocusTarget().
+    //
+    // The null check is not defensive padding: Repeater.count is the MODEL size and is
+    // emitted before the delegates exist — regenerate() returns early until
+    // componentComplete() (qquickrepeater.cpp:379-396) — so `count > 0` with a null
+    // itemAt() is the normal state while a creation-time KeyNavigation binding first
+    // evaluates. Dereferencing through the cast there threw on every page open.
+    function presetFocusTarget(i: int): Item {
+        if (i < 0 || i >= presetRepeater.count) return null
+        var it = presetRepeater.itemAt(i) as RepeaterDelegateItem
+        return it ? it.focusTarget : null
+    }
+
+    function focusPresetAt(i: int) {
+        var target = flushPage.presetFocusTarget(i)
+        if (target)
+            target.forceActiveFocus()
+    }
+
     function getCurrentPresetFlow() {
         var preset = Settings.brew.getFlushPreset(Settings.brew.selectedFlushPreset)
         return preset ? preset.flow : 6.0
@@ -341,23 +362,23 @@ Page {
                                         event.accepted = true
                                     }
                                     Keys.onLeftPressed: function(event) {
-                                        if (presetDelegate.index > 0) (presetRepeater.itemAt(presetDelegate.index - 1) as RepeaterDelegateItem).focusTarget.forceActiveFocus()
+                                        if (presetDelegate.index > 0) flushPage.focusPresetAt(presetDelegate.index - 1)
                                         event.accepted = true
                                     }
                                     Keys.onRightPressed: function(event) {
-                                        if (presetDelegate.index < presetRepeater.count - 1) (presetRepeater.itemAt(presetDelegate.index + 1) as RepeaterDelegateItem).focusTarget.forceActiveFocus()
+                                        if (presetDelegate.index < presetRepeater.count - 1) flushPage.focusPresetAt(presetDelegate.index + 1)
                                         event.accepted = true
                                     }
                                     Keys.onTabPressed: function(event) {
                                         if (presetDelegate.index < presetRepeater.count - 1)
-                                            (presetRepeater.itemAt(presetDelegate.index + 1) as RepeaterDelegateItem).focusTarget.forceActiveFocus()
+                                            flushPage.focusPresetAt(presetDelegate.index + 1)
                                         else
                                             addPresetButton.forceActiveFocus()
                                         event.accepted = true
                                     }
                                     Keys.onBacktabPressed: function(event) {
                                         if (presetDelegate.index > 0)
-                                            (presetRepeater.itemAt(presetDelegate.index - 1) as RepeaterDelegateItem).focusTarget.forceActiveFocus()
+                                            flushPage.focusPresetAt(presetDelegate.index - 1)
                                         else
                                             flowInput.forceActiveFocus()
                                         event.accepted = true
@@ -446,7 +467,14 @@ Page {
                                 DropArea {
                                     anchors.fill: parent
                                     onEntered: function(drag) {
-                                        var fromIndex = (drag.source as RepeaterDelegateItem).itemIndex
+                                        // Guarded like the DelegateModel drop targets in
+                                        // FavoritesListView / LayoutEditorZone. `itemIndex` is a
+                                        // SHARED property now, so a drag from an unrelated
+                                        // reorderable list would answer with a plausible integer
+                                        // instead of undefined and silently reorder this list.
+                                        var src = drag.source as RepeaterDelegateItem
+                                        if (!src || src === presetDelegate) return
+                                        var fromIndex = src.itemIndex
                                         var toIndex = presetDelegate.itemIndex
                                         if (fromIndex !== toIndex) {
                                             Settings.brew.moveFlushPreset(fromIndex, toIndex)
@@ -468,9 +496,8 @@ Page {
 
                             activeFocusOnTab: true
                             KeyNavigation.tab: secondsInput
-                            KeyNavigation.backtab: presetRepeater.count > 0
-                                ? (presetRepeater.itemAt(presetRepeater.count - 1) as RepeaterDelegateItem).focusTarget
-                                : secondsInput
+                            KeyNavigation.backtab: flushPage.presetFocusTarget(presetRepeater.count - 1)
+                                                   || secondsInput
                             Keys.onReturnPressed: function(event) { addPresetDialog.open(); event.accepted = true }
                             Keys.onSpacePressed: function(event) { addPresetDialog.open(); event.accepted = true }
 
@@ -580,9 +607,7 @@ Page {
                             suffix: " mL/s"
                             valueColor: Theme.flowColor
                             accessibleName: TranslationManager.translate("flush.label.flowRate", "Flow Rate")
-                            KeyNavigation.tab: presetRepeater.count > 0
-                                ? (presetRepeater.itemAt(0) as RepeaterDelegateItem).focusTarget
-                                : addPresetButton
+                            KeyNavigation.tab: flushPage.presetFocusTarget(0) || addPresetButton
                             KeyNavigation.backtab: secondsInput
 
                             // onValueModified: cheap bookkeeping per tick.

@@ -247,7 +247,14 @@ Item {
                 case "screensaverPipes":
                 case "screensaverAttractor":
                 case "screensaverShotMap":   src = "items/ScreensaverItem.qml"; break
-                default:                 src = ""; break
+                default:
+                    // Empty source means the Loader never loads, so neither onLoaded nor the
+                    // Loader.Error branch of onStatusChanged below ever fires — an unrecognised
+                    // type would vanish from the layout with no diagnostic at all.
+                    console.warn("LayoutItemDelegate: unknown widget type '" + root.itemType
+                                 + "' (id '" + root.itemId + "') — not rendered")
+                    src = ""
+                    break
             }
             return src ? Qt.resolvedUrl(src) : ""
         }
@@ -257,13 +264,16 @@ Item {
             // root.widget has no guaranteed ordering against this handler.
             var widget = item as LayoutWidgetItem
             if (!widget) {
-                console.warn("LayoutItemDelegate: widget type '" + root.itemType
-                             + "' does not root at LayoutWidgetItem — not styled")
+                // Not just unstyled: the early return also skips the anchors.fill below, and
+                // root.widget stays null so implicitWidth/implicitHeight are 0 — the widget
+                // takes no space and paints nothing.
+                console.warn("LayoutItemDelegate: widget type '" + root.itemType + "' (id '"
+                             + root.itemId + "') does not root at LayoutWidgetItem — "
+                             + "it will not render")
                 return
             }
 
             widget.isCompact = Qt.binding(function() { return root.isCompact })
-            widget.itemId = root.itemId
 
             // Zone style propagation (composable-brew-bar). Every widget inherits these
             // from LayoutWidgetItem now, so the bindings are unconditional; the

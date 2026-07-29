@@ -13,10 +13,16 @@ Item {
     // The delegate's LIVE position — after any drag reorder, not the original model row.
     // For a DelegateModel delegate that is `DelegateModel.itemsIndex`; for a plain Repeater
     // delegate it is the required `index`.
-    property int itemIndex: -1
+    //
+    // Required rather than defaulted: this feeds `items.move()` and selected-preset settings,
+    // where a -1 would read as a plausible "nothing selected" rather than as a wiring bug.
+    // Every client instantiates this type declaratively, so an unbound one fails at load.
+    required property int itemIndex
 
     // The focusable child inside this delegate. The delegate root is a plain layout wrapper
     // and never takes focus itself, so keyboard navigation between delegates has to be told
-    // which child to focus.
+    // which child to focus. Null is legitimate — the three reorder-only delegates
+    // (FavoritesListView, LayoutEditorZone, ScreensaverEditorPopup) have no focusable child,
+    // which is why callers go through a guarded helper rather than dereferencing directly.
     property Item focusTarget: null
 }
