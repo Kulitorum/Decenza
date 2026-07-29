@@ -1,7 +1,13 @@
 # Tasks: Qt 6.12 polish for charts migration
 
 **Precondition**: `upgrade-qt-6-12` change archived and Decenza building cleanly on Qt 6.12 GA
-(2026-09-22). That change does not exist yet.
+(2026-09-22). That change now exists — `../upgrade-qt-6-12/` — and is **ready, not blocked**: the iOS
+floor question it raised was decided on 2026-07-29 (take Qt 6.12's iOS 18 minimum, one Qt version
+everywhere), so nothing about the iOS decision defers the charts work.
+
+One of its §0 items feeds directly into §3 below: **whether the installed Qt 6.12 has
+`graphs-2d-high-performance-backend` compiled in**. That answer is §3's gate, and `upgrade-qt-6-12` is
+where it gets recorded.
 
 Each numbered section is a candidate PR. Items can ship independently; only the precondition above is
 shared. §1 and §2 are already resolved by the 2026-07-29 source verification — see the proposal's
@@ -52,14 +58,16 @@ The property is `REVISION(6, 12)` on `GraphsView`, but both accessors are `#ifde
 USE_PAINTER_BACKEND` and the setter is a silent no-op otherwise. The define comes from CMake feature
 `graphs-2d-high-performance-backend`, which is `AUTODETECT OFF`. Proposal §3 has the citations.
 
-- [ ] **Gate**: on the installed Qt 6.12, check whether the feature is on. Read
-      `<QtDir>/lib/cmake/Qt6Graphs/*Config*.cmake` (or `qtgraphs` `qconfig`-style feature header) for
-      `graphs_2d_high_performance_backend`; alternatively confirm `Qt6::CanvasPainter` is a link
-      dependency of `Qt6::Graphs`
-- [ ] If OFF: **do not write the flip PR.** Record the finding here, and raise the "build qtgraphs
-      from source with `-DFEATURE_graphs_2d_high_performance_backend=ON`" question in
-      `upgrade-qt-6-12` — it is a shipping-a-non-stock-Qt-module decision across Android/iOS/desktop,
-      not a polish PR
+- [ ] **Gate**: read the feature state recorded by `../upgrade-qt-6-12/` §0 (that change's fourth
+      decision task owns this check, so do not duplicate it here). If it has not been recorded yet,
+      check it the same way: read `<QtDir>/lib/cmake/Qt6Graphs/*Config*.cmake` (or `qtgraphs`
+      `qconfig`-style feature header) for `graphs_2d_high_performance_backend`, or confirm
+      `Qt6::CanvasPainter` is a link dependency of `Qt6::Graphs`
+- [ ] If OFF: **do not write the flip PR.** The "build qtgraphs from source with
+      `-DFEATURE_graphs_2d_high_performance_backend=ON`" question is already carried by
+      `../upgrade-qt-6-12/` (its proposal's default answer is **no**) — it is a
+      shipping-a-non-stock-Qt-module decision across Android/iOS/desktop, not a polish PR. Close this
+      section against that answer rather than re-litigating it here
 - [ ] If ON: verify the property is actually live before measuring — set `useCanvasPainter: true` on
       one graph and confirm the `useCanvasPainterChanged` signal fires (a no-op build emits nothing).
       Only then trust any FPS number

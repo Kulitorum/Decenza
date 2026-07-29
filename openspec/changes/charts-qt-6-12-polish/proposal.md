@@ -10,6 +10,11 @@ This change collects every visual / API / performance item that was deferred dur
 
 Decenza will upgrade to Qt 6.12 in a separate `upgrade-qt-6-12` change after 6.12 GA (2026-09-22). This change runs after that upgrade lands.
 
+**`upgrade-qt-6-12` now exists** (`../upgrade-qt-6-12/`) and is ready to run at GA. It raised one
+product question — Qt 6.12 lifts the iOS minimum from 17.0 to iOS 18, dropping pre-A12 devices —
+which was decided on 2026-07-29: take iOS 18, one Qt version on every platform, and explain the
+inherited floor in the release notes. So the only thing gating this change is GA itself.
+
 ## Verification against Qt 6.12 (done 2026-07-29, Beta 2 tree)
 
 Every item below was checked against the actual `qt/qtgraphs` **`6.12` branch** (feature freeze
