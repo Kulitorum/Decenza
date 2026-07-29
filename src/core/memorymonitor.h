@@ -9,6 +9,8 @@
 #include <QJsonArray>
 #include <QElapsedTimer>
 
+#include "logcollapse.h"
+
 class QQmlApplicationEngine;
 
 struct MemorySample {
@@ -72,6 +74,10 @@ private:
     quint64 m_startupRss = 0;
     int m_lastQObjectCount = 0;
     bool m_firstSample = true;
+
+    // Collapses the per-sample log line while a plateau holds — see onSampleTimerTick(). Sampling
+    // itself is untouched; this only decides whether the sample is worth a line.
+    LogCollapse m_logCollapse{10 * 60 * 1000};
 
     // Per-class QObject tracking
     QHash<QString, int> m_classCounts;          // Current snapshot

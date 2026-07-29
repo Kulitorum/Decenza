@@ -12,6 +12,8 @@
 #include <QSet>
 #include <QFile>
 #include <QJsonObject>
+
+#include "../core/logcollapse.h"
 #include <QTimer>
 #include <QElapsedTimer>
 #include <QDateTime>
@@ -149,6 +151,11 @@ private slots:
     void onThemeChanged();
 
 private:
+    // Collapses repeated identical request lines — see handleRequest(). One minute, not the ten
+    // used by the periodic samplers: a request is user-driven, so a path that has been quiet
+    // should log the moment it comes back.
+    LogCollapse m_requestLog{60 * 1000};
+
     // On Android, Wi-Fi filters incoming UDP broadcast/multicast frames unless
     // the app holds a WifiManager.MulticastLock. Without this, discovery
     // requests silently never reach us. No-op on other platforms.

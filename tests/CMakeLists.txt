@@ -951,6 +951,11 @@ else()
     target_link_libraries(tst_difluidr1 PRIVATE OpenSSL::Crypto)
 endif()
 
+# --- tst_logcollapse: the shared repeat-collapsing log gate (header-only, so no extra sources) ---
+add_decenza_test(tst_logcollapse
+    tst_logcollapse.cpp
+)
+
 # --- tst_weightprocessor: WeightProcessor edge cases (LSLR, oscillation, per-frame) ---
 add_decenza_test(tst_weightprocessor
     tst_weightprocessor.cpp

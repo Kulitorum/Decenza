@@ -678,10 +678,16 @@ void DE1Device::parseWaterLevel(const QByteArray& data) {
     // Only emit when water level changes by at least 0.5% or ml changes
     if (qAbs(m_waterLevel - m_lastEmittedWaterLevel) >= 0.5
         || m_waterLevelMl != m_lastEmittedWaterLevelMl) {
-        WATER_LOG(QStringLiteral("raw=%1 mm displayed=%2 mm %3 ml")
-                      .arg(rawMm, 0, 'f', 1)
-                      .arg(m_waterLevelMm, 0, 'f', 1)
-                      .arg(m_waterLevelMl));
+        // Log on a coarser gate than the emit — see m_lastLoggedWaterLevelMm. 2 mm is above the
+        // sensor's idle dither and below anything a person would call a change in level: a refill,
+        // a shot's worth of draw, or the tank running down all clear it within a line or two.
+        if (qAbs(m_waterLevelMm - m_lastLoggedWaterLevelMm) >= WATER_LEVEL_LOG_HYSTERESIS_MM) {
+            WATER_LOG(QStringLiteral("raw=%1 mm displayed=%2 mm %3 ml")
+                          .arg(rawMm, 0, 'f', 1)
+                          .arg(m_waterLevelMm, 0, 'f', 1)
+                          .arg(m_waterLevelMl));
+            m_lastLoggedWaterLevelMm = m_waterLevelMm;
+        }
         m_lastEmittedWaterLevel = m_waterLevel;
         m_lastEmittedWaterLevelMl = m_waterLevelMl;
         emit waterLevelChanged();
@@ -1571,11 +1577,24 @@ void DE1Device::writeMMR(uint32_t address, uint32_t value,
     } else {
         tag = QStringLiteral("keepalive");
     }
-    MMR_LOG(QStringLiteral("%1: 0x%2 = %3%4")
-                .arg(tag)
-                .arg(address, 6, 16, QLatin1Char('0'))
-                .arg(value)
-                .arg(reasonSuffix));
+    const QString msg = QStringLiteral("%1: 0x%2 = %3%4")
+        .arg(tag)
+        .arg(address, 6, 16, QLatin1Char('0'))
+        .arg(value)
+        .arg(reasonSuffix);
+
+    // Only the keepalive tag is collapsed. "write" is by definition a value that changed and
+    // "retry-write" means something already went wrong — both are rare and both are the lines a
+    // wedge investigation reads (#1309), so they always print. The keepalive is the one that says
+    // the same thing every minute for as long as the app runs.
+    if (tag == QLatin1String("keepalive")) {
+        int suppressed = 0;
+        const QString key = QString::number(address, 16);
+        if (m_keepaliveLog.shouldLog(key, msg, QDateTime::currentMSecsSinceEpoch(), &suppressed))
+            MMR_LOG(msg + m_keepaliveLog.suffix(suppressed));
+    } else {
+        MMR_LOG(msg);
+    }
 
     m_lastMMRValues.insert(address, value);
     m_transport->write(DE1::Characteristic::WRITE_TO_MMR, buildMMRPayload(address, value));

@@ -13,6 +13,7 @@
 #include <QString>
 #include <QTimer>
 
+#include "../core/logcollapse.h"
 #include "protocol/de1characteristics.h"
 
 // High-priority custom event posted by WeightProcessor to bypass the normal
@@ -474,6 +475,12 @@ private:
     // changes fan out into the same MMR). Cleared on transport disconnect so
     // a reconnect re-writes real values rather than trusting stale ones.
     QHash<uint32_t, uint32_t> m_lastMMRValues;
+    // Keepalive writes re-assert an unchanged value every 60 s forever (BatteryManager's USB-charger
+    // refresh — the DE1 auto-disables the port after 10 minutes, so the re-assert is load-bearing
+    // and cannot be dropped). Its LOG line, repeated 3,042 times in a 48-hour capture for 15% of the
+    // whole log, can be. One line per 10 minutes carrying the count; a value CHANGE still prints
+    // immediately, because that is the event worth seeing.
+    LogCollapse m_keepaliveLog{10 * 60 * 1000};
     // Pending writeMMRVerified() entries keyed by address. Each tracks the
     // expected value and remaining retry budget; cleared when a read-back
     // matches or retries are exhausted, and on transport disconnect.
@@ -508,6 +515,14 @@ private:
     int m_waterLevelMl = 0;       // Volume in ml (from CAD lookup table)
     double m_lastEmittedWaterLevel = -1.0;  // Throttle: only emit when change >= 0.5%
     int m_lastEmittedWaterLevelMl = -1;    // Throttle: also emit when ml changes (color thresholds)
+    // Last water level LOGGED, which is not the last one EMITTED. The signal has to follow the
+    // sensor closely (the refill warning and the tank colour band key off it), but the sensor
+    // dithers roughly +/-1 mm continuously and each 1 mm step is a ~28 ml step in the CAD table, so
+    // "changed" is true about twice a second forever: 2,828 log lines in a 48-hour capture, 14% of
+    // the whole log, describing a tank nobody touched. Logging gets its own hysteresis; emitting
+    // keeps the old behaviour.
+    double m_lastLoggedWaterLevelMm = -1000.0;
+    static constexpr double WATER_LEVEL_LOG_HYSTERESIS_MM = 2.0;
     QString m_firmwareVersion;
     int m_firmwareBuildNumber = 0;
     int m_machineModel = 0;

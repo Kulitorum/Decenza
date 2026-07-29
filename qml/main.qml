@@ -847,25 +847,36 @@ ApplicationWindow {
         function onScaleMultiplierChanged() { root.updateScale() }
         function onPageScaleMultiplierChanged() { root.updateScale() }
     }
-    // Raise all application windows together when this window is activated.
+    // GHCSimulator has TWO independent ways of not being usable, and a guard for one does not
+    // cover the other. Both are live configurations, so both tests are required:
     //
-    // Guard the MEMBER, not the name. `typeof GHCSimulator !== "undefined" && GHCSimulator` looks
-    // equivalent and is not: the type is registered wherever DECENZA_SIMULATOR is defined, but the
-    // instance exists only on a debug Windows/macOS build, and a registered-but-uninstanced
-    // singleton resolves to a TRUTHY wrapper whose member reads come back undefined. That guard
-    // therefore passed on Linux, on Windows/macOS Release and on Android/iOS Debug, and the call
-    // below threw a TypeError on every window activation. See decenzaOptionalSingleton() in
-    // src/core/contextsingletons_qml.h for the Qt sources.
+    //   1. The TYPE is absent. Registration is inside `#ifdef DECENZA_SIMULATOR`
+    //      (src/core/contextsingletons_qml.h), which a production Android/iOS build does not
+    //      define — so the name resolves to nothing and reading a member off it throws
+    //      `ReferenceError: GHCSimulator is not defined`. Only `typeof` survives this: an
+    //      unresolvable identifier makes V4 clear the exception and answer "undefined"
+    //      (qtdeclarative/src/qml/jsruntime/qv4runtime.cpp:1746-1754, Runtime::TypeofName::call).
+    //   2. The type is registered but the INSTANCE is null — Linux any config, Windows/macOS
+    //      Release, Android/iOS Debug. Here the name is a TRUTHY wrapper and only member reads
+    //      come back undefined, so `typeof` alone passes and the call throws a TypeError. See
+    //      decenzaOptionalSingleton() in src/core/contextsingletons_qml.h for the Qt sources.
+    //
+    // The member-only guard shipped in 2.0.1 and threw case 1 three times on every tablet
+    // launch (two ReferenceErrors plus a dead Connections whose target never resolved). One
+    // property, so the two call sites below cannot drift apart again.
+    readonly property bool ghcSimulatorLive: typeof GHCSimulator !== "undefined"
+                                             && GHCSimulator.mainWindowActivated !== undefined
+
+    // Raise all application windows together when this window is activated.
     onActiveChanged: {
-        if (active && GHCSimulator.mainWindowActivated !== undefined) {
+        if (active && root.ghcSimulatorLive) {
             GHCSimulator.mainWindowActivated()
         }
     }
 
     // Listen for GHC window activation to raise ourselves (simulator mode only).
-    // Same rule: a truthy-but-empty wrapper is not a valid Connections target.
     Connections {
-        target: GHCSimulator.mainWindowActivated !== undefined ? GHCSimulator : null
+        target: root.ghcSimulatorLive ? GHCSimulator : null
         function onRaiseMainWindow() {
             root.raise()
         }

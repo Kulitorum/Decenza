@@ -1118,9 +1118,27 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
     QString method = requestLine[0];
     QString path = requestLine[1];
 
-    // Don't log polling requests (too noisy)
-    if (!path.startsWith("/api/debug") && path != "/api/settings/mqtt/status" && path != "/api/telemetry") {
-        qDebug() << "ShotServer:" << method << path;
+    // Two tiers, because "too noisy" covers two different things.
+    //
+    // Tier 1, never logged: endpoints a page polls on a fixed interval purely to refresh a readout.
+    // Nothing about the Nth identical status GET is diagnostic. /api/power/status joined this list
+    // after a 48-hour capture where a 5 s poll from an open page produced 431 log lines — the
+    // single largest entry under this tag — while the hand-maintained list above it happened not to
+    // mention it. A blocklist only suppresses what somebody remembered to add.
+    //
+    // Tier 2, collapsed: everything else. Real navigation and MCP calls stay visible and prompt (a
+    // path not seen in the last minute logs immediately), while a burst of the same request folds
+    // into one line with a count. That is the general rule, so the next endpoint someone polls
+    // costs one line a minute instead of thousands, with no list to update.
+    const bool neverLog = path.startsWith("/api/debug")
+                          || path == "/api/settings/mqtt/status"
+                          || path == "/api/telemetry"
+                          || path == "/api/power/status";
+    if (!neverLog) {
+        const QString line = QStringLiteral("ShotServer: %1 %2").arg(method, path);
+        int suppressed = 0;
+        if (m_requestLog.shouldLog(line, line, QDateTime::currentMSecsSinceEpoch(), &suppressed))
+            qDebug().noquote() << line + m_requestLog.suffix(suppressed);
     }
 
     // Auth middleware: when security is enabled, check session before routing

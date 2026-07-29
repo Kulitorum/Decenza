@@ -140,6 +140,12 @@ private:
     QVector<QPointF> m_weightFlowRatePoints;  // Flow rate from scale (g/s) - for visualizer export
     QVector<QPointF> m_weightFlowRateRawPoints;  // Raw (pre-smoothing) copy for by_weight_raw export
 
+    // Spike-filter burst state — see addWeightSample(). The filter compares each sample against
+    // the last ACCEPTED point, so a run of rejections keeps measuring against an ever-staler
+    // anchor; these two track the run so it can be broken and reported once instead of per sample.
+    int m_consecutiveSpikeRejections = 0;
+    double m_firstRejectedWeight = 0.0;
+
     // Fast renderers for live data series (QSGGeometryNode, pre-allocated VBO)
     QPointer<FastLineRenderer> m_fastPressure;
     QPointer<FastLineRenderer> m_fastFlow;
