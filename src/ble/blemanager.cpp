@@ -870,18 +870,12 @@ void BLEManager::probeMdnsForManualEntry() {
     // they tap Use.
     if (!m_manualEntryDiscovery) {
         m_manualEntryDiscovery = new WifiScaleDiscovery(this);
-        // Forward the dedicated probe's diagnostics into the scale debug log too —
-        // a user reporting "I clicked Add WiFi Scale but nothing showed up" will
-        // have the mDNS-side reason (timeout vs no-responder vs lookup failure)
-        // captured in the log they share.
-        connect(m_manualEntryDiscovery, &WifiScaleDiscovery::logMessage, this,
-                [this](const QString& msg) {
-            // Record only, and no re-prefixing: WifiScaleDiscovery now logs
-            // through the shared helper, so the line already carries
-            // [Scale][WifiScaleDiscovery] and already reached stderr at the
-            // severity that class chose.
-            appendScaleLog(msg, /*mirrorToSystemLog=*/false);
-        });
+        // No logMessage forwarder. WifiScaleDiscovery logs through the shared
+        // helper, so its mDNS-side diagnostics — timeout vs no-responder vs lookup
+        // failure, which is what a "I clicked Add WiFi Scale and nothing showed up"
+        // report needs — already carry [Scale][WifiScaleDiscovery] and already
+        // reached the system log at that class's chosen severity. This connection
+        // only ever fed the private buffer, which is gone.
         connect(m_manualEntryDiscovery, &WifiScaleDiscovery::resultFound, this,
                 [this](const WifiScaleResult& result) {
             // (Result line — the WifiScaleDiscovery logMessage above already
@@ -1625,15 +1619,11 @@ void BLEManager::setScaleDevice(ScaleDevice* scale) {
     if (m_scaleDevice) {
         connect(m_scaleDevice, &ScaleDevice::connectedChanged,
                 this, &BLEManager::onScaleConnectedChanged);
-        // Connect scale's debug log to our logging system. Record only — every
-        // source behind this signal has already written the line to stderr at
-        // the right severity: the drivers via SCALE_LOG/SCALE_WARN, and the
-        // transports (whose logMessage each driver re-emits as its own) via
-        // their own log()/warn() helpers. See appendScaleLog().
-        connect(m_scaleDevice, &ScaleDevice::logMessage, this,
-                [this](const QString& msg) {
-            appendScaleLog(msg, /*mirrorToSystemLog=*/false);
-        });
+        // No logMessage forwarder, for the same reason: every source behind that
+        // signal has already written the line to the system log at the right
+        // severity — the 13 drivers via SCALE_LOG/SCALE_WARN, and the transports
+        // (whose logMessage each driver re-emits as its own) via their log()/warn()
+        // helpers.
         // Push current DE1-discovery state immediately so a scale that connects
         // mid-discovery (e.g. after the gate timed out) starts in the right
         // pause state instead of waiting for the next edge.
@@ -2514,15 +2504,9 @@ void BLEManager::ensureWifiDiscovery() {
             [this](bool ran) { m_lastWifiProbeRan = ran; emit scanningChanged(); });
     connect(m_wifiDiscovery, &WifiScaleDiscovery::browseFinished, this,
             [this](bool ran) { m_lastWifiBrowseRan = ran; emit scanningChanged(); });
-    // Forward mDNS-layer diagnostics into the user-shareable scale debug log.
-    // Without this, "mDNS lookup timed out" / "no responder" lines lived only
-    // in qDebug output (Qt Creator console / adb logcat), invisible in the log
-    // a user uploads with a bug report.
-    connect(m_wifiDiscovery, &WifiScaleDiscovery::logMessage, this,
-            [this](const QString& msg) {
-        // Record only — see the manual-entry forwarder above.
-        appendScaleLog(msg, /*mirrorToSystemLog=*/false);
-    });
+    // No logMessage forwarder — see the manual-entry probe above. The mDNS-layer
+    // diagnostics reach the system log from WifiScaleDiscovery itself, which is
+    // also the log a user uploads, so there is nothing left to forward them to.
     // Single unified handler that handles both code paths (user-initiated
     // scan AND saved-scale direct-wake). Before this consolidation, each
     // call site lazy-created the discovery object with a DIFFERENT lambda
@@ -2841,27 +2825,25 @@ void BLEManager::openBluetoothSettings()
 #endif
 }
 
-// BLEManager's own narrative. Each tier writes stderr itself at the right
-// severity and then records the line for the connections-page view, so one call
-// per event and no way for the two outputs to drift.
+// BLEManager's own narrative. One call per event, writing the system log at the
+// right severity with the subsystem marker — and nothing else.
 //
-// The recording half goes through appendScaleLog with mirroring OFF — these
-// helpers have already written stderr. When the view moves to reading the system
-// log directly, the appendScaleLog call disappears from these four functions
-// rather than from ~60 call sites.
-void BLEManager::scaleDebug(const QString& message) {
-    SCALE_LOG_STDERR_TAGGED("BLEManager", message);
-    appendScaleLog(message, /*mirrorToSystemLog=*/false);
+// Each of these used to ALSO record into m_scaleLogMessages, a private in-memory
+// buffer that fed the connections-page view and a shareable scale_debug_log.txt.
+// That whole channel is gone: the views now read the system log through
+// WebDebugLogger, and Share sends the system log. So the second write disappeared
+// from these five functions rather than from ~60 call sites, which is exactly why
+// the call sites were routed through helpers first.
+void BLEManager::scaleDebug(const QString& message, const QString& source) {
+    SCALE_LOG_STDERR_DYN(source, message);
 }
 
-void BLEManager::scaleInfo(const QString& message) {
-    SCALE_INFO_STDERR_TAGGED("BLEManager", message);
-    appendScaleLog(message, /*mirrorToSystemLog=*/false);
+void BLEManager::scaleInfo(const QString& message, const QString& source) {
+    SCALE_INFO_STDERR_DYN(source, message);
 }
 
-void BLEManager::scaleWarn(const QString& message) {
-    SCALE_WARN_STDERR_TAGGED("BLEManager", message);
-    appendScaleLog(message, /*mirrorToSystemLog=*/false);
+void BLEManager::scaleWarn(const QString& message, const QString& source) {
+    SCALE_WARN_STDERR_DYN(source, message);
 }
 
 void BLEManager::scaleRepeatFailure(const QString& message) {
@@ -2911,22 +2893,22 @@ void BLEManager::resetRepeatFailureBudget() {
     m_repeatFailureCounts.clear();
 }
 
-// The DE1 tiers. The signal still carries the BARE message so the existing
-// connections-page window renders exactly as before; the marker is added only on
-// the way to the system log, where it is what makes the line findable.
+// The DE1 tiers. One write, to the system log, carrying the marker.
+//
+// Each of these also emitted de1LogMessage, a signal whose only consumer was the
+// connections-page DE1 window. That is gone: the view reads the system log now, so
+// the second write is not just redundant but was the thing keeping a bare,
+// level-less copy of every line alive.
 void BLEManager::de1Debug(const QString& message) {
     DE1_LOG_STDERR_TAGGED("BLEManager", message);
-    emit de1LogMessage(message);
 }
 
 void BLEManager::de1Info(const QString& message) {
     DE1_INFO_STDERR_TAGGED("BLEManager", message);
-    emit de1LogMessage(message);
 }
 
 void BLEManager::de1Warn(const QString& message) {
     DE1_WARN_STDERR_TAGGED("BLEManager", message);
-    emit de1LogMessage(message);
 }
 
 // The refractometer tiers. Same shape as the scale ones, different marker.
@@ -2937,115 +2919,24 @@ void BLEManager::de1Warn(const QString& message) {
 // separable in the system log despite sharing that one sink.
 void BLEManager::refractometerDebug(const QString& message, const QString& source) {
     REFRACTOMETER_LOG_STDERR_DYN(source, message);
-    appendScaleLog(message, /*mirrorToSystemLog=*/false);
 }
 
 void BLEManager::refractometerInfo(const QString& message, const QString& source) {
     REFRACTOMETER_INFO_STDERR_DYN(source, message);
-    appendScaleLog(message, /*mirrorToSystemLog=*/false);
 }
 
-// Scale debug logging methods
-void BLEManager::appendScaleLog(const QString& message, bool mirrorToSystemLog) {
-    QString timestampedMsg = QDateTime::currentDateTime().toString("[hh:mm:ss.zzz] ") + message;
-    m_scaleLogMessages.append(timestampedMsg);
-    emit scaleLogMessage(message);
-    // Mirror to the system log so the scale narrative is interleaved with
-    // qDebug output from the rest of the app — without this, the scale
-    // debug log lives only in m_scaleLogMessages (rendered into the user-
-    // shareable scale_debug_log.txt) and is invisible during local
-    // development unless the developer is staring at the in-app log view.
-    //
-    // mirrorToSystemLog=false is for the forwarders whose source ALREADY wrote
-    // the line to stderr itself: SCALE_LOG/SCALE_WARN (scalelogging.h), the
-    // transports' own log()/warn() helpers (qtscalebletransport.cpp,
-    // corebluetoothscalebletransport.mm — same double-write shape, not the
-    // macros), and the R1/R2 refractometer macros. All of them qDebug/qWarning
-    // and then emit logMessage(). Mirroring those a second time printed every
-    // scale-device line twice — once bare, once with the [Scale] prefix — which
-    // is what the whole "[BLE DecentScaleWifi] …" / "[Scale] [BLE
-    // DecentScaleWifi] …" pair in the console was.
-    //
-    // Suppressing at the sink rather than dropping the qDebug at the source
-    // keeps SCALE_WARN's warning severity, which this qDebug mirror cannot
-    // reproduce. (Severity survives into logcat, debug.log's WARN column and
-    // the per-shot debug log. It does NOT survive to desktop stderr, because
-    // AsyncLogger fprintf()s the raw message with no type and no message
-    // pattern — asynclogger.cpp. So the severity argument is about Android and
-    // the submitted logs, not about the Mac console.)
-    //
-    // Grep note: `grep '\[Scale\]'` returns the WHOLE scale narrative — this
-    // mirror's lines, scaledevice.cpp's CONNECTED/DISCONNECTED, and every driver,
-    // transport, refractometer and USB line, because those carry the marker
-    // themselves ("[Scale][BLE AcaiaScale] …", "[Scale][USB Scale] …"; see
-    // scalelogging.h). Suppressing the mirror here briefly broke that — the
-    // driver lines had been getting [Scale] only from this mirror — so the marker
-    // was moved to the source. Keep it on any new logging helper in the
-    // subsystem, or its lines drop out of that one grep silently.
-    if (mirrorToSystemLog) {
-        qDebug().noquote() << "[Scale]" << message;
-    }
-
-    // Keep log size reasonable (last 1000 messages)
-    while (m_scaleLogMessages.size() > 1000) {
-        m_scaleLogMessages.removeFirst();
-    }
-}
-
-void BLEManager::clearScaleLog() {
-    m_scaleLogMessages.clear();
-    emit scaleLogMessage("Log cleared");
-}
-
-QString BLEManager::getScaleLogPath() const {
-    return m_scaleLogFilePath;
-}
-
-void BLEManager::writeScaleLogToFile() {
-    // Get app's cache directory for the log file
-    QString cacheDir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
-    QDir().mkpath(cacheDir);
-    m_scaleLogFilePath = cacheDir + "/scale_debug_log.txt";
-
-    QFile file(m_scaleLogFilePath);
-    if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        QTextStream out(&file);
-        out << "=== Decenza Scale Debug Log ===" << Qt::endl;
-        out << "Generated: " << QDateTime::currentDateTime().toString(Qt::ISODate) << Qt::endl;
-        out << "================================" << Qt::endl << Qt::endl;
-
-        for (const QString& msg : m_scaleLogMessages) {
-            out << msg << Qt::endl;
-        }
-        file.close();
-        qDebug() << "Scale log written to:" << m_scaleLogFilePath;
-    } else {
-        qWarning() << "Failed to write scale log to:" << m_scaleLogFilePath;
-    }
-}
-
-void BLEManager::shareScaleLog() {
-    // First write the log to a file
-    writeScaleLogToFile();
-
-    // The ~130 lines of Android JNI / iOS UIActivityViewController / desktop
-    // fallback that used to live here are now FileShare::shareFile
-    // (core/fileshare.h). They moved because the connections page needed to share
-    // the SYSTEM log too, and the alternative was a second copy of all three
-    // platform branches — see shareSystemLog() below.
-    const FileShare::Result r =
-        FileShare::shareFile(m_scaleLogFilePath, QStringLiteral("Share Scale Debug Log"));
-    if (!r.message.isEmpty()) {
-        // Still reported into the scale log, as before, so the button keeps its
-        // existing feedback. Note this is the odd shape the extraction exposed: a
-        // failure to share the scale log is reported *into* the scale log.
-        appendScaleLog(r.message, /*mirrorToSystemLog=*/false);
-    }
-    if (!r.ok) {
-        scaleWarn(QStringLiteral("Share failed: %1").arg(r.message));
-    }
-}
-
+// The private scale-log channel that used to live here is GONE:
+// appendScaleLog(), m_scaleLogMessages, clearScaleLog(), getScaleLogPath(),
+// writeScaleLogToFile(), shareScaleLog() and scale_debug_log.txt.
+//
+// It existed because the connections-page view and the "Share Log" button had no
+// other source. Both now read the system log — the view through
+// WebDebugLogger::sessionLinesMatching(), Share through shareSystemLog() below —
+// so the buffer was a second copy of lines already on disk, capped at 1000, and
+// the file was a scale-only subset that omitted the DE1 and everything else that
+// ran alongside a failure. Users have been asked for the system log for a while;
+// this removes the thing that made the other file look like an alternative.
+//
 void BLEManager::shareSystemLog() {
     // The system log is what users are asked for now, and it is already on disk —
     // nothing to assemble first, unlike the scale log above.

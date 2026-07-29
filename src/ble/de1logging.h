@@ -29,15 +29,14 @@
 //   DE1_INFO_TAGGED   qInfo    the user-facing narrative
 //   DE1_WARN_TAGGED   qWarning problems
 //
-// Pick by AUDIENCE, not by authorship or by how important the event feels.
-// `debug_get_log` with minLevel INFO shows exactly the INFO-and-above set today.
-// The connections-page DE1 view does NOT yet — it is an unfiltered append of
-// every line that reaches `de1LogMessage`, and `de1LogMessage(QString)` carries
-// no level, so it cannot filter. Re-sourcing it from the system log at INFO+ is
-// task 5.1/5.2 of the openspec change `replace-scale-log-with-system-log-filter`.
-// Choose tiers for the INFO+ contract regardless: it is what the MCP query
-// already honours and what the view will honour, and a line assigned by today's
-// unfiltered view would have to be re-judged when 5.1 lands.
+// Pick by AUDIENCE, not by authorship or by how important the event feels. Both
+// consumers now honour the same contract: `debug_get_log` with minLevel INFO, and
+// the connections-page DE1 view, which reads the system log for [DE1] at INFO and
+// above. So a tier chosen here decides both, and DEBUG genuinely means "not on
+// screen".
+//
+// (This note used to say the view could not filter, because it was an unfiltered
+// append of a level-less `de1LogMessage` signal. That signal no longer exists.)
 //
 // So:
 //

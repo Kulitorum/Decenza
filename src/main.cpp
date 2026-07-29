@@ -2018,9 +2018,11 @@ int main(int argc, char *argv[])
         }
     });
 
-    // Forward DE1 log messages to BLEManager for display in connection log
-    QObject::connect(&de1Device, &DE1Device::logMessage,
-                     &bleManager, &BLEManager::de1LogMessage);
+    // No DE1Device::logMessage forwarder. It existed to feed the connections-page
+    // DE1 view through BLEManager::de1LogMessage, a signal that reached that window
+    // and nothing else — so everything sent through it was missing from every log a
+    // user submitted. DE1Device's macros already write each line to the system log
+    // carrying [DE1][<source>], which is what the view now reads.
 
     // Forward the DE1 BLE service+characteristic discovery window so BLEManager
     // can pause the scale heartbeat during it (#1176 mid-discovery scale drop on
@@ -2051,9 +2053,8 @@ int main(int argc, char *argv[])
             bleManager.startScan();
         });
 
-    // Forward USBManager log messages to BLEManager for display in connection log
-    QObject::connect(&usbManager, &USBManager::logMessage,
-                     &bleManager, &BLEManager::de1LogMessage);
+    // No USBManager::logMessage forwarder either — same reason. USB_LOG/INFO/WARN
+    // already carry [DE1][USB].
 #endif
 
     // Scale auto-reconnect after disconnect: backoff ramp 5s → 30s → 60s, then
@@ -2190,16 +2191,18 @@ int main(int argc, char *argv[])
                      << "synthetic entry) — stopping retries";
             return;
         }
-        qDebug() << "Scale reconnect: attempt" << (scaleReconnectAttempt + 1);
-        // Only surface the bounded ramp in the user-visible scale log; the
-        // 60s tail repeats forever, so logging it there would grow unbounded
-        // (the qDebug above still traces every attempt, including the slow tail,
-        // so a submitted debug.log never goes quiet — only scale_debug_log.txt
-        // is abbreviated). Record-only: mirroring would print the attempt twice,
-        // since the qDebug above is the same event.
-        if (scaleReconnectAttempt < static_cast<int>(reconnectDelays.size())) {
-            bleManager.appendScaleLog(QString("Auto-reconnect attempt %1").arg(scaleReconnectAttempt + 1),
-                                      /*mirrorToSystemLog=*/false);
+        // One line, INFO while the ramp walks and DEBUG on the endless 60 s tail.
+        // This was a pair: an unmarked `qDebug() << "Scale reconnect: attempt" ...`
+        // for every attempt plus a marked appendScaleLog for the bounded ramp only.
+        // The split existed because the two sinks had different needs; with one
+        // sink, the tier does that job and the tail stops shouting.
+        {
+            const QString attemptMsg =
+                QStringLiteral("Auto-reconnect attempt %1").arg(scaleReconnectAttempt + 1);
+            if (scaleReconnectAttempt < static_cast<int>(reconnectDelays.size()))
+                bleManager.scaleInfo(attemptMsg, QStringLiteral("main"));
+            else
+                bleManager.scaleDebug(attemptMsg, QStringLiteral("main"));
         }
         bleManager.resetScaleConnectionState();
         // Background reconnect: scan only, never a parked direct-connect. A
@@ -2229,8 +2232,7 @@ int main(int argc, char *argv[])
                 // qWarning, matching MQTT's equivalent crossing: this is the line
                 // that explains a log which otherwise looks like the reconnect
                 // died, and WARN is what makes it findable in a submitted log.
-                qWarning().noquote() << "Scale reconnect:" << msg;
-                bleManager.appendScaleLog(msg, /*mirrorToSystemLog=*/false);
+                bleManager.scaleWarn(msg, QStringLiteral("main"));
             }
             scaleReconnectTimer.start(kScaleSlowTailMs);
         }
@@ -2267,12 +2269,9 @@ int main(int argc, char *argv[])
         }
         scaleReconnectAttempt = 0;
         scaleReconnectTimer.start(reconnectDelays[0]);
-        // Record-only: the qDebug below is the same event, so mirroring would
-        // print this scheduling line twice.
-        bleManager.appendScaleLog(QString("Scheduling reconnect in %1 s (startup failure)")
-                                      .arg(reconnectDelays[0] / 1000),
-                                  /*mirrorToSystemLog=*/false);
-        qDebug() << "Scale reconnect: scheduled first retry in" << reconnectDelays[0] << "ms (startup failure)";
+        bleManager.scaleInfo(QStringLiteral("Scheduling reconnect in %1 s (startup failure)")
+                                 .arg(reconnectDelays[0] / 1000),
+                             QStringLiteral("main"));
     });
 
     // Re-arm the scale reconnect when the simulated scale is switched OFF.
@@ -2297,9 +2296,10 @@ int main(int argc, char *argv[])
             return;
         scaleReconnectAttempt = 0;
         scaleReconnectTimer.start(reconnectDelays[0]);
-        bleManager.appendScaleLog(
-            QString("Simulated scale switched off — resuming reconnect in %1 s")
-            .arg(reconnectDelays[0] / 1000));
+        bleManager.scaleInfo(
+            QStringLiteral("Simulated scale switched off — resuming reconnect in %1 s")
+                .arg(reconnectDelays[0] / 1000),
+            QStringLiteral("main"));
     });
 
     // Re-arm the reconnect ladder on EVERY scale-connection failure, not just
@@ -2331,10 +2331,9 @@ int main(int argc, char *argv[])
         const int retryDelayMs = scaleReconnectAttempt >= kScaleFastTailAttempts
                                      ? kScaleSlowTailMs : reconnectDelays.back();
         scaleReconnectTimer.start(retryDelayMs);
-        bleManager.appendScaleLog(QString("Scheduling reconnect in %1 s (retry after failure)")
-                                      .arg(retryDelayMs / 1000),
-                                  /*mirrorToSystemLog=*/false);
-        qDebug() << "Scale reconnect: scheduled retry in" << retryDelayMs << "ms (after failure)";
+        bleManager.scaleInfo(QStringLiteral("Scheduling reconnect in %1 s (retry after failure)")
+                                 .arg(retryDelayMs / 1000),
+                             QStringLiteral("main"));
     });
 
     // === Proactive switch-back to the WiFi primary scale ===
@@ -2619,8 +2618,8 @@ int main(int argc, char *argv[])
                 bleManager.setScaleDevice(nullptr);  // Clear BLEManager's reference
                 physicalScale.reset();  // Now safe to delete old scale
                 if (scaleReconnectTimer.isActive()) {
-                    qDebug() << "Scale reconnect: timer stopped due to scale type change";
-                    bleManager.appendScaleLog("Reconnect stopped (scale type changed)");
+                    bleManager.scaleInfo(QStringLiteral("Reconnect stopped (scale type changed)"),
+                                         QStringLiteral("main"));
                 }
                 scaleReconnectTimer.stop();
                 // NOTE: scaleReconnectAttempt is deliberately NOT cleared here.
@@ -2706,9 +2705,10 @@ int main(int argc, char *argv[])
         // the next app launch should retry WiFi first.
         const bool isFallbackConnect = !isWifi && bleManager.isWifiFallbackToBleActive();
         if (deferPersistence) {
-            qDebug() << "Manual WiFi-scale entry — deferring persistence until HDS validation:" << deviceId;
-            bleManager.appendScaleLog(
-                QString("Validating manual WiFi scale at %1...").arg(hostname));
+            bleManager.scaleInfo(
+                QStringLiteral("Validating manual WiFi scale at %1 — deferring persistence "
+                               "until it answers as an HDS (%2)").arg(hostname, deviceId),
+                QStringLiteral("main"));
         } else {
             // Always track this scale in the known-scales list (useful for the
             // multi-scale picker and per-scale state).
@@ -2717,10 +2717,10 @@ int main(int argc, char *argv[])
                 settings.setPrimaryScale(deviceId);
                 bleManager.setSavedScaleAddress(deviceId, type, displayName);
             } else {
-                qDebug() << "Scale connected via WiFi-to-BLE fallback — preserving saved WiFi primary"
-                         << settings.scaleAddress();
-                bleManager.appendScaleLog(
-                    QString("WiFi fallback connected to %1 — saved WiFi primary preserved").arg(displayName));
+                bleManager.scaleInfo(
+                    QStringLiteral("WiFi fallback connected to %1 — saved WiFi primary %2 preserved")
+                        .arg(displayName, settings.scaleAddress()),
+                    QStringLiteral("main"));
             }
         }
 
@@ -2926,9 +2926,10 @@ int main(int argc, char *argv[])
                     QObject::connect(wifi, &DecentScaleWifi::recognizedAsHds,
                                      &bleManager,
                                      [&settings, &bleManager, deviceId, type, displayName, hostname]() {
-                        qDebug() << "Manual WiFi scale validated as HDS — committing persistence:" << deviceId;
-                        bleManager.appendScaleLog(
-                            QString("Manual WiFi scale at %1 validated as HDS").arg(hostname));
+                        bleManager.scaleInfo(
+                            QStringLiteral("Manual WiFi scale at %1 validated as HDS — "
+                                           "committing persistence (%2)").arg(hostname, deviceId),
+                            QStringLiteral("main"));
                         settings.addKnownScale(deviceId, type, displayName);
                         settings.setPrimaryScale(deviceId);
                         bleManager.setSavedScaleAddress(deviceId, type, displayName);
@@ -2938,9 +2939,10 @@ int main(int argc, char *argv[])
                     QObject::connect(wifi, &DecentScaleWifi::recognitionFailed,
                                      &bleManager,
                                      [&bleManager, hostname]() {
-                        qDebug() << "Manual WiFi scale failed HDS recognition:" << hostname;
-                        bleManager.appendScaleLog(
-                            QString("Manual WiFi scale at %1 connected but did not respond as HDS").arg(hostname));
+                        bleManager.scaleWarn(
+                            QStringLiteral("Manual WiFi scale at %1 connected but did not "
+                                           "respond as HDS").arg(hostname),
+                            QStringLiteral("main"));
                         emit bleManager.manualWifiValidationFailed(hostname);
                         // The driver's onRecognitionTimeout aborts the WS
                         // socket, but the DecentScaleWifi object itself stays
@@ -3098,13 +3100,10 @@ int main(int argc, char *argv[])
         settings.setSavedRefractometerName(device.name());
         bleManager.setSavedRefractometerAddress(getDeviceIdentifier(device), device.name());
 
-        // Forward refractometer log messages to the scale log (shared log view).
-        // Record only: the R1_LOG/R2_WARN macros already wrote the line to
-        // stderr at the right severity, so mirroring here would print it twice.
-        QObject::connect(refractometer.get(), &RefractometerDevice::logMessage,
-                         &bleManager, [&bleManager](const QString& msg) {
-            bleManager.appendScaleLog(msg, /*mirrorToSystemLog=*/false);
-        });
+        // No logMessage forwarder. The R1_LOG/R2_INFO/R2_WARN macros already write
+        // each line to the system log carrying [Refractometer][BLE DiFluidRx], which
+        // is both what the connections view reads and what a user submits. This
+        // connection existed only to copy them into the private buffer.
 
         // Surface actionable measurement errors ("No liquid detected", "Beyond
         // range", …) to the error dialog, mirroring the physical scale's
@@ -3468,25 +3467,12 @@ int main(int argc, char *argv[])
         bleManager.onUsbProbeFinished();
     });
 
-    // Forward USB scale manager log messages to BOTH logs: the scale log (so the
-    // unified Settings scale panel shows USB probe/connect/error diagnostics and
-    // the scale "Share Log" export includes them — appendScaleLog records into
-    // m_scaleLogMessages) and the app/DE1 log (unchanged from before).
-    // (Lambda, not a pointer-to-member slot: appendScaleLog takes a defaulted
-    // second parameter.) Record-only, exactly like the BLE scale and
-    // refractometer forwarders: UsbScaleManager and UsbDecentScale now log
-    // through UsbScaleManager::log()/warn() and USB_SCALE_LOG/WARN, which write
-    // stderr at the right severity before emitting, so mirroring here would
-    // print every USB line twice. This used to mirror because the two outputs
-    // had drifted — 73 hand-rolled prefixes, and at 21 sites the qDebug and the
-    // emit described one event in different words, so neither was redundant.
-    // Centralizing them removed the reason.
-    QObject::connect(&usbScaleManager, &UsbScaleManager::logMessage,
-                     &bleManager, [&bleManager](const QString& msg) {
-        bleManager.appendScaleLog(msg, /*mirrorToSystemLog=*/false);
-    });
-    QObject::connect(&usbScaleManager, &UsbScaleManager::logMessage,
-                     &bleManager, &BLEManager::de1LogMessage);
+    // No UsbScaleManager::logMessage forwarders. There were TWO of them — one into
+    // the scale log, one into the DE1 log — because the USB scale is diagnosed from
+    // both panels and neither view could read the other's channel. That was the
+    // whole problem: a line had to be copied per view, and 73 hand-rolled prefixes
+    // with 21 drifted qDebug/emit pairs grew out of the same gap. Every line now
+    // carries [Scale][USB Scale] once, in the system log, which both views read.
 #endif // !Q_OS_IOS
 
     // Load saved scale address for direct wake connection. Read from the

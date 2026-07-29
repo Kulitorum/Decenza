@@ -92,10 +92,10 @@ Found while converting group 3: `[Scale]`/`[DE1]`/`[Refractometer]` are not yet 
 
 ## 6. Remove the private channels
 
-- [ ] 6.1 Delete `appendScaleLog`, `m_scaleLogMessages`, `m_scaleLogFilePath`, `writeScaleLogToFile`, `clearScaleLog`, `shareScaleLog`, `getScaleLogPath`, the `scaleLogMessage` signal and the `mirrorToSystemLog` parameter; convert every remaining caller to a helper call.
-- [ ] 6.2 Delete the `de1LogMessage` signal and its remaining forwards in `main.cpp`.
-- [ ] 6.3 Confirm `scale_debug_log.txt` is no longer created, and that nothing reads it (including ShotServer endpoints and any data-migration payload).
-- [ ] 6.4 Build and run the full suite.
+- [x] 6.1 Delete `appendScaleLog`, `m_scaleLogMessages`, `m_scaleLogFilePath`, `writeScaleLogToFile`, `clearScaleLog`, `shareScaleLog`, `getScaleLogPath`, the `scaleLogMessage` signal and the `mirrorToSystemLog` parameter; convert every remaining caller to a helper call.
+- [x] 6.2 Delete the `de1LogMessage` signal and its remaining forwards in `main.cpp`.
+- [x] 6.3 Confirm `scale_debug_log.txt` is no longer created, and that nothing reads it (including ShotServer endpoints and any data-migration payload).
+- [x] 6.4 Build and run the full suite.
 
 ## 7. Documentation, discoverability and enforcement
 

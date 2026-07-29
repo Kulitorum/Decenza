@@ -69,6 +69,17 @@
 #define SCALE_WARN_STDERR_TAGGED(tag, msg) \
     DECENZA_SUBSYS_LOG_STDERR(DECENZA_LOG_MARKER_SCALE, tag, msg, qWarning)
 
+// Runtime-tag variants, for a forwarder logging on behalf of more than one source
+// (see DECENZA_SUBSYS_LOG_STDERR_DYN). BLEManager's scale tiers use these because
+// main.cpp drives the scale reconnect ladder and its lines must not be stamped
+// "BLEManager".
+#define SCALE_LOG_STDERR_DYN(tag, msg) \
+    DECENZA_SUBSYS_LOG_STDERR_DYN(DECENZA_LOG_MARKER_SCALE, tag, msg, qDebug)
+#define SCALE_INFO_STDERR_DYN(tag, msg) \
+    DECENZA_SUBSYS_LOG_STDERR_DYN(DECENZA_LOG_MARKER_SCALE, tag, msg, qInfo)
+#define SCALE_WARN_STDERR_DYN(tag, msg) \
+    DECENZA_SUBSYS_LOG_STDERR_DYN(DECENZA_LOG_MARKER_SCALE, tag, msg, qWarning)
+
 #define SCALE_LOG(prefix, msg)  SCALE_LOG_TAGGED("BLE " prefix, msg)
 #define SCALE_INFO(prefix, msg) SCALE_INFO_TAGGED("BLE " prefix, msg)
 #define SCALE_WARN(prefix, msg) SCALE_WARN_TAGGED("BLE " prefix, msg)
