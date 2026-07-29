@@ -41,7 +41,8 @@ Item {
     property bool showFollowUpInput: false
 
     // Optional: Placeholder text for follow-up input
-    property string followUpPlaceholder: "Ask a follow-up question..."
+    property string followUpPlaceholder: TranslationManager.translate(
+        "aiPanel.followUpPlaceholder", "Ask a follow-up question...")
 
     // Optional: Custom button text
     property string askButtonText: ""
@@ -53,9 +54,9 @@ Item {
     // Internal: computed button text
     readonly property string _buttonText: {
         if (askButtonText) return askButtonText
-        if (!conversation) return "Ask AI"
-        if (conversation.hasHistory) return "Follow up"
-        return "Ask " + conversation.providerName
+        if (!conversation) return TranslationManager.translate("aiPanel.askAi", "Ask AI")
+        if (conversation.hasHistory) return TranslationManager.translate("aiPanel.followUp", "Follow up")
+        return TranslationManager.translate("aiPanel.askProvider", "Ask %1").arg(conversation.providerName)
     }
 
     readonly property bool _canAsk: {

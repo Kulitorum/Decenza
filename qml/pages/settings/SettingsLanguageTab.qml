@@ -814,7 +814,9 @@ Item {
 
             Text {
                 width: parent.width
-                text: submitResultPopup.isSuccess ? "Success!" : "Error"
+                text: submitResultPopup.isSuccess
+                      ? TranslationManager.translate("common.success", "Success!")
+                      : TranslationManager.translate("common.error", "Error")
                 font: Theme.subtitleFont
                 color: submitResultPopup.isSuccess ? Theme.successColor : Theme.warningColor
                 horizontalAlignment: Text.AlignHCenter

@@ -185,8 +185,10 @@ KeyboardAwareContainer {
 
                                     AccessibleMouseArea {
                                         anchors.fill: parent
-                                        accessibleName: chargingModeButton.modelData.label + " charging mode. " + chargingModeButton.modelData.desc +
-                                                       (BatteryManager.chargingMode === chargingModeButton.modelData.value ? ", selected" : "")
+                                        accessibleName: TranslationManager.translate("settings.machine.accessible.chargingMode", "%1 charging mode. %2")
+                                                            .arg(chargingModeButton.modelData.label).arg(chargingModeButton.modelData.desc)
+                                                        + (BatteryManager.chargingMode === chargingModeButton.modelData.value
+                                                           ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
                                         accessibleItem: chargingModeButton
                                         onAccessibleClicked: BatteryManager.chargingMode = chargingModeButton.modelData.value
                                     }
@@ -1548,8 +1550,10 @@ KeyboardAwareContainer {
 
                                     AccessibleMouseArea {
                                         anchors.fill: parent
-                                        accessibleName: refillKitButton.modelData.label + " refill kit mode. " + refillKitButton.modelData.desc +
-                                                       (Settings.app.refillKitOverride === refillKitButton.modelData.value ? ", selected" : "")
+                                        accessibleName: TranslationManager.translate("settings.machine.accessible.refillKitMode", "%1 refill kit mode. %2")
+                                                            .arg(refillKitButton.modelData.label).arg(refillKitButton.modelData.desc)
+                                                        + (Settings.app.refillKitOverride === refillKitButton.modelData.value
+                                                           ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
                                         accessibleItem: refillKitButton
                                         onAccessibleClicked: Settings.app.refillKitOverride = refillKitButton.modelData.value
                                     }
@@ -1838,7 +1842,9 @@ KeyboardAwareContainer {
                     var lat = MainController.shotReporter.latitude.toFixed(1)
                     var lon = MainController.shotReporter.longitude.toFixed(1)
                     var city = MainController.shotReporter.currentCity()
-                    return "Location: " + city + " at coordinates " + lat + ", " + lon
+                    return TranslationManager.translate("settings.machine.locationSummary",
+                                                        "Location: %1 at coordinates %2, %3")
+                           .arg(city).arg(lat).arg(lon)
                 }
                 color: Theme.textSecondaryColor
                 font.pixelSize: Theme.scaled(12)

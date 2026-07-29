@@ -143,7 +143,7 @@ Page {
                         font.family: Theme.bodyFont.family
                         horizontalAlignment: Text.AlignHCenter
                         maximumLength: 4
-                        placeholder: "CODE"
+                        placeholder: TranslationManager.translate("visualizer.codePlaceholder", "CODE")
                         accessibleName: TranslationManager.translate("visualizerBrowser.accessible.shareCode", "Share code")
                         inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText
 

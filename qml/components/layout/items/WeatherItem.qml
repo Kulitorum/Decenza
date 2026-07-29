@@ -17,16 +17,18 @@ LayoutWidgetItem {
 
     Accessible.role: Accessible.StaticText
     Accessible.name: {
-        if (!WeatherManager.valid) return "Weather: not available"
+        if (!WeatherManager.valid)
+            return TranslationManager.translate("weather.accessible.unavailable", "Weather: not available")
         var forecast = WeatherManager.hourlyForecast
         if (forecast.length > 0) {
             var rawTemp = forecast[0].temperature || 0
             var temp = WeatherManager.useImperialUnits
                 ? Math.round(rawTemp * 9 / 5 + 32) : Math.round(rawTemp)
             var loc = WeatherManager.locationName || ""
-            return "Weather: " + temp + " degrees" + (loc ? ", " + loc : "")
+            return TranslationManager.translate("weather.accessible.summary", "Weather: %1 degrees").arg(temp)
+                   + (loc ? ", " + loc : "")
         }
-        return "Weather"
+        return TranslationManager.translate("weather.accessible.title", "Weather")
     }
     Accessible.focusable: true
 
@@ -363,7 +365,9 @@ LayoutWidgetItem {
                 }
 
                 Text {
-                    text: WeatherManager.loading ? "Loading weather..." : "Set city in Settings \u2192 Options"
+                    text: WeatherManager.loading
+                          ? TranslationManager.translate("weather.loading", "Loading weather...")
+                          : TranslationManager.translate("weather.setCity", "Set city in Settings \u2192 Options")
                     color: Theme.textSecondaryColor
                     font: Theme.labelFont
                 }
@@ -388,11 +392,14 @@ LayoutWidgetItem {
                     var imperial = WeatherManager.useImperialUnits
                     var tempVal = imperial ? Math.round(f.temperature * 9 / 5 + 32) : Math.round(f.temperature)
                     var windVal = imperial ? Math.round(f.windSpeed * 0.621371) : Math.round(f.windSpeed)
-                    var windUnit = imperial ? "miles per hour" : "kilometers per hour"
-                    var msg = "Weather: " + (f.weatherDescription || "unknown")
-                        + ", " + tempVal + " degrees"
-                        + ", humidity " + f.relativeHumidity + " percent"
-                        + ", wind " + windVal + " " + windUnit
+                    var windUnit = imperial
+                        ? TranslationManager.translate("weather.accessible.mph", "miles per hour")
+                        : TranslationManager.translate("weather.accessible.kmh", "kilometers per hour")
+                    var msg = TranslationManager.translate("weather.accessible.announce",
+                                  "Weather: %1, %2 degrees, humidity %3 percent, wind %4 %5")
+                              .arg(f.weatherDescription
+                                   || TranslationManager.translate("weather.accessible.unknown", "unknown"))
+                              .arg(tempVal).arg(f.relativeHumidity).arg(windVal).arg(windUnit)
                     AccessibilityManager.announceLabel(msg)
                 }
             }

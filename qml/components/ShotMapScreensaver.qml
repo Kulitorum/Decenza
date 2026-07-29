@@ -457,7 +457,8 @@ Item {
                 spacing: 8
 
                 Text {
-                    text: profileRow.modelData.name || "Unknown"
+                    text: profileRow.modelData.name
+                          || TranslationManager.translate("common.unknown", "Unknown")
                     color: root.mapTexture === "bright" ? "#dddddd" : "#667788"
                     font.pixelSize: Theme.scaled(12)
                     font.family: Theme.bodyFont.family
@@ -485,7 +486,8 @@ Item {
         visible: !root.widgetMode
 
         Text {
-            text: root.shotCount + " shots in the last 24 hours"
+            text: TranslationManager.translate("shotMap.shotsLast24h", "%1 shots in the last 24 hours")
+                  .arg(root.shotCount)
             color: root.mapTexture === "bright" ? "#ffffff" : "#8899aa"
             font.pixelSize: Theme.scaled(16)
             font.family: Theme.bodyFont.family

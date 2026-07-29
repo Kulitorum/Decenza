@@ -691,7 +691,9 @@ Page {
                     border.width: 2
 
                     Accessible.role: Accessible.Button
-                    Accessible.name: (ProfileManager.currentProfileName || "Loaded Profile") + ", " + TranslationManager.translate("profileselector.accessible.edit_profile", "Edit profile")
+                    Accessible.name: (ProfileManager.currentProfileName
+                                      || TranslationManager.translate("profileselector.loadedProfile", "Loaded Profile"))
+                                     + ", " + TranslationManager.translate("profileselector.accessible.edit_profile", "Edit profile")
                     Accessible.focusable: true
                     Accessible.onPressAction: nonFavPillMouseArea.clicked(null)
 
@@ -703,7 +705,8 @@ Page {
                         // Profile name
                         Text {
                             Layout.fillWidth: true
-                            text: ProfileManager.currentProfileName || "Loaded Profile"
+                            text: ProfileManager.currentProfileName
+                                  || TranslationManager.translate("profileselector.loadedProfile", "Loaded Profile")
                             color: Theme.primaryContrastColor
                             font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.bodyFont.pixelSize

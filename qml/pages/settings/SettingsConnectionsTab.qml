@@ -85,7 +85,9 @@ Item {
                     spacing: Theme.scaled(8)
 
                     Text {
-                        text: emailBox.copied ? "✓ Copied!" : "decenzalogs@kulitorum.com"
+                        text: emailBox.copied
+                              ? TranslationManager.translate("common.copied", "✓ Copied!")
+                              : "decenzalogs@kulitorum.com"
                         color: Theme.accentColor
                         font.pixelSize: Theme.scaled(15)
                         font.bold: true
@@ -996,7 +998,9 @@ Item {
 
                         AccessibleButton {
                             text: BLEManager.scanning ? TranslationManager.translate("settings.bluetooth.scanning", "Scanning...") : TranslationManager.translate("settings.bluetooth.scanForDevices", "Scan for Devices")
-                            accessibleName: BLEManager.scanning ? "Scanning for devices" : "Scan for Bluetooth DE1, scales, and refractometers"
+                            accessibleName: BLEManager.scanning
+                                ? TranslationManager.translate("settings.bluetooth.accessible.scanning", "Scanning for devices")
+                                : TranslationManager.translate("settings.bluetooth.accessible.scan", "Scan for Bluetooth DE1, scales, and refractometers")
                             enabled: !BLEManager.scanning
                             onClicked: BLEManager.scanForDevices()
                         }

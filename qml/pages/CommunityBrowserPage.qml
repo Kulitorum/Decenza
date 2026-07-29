@@ -49,7 +49,7 @@ Item {
                 id: typeFilter
                 Layout.preferredWidth: Theme.scaled(120)
                 accessibleLabel: TranslationManager.translate("community.filter.type", "Type filter")
-                model: ["All Types", "Items", "Zones", "Layouts", "Themes"]
+                model: [TranslationManager.translate("community.type.all", "All Types"), TranslationManager.translate("community.type.items", "Items"), TranslationManager.translate("community.type.zones", "Zones"), TranslationManager.translate("community.type.layouts", "Layouts"), TranslationManager.translate("community.type.themes", "Themes")]
                 onCurrentIndexChanged: {
                     var types = ["", "item", "zone", "layout", "theme"]
                     communityBrowser.filterType = types[currentIndex]
@@ -62,10 +62,22 @@ Item {
                 id: variableFilter
                 Layout.fillWidth: true
                 accessibleLabel: TranslationManager.translate("community.filter.variable", "Variable filter")
-                model: ["Any Variable", "Group Head Temp", "Steam Temp", "Pressure",
-                        "Flow Rate", "Weight", "Water Level", "Shot Time",
-                        "Profile", "Machine State", "Time", "Date",
-                        "Ratio", "Dose", "Target Weight"]
+                model: [
+                    TranslationManager.translate("community.variable.any", "Any Variable"),
+                    TranslationManager.translate("community.variable.groupTemp", "Group Head Temp"),
+                    TranslationManager.translate("community.variable.steamTemp", "Steam Temp"),
+                    TranslationManager.translate("community.variable.pressure", "Pressure"),
+                    TranslationManager.translate("community.variable.flow", "Flow Rate"),
+                    TranslationManager.translate("community.variable.weight", "Weight"),
+                    TranslationManager.translate("community.variable.water", "Water Level"),
+                    TranslationManager.translate("community.variable.shotTime", "Shot Time"),
+                    TranslationManager.translate("community.variable.profile", "Profile"),
+                    TranslationManager.translate("community.variable.state", "Machine State"),
+                    TranslationManager.translate("community.variable.time", "Time"),
+                    TranslationManager.translate("community.variable.date", "Date"),
+                    TranslationManager.translate("community.variable.ratio", "Ratio"),
+                    TranslationManager.translate("community.variable.dose", "Dose"),
+                    TranslationManager.translate("community.variable.targetWeight", "Target Weight")]
                 onCurrentIndexChanged: {
                     var vars = ["", "%TEMP%", "%STEAM_TEMP%", "%PRESSURE%",
                                 "%FLOW%", "%WEIGHT%", "%WATER%", "%SHOT_TIME%",
@@ -81,17 +93,34 @@ Item {
                 id: actionFilter
                 Layout.fillWidth: true
                 accessibleLabel: TranslationManager.translate("community.filter.action", "Action filter")
-                model: ["Any Action",
-                        "Go to Settings", "Go to History", "Go to Profiles",
-                        "Go to Profile Editor", "Go to Recipes", "Go to Descaling",
-                        "Go to AI", "Go to Visualizer", "Go to Favorites",
-                        "Go to Steam", "Go to Hot Water", "Go to Flush",
-                        "Go to Bean Info",
-                        "Sleep", "Start Espresso", "Start Steam",
-                        "Start Hot Water", "Start Flush", "Stop",
-                        "Tare Scale", "Quit App",
-                        "Toggle Espresso", "Toggle Steam",
-                        "Toggle Hot Water", "Toggle Flush", "Toggle Beans"]
+                model: [
+                    TranslationManager.translate("community.action.any", "Any Action"),
+                    TranslationManager.translate("community.action.settings", "Go to Settings"),
+                    TranslationManager.translate("community.action.history", "Go to History"),
+                    TranslationManager.translate("community.action.profiles", "Go to Profiles"),
+                    TranslationManager.translate("community.action.profileEditor", "Go to Profile Editor"),
+                    TranslationManager.translate("community.action.recipes", "Go to Recipes"),
+                    TranslationManager.translate("community.action.descaling", "Go to Descaling"),
+                    TranslationManager.translate("community.action.ai", "Go to AI"),
+                    TranslationManager.translate("community.action.visualizer", "Go to Visualizer"),
+                    TranslationManager.translate("community.action.favorites", "Go to Favorites"),
+                    TranslationManager.translate("community.action.steam", "Go to Steam"),
+                    TranslationManager.translate("community.action.hotWater", "Go to Hot Water"),
+                    TranslationManager.translate("community.action.flush", "Go to Flush"),
+                    TranslationManager.translate("community.action.beanInfo", "Go to Bean Info"),
+                    TranslationManager.translate("community.action.sleep", "Sleep"),
+                    TranslationManager.translate("community.action.startEspresso", "Start Espresso"),
+                    TranslationManager.translate("community.action.startSteam", "Start Steam"),
+                    TranslationManager.translate("community.action.startHotWater", "Start Hot Water"),
+                    TranslationManager.translate("community.action.startFlush", "Start Flush"),
+                    TranslationManager.translate("community.action.stop", "Stop"),
+                    TranslationManager.translate("community.action.tare", "Tare Scale"),
+                    TranslationManager.translate("community.action.quit", "Quit App"),
+                    TranslationManager.translate("community.action.toggleEspresso", "Toggle Espresso"),
+                    TranslationManager.translate("community.action.toggleSteam", "Toggle Steam"),
+                    TranslationManager.translate("community.action.toggleHotWater", "Toggle Hot Water"),
+                    TranslationManager.translate("community.action.toggleFlush", "Toggle Flush"),
+                    TranslationManager.translate("community.action.toggleBeans", "Toggle Beans")]
                 onCurrentIndexChanged: {
                     var actions = ["",
                         "navigate:settings", "navigate:history", "navigate:profiles",
@@ -114,7 +143,7 @@ Item {
                 id: sortFilter
                 Layout.preferredWidth: Theme.scaled(120)
                 accessibleLabel: TranslationManager.translate("community.filter.sort", "Sort order")
-                model: ["Newest", "Most Popular"]
+                model: [TranslationManager.translate("community.sort.newest", "Newest"), TranslationManager.translate("community.sort.popular", "Most Popular")]
                 onCurrentIndexChanged: {
                     var sorts = ["newest", "popular"]
                     communityBrowser.sortBy = sorts[currentIndex]
@@ -182,8 +211,8 @@ Item {
                 visible: resultsGrid.count === 0 && !LibrarySharing.browsing
                 anchors.centerIn: parent
                 text: communityBrowser.filterType || communityBrowser.filterVariable || communityBrowser.filterAction
-                    ? "No entries match your filters."
-                    : "Community library is empty.\nBe the first to share a widget!"
+                    ? TranslationManager.translate("community.empty.filtered", "No entries match your filters.")
+                    : TranslationManager.translate("community.empty.none", "Community library is empty.\nBe the first to share a widget!")
                 color: Theme.textSecondaryColor
                 font: Theme.bodyFont
                 horizontalAlignment: Text.AlignHCenter
@@ -195,17 +224,17 @@ Item {
     Connections {
         target: LibrarySharing
         function onDownloadComplete(localEntryId) {
-            downloadToast.text = "Added to your library!"
+            downloadToast.text = TranslationManager.translate("community.toast.added", "Added to your library!")
             downloadToast.visible = true
             downloadToastTimer.restart()
         }
         function onDownloadAlreadyExists(localEntryId) {
-            downloadToast.text = "Already in your library"
+            downloadToast.text = TranslationManager.translate("community.toast.duplicate", "Already in your library")
             downloadToast.visible = true
             downloadToastTimer.restart()
         }
         function onDownloadFailed(error) {
-            downloadToast.text = "Download failed: " + error
+            downloadToast.text = TranslationManager.translate("community.toast.failed", "Download failed: %1").arg(error)
             downloadToast.visible = true
             downloadToastTimer.restart()
         }
@@ -256,14 +285,18 @@ Item {
             color: downloadEnabled ? communityBottomBar.contentColor : Qt.rgba(communityBottomBar.contentColor.r, communityBottomBar.contentColor.g, communityBottomBar.contentColor.b, 0.15)
 
             Accessible.role: Accessible.Button
-            Accessible.name: LibrarySharing.downloading ? "Downloading" : "Add to Library"
+            Accessible.name: LibrarySharing.downloading
+                             ? TranslationManager.translate("community.downloading", "Downloading")
+                             : TranslationManager.translate("community.addToLibrary", "Add to Library")
             Accessible.focusable: true
             Accessible.onPressAction: downloadArea.clicked(null)
 
             Text {
                 id: downloadLabel
                 anchors.centerIn: parent
-                text: LibrarySharing.downloading ? "Downloading..." : "Add to Library"
+                text: LibrarySharing.downloading
+                      ? TranslationManager.translate("community.downloadingEllipsis", "Downloading...")
+                      : TranslationManager.translate("community.addToLibrary", "Add to Library")
                 color: parent.downloadEnabled ? communityBottomBar.color : Qt.rgba(communityBottomBar.contentColor.r, communityBottomBar.contentColor.g, communityBottomBar.contentColor.b, 0.5)
                 font.family: Theme.bodyFont.family
                 font.pixelSize: Theme.bodyFont.pixelSize
@@ -281,7 +314,7 @@ Item {
 
         Text {
             visible: LibrarySharing.totalCommunityResults > 0
-            text: LibrarySharing.totalCommunityResults + " entries"
+            text: TranslationManager.translate("community.entryCount", "%1 entries").arg(LibrarySharing.totalCommunityResults)
             color: communityBottomBar.contentColor
             font: Theme.captionFont
         }

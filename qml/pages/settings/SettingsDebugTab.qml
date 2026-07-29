@@ -263,7 +263,8 @@ Item {
 
                         Text {
                             text: MainController.profileConverter ?
-                                  "Converting: " + MainController.profileConverter.currentFile : ""
+                                  TranslationManager.translate("settings.debug.converting", "Converting: %1")
+                                      .arg(MainController.profileConverter.currentFile) : ""
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(11)
                             elide: Text.ElideMiddle
@@ -279,7 +280,9 @@ Item {
                                                     MainController.profileConverter.detectDE1AppProfilesPath() : ""
 
                         Text {
-                            text: parent.de1AppPath ? "DE1 app found" : "DE1 app not found"
+                            text: parent.de1AppPath
+                                  ? TranslationManager.translate("settings.debug.de1AppFound", "DE1 app found")
+                                  : TranslationManager.translate("settings.debug.de1AppNotFound", "DE1 app not found")
                             color: parent.de1AppPath ? Theme.primaryColor : Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(12)
                         }

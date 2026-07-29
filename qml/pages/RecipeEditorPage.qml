@@ -418,7 +418,7 @@ Page {
                                 }
                                 StyledSwitch {
                                     checked: recipeEditorPage.val(recipeEditorPage.recipe.secondFillEnabled, false)
-                                    accessibleName: "2nd Fill"
+                                    accessibleName: TranslationManager.translate("recipeEditor.secondFill", "2nd Fill")
                                     onClicked: recipeEditorPage.updateRecipe("secondFillEnabled", !recipeEditorPage.recipe.secondFillEnabled)
                                 }
                             }

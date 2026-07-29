@@ -146,65 +146,68 @@ Rectangle {
     readonly property var layoutBottomRightItems: layoutZones.bottomRight || []
 
     // Compile action button type to CustomItem modelData (mirrors LayoutItemDelegate)
+    // Labels use the SAME `idle.button.*` keys LayoutItemDelegate uses for these action
+    // types. They were bare English here, so a library card previewing an action widget
+    // read "Steam" in every locale while the real widget read the translation.
     function compileActionType(type) {
         switch (type) {
             case "espresso": return {
                 emoji: "qrc:/icons/profile.svg",
-                content: "Profiles",
+                content: TranslationManager.translate("idle.button.profiles", "Profiles"),
                 action: "togglePreset:espresso",
                 backgroundColor: String(Theme.primaryColor)
             }
             case "steam": return {
                 emoji: "qrc:/icons/steam.svg",
-                content: "Steam",
+                content: TranslationManager.translate("idle.button.steam", "Steam"),
                 action: "togglePreset:steam",
                 backgroundColor: String(Theme.primaryColor)
             }
             case "hotwater": return {
                 emoji: "qrc:/icons/water.svg",
-                content: "Hot Water",
+                content: TranslationManager.translate("idle.button.hotwater", "Hot Water"),
                 action: "togglePreset:hotwater",
                 backgroundColor: String(Theme.primaryColor)
             }
             case "flush": return {
                 emoji: "qrc:/icons/flush.svg",
-                content: "Flush",
+                content: TranslationManager.translate("idle.button.flush", "Flush"),
                 action: "togglePreset:flush",
                 backgroundColor: String(Theme.primaryColor)
             }
             case "beans": return {
                 emoji: "qrc:/icons/coffeebeans.svg",
-                content: "Beans",
+                content: TranslationManager.translate("idle.button.beaninfo", "Beans"),
                 action: "togglePreset:beans",
                 backgroundColor: String(Theme.primaryColor)
             }
             case "history": return {
                 emoji: "qrc:/icons/history.svg",
-                content: "History",
+                content: TranslationManager.translate("idle.button.history", "History"),
                 action: "navigate:history",
                 backgroundColor: String(Theme.primaryColor)
             }
             case "settings": return {
                 emoji: "qrc:/icons/settings.svg",
-                content: "Settings",
+                content: TranslationManager.translate("idle.button.settings", "Settings"),
                 action: "navigate:settings",
                 backgroundColor: String(Theme.primaryColor)
             }
             case "autofavorites": return {
                 emoji: "qrc:/icons/star.svg",
-                content: "Favorites",
+                content: TranslationManager.translate("idle.button.autofavorites", "Favorites"),
                 action: "navigate:autofavorites",
                 backgroundColor: String(Theme.primaryColor)
             }
             case "sleep": return {
                 emoji: "qrc:/icons/sleep.svg",
-                content: "Sleep",
+                content: TranslationManager.translate("idle.button.sleep", "Sleep"),
                 action: "command:sleep",
                 backgroundColor: "#555555"
             }
             case "quit": return {
                 emoji: "qrc:/icons/quit.svg",
-                content: "Quit",
+                content: TranslationManager.translate("idle.button.quit", "Quit"),
                 action: "command:quit",
                 backgroundColor: "#555555"
             }
