@@ -1,3 +1,9 @@
+// The tick-label and frame Repeater delegates read this file's ids (`chart`,
+// `graphsView`, `tempAxis`, `rightAxisLabels`); Bound makes them statically resolvable.
+// Both already declare each injected role they use required, so Bound cannot break role
+// injection here.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtGraphs
 import Decenza
@@ -246,15 +252,15 @@ Item {
                 Rectangle {
                     anchors.fill: parent
                     color: {
-                        if (index === chart.selectedFrameIndex) {
+                        if (frameDelegate.index === chart.selectedFrameIndex) {
                             return Qt.rgba(Theme.accentColor.r, Theme.accentColor.g, Theme.accentColor.b, 0.3)
                         }
-                        return index % 2 === 0 ?
+                        return frameDelegate.index % 2 === 0 ?
                             Qt.rgba(1, 1, 1, 0.05) :
                             Qt.rgba(1, 1, 1, 0.02)
                     }
-                    border.width: index === chart.selectedFrameIndex ? Theme.scaled(2) : Theme.scaled(1)
-                    border.color: index === chart.selectedFrameIndex ?
+                    border.width: frameDelegate.index === chart.selectedFrameIndex ? Theme.scaled(2) : Theme.scaled(1)
+                    border.color: frameDelegate.index === chart.selectedFrameIndex ?
                         Theme.accentColor : Qt.rgba(1, 1, 1, 0.2)
                 }
 
@@ -271,10 +277,10 @@ Item {
                     Text {
                         id: labelText
                         anchors.centerIn: parent
-                        text: frame ? (frame.name || ("Frame " + (index + 1))) : ""
+                        text: frameDelegate.frame ? (frameDelegate.frame.name || ("Frame " + (frameDelegate.index + 1))) : ""
                         color: Theme.textColor
                         font.pixelSize: Theme.scaled(14)
-                        font.bold: index === chart.selectedFrameIndex
+                        font.bold: frameDelegate.index === chart.selectedFrameIndex
                         rotation: -90
                         transformOrigin: Item.Center
                         opacity: 0.9
@@ -286,11 +292,11 @@ Item {
                         cursorShape: Qt.PointingHandCursor
                         Accessible.ignored: true
                         onClicked: {
-                            chart.selectedFrameIndex = index
-                            chart.frameSelected(index)
+                            chart.selectedFrameIndex = frameDelegate.index
+                            chart.frameSelected(frameDelegate.index)
                         }
                         onDoubleClicked: {
-                            chart.frameDoubleClicked(index)
+                            chart.frameDoubleClicked(frameDelegate.index)
                         }
                     }
                 }
@@ -301,11 +307,11 @@ Item {
                     z: -1
                     Accessible.ignored: true
                     onClicked: {
-                        chart.selectedFrameIndex = index
-                        chart.frameSelected(index)
+                        chart.selectedFrameIndex = frameDelegate.index
+                        chart.frameSelected(frameDelegate.index)
                     }
                     onDoubleClicked: {
-                        chart.frameDoubleClicked(index)
+                        chart.frameDoubleClicked(frameDelegate.index)
                     }
                 }
             }

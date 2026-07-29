@@ -1,3 +1,10 @@
+// The trace, phase-marker, pump-mode and tick-label Repeater delegates read this file's
+// ids (`chart`, `graphsView`, `timeAxis`, `pressureAxis`, `weightAxis`, `tempAxis`,
+// `rightAxisLabels`); Bound makes them statically resolvable. Every one of them already
+// declares each injected role it uses required, so Bound cannot break role injection
+// here.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtGraphs
 import Decenza
@@ -359,9 +366,9 @@ Item {
             Text {
                 id: markerText
                 text: {
-                    if (transitionReason === "" || isStart || isEnd) return markerLabel
+                    if (markerDelegate.transitionReason === "" || markerDelegate.isStart || markerDelegate.isEnd) return markerDelegate.markerLabel
                     var suffix = ""
-                    switch (transitionReason) {
+                    switch (markerDelegate.transitionReason) {
                         case "weight": suffix = " [W]"; break
                         case "pressure": suffix = " [P]"; break
                         case "pressure_unconfirmed": suffix = " [P]"; break
@@ -369,11 +376,11 @@ Item {
                         case "flow_unconfirmed": suffix = " [F]"; break
                         case "time": suffix = " [T]"; break
                     }
-                    return markerLabel + suffix
+                    return markerDelegate.markerLabel + suffix
                 }
                 font.pixelSize: Theme.scaled(18)
-                font.bold: isStart || isEnd
-                color: isStart ? Theme.accentColor : (isEnd ? Theme.stopMarkerColor : Qt.rgba(255, 255, 255, 0.8))
+                font.bold: markerDelegate.isStart || markerDelegate.isEnd
+                color: markerDelegate.isStart ? Theme.accentColor : (markerDelegate.isEnd ? Theme.stopMarkerColor : Qt.rgba(255, 255, 255, 0.8))
                 rotation: -90
                 transformOrigin: Item.TopLeft
                 x: Theme.scaled(4)
@@ -391,7 +398,7 @@ Item {
 
             // Accessible tap area for End marker - announces weight at stop vs final weight
             AccessibleMouseArea {
-                visible: isEnd
+                visible: markerDelegate.isEnd
                 x: markerText.x - Theme.scaled(10)
                 y: markerText.y - markerText.width - Theme.scaled(10)
                 width: markerText.height + Theme.scaled(20)

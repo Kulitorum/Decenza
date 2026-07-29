@@ -1,3 +1,10 @@
+// The trace, phase-marker, pump-mode and tick-label Repeater delegates read this file's
+// ids (`chart`, `graphsView`, `timeAxis`, `pressureAxis`, `weightAxis`, `tempAxis`,
+// `rightAxisLabels`); Bound makes them statically resolvable. Every one of them already
+// declares each injected role it uses required, so Bound cannot break role injection
+// here.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtGraphs
 import Decenza
@@ -371,8 +378,8 @@ Item {
         property real min: 0
         property real max: {
             var maxW = 0
-            for (var i = 0; i < weightData.length; i++) {
-                if (weightData[i].y > maxW) maxW = weightData[i].y
+            for (var i = 0; i < chart.weightData.length; i++) {
+                if (chart.weightData[i].y > maxW) maxW = chart.weightData[i].y
             }
             return Math.max(10, maxW * 1.1)
         }
@@ -382,15 +389,15 @@ Item {
         id: dCdtAxis
         property real min: {
             var minV = 0
-            for (var i = 0; i < conductanceDerivativeData.length; i++) {
-                if (conductanceDerivativeData[i].y < minV) minV = conductanceDerivativeData[i].y
+            for (var i = 0; i < chart.conductanceDerivativeData.length; i++) {
+                if (chart.conductanceDerivativeData[i].y < minV) minV = chart.conductanceDerivativeData[i].y
             }
             return minV < 0 ? -Math.abs(minV) * 1.15 : 0
         }
         property real max: {
             var maxV = 0
-            for (var i = 0; i < conductanceDerivativeData.length; i++) {
-                if (conductanceDerivativeData[i].y > maxV) maxV = conductanceDerivativeData[i].y
+            for (var i = 0; i < chart.conductanceDerivativeData.length; i++) {
+                if (chart.conductanceDerivativeData[i].y > maxV) maxV = chart.conductanceDerivativeData[i].y
             }
             var padded = maxV * 1.15
             if (padded <= 2) return 2
@@ -624,9 +631,9 @@ Item {
 
             Text {
                 text: {
-                    if (transitionReason === "") return markerLabel
+                    if (markerDelegate.transitionReason === "") return markerDelegate.markerLabel
                     var suffix = ""
-                    switch (transitionReason) {
+                    switch (markerDelegate.transitionReason) {
                         case "weight": suffix = " [W]"; break
                         case "pressure": suffix = " [P]"; break
                         case "pressure_unconfirmed": suffix = " [P]"; break
@@ -634,11 +641,11 @@ Item {
                         case "flow_unconfirmed": suffix = " [F]"; break
                         case "time": suffix = " [T]"; break
                     }
-                    return markerLabel + suffix
+                    return markerDelegate.markerLabel + suffix
                 }
                 font.pixelSize: Theme.scaled(14)
-                font.bold: isStart
-                color: isStart ? Theme.accentColor : Qt.rgba(255, 255, 255, 0.8)
+                font.bold: markerDelegate.isStart
+                color: markerDelegate.isStart ? Theme.accentColor : Qt.rgba(255, 255, 255, 0.8)
                 rotation: -90
                 transformOrigin: Item.TopLeft
                 x: Theme.scaled(3)

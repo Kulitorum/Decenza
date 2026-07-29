@@ -1,3 +1,10 @@
+// The provider-tile, MCP access-level, MCP confirmation-level and remote-mode Repeater
+// delegates read this file's `aiTab` id; Bound makes it statically resolvable. Each
+// declares its one injected role, `modelData`, required in the same edit -- without
+// that, Bound stops role injection and all four option lists render blank at RUNTIME,
+// silently.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -101,12 +108,15 @@ KeyboardAwareContainer {
                             ]
 
                             delegate: Rectangle {
+                                id: providerTile
+                                required property var modelData
+
                                 width: Theme.scaled(90)
                                 height: Theme.scaled(56)
                                 radius: Theme.scaled(8)
 
-                                property bool isSelected: Settings.ai.aiProvider === modelData.id
-                                property bool hasKey: aiTab.isProviderConfigured(modelData.id)
+                                property bool isSelected: Settings.ai.aiProvider === providerTile.modelData.id
+                                property bool hasKey: aiTab.isProviderConfigured(providerTile.modelData.id)
 
                                 color: {
                                     if (isSelected) return Theme.primaryColor
@@ -127,7 +137,7 @@ KeyboardAwareContainer {
                                 border.width: 1
 
                                 Accessible.role: Accessible.Button
-                                Accessible.name: modelData.name + (isSelected
+                                Accessible.name: providerTile.modelData.name + (providerTile.isSelected
                                     ? " (" + TranslationManager.translate("settings.ai.selected", "selected") + ")"
                                     : "")
                                 Accessible.focusable: true
@@ -139,20 +149,20 @@ KeyboardAwareContainer {
 
                                     Text {
                                         anchors.horizontalCenter: parent.horizontalCenter
-                                        text: modelData.name
+                                        text: providerTile.modelData.name
                                         font.pixelSize: Theme.scaled(13)
-                                        font.bold: isSelected
-                                        color: isSelected ? Theme.primaryContrastColor : Theme.textColor
+                                        font.bold: providerTile.isSelected
+                                        color: providerTile.isSelected ? Theme.primaryContrastColor : Theme.textColor
                                         Accessible.ignored: true
                                     }
                                     Text {
                                         anchors.horizontalCenter: parent.horizontalCenter
                                         text: {
                                             aiTab.configTick  // dependency: refresh on model change
-                                            return MainController.aiManager ? MainController.aiManager.modelDisplayName(modelData.id) : ""
+                                            return MainController.aiManager ? MainController.aiManager.modelDisplayName(providerTile.modelData.id) : ""
                                         }
                                         font.pixelSize: Theme.scaled(11)
-                                        color: isSelected ? Qt.rgba(1,1,1,0.8) : Theme.textSecondaryColor
+                                        color: providerTile.isSelected ? Qt.rgba(1,1,1,0.8) : Theme.textSecondaryColor
                                         Accessible.ignored: true
                                     }
                                 }
@@ -160,7 +170,7 @@ KeyboardAwareContainer {
                                 MouseArea {
                                     id: providerArea
                                     anchors.fill: parent
-                                    onClicked: Settings.ai.aiProvider = modelData.id
+                                    onClicked: Settings.ai.aiProvider = providerTile.modelData.id
                                 }
                             }
                         }
@@ -683,11 +693,13 @@ KeyboardAwareContainer {
 
                         delegate: Rectangle {
                             id: accessDelegate
+                            required property var modelData
+
                             Layout.fillWidth: true
                             Layout.preferredHeight: accessDelegateCol.implicitHeight + Theme.scaled(16)
                             radius: Theme.scaled(6)
-                            color: Settings.mcp.mcpAccessLevel === modelData.level ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15) : "transparent"
-                            border.color: Settings.mcp.mcpAccessLevel === modelData.level ? Theme.primaryColor : Theme.borderColor
+                            color: Settings.mcp.mcpAccessLevel === accessDelegate.modelData.level ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15) : "transparent"
+                            border.color: Settings.mcp.mcpAccessLevel === accessDelegate.modelData.level ? Theme.primaryColor : Theme.borderColor
                             border.width: 1
 
                             Accessible.ignored: true
@@ -701,14 +713,14 @@ KeyboardAwareContainer {
                                 spacing: Theme.scaled(2)
 
                                 Text {
-                                    text: modelData.label
+                                    text: accessDelegate.modelData.label
                                     color: Theme.textColor
                                     font.pixelSize: Theme.scaled(13)
                                     font.bold: true
                                     Accessible.ignored: true
                                 }
                                 Text {
-                                    text: modelData.detail
+                                    text: accessDelegate.modelData.detail
                                     color: Theme.textSecondaryColor
                                     font.pixelSize: Theme.scaled(11)
                                     wrapMode: Text.WordWrap
@@ -719,9 +731,9 @@ KeyboardAwareContainer {
 
                             AccessibleMouseArea {
                                 anchors.fill: parent
-                                accessibleName: modelData.label + ". " + modelData.detail
+                                accessibleName: accessDelegate.modelData.label + ". " + accessDelegate.modelData.detail
                                 accessibleItem: accessDelegate
-                                onAccessibleClicked: Settings.mcp.mcpAccessLevel = modelData.level
+                                onAccessibleClicked: Settings.mcp.mcpAccessLevel = accessDelegate.modelData.level
                             }
                         }
                     }
@@ -763,11 +775,13 @@ KeyboardAwareContainer {
 
                         delegate: Rectangle {
                             id: confirmDelegate
+                            required property var modelData
+
                             Layout.fillWidth: true
                             Layout.preferredHeight: confirmDelegateCol.implicitHeight + Theme.scaled(16)
                             radius: Theme.scaled(6)
-                            color: Settings.mcp.mcpConfirmationLevel === modelData.level ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15) : "transparent"
-                            border.color: Settings.mcp.mcpConfirmationLevel === modelData.level ? Theme.primaryColor : Theme.borderColor
+                            color: Settings.mcp.mcpConfirmationLevel === confirmDelegate.modelData.level ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15) : "transparent"
+                            border.color: Settings.mcp.mcpConfirmationLevel === confirmDelegate.modelData.level ? Theme.primaryColor : Theme.borderColor
                             border.width: 1
 
                             Accessible.ignored: true
@@ -781,14 +795,14 @@ KeyboardAwareContainer {
                                 spacing: Theme.scaled(2)
 
                                 Text {
-                                    text: modelData.label
+                                    text: confirmDelegate.modelData.label
                                     color: Theme.textColor
                                     font.pixelSize: Theme.scaled(13)
                                     font.bold: true
                                     Accessible.ignored: true
                                 }
                                 Text {
-                                    text: modelData.detail
+                                    text: confirmDelegate.modelData.detail
                                     color: Theme.textSecondaryColor
                                     font.pixelSize: Theme.scaled(11)
                                     wrapMode: Text.WordWrap
@@ -799,9 +813,9 @@ KeyboardAwareContainer {
 
                             AccessibleMouseArea {
                                 anchors.fill: parent
-                                accessibleName: modelData.label + ". " + modelData.detail
+                                accessibleName: confirmDelegate.modelData.label + ". " + confirmDelegate.modelData.detail
                                 accessibleItem: confirmDelegate
-                                onAccessibleClicked: Settings.mcp.mcpConfirmationLevel = modelData.level
+                                onAccessibleClicked: Settings.mcp.mcpConfirmationLevel = confirmDelegate.modelData.level
                             }
                         }
                     }
@@ -924,12 +938,14 @@ KeyboardAwareContainer {
                             ]
                             delegate: Rectangle {
                                 id: modeDelegate
+                                required property var modelData
+
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: modeCol.implicitHeight + Theme.scaled(16)
                                 radius: Theme.scaled(6)
-                                opacity: modelData.enabled ? 1.0 : 0.5
-                                color: Settings.mcp.remoteMcpMode === modelData.mode ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15) : "transparent"
-                                border.color: Settings.mcp.remoteMcpMode === modelData.mode ? Theme.primaryColor : Theme.borderColor
+                                opacity: modeDelegate.modelData.enabled ? 1.0 : 0.5
+                                color: Settings.mcp.remoteMcpMode === modeDelegate.modelData.mode ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15) : "transparent"
+                                border.color: Settings.mcp.remoteMcpMode === modeDelegate.modelData.mode ? Theme.primaryColor : Theme.borderColor
                                 border.width: 1
                                 Accessible.ignored: true
 
@@ -941,14 +957,14 @@ KeyboardAwareContainer {
                                     anchors.margins: Theme.scaled(12)
                                     spacing: Theme.scaled(2)
                                     Text {
-                                        text: modelData.label
+                                        text: modeDelegate.modelData.label
                                         color: Theme.textColor
                                         font.pixelSize: Theme.scaled(13)
                                         font.bold: true
                                         Accessible.ignored: true
                                     }
                                     Text {
-                                        text: modelData.detail
+                                        text: modeDelegate.modelData.detail
                                         color: Theme.textSecondaryColor
                                         font.pixelSize: Theme.scaled(11)
                                         wrapMode: Text.WordWrap
@@ -958,10 +974,10 @@ KeyboardAwareContainer {
                                 }
                                 AccessibleMouseArea {
                                     anchors.fill: parent
-                                    enabled: modelData.enabled
-                                    accessibleName: modelData.label + ". " + modelData.detail
+                                    enabled: modeDelegate.modelData.enabled
+                                    accessibleName: modeDelegate.modelData.label + ". " + modeDelegate.modelData.detail
                                     accessibleItem: modeDelegate
-                                    onAccessibleClicked: if (modelData.enabled) Settings.mcp.remoteMcpMode = modelData.mode
+                                    onAccessibleClicked: if (modeDelegate.modelData.enabled) Settings.mcp.remoteMcpMode = modeDelegate.modelData.mode
                                 }
                             }
                         }
