@@ -1,8 +1,9 @@
-// The provider-tile, MCP access-level, MCP confirmation-level and remote-mode Repeater
-// delegates read this file's `aiTab` id; Bound makes it statically resolvable. Each
-// declares its one injected role, `modelData`, required in the same edit -- without
-// that, Bound stops role injection and all four option lists render blank at RUNTIME,
-// silently.
+// The provider-tile Repeater delegate reads this file's `aiTab` id; Bound makes it
+// statically resolvable. It and the three MCP option-list delegates (access level,
+// confirmation level, remote mode) each declare their one injected role, `modelData`,
+// required in the same edit -- without that, Bound stops role injection and all four
+// option lists render blank at RUNTIME, silently. (Those three read no file id; they
+// only need their role.)
 pragma ComponentBehavior: Bound
 
 import QtQuick

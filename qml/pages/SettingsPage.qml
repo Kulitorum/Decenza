@@ -1,7 +1,8 @@
-// The two Repeater delegates below read this file's ids (`settingsPage`,
-// `saveThemeDialog`); Bound makes them statically resolvable. Both delegates already
-// declare every injected model role they use as a required property, so Bound cannot
-// break role injection here.
+// The tab-loading Repeater delegate reads this file's ids (`settingsPage`,
+// `saveThemeDialog`); Bound makes them statically resolvable. It and the tab-button
+// delegate both already declare every injected model role they use as a required
+// property, so Bound cannot break role injection here. (The tab-button delegate reads
+// no file id; it only needs its roles.)
 pragma ComponentBehavior: Bound
 
 import QtQuick

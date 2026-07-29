@@ -1,8 +1,9 @@
-// The charging-mode, extraction-view and refill-kit Repeater delegates read this file's
-// `extractionViewContent` id; Bound makes it statically resolvable. Each declares the
-// injected role it uses required in the same edit (`model` for the ListModel-backed
-// extraction-view list, `modelData` for the other two) -- without that, Bound stops
-// role injection and all three option rows render blank at RUNTIME, silently.
+// The extraction-view Repeater delegate reads this file's `extractionViewContent` id;
+// Bound makes it statically resolvable. It and the charging-mode and refill-kit
+// delegates each declare the injected role they use required in the same edit (`model`
+// for the ListModel-backed extraction-view list, `modelData` for the other two) --
+// without that, Bound stops role injection and all three option rows render blank at
+// RUNTIME, silently. (The other two read no file id; they only need their roles.)
 pragma ComponentBehavior: Bound
 
 import QtQuick
