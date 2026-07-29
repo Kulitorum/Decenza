@@ -564,6 +564,31 @@ public:
     // lambda.
     void appendScaleLog(const QString& message, bool mirrorToSystemLog = true);
 
+private:
+    // How BLEManager logs its own narrative. Pick by AUDIENCE, per the tier
+    // rules in core/logtags.h:
+    //
+    //   scaleDebug  developer detail — periodic probes, ignored transients,
+    //               mechanism notes. Kept out of the on-screen view.
+    //   scaleInfo   the narrative a user needs: scanning, found, connecting,
+    //               connected, disconnected, transport fallback, reconnects.
+    //   scaleWarn   problems: refusals, timeouts, unreachable, teardowns.
+    //
+    // Each writes stderr at its tier with the subsystem marker AND records the
+    // line for the connections-page view, from one call — so the two can never
+    // describe the same event differently. BLEManager cannot use the SCALE_*
+    // macros directly: they `emit logMessage(...)`, and this class's signal is
+    // named scaleLogMessage.
+    //
+    // refractometerInfo exists because BLEManager narrates both subsystems and
+    // a refractometer line must carry [Refractometer], not [Scale].
+    void scaleDebug(const QString& message);
+    void scaleInfo(const QString& message);
+    void scaleWarn(const QString& message);
+    void refractometerInfo(const QString& message);
+
+public:
+
 public slots:
     Q_INVOKABLE void tryDirectConnectToDE1();
     // allowDirectConnect=true (foreground triggers: device-picker switch, app
