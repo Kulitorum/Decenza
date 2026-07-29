@@ -44,7 +44,7 @@ Page {
     Connections {
         target: MachineState
         function onPhaseChanged() {
-            if (!wasPurging || isPurging || !transportPage.visible)
+            if (!transportPage.wasPurging || transportPage.isPurging || !transportPage.visible)
                 return
             // Only a settled landing means the drain actually ran to a stop:
             // Idle/Ready normally, or Heating if the machine briefly reheats
@@ -57,18 +57,18 @@ Page {
                 phase !== MachineState.Phase.Ready &&
                 phase !== MachineState.Phase.Heating)
                 return
-            wasPurging = false
-            if (userStopped) {
+            transportPage.wasPurging = false
+            if (transportPage.userStopped) {
                 // User aborted via the in-app STOP — return to the prepare view.
-                userStopped = false
-                showComplete = false
+                transportPage.userStopped = false
+                transportPage.showComplete = false
                 return
             }
             // The drain left the Transport phase for a settled state. We cannot
             // positively confirm the tank is empty — a physical GHC stop lands
             // here too, indistinguishable from a natural end — so the completion
             // view gives conditional guidance rather than asserting emptiness.
-            showComplete = true
+            transportPage.showComplete = true
         }
     }
 
@@ -86,7 +86,7 @@ Page {
 
             // === DRAINING IN PROGRESS VIEW ===
             Item {
-                visible: isPurging
+                visible: transportPage.isPurging
                 Layout.fillWidth: true
                 Layout.fillHeight: true
 
@@ -125,7 +125,7 @@ Page {
 
                             BusyIndicator {
                                 Layout.alignment: Qt.AlignHCenter
-                                running: isPurging
+                                running: transportPage.isPurging
                                 Accessible.ignored: true
                             }
                         }
@@ -171,7 +171,7 @@ Page {
                             accessibleName: TranslationManager.translate("transport.accessible.emergencyStop", "Emergency stop draining")
                             accessibleItem: purgeStopButton
                             onAccessibleClicked: {
-                                userStopped = true
+                                transportPage.userStopped = true
                                 DE1Device.stopOperation()
                             }
                         }
@@ -183,7 +183,7 @@ Page {
 
             // === COMPLETE VIEW ===
             ColumnLayout {
-                visible: showComplete && !isPurging
+                visible: transportPage.showComplete && !transportPage.isPurging
                 Layout.fillWidth: true
                 spacing: Theme.scaled(12)
 
@@ -249,7 +249,7 @@ Page {
                     _customFontSize: Theme.scaled(18)
                     _customFontWeight: Font.Bold
                     onClicked: {
-                        showComplete = false
+                        transportPage.showComplete = false
                         AppShell.idleRequested()
                     }
                 }
@@ -257,7 +257,7 @@ Page {
 
             // === PREPARATION VIEW ===
             ColumnLayout {
-                visible: !isPurging && !showComplete
+                visible: !transportPage.isPurging && !transportPage.showComplete
                 Layout.fillWidth: true
                 spacing: Theme.scaled(12)
 
@@ -353,7 +353,7 @@ Page {
                 // Not-ready hint (shown until the machine has warmed up)
                 Rectangle {
                     Layout.fillWidth: true
-                    visible: !machineReady
+                    visible: !transportPage.machineReady
                     Layout.preferredHeight: notReadyContent.implicitHeight + Theme.scaled(24)
                     color: Qt.rgba(Theme.warningColor.r, Theme.warningColor.g, Theme.warningColor.b, 0.15)
                     radius: Theme.cardRadius
@@ -384,14 +384,14 @@ Page {
                     Layout.preferredWidth: Theme.scaled(250)
                     Layout.preferredHeight: Theme.scaled(56)
                     primary: true
-                    enabled: machineReady
+                    enabled: transportPage.machineReady
                     text: TranslationManager.translate("transport.button.start", "Start Transport Mode")
                     accessibleName: TranslationManager.translate("transport.button.start", "Start Transport Mode")
                     _customFontSize: Theme.scaled(20)
                     _customFontWeight: Font.Bold
                     onClicked: {
-                        userStopped = false
-                        showComplete = false
+                        transportPage.userStopped = false
+                        transportPage.showComplete = false
                         DE1Device.startAirPurge()
                     }
                 }
@@ -403,10 +403,10 @@ Page {
 
     // Bottom bar
     BottomBar {
-        visible: !isPurging
+        visible: !transportPage.isPurging
         title: transportPage.pageTitle
         onBackClicked: {
-            showComplete = false
+            transportPage.showComplete = false
             AppShell.backRequested()
         }
     }

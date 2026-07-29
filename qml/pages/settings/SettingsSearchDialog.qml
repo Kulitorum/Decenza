@@ -1,3 +1,9 @@
+// The results-list delegate reads this file's ids (`searchDialog`, `resultsList`);
+// Bound makes them statically resolvable. It declares its one injected role,
+// `modelData`, required in the same edit -- without that, Bound stops role injection
+// and every search result renders blank at RUNTIME, silently.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -154,9 +160,9 @@ Dialog {
 
         // Results count
         Text {
-            text: filteredEntries.length === allEntries.length
+            text: searchDialog.filteredEntries.length === searchDialog.allEntries.length
                 ? TranslationManager.translate("settings.search.browseAll", "Browse all settings")
-                : TranslationManager.translate("settings.search.resultsCount", "%1 results").arg(filteredEntries.length)
+                : TranslationManager.translate("settings.search.resultsCount", "%1 results").arg(searchDialog.filteredEntries.length)
             color: Theme.textSecondaryColor
             font.pixelSize: Theme.scaled(11)
         }
@@ -168,10 +174,12 @@ Dialog {
             Layout.fillHeight: true
             clip: true
             boundsBehavior: Flickable.StopAtBounds
-            model: filteredEntries
+            model: searchDialog.filteredEntries
 
             delegate: Rectangle {
                 id: resultDelegate
+                required property var modelData
+
                 width: resultsList.width
                 height: resultContent.implicitHeight + Theme.scaled(16)
                 color: resultMouseArea.containsMouse ? Theme.backgroundColor : "transparent"
@@ -199,7 +207,7 @@ Dialog {
                         spacing: Theme.scaled(2)
 
                         Text {
-                            text: modelData.title
+                            text: resultDelegate.modelData.title
                             color: Theme.textColor
                             font.pixelSize: Theme.scaled(14)
                             font.bold: true
@@ -208,7 +216,7 @@ Dialog {
 
                         Text {
                             Layout.fillWidth: true
-                            text: modelData.description
+                            text: resultDelegate.modelData.description
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(11)
                             wrapMode: Text.WordWrap
@@ -242,7 +250,7 @@ Dialog {
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
                     onClicked: {
-                        searchDialog.resultSelected(modelData.tabId || "", modelData.cardId || "", modelData.externalRoute || "")
+                        searchDialog.resultSelected(resultDelegate.modelData.tabId || "", resultDelegate.modelData.cardId || "", resultDelegate.modelData.externalRoute || "")
                         searchDialog.close()
                     }
                 }
@@ -250,8 +258,12 @@ Dialog {
 
             // Empty state
             Text {
-                anchors.centerIn: parent
-                visible: filteredEntries.length === 0
+                // `parent` here is the ListView's contentItem (qquickflickable.cpp:2442),
+                // which is zero-high exactly when the list is empty -- centring on it put
+                // this message half above the clipped top edge.
+                anchors.horizontalCenter: parent.horizontalCenter
+                y: (resultsList.height - height) / 2
+                visible: searchDialog.filteredEntries.length === 0
                 text: TranslationManager.translate("settings.search.noResults", "No settings found")
                 color: Theme.textSecondaryColor
                 font.pixelSize: Theme.scaled(14)

@@ -1,3 +1,9 @@
+// The option-card Repeater delegate and four `layer.effect` components read this file's
+// `selectorDialog` id; Bound makes it statically resolvable. The delegate declares its
+// injected `model` role required in the same edit -- without that, Bound stops role
+// injection and both option cards render blank at RUNTIME, silently.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -70,6 +76,8 @@ Dialog {
 
             delegate: Rectangle {
                 id: optionCard
+                required property var model
+
                 Layout.fillWidth: true
                 implicitHeight: optionRow.implicitHeight + Theme.spacingMedium * 2
                 radius: Theme.cardRadius
@@ -90,7 +98,7 @@ Dialog {
                     spacing: Theme.spacingMedium
 
                     Image {
-                        source: model.icon
+                        source: optionCard.model.icon
                         sourceSize.width: Theme.scaled(28)
                         sourceSize.height: Theme.scaled(28)
                         Layout.alignment: Qt.AlignVCenter
@@ -108,7 +116,7 @@ Dialog {
                         spacing: Theme.scaled(2)
 
                         Text {
-                            text: TranslationManager.translate(model.labelKey, model.labelFallback)
+                            text: TranslationManager.translate(optionCard.model.labelKey, optionCard.model.labelFallback)
                             color: Theme.textColor
                             font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.bodyFont.pixelSize
@@ -117,7 +125,7 @@ Dialog {
                         }
 
                         Text {
-                            text: TranslationManager.translate(model.descKey, model.descFallback)
+                            text: TranslationManager.translate(optionCard.model.descKey, optionCard.model.descFallback)
                             color: Theme.textSecondaryColor
                             font: Theme.captionFont
                             Layout.fillWidth: true
@@ -131,7 +139,7 @@ Dialog {
                         Layout.preferredWidth: Theme.scaled(20)
                         Layout.preferredHeight: Theme.scaled(20)
                         radius: Theme.scaled(10)
-                        border.color: selectorDialog.currentMode === model.mode
+                        border.color: selectorDialog.currentMode === optionCard.model.mode
                             ? Theme.primaryColor : Theme.textSecondaryColor
                         border.width: Theme.scaled(2)
                         color: "transparent"
@@ -143,18 +151,18 @@ Dialog {
                             height: Theme.scaled(10)
                             radius: Theme.scaled(5)
                             color: Theme.primaryColor
-                            visible: selectorDialog.currentMode === model.mode
+                            visible: selectorDialog.currentMode === optionCard.model.mode
                         }
                     }
                 }
 
                 AccessibleMouseArea {
                     anchors.fill: parent
-                    accessibleName: TranslationManager.translate(model.labelKey, model.labelFallback) + ". " +
-                                    TranslationManager.translate(model.descKey, model.descFallback)
+                    accessibleName: TranslationManager.translate(optionCard.model.labelKey, optionCard.model.labelFallback) + ". " +
+                                    TranslationManager.translate(optionCard.model.descKey, optionCard.model.descFallback)
                     accessibleItem: optionCard
                     onAccessibleClicked: {
-                        selectorDialog.modeSelected(model.mode)
+                        selectorDialog.modeSelected(optionCard.model.mode)
                         selectorDialog.close()
                     }
                 }

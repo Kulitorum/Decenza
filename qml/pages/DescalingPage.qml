@@ -36,12 +36,12 @@ Page {
     Connections {
         target: MachineState
         function onPhaseChanged() {
-            if (wasDescaling && !isDescaling && descalingPage.visible) {
+            if (descalingPage.wasDescaling && !descalingPage.isDescaling && descalingPage.visible) {
                 // Descaling just finished, show rinse instructions
                 if (MachineState.phase === MachineState.Phase.Idle ||
                     MachineState.phase === MachineState.Phase.Ready) {
-                    showRinseInstructions = true
-                    wasDescaling = false
+                    descalingPage.showRinseInstructions = true
+                    descalingPage.wasDescaling = false
                 }
             }
         }
@@ -80,7 +80,7 @@ Page {
 
             // === DESCALING IN PROGRESS VIEW ===
             Item {
-                visible: isDescaling
+                visible: descalingPage.isDescaling
                 Layout.fillWidth: true
                 Layout.fillHeight: true
 
@@ -112,7 +112,7 @@ Page {
 
                             Text {
                                 Layout.alignment: Qt.AlignHCenter
-                                text: getDescaleStepDescription(DE1Device.subState)
+                                text: descalingPage.getDescaleStepDescription(DE1Device.subState)
                                 font: Theme.bodyFont
                                 color: Theme.textSecondaryColor
                             }
@@ -127,7 +127,7 @@ Page {
                                 Accessible.ignored: true
 
                                 Rectangle {
-                                    width: parent.width * getDescaleProgress(DE1Device.subState)
+                                    width: parent.width * descalingPage.getDescaleProgress(DE1Device.subState)
                                     height: parent.height
                                     radius: Theme.scaled(6)
                                     color: Theme.primaryColor
@@ -138,7 +138,7 @@ Page {
 
                             Text {
                                 Layout.alignment: Qt.AlignHCenter
-                                text: Math.round(getDescaleProgress(DE1Device.subState) * 100) + "%"
+                                text: Math.round(descalingPage.getDescaleProgress(DE1Device.subState) * 100) + "%"
                                 font: Theme.captionFont
                                 color: Theme.textSecondaryColor
                             }
@@ -199,7 +199,7 @@ Page {
 
             // === RINSE INSTRUCTIONS VIEW ===
             ColumnLayout {
-                visible: showRinseInstructions && !isDescaling
+                visible: descalingPage.showRinseInstructions && !descalingPage.isDescaling
                 Layout.fillWidth: true
                 spacing: Theme.scaled(12)
 
@@ -358,7 +358,7 @@ Page {
                 // Cycle counter
                 Text {
                     Layout.alignment: Qt.AlignHCenter
-                    text: TranslationManager.translate("descaling.cycleCount", "Cycle %1 complete").arg(descaleCycleCount)
+                    text: TranslationManager.translate("descaling.cycleCount", "Cycle %1 complete").arg(descalingPage.descaleCycleCount)
                     font: Theme.captionFont
                     color: Theme.textSecondaryColor
                 }
@@ -376,8 +376,8 @@ Page {
                         _customFontSize: Theme.scaled(18)
                         _customFontWeight: Font.Bold
                         onClicked: {
-                            showRinseInstructions = false
-                            wasDescaling = false
+                            descalingPage.showRinseInstructions = false
+                            descalingPage.wasDescaling = false
                             DE1Device.startDescale()
                         }
                     }
@@ -391,7 +391,7 @@ Page {
                         _customFontSize: Theme.scaled(18)
                         _customFontWeight: Font.Bold
                         onClicked: {
-                            showRinseInstructions = false
+                            descalingPage.showRinseInstructions = false
                             AppShell.idleRequested()
                         }
                     }
@@ -400,7 +400,7 @@ Page {
 
             // === PREPARATION VIEW ===
             ColumnLayout {
-                visible: !isDescaling && !showRinseInstructions
+                visible: !descalingPage.isDescaling && !descalingPage.showRinseInstructions
                 Layout.fillWidth: true
                 spacing: Theme.scaled(12)
 
@@ -743,10 +743,10 @@ Page {
 
     // Bottom bar
     BottomBar {
-        visible: !isDescaling
+        visible: !descalingPage.isDescaling
         title: TranslationManager.translate("descaling.title", "Descaling")
         onBackClicked: {
-            showRinseInstructions = false
+            descalingPage.showRinseInstructions = false
             AppShell.backRequested()
         }
     }

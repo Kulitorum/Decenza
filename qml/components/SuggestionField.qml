@@ -168,7 +168,7 @@ Item {
             // persisted value stays in sync. Popup open/close is handled by
             // onDisplayTextChanged instead, because on Android `text` doesn't
             // update during composition and this signal wouldn't fire per keystroke.
-            isActivelyTyping = true
+            root.isActivelyTyping = true
             // Don't set root.text here - that breaks the parent binding!
             // Just emit the signal and let parent update via its binding
             root.textEdited(text)
@@ -180,12 +180,12 @@ Item {
         // On Android this is what makes suggestions appear immediately instead of
         // waiting for a space or delete to commit the composition.
         onDisplayTextChanged: {
-            if (!activeFocus || justSelected) return
+            if (!activeFocus || root.justSelected) return
             if (displayText.length === 0) {
                 suggestionPopup.close()
             } else {
-                isActivelyTyping = true
-                if (getFilteredSuggestions().length > 0) {
+                root.isActivelyTyping = true
+                if (root.getFilteredSuggestions().length > 0) {
                     suggestionPopup.open()
                 }
             }
@@ -193,8 +193,8 @@ Item {
 
         onActiveFocusChanged: {
             if (activeFocus) {
-                justSelected = false  // Reset so typing works again
-                isActivelyTyping = false  // Reset - show all suggestions initially
+                root.justSelected = false  // Reset so typing works again
+                root.isActivelyTyping = false  // Reset - show all root.suggestions initially
                 root.inputFocused(textInput)
                 // Intentionally do NOT auto-open the popup on focus. The popup is a
                 // filter-as-you-type dropdown; it appears once the user starts typing.
@@ -207,7 +207,7 @@ Item {
                 root.inputBlurred()
                 // Defer popup close — if the user clicked a popup item,
                 // selectSuggestion() will have set justSelected = true by now
-                Qt.callLater(closeSuggestionsIfBlurred)
+                Qt.callLater(root.closeSuggestionsIfBlurred)
             }
         }
 
@@ -217,7 +217,7 @@ Item {
             // top match when the typed text isn't already an exact entry.
             // Otherwise commit the typed text (keeps brand-new names intact).
             if (suggestionPopup.visible && suggestionList.count > 0) {
-                var matches = getFilteredSuggestions()
+                var matches = root.getFilteredSuggestions()
                 var pick = -1
                 if (suggestionList.currentIndex >= 0)
                     pick = suggestionList.currentIndex
@@ -300,8 +300,8 @@ Item {
                 accessibleName: TranslationManager.translate("suggestionfield.clear", "Clear text")
                 accessibleItem: parent
                 onAccessibleClicked: {
-                    justSelected = false
-                    isActivelyTyping = false
+                    root.justSelected = false
+                    root.isActivelyTyping = false
                     textInput.text = ""
                     root.textEdited("")
                     // Don't re-open the popup — it's a type-to-filter dropdown,
@@ -353,7 +353,7 @@ Item {
     // Accessibility mode: separate row of labeled buttons below the text field
     Row {
         id: a11yButtons
-        visible: root._accessibilityMode && (textInput.text.length > 0 || suggestions.length > 0)
+        visible: root._accessibilityMode && (textInput.text.length > 0 || root.suggestions.length > 0)
         anchors.left: textInput.left
         anchors.right: textInput.right
         anchors.top: textInput.bottom
@@ -369,19 +369,19 @@ Item {
             accessibleName: TranslationManager.translate("suggestionfield.clear", "Clear text")
 
             onClicked: {
-                justSelected = false
-                isActivelyTyping = false
+                root.justSelected = false
+                root.isActivelyTyping = false
                 textInput.text = ""
                 root.textEdited("")
                 // After clearing, open suggestions dialog so user can browse
-                if (suggestions.length > 0) {
+                if (root.suggestions.length > 0) {
                     root.openSuggestionsDialog()
                 }
             }
         }
 
         AccessibleButton {
-            visible: suggestions.length > 0
+            visible: root.suggestions.length > 0
             width: visible ? implicitWidth : 0
             height: Theme.scaled(44)
             text: TranslationManager.translate("suggestionfield.openDropdown", "Open suggestions")
@@ -440,7 +440,7 @@ Item {
         contentItem: ListView {
             id: suggestionList
             clip: true
-            model: getFilteredSuggestions()
+            model: root.getFilteredSuggestions()
             currentIndex: -1
 
             delegate: ItemDelegate {
@@ -486,8 +486,8 @@ Item {
                                  : suggestionDelegate.itemText
 
                 background: Rectangle {
-                    color: highlighted || hovered ? Theme.primaryColor : "transparent"
-                    opacity: highlighted || hovered ? 0.2 : 1
+                    color: suggestionDelegate.highlighted || suggestionDelegate.hovered ? Theme.primaryColor : "transparent"
+                    opacity: suggestionDelegate.highlighted || suggestionDelegate.hovered ? 0.2 : 1
                 }
 
                 onClicked: root.selectSuggestion(suggestionDelegate.itemText)

@@ -1,3 +1,10 @@
+// Three Repeater/ListView delegates here read this file's ids (`autoWakeContent`,
+// `categoryList`); Bound makes them statically resolvable. Each declares every
+// injected role it uses required in the same edit -- without that, Bound stops role
+// injection and the day buttons, the category list and the overlay chips all render
+// blank at RUNTIME, silently.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -486,14 +493,18 @@ Item {
                                 model: ["M", "T", "W", "T", "F", "S", "S"]
 
                                 Rectangle {
+                                    id: dayButton
+                                    required property string modelData
+                                    required property int index
+
                                     Layout.fillWidth: true
                                     Layout.preferredHeight: Theme.scaled(28)
                                     radius: Theme.scaled(5)
 
-                                    property bool isSelected: autoWakeContent.selectedDay === index
+                                    property bool isSelected: autoWakeContent.selectedDay === dayButton.index
                                     property bool isEnabled: {
                                         var sched = Settings.autoWake.autoWakeSchedule
-                                        return sched[index] ? sched[index].enabled : false
+                                        return sched[dayButton.index] ? sched[dayButton.index].enabled : false
                                     }
 
                                     color: isSelected ? Qt.lighter(Theme.primaryColor, 1.3) :
@@ -514,7 +525,7 @@ Item {
                                         TranslationManager.translate("common.day.saturday", "Saturday"),
                                         TranslationManager.translate("common.day.sunday", "Sunday")
                                     ]
-                                        return dayNames[index] +
+                                        return dayNames[dayButton.index] +
                                                (isEnabled ? ", " + TranslationManager.translate("accessibility.enabled", "enabled") : "") +
                                                (isSelected ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
                                     }
@@ -523,7 +534,7 @@ Item {
 
                                     Text {
                                         anchors.centerIn: parent
-                                        text: modelData
+                                        text: dayButton.modelData
                                         color: parent.isSelected || parent.isEnabled ? Theme.primaryContrastColor : Theme.textSecondaryColor
                                         font.pixelSize: Theme.scaled(12)
                                         font.bold: parent.isSelected || parent.isEnabled
@@ -533,7 +544,7 @@ Item {
                                     MouseArea {
                                         id: dayArea
                                         anchors.fill: parent
-                                        onClicked: autoWakeContent.selectedDay = index
+                                        onClicked: autoWakeContent.selectedDay = dayButton.index
                                     }
                                 }
                             }
@@ -726,9 +737,11 @@ Item {
 
                         delegate: ItemDelegate {
                             id: delegate
+                            required property var modelData
+
                             width: ListView.view ? ListView.view.width : 0
                             height: Theme.scaled(36)
-                            highlighted: modelData && modelData.id === ScreensaverManager.selectedCategoryId
+                            highlighted: delegate.modelData && delegate.modelData.id === ScreensaverManager.selectedCategoryId
 
                             background: Rectangle {
                                 color: delegate.highlighted ? Theme.primaryColor :
@@ -737,7 +750,7 @@ Item {
                             }
 
                             contentItem: Text {
-                                text: modelData ? modelData.name : ""
+                                text: delegate.modelData ? delegate.modelData.name : ""
                                 color: delegate.highlighted ? Theme.primaryContrastColor : Theme.textColor
                                 font.pixelSize: Theme.scaled(14)
                                 font.bold: delegate.highlighted
@@ -746,25 +759,30 @@ Item {
                             }
 
                             onClicked: {
-                                if (modelData) {
-                                    ScreensaverManager.selectedCategoryId = modelData.id
+                                if (delegate.modelData) {
+                                    ScreensaverManager.selectedCategoryId = delegate.modelData.id
                                 }
                             }
                         }
 
+                        // `parent` here is the ListView's contentItem
+                        // (qquickflickable.cpp:2442), not the ListView -- `parent.count` was
+                        // undefined, so neither of these placeholders has ever appeared.
                         Tr {
-                            anchors.centerIn: parent
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            y: (categoryList.height - height) / 2
                             key: "settings.screensaver.loading"
                             fallback: "Loading..."
-                            visible: parent.count === 0 && ScreensaverManager.isFetchingCategories
+                            visible: categoryList.count === 0 && ScreensaverManager.isFetchingCategories
                             color: Theme.textSecondaryColor
                         }
 
                         Tr {
-                            anchors.centerIn: parent
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            y: (categoryList.height - height) / 2
                             key: "settings.screensaver.noCategories"
                             fallback: "No categories"
-                            visible: parent.count === 0 && !ScreensaverManager.isFetchingCategories
+                            visible: categoryList.count === 0 && !ScreensaverManager.isFetchingCategories
                             color: Theme.textSecondaryColor
                         }
                     }
@@ -820,9 +838,10 @@ Item {
 
                             Rectangle {
                                 id: overlayChip
+                                required property string modelData
 
                                 function chipValue() {
-                                    switch (modelData) {
+                                    switch (overlayChip.modelData) {
                                     case "clock":
                                         switch (ScreensaverManager.screensaverType) {
                                         case "videos": return ScreensaverManager.videosShowClock
@@ -840,7 +859,7 @@ Item {
                                 }
 
                                 function toggleChip() {
-                                    switch (modelData) {
+                                    switch (overlayChip.modelData) {
                                     case "clock":
                                         switch (ScreensaverManager.screensaverType) {
                                         case "videos": ScreensaverManager.videosShowClock = !ScreensaverManager.videosShowClock; break
@@ -859,14 +878,14 @@ Item {
                                 readonly property bool isOn: chipValue()
                                 readonly property string chipLabel: {
                                     var _ = TranslationManager.translationVersion
-                                    switch (modelData) {
+                                    switch (overlayChip.modelData) {
                                     case "clock": return TranslationManager.translate("layoutEditor.chipTime", "Time")
                                     case "waterLevel": return TranslationManager.translate("layoutEditor.chipWater", "Water")
                                     case "shotPlan": return TranslationManager.translate("layoutEditor.chipShotPlan", "Shot Plan")
                                     case "battery": return TranslationManager.translate("layoutEditor.chipBattery", "Battery")
                                     case "linkButton": return TranslationManager.translate("settings.screensaver.linkButton", "Link Button")
                                     }
-                                    return modelData
+                                    return overlayChip.modelData
                                 }
 
                                 width: chipText.implicitWidth + Theme.scaled(24)
