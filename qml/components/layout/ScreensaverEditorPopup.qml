@@ -679,6 +679,10 @@ Dialog {
                         spacing: Theme.spacingSmall
 
                     StyledSwitch {
+                        // Row height pinned: the control's implicitHeight is sc(28) plus Control
+                        // padding, which is generous for a 24px indicator and, four rows deep, was
+                        // what pushed Preview past this dialog's 85%-of-window height cap.
+                        Layout.preferredHeight: Theme.scaled(30)
                         // ON, profile anchor available (Profile shown with a profile loaded):
                         // the "Brew … of Espresso, using … at …" scaffold (its own word order)
                         // with the remaining items trailing in chip order. ON, no profile anchor
@@ -691,6 +695,10 @@ Dialog {
                         onToggled: popup.shotPlanSentence = checked
                     }
                     StyledSwitch {
+                        // Row height pinned: the control's implicitHeight is sc(28) plus Control
+                        // padding, which is generous for a 24px indicator and, four rows deep, was
+                        // what pushed Preview past this dialog's 85%-of-window height cap.
+                        Layout.preferredHeight: Theme.scaled(30)
                         // Sentence mode only: the detail tail moves to its own line(s)
                         // below the sentence. Meaningless for fragments (there is no
                         // sentence/tail split), hence disabled when Sentence is off.
@@ -701,6 +709,10 @@ Dialog {
                         onToggled: popup.shotPlanStacked = checked
                     }
                     StyledSwitch {
+                        // Row height pinned: the control's implicitHeight is sc(28) plus Control
+                        // padding, which is generous for a 24px indicator and, four rows deep, was
+                        // what pushed Preview past this dialog's 85%-of-window height cap.
+                        Layout.preferredHeight: Theme.scaled(30)
                         // Yield display: ON shows only the effective target yield (e.g. "40.0g");
                         // OFF keeps the "profileDefault → target" arrow (e.g. "36.0 → 40.0g").
                         // Only affects the Dose & yield item, so disabled when it isn't shown —
@@ -711,6 +723,10 @@ Dialog {
                         onToggled: popup.shotPlanYieldTargetOnly = checked
                     }
                     StyledSwitch {
+                        // Row height pinned: the control's implicitHeight is sc(28) plus Control
+                        // padding, which is generous for a 24px indicator and, four rows deep, was
+                        // what pushed Preview past this dialog's 85%-of-window height cap.
+                        Layout.preferredHeight: Theme.scaled(30)
                         // Page-aware mode: while steaming (or steam selected) the widget swaps to the
                         // steam sentence. The steam side has no further options.
                         text: TranslationManager.translate("shotPlanEditor.showSteamPlan", "Steam plan (while steaming)")
