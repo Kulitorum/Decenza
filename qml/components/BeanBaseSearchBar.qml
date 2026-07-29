@@ -1,3 +1,9 @@
+// The results-list delegate reads this file's ids (`root`, `resultsList`,
+// `resultsPopup`); Bound makes them statically resolvable. It declares its one
+// injected role, `modelData`, required in the same edit -- without that, Bound stops
+// role injection and every result row renders blank at RUNTIME, silently.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -283,10 +289,12 @@ Item {
 
             delegate: ItemDelegate {
                 id: resultDelegate
+                required property var modelData
+
                 width: resultsList.width
                 height: Theme.scaled(48)
 
-                property var entry: modelData
+                property var entry: resultDelegate.modelData
 
                 contentItem: RowLayout {
                     spacing: Theme.scaled(8)
@@ -350,8 +358,12 @@ Item {
 
             // Empty / error states
             Text {
-                anchors.centerIn: parent
-                width: parent.width - Theme.scaled(24)
+                // `parent` here is the ListView's contentItem, not the ListView
+                // (qquickflickable.cpp:2442), and it is zero-high exactly when the list is
+                // empty -- centring on it put this message half above the clipped top edge.
+                anchors.horizontalCenter: parent.horizontalCenter
+                y: (resultsList.height - height) / 2
+                width: resultsList.width - Theme.scaled(24)
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.WordWrap
                 visible: resultsList.count === 0

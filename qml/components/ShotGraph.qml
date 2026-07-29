@@ -1,3 +1,10 @@
+// The trace, phase-marker, pump-mode and tick-label Repeater delegates read this file's
+// ids (`chart`, `graphsView`, `timeAxis`, `pressureAxis`, `weightAxis`, `tempAxis`,
+// `rightAxisLabels`); Bound makes them statically resolvable. Every one of them already
+// declares each injected role it uses required, so Bound cannot break role injection
+// here.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtGraphs
 import Decenza
@@ -120,6 +127,13 @@ Item {
             tickInterval: 10
             subTickCount: 0
             labelFormat: "%.0f"
+            // Caption goes on the axis, not in an overlay: Qt Graphs draws axis
+            // titles itself AND reserves layout space for them (axisrenderer.cpp:622
+            // counts titled axes into the margin math). The Qt Charts -> Qt Graphs
+            // migration (#1146) carried this over as a Text positioned off `plotArea`
+            // bottom-right, which floated it ON TOP of the plot, over any trace running
+            // along the bottom.
+            titleText: TranslationManager.translate("graph.axis.time", "Time (s)")
         }
 
         // Pressure/Flow axis (left Y).
@@ -359,9 +373,9 @@ Item {
             Text {
                 id: markerText
                 text: {
-                    if (transitionReason === "" || isStart || isEnd) return markerLabel
+                    if (markerDelegate.transitionReason === "" || markerDelegate.isStart || markerDelegate.isEnd) return markerDelegate.markerLabel
                     var suffix = ""
-                    switch (transitionReason) {
+                    switch (markerDelegate.transitionReason) {
                         case "weight": suffix = " [W]"; break
                         case "pressure": suffix = " [P]"; break
                         case "pressure_unconfirmed": suffix = " [P]"; break
@@ -369,11 +383,11 @@ Item {
                         case "flow_unconfirmed": suffix = " [F]"; break
                         case "time": suffix = " [T]"; break
                     }
-                    return markerLabel + suffix
+                    return markerDelegate.markerLabel + suffix
                 }
                 font.pixelSize: Theme.scaled(18)
-                font.bold: isStart || isEnd
-                color: isStart ? Theme.accentColor : (isEnd ? Theme.stopMarkerColor : Qt.rgba(255, 255, 255, 0.8))
+                font.bold: markerDelegate.isStart || markerDelegate.isEnd
+                color: markerDelegate.isStart ? Theme.accentColor : (markerDelegate.isEnd ? Theme.stopMarkerColor : Qt.rgba(1, 1, 1, 0.8))
                 rotation: -90
                 transformOrigin: Item.TopLeft
                 x: Theme.scaled(4)
@@ -391,7 +405,7 @@ Item {
 
             // Accessible tap area for End marker - announces weight at stop vs final weight
             AccessibleMouseArea {
-                visible: isEnd
+                visible: markerDelegate.isEnd
                 x: markerText.x - Theme.scaled(10)
                 y: markerText.y - markerText.width - Theme.scaled(10)
                 width: markerText.height + Theme.scaled(20)
@@ -442,17 +456,6 @@ Item {
             opacity: 0.8
             visible: markerTime <= timeAxis.max && modelData.label !== "Start"
         }
-    }
-
-    // Time axis label - inside graph at bottom right
-    Text {
-        x: graphsView.plotArea.x + graphsView.plotArea.width - width - Theme.spacingSmall
-        y: graphsView.plotArea.y + graphsView.plotArea.height - height - Theme.scaled(12)
-        text: TranslationManager.translate("graph.axis.time", "Time (s)")
-        color: Theme.textSecondaryColor
-        font: Theme.captionFont
-        opacity: 0.7
-        Accessible.ignored: true
     }
 
     // Manual right-axis labels — toggling visibility on Qt Graphs ValueAxis would

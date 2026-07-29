@@ -1,3 +1,9 @@
+// The LED-ring Repeater delegate reads this window's geometry properties; Bound makes
+// them statically resolvable. It declares its one injected role, `index`, required in
+// the same edit -- without that, Bound stops role injection and all twelve LEDs stack
+// on one position at RUNTIME, silently.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Window
 import Decenza
@@ -72,12 +78,14 @@ Window {
         model: 12
         delegate: Rectangle {
             id: led
-            width: ledSize
-            height: ledSize
-            radius: ledSize / 2
-            x: dialCenterX + ledRingRadius * Math.sin(index * Math.PI / 6) - width / 2
-            y: dialCenterY - ledRingRadius * Math.cos(index * Math.PI / 6) - height / 2
-            color: GHCSimulator ? GHCSimulator.ledColors[index] : "#1e1e1e"
+            required property int index
+
+            width: ghcWindow.ledSize
+            height: ghcWindow.ledSize
+            radius: ghcWindow.ledSize / 2
+            x: ghcWindow.dialCenterX + ghcWindow.ledRingRadius * Math.sin(led.index * Math.PI / 6) - width / 2
+            y: ghcWindow.dialCenterY - ghcWindow.ledRingRadius * Math.cos(led.index * Math.PI / 6) - height / 2
+            color: GHCSimulator ? GHCSimulator.ledColors[led.index] : "#1e1e1e"
             border.color: Qt.darker(color, 1.3)
             border.width: 1
 
@@ -97,10 +105,10 @@ Window {
 
     // Hot Water Button (top)
     MouseArea {
-        x: dialCenterX - buttonRadius
-        y: dialCenterY - ledRingRadius - buttonRadius / 2
-        width: buttonRadius * 2
-        height: buttonRadius
+        x: ghcWindow.dialCenterX - ghcWindow.buttonRadius
+        y: ghcWindow.dialCenterY - ghcWindow.ledRingRadius - ghcWindow.buttonRadius / 2
+        width: ghcWindow.buttonRadius * 2
+        height: ghcWindow.buttonRadius
         onClicked: GHCSimulator.pressHotWater()
         cursorShape: Qt.PointingHandCursor
 
@@ -115,10 +123,10 @@ Window {
 
     // Steam Button (right)
     MouseArea {
-        x: dialCenterX + ledRingRadius - buttonRadius / 2
-        y: dialCenterY - buttonRadius
-        width: buttonRadius
-        height: buttonRadius * 2
+        x: ghcWindow.dialCenterX + ghcWindow.ledRingRadius - ghcWindow.buttonRadius / 2
+        y: ghcWindow.dialCenterY - ghcWindow.buttonRadius
+        width: ghcWindow.buttonRadius
+        height: ghcWindow.buttonRadius * 2
         onClicked: GHCSimulator.pressSteam()
         cursorShape: Qt.PointingHandCursor
 
@@ -133,10 +141,10 @@ Window {
 
     // Espresso Button (bottom)
     MouseArea {
-        x: dialCenterX - buttonRadius
-        y: dialCenterY + ledRingRadius - buttonRadius / 2
-        width: buttonRadius * 2
-        height: buttonRadius
+        x: ghcWindow.dialCenterX - ghcWindow.buttonRadius
+        y: ghcWindow.dialCenterY + ghcWindow.ledRingRadius - ghcWindow.buttonRadius / 2
+        width: ghcWindow.buttonRadius * 2
+        height: ghcWindow.buttonRadius
         onClicked: GHCSimulator.pressEspresso()
         cursorShape: Qt.PointingHandCursor
 
@@ -151,10 +159,10 @@ Window {
 
     // Flush Button (left)
     MouseArea {
-        x: dialCenterX - ledRingRadius - buttonRadius / 2
-        y: dialCenterY - buttonRadius
-        width: buttonRadius
-        height: buttonRadius * 2
+        x: ghcWindow.dialCenterX - ghcWindow.ledRingRadius - ghcWindow.buttonRadius / 2
+        y: ghcWindow.dialCenterY - ghcWindow.buttonRadius
+        width: ghcWindow.buttonRadius
+        height: ghcWindow.buttonRadius * 2
         onClicked: GHCSimulator.pressFlush()
         cursorShape: Qt.PointingHandCursor
 
@@ -169,10 +177,10 @@ Window {
 
     // Stop Button (center)
     MouseArea {
-        x: dialCenterX - buttonRadius
-        y: dialCenterY - buttonRadius
-        width: buttonRadius * 2
-        height: buttonRadius * 2
+        x: ghcWindow.dialCenterX - ghcWindow.buttonRadius
+        y: ghcWindow.dialCenterY - ghcWindow.buttonRadius
+        width: ghcWindow.buttonRadius * 2
+        height: ghcWindow.buttonRadius * 2
         onPressed: GHCSimulator.pressStop()
         onReleased: GHCSimulator.releaseStop()
         cursorShape: Qt.PointingHandCursor
@@ -182,7 +190,7 @@ Window {
             color: "transparent"
             border.color: parent.pressed ? "#ff6666" : "transparent"
             border.width: 2
-            radius: buttonRadius
+            radius: ghcWindow.buttonRadius
         }
     }
 

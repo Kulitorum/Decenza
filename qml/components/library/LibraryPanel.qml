@@ -1,3 +1,11 @@
+// The tab, save-menu and entry-card Repeater/ListView delegates read this file's
+// `libraryPanel` id; Bound makes it statically resolvable. Each declares its one
+// injected role, `modelData`, required in the same edit -- without that, Bound stops
+// role injection and the tabs, the save menu and the whole library grid render blank at
+// RUNTIME, silently. (The `layer.effect` blocks read only `Theme`, a singleton, so they
+// need nothing from the pragma.)
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -83,9 +91,9 @@ Rectangle {
                 icon.source: "qrc:/icons/grid.svg"
                 icon.width: Theme.scaled(14)
                 icon.height: Theme.scaled(14)
-                active: displayMode === 0
-                accessibleName: TranslationManager.translate("library.accessibility.gridView", "Grid view") + (displayMode === 0 ? ", " + TranslationManager.translate("library.accessibility.selected", "selected") : "")
-                onClicked: displayMode = 0
+                active: libraryPanel.displayMode === 0
+                accessibleName: TranslationManager.translate("library.accessibility.gridView", "Grid view") + (libraryPanel.displayMode === 0 ? ", " + TranslationManager.translate("library.accessibility.selected", "selected") : "")
+                onClicked: libraryPanel.displayMode = 0
             }
 
             // Compact list mode button
@@ -95,9 +103,9 @@ Rectangle {
                 icon.source: "qrc:/icons/list.svg"
                 icon.width: Theme.scaled(14)
                 icon.height: Theme.scaled(14)
-                active: displayMode === 1
-                accessibleName: TranslationManager.translate("library.accessibility.listView", "List view") + (displayMode === 1 ? ", " + TranslationManager.translate("library.accessibility.selected", "selected") : "")
-                onClicked: displayMode = 1
+                active: libraryPanel.displayMode === 1
+                accessibleName: TranslationManager.translate("library.accessibility.listView", "List view") + (libraryPanel.displayMode === 1 ? ", " + TranslationManager.translate("library.accessibility.selected", "selected") : "")
+                onClicked: libraryPanel.displayMode = 1
             }
         }
 
@@ -126,12 +134,15 @@ Rectangle {
                     ]
 
                     Item {
+                        id: tabButton
+                        required property var modelData
+
                         Layout.fillWidth: true
                         Layout.fillHeight: true
 
                         // Active tab shape
                         Rectangle {
-                            visible: activeTab === modelData.key
+                            visible: libraryPanel.activeTab === tabButton.modelData.key
                             anchors.fill: parent
                             anchors.bottomMargin: -1
                             color: Theme.backgroundColor
@@ -152,17 +163,17 @@ Rectangle {
                         }
 
                         Accessible.role: Accessible.Button
-                        Accessible.name: modelData.label + " " + TranslationManager.translate("library.accessibility.tab", "tab") + (activeTab === modelData.key ? ", " + TranslationManager.translate("library.accessibility.selected", "selected") : "")
+                        Accessible.name: tabButton.modelData.label + " " + TranslationManager.translate("library.accessibility.tab", "tab") + (libraryPanel.activeTab === tabButton.modelData.key ? ", " + TranslationManager.translate("library.accessibility.selected", "selected") : "")
                         Accessible.focusable: true
                         Accessible.onPressAction: tabMa.clicked(null)
 
                         Text {
                             anchors.centerIn: parent
-                            text: modelData.label
-                            color: activeTab === modelData.key ? Theme.textColor : Theme.textSecondaryColor
+                            text: tabButton.modelData.label
+                            color: libraryPanel.activeTab === tabButton.modelData.key ? Theme.textColor : Theme.textSecondaryColor
                             font.family: Theme.captionFont.family
                             font.pixelSize: Theme.scaled(11)
-                            font.bold: activeTab === modelData.key
+                            font.bold: libraryPanel.activeTab === tabButton.modelData.key
                             Accessible.ignored: true
                         }
 
@@ -170,7 +181,7 @@ Rectangle {
                             id: tabMa
                             anchors.fill: parent
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: activeTab = modelData.key
+                            onClicked: libraryPanel.activeTab = tabButton.modelData.key
                         }
                     }
                 }
@@ -236,23 +247,26 @@ Rectangle {
 
                         Repeater {
                             model: [
-                                { label: TranslationManager.translate("library.menu.saveItem", "Save Item"), type: "item", enabled: selectedItemId !== "" },
-                                { label: TranslationManager.translate("library.menu.saveZone", "Save Zone"), type: "zone", enabled: selectedZoneName !== "" },
+                                { label: TranslationManager.translate("library.menu.saveItem", "Save Item"), type: "item", enabled: libraryPanel.selectedItemId !== "" },
+                                { label: TranslationManager.translate("library.menu.saveZone", "Save Zone"), type: "zone", enabled: libraryPanel.selectedZoneName !== "" },
                                 { label: TranslationManager.translate("library.menu.saveLayout", "Save Layout"), type: "layout", enabled: true }
                             ]
 
                             Rectangle {
+                                id: saveMenuRow
+                                required property var modelData
+
                                 Layout.fillWidth: true
                                 implicitWidth: Theme.scaled(140)
                                 height: Theme.scaled(32)
                                 radius: Theme.scaled(4)
-                                color: menuItemMa.containsMouse && modelData.enabled
+                                color: menuItemMa.containsMouse && saveMenuRow.modelData.enabled
                                     ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.12)
                                     : "transparent"
-                                opacity: modelData.enabled ? 1.0 : 0.4
+                                opacity: saveMenuRow.modelData.enabled ? 1.0 : 0.4
 
                                 Accessible.role: Accessible.Button
-                                Accessible.name: modelData.label
+                                Accessible.name: saveMenuRow.modelData.label
                                 Accessible.focusable: true
                                 Accessible.onPressAction: menuItemMa.clicked(null)
 
@@ -260,7 +274,7 @@ Rectangle {
                                     anchors.left: parent.left
                                     anchors.leftMargin: Theme.scaled(10)
                                     anchors.verticalCenter: parent.verticalCenter
-                                    text: modelData.label
+                                    text: saveMenuRow.modelData.label
                                     color: Theme.textColor
                                     font: Theme.bodyFont
                                     Accessible.ignored: true
@@ -270,21 +284,21 @@ Rectangle {
                                     id: menuItemMa
                                     anchors.fill: parent
                                     hoverEnabled: true
-                                    enabled: modelData.enabled
+                                    enabled: saveMenuRow.modelData.enabled
                                     onClicked: {
                                         addMenu.close()
-                                        switch (modelData.type) {
+                                        switch (saveMenuRow.modelData.type) {
                                             case "item":
-                                                WidgetLibrary.addItemFromLayout(selectedItemId)
+                                                WidgetLibrary.addItemFromLayout(libraryPanel.selectedItemId)
                                                 break
                                             case "zone":
-                                                WidgetLibrary.addZoneFromLayout(selectedZoneName)
+                                                WidgetLibrary.addZoneFromLayout(libraryPanel.selectedZoneName)
                                                 break
                                             case "layout":
                                                 WidgetLibrary.addCurrentLayout(false)
                                                 break
                                         }
-                                        activeTab = "local"
+                                        libraryPanel.activeTab = "local"
                                     }
                                 }
                             }
@@ -303,7 +317,7 @@ Rectangle {
                 border.width: 1
                 opacity: applyEnabled ? 1.0 : 0.4
 
-                property bool applyEnabled: WidgetLibrary.selectedEntryId !== "" && (selectedEntryType === "layout" || selectedEntryType === "theme" || selectedZoneName !== "")
+                property bool applyEnabled: WidgetLibrary.selectedEntryId !== "" && (libraryPanel.selectedEntryType === "layout" || libraryPanel.selectedEntryType === "theme" || libraryPanel.selectedZoneName !== "")
 
                 Accessible.role: Accessible.Button
                 Accessible.name: TranslationManager.translate("library.accessibility.applySelected", "Apply selected entry")
@@ -328,7 +342,7 @@ Rectangle {
                     id: applyMa
                     anchors.fill: parent
                     enabled: parent.applyEnabled
-                    onClicked: applySelected()
+                    onClicked: libraryPanel.applySelected()
                 }
             }
 
@@ -338,9 +352,9 @@ Rectangle {
                 Layout.preferredHeight: Theme.scaled(30)
                 radius: Theme.scaled(4)
                 color: delMa.pressed ? Qt.rgba(Theme.errorColor.r, Theme.errorColor.g, Theme.errorColor.b, 0.3) : "transparent"
-                border.color: canDeleteSelected ? Theme.errorColor : Theme.borderColor
+                border.color: libraryPanel.canDeleteSelected ? Theme.errorColor : Theme.borderColor
                 border.width: 1
-                opacity: canDeleteSelected ? 1.0 : 0.4
+                opacity: libraryPanel.canDeleteSelected ? 1.0 : 0.4
 
                 Accessible.role: Accessible.Button
                 Accessible.name: TranslationManager.translate("library.accessibility.deleteSelected", "Delete selected entry")
@@ -364,14 +378,14 @@ Rectangle {
                 MouseArea {
                     id: delMa
                     anchors.fill: parent
-                    enabled: canDeleteSelected
+                    enabled: libraryPanel.canDeleteSelected
                     onClicked: deleteConfirm.open()
                 }
             }
 
             // Share button (local tab only)
             Rectangle {
-                visible: activeTab === "local"
+                visible: libraryPanel.activeTab === "local"
                 Layout.preferredWidth: Theme.scaled(30)
                 Layout.preferredHeight: Theme.scaled(30)
                 radius: Theme.scaled(4)
@@ -403,7 +417,7 @@ Rectangle {
                     id: shareMa
                     anchors.fill: parent
                     enabled: WidgetLibrary.selectedEntryId !== ""
-                    onClicked: captureAndUpload()
+                    onClicked: libraryPanel.captureAndUpload()
                 }
             }
 
@@ -413,84 +427,84 @@ Rectangle {
             Rectangle {
                 Layout.preferredWidth: Theme.scaled(30); Layout.preferredHeight: Theme.scaled(30)
                 radius: Theme.scaled(4)
-                color: showItems ? Theme.primaryColor : "transparent"
-                border.color: showItems ? Theme.primaryColor : Theme.borderColor
+                color: libraryPanel.showItems ? Theme.primaryColor : "transparent"
+                border.color: libraryPanel.showItems ? Theme.primaryColor : Theme.borderColor
                 border.width: 1
                 Accessible.role: Accessible.Button
-                Accessible.name: TranslationManager.translate("library.accessibility.filterItems", "Filter items") + (showItems ? ", " + TranslationManager.translate("library.accessibility.on", "on") : ", " + TranslationManager.translate("library.accessibility.off", "off"))
+                Accessible.name: TranslationManager.translate("library.accessibility.filterItems", "Filter items") + (libraryPanel.showItems ? ", " + TranslationManager.translate("library.accessibility.on", "on") : ", " + TranslationManager.translate("library.accessibility.off", "off"))
                 Accessible.focusable: true
                 Accessible.onPressAction: filterItemsMa.clicked(null)
                 Text {
                     anchors.centerIn: parent; text: "I"
-                    color: showItems ? Theme.primaryContrastColor : Theme.textSecondaryColor
+                    color: libraryPanel.showItems ? Theme.primaryContrastColor : Theme.textSecondaryColor
                     font.family: Theme.captionFont.family
                     font.pixelSize: Theme.scaled(12); font.bold: true
                     Accessible.ignored: true
                 }
-                MouseArea { id: filterItemsMa; anchors.fill: parent; onClicked: showItems = !showItems }
+                MouseArea { id: filterItemsMa; anchors.fill: parent; onClicked: libraryPanel.showItems = !libraryPanel.showItems }
             }
 
             // Type filter: Zones
             Rectangle {
                 Layout.preferredWidth: Theme.scaled(30); Layout.preferredHeight: Theme.scaled(30)
                 radius: Theme.scaled(4)
-                color: showZones ? Theme.primaryColor : "transparent"
-                border.color: showZones ? Theme.primaryColor : Theme.borderColor
+                color: libraryPanel.showZones ? Theme.primaryColor : "transparent"
+                border.color: libraryPanel.showZones ? Theme.primaryColor : Theme.borderColor
                 border.width: 1
                 Accessible.role: Accessible.Button
-                Accessible.name: TranslationManager.translate("library.accessibility.filterZones", "Filter zones") + (showZones ? ", " + TranslationManager.translate("library.accessibility.on", "on") : ", " + TranslationManager.translate("library.accessibility.off", "off"))
+                Accessible.name: TranslationManager.translate("library.accessibility.filterZones", "Filter zones") + (libraryPanel.showZones ? ", " + TranslationManager.translate("library.accessibility.on", "on") : ", " + TranslationManager.translate("library.accessibility.off", "off"))
                 Accessible.focusable: true
                 Accessible.onPressAction: filterZonesMa.clicked(null)
                 Text {
                     anchors.centerIn: parent; text: "Z"
-                    color: showZones ? Theme.primaryContrastColor : Theme.textSecondaryColor
+                    color: libraryPanel.showZones ? Theme.primaryContrastColor : Theme.textSecondaryColor
                     font.family: Theme.captionFont.family
                     font.pixelSize: Theme.scaled(12); font.bold: true
                     Accessible.ignored: true
                 }
-                MouseArea { id: filterZonesMa; anchors.fill: parent; onClicked: showZones = !showZones }
+                MouseArea { id: filterZonesMa; anchors.fill: parent; onClicked: libraryPanel.showZones = !libraryPanel.showZones }
             }
 
             // Type filter: Layouts
             Rectangle {
                 Layout.preferredWidth: Theme.scaled(30); Layout.preferredHeight: Theme.scaled(30)
                 radius: Theme.scaled(4)
-                color: showLayouts ? Theme.primaryColor : "transparent"
-                border.color: showLayouts ? Theme.primaryColor : Theme.borderColor
+                color: libraryPanel.showLayouts ? Theme.primaryColor : "transparent"
+                border.color: libraryPanel.showLayouts ? Theme.primaryColor : Theme.borderColor
                 border.width: 1
                 Accessible.role: Accessible.Button
-                Accessible.name: TranslationManager.translate("library.accessibility.filterLayouts", "Filter layouts") + (showLayouts ? ", " + TranslationManager.translate("library.accessibility.on", "on") : ", " + TranslationManager.translate("library.accessibility.off", "off"))
+                Accessible.name: TranslationManager.translate("library.accessibility.filterLayouts", "Filter layouts") + (libraryPanel.showLayouts ? ", " + TranslationManager.translate("library.accessibility.on", "on") : ", " + TranslationManager.translate("library.accessibility.off", "off"))
                 Accessible.focusable: true
                 Accessible.onPressAction: filterLayoutsMa.clicked(null)
                 Text {
                     anchors.centerIn: parent; text: "L"
-                    color: showLayouts ? Theme.primaryContrastColor : Theme.textSecondaryColor
+                    color: libraryPanel.showLayouts ? Theme.primaryContrastColor : Theme.textSecondaryColor
                     font.family: Theme.captionFont.family
                     font.pixelSize: Theme.scaled(12); font.bold: true
                     Accessible.ignored: true
                 }
-                MouseArea { id: filterLayoutsMa; anchors.fill: parent; onClicked: showLayouts = !showLayouts }
+                MouseArea { id: filterLayoutsMa; anchors.fill: parent; onClicked: libraryPanel.showLayouts = !libraryPanel.showLayouts }
             }
 
             // Type filter: Themes
             Rectangle {
                 Layout.preferredWidth: Theme.scaled(30); Layout.preferredHeight: Theme.scaled(30)
                 radius: Theme.scaled(4)
-                color: showThemes ? Theme.primaryColor : "transparent"
-                border.color: showThemes ? Theme.primaryColor : Theme.borderColor
+                color: libraryPanel.showThemes ? Theme.primaryColor : "transparent"
+                border.color: libraryPanel.showThemes ? Theme.primaryColor : Theme.borderColor
                 border.width: 1
                 Accessible.role: Accessible.Button
-                Accessible.name: TranslationManager.translate("library.accessibility.filterThemes", "Filter themes") + (showThemes ? ", " + TranslationManager.translate("library.accessibility.on", "on") : ", " + TranslationManager.translate("library.accessibility.off", "off"))
+                Accessible.name: TranslationManager.translate("library.accessibility.filterThemes", "Filter themes") + (libraryPanel.showThemes ? ", " + TranslationManager.translate("library.accessibility.on", "on") : ", " + TranslationManager.translate("library.accessibility.off", "off"))
                 Accessible.focusable: true
                 Accessible.onPressAction: filterThemesMa.clicked(null)
                 Text {
                     anchors.centerIn: parent; text: "T"
-                    color: showThemes ? Theme.primaryContrastColor : Theme.textSecondaryColor
+                    color: libraryPanel.showThemes ? Theme.primaryContrastColor : Theme.textSecondaryColor
                     font.family: Theme.captionFont.family
                     font.pixelSize: Theme.scaled(12); font.bold: true
                     Accessible.ignored: true
                 }
-                MouseArea { id: filterThemesMa; anchors.fill: parent; onClicked: showThemes = !showThemes }
+                MouseArea { id: filterThemesMa; anchors.fill: parent; onClicked: libraryPanel.showThemes = !libraryPanel.showThemes }
             }
         }
 
@@ -504,33 +518,36 @@ Rectangle {
             boundsBehavior: Flickable.StopAtBounds
 
             model: {
-                var entries = activeTab === "local" ? WidgetLibrary.entries
-                            : activeTab === "community" ? LibrarySharing.communityEntries
+                var entries = libraryPanel.activeTab === "local" ? WidgetLibrary.entries
+                            : libraryPanel.activeTab === "community" ? LibrarySharing.communityEntries
                             : []
-                if (showItems && showZones && showLayouts && showThemes) return entries
+                if (libraryPanel.showItems && libraryPanel.showZones && libraryPanel.showLayouts && libraryPanel.showThemes) return entries
                 var result = []
                 for (var i = 0; i < entries.length; i++) {
                     var t = entries[i].type || ""
-                    if ((t === "item" && showItems) ||
-                        (t === "zone" && showZones) ||
-                        (t === "layout" && showLayouts) ||
-                        (t === "theme" && showThemes))
+                    if ((t === "item" && libraryPanel.showItems) ||
+                        (t === "zone" && libraryPanel.showZones) ||
+                        (t === "layout" && libraryPanel.showLayouts) ||
+                        (t === "theme" && libraryPanel.showThemes))
                         result.push(entries[i])
                 }
                 return result
             }
 
             delegate: LibraryItemCard {
-                entryData: modelData
+                id: entryCard
+                required property var modelData
+
+                entryData: entryCard.modelData
                 displayMode: libraryPanel.displayMode
-                isSelected: WidgetLibrary.selectedEntryId === (modelData.id || "")
+                isSelected: WidgetLibrary.selectedEntryId === (entryCard.modelData.id || "")
 
                 onClicked: {
-                    WidgetLibrary.selectedEntryId = modelData.id || ""
+                    WidgetLibrary.selectedEntryId = entryCard.modelData.id || ""
                 }
                 onDoubleClicked: {
                     // TODO: Open apply dialog (zone picker for items/zones)
-                    console.log("Apply entry:", modelData.id)
+                    console.log("Apply entry:", entryCard.modelData.id)
                 }
             }
 
@@ -538,7 +555,7 @@ Rectangle {
             Text {
                 visible: libraryList.count === 0 && !LibrarySharing.browsing
                 anchors.centerIn: parent
-                text: activeTab === "local"
+                text: libraryPanel.activeTab === "local"
                     ? TranslationManager.translate("library.emptyState.local", "No items in library.\nSelect a widget and click Add.")
                     : TranslationManager.translate("library.emptyState.community", "No entries found.")
                 color: Theme.textSecondaryColor
@@ -568,7 +585,7 @@ Rectangle {
 
         // Browse All button (for community/featured tabs)
         AccessibleButton {
-            visible: activeTab === "community"
+            visible: libraryPanel.activeTab === "community"
             Layout.fillWidth: true
             text: TranslationManager.translate("library.button.browseAll", "Browse All")
             accessibleName: TranslationManager.translate("library.accessibility.browseAllCommunity", "Browse all community items")
@@ -710,36 +727,36 @@ Rectangle {
     Connections {
         target: LibrarySharing
         function onUploadSuccess(serverId) {
-            showToast(TranslationManager.translate("library.toast.sharedSuccess", "Shared successfully!"), Theme.successColor)
+            libraryPanel.showToast(TranslationManager.translate("library.toast.sharedSuccess", "Shared successfully!"), Theme.successColor)
         }
         function onUploadFailed(error) {
             if (error === "Already shared")
-                showToast(TranslationManager.translate("library.toast.alreadyShared", "Already shared"), Theme.warningColor)
+                libraryPanel.showToast(TranslationManager.translate("library.toast.alreadyShared", "Already shared"), Theme.warningColor)
             else
-                showToast(TranslationManager.translate("library.toast.uploadFailed", "Upload failed: ") + error, Theme.errorColor)
+                libraryPanel.showToast(TranslationManager.translate("library.toast.uploadFailed", "Upload failed: ") + error, Theme.errorColor)
         }
         function onDeleteSuccess() {
-            showToast(TranslationManager.translate("library.toast.deletedFromServer", "Deleted from server"), Theme.successColor)
+            libraryPanel.showToast(TranslationManager.translate("library.toast.deletedFromServer", "Deleted from server"), Theme.successColor)
             // Refresh community list
             LibrarySharing.browseCommunity("", "", "", "", "newest", 1)
         }
         function onDeleteFailed(error) {
-            showToast(TranslationManager.translate("library.toast.deleteFailed", "Delete failed: ") + error, Theme.errorColor)
+            libraryPanel.showToast(TranslationManager.translate("library.toast.deleteFailed", "Delete failed: ") + error, Theme.errorColor)
         }
         function onDownloadComplete(localEntryId) {
-            if (pendingApplyZone) {
+            if (libraryPanel.pendingApplyZone) {
                 var entry = WidgetLibrary.getEntry(localEntryId)
                 if (entry && entry.type) {
-                    applyEntry(localEntryId, entry.type, pendingApplyZone)
-                    showToast(TranslationManager.translate("library.toast.applied", "Applied!"), Theme.successColor)
+                    libraryPanel.applyEntry(localEntryId, entry.type, libraryPanel.pendingApplyZone)
+                    libraryPanel.showToast(TranslationManager.translate("library.toast.applied", "Applied!"), Theme.successColor)
                 }
-                pendingApplyZone = ""
+                libraryPanel.pendingApplyZone = ""
             }
         }
         function onDownloadFailed(error) {
-            if (pendingApplyZone) {
-                showToast(TranslationManager.translate("library.toast.downloadFailed", "Download failed: ") + error, Theme.errorColor)
-                pendingApplyZone = ""
+            if (libraryPanel.pendingApplyZone) {
+                libraryPanel.showToast(TranslationManager.translate("library.toast.downloadFailed", "Download failed: ") + error, Theme.errorColor)
+                libraryPanel.pendingApplyZone = ""
             }
         }
     }
@@ -800,7 +817,7 @@ Rectangle {
             spacing: Theme.spacingMedium
 
             Text {
-                text: activeTab === "community"
+                text: libraryPanel.activeTab === "community"
                     ? TranslationManager.translate("library.dialog.deleteFromServer", "Delete from server?")
                     : TranslationManager.translate("library.dialog.deleteEntry", "Delete this library entry?")
                 color: Theme.textColor
@@ -821,7 +838,7 @@ Rectangle {
                     text: TranslationManager.translate("common.button.delete", "Delete")
                     accessibleName: TranslationManager.translate("library.accessibility.confirmDelete", "Confirm delete")
                     onClicked: {
-                        if (activeTab === "community") {
+                        if (libraryPanel.activeTab === "community") {
                             LibrarySharing.deleteFromServer(WidgetLibrary.selectedEntryId)
                         } else {
                             WidgetLibrary.removeEntry(WidgetLibrary.selectedEntryId)

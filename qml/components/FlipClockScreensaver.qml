@@ -1,3 +1,11 @@
+// The FlipDigitCard inline component reads this file's `root` id for every one of its
+// style inputs. An inline component is its own scope, so those ids are not statically
+// resolvable inside it without this pragma -- they resolve at runtime because the
+// component shares the file's QML context, which is exactly the implicit coupling the
+// pragma makes checkable. This file declares no delegate and no model role, so nothing
+// here needs a `required property`.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import Decenza
 
@@ -51,7 +59,7 @@ Item {
         interval: 1000
         running: root.running && root.visible
         repeat: true
-        onTriggered: updateTime()
+        onTriggered: root.updateTime()
     }
 
     function updateTime() {
@@ -107,13 +115,13 @@ Item {
     Item {
         id: clockContainer
         anchors.centerIn: parent
-        width: 4 * cardWidth + 2 * digitGap + pairGap + colonWidth
-        height: cardHeight
+        width: 4 * root.cardWidth + 2 * root.digitGap + root.pairGap + colonWidth
+        height: root.cardHeight
 
-        property real colonWidth: cardWidth * 0.3
+        property real colonWidth: root.cardWidth * 0.3
 
         // Apply perspective transform for 3D mode
-        transform: use3D ? perspective : null
+        transform: root.use3D ? perspective : null
 
         Rotation {
             id: perspective
@@ -127,73 +135,73 @@ Item {
         FlipDigitCard {
             id: hourTensCard
             x: 0
-            width: cardWidth
-            height: cardHeight
-            digit: getDigit(currentHour, 0)
-            prevDigit: getDigit(prevHour, 0)
-            flipping: hourTensFlipping
-            onFlipComplete: hourTensFlipping = false
+            width: root.cardWidth
+            height: root.cardHeight
+            digit: root.getDigit(root.currentHour, 0)
+            prevDigit: root.getDigit(root.prevHour, 0)
+            flipping: root.hourTensFlipping
+            onFlipComplete: root.hourTensFlipping = false
         }
 
         // Hour ones
         FlipDigitCard {
             id: hourOnesCard
-            x: cardWidth + digitGap
-            width: cardWidth
-            height: cardHeight
-            digit: getDigit(currentHour, 1)
-            prevDigit: getDigit(prevHour, 1)
-            flipping: hourOnesFlipping
-            onFlipComplete: hourOnesFlipping = false
+            x: root.cardWidth + root.digitGap
+            width: root.cardWidth
+            height: root.cardHeight
+            digit: root.getDigit(root.currentHour, 1)
+            prevDigit: root.getDigit(root.prevHour, 1)
+            flipping: root.hourOnesFlipping
+            onFlipComplete: root.hourOnesFlipping = false
         }
 
         // Colon
         Item {
-            x: 2 * cardWidth + digitGap + (pairGap - clockContainer.colonWidth) / 2
+            x: 2 * root.cardWidth + root.digitGap + (root.pairGap - clockContainer.colonWidth) / 2
             width: clockContainer.colonWidth
-            height: cardHeight
+            height: root.cardHeight
 
             Rectangle {
                 anchors.horizontalCenter: parent.horizontalCenter
                 y: parent.height * 0.3 - height / 2
-                width: cardWidth * 0.12
+                width: root.cardWidth * 0.12
                 height: width
                 radius: width / 2
-                color: digitColor
+                color: root.digitColor
             }
 
             Rectangle {
                 anchors.horizontalCenter: parent.horizontalCenter
                 y: parent.height * 0.7 - height / 2
-                width: cardWidth * 0.12
+                width: root.cardWidth * 0.12
                 height: width
                 radius: width / 2
-                color: digitColor
+                color: root.digitColor
             }
         }
 
         // Minute tens
         FlipDigitCard {
             id: minuteTensCard
-            x: 2 * cardWidth + digitGap + pairGap
-            width: cardWidth
-            height: cardHeight
-            digit: getDigit(currentMinute, 0)
-            prevDigit: getDigit(prevMinute, 0)
-            flipping: minuteTensFlipping
-            onFlipComplete: minuteTensFlipping = false
+            x: 2 * root.cardWidth + root.digitGap + root.pairGap
+            width: root.cardWidth
+            height: root.cardHeight
+            digit: root.getDigit(root.currentMinute, 0)
+            prevDigit: root.getDigit(root.prevMinute, 0)
+            flipping: root.minuteTensFlipping
+            onFlipComplete: root.minuteTensFlipping = false
         }
 
         // Minute ones
         FlipDigitCard {
             id: minuteOnesCard
-            x: 3 * cardWidth + 2 * digitGap + pairGap
-            width: cardWidth
-            height: cardHeight
-            digit: getDigit(currentMinute, 1)
-            prevDigit: getDigit(prevMinute, 1)
-            flipping: minuteOnesFlipping
-            onFlipComplete: minuteOnesFlipping = false
+            x: 3 * root.cardWidth + 2 * root.digitGap + root.pairGap
+            width: root.cardWidth
+            height: root.cardHeight
+            digit: root.getDigit(root.currentMinute, 1)
+            prevDigit: root.getDigit(root.prevMinute, 1)
+            flipping: root.minuteOnesFlipping
+            onFlipComplete: root.minuteOnesFlipping = false
         }
     }
 
@@ -221,7 +229,7 @@ Item {
             property: "flipAngle"
             from: 0
             to: -180  // Negative = flip forward (toward viewer)
-            duration: flipDuration
+            duration: root.flipDuration
             easing.type: Easing.InOutQuad
             onFinished: {
                 flipCard.flipAngle = 0
@@ -236,20 +244,20 @@ Item {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
-            height: parent.height / 2 - cardGap / 2
-            radius: cornerRadius
-            color: cardColor
-            border.color: outlineColor
-            border.width: outlineWidth
+            height: parent.height / 2 - root.cardGap / 2
+            radius: root.cornerRadius
+            color: root.cardColor
+            border.color: root.outlineColor
+            border.width: root.outlineWidth
             clip: true
 
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
                 anchors.verticalCenter: parent.top  // Center text at top edge to show bottom half
                 // Show OLD digit during entire flip, switch to NEW only when flip completes
-                text: flipping ? prevDigit.toString() : digit.toString()
-                color: digitColor
-                font.pixelSize: cardHeight * 0.75
+                text: flipCard.flipping ? flipCard.prevDigit.toString() : flipCard.digit.toString()
+                color: root.digitColor
+                font.pixelSize: root.cardHeight * 0.75
                 font.bold: true
                 // No font.family: inherits the bundled application font.
                 // These carried `font.family: "Arial"`, which exists on macOS
@@ -266,20 +274,20 @@ Item {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
-            height: parent.height / 2 - cardGap / 2
-            radius: cornerRadius
-            color: cardColor
-            border.color: outlineColor
-            border.width: outlineWidth
+            height: parent.height / 2 - root.cardGap / 2
+            radius: root.cornerRadius
+            color: root.cardColor
+            border.color: root.outlineColor
+            border.width: root.outlineWidth
             clip: true
             z: 0  // Behind the flipper (z: 10)
 
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
                 anchors.verticalCenter: parent.bottom  // Center text at bottom edge to show top half
-                text: digit.toString()
-                color: digitColor
-                font.pixelSize: cardHeight * 0.75
+                text: flipCard.digit.toString()
+                color: root.digitColor
+                font.pixelSize: root.cardHeight * 0.75
                 font.bold: true
             }
         }
@@ -290,31 +298,31 @@ Item {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
-            height: parent.height / 2 - cardGap / 2
-            visible: flipping && flipAngle > -90
+            height: parent.height / 2 - root.cardGap / 2
+            visible: flipCard.flipping && flipCard.flipAngle > -90
             z: 10
 
             transform: Rotation {
                 origin.x: flipperFront.width / 2
-                origin.y: flipperFront.height + cardGap / 2  // Align with center gap
+                origin.y: flipperFront.height + root.cardGap / 2  // Align with center gap
                 axis { x: 1; y: 0; z: 0 }
-                angle: flipAngle
+                angle: flipCard.flipAngle
             }
 
             Rectangle {
                 anchors.fill: parent
-                radius: cornerRadius
-                color: cardColor
-                border.color: outlineColor
-                border.width: outlineWidth
+                radius: root.cornerRadius
+                color: root.cardColor
+                border.color: root.outlineColor
+                border.width: root.outlineWidth
                 clip: true
 
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
                     anchors.verticalCenter: parent.bottom  // Show top half of digit
-                    text: prevDigit.toString()
-                    color: digitColor
-                    font.pixelSize: cardHeight * 0.75
+                    text: flipCard.prevDigit.toString()
+                    color: root.digitColor
+                    font.pixelSize: root.cardHeight * 0.75
                     font.bold: true
                 }
             }
@@ -328,31 +336,32 @@ Item {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
-            height: parent.height / 2 - cardGap / 2
-            visible: flipping && flipAngle <= -90
+            height: parent.height / 2 - root.cardGap / 2
+            visible: flipCard.flipping && flipCard.flipAngle <= -90
             z: 10
 
             transform: Rotation {
                 origin.x: flipperBack.width / 2
-                origin.y: flipperBack.height + cardGap / 2  // Align with center gap
+                origin.y: flipperBack.height + root.cardGap / 2  // Align with center gap
                 axis { x: 1; y: 0; z: 0 }
-                angle: flipAngle
+                angle: flipCard.flipAngle
             }
 
             Rectangle {
                 anchors.fill: parent
-                radius: cornerRadius
-                color: Qt.darker(cardColor, 1.1)
-                border.color: outlineColor
-                border.width: outlineWidth
+                radius: root.cornerRadius
+                color: Qt.darker(root.cardColor, 1.1)
+                border.color: root.outlineColor
+                border.width: root.outlineWidth
                 clip: true
 
                 // Flip around X-axis so text appears right-side-up when card is flipped
                 Item {
+                    id: flippedFace
                     anchors.fill: parent
                     transform: Rotation {
-                        origin.x: parent.width / 2
-                        origin.y: parent.height / 2
+                        origin.x: flippedFace.width / 2
+                        origin.y: flippedFace.height / 2
                         axis { x: 1; y: 0; z: 0 }
                         angle: 180
                     }
@@ -360,10 +369,10 @@ Item {
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
                         anchors.verticalCenter: parent.bottom
-                        anchors.verticalCenterOffset: cardGap  // Move up by cardGap before clipping
-                        text: digit.toString()
-                        color: digitColor
-                        font.pixelSize: cardHeight * 0.75
+                        anchors.verticalCenterOffset: root.cardGap  // Move up by root.cardGap before clipping
+                        text: flipCard.digit.toString()
+                        color: root.digitColor
+                        font.pixelSize: root.cardHeight * 0.75
                         font.bold: true
                     }
                 }
@@ -375,7 +384,7 @@ Item {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
-            height: cardGap
+            height: root.cardGap
             color: "transparent"
             z: 15
         }

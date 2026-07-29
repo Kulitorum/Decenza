@@ -1,3 +1,8 @@
+// The choice Repeater delegate below reads this file's `optRow` id; Bound makes it
+// statically resolvable. That delegate already declares its one injected role,
+// `modelData`, required, so Bound cannot break role injection here.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -124,6 +129,7 @@ Dialog {
             Repeater {
                 model: optRow.choices
                 delegate: Rectangle {
+                    id: choiceCell
                     required property var modelData
                     readonly property bool sel: optRow.current === modelData.value
                     Layout.fillWidth: true
@@ -138,14 +144,14 @@ Dialog {
                     Accessible.onPressAction: choiceMa.clicked(null)
                     Text {
                         anchors.centerIn: parent
-                        text: modelData.label
-                        color: parent.sel ? Theme.primaryContrastColor : Theme.textColor
+                        text: choiceCell.modelData.label
+                        color: choiceCell.sel ? Theme.primaryContrastColor : Theme.textColor
                         font: Theme.labelFont
                     }
                     MouseArea {
                         id: choiceMa
                         anchors.fill: parent
-                        onClicked: optRow.picked(modelData.value)
+                        onClicked: optRow.picked(choiceCell.modelData.value)
                     }
                 }
             }

@@ -1,3 +1,9 @@
+// The MonthGrid day delegate reads this file's ids (`root`, `monthGrid`); Bound makes
+// them statically resolvable. It and the DayOfWeekRow delegate both already declare
+// their one injected role, `model`, required, so Bound cannot break role injection
+// here. (The DayOfWeekRow delegate reads no file id; it only needs its role.)
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts

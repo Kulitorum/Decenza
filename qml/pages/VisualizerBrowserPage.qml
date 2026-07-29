@@ -45,7 +45,7 @@ Page {
         }
 
         function onDuplicateFound(profileTitle, existingPath) {
-            showDuplicateDialog(profileTitle)
+            visualizerPage.showDuplicateDialog(profileTitle)
         }
     }
 
@@ -108,7 +108,7 @@ Page {
             // Share code input (main view)
             Rectangle {
                 anchors.fill: parent
-                visible: !showingDuplicateChoice
+                visible: !visualizerPage.showingDuplicateChoice
                 color: Theme.backgroundColor
 
                 Column {
@@ -143,7 +143,7 @@ Page {
                         font.family: Theme.bodyFont.family
                         horizontalAlignment: Text.AlignHCenter
                         maximumLength: 4
-                        placeholder: "CODE"
+                        placeholder: TranslationManager.translate("visualizer.codePlaceholder", "CODE")
                         accessibleName: TranslationManager.translate("visualizerBrowser.accessible.shareCode", "Share code")
                         inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText
 
@@ -281,7 +281,7 @@ Page {
             // Duplicate profile choice
             Rectangle {
                 anchors.fill: parent
-                visible: showingDuplicateChoice && !showingNameInput
+                visible: visualizerPage.showingDuplicateChoice && !visualizerPage.showingNameInput
                 color: Theme.backgroundColor
 
                 Column {
@@ -299,7 +299,7 @@ Page {
 
                     // Dynamic text with profile name - use Text with TranslationManager
                     Text {
-                        text: TranslationManager.translate("visualizer.duplicate.message", "A profile named \"%1\" already exists.\n\nWhat would you like to do?").replace("%1", duplicateProfileTitle)
+                        text: TranslationManager.translate("visualizer.duplicate.message", "A profile named \"%1\" already exists.\n\nWhat would you like to do?").replace("%1", visualizerPage.duplicateProfileTitle)
                         wrapMode: Text.Wrap
                         width: parent.width
                         horizontalAlignment: Text.AlignHCenter
@@ -318,7 +318,7 @@ Page {
                             destructive: true
                             onClicked: {
                                 MainController.visualizerImporter.saveOverwrite()
-                                hideDuplicateDialog()
+                                visualizerPage.hideDuplicateDialog()
                             }
                         }
 
@@ -328,8 +328,8 @@ Page {
                             text: TranslationManager.translate("visualizer.button.saveAsNew", "Save as New")
                             accessibleName: TranslationManager.translate("visualizerBrowser.saveAsNewProfile", "Save as a new profile with different name")
                             onClicked: {
-                                newNameInput.text = duplicateProfileTitle + " (copy)"
-                                showingNameInput = true
+                                newNameInput.text = visualizerPage.duplicateProfileTitle + " (copy)"
+                                visualizerPage.showingNameInput = true
                             }
                         }
 
@@ -339,7 +339,7 @@ Page {
                             accessibleName: TranslationManager.translate("visualizerBrowser.cancelImport", "Cancel import")
                             onClicked: {
                                 MainController.visualizerImporter.cancelPending()
-                                hideDuplicateDialog()
+                                visualizerPage.hideDuplicateDialog()
                             }
                         }
                     }
@@ -350,7 +350,7 @@ Page {
             FocusScope {
                 id: nameInputPanel
                 anchors.fill: parent
-                visible: showingDuplicateChoice && showingNameInput
+                visible: visualizerPage.showingDuplicateChoice && visualizerPage.showingNameInput
                 focus: visible
 
                 property real keyboardOffset: 0
@@ -420,7 +420,7 @@ Page {
                             onClicked: {
                                 Keyboard.commit()
                                 MainController.visualizerImporter.saveWithNewName(newNameInput.text.trim())
-                                hideDuplicateDialog()
+                                visualizerPage.hideDuplicateDialog()
                             }
                         }
 
@@ -428,7 +428,7 @@ Page {
                             id: backButton
                             text: TranslationManager.translate("visualizer.button.back", "Back")
                             accessibleName: TranslationManager.translate("visualizerBrowser.goBackToChoose", "Go back to choose a different option")
-                            onClicked: showingNameInput = false
+                            onClicked: visualizerPage.showingNameInput = false
                         }
                     }
                 }

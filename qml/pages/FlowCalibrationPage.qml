@@ -253,7 +253,7 @@ Page {
     Connections {
         target: FlowCalibrationModel
         function onDataChanged() {
-            loadData()
+            calibrationPage.loadData()
         }
     }
 

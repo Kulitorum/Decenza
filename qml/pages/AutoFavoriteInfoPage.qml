@@ -1,3 +1,10 @@
+// The notes Repeater delegate and the resize-grip Repeater read this file's ids
+// (`autoFavoriteInfoPage`, `resizeMouseArea`); Bound makes them statically resolvable.
+// The notes delegate declares its one injected role, `modelData`, required in the same
+// edit -- without that, Bound stops role injection and every note renders blank at
+// RUNTIME, silently. The grip delegate takes no role.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -59,11 +66,11 @@ Page {
         target: MainController.shotHistory
         function onShotReady(id, shot) {
             if (id !== autoFavoriteInfoPage.shotId) return
-            shotData = shot
+            autoFavoriteInfoPage.shotData = shot
             Qt.callLater(function() { (scrollView.contentItem as Flickable).returnToBounds() })
         }
         function onAutoFavoriteGroupDetailsReady(details) {
-            groupDetails = details
+            autoFavoriteInfoPage.groupDetails = details
         }
     }
 
@@ -111,10 +118,10 @@ Page {
                     spacing: 0
 
                     Text {
-                        text: _beanText
+                        text: autoFavoriteInfoPage._beanText
                         font: Theme.titleFont
                         color: Theme.textColor
-                        visible: _hasBean
+                        visible: autoFavoriteInfoPage._hasBean
                         width: Math.min(implicitWidth, parent.width)
                         elide: Text.ElideRight
                         Accessible.ignored: true
@@ -127,15 +134,15 @@ Page {
                         font.pixelSize: Theme.titleFont.pixelSize
                         font.bold: true
                         color: Theme.textSecondaryColor
-                        visible: _hasBean && _hasProfile
+                        visible: autoFavoriteInfoPage._hasBean && autoFavoriteInfoPage._hasProfile
                         Accessible.ignored: true
                     }
 
                     Text {
-                        text: profileName || ""
+                        text: autoFavoriteInfoPage.profileName || ""
                         font: Theme.titleFont
                         color: Theme.primaryColor
-                        visible: _hasProfile
+                        visible: autoFavoriteInfoPage._hasProfile
                         width: Math.min(implicitWidth, parent.width)
                         elide: Text.ElideRight
                         Accessible.ignored: true
@@ -148,15 +155,15 @@ Page {
                         font.pixelSize: Theme.titleFont.pixelSize
                         font.bold: true
                         color: Theme.textSecondaryColor
-                        visible: _hasGrinder && (_hasBean || _hasProfile)
+                        visible: autoFavoriteInfoPage._hasGrinder && (autoFavoriteInfoPage._hasBean || autoFavoriteInfoPage._hasProfile)
                         Accessible.ignored: true
                     }
 
                     Text {
-                        text: _grinderText
+                        text: autoFavoriteInfoPage._grinderText
                         font: Theme.titleFont
                         color: Theme.textSecondaryColor
-                        visible: _hasGrinder
+                        visible: autoFavoriteInfoPage._hasGrinder
                         width: Math.min(implicitWidth, parent.width)
                         elide: Text.ElideRight
                         Accessible.ignored: true
@@ -164,7 +171,7 @@ Page {
                 }
 
                 Text {
-                    text: shotCount + " " +
+                    text: autoFavoriteInfoPage.shotCount + " " +
                           TranslationManager.translate("autofavorites.shots", "shots")
                     font: Theme.labelFont
                     color: Theme.textSecondaryColor
@@ -173,7 +180,7 @@ Page {
             }
 
             // Graph inspect bar
-            GraphInspectBar { graph: shotGraph; visible: shotId > 0 }
+            GraphInspectBar { graph: shotGraph; visible: autoFavoriteInfoPage.shotId > 0 }
 
             // Shot graph (most recent shot)
             Rectangle {
@@ -183,7 +190,7 @@ Page {
                 color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
                 clip: true
-                visible: shotId > 0
+                visible: autoFavoriteInfoPage.shotId > 0
 
                 Accessible.role: Accessible.Graphic
                 Accessible.name: TranslationManager.translate("autofavoriteinfo.graph", "Most recent shot graph")
@@ -195,19 +202,19 @@ Page {
                     anchors.fill: parent
                     anchors.margins: Theme.spacingSmall
                     anchors.bottomMargin: Theme.spacingSmall + resizeHandle.height
-                    pressureData: shotData.pressure || []
-                    flowData: shotData.flow || []
-                    temperatureData: shotData.temperature || []
-                    weightData: shotData.weight || []
-                    weightFlowRateData: shotData.weightFlowRate || []
-                    resistanceData: shotData.resistance || []
-                    pressureGoalData: shotData.pressureGoal || []
-                    flowGoalData: shotData.flowGoal || []
-                    temperatureGoalData: shotData.temperatureGoal || []
-                    temperatureMixData: shotData.temperatureMix || []
-                    temperatureMixGoalData: shotData.temperatureMixGoal || []
-                    phaseMarkers: shotData.phases || []
-                    maxTime: shotData.durationSec || 60
+                    pressureData: autoFavoriteInfoPage.shotData.pressure || []
+                    flowData: autoFavoriteInfoPage.shotData.flow || []
+                    temperatureData: autoFavoriteInfoPage.shotData.temperature || []
+                    weightData: autoFavoriteInfoPage.shotData.weight || []
+                    weightFlowRateData: autoFavoriteInfoPage.shotData.weightFlowRate || []
+                    resistanceData: autoFavoriteInfoPage.shotData.resistance || []
+                    pressureGoalData: autoFavoriteInfoPage.shotData.pressureGoal || []
+                    flowGoalData: autoFavoriteInfoPage.shotData.flowGoal || []
+                    temperatureGoalData: autoFavoriteInfoPage.shotData.temperatureGoal || []
+                    temperatureMixData: autoFavoriteInfoPage.shotData.temperatureMix || []
+                    temperatureMixGoalData: autoFavoriteInfoPage.shotData.temperatureMixGoal || []
+                    phaseMarkers: autoFavoriteInfoPage.shotData.phases || []
+                    maxTime: autoFavoriteInfoPage.shotData.durationSec || 60
                     Accessible.ignored: true
                 }
 
@@ -291,7 +298,7 @@ Page {
             }
 
             // Graph legend
-            GraphLegend { graph: shotGraph; visible: shotId > 0 }
+            GraphLegend { graph: shotGraph; visible: autoFavoriteInfoPage.shotId > 0 }
 
             // Metrics row: Avg Duration, Avg Dose, Avg Yield, Avg Rating
             RowLayout {
@@ -300,10 +307,10 @@ Page {
 
                 ColumnLayout {
                     spacing: Theme.scaled(2)
-                    visible: (groupDetails.avgDuration || 0) > 0
+                    visible: (autoFavoriteInfoPage.groupDetails.avgDuration || 0) > 0
                     Accessible.role: Accessible.StaticText
                     Accessible.name: TranslationManager.translate("autofavoriteinfo.avgduration", "Avg Duration") + ": " +
-                        (groupDetails.avgDuration || 0).toFixed(1) + "s"
+                        (autoFavoriteInfoPage.groupDetails.avgDuration || 0).toFixed(1) + "s"
                     Tr {
                         key: "autofavoriteinfo.avgduration"
                         fallback: "Avg Duration"
@@ -312,7 +319,7 @@ Page {
                         Accessible.ignored: true
                     }
                     Text {
-                        text: (groupDetails.avgDuration || 0).toFixed(1) + "s"
+                        text: (autoFavoriteInfoPage.groupDetails.avgDuration || 0).toFixed(1) + "s"
                         font: Theme.subtitleFont
                         color: Theme.textColor
                         Accessible.ignored: true
@@ -321,10 +328,10 @@ Page {
 
                 ColumnLayout {
                     spacing: Theme.scaled(2)
-                    visible: (groupDetails.avgDose || 0) > 0
+                    visible: (autoFavoriteInfoPage.groupDetails.avgDose || 0) > 0
                     Accessible.role: Accessible.StaticText
                     Accessible.name: TranslationManager.translate("autofavoriteinfo.avgdose", "Avg Dose") + ": " +
-                        (groupDetails.avgDose || 0).toFixed(1) + "g"
+                        (autoFavoriteInfoPage.groupDetails.avgDose || 0).toFixed(1) + "g"
                     Tr {
                         key: "autofavoriteinfo.avgdose"
                         fallback: "Avg Dose"
@@ -333,7 +340,7 @@ Page {
                         Accessible.ignored: true
                     }
                     Text {
-                        text: (groupDetails.avgDose || 0).toFixed(1) + "g"
+                        text: (autoFavoriteInfoPage.groupDetails.avgDose || 0).toFixed(1) + "g"
                         font: Theme.subtitleFont
                         color: Theme.dyeDoseColor
                         Accessible.ignored: true
@@ -342,10 +349,10 @@ Page {
 
                 ColumnLayout {
                     spacing: Theme.scaled(2)
-                    visible: (groupDetails.avgYield || 0) > 0
+                    visible: (autoFavoriteInfoPage.groupDetails.avgYield || 0) > 0
                     Accessible.role: Accessible.StaticText
                     Accessible.name: TranslationManager.translate("autofavoriteinfo.avgyield", "Avg Yield") + ": " +
-                        (groupDetails.avgYield || 0).toFixed(1) + "g"
+                        (autoFavoriteInfoPage.groupDetails.avgYield || 0).toFixed(1) + "g"
                     Tr {
                         key: "autofavoriteinfo.avgyield"
                         fallback: "Avg Yield"
@@ -354,7 +361,7 @@ Page {
                         Accessible.ignored: true
                     }
                     Text {
-                        text: (groupDetails.avgYield || 0).toFixed(1) + "g"
+                        text: (autoFavoriteInfoPage.groupDetails.avgYield || 0).toFixed(1) + "g"
                         font: Theme.subtitleFont
                         color: Theme.dyeOutputColor
                         Accessible.ignored: true
@@ -363,10 +370,10 @@ Page {
 
                 ColumnLayout {
                     spacing: Theme.scaled(2)
-                    visible: avgEnjoyment > 0
+                    visible: autoFavoriteInfoPage.avgEnjoyment > 0
                     Accessible.role: Accessible.StaticText
                     Accessible.name: TranslationManager.translate("autofavoriteinfo.avgrating", "Avg Rating") + ": " +
-                        avgEnjoyment + "%"
+                        autoFavoriteInfoPage.avgEnjoyment + "%"
                     Tr {
                         key: "autofavoriteinfo.avgrating"
                         fallback: "Avg Rating"
@@ -375,7 +382,7 @@ Page {
                         Accessible.ignored: true
                     }
                     Text {
-                        text: avgEnjoyment + "%"
+                        text: autoFavoriteInfoPage.avgEnjoyment + "%"
                         font: Theme.subtitleFont
                         color: Theme.warningColor
                         Accessible.ignored: true
@@ -389,7 +396,7 @@ Page {
                 Layout.preferredHeight: analysisColumn.height + Theme.spacingLarge
                 color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
-                visible: (groupDetails.avgTds || 0) > 0 || (groupDetails.avgEy || 0) > 0
+                visible: (autoFavoriteInfoPage.groupDetails.avgTds || 0) > 0 || (autoFavoriteInfoPage.groupDetails.avgEy || 0) > 0
                 Accessible.role: Accessible.Grouping
                 Accessible.name: TranslationManager.translate("shotdetail.analysis", "Analysis")
 
@@ -413,17 +420,17 @@ Page {
                         spacing: Theme.spacingLarge
 
                         ColumnLayout {
-                            visible: (groupDetails.avgTds || 0) > 0
+                            visible: (autoFavoriteInfoPage.groupDetails.avgTds || 0) > 0
                             spacing: Theme.scaled(2)
                             Tr { key: "autofavoriteinfo.avgtds"; fallback: "Avg TDS"; font: Theme.captionFont; color: Theme.textSecondaryColor; Accessible.ignored: true }
-                            Text { text: (groupDetails.avgTds || 0).toFixed(2) + "%"; font: Theme.bodyFont; color: Theme.dyeTdsColor; Accessible.ignored: true }
+                            Text { text: (autoFavoriteInfoPage.groupDetails.avgTds || 0).toFixed(2) + "%"; font: Theme.bodyFont; color: Theme.dyeTdsColor; Accessible.ignored: true }
                         }
 
                         ColumnLayout {
-                            visible: (groupDetails.avgEy || 0) > 0
+                            visible: (autoFavoriteInfoPage.groupDetails.avgEy || 0) > 0
                             spacing: Theme.scaled(2)
                             Tr { key: "autofavoriteinfo.avgey"; fallback: "Avg EY"; font: Theme.captionFont; color: Theme.textSecondaryColor; Accessible.ignored: true }
-                            Text { text: (groupDetails.avgEy || 0).toFixed(1) + "%"; font: Theme.bodyFont; color: Theme.dyeEyColor; Accessible.ignored: true }
+                            Text { text: (autoFavoriteInfoPage.groupDetails.avgEy || 0).toFixed(1) + "%"; font: Theme.bodyFont; color: Theme.dyeEyColor; Accessible.ignored: true }
                         }
                     }
                 }
@@ -433,7 +440,7 @@ Page {
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: Theme.spacingSmall
-                visible: _notes.length > 0
+                visible: autoFavoriteInfoPage._notes.length > 0
 
                 Tr {
                     key: "shotdetail.notes"
@@ -443,14 +450,17 @@ Page {
                 }
 
                 Repeater {
-                    model: _notes
+                    model: autoFavoriteInfoPage._notes
 
                     ColumnLayout {
+                        id: noteEntry
+                        required property var modelData
+
                         Layout.fillWidth: true
                         spacing: Theme.scaled(2)
 
                         Text {
-                            text: modelData.dateTime || ""
+                            text: noteEntry.modelData.dateTime || ""
                             font: Theme.captionFont
                             color: Theme.textSecondaryColor
                             Accessible.ignored: true
@@ -460,9 +470,9 @@ Page {
                             Layout.fillWidth: true
                             inlineHeight: Theme.scaled(100)
                             fitContent: true
-                            text: modelData.text || ""
+                            text: noteEntry.modelData.text || ""
                             accessibleName: TranslationManager.translate("shotdetail.notes", "Notes") +
-                                " " + (modelData.dateTime || "")
+                                " " + (noteEntry.modelData.dateTime || "")
                             textFont: Theme.bodyFont
                             readOnly: true
                         }
@@ -476,7 +486,7 @@ Page {
                 Layout.preferredHeight: beanColumn.height + Theme.spacingMedium
                 color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
-                visible: _hasBeanCardData
+                visible: autoFavoriteInfoPage._hasBeanCardData
                 Accessible.role: Accessible.Grouping
                 Accessible.name: TranslationManager.translate("autofavoriteinfo.beanandgrinder", "Beans & Grinder")
 
@@ -497,24 +507,24 @@ Page {
                         Layout.fillWidth: true
 
                         // Bean info
-                        Tr { key: "shotdetail.roaster"; fallback: "Roaster:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: beanBrand !== ""; Accessible.ignored: true }
-                        Text { textFormat: Text.StyledText; text: Theme.replaceEmojiWithImg(beanBrand, Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: beanBrand !== ""; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
+                        Tr { key: "shotdetail.roaster"; fallback: "Roaster:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: autoFavoriteInfoPage.beanBrand !== ""; Accessible.ignored: true }
+                        Text { textFormat: Text.StyledText; text: Theme.replaceEmojiWithImg(autoFavoriteInfoPage.beanBrand, Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: autoFavoriteInfoPage.beanBrand !== ""; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
 
-                        Tr { key: "shotdetail.coffee"; fallback: "Coffee:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: beanType !== ""; Accessible.ignored: true }
-                        Text { textFormat: Text.StyledText; text: Theme.replaceEmojiWithImg(beanType, Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: beanType !== ""; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
+                        Tr { key: "shotdetail.coffee"; fallback: "Coffee:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: autoFavoriteInfoPage.beanType !== ""; Accessible.ignored: true }
+                        Text { textFormat: Text.StyledText; text: Theme.replaceEmojiWithImg(autoFavoriteInfoPage.beanType, Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: autoFavoriteInfoPage.beanType !== ""; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
 
-                        Tr { key: "shotdetail.roastdate"; fallback: "Roast Date:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: _hasRoastDate; Accessible.ignored: true }
-                        Text { textFormat: Text.StyledText; text: Theme.replaceEmojiWithImg(shotData.roastDate || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: _hasRoastDate; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
+                        Tr { key: "shotdetail.roastdate"; fallback: "Roast Date:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: autoFavoriteInfoPage._hasRoastDate; Accessible.ignored: true }
+                        Text { textFormat: Text.StyledText; text: Theme.replaceEmojiWithImg(autoFavoriteInfoPage.shotData.roastDate || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: autoFavoriteInfoPage._hasRoastDate; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
 
-                        Tr { key: "shotdetail.roastlevel"; fallback: "Roast Level:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: _hasRoastLevel; Accessible.ignored: true }
-                        Text { textFormat: Text.StyledText; text: Theme.replaceEmojiWithImg(shotData.roastLevel || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: _hasRoastLevel; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
+                        Tr { key: "shotdetail.roastlevel"; fallback: "Roast Level:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: autoFavoriteInfoPage._hasRoastLevel; Accessible.ignored: true }
+                        Text { textFormat: Text.StyledText; text: Theme.replaceEmojiWithImg(autoFavoriteInfoPage.shotData.roastLevel || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: autoFavoriteInfoPage._hasRoastLevel; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
 
                         // Grinder info
-                        Tr { key: "shotdetail.grinder"; fallback: "Grinder:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: grinderBrand !== "" || grinderModel !== ""; Accessible.ignored: true }
-                        Text { textFormat: Text.StyledText; text: Theme.replaceEmojiWithImg(((grinderBrand || "") + " " + (grinderModel || "")).trim(), Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: grinderBrand !== "" || grinderModel !== ""; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
+                        Tr { key: "shotdetail.grinder"; fallback: "Grinder:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: autoFavoriteInfoPage.grinderBrand !== "" || autoFavoriteInfoPage.grinderModel !== ""; Accessible.ignored: true }
+                        Text { textFormat: Text.StyledText; text: Theme.replaceEmojiWithImg(((autoFavoriteInfoPage.grinderBrand || "") + " " + (autoFavoriteInfoPage.grinderModel || "")).trim(), Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: autoFavoriteInfoPage.grinderBrand !== "" || autoFavoriteInfoPage.grinderModel !== ""; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
 
-                        Tr { key: "shotdetail.grindersetting"; fallback: "Grind Setting:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: grinderSetting !== ""; Accessible.ignored: true }
-                        Text { textFormat: Text.StyledText; text: Theme.replaceEmojiWithImg(grinderSetting, Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: grinderSetting !== ""; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
+                        Tr { key: "shotdetail.grindersetting"; fallback: "Grind Setting:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: autoFavoriteInfoPage.grinderSetting !== ""; Accessible.ignored: true }
+                        Text { textFormat: Text.StyledText; text: Theme.replaceEmojiWithImg(autoFavoriteInfoPage.grinderSetting, Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: autoFavoriteInfoPage.grinderSetting !== ""; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
                     }
                 }
             }

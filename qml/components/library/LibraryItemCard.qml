@@ -1,3 +1,10 @@
+// The four `sourceComponent: Component { ... }` previews read this file's `card` id for
+// every input they draw; Bound makes it statically resolvable. The layout
+// preview's status-bar Repeater takes no `required property` of its own: its
+// LayoutItemDelegate base type already declares `modelData` required, and a base
+// type's required property is still bound by the view.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Window
@@ -60,7 +67,7 @@ Rectangle {
     Connections {
         target: WidgetLibrary
         function onThumbnailSaved(savedId) {
-            if (savedId === (entryData.id || "")) _thumbVersion++
+            if (savedId === (card.entryData.id || "")) card._thumbVersion++
         }
     }
     readonly property string localThumbnailSource: {
@@ -139,65 +146,68 @@ Rectangle {
     readonly property var layoutBottomRightItems: layoutZones.bottomRight || []
 
     // Compile action button type to CustomItem modelData (mirrors LayoutItemDelegate)
+    // Labels use the SAME `idle.button.*` keys LayoutItemDelegate uses for these action
+    // types. They were bare English here, so a library card previewing an action widget
+    // read "Steam" in every locale while the real widget read the translation.
     function compileActionType(type) {
         switch (type) {
             case "espresso": return {
                 emoji: "qrc:/icons/profile.svg",
-                content: "Profiles",
+                content: TranslationManager.translate("idle.button.profiles", "Profiles"),
                 action: "togglePreset:espresso",
                 backgroundColor: String(Theme.primaryColor)
             }
             case "steam": return {
                 emoji: "qrc:/icons/steam.svg",
-                content: "Steam",
+                content: TranslationManager.translate("idle.button.steam", "Steam"),
                 action: "togglePreset:steam",
                 backgroundColor: String(Theme.primaryColor)
             }
             case "hotwater": return {
                 emoji: "qrc:/icons/water.svg",
-                content: "Hot Water",
+                content: TranslationManager.translate("idle.button.hotwater", "Hot Water"),
                 action: "togglePreset:hotwater",
                 backgroundColor: String(Theme.primaryColor)
             }
             case "flush": return {
                 emoji: "qrc:/icons/flush.svg",
-                content: "Flush",
+                content: TranslationManager.translate("idle.button.flush", "Flush"),
                 action: "togglePreset:flush",
                 backgroundColor: String(Theme.primaryColor)
             }
             case "beans": return {
                 emoji: "qrc:/icons/coffeebeans.svg",
-                content: "Beans",
+                content: TranslationManager.translate("idle.button.beaninfo", "Beans"),
                 action: "togglePreset:beans",
                 backgroundColor: String(Theme.primaryColor)
             }
             case "history": return {
                 emoji: "qrc:/icons/history.svg",
-                content: "History",
+                content: TranslationManager.translate("idle.button.history", "History"),
                 action: "navigate:history",
                 backgroundColor: String(Theme.primaryColor)
             }
             case "settings": return {
                 emoji: "qrc:/icons/settings.svg",
-                content: "Settings",
+                content: TranslationManager.translate("idle.button.settings", "Settings"),
                 action: "navigate:settings",
                 backgroundColor: String(Theme.primaryColor)
             }
             case "autofavorites": return {
                 emoji: "qrc:/icons/star.svg",
-                content: "Favorites",
+                content: TranslationManager.translate("idle.button.autofavorites", "Favorites"),
                 action: "navigate:autofavorites",
                 backgroundColor: String(Theme.primaryColor)
             }
             case "sleep": return {
                 emoji: "qrc:/icons/sleep.svg",
-                content: "Sleep",
+                content: TranslationManager.translate("idle.button.sleep", "Sleep"),
                 action: "command:sleep",
                 backgroundColor: "#555555"
             }
             case "quit": return {
                 emoji: "qrc:/icons/quit.svg",
-                content: "Quit",
+                content: TranslationManager.translate("idle.button.quit", "Quit"),
                 action: "command:quit",
                 backgroundColor: "#555555"
             }
@@ -265,7 +275,7 @@ Rectangle {
     // --- FULL PREVIEW MODE ---
     Item {
         id: fullLayout
-        visible: displayMode === 0
+        visible: card.displayMode === 0
         anchors.fill: parent
         anchors.margins: Theme.scaled(4)
         implicitHeight: Theme.scaled(36)
@@ -280,13 +290,13 @@ Rectangle {
             width: badgeText.implicitWidth + Theme.scaled(6)
             height: Theme.scaled(14)
             radius: Theme.scaled(3)
-            color: typeBadgeColor(entryType)
+            color: card.typeBadgeColor(card.entryType)
             opacity: 0.8
 
             Text {
                 id: badgeText
                 anchors.centerIn: parent
-                text: typeBadgeLabel(entryType)
+                text: card.typeBadgeLabel(card.entryType)
                 color: Theme.primaryContrastColor
                 font.family: Theme.captionFont.family
                 font.pixelSize: Theme.scaled(8)
@@ -296,9 +306,9 @@ Rectangle {
 
         // Thumbnail image (server or local)
         Image {
-            visible: hasThumbnail
+            visible: card.hasThumbnail
             anchors.fill: parent
-            source: thumbnailUrl
+            source: card.thumbnailUrl
             fillMode: Image.PreserveAspectFit
             asynchronous: true
             sourceSize.width: width * Screen.devicePixelRatio
@@ -307,7 +317,7 @@ Rectangle {
 
         // Theme name overlay (bottom of thumbnail)
         Rectangle {
-            visible: entryType === "theme" && entryThemeName !== ""
+            visible: card.entryType === "theme" && card.entryThemeName !== ""
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
@@ -319,7 +329,7 @@ Rectangle {
                 id: themeNameText
                 anchors.centerIn: parent
                 width: parent.width - Theme.scaled(8)
-                text: entryThemeName
+                text: card.entryThemeName
                 color: Theme.primaryContrastColor
                 font.family: Theme.captionFont.family
                 font.pixelSize: Theme.scaled(10)
@@ -331,7 +341,7 @@ Rectangle {
 
         // Item preview — only instantiated when needed (no thumbnail, or livePreview for capture)
         Loader {
-            active: entryType === "item" && (livePreview || !hasThumbnail)
+            active: card.entryType === "item" && (card.livePreview || !card.hasThumbnail)
             anchors.fill: parent
             sourceComponent: Component {
                 CustomItem {
@@ -343,7 +353,7 @@ Rectangle {
 
         // Zone preview — only instantiated when needed
         Loader {
-            active: entryType === "zone" && (livePreview || !hasThumbnail)
+            active: card.entryType === "zone" && (card.livePreview || !card.hasThumbnail)
             anchors.fill: parent
             sourceComponent: Component {
                 Item {
@@ -371,7 +381,7 @@ Rectangle {
 
         // Layout preview — only instantiated when needed (heaviest component)
         Loader {
-            active: entryType === "layout" && (livePreview || !hasThumbnail)
+            active: card.entryType === "layout" && (card.livePreview || !card.hasThumbnail)
             anchors.fill: parent
             sourceComponent: Component {
                 Item {
@@ -496,7 +506,7 @@ Rectangle {
 
     // --- COMPACT LIST MODE (items) - matches CustomItem compact rendering ---
     Item {
-        visible: displayMode === 1 && entryType === "item"
+        visible: card.displayMode === 1 && card.entryType === "item"
         anchors.fill: parent
 
         // Type badge overlay
@@ -510,13 +520,13 @@ Rectangle {
             width: compactItemBadgeText.implicitWidth + Theme.scaled(6)
             height: Theme.scaled(14)
             radius: Theme.scaled(3)
-            color: typeBadgeColor(entryType)
+            color: card.typeBadgeColor(card.entryType)
             opacity: 0.8
 
             Text {
                 id: compactItemBadgeText
                 anchors.centerIn: parent
-                text: typeBadgeLabel(entryType)
+                text: card.typeBadgeLabel(card.entryType)
                 color: Theme.primaryContrastColor
                 font.family: Theme.captionFont.family
                 font.pixelSize: Theme.scaled(8)
@@ -526,10 +536,10 @@ Rectangle {
 
         // Server thumbnail (community entries)
         Image {
-            visible: hasThumbnail
+            visible: card.hasThumbnail
             anchors.fill: parent
             anchors.margins: Theme.spacingSmall
-            source: thumbnailUrl
+            source: card.thumbnailUrl
             fillMode: Image.PreserveAspectFit
             asynchronous: true
             sourceSize.width: width * Screen.devicePixelRatio
@@ -538,7 +548,7 @@ Rectangle {
 
         // Item preview — only instantiated when no thumbnail
         Loader {
-            active: livePreview || !hasThumbnail
+            active: card.livePreview || !card.hasThumbnail
             anchors.fill: parent
             sourceComponent: Component {
                 CustomItem {
@@ -551,7 +561,7 @@ Rectangle {
 
     // --- COMPACT LIST MODE (zones, layouts, thumbnails) ---
     RowLayout {
-        visible: displayMode === 1 && entryType !== "item"
+        visible: card.displayMode === 1 && card.entryType !== "item"
         anchors.fill: parent
         anchors.leftMargin: Theme.scaled(6)
         anchors.rightMargin: Theme.scaled(6)
@@ -563,13 +573,13 @@ Rectangle {
             Layout.preferredWidth: compactBadgeText.implicitWidth + Theme.scaled(6)
             Layout.preferredHeight: Theme.scaled(14)
             radius: Theme.scaled(3)
-            color: typeBadgeColor(entryType)
+            color: card.typeBadgeColor(card.entryType)
             opacity: 0.8
 
             Text {
                 id: compactBadgeText
                 anchors.centerIn: parent
-                text: typeBadgeLabel(entryType)
+                text: card.typeBadgeLabel(card.entryType)
                 color: Theme.primaryContrastColor
                 font.family: Theme.captionFont.family
                 font.pixelSize: Theme.scaled(8)
@@ -579,10 +589,10 @@ Rectangle {
 
         // Compact thumbnail for themes
         Image {
-            visible: entryType === "theme" && hasThumbnail
+            visible: card.entryType === "theme" && card.hasThumbnail
             Layout.preferredWidth: Theme.scaled(40)
             Layout.preferredHeight: Theme.scaled(27)
-            source: hasThumbnail ? thumbnailUrl : ""
+            source: card.hasThumbnail ? card.thumbnailUrl : ""
             fillMode: Image.PreserveAspectFit
             asynchronous: true
         }
@@ -591,8 +601,8 @@ Rectangle {
         Text {
             Layout.fillWidth: true
             text: {
-                if (entryType === "theme") return entryThemeName || "Theme"
-                if (entryType === "zone") return entryZoneItems.length + " items"
+                if (card.entryType === "theme") return card.entryThemeName || "Theme"
+                if (card.entryType === "zone") return card.entryZoneItems.length + " items"
                 return "Layout"
             }
             color: Theme.textColor

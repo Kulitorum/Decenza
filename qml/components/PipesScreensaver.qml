@@ -374,17 +374,17 @@ Item {
 
     Timer {
         id: growTimer
-        interval: 60 / speed
+        interval: 60 / root.speed
         running: root.running && root.visible
         repeat: true
-        onTriggered: addPipeSegment()
+        onTriggered: root.addPipeSegment()
     }
 
     property real cameraAngle: 0
     NumberAnimation on cameraAngle {
         from: 0
         to: 360
-        duration: cameraRotationDuration
+        duration: root.cameraRotationDuration
         loops: Animation.Infinite
         running: root.running && root.visible
     }
@@ -405,7 +405,7 @@ Item {
 
         Node {
             id: cameraOrbit
-            eulerRotation.y: cameraAngle
+            eulerRotation.y: root.cameraAngle
 
             PerspectiveCamera {
                 id: camera
@@ -431,8 +431,8 @@ Item {
             // Cylinders using InstanceList
             Model {
                 geometry: PipeCylinderGeometry {
-                    radius: pipeRadius
-                    length: segmentLength
+                    radius: root.pipeRadius
+                    length: root.segmentLength
                     sides: 16
                 }
                 instancing: InstanceList {
@@ -463,14 +463,14 @@ Item {
 
             // Animated tip sphere
             Model {
-                visible: showTip
+                visible: root.showTip
                 geometry: PipeSphereGeometry {
-                    radius: pipeRadius * 1.3
+                    radius: root.pipeRadius * 1.3
                     sides: 16
                 }
-                position: tipPosition
+                position: root.tipPosition
                 materials: DefaultMaterial {
-                    diffuseColor: tipColor
+                    diffuseColor: root.tipColor
                     specularAmount: 0.5
                     specularRoughness: 0.3
                 }

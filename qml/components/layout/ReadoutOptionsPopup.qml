@@ -1,3 +1,8 @@
+// The data-mode and display-mode Repeater delegates read this file's `popup` id; Bound
+// makes it statically resolvable. Both already declare their one injected role,
+// `modelData`, required, so Bound cannot break role injection here.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -120,6 +125,7 @@ Dialog {
                 Repeater {
                     model: popup.hasOption("dataMode") ? popup.dataModeChoices : []
                     delegate: Rectangle {
+                        id: dataModeCell
                         required property var modelData
                         readonly property bool sel: popup.dataMode === modelData.value
                         Layout.fillWidth: true
@@ -138,12 +144,12 @@ Dialog {
                             anchors.right: parent.right
                             anchors.rightMargin: Theme.spacingMedium
                             anchors.verticalCenter: parent.verticalCenter
-                            text: modelData.label
-                            color: parent.sel ? Theme.primaryContrastColor : Theme.textColor
+                            text: dataModeCell.modelData.label
+                            color: dataModeCell.sel ? Theme.primaryContrastColor : Theme.textColor
                             font: Theme.labelFont
                             elide: Text.ElideRight
                         }
-                        MouseArea { id: dataMa; anchors.fill: parent; onClicked: popup.pickDataMode(modelData.value) }
+                        MouseArea { id: dataMa; anchors.fill: parent; onClicked: popup.pickDataMode(dataModeCell.modelData.value) }
                     }
                 }
 
@@ -162,6 +168,7 @@ Dialog {
                     Repeater {
                         model: popup.displayChoices
                         delegate: Rectangle {
+                            id: displayModeCell
                             required property var modelData
                             readonly property bool sel: popup.displayMode === modelData.value
                             Layout.fillWidth: true
@@ -176,11 +183,11 @@ Dialog {
                             Accessible.onPressAction: dispMa.clicked(null)
                             Text {
                                 anchors.centerIn: parent
-                                text: modelData.label
-                                color: parent.sel ? Theme.primaryContrastColor : Theme.textColor
+                                text: displayModeCell.modelData.label
+                                color: displayModeCell.sel ? Theme.primaryContrastColor : Theme.textColor
                                 font: Theme.labelFont
                             }
-                            MouseArea { id: dispMa; anchors.fill: parent; onClicked: popup.pickDisplay(modelData.value) }
+                            MouseArea { id: dispMa; anchors.fill: parent; onClicked: popup.pickDisplay(displayModeCell.modelData.value) }
                         }
                     }
                 }

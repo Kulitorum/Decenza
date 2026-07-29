@@ -1,3 +1,9 @@
+// The flat-map shot-marker and top-profile Repeater delegates read this file's `root`
+// id and its projection helpers; Bound makes them statically resolvable. Each declares
+// its one injected role, `modelData`, required in the same edit -- without that, Bound
+// stops role injection and every marker loses its position at RUNTIME, silently.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import Decenza
 
@@ -43,7 +49,7 @@ Item {
 
     // Globe rotation animation
     NumberAnimation on globeRotation {
-        running: root.running && root.visible && mapShape === "globe"
+        running: root.running && root.visible && root.mapShape === "globe"
         from: 0
         to: 360
         duration: 120000  // 2 minutes per rotation
@@ -127,7 +133,7 @@ Item {
     Item {
         id: flatMapView
         anchors.fill: parent
-        visible: mapShape === "flat"
+        visible: root.mapShape === "flat"
 
         // Map image background
         Image {
@@ -151,7 +157,7 @@ Item {
                 ctx.lineWidth = 1
 
                 for (var lon = -180; lon <= 180; lon += 30) {
-                    var pos = latLonToXY(0, lon)
+                    var pos = root.latLonToXY(0, lon)
                     ctx.beginPath()
                     ctx.moveTo(pos.x, 0)
                     ctx.lineTo(pos.x, height)
@@ -159,7 +165,7 @@ Item {
                 }
 
                 for (var lat = -60; lat <= 75; lat += 15) {
-                    var pos2 = latLonToXY(lat, 0)
+                    var pos2 = root.latLonToXY(lat, 0)
                     ctx.beginPath()
                     ctx.moveTo(0, pos2.y)
                     ctx.lineTo(width, pos2.y)
@@ -172,7 +178,7 @@ Item {
         Rectangle {
             anchors.fill: parent
             color: "#000000"
-            opacity: mapTexture === "bright" ? 0 : 0.3
+            opacity: root.mapTexture === "bright" ? 0 : 0.3
             visible: mapImage.status === Image.Ready
         }
 
@@ -181,13 +187,13 @@ Item {
             id: terminatorCanvas
             anchors.fill: parent
             visible: root.showTerminator
-            opacity: mapTexture === "bright" ? 0.35 : 0.45
+            opacity: root.mapTexture === "bright" ? 0.35 : 0.45
 
             property date currentTime: new Date()
 
             Timer {
                 interval: 60000
-                running: root.running && root.visible && mapShape === "flat"
+                running: root.running && root.visible && root.mapShape === "flat"
                 repeat: true
                 onTriggered: {
                     terminatorCanvas.currentTime = new Date()
@@ -239,7 +245,7 @@ Item {
                     }
                     lat = Math.max(-85, Math.min(85, lat))
 
-                    var pos = latLonToXY(lat, lon)
+                    var pos = root.latLonToXY(lat, lon)
                     if (firstPoint) {
                         ctx.moveTo(pos.x, pos.y)
                         firstPoint = false
@@ -250,8 +256,8 @@ Item {
 
                 // Close polygon via polar night pole
                 var polarNightLat = declination >= 0 ? -85 : 85
-                var bottomRight = latLonToXY(polarNightLat, 180)
-                var bottomLeft = latLonToXY(polarNightLat, -180)
+                var bottomRight = root.latLonToXY(polarNightLat, 180)
+                var bottomLeft = root.latLonToXY(polarNightLat, -180)
                 ctx.lineTo(bottomRight.x, bottomRight.y)
                 ctx.lineTo(bottomLeft.x, bottomLeft.y)
                 ctx.closePath()
@@ -263,13 +269,15 @@ Item {
 
         // Shot markers (flat map)
         Repeater {
-            model: shots
+            model: root.shots
 
             Item {
                 id: flatShotMarker
-                property var pos: latLonToXY(modelData.lat, modelData.lon)
-                property real ageHours: modelData.age || 0
-                property real shotOpacity: getOpacityFromAge(ageHours)
+                required property var modelData
+
+                property var pos: root.latLonToXY(flatShotMarker.modelData.lat, flatShotMarker.modelData.lon)
+                property real ageHours: flatShotMarker.modelData.age || 0
+                property real shotOpacity: root.getOpacityFromAge(ageHours)
                 property bool isNew: ageHours < 1
                 property real newness: isNew ? (1 - ageHours) : 0
 
@@ -285,7 +293,7 @@ Item {
                     width: parent.width
                     height: width
                     radius: width / 2
-                    color: mapTexture === "bright" ? "#ff6b35" : "#4a9eff"
+                    color: root.mapTexture === "bright" ? "#ff6b35" : "#4a9eff"
                     opacity: 0.3 + 0.4 * flatShotMarker.newness
 
                     SequentialAnimation on scale {
@@ -301,7 +309,7 @@ Item {
                     width: root.widgetMode ? 3 : 8
                     height: width
                     radius: width / 2
-                    color: mapTexture === "bright" ? "#ff8c5a" : "#7abdff"
+                    color: root.mapTexture === "bright" ? "#ff8c5a" : "#7abdff"
                 }
             }
         }
@@ -309,8 +317,8 @@ Item {
         // Test mode marker (flat)
         Item {
             id: flatTestMarker
-            visible: testMode && testLatitude !== 0 && testLongitude !== 0
-            property var pos: latLonToXY(testLatitude, testLongitude)
+            visible: root.testMode && root.testLatitude !== 0 && root.testLongitude !== 0
+            property var pos: root.latLonToXY(root.testLatitude, root.testLongitude)
             x: pos.x - width / 2
             y: pos.y - height / 2
             width: 40
@@ -376,8 +384,8 @@ Item {
     Loader {
         id: globeLoader
         anchors.fill: parent
-        active: Settings.app.hasQuick3D && mapShape === "globe"
-        visible: mapShape === "globe"
+        active: Settings.app.hasQuick3D && root.mapShape === "globe"
+        visible: root.mapShape === "globe"
         source: "qrc:/qt/qml/Decenza/qml/components/ShotMapGlobe.qml"
         onLoaded: {
             item.shots = Qt.binding(function() { return root.shots })
@@ -402,18 +410,18 @@ Item {
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.topMargin: 30
         text: Qt.formatTime(shotMapClock.currentTime, Settings.app.use12HourTime ? "h:mmap" : "HH:mm")
-        color: mapTexture === "bright" ? "#ffffff" : "#aabbcc"
+        color: root.mapTexture === "bright" ? "#ffffff" : "#aabbcc"
         font.pixelSize: Theme.scaled(48)
         font.bold: true
         font.family: Theme.bodyFont.family
         opacity: 0.9
-        visible: showClock && !testMode
+        visible: root.showClock && !root.testMode
 
         property date currentTime: new Date()
 
         Timer {
             interval: 1000
-            running: showClock && root.visible
+            running: root.showClock && root.visible
             repeat: true
             // shotMapClock, not `parent`: Timer is a QObject with no parent of its own, so
             // unqualified `parent` resolved to the FILE root's parent and the clock never
@@ -429,25 +437,29 @@ Item {
         anchors.margins: 30
         spacing: 8
         opacity: 0.85
-        visible: showProfiles && topProfiles.length > 0 && !testMode
+        visible: root.showProfiles && root.topProfiles.length > 0 && !root.testMode
 
         Text {
             text: TranslationManager.translate("shotMap.topProfiles", "Top Profiles")
-            color: mapTexture === "bright" ? "#ffffff" : "#8899aa"
+            color: root.mapTexture === "bright" ? "#ffffff" : "#8899aa"
             font.pixelSize: Theme.scaled(14)
             font.bold: true
             font.family: Theme.bodyFont.family
         }
 
         Repeater {
-            model: topProfiles
+            model: root.topProfiles
 
             Row {
+                id: profileRow
+                required property var modelData
+
                 spacing: 8
 
                 Text {
-                    text: modelData.name || "Unknown"
-                    color: mapTexture === "bright" ? "#dddddd" : "#667788"
+                    text: profileRow.modelData.name
+                          || TranslationManager.translate("common.unknown", "Unknown")
+                    color: root.mapTexture === "bright" ? "#dddddd" : "#667788"
                     font.pixelSize: Theme.scaled(12)
                     font.family: Theme.bodyFont.family
                     width: 150
@@ -455,8 +467,8 @@ Item {
                 }
 
                 Text {
-                    text: "(" + (modelData.count || 0) + ")"
-                    color: mapTexture === "bright" ? "#aaaaaa" : "#556677"
+                    text: "(" + (profileRow.modelData.count || 0) + ")"
+                    color: root.mapTexture === "bright" ? "#aaaaaa" : "#556677"
                     font.pixelSize: Theme.scaled(11)
                     font.family: Theme.bodyFont.family
                 }
@@ -471,18 +483,19 @@ Item {
         anchors.margins: 30
         spacing: 10
         opacity: 0.8
-        visible: !widgetMode
+        visible: !root.widgetMode
 
         Text {
-            text: shotCount + " shots in the last 24 hours"
-            color: mapTexture === "bright" ? "#ffffff" : "#8899aa"
+            text: TranslationManager.translate("shotMap.shotsLast24h", "%1 shots in the last 24 hours")
+                  .arg(root.shotCount)
+            color: root.mapTexture === "bright" ? "#ffffff" : "#8899aa"
             font.pixelSize: Theme.scaled(16)
             font.family: Theme.bodyFont.family
         }
 
         Text {
             text: "decenza.coffee"
-            color: mapTexture === "bright" ? "#aaaaaa" : "#556677"
+            color: root.mapTexture === "bright" ? "#aaaaaa" : "#556677"
             font.pixelSize: Theme.scaled(12)
             font.family: Theme.bodyFont.family
         }
@@ -497,6 +510,6 @@ Item {
         color: "#444455"
         font.pixelSize: Theme.scaled(11)
         font.family: Theme.bodyFont.family
-        visible: !testMode && !widgetMode
+        visible: !root.testMode && !root.widgetMode
     }
 }

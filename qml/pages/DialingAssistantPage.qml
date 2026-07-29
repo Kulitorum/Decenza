@@ -350,24 +350,24 @@ Page {
     Connections {
         target: MainController.aiManager ? MainController.aiManager.conversation : null
         function onResponseReceived(response) {
-            _waitingForResponse = false
+            dialingPage._waitingForResponse = false
             // Scroll to top of the new response so it's readable from the start
             Qt.callLater(function() {
-                recommendationFlickable.contentY = Math.max(0, _preResponseHeight)
+                recommendationFlickable.contentY = Math.max(0, dialingPage._preResponseHeight)
                 // See onRecommendationReceived for render-thread wakeup rationale.
                 recommendationText.update()
                 recommendationFlickable.update()
             })
         }
         function onErrorOccurred(error) {
-            _waitingForResponse = false
+            dialingPage._waitingForResponse = false
         }
         function onHistoryChanged() {
             // Only save the scroll target when the user sends (before response arrives).
             // The response triggers historyChanged too, but we handle that in onResponseReceived.
-            if (!_waitingForResponse) {
-                _preResponseHeight = recommendationText.contentHeight
-                _waitingForResponse = true
+            if (!dialingPage._waitingForResponse) {
+                dialingPage._preResponseHeight = recommendationText.contentHeight
+                dialingPage._waitingForResponse = true
             }
         }
     }

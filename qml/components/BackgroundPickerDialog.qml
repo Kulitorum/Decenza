@@ -1,3 +1,9 @@
+// The four tile Repeater delegates read this file's `popup` id; Bound makes it
+// statically resolvable. All four already declare every injected role they use
+// (`modelData`, and `index` on the image grid) required, so Bound cannot break role
+// injection here.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts

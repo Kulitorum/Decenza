@@ -1,3 +1,9 @@
+// The category-tab Repeater and the emoji GridView delegate both read this file's ids
+// (`root`, `grid`); Bound makes them statically resolvable. Each declares every
+// injected role it uses required in the same edit -- without that, Bound stops role
+// injection and the tabs and the whole emoji grid render blank at RUNTIME, silently.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Layouts
 import Decenza
@@ -82,23 +88,27 @@ Item {
                 Repeater {
                     model: root.categories
                     Rectangle {
+                        id: categoryTab
+                        required property var modelData
+                        required property int index
+
                         implicitWidth: tabLabel.implicitWidth + Theme.scaled(16)
                         height: Theme.scaled(28)
                         radius: Theme.scaled(4)
-                        color: root._activeCategory === index ? Theme.primaryColor : Theme.backgroundColor
+                        color: root._activeCategory === categoryTab.index ? Theme.primaryColor : Theme.backgroundColor
                         border.color: Theme.borderColor
                         border.width: 1
 
                         Accessible.role: Accessible.Button
-                        Accessible.name: modelData.name + " category" + (root._activeCategory === index ? ", selected" : "")
+                        Accessible.name: categoryTab.modelData.name + " category" + (root._activeCategory === categoryTab.index ? ", selected" : "")
                         Accessible.focusable: true
                         Accessible.onPressAction: emojiTabMa.clicked(null)
 
                         Text {
                             id: tabLabel
                             anchors.centerIn: parent
-                            text: modelData.name
-                            color: root._activeCategory === index ? Theme.primaryContrastColor : Theme.textColor
+                            text: categoryTab.modelData.name
+                            color: root._activeCategory === categoryTab.index ? Theme.primaryContrastColor : Theme.textColor
                             font: Theme.captionFont
                             Accessible.ignored: true
                         }
@@ -106,7 +116,7 @@ Item {
                         MouseArea {
                             id: emojiTabMa
                             anchors.fill: parent
-                            onClicked: root._activeCategory = index
+                            onClicked: root._activeCategory = categoryTab.index
                         }
                     }
                 }
@@ -159,6 +169,9 @@ Item {
             model: root.categories[root._activeCategory].items
 
             delegate: Rectangle {
+                id: emojiCell
+                required property var modelData
+
                 // Handle both object items (SVG: {value, label}) and string items (emoji)
                 readonly property string itemValue: typeof modelData === "object" ? modelData.value : modelData
                 readonly property bool isSelected: root.selectedValue === itemValue
@@ -175,7 +188,7 @@ Item {
                 // Emoji/icon image (both SVG icons and emoji use Image now)
                 Image {
                     anchors.centerIn: parent
-                    source: Theme.emojiToImage(parent.itemValue)
+                    source: Theme.emojiToImage(emojiCell.itemValue)
                     sourceSize.width: Theme.scaled(28)
                     sourceSize.height: Theme.scaled(28)
                 }
@@ -185,8 +198,8 @@ Item {
                     anchors.fill: parent
                     hoverEnabled: true
                     onClicked: {
-                        root.selectedValue = parent.itemValue
-                        root.selected(parent.itemValue)
+                        root.selectedValue = emojiCell.itemValue
+                        root.selected(emojiCell.itemValue)
                     }
                 }
             }

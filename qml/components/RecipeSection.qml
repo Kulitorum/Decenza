@@ -26,8 +26,8 @@ Item {
     Row {
         id: headerRow
         width: parent.width
-        height: title ? Theme.scaled(24) : 0
-        visible: title !== ""
+        height: root.title ? Theme.scaled(24) : 0
+        visible: root.title !== ""
         spacing: Theme.scaled(8)
 
         // Left line
@@ -97,7 +97,7 @@ Item {
     ColumnLayout {
         id: contentColumn
         anchors.top: headerRow.bottom
-        anchors.topMargin: title ? Theme.scaled(8) : 0
+        anchors.topMargin: root.title ? Theme.scaled(8) : 0
         anchors.left: parent.left
         anchors.right: parent.right
         spacing: Theme.scaled(10)

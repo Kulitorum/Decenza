@@ -1,3 +1,9 @@
+// The preset-pill Repeater delegate reads this file's `root` id and its `ratingColor`
+// function; Bound makes them statically resolvable. It declares its one injected role,
+// `modelData`, required in the same edit -- without that, Bound stops role injection
+// and all four preset pills lose their number at RUNTIME, silently.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -89,28 +95,30 @@ FocusScope {
 
                 Rectangle {
                     id: presetPill
+                    required property int modelData
+
                     width: Theme.scaled(root.compact ? 32 : 36)
                     height: Theme.scaled(root.compact ? 18 : 28)
 
                     readonly property bool isActive: root.value === modelData
                     radius: Theme.scaled(root.compact ? 4 : 6)
-                    color: isActive ? ratingColor(modelData) : Theme.surfaceColor
+                    color: isActive ? root.ratingColor(presetPill.modelData) : Theme.surfaceColor
                     border.width: 1
-                    border.color: isActive ? ratingColor(modelData) : Theme.borderColor
+                    border.color: isActive ? root.ratingColor(presetPill.modelData) : Theme.borderColor
 
                     Behavior on color { ColorAnimation { duration: 150 } }
 
                     Accessible.role: Accessible.Button
-                    Accessible.name: modelData + "%"
+                    Accessible.name: presetPill.modelData + "%"
                     Accessible.focusable: true
                     Accessible.onPressAction: ratingArea.clicked(null)
 
                     Text {
                         anchors.centerIn: parent
-                        text: modelData
+                        text: presetPill.modelData
                         font.pixelSize: Theme.scaled(root.compact ? 10 : 12)
                         font.bold: true
-                        color: presetPill.isActive ? "#ffffff" : ratingColor(modelData)
+                        color: presetPill.isActive ? Theme.primaryContrastColor : root.ratingColor(presetPill.modelData)
                         Accessible.ignored: true
                     }
 
@@ -118,10 +126,10 @@ FocusScope {
                         id: ratingArea
                         anchors.fill: parent
                         onClicked: {
-                            root.value = modelData
-                            root.valueModified(modelData)
+                            root.value = presetPill.modelData
+                            root.valueModified(presetPill.modelData)
                             if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
-                                AccessibilityManager.announce(modelData + "%")
+                                AccessibilityManager.announce(presetPill.modelData + "%")
                             }
                         }
                     }

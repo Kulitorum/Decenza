@@ -1,3 +1,9 @@
+// The language-grid delegate reads this file's ids (`addLanguagePage`, `languageGrid`);
+// Bound makes them statically resolvable. It declares its one injected role,
+// `modelData`, required in the same edit -- without that, Bound stops role injection
+// and every language card renders blank at RUNTIME, silently.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -93,9 +99,12 @@ Page {
             clip: true
             cellWidth: width / 2
             cellHeight: 72
-            model: getAvailableLanguages()
+            model: addLanguagePage.getAvailableLanguages()
 
             delegate: Item {
+                id: langCell
+                required property var modelData
+
                 width: languageGrid.cellWidth
                 height: languageGrid.cellHeight
 
@@ -105,11 +114,11 @@ Page {
                     radius: Theme.buttonRadius
                     color: langMouseArea.pressed ? Theme.primaryColor : Theme.cardBackgroundColor
                     border.width: 1
-                    border.color: Qt.rgba(1, 1, 1, 0.3)
+                    border.color: Theme.borderColor
 
                     Accessible.role: Accessible.Button
-                    Accessible.name: modelData.name + ", " + modelData.nativeName
-                    Accessible.description: TranslationManager.translate("addlanguage.accessible.add", "Add") + " " + modelData.name + " " + TranslationManager.translate("language.accessible.language", "language")
+                    Accessible.name: langCell.modelData.name + ", " + langCell.modelData.nativeName
+                    Accessible.description: TranslationManager.translate("addlanguage.accessible.add", "Add") + " " + langCell.modelData.name + " " + TranslationManager.translate("language.accessible.language", "language")
                     Accessible.focusable: true
                     Accessible.onPressAction: langMouseArea.clicked(null)
 
@@ -119,7 +128,7 @@ Page {
                         spacing: Theme.scaled(10)
 
                         Text {
-                            text: modelData.code.toUpperCase()
+                            text: langCell.modelData.code.toUpperCase()
                             font.pixelSize: Theme.scaled(14)
                             font.family: Theme.monoFontFamily
                             font.bold: true
@@ -132,7 +141,7 @@ Page {
                             spacing: Theme.scaled(2)
 
                             Text {
-                                text: modelData.name
+                                text: langCell.modelData.name
                                 font: Theme.bodyFont
                                 color: langMouseArea.pressed ? Theme.primaryContrastColor : Theme.textColor
                                 elide: Text.ElideRight
@@ -140,9 +149,9 @@ Page {
                             }
 
                             Text {
-                                text: modelData.nativeName
+                                text: langCell.modelData.nativeName
                                 font: Theme.labelFont
-                                color: langMouseArea.pressed ? Qt.rgba(1,1,1,0.8) : Theme.textSecondaryColor
+                                color: langMouseArea.pressed ? Qt.alpha(Theme.primaryContrastColor, 0.8) : Theme.textSecondaryColor
                                 elide: Text.ElideRight
                                 Layout.fillWidth: true
                             }
@@ -153,7 +162,7 @@ Page {
                         id: langMouseArea
                         anchors.fill: parent
                         onClicked: {
-                            TranslationManager.addLanguage(modelData.code, modelData.name, modelData.nativeName)
+                            TranslationManager.addLanguage(langCell.modelData.code, langCell.modelData.name, langCell.modelData.nativeName)
                             addLanguagePage.StackView.view.pop()
                         }
                     }

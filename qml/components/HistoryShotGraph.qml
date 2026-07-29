@@ -1,3 +1,10 @@
+// The trace, phase-marker, pump-mode and tick-label Repeater delegates read this file's
+// ids (`chart`, `graphsView`, `timeAxis`, `pressureAxis`, `weightAxis`, `tempAxis`,
+// `rightAxisLabels`); Bound makes them statically resolvable. Every one of them already
+// declares each injected role it uses required, so Bound cannot break role injection
+// here.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtGraphs
 import Decenza
@@ -371,8 +378,8 @@ Item {
         property real min: 0
         property real max: {
             var maxW = 0
-            for (var i = 0; i < weightData.length; i++) {
-                if (weightData[i].y > maxW) maxW = weightData[i].y
+            for (var i = 0; i < chart.weightData.length; i++) {
+                if (chart.weightData[i].y > maxW) maxW = chart.weightData[i].y
             }
             return Math.max(10, maxW * 1.1)
         }
@@ -382,15 +389,15 @@ Item {
         id: dCdtAxis
         property real min: {
             var minV = 0
-            for (var i = 0; i < conductanceDerivativeData.length; i++) {
-                if (conductanceDerivativeData[i].y < minV) minV = conductanceDerivativeData[i].y
+            for (var i = 0; i < chart.conductanceDerivativeData.length; i++) {
+                if (chart.conductanceDerivativeData[i].y < minV) minV = chart.conductanceDerivativeData[i].y
             }
             return minV < 0 ? -Math.abs(minV) * 1.15 : 0
         }
         property real max: {
             var maxV = 0
-            for (var i = 0; i < conductanceDerivativeData.length; i++) {
-                if (conductanceDerivativeData[i].y > maxV) maxV = conductanceDerivativeData[i].y
+            for (var i = 0; i < chart.conductanceDerivativeData.length; i++) {
+                if (chart.conductanceDerivativeData[i].y > maxV) maxV = chart.conductanceDerivativeData[i].y
             }
             var padded = maxV * 1.15
             if (padded <= 2) return 2
@@ -421,6 +428,13 @@ Item {
             subTickCount: 0
             labelFormat: "%.0f"
             visible: chart.showLabels
+            // Caption goes on the axis, not in an overlay: Qt Graphs draws axis
+            // titles itself AND reserves layout space for them (axisrenderer.cpp:622
+            // counts titled axes into the margin math). The Qt Charts -> Qt Graphs
+            // migration (#1146) carried this over as a Text positioned off `plotArea`
+            // bottom-right, which floated it ON TOP of the plot, over any trace running
+            // along the bottom.
+            titleText: TranslationManager.translate("graph.timeAxis", "Time (s)")
         }
 
         ValueAxis {
@@ -624,9 +638,9 @@ Item {
 
             Text {
                 text: {
-                    if (transitionReason === "") return markerLabel
+                    if (markerDelegate.transitionReason === "") return markerDelegate.markerLabel
                     var suffix = ""
-                    switch (transitionReason) {
+                    switch (markerDelegate.transitionReason) {
                         case "weight": suffix = " [W]"; break
                         case "pressure": suffix = " [P]"; break
                         case "pressure_unconfirmed": suffix = " [P]"; break
@@ -634,11 +648,11 @@ Item {
                         case "flow_unconfirmed": suffix = " [F]"; break
                         case "time": suffix = " [T]"; break
                     }
-                    return markerLabel + suffix
+                    return markerDelegate.markerLabel + suffix
                 }
                 font.pixelSize: Theme.scaled(14)
-                font.bold: isStart
-                color: isStart ? Theme.accentColor : Qt.rgba(255, 255, 255, 0.8)
+                font.bold: markerDelegate.isStart
+                color: markerDelegate.isStart ? Theme.accentColor : Qt.rgba(1, 1, 1, 0.8)
                 rotation: -90
                 transformOrigin: Item.TopLeft
                 x: Theme.scaled(3)
@@ -681,18 +695,6 @@ Item {
             visible: markerTime <= timeAxis.max && modelData.label !== "Start" && modelData.label !== "End"
             Accessible.ignored: true
         }
-    }
-
-    // Time axis label - inside graph at bottom right
-    Text {
-        x: graphsView.plotArea.x + graphsView.plotArea.width - width - Theme.spacingSmall
-        y: graphsView.plotArea.y + graphsView.plotArea.height - height - Theme.scaled(12)
-        text: TranslationManager.translate("graph.timeAxis", "Time (s)")
-        color: Theme.textSecondaryColor
-        font: Theme.captionFont
-        opacity: 0.7
-        visible: chart.showLabels
-        Accessible.ignored: true
     }
 
     // Crosshair vertical line

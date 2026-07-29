@@ -1,3 +1,9 @@
+// The 30-trace and phase-label Repeater delegates read this file's ids (`chart`,
+// `timeAxis`, `graphsView`); Bound makes them statically resolvable. Both already
+// declare their one injected role, `modelData`, required, so Bound cannot break role
+// injection here.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtGraphs
 import Decenza
@@ -330,7 +336,7 @@ Item {
     Component.onCompleted: _refreshAll()
 
     Connections {
-        target: comparisonModel
+        target: chart.comparisonModel
         function onShotsChanged() { chart._refreshAll() }
     }
 

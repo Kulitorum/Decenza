@@ -174,7 +174,7 @@ Dialog {
 
                         TextArea {
                             readOnly: true
-                            text: crashLog
+                            text: root.crashLog
                             font.family: Theme.monoFontFamily
                             font.pixelSize: Theme.scaled(10)
                             color: Theme.textColor
@@ -274,7 +274,7 @@ Dialog {
                     onClicked: {
                         Keyboard.commit()
                         root.dialogState = "submitting"
-                        CrashReporter.submitReport(crashLog, userNotesInput.text, debugLogTail)
+                        CrashReporter.submitReport(root.crashLog, userNotesInput.text, root.debugLogTail)
                     }
                     background: Rectangle {
                         implicitHeight: Theme.scaled(60)
@@ -370,17 +370,22 @@ Dialog {
             }
 
             Text {
-                visible: issueUrl !== ""
+                visible: root.issueUrl !== ""
                 text: TranslationManager.translate("crashReport.viewOnGithub", "View issue on GitHub")
                 font: Theme.bodyFont
                 color: Theme.primaryColor
                 Layout.leftMargin: Theme.scaled(20)
                 Layout.bottomMargin: Theme.scaled(10)
 
+                Accessible.role: Accessible.Button
+                Accessible.name: text
+                Accessible.focusable: true
+                Accessible.onPressAction: Qt.openUrlExternally(root.issueUrl)
+
                 MouseArea {
                     anchors.fill: parent
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: Qt.openUrlExternally(issueUrl)
+                    onClicked: Qt.openUrlExternally(root.issueUrl)
                 }
             }
 
@@ -467,7 +472,7 @@ Dialog {
             }
 
             Text {
-                text: TranslationManager.translate("crashReport.failedToSubmit", "Failed to submit crash report:\n%1").arg(errorMessage)
+                text: TranslationManager.translate("crashReport.failedToSubmit", "Failed to submit crash report:\n%1").arg(root.errorMessage)
                 font: Theme.bodyFont
                 color: Theme.textColor
                 wrapMode: Text.Wrap
@@ -523,7 +528,7 @@ Dialog {
                     onClicked: {
                         Keyboard.commit()
                         root.dialogState = "submitting"
-                        CrashReporter.submitReport(crashLog, userNotesInput.text, debugLogTail)
+                        CrashReporter.submitReport(root.crashLog, userNotesInput.text, root.debugLogTail)
                     }
                     background: Rectangle {
                         implicitHeight: Theme.scaled(60)

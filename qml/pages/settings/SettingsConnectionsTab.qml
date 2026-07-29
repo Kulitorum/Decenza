@@ -1,3 +1,11 @@
+// Bound so the scale-picker ComboBox delegate resolves this file's `scalePicker` id
+// instead of reading it as unqualified access. All three delegates in this file declare
+// every injected model role they use as a required property in the same edit: without
+// that, ComponentBehavior: Bound stops role injection and breaks them at RUNTIME,
+// silently. (`connectionsTab` and `discoveredDevicesList` are read only from sibling
+// scopes, which resolve without the pragma.)
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -77,7 +85,9 @@ Item {
                     spacing: Theme.scaled(8)
 
                     Text {
-                        text: emailBox.copied ? "✓ Copied!" : "decenzalogs@kulitorum.com"
+                        text: emailBox.copied
+                              ? TranslationManager.translate("common.copied", "✓ Copied!")
+                              : "decenzalogs@kulitorum.com"
                         color: Theme.accentColor
                         font.pixelSize: Theme.scaled(15)
                         font.bold: true
@@ -144,9 +154,15 @@ Item {
 
                 // Cancel button
                 Text {
+                    id: shareLogCancel
                     text: TranslationManager.translate("common.cancel", "Cancel")
                     color: Theme.accentColor
                     font.pixelSize: Theme.scaled(14)
+
+                    Accessible.role: Accessible.Button
+                    Accessible.name: shareLogCancel.text
+                    Accessible.focusable: true
+                    Accessible.onPressAction: shareLogDialog.close()
 
                     MouseArea {
                         anchors.fill: parent
@@ -525,7 +541,7 @@ Item {
                 ColumnLayout {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    visible: usbAvailable && USBManager.de1Connected
+                    visible: connectionsTab.usbAvailable && USBManager.de1Connected
                     spacing: Theme.scaled(10)
 
                     // Title row with status badge
@@ -569,17 +585,17 @@ Item {
 
                     // Port info
                     Text {
-                        text: TranslationManager.translate("settings.connections.port", "Port:") + " " + (usbAvailable ? USBManager.portName : "")
+                        text: TranslationManager.translate("settings.connections.port", "Port:") + " " + (connectionsTab.usbAvailable ? USBManager.portName : "")
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(13)
                     }
 
                     // Serial number
                     Text {
-                        text: TranslationManager.translate("settings.connections.serial", "Serial:") + " " + (usbAvailable ? USBManager.serialNumber : "")
+                        text: TranslationManager.translate("settings.connections.serial", "Serial:") + " " + (connectionsTab.usbAvailable ? USBManager.serialNumber : "")
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(13)
-                        visible: usbAvailable && USBManager.serialNumber !== ""
+                        visible: connectionsTab.usbAvailable && USBManager.serialNumber !== ""
                     }
 
                     // Firmware version
@@ -638,7 +654,7 @@ Item {
                         }
 
                         Connections {
-                            target: usbAvailable ? USBManager : null
+                            target: connectionsTab.usbAvailable ? USBManager : null
                             function onLogMessage(message) {
                                 usbLogText.text += message + "\n"
                                 usbLogScroll.ScrollBar.vertical.position = 1.0 - usbLogScroll.ScrollBar.vertical.size
@@ -648,7 +664,7 @@ Item {
                         // Also show DE1 transport logs (SerialTransport TX/RX) in the USB log panel
                         Connections {
                             target: BLEManager
-                            enabled: usbAvailable && USBManager.de1Connected
+                            enabled: connectionsTab.usbAvailable && USBManager.de1Connected
                             function onDe1LogMessage(message) {
                                 usbLogText.text += message + "\n"
                                 usbLogScroll.ScrollBar.vertical.position = 1.0 - usbLogScroll.ScrollBar.vertical.size
@@ -661,7 +677,7 @@ Item {
                 ColumnLayout {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    visible: !usbAvailable || !USBManager.de1Connected
+                    visible: !connectionsTab.usbAvailable || !USBManager.de1Connected
                     spacing: Theme.scaled(10)
 
                     Tr {
@@ -764,6 +780,7 @@ Item {
                     }
 
                     ListView {
+                        id: de1DeviceList
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.scaled(60)
                         clip: true
@@ -772,23 +789,40 @@ Item {
 
                         delegate: ItemDelegate {
                             id: delegate
+                            required property var modelData
+
                             width: ListView.view.width
                             contentItem: Text {
-                                text: modelData.name + " (" + modelData.address + ")"
+                                text: delegate.modelData.name + " (" + delegate.modelData.address + ")"
                                 color: Theme.textColor
                             }
                             background: Rectangle {
                                 color: delegate.hovered ? Theme.accentColor : "transparent"
                                 radius: Theme.scaled(4)
                             }
-                            onClicked: DE1Device.connectToDevice(modelData.address)
+
+                            // The row sets contentItem rather than `text`, so Qt has no
+                            // string to derive a default accessible name from.
+                            Accessible.role: Accessible.Button
+                            Accessible.name: delegate.modelData.name + " (" + delegate.modelData.address + ")"
+                            Accessible.focusable: true
+                            Accessible.onPressAction: delegate.clicked()
+
+                            onClicked: DE1Device.connectToDevice(delegate.modelData.address)
                         }
 
+                        // A visual child of a ListView is reparented to its
+                        // contentItem (qquickflickable.cpp:2442), so `parent`
+                        // here is NOT the ListView: `parent.count` was undefined
+                        // and this placeholder never once appeared. Read count
+                        // off the list by id, and centre against the list's own
+                        // height — contentItem is zero-high when the list is empty.
                         Tr {
-                            anchors.centerIn: parent
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            y: (de1DeviceList.height - height) / 2
                             key: "settings.bluetooth.noDevices"
                             fallback: "No devices found"
-                            visible: parent.count === 0
+                            visible: de1DeviceList.count === 0
                             color: Theme.textSecondaryColor
                         }
                     }
@@ -836,7 +870,7 @@ Item {
 
                 // Serial USB toggle — not available on iOS
                 RowLayout {
-                    visible: usbAvailable
+                    visible: connectionsTab.usbAvailable
                     Layout.fillWidth: true
                     spacing: Theme.scaled(15)
 
@@ -964,7 +998,9 @@ Item {
 
                         AccessibleButton {
                             text: BLEManager.scanning ? TranslationManager.translate("settings.bluetooth.scanning", "Scanning...") : TranslationManager.translate("settings.bluetooth.scanForDevices", "Scan for Devices")
-                            accessibleName: BLEManager.scanning ? "Scanning for devices" : "Scan for Bluetooth DE1, scales, and refractometers"
+                            accessibleName: BLEManager.scanning
+                                ? TranslationManager.translate("settings.bluetooth.accessible.scanning", "Scanning for devices")
+                                : TranslationManager.translate("settings.bluetooth.accessible.scan", "Scan for Bluetooth DE1, scales, and refractometers")
                             enabled: !BLEManager.scanning
                             onClicked: BLEManager.scanForDevices()
                         }
@@ -1245,6 +1281,9 @@ Item {
                                 // Per-row delegate: star (filled on primary) + name + transport badge.
                                 delegate: ItemDelegate {
                                     id: scaleRowDelegate
+                                    required property var modelData
+                                    required property int index
+
                                     // Yield the scrollbar's strip when one is
                                     // showing — the bar overlays the flickable,
                                     // and a full-width row puts it on top of the
@@ -1279,7 +1318,7 @@ Item {
                                             source: "qrc:/icons/star.svg"
                                             sourceSize.width: Theme.scaled(14)
                                             sourceSize.height: Theme.scaled(14)
-                                            opacity: modelData.isPrimary ? 1.0 : 0.25
+                                            opacity: scaleRowDelegate.modelData.isPrimary ? 1.0 : 0.25
                                             Accessible.ignored: true
                                         }
 
@@ -1288,14 +1327,14 @@ Item {
                                             text: scaleRowDelegate._label
                                             color: Theme.textColor
                                             font.pixelSize: Theme.scaled(13)
-                                            font.bold: modelData.isPrimary
+                                            font.bold: scaleRowDelegate.modelData.isPrimary
                                             elide: Text.ElideRight
                                             verticalAlignment: Text.AlignVCenter
                                             Accessible.ignored: true
                                         }
 
                                         Rectangle {
-                                            property string badge: scalePicker.transportLabel(modelData.type)
+                                            property string badge: scalePicker.transportLabel(scaleRowDelegate.modelData.type)
                                             visible: badge.length > 0
                                             Layout.preferredWidth: rowBadgeText.implicitWidth + Theme.scaled(10)
                                             Layout.preferredHeight: Theme.scaled(18)
@@ -1314,7 +1353,7 @@ Item {
                                     }
 
                                     background: Rectangle {
-                                        color: highlighted
+                                        color: scaleRowDelegate.highlighted
                                                ? Qt.rgba(Theme.accentColor.r, Theme.accentColor.g, Theme.accentColor.b, 0.18)
                                                : "transparent"
                                     }
@@ -1730,6 +1769,8 @@ Item {
 
                         delegate: ItemDelegate {
                             id: delegate2
+                            required property var modelData
+
                             width: ListView.view.width
 
                             Accessible.role: Accessible.Button
@@ -1746,7 +1787,7 @@ Item {
 
                             contentItem: RowLayout {
                                 Text {
-                                    text: modelData.deviceName
+                                    text: delegate2.modelData.deviceName
                                     color: Theme.textColor
                                     Layout.fillWidth: true
                                     Accessible.ignored: true
@@ -1756,17 +1797,17 @@ Item {
                                     Layout.preferredWidth: discoveredBadgeText.implicitWidth + Theme.scaled(8)
                                     Layout.preferredHeight: Theme.scaled(18)
                                     radius: Theme.scaled(9)
-                                    color: modelData.deviceClass === "refractometer"
+                                    color: delegate2.modelData.deviceClass === "refractometer"
                                         ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.2)
                                         : Qt.rgba(Theme.accentColor.r, Theme.accentColor.g, Theme.accentColor.b, 0.2)
 
                                     Text {
                                         id: discoveredBadgeText
                                         anchors.centerIn: parent
-                                        text: modelData.deviceClass === "refractometer"
+                                        text: delegate2.modelData.deviceClass === "refractometer"
                                             ? TranslationManager.translate("connections.refractometer", "Refractometer")
-                                            : modelData.deviceType
-                                        color: modelData.deviceClass === "refractometer" ? Theme.primaryColor : Theme.accentColor
+                                            : delegate2.modelData.deviceType
+                                        color: delegate2.modelData.deviceClass === "refractometer" ? Theme.primaryColor : Theme.accentColor
                                         font.pixelSize: Theme.scaled(10)
                                         font.bold: true
                                         Accessible.ignored: true
@@ -1785,11 +1826,15 @@ Item {
                             }
                         }
 
+                        // Same contentItem-reparenting trap as the DE1 list above:
+                        // `parent` is the contentItem, so `parent.count` was
+                        // undefined and this never showed.
                         Tr {
-                            anchors.centerIn: parent
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            y: (discoveredDevicesList.height - height) / 2
                             key: "settings.bluetooth.noDevices"
                             fallback: "No devices found"
-                            visible: parent.count === 0
+                            visible: discoveredDevicesList.count === 0
                             color: Theme.textSecondaryColor
                         }
                     }

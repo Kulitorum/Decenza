@@ -1,3 +1,9 @@
+// The DelegateModel row delegate, its trailing-action Loader and the `layer.effect`
+// blocks read this file's ids (`root`, `listView`, `visualModel`, `autoScrollTimer`);
+// Bound makes them statically resolvable. The delegate already declares `modelData`
+// required -- see the comment there, which records why it must.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Effects

@@ -1,3 +1,9 @@
+// The language-list delegate reads this file's `languageList` id; Bound makes it
+// statically resolvable. It declares its one injected role, `modelData`, required in
+// the same edit -- without that, Bound stops role injection and every language row
+// renders blank at RUNTIME, silently.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -73,13 +79,15 @@ Item {
 
                     delegate: Item {
                         id: langDelegate
+                        required property var modelData
+
                         width: languageList.width
                         height: Math.max(Theme.scaled(36), langContentRow.implicitHeight + Theme.scaled(6) * 2)
 
-                        property bool highlighted: modelData === TranslationManager.currentLanguage
-                        property string langCode: modelData
-                        property string displayName: TranslationManager.getLanguageDisplayName(modelData)
-                        property string nativeName: TranslationManager.getLanguageNativeName(modelData)
+                        property bool highlighted: langDelegate.modelData === TranslationManager.currentLanguage
+                        property string langCode: langDelegate.modelData
+                        property string displayName: TranslationManager.getLanguageDisplayName(langDelegate.modelData)
+                        property string nativeName: TranslationManager.getLanguageNativeName(langDelegate.modelData)
 
                         Accessible.ignored: true
 
@@ -130,7 +138,7 @@ Item {
                             anchors.fill: parent
                             // Compute directly from modelData to avoid recycling issues
                             accessibleName: {
-                                var code = modelData  // Force binding to modelData
+                                var code = langDelegate.modelData  // Force binding to modelData
                                 var display = TranslationManager.getLanguageDisplayName(code)
                                 var native_ = TranslationManager.getLanguageNativeName(code)
                                 var name = native_ !== display ? display + ", " + native_ : display
@@ -142,7 +150,7 @@ Item {
                             accessibleItem: langDelegate
 
                             onAccessibleClicked: {
-                                var code = modelData
+                                var code = langDelegate.modelData
                                 var isRemote = TranslationManager.isRemoteLanguage(code)
                                 TranslationManager.currentLanguage = code  // Immediate visual feedback
                                 if (isRemote) {
@@ -806,7 +814,9 @@ Item {
 
             Text {
                 width: parent.width
-                text: submitResultPopup.isSuccess ? "Success!" : "Error"
+                text: submitResultPopup.isSuccess
+                      ? TranslationManager.translate("common.success", "Success!")
+                      : TranslationManager.translate("common.error", "Error")
                 font: Theme.subtitleFont
                 color: submitResultPopup.isSuccess ? Theme.successColor : Theme.warningColor
                 horizontalAlignment: Text.AlignHCenter

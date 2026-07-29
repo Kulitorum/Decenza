@@ -1,3 +1,8 @@
+// The module Repeater delegate reads this file's ids (`root`, `qrGrid`); Bound makes them
+// statically resolvable. That delegate already declares its one injected role, `index`,
+// required, so Bound cannot break role injection here.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import "qrcode.js" as QR
 

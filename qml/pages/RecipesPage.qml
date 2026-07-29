@@ -1,3 +1,10 @@
+// The bag-picker delegate, the two recipe-card Repeaters and the StarterTile inline
+// component read this file's ids (`recipesPage`, `repointPicker`, `flickable`); Bound
+// makes them statically resolvable. Each delegate declares its one injected role,
+// `modelData`, required in the same edit -- without that, Bound stops role injection
+// and every recipe card loses its recipe at RUNTIME, silently.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -357,19 +364,22 @@ Page {
                     return out
                 }
                 delegate: ItemDelegate {
+                    id: bagRow
+                    required property var modelData
+
                     width: ListView.view.width
                     contentItem: ColumnLayout {
                         spacing: 0
                         Label {
                             Layout.fillWidth: true
-                            text: ((modelData.roasterName || "") + " " + (modelData.coffeeName || "")).trim()
+                            text: ((bagRow.modelData.roasterName || "") + " " + (bagRow.modelData.coffeeName || "")).trim()
                             font: Theme.bodyFont
                             color: Theme.textColor
                             elide: Text.ElideRight
                         }
                         Label {
-                            visible: (modelData.roastDate || "") !== ""
-                            text: modelData.roastDate || ""
+                            visible: (bagRow.modelData.roastDate || "") !== ""
+                            text: bagRow.modelData.roastDate || ""
                             font: Theme.captionFont
                             color: Theme.textSecondaryColor
                         }
@@ -380,7 +390,7 @@ Page {
                         if (recipesPage._repointRecipe) {
                             recipesPage._repointPendingId = recipesPage._repointRecipe.id
                             MainController.recipeStorage.requestRelinkRecipeToBag(
-                                recipesPage._repointRecipe.id, modelData.id)
+                                recipesPage._repointRecipe.id, bagRow.modelData.id)
                         }
                         repointPicker.close()
                     }
@@ -849,6 +859,8 @@ Page {
                 Repeater {
                     model: recipesPage.visibleRecipes
                     delegate: RecipeCard {
+                        required property var modelData
+
                         recipe: modelData
                         width: recipesPage.cardWidth(flickable.width)
                     }
@@ -905,6 +917,8 @@ Page {
                 Repeater {
                     model: recipesPage.showArchived ? recipesPage.visibleArchivedRecipes : []
                     delegate: RecipeCard {
+                        required property var modelData
+
                         recipe: modelData
                         archivedCard: true
                         width: recipesPage.cardWidth(flickable.width)

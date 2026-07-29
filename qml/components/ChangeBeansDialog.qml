@@ -1,3 +1,10 @@
+// The bean-search results delegate and the manual-entry Component read this file's ids
+// (`root`, `resultsList`, `canonicalPreviewPopup`); Bound makes them statically
+// resolvable. The delegate declares both injected roles it uses, `model` and `index`,
+// required in the same edit -- without that, Bound stops role injection and every
+// search result renders blank at RUNTIME, silently.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -952,6 +959,9 @@ Dialog {
 
                     delegate: Rectangle {
                         id: resultRow
+                        required property var model
+                        required property int index
+
                         width: resultsList.width
                         height: Theme.scaled(56)
                         radius: Theme.scaled(8)
@@ -962,9 +972,9 @@ Dialog {
 
                         // Delegates are recreated on every model reset, so the
                         // one-shot get() read stays in sync with the row data.
-                        readonly property var rowData: MainController.beanSearch.get(index)
+                        readonly property var rowData: MainController.beanSearch.get(resultRow.index)
                         readonly property int rowBagId: root.resolveBagId(resultRow.rowData)
-                        readonly property bool isActiveBag: model.tier === 0 && rowBagId > 0
+                        readonly property bool isActiveBag: resultRow.model.tier === 0 && rowBagId > 0
                             && rowBagId === Settings.dye.activeBagId
 
                         // Canonical-sourced rows (Bean Base autocomplete, alone
@@ -974,12 +984,12 @@ Dialog {
                         // can be inspected before picking. Other tiers have
                         // nothing beyond what the row already shows.
                         readonly property bool canPreview:
-                            (model.sources === "beanbase" || model.sources === "beanbase+history")
+                            (resultRow.model.sources === "beanbase" || resultRow.model.sources === "beanbase+history")
                             && ((resultRow.rowData && resultRow.rowData.beanBaseData) || "").length > 0
 
                         readonly property string primaryText: {
-                            var coffee = model.coffeeName || ""
-                            var roaster = model.roasterName || ""
+                            var coffee = resultRow.model.coffeeName || ""
+                            var roaster = resultRow.model.roasterName || ""
                             if (coffee.length > 0 && roaster.length > 0) return roaster + " " + coffee
                             return coffee.length > 0 ? coffee : roaster
                         }
@@ -1019,7 +1029,7 @@ Dialog {
                                     // Bean Base rows have no roast date; their detail line
                                     // (roast level · origin · notes) is what tells the
                                     // canonical DB's same-name near-duplicates apart.
-                                    text: model.roastDate || model.detail || ""
+                                    text: resultRow.model.roastDate || resultRow.model.detail || ""
                                     // Bean Base free text — never let AutoText parse it as markup
                                     textFormat: Text.PlainText
                                     font: Theme.captionFont
@@ -1052,16 +1062,16 @@ Dialog {
                                 implicitWidth: chipText.implicitWidth + Theme.scaled(16)
                                 implicitHeight: chipText.implicitHeight + Theme.scaled(8)
                                 radius: height / 2
-                                color: model.tier === 0 ? Theme.primaryColor : Theme.backgroundColor
-                                border.width: model.tier === 0 ? 0 : 1
+                                color: resultRow.model.tier === 0 ? Theme.primaryColor : Theme.backgroundColor
+                                border.width: resultRow.model.tier === 0 ? 0 : 1
                                 border.color: Theme.textSecondaryColor
 
                                 Text {
                                     id: chipText
                                     anchors.centerIn: parent
-                                    text: root.sourceLabel(model.sources, model.tier)
+                                    text: root.sourceLabel(resultRow.model.sources, resultRow.model.tier)
                                     font: Theme.captionFont
-                                    color: model.tier === 0 ? Theme.primaryContrastColor : Theme.textSecondaryColor
+                                    color: resultRow.model.tier === 0 ? Theme.primaryContrastColor : Theme.textSecondaryColor
                                     Accessible.ignored: true
                                 }
                             }
@@ -1070,14 +1080,14 @@ Dialog {
                         AccessibleMouseArea {
                             anchors.fill: parent
                             accessibleName: resultRow.primaryText
-                                + (model.detail ? ", " + model.detail : "")
-                                + ", " + root.sourceLabel(model.sources, model.tier)
+                                + (resultRow.model.detail ? ", " + resultRow.model.detail : "")
+                                + ", " + root.sourceLabel(resultRow.model.sources, resultRow.model.tier)
                                 + (resultRow.isActiveBag
                                     ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
                             accessibleItem: resultRow
                             onAccessibleClicked: {
                                 Keyboard.commit()
-                                root.selectResult(MainController.beanSearch.get(index))
+                                root.selectResult(MainController.beanSearch.get(resultRow.index))
                             }
                         }
                     }
@@ -1438,7 +1448,7 @@ Dialog {
                         // Match StyledComboBox (the input controls around it): 36 / r8.
                         Layout.preferredHeight: Theme.scaled(36)
                         radius: Theme.scaled(8)
-                        color: Qt.rgba(255, 255, 255, 0.1)
+                        color: Qt.rgba(1, 1, 1, 0.1)
 
                         Accessible.role: Accessible.Button
                         Accessible.name: trBeanDetails.text
@@ -1996,6 +2006,7 @@ Dialog {
 
     // Labelled form row: shared-width label + caller-supplied controls
     component FieldRow: RowLayout {
+        id: fieldRow
         property string labelKey: ""
         property string labelFallback: ""
 
@@ -2021,7 +2032,7 @@ Dialog {
         // Dropping the punctuation keeps the win (one key, one English, divergence impossible)
         // without inventing per-language typography rules.
         Text {
-            text: TranslationManager.translate(labelKey, labelFallback)
+            text: TranslationManager.translate(fieldRow.labelKey, fieldRow.labelFallback)
             font: Theme.bodyFont
             color: Theme.textSecondaryColor
             Layout.alignment: Qt.AlignVCenter

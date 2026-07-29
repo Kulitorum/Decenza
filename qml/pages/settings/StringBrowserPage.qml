@@ -1,3 +1,9 @@
+// The string-list delegate reads this file's ids (`stringBrowserPage`,
+// `stringListView`); Bound makes them statically resolvable. It declares both injected
+// roles it uses, `model` and `index`, required in the same edit -- without that, Bound
+// stops role injection and every string row renders blank at RUNTIME, silently.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import Decenza
@@ -118,7 +124,7 @@ Page {
             anchors.right: parent.right
             anchors.top: parent.top
             spacing: Theme.spacingSmall
-            visible: !isEditing
+            visible: !stringBrowserPage.isEditing
 
             // Top row: Language name + progress + AI Translate button
             Item {
@@ -162,7 +168,7 @@ Page {
 
                     // Clear All AI button (hidden for English)
                     Rectangle {
-                        visible: !isEnglish
+                        visible: !stringBrowserPage.isEnglish
                         width: Theme.scaled(80)
                         height: Theme.scaled(36)
                         anchors.verticalCenter: parent.verticalCenter
@@ -191,7 +197,7 @@ Page {
 
                     // AI Translate button (hidden for English)
                     Rectangle {
-                        visible: !isEnglish
+                        visible: !stringBrowserPage.isEnglish
                         width: Theme.scaled(120)
                         height: Theme.scaled(36)
                         anchors.verticalCenter: parent.verticalCenter
@@ -301,6 +307,7 @@ Page {
                             Accessible.role: Accessible.Button
                             Accessible.name: TranslationManager.translate("stringBrowser.accessible.clearSearch", "Clear search")
                             Accessible.focusable: true
+                            Accessible.onPressAction: searchField.text = ""
 
                             MouseArea {
                                 anchors.fill: parent
@@ -318,7 +325,7 @@ Page {
                     spacing: Theme.scaled(4)
 
                     Repeater {
-                        model: isEnglish ? [
+                        model: stringBrowserPage.isEnglish ? [
                             { text: TranslationManager.translate("stringBrowser.filterAll", "All"), mode: 0, description: TranslationManager.translate("stringBrowser.filterAllDescription", "Show all strings") },
                             { text: TranslationManager.translate("stringBrowser.filterCustom", "Custom"), mode: 3, description: TranslationManager.translate("stringBrowser.filterCustomDescription", "Show only customized strings") }
                         ] : [
@@ -328,32 +335,35 @@ Page {
                         ]
 
                         Rectangle {
+                            id: filterChip
+                            required property var modelData
+
                             width: Theme.scaled(70)
                             height: Theme.scaled(36)
-                            color: stringModel.filterMode === modelData.mode ? Theme.primaryColor : Theme.cardBackgroundColor
+                            color: stringModel.filterMode === filterChip.modelData.mode ? Theme.primaryColor : Theme.cardBackgroundColor
                             radius: Theme.buttonRadius
-                            border.width: stringModel.filterMode === modelData.mode ? 0 : 1
+                            border.width: stringModel.filterMode === filterChip.modelData.mode ? 0 : 1
                             border.color: Theme.borderColor
 
                             Accessible.role: Accessible.RadioButton
-                            Accessible.name: TranslationManager.translate("stringBrowser.accessible.filter", "%1 filter").replace("%1", modelData.text)
-                            Accessible.description: modelData.description
-                            Accessible.checked: stringModel.filterMode === modelData.mode
+                            Accessible.name: TranslationManager.translate("stringBrowser.accessible.filter", "%1 filter").replace("%1", filterChip.modelData.text)
+                            Accessible.description: filterChip.modelData.description
+                            Accessible.checked: stringModel.filterMode === filterChip.modelData.mode
                             Accessible.focusable: true
                             Accessible.onPressAction: filterMa.clicked(null)
 
                             Text {
                                 anchors.centerIn: parent
-                                text: modelData.text
+                                text: filterChip.modelData.text
                                 font: Theme.labelFont
-                                color: stringModel.filterMode === modelData.mode ? Theme.primaryContrastColor : Theme.textColor
+                                color: stringModel.filterMode === filterChip.modelData.mode ? Theme.primaryContrastColor : Theme.textColor
                                 Accessible.ignored: true
                             }
 
                             MouseArea {
                                 id: filterMa
                                 anchors.fill: parent
-                                onClicked: stringModel.filterMode = modelData.mode
+                                onClicked: stringModel.filterMode = filterChip.modelData.mode
                             }
                         }
                     }
@@ -381,13 +391,13 @@ Page {
             height: Theme.scaled(28)
             color: Theme.cardBackgroundColor
             radius: Theme.scaled(4)
-            visible: !isEditing
+            visible: !stringBrowserPage.isEditing
 
             // Calculate widths to match delegate columns
             readonly property real headerRowWidth: width - Theme.scaled(16)  // same as delegate rowWidth
-            readonly property real col1Width: isEnglish ? headerRowWidth * 0.5 : headerRowWidth * 0.35
+            readonly property real col1Width: stringBrowserPage.isEnglish ? headerRowWidth * 0.5 : headerRowWidth * 0.35
             readonly property real col2Width: headerRowWidth * 0.3
-            readonly property real col3Width: isEnglish ? headerRowWidth * 0.5 - Theme.scaled(8) : headerRowWidth * 0.35 - Theme.scaled(8)
+            readonly property real col3Width: stringBrowserPage.isEnglish ? headerRowWidth * 0.5 - Theme.scaled(8) : headerRowWidth * 0.35 - Theme.scaled(8)
 
             Item {
                 anchors.fill: parent
@@ -407,7 +417,7 @@ Page {
 
                 Text {
                     id: headerCol2
-                    visible: !isEnglish
+                    visible: !stringBrowserPage.isEnglish
                     anchors.left: headerCol1.right
                     anchors.leftMargin: Theme.scaled(8)
                     anchors.verticalCenter: parent.verticalCenter
@@ -420,11 +430,11 @@ Page {
                 }
 
                 Text {
-                    anchors.left: isEnglish ? headerCol1.right : headerCol2.right
+                    anchors.left: stringBrowserPage.isEnglish ? headerCol1.right : headerCol2.right
                     anchors.leftMargin: Theme.scaled(8)
                     anchors.verticalCenter: parent.verticalCenter
                     width: columnHeaders.col3Width
-                    text: isEnglish ? TranslationManager.translate("stringBrowser.columnCustomText", "Custom Text") : TranslationManager.translate("stringBrowser.columnFinalTranslation", "Final Translation")
+                    text: stringBrowserPage.isEnglish ? TranslationManager.translate("stringBrowser.columnCustomText", "Custom Text") : TranslationManager.translate("stringBrowser.columnFinalTranslation", "Final Translation")
                     font.family: Theme.labelFont.family
                     font.pixelSize: Theme.labelFont.pixelSize
                     font.bold: true
@@ -438,15 +448,15 @@ Page {
             id: stringListView
             anchors.left: parent.left
             anchors.right: parent.right
-            anchors.top: isEditing ? parent.top : columnHeaders.bottom
-            anchors.topMargin: isEditing ? 0 : Theme.spacingSmall
+            anchors.top: stringBrowserPage.isEditing ? parent.top : columnHeaders.bottom
+            anchors.topMargin: stringBrowserPage.isEditing ? 0 : Theme.spacingSmall
             anchors.bottom: parent.bottom
             clip: true
             model: stringModel
             spacing: Theme.scaled(2)
 
             Accessible.role: Accessible.List
-            Accessible.name: isEnglish ? TranslationManager.translate("stringBrowser.accessible.customizationList", "String customization list") : TranslationManager.translate("stringBrowser.accessible.translationList", "Translation list")
+            Accessible.name: stringBrowserPage.isEnglish ? TranslationManager.translate("stringBrowser.accessible.customizationList", "String customization list") : TranslationManager.translate("stringBrowser.accessible.translationList", "Translation list")
             Accessible.description: TranslationManager.translate("stringBrowser.accessible.stringsSwipeToNavigate", "%1 strings. Swipe to navigate, double tap to edit.").replace("%1", stringModel.count)
 
 
@@ -497,36 +507,39 @@ Page {
 
             delegate: Rectangle {
                 id: delegateRoot
+                required property var model
+                required property int index
+
                 width: stringListView.width
                 // Calculate height based on tallest column content
                 height: Math.max(Theme.scaled(48), rowHeight + Theme.scaled(16))
-                color: index % 2 === 0 ? Theme.cardBackgroundColor : Qt.darker(Theme.cardBackgroundColor, 1.05)
+                color: delegateRoot.index % 2 === 0 ? Theme.cardBackgroundColor : Qt.darker(Theme.cardBackgroundColor, 1.05)
                 radius: Theme.scaled(4)
 
                 // Functions at delegate level where singletons are accessible
                 function setEditing(editing, idx) {
-                    isEditing = editing
-                    editingIndex = idx
+                    stringBrowserPage.isEditing = editing
+                    stringBrowserPage.editingIndex = idx
                 }
 
                 // Accessibility: announce the English text and translation status
                 Accessible.role: Accessible.ListItem
                 Accessible.name: {
-                    var name = TranslationManager.translate("stringBrowser.accessible.english", "English: ") + model.fallback + ". "
-                    if (isEnglish) {
-                        if (model.translation) {
-                            name += TranslationManager.translate("stringBrowser.accessible.customText", "Custom text: ") + model.translation
+                    var name = TranslationManager.translate("stringBrowser.accessible.english", "English: ") + delegateRoot.model.fallback + ". "
+                    if (stringBrowserPage.isEnglish) {
+                        if (delegateRoot.model.translation) {
+                            name += TranslationManager.translate("stringBrowser.accessible.customText", "Custom text: ") + delegateRoot.model.translation
                         } else {
                             name += TranslationManager.translate("stringBrowser.accessible.noCustomization", "No customization. Double tap to customize.")
                         }
                     } else {
-                        if (model.translation) {
-                            name += TranslationManager.translate("stringBrowser.accessible.translation", "Translation: ") + model.translation
-                            if (model.isAiGenerated) {
+                        if (delegateRoot.model.translation) {
+                            name += TranslationManager.translate("stringBrowser.accessible.translation", "Translation: ") + delegateRoot.model.translation
+                            if (delegateRoot.model.isAiGenerated) {
                                 name += ". " + TranslationManager.translate("stringBrowser.accessible.aiGenerated", "AI generated.")
                             }
-                        } else if (model.aiTranslation) {
-                            name += TranslationManager.translate("stringBrowser.accessible.aiSuggestion", "AI suggestion: %1. Double tap to edit or accept.").replace("%1", model.aiTranslation)
+                        } else if (delegateRoot.model.aiTranslation) {
+                            name += TranslationManager.translate("stringBrowser.accessible.aiSuggestion", "AI suggestion: %1. Double tap to edit or accept.").replace("%1", delegateRoot.model.aiTranslation)
                         } else {
                             name += TranslationManager.translate("stringBrowser.accessible.notTranslated", "Not translated. Double tap to translate.")
                         }
@@ -538,39 +551,39 @@ Page {
 
                 // Calculate the row width for column sizing
                 readonly property real rowWidth: width - Theme.scaled(16)  // margins
-                readonly property real col1Width: isEnglish ? rowWidth * 0.5 : rowWidth * 0.35
+                readonly property real col1Width: stringBrowserPage.isEnglish ? rowWidth * 0.5 : rowWidth * 0.35
                 readonly property real col2Width: rowWidth * 0.3
-                readonly property real col3Width: isEnglish ? rowWidth * 0.5 - Theme.scaled(8) : rowWidth * 0.35 - Theme.scaled(8)
+                readonly property real col3Width: stringBrowserPage.isEnglish ? rowWidth * 0.5 - Theme.scaled(8) : rowWidth * 0.35 - Theme.scaled(8)
 
                 // Hidden text elements to measure required height
                 Text {
                     id: measureCol1
-                    width: col1Width
-                    text: model.fallback
+                    width: delegateRoot.col1Width
+                    text: delegateRoot.model.fallback
                     font: Theme.bodyFont
                     wrapMode: Text.Wrap
                     visible: false
                 }
                 Text {
                     id: measureCol2
-                    width: col2Width - Theme.scaled(8)
-                    text: model.aiTranslation || "-"
+                    width: delegateRoot.col2Width - Theme.scaled(8)
+                    text: delegateRoot.model.aiTranslation || "-"
                     font: Theme.bodyFont
                     wrapMode: Text.Wrap
                     visible: false
                 }
                 Text {
                     id: measureCol3
-                    width: col3Width - Theme.scaled(8)
+                    width: delegateRoot.col3Width - Theme.scaled(8)
                     // Use live text from TextEdit when editing this row, otherwise model value
-                    text: (finalInput.activeFocus ? finalInput.text : model.translation) || "Tap..."
+                    text: (finalInput.activeFocus ? finalInput.text : delegateRoot.model.translation) || "Tap..."
                     font: Theme.bodyFont
                     wrapMode: Text.Wrap
                     visible: false
                 }
 
                 // Calculate max height needed
-                readonly property real rowHeight: isEnglish
+                readonly property real rowHeight: stringBrowserPage.isEnglish
                     ? Math.max(measureCol1.implicitHeight, measureCol3.implicitHeight)
                     : Math.max(measureCol1.implicitHeight, measureCol2.implicitHeight, measureCol3.implicitHeight)
 
@@ -586,8 +599,8 @@ Page {
                         anchors.left: parent.left
                         anchors.top: parent.top
                         anchors.bottom: parent.bottom
-                        width: col1Width
-                        text: model.fallback
+                        width: delegateRoot.col1Width
+                        text: delegateRoot.model.fallback
                         font: Theme.bodyFont
                         color: Theme.textColor
                         wrapMode: Text.Wrap
@@ -597,18 +610,18 @@ Page {
                     // AI Translation column (hidden for English)
                     Rectangle {
                         id: aiColumn
-                        visible: !isEnglish
+                        visible: !stringBrowserPage.isEnglish
                         anchors.left: englishText.right
                         anchors.leftMargin: Theme.scaled(8)
                         anchors.top: parent.top
                         anchors.bottom: parent.bottom
-                        width: col2Width
+                        width: delegateRoot.col2Width
                         color: aiCopyArea.pressed ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.2) : "transparent"
                         radius: Theme.scaled(4)
 
                         Accessible.role: Accessible.Button
-                        Accessible.name: model.aiTranslation ? TranslationManager.translate("stringBrowser.accessible.aiSuggestionTap", "AI suggestion: %1. Tap to use this translation.").replace("%1", model.aiTranslation) : TranslationManager.translate("stringBrowser.accessible.noAiTranslation", "No AI translation available")
-                        Accessible.focusable: model.aiTranslation ? true : false
+                        Accessible.name: delegateRoot.model.aiTranslation ? TranslationManager.translate("stringBrowser.accessible.aiSuggestionTap", "AI suggestion: %1. Tap to use this translation.").replace("%1", delegateRoot.model.aiTranslation) : TranslationManager.translate("stringBrowser.accessible.noAiTranslation", "No AI translation available")
+                        Accessible.focusable: delegateRoot.model.aiTranslation ? true : false
                         Accessible.onPressAction: aiCopyArea.clicked(null)
 
                         Text {
@@ -617,12 +630,12 @@ Page {
                             anchors.top: parent.top
                             anchors.bottom: parent.bottom
                             anchors.margins: Theme.scaled(4)
-                            text: model.aiTranslation || "-"
+                            text: delegateRoot.model.aiTranslation || "-"
                             font: Theme.bodyFont
-                            color: model.aiTranslation ? Theme.primaryColor : Theme.textSecondaryColor
+                            color: delegateRoot.model.aiTranslation ? Theme.primaryColor : Theme.textSecondaryColor
                             wrapMode: Text.Wrap
                             verticalAlignment: Text.AlignVCenter
-                            opacity: model.aiTranslation ? 1.0 : 0.5
+                            opacity: delegateRoot.model.aiTranslation ? 1.0 : 0.5
                         }
 
                         // Clear AI translation button
@@ -631,9 +644,9 @@ Page {
                             anchors.right: parent.right
                             anchors.verticalCenter: parent.verticalCenter
                             anchors.rightMargin: Theme.scaled(4)
-                            width: model.aiTranslation ? Theme.scaled(20) : 0
+                            width: delegateRoot.model.aiTranslation ? Theme.scaled(20) : 0
                             height: Theme.scaled(20)
-                            visible: model.aiTranslation && model.aiTranslation !== ""
+                            visible: delegateRoot.model.aiTranslation && delegateRoot.model.aiTranslation !== ""
 
                             ColoredIcon {
                                 anchors.centerIn: parent
@@ -653,7 +666,7 @@ Page {
                                 anchors.fill: parent
                                 anchors.margins: Theme.scaled(-8)
                                 onClicked: {
-                                    TranslationManager.clearAiTranslation(model.fallback)
+                                    TranslationManager.clearAiTranslation(delegateRoot.model.fallback)
                                 }
                             }
                         }
@@ -665,8 +678,8 @@ Page {
                             anchors.top: parent.top
                             anchors.bottom: parent.bottom
                             onClicked: {
-                                if (model.aiTranslation && model.aiTranslation !== "") {
-                                    TranslationManager.copyAiToFinal(model.fallback)
+                                if (delegateRoot.model.aiTranslation && delegateRoot.model.aiTranslation !== "") {
+                                    TranslationManager.copyAiToFinal(delegateRoot.model.fallback)
                                 }
                             }
                         }
@@ -675,7 +688,7 @@ Page {
                     // Final/Custom column (editable)
                     Rectangle {
                         id: finalColumn
-                        anchors.left: isEnglish ? englishText.right : aiColumn.right
+                        anchors.left: stringBrowserPage.isEnglish ? englishText.right : aiColumn.right
                         anchors.leftMargin: Theme.scaled(8)
                         anchors.right: parent.right
                         anchors.top: parent.top
@@ -687,7 +700,7 @@ Page {
 
                         // AI indicator badge (not for English)
                         Rectangle {
-                            visible: !isEnglish && model.isAiGenerated
+                            visible: !stringBrowserPage.isEnglish && delegateRoot.model.isAiGenerated
                             anchors.right: parent.right
                             anchors.top: parent.top
                             anchors.margins: Theme.scaled(2)
@@ -711,27 +724,27 @@ Page {
                             id: finalInput
                             anchors.fill: parent
                             anchors.margins: Theme.scaled(4)
-                            anchors.rightMargin: (!isEnglish && model.isAiGenerated) ? Theme.scaled(20) : Theme.scaled(4)
-                            text: model.translation || ""
+                            anchors.rightMargin: (!stringBrowserPage.isEnglish && delegateRoot.model.isAiGenerated) ? Theme.scaled(20) : Theme.scaled(4)
+                            text: delegateRoot.model.translation || ""
                             font: Theme.bodyFont
-                            color: model.translation ? Theme.successColor : Theme.textSecondaryColor
+                            color: delegateRoot.model.translation ? Theme.successColor : Theme.textSecondaryColor
                             wrapMode: TextEdit.Wrap
                             verticalAlignment: Text.AlignVCenter
                             readOnly: !activeFocus
 
                             Accessible.role: Accessible.EditableText
                             Accessible.focusable: true
-                            Accessible.name: isEnglish
-                                ? TranslationManager.translate("stringBrowser.accessible.customTextFor", "Custom text for: %1").replace("%1", model.fallback)
-                                : TranslationManager.translate("stringBrowser.accessible.translationFor", "Translation for: %1").replace("%1", model.fallback)
+                            Accessible.name: stringBrowserPage.isEnglish
+                                ? TranslationManager.translate("stringBrowser.accessible.customTextFor", "Custom text for: %1").replace("%1", delegateRoot.model.fallback)
+                                : TranslationManager.translate("stringBrowser.accessible.translationFor", "Translation for: %1").replace("%1", delegateRoot.model.fallback)
                             Accessible.description: {
-                                if (isEnglish) {
-                                    return model.translation
-                                        ? TranslationManager.translate("stringBrowser.accessible.currentCustomText", "Current custom text: %1. Edit to change.").replace("%1", model.translation)
+                                if (stringBrowserPage.isEnglish) {
+                                    return delegateRoot.model.translation
+                                        ? TranslationManager.translate("stringBrowser.accessible.currentCustomText", "Current custom text: %1. Edit to change.").replace("%1", delegateRoot.model.translation)
                                         : TranslationManager.translate("stringBrowser.accessible.noCustomTextSet", "No custom text set. Type to customize this string.")
                                 } else {
-                                    return model.translation
-                                        ? TranslationManager.translate("stringBrowser.accessible.currentTranslation", "Current translation: %1. Edit to change.").replace("%1", model.translation)
+                                    return delegateRoot.model.translation
+                                        ? TranslationManager.translate("stringBrowser.accessible.currentTranslation", "Current translation: %1. Edit to change.").replace("%1", delegateRoot.model.translation)
                                         : TranslationManager.translate("stringBrowser.accessible.notTranslatedType", "Not translated. Type your translation here.")
                                 }
                             }
@@ -739,7 +752,7 @@ Page {
                             Text {
                                 anchors.fill: parent
                                 visible: !parent.text && !parent.activeFocus
-                                text: isEnglish ? TranslationManager.translate("stringBrowser.tapToCustomize", "Tap to customize...") : TranslationManager.translate("stringBrowser.tapToTranslate", "Tap to translate...")
+                                text: stringBrowserPage.isEnglish ? TranslationManager.translate("stringBrowser.tapToCustomize", "Tap to customize...") : TranslationManager.translate("stringBrowser.tapToTranslate", "Tap to translate...")
                                 font: parent.font
                                 color: Theme.textSecondaryColor
                                 verticalAlignment: Text.AlignVCenter
@@ -749,7 +762,7 @@ Page {
 
                             onActiveFocusChanged: {
                                 if (activeFocus) {
-                                    delegateRoot.setEditing(true, index)
+                                    delegateRoot.setEditing(true, delegateRoot.index)
                                     centerTimer.start()
                                 } else {
                                     // THE single save path. Losing focus is the one event that
@@ -769,13 +782,13 @@ Page {
                                     // Order below is deliberate: read the model, leave edit mode,
                                     // and make the mutation the last statement, because it
                                     // destroys this delegate.
-                                    var fallbackKey = model.fallback
+                                    var fallbackKey = delegateRoot.model.fallback
                                     // A detached row (the model refreshed under us) reports an
                                     // empty fallback. Saving from one is never legitimate.
                                     if (!fallbackKey || fallbackKey.length === 0)
                                         return
                                     var newText = text.trim()
-                                    var changed = newText !== (model.translation || "")
+                                    var changed = newText !== (delegateRoot.model.translation || "")
                                     delegateRoot.setEditing(false, -1)
                                     if (changed) {
                                         TranslationManager.setGroupTranslation(fallbackKey, newText)
@@ -825,7 +838,7 @@ Page {
             Timer {
                 id: centerTimer
                 interval: 150
-                onTriggered: stringListView.centerOnItem(editingIndex)
+                onTriggered: stringListView.centerOnItem(stringBrowserPage.editingIndex)
             }
         }
     }
@@ -1206,8 +1219,8 @@ Page {
     // Bottom bar - anchored to page bottom
     BottomBar {
         id: bottomBar
-        title: isEnglish ? TranslationManager.translate("stringBrowser.titleCustomizer", "String Customizer") : TranslationManager.translate("stringBrowser.titleBrowser", "Translation Browser")
-        onBackClicked: handleBack()
+        title: stringBrowserPage.isEnglish ? TranslationManager.translate("stringBrowser.titleCustomizer", "String Customizer") : TranslationManager.translate("stringBrowser.titleBrowser", "Translation Browser")
+        onBackClicked: stringBrowserPage.handleBack()
     }
 
     // Refusals from TranslationManager reach the user here instead of only the log. Without this

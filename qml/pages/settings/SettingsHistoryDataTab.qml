@@ -203,10 +203,10 @@ KeyboardAwareContainer {
                         accessibleName: TranslationManager.translate("settings.history.importFromDE1Desc", "Auto-detect and import from DE1 tablet app")
                         visible: de1AppStatus.detectedPath !== ""
                         onClicked: {
-                            _pendingImportMessage = ""
-                            _pendingImportError = false
-                            _shotImportPending = !!MainController.shotImporter
-                            _profileImportPending = !!MainController.profileImporter
+                            historyDataTab._pendingImportMessage = ""
+                            historyDataTab._pendingImportError = false
+                            historyDataTab._shotImportPending = !!MainController.shotImporter
+                            historyDataTab._profileImportPending = !!MainController.profileImporter
                             if (MainController.shotImporter)
                                 MainController.shotImporter.importFromDE1App(overwriteSwitch.checked)
                             if (MainController.profileImporter)
@@ -945,16 +945,16 @@ KeyboardAwareContainer {
                     TranslationManager.translate("shotimporter.result.skipped", "Skipped (duplicates)") + ": " + skipped + "\n" +
                     TranslationManager.translate("shotimporter.result.failed", "Failed") + ": " + failed + "\n\n" +
                     TranslationManager.translate("shotimporter.result.totalShots", "Total shots") + ": " + (MainController.shotHistory ? MainController.shotHistory.totalShots : "?")
-                _pendingImportMessage = _pendingImportMessage ? _pendingImportMessage + "\n\n" + shotMsg : shotMsg
-                _pendingImportError = _pendingImportError || (failed > 0 && imported === 0)
-                _shotImportPending = false
-                _showImportResultIfDone()
+                historyDataTab._pendingImportMessage = historyDataTab._pendingImportMessage ? historyDataTab._pendingImportMessage + "\n\n" + shotMsg : shotMsg
+                historyDataTab._pendingImportError = historyDataTab._pendingImportError || (failed > 0 && imported === 0)
+                historyDataTab._shotImportPending = false
+                historyDataTab._showImportResultIfDone()
             }
             function onImportError(translationKey, fallbackMessage) {
                 importResultDialog.title = TranslationManager.translate("shotimporter.title.importFailed", "Import Failed")
                 importResultDialog.resultMessage = TranslationManager.translate(translationKey, fallbackMessage)
                 importResultDialog.isError = true
-                _shotImportPending = false
+                historyDataTab._shotImportPending = false
                 importResultDialog.open()
             }
         }
@@ -967,9 +967,9 @@ KeyboardAwareContainer {
                     TranslationManager.translate("profileimporter.result.imported", "Profiles imported") + ": " + imported + "\n" +
                     TranslationManager.translate("profileimporter.result.skipped", "Profiles skipped") + ": " + skipped + "\n" +
                     TranslationManager.translate("profileimporter.result.failed", "Profiles failed") + ": " + failed
-                _pendingImportMessage = _pendingImportMessage ? _pendingImportMessage + "\n\n" + profileMsg : profileMsg
-                _profileImportPending = false
-                _showImportResultIfDone()
+                historyDataTab._pendingImportMessage = historyDataTab._pendingImportMessage ? historyDataTab._pendingImportMessage + "\n\n" + profileMsg : profileMsg
+                historyDataTab._profileImportPending = false
+                historyDataTab._showImportResultIfDone()
             }
         }
 

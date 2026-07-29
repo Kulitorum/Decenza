@@ -1,3 +1,9 @@
+// The RGB/HLS mode Repeater and the three slider rows read this file's `root` id; Bound
+// makes it statically resolvable. Each declares every injected role it uses required in
+// the same edit -- without that, Bound stops role injection and all three sliders
+// collapse onto channel `undefined` at RUNTIME, silently.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Layouts
 import Decenza
@@ -104,12 +110,16 @@ Item {
                     ]
 
                     Rectangle {
+                        id: modeButton
+                        required property var modelData
+                        required property int index
+
                         width: modeLabel.implicitWidth + Theme.scaled(20)
                         height: parent.height
-                        color: root._rgbMode === modelData.value ? Theme.primaryColor : Theme.surfaceColor
+                        color: root._rgbMode === modeButton.modelData.value ? Theme.primaryColor : Theme.surfaceColor
 
                         Rectangle {
-                            visible: index > 0
+                            visible: modeButton.index > 0
                             anchors.left: parent.left
                             width: 1
                             height: parent.height
@@ -118,22 +128,22 @@ Item {
 
                         Text {
                             id: modeLabel
-                            text: modelData.label
-                            color: root._rgbMode === modelData.value ? Theme.primaryContrastColor : Theme.textColor
+                            text: modeButton.modelData.label
+                            color: root._rgbMode === modeButton.modelData.value ? Theme.primaryContrastColor : Theme.textColor
                             font: Theme.labelFont
                             anchors.centerIn: parent
                             Accessible.ignored: true
                         }
 
                         Accessible.role: Accessible.Button
-                        Accessible.name: modelData.label
+                        Accessible.name: modeButton.modelData.label
                         Accessible.focusable: true
                         Accessible.onPressAction: modeTap.clicked(null)
 
                         MouseArea {
                             id: modeTap
                             anchors.fill: parent
-                            onClicked: root._rgbMode = modelData.value
+                            onClicked: root._rgbMode = modeButton.modelData.value
                         }
                     }
                 }
@@ -145,19 +155,22 @@ Item {
             model: 3
 
             RowLayout {
+                id: sliderRow
+                required property int index
+
                 Layout.fillWidth: true
                 spacing: Theme.scaled(6)
 
                 readonly property string label: root._rgbMode
-                    ? ["R","G","B"][index] : ["H","L","S"][index]
+                    ? ["R","G","B"][sliderRow.index] : ["H","L","S"][sliderRow.index]
                 readonly property real maxVal: root._rgbMode
-                    ? 255 : [360, 100, 100][index]
+                    ? 255 : [360, 100, 100][sliderRow.index]
                 readonly property real currentVal: root._rgbMode
-                    ? [root._r, root._g, root._b][index]
-                    : [root._h, root._l, root._s][index]
+                    ? [root._r, root._g, root._b][sliderRow.index]
+                    : [root._h, root._l, root._s][sliderRow.index]
 
                 Text {
-                    text: parent.label
+                    text: sliderRow.label
                     color: Theme.textSecondaryColor
                     font: Theme.labelFont
                     Layout.preferredWidth: Theme.scaled(14)
@@ -174,11 +187,11 @@ Item {
 
                     gradient: Gradient {
                         orientation: Gradient.Horizontal
-                        GradientStop { position: 0.0; color: root._sliderColor(index, 0) }
-                        GradientStop { position: 0.25; color: root._sliderColor(index, 0.25) }
-                        GradientStop { position: 0.5; color: root._sliderColor(index, 0.5) }
-                        GradientStop { position: 0.75; color: root._sliderColor(index, 0.75) }
-                        GradientStop { position: 1.0; color: root._sliderColor(index, 1.0) }
+                        GradientStop { position: 0.0; color: root._sliderColor(sliderRow.index, 0) }
+                        GradientStop { position: 0.25; color: root._sliderColor(sliderRow.index, 0.25) }
+                        GradientStop { position: 0.5; color: root._sliderColor(sliderRow.index, 0.5) }
+                        GradientStop { position: 0.75; color: root._sliderColor(sliderRow.index, 0.75) }
+                        GradientStop { position: 1.0; color: root._sliderColor(sliderRow.index, 1.0) }
                     }
 
                     Rectangle {
@@ -188,9 +201,25 @@ Item {
                         color: root.color
                         border.color: Theme.primaryContrastColor
                         border.width: 2
-                        x: (currentVal / maxVal) * (parent.width - width)
+                        x: (sliderRow.currentVal / sliderRow.maxVal) * (parent.width - width)
                         y: (parent.height - height) / 2
                     }
+
+                    // Screen readers get a real slider here: the drag MouseArea alone is
+                    // invisible to TalkBack/VoiceOver, and this is the only way to set a
+                    // channel value in the theme editor.
+                    Accessible.role: Accessible.Slider
+                    // QQuickAccessibleAttached has no `value` property (only role, name,
+                    // description, id, ignored, labelledBy, labelFor plus the bool states),
+                    // so the current channel value goes in the name.
+                    Accessible.name: TranslationManager.translate("colorEditor.accessible.channel",
+                                                                  "Color channel %1")
+                                     .arg(sliderRow.label) + ", " + Math.round(sliderRow.currentVal)
+                    Accessible.focusable: true
+                    Accessible.onIncreaseAction: root._setChannel(
+                        sliderRow.index, Math.min(sliderRow.maxVal, Math.round(sliderRow.currentVal) + 1))
+                    Accessible.onDecreaseAction: root._setChannel(
+                        sliderRow.index, Math.max(0, Math.round(sliderRow.currentVal) - 1))
 
                     MouseArea {
                         anchors.fill: parent
@@ -199,7 +228,7 @@ Item {
 
                         function update(mouseX) {
                             var ratio = Math.max(0, Math.min(1, mouseX / sliderTrack.width))
-                            root._setChannel(index, Math.round(ratio * maxVal))
+                            root._setChannel(sliderRow.index, Math.round(ratio * sliderRow.maxVal))
                         }
 
                         onPressed: function(mouse) { update(mouse.x) }
@@ -208,7 +237,7 @@ Item {
                 }
 
                 Text {
-                    text: Math.round(currentVal)
+                    text: Math.round(sliderRow.currentVal)
                     color: Theme.textColor
                     font.family: Theme.monoFontFamily
                     font.pixelSize: Theme.labelFont.pixelSize

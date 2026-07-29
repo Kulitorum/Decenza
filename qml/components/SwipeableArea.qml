@@ -43,43 +43,43 @@ Item {
         id: mouseArea
         anchors.fill: parent
         // Dynamically prevent stealing only after we confirm horizontal swipe
-        preventStealing: isHorizontalSwipe
+        preventStealing: swipeArea.isHorizontalSwipe
 
         onPressed: function(mouse) {
             resetAnimation.stop()
-            startX = mouse.x
-            startY = mouse.y
-            tracking = true
-            isHorizontalSwipe = false
-            directionDecided = false
-            swipeOffset = 0
+            swipeArea.startX = mouse.x
+            swipeArea.startY = mouse.y
+            swipeArea.tracking = true
+            swipeArea.isHorizontalSwipe = false
+            swipeArea.directionDecided = false
+            swipeArea.swipeOffset = 0
         }
 
         onPositionChanged: function(mouse) {
-            if (!tracking) return
+            if (!swipeArea.tracking) return
 
-            var deltaX = mouse.x - startX
-            var deltaY = mouse.y - startY
+            var deltaX = mouse.x - swipeArea.startX
+            var deltaY = mouse.y - swipeArea.startY
 
             // Determine swipe direction after moving a bit
-            if (!directionDecided && (Math.abs(deltaX) > 10 || Math.abs(deltaY) > 10)) {
-                directionDecided = true
-                isHorizontalSwipe = Math.abs(deltaX) > Math.abs(deltaY)
+            if (!swipeArea.directionDecided && (Math.abs(deltaX) > 10 || Math.abs(deltaY) > 10)) {
+                swipeArea.directionDecided = true
+                swipeArea.isHorizontalSwipe = Math.abs(deltaX) > Math.abs(deltaY)
             }
 
-            if (isHorizontalSwipe) {
+            if (swipeArea.isHorizontalSwipe) {
                 // Calculate visual offset with elastic bounds
-                if (deltaX > 0 && !canSwipeRight) {
+                if (deltaX > 0 && !swipeArea.canSwipeRight) {
                     // Trying to swipe right but can't - elastic resistance
-                    swipeOffset = Math.min(deltaX * 0.3, maxBounceDistance)
-                } else if (deltaX < 0 && !canSwipeLeft) {
+                    swipeArea.swipeOffset = Math.min(deltaX * 0.3, swipeArea.maxBounceDistance)
+                } else if (deltaX < 0 && !swipeArea.canSwipeLeft) {
                     // Trying to swipe left but can't - elastic resistance
-                    swipeOffset = Math.max(deltaX * 0.3, -maxBounceDistance)
+                    swipeArea.swipeOffset = Math.max(deltaX * 0.3, -swipeArea.maxBounceDistance)
                 } else {
                     // Normal swipe
-                    swipeOffset = deltaX
+                    swipeArea.swipeOffset = deltaX
                 }
-            } else if (directionDecided) {
+            } else if (swipeArea.directionDecided) {
                 // Not a horizontal swipe - emit for drag-to-inspect.
                 // preventStealing is false here, so parent ScrollView/Flickable
                 // can still steal the gesture for scrolling.
@@ -88,25 +88,25 @@ Item {
         }
 
         onReleased: function(mouse) {
-            if (!tracking) {
-                isHorizontalSwipe = false
+            if (!swipeArea.tracking) {
+                swipeArea.isHorizontalSwipe = false
                 return
             }
-            tracking = false
+            swipeArea.tracking = false
 
-            var deltaX = mouse.x - startX
+            var deltaX = mouse.x - swipeArea.startX
 
-            if (isHorizontalSwipe) {
-                if (deltaX < -swipeThreshold && canSwipeLeft) {
+            if (swipeArea.isHorizontalSwipe) {
+                if (deltaX < -swipeArea.swipeThreshold && swipeArea.canSwipeLeft) {
                     // Successful left swipe
-                    swipedLeft()
-                } else if (deltaX > swipeThreshold && canSwipeRight) {
+                    swipeArea.swipedLeft()
+                } else if (deltaX > swipeArea.swipeThreshold && swipeArea.canSwipeRight) {
                     // Successful right swipe
-                    swipedRight()
+                    swipeArea.swipedRight()
                 }
             }
 
-            isHorizontalSwipe = false
+            swipeArea.isHorizontalSwipe = false
             // Animate back to center
             resetAnimation.start()
         }
@@ -117,8 +117,8 @@ Item {
         }
 
         onCanceled: {
-            tracking = false
-            isHorizontalSwipe = false
+            swipeArea.tracking = false
+            swipeArea.isHorizontalSwipe = false
             resetAnimation.start()
         }
     }

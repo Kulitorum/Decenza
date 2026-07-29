@@ -1,3 +1,9 @@
+// The map-texture, shot-plan chip and available-chip Repeater delegates read this file's
+// ids (`popup`, `planDragLayer`, `planVisualModel`); Bound makes them statically
+// resolvable. Each declares its one injected role, `modelData`, required -- the plan
+// chip already did, and the other two do now in the same edit.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -324,27 +330,30 @@ Dialog {
                             ]
 
                             Rectangle {
+                                id: textureOption
+                                required property var modelData
+
                                 Layout.fillWidth: true
                                 height: Theme.scaled(32)
                                 radius: Theme.scaled(6)
-                                color: popup.mapTexture === modelData.value
+                                color: popup.mapTexture === textureOption.modelData.value
                                     ? Theme.primaryColor
                                     : "transparent"
-                                border.color: popup.mapTexture === modelData.value
+                                border.color: popup.mapTexture === textureOption.modelData.value
                                     ? Theme.primaryColor
                                     : Theme.borderColor
                                 border.width: 1
 
                                 Accessible.role: Accessible.Button
-                                Accessible.name: modelData.label + (popup.mapTexture === modelData.value ? ", selected" : "")
+                                Accessible.name: textureOption.modelData.label + (popup.mapTexture === textureOption.modelData.value ? ", selected" : "")
                                 Accessible.focusable: true
                                 Accessible.onPressAction: mapTextureArea.clicked(null)
 
                                 Text {
                                     anchors.centerIn: parent
-                                    text: modelData.label
+                                    text: textureOption.modelData.label
                                     font: Theme.captionFont
-                                    color: popup.mapTexture === modelData.value
+                                    color: popup.mapTexture === textureOption.modelData.value
                                         ? Theme.primaryContrastColor
                                         : Theme.textColor
                                     Accessible.ignored: true
@@ -353,7 +362,7 @@ Dialog {
                                 MouseArea {
                                     id: mapTextureArea
                                     anchors.fill: parent
-                                    onClicked: popup.mapTexture = modelData.value
+                                    onClicked: popup.mapTexture = textureOption.modelData.value
                                 }
                             }
                         }
@@ -629,6 +638,9 @@ Dialog {
                             model: popup._planAvailable
 
                             Rectangle {
+                                id: availableChip
+                                required property var modelData
+
                                 width: availChipRow.implicitWidth + Theme.scaled(16)
                                 height: Theme.scaled(36)
                                 radius: Theme.scaled(8)
@@ -637,9 +649,9 @@ Dialog {
                                 border.width: 1
 
                                 Accessible.role: Accessible.Button
-                                Accessible.name: TranslationManager.translate("shotPlanEditor.addItem", "Show %1").arg(popup.planItemLabel(modelData))
+                                Accessible.name: TranslationManager.translate("shotPlanEditor.addItem", "Show %1").arg(popup.planItemLabel(availableChip.modelData))
                                 Accessible.focusable: true
-                                Accessible.onPressAction: popup.planAddItem(modelData)
+                                Accessible.onPressAction: popup.planAddItem(availableChip.modelData)
 
                                 RowLayout {
                                     id: availChipRow
@@ -647,7 +659,7 @@ Dialog {
                                     spacing: Theme.scaled(4)
 
                                     Text {
-                                        text: popup.planItemLabel(modelData)
+                                        text: popup.planItemLabel(availableChip.modelData)
                                         color: Theme.textSecondaryColor
                                         font: Theme.bodyFont
                                         Accessible.ignored: true
@@ -664,7 +676,7 @@ Dialog {
                                 MouseArea {
                                     anchors.fill: parent
                                     cursorShape: Qt.PointingHandCursor
-                                    onClicked: popup.planAddItem(modelData)
+                                    onClicked: popup.planAddItem(availableChip.modelData)
                                 }
                             }
                         }

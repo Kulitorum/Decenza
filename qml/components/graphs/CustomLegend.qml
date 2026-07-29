@@ -1,3 +1,8 @@
+// The legend-entry Repeater delegate reads this file's `legendRoot` id; Bound makes it
+// statically resolvable. It already declares both injected roles it uses, `index` and
+// `modelData`, required, so Bound cannot break role injection here.
+pragma ComponentBehavior: Bound
+
 // CustomLegend — the shared graph-legend component for every Decenza graph.
 //
 // Qt Graphs has no built-in legend (unlike Qt Charts' `ChartView.legend`).

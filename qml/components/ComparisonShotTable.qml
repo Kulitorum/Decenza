@@ -1,3 +1,9 @@
+// The shot-header and metric-row Repeater delegates read this file's ids (`root`,
+// `metricRowItem`); Bound makes them statically resolvable. All three delegates
+// already declare every injected role they use required, so Bound cannot break role
+// injection here.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Layouts
 import Decenza
@@ -102,10 +108,12 @@ ColumnLayout {
         Item { Layout.preferredWidth: root.labelColW; Layout.preferredHeight: Theme.scaled(44) }
 
         Repeater {
-            model: comparisonModel.shots
+            model: root.comparisonModel.shots
 
             ColumnLayout {
+                id: shotHeaderCol
                 required property int index
+
                 Layout.fillWidth: true
                 spacing: Theme.scaled(2)
 
@@ -117,17 +125,17 @@ ColumnLayout {
                     Item {
                         Layout.preferredWidth: Theme.scaled(20); Layout.preferredHeight: Theme.scaled(12)
                         Rectangle {
-                            visible: index % 3 === 0
+                            visible: shotHeaderCol.index % 3 === 0
                             anchors.verticalCenter: parent.verticalCenter
                             width: parent.width; height: Theme.scaled(2); color: Theme.textColor
                         }
                         Row {
-                            visible: index % 3 === 1
+                            visible: shotHeaderCol.index % 3 === 1
                             anchors.verticalCenter: parent.verticalCenter; spacing: Theme.scaled(2)
                             Repeater { model: 4; Rectangle { width: Theme.scaled(3); height: Theme.scaled(2); color: Theme.textColor } }
                         }
                         Row {
-                            visible: index % 3 === 2
+                            visible: shotHeaderCol.index % 3 === 2
                             anchors.verticalCenter: parent.verticalCenter; spacing: Theme.scaled(2)
                             Rectangle { width: Theme.scaled(5); height: Theme.scaled(2); color: Theme.textColor }
                             Rectangle { width: Theme.scaled(2); height: Theme.scaled(2); color: Theme.textColor }
@@ -138,7 +146,7 @@ ColumnLayout {
                     Text {
                         Layout.fillWidth: true
                         textFormat: Text.StyledText
-                        text: Theme.replaceEmojiWithImg(root.metricValue("profile", root.comparisonModel.getShotInfo(index)), Theme.labelFont.pixelSize)
+                        text: Theme.replaceEmojiWithImg(root.metricValue("profile", root.comparisonModel.getShotInfo(shotHeaderCol.index)), Theme.labelFont.pixelSize)
                         font: Theme.labelFont
                         color: Theme.textColor
                         elide: Text.ElideRight
@@ -150,7 +158,7 @@ ColumnLayout {
                 Text {
                     Layout.fillWidth: true
                     Layout.leftMargin: Theme.scaled(26)
-                    text: root.comparisonModel.getShotInfo(index).dateTime || ""
+                    text: root.comparisonModel.getShotInfo(shotHeaderCol.index).dateTime || ""
                     font: Theme.captionFont
                     color: Theme.textSecondaryColor
                     elide: Text.ElideRight

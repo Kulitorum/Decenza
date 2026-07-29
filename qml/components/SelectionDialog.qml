@@ -1,3 +1,9 @@
+// The option-list delegate reads this file's ids (`root`, `dialogList`); Bound makes
+// them statically resolvable. It declares both injected roles it uses, `modelData` and
+// `index`, required in the same edit -- without that, Bound stops role injection and
+// every option renders blank at RUNTIME, silently.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import Decenza
@@ -115,6 +121,9 @@ Dialog {
 
                 delegate: Rectangle {
                     id: optionDelegate
+                    required property var modelData
+                    required property int index
+
                     width: dialogList.width
                     height: Theme.scaled(48)
 
@@ -174,11 +183,11 @@ Dialog {
                     AccessibleMouseArea {
                         id: optionArea
                         anchors.fill: parent
-                        accessibleName: (_displayText.length > 0 ? _displayText : TranslationManager.translate("combobox.empty", "None")) +
-                            (_isCurrent ? ". " + TranslationManager.translate("combobox.selected", "Selected") : "")
+                        accessibleName: (optionDelegate._displayText.length > 0 ? optionDelegate._displayText : TranslationManager.translate("combobox.empty", "None")) +
+                            (optionDelegate._isCurrent ? ". " + TranslationManager.translate("combobox.selected", "Selected") : "")
                         accessibleItem: optionDelegate
                         onAccessibleClicked: {
-                            root.selected(index, optionDelegate._rawText)
+                            root.selected(optionDelegate.index, optionDelegate._rawText)
                             root.close()
                         }
                     }

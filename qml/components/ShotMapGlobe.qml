@@ -1,3 +1,9 @@
+// The shot-marker Repeater3D delegate reads this file's `globeRoot` id; Bound makes it
+// statically resolvable. It declares its one injected role, `modelData`, required in
+// the same edit -- without that, Bound stops role injection and every marker loses its
+// position at RUNTIME, silently.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick3D
 import Decenza
@@ -92,9 +98,11 @@ Item {
 
                 Node {
                     id: globeShotMarker
-                    property var pos3d: latLonTo3D(modelData.lat, modelData.lon, globeRoot.globeRadius + 3)
+                    required property var modelData
+
+                    property var pos3d: globeRoot.latLonTo3D(modelData.lat, modelData.lon, globeRoot.globeRadius + 3)
                     property real ageHours: modelData.age || 0
-                    property real shotOpacity: getOpacityFromAge(ageHours)
+                    property real shotOpacity: globeRoot.getOpacityFromAge(ageHours)
                     property bool isNew: ageHours < 1
                     property real newness: isNew ? (1 - ageHours) : 0
                     position: Qt.vector3d(pos3d.x, pos3d.y, pos3d.z)
@@ -125,7 +133,7 @@ Item {
             Node {
                 id: globeTestMarker
                 visible: globeRoot.testMode && globeRoot.testLatitude !== 0 && globeRoot.testLongitude !== 0
-                property var pos3d: latLonTo3D(globeRoot.testLatitude, globeRoot.testLongitude, globeRoot.globeRadius + 5)
+                property var pos3d: globeRoot.latLonTo3D(globeRoot.testLatitude, globeRoot.testLongitude, globeRoot.globeRadius + 5)
                 position: Qt.vector3d(pos3d.x, pos3d.y, pos3d.z)
 
                 Model {

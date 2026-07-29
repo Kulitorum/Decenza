@@ -1,3 +1,9 @@
+// The curve-toggle, shot-row and data-cell Repeater delegates read this file's ids
+// (`root`, `shotRow`); Bound makes them statically resolvable. All three already
+// declare every injected role they use required, so Bound cannot break role injection
+// here.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Layouts
 import Decenza
@@ -111,7 +117,7 @@ ColumnLayout {
         // Corner: shows crosshair time when inspecting
         Text {
             Layout.preferredWidth: root.shotColW
-            text: graph.inspecting ? graph.inspectTime.toFixed(1) + "s" : ""
+            text: root.graph.inspecting ? root.graph.inspectTime.toFixed(1) + "s" : ""
             font.family: Theme.captionFont.family
             font.pixelSize: Theme.captionFont.pixelSize
             font.bold: true
@@ -124,20 +130,21 @@ ColumnLayout {
             model: root.columns
 
             Rectangle {
+                id: curveToggle
                 required property var modelData
                 required property int index
 
                 Layout.preferredWidth: root.dataColW
                 height: Theme.scaled(28)
                 radius: Theme.scaled(14)
-                color: graph[modelData.key] ? Theme.surfaceColor : "transparent"
-                border.color: graph[modelData.key] ? Theme.primaryColor : Theme.borderColor
+                color: root.graph[modelData.key] ? Theme.surfaceColor : "transparent"
+                border.color: root.graph[modelData.key] ? Theme.primaryColor : Theme.borderColor
                 border.width: 1
-                opacity: graph[modelData.key] ? 1.0 : 0.5
+                opacity: root.graph[modelData.key] ? 1.0 : 0.5
 
                 Accessible.role: Accessible.CheckBox
                 Accessible.name: modelData.label
-                Accessible.checked: graph[modelData.key]
+                Accessible.checked: root.graph[modelData.key]
                 Accessible.focusable: true
                 Accessible.onPressAction: root.toggleCurve(modelData.key)
 
@@ -146,11 +153,11 @@ ColumnLayout {
                     spacing: Theme.scaled(3)
                     Rectangle {
                         Layout.preferredWidth: Theme.scaled(6); Layout.preferredHeight: Theme.scaled(6); radius: Theme.scaled(3)
-                        color: modelData.dotColor
+                        color: curveToggle.modelData.dotColor
                         Accessible.ignored: true
                     }
                     Text {
-                        text: modelData.label
+                        text: curveToggle.modelData.label
                         font: Theme.captionFont
                         color: Theme.textColor
                         Accessible.ignored: true
@@ -159,7 +166,7 @@ ColumnLayout {
 
                 MouseArea {
                     anchors.fill: parent
-                    onClicked: root.toggleCurve(modelData.key)
+                    onClicked: root.toggleCurve(curveToggle.modelData.key)
                 }
             }
         }

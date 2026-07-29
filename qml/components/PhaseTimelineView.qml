@@ -1,3 +1,11 @@
+// The three Repeater delegates read this file's ids (`root`, `heatCircle`); Bound makes
+// them statically resolvable. Each declares its one injected role, `index`, required in
+// the same edit. Without that, Bound stops role injection and `index` goes undefined:
+// the two animation delegates compute their `x` from it, so they stack on one position,
+// and the phase dots -- laid out by a Row, so still spaced -- all render in the same
+// inactive style. Silently, in both cases.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Effects
 import Decenza
@@ -54,6 +62,8 @@ Item {
         Repeater {
             model: 4
             Rectangle {
+                required property int index
+
                 property int idx: index
                 width: root.activeIndex === idx ? Theme.scaled(24) : Theme.scaled(8)
                 height: Theme.scaled(8)
@@ -126,6 +136,9 @@ Item {
                 Repeater {
                     model: 3
                     Rectangle {
+                        id: heatLine
+                        required property int index
+
                         width: Theme.scaled(2)
                         height: Theme.scaled(16)
                         radius: Theme.scaled(1)
@@ -135,14 +148,14 @@ Item {
                         SequentialAnimation on y {
                             running: root.activeIndex === 0
                             loops: Animation.Infinite
-                            NumberAnimation { from: heatCircle.height * 0.35; to: heatCircle.height * 0.15; duration: 800 + index * 200; easing.type: Easing.InOutSine }
-                            NumberAnimation { from: heatCircle.height * 0.15; to: heatCircle.height * 0.35; duration: 800 + index * 200; easing.type: Easing.InOutSine }
+                            NumberAnimation { from: heatCircle.height * 0.35; to: heatCircle.height * 0.15; duration: 800 + heatLine.index * 200; easing.type: Easing.InOutSine }
+                            NumberAnimation { from: heatCircle.height * 0.15; to: heatCircle.height * 0.35; duration: 800 + heatLine.index * 200; easing.type: Easing.InOutSine }
                         }
                         SequentialAnimation on opacity {
                             running: root.activeIndex === 0
                             loops: Animation.Infinite
-                            NumberAnimation { to: 0.2; duration: 800 + index * 200 }
-                            NumberAnimation { to: 0.6; duration: 800 + index * 200 }
+                            NumberAnimation { to: 0.2; duration: 800 + heatLine.index * 200 }
+                            NumberAnimation { to: 0.6; duration: 800 + heatLine.index * 200 }
                         }
                     }
                 }
@@ -222,6 +235,9 @@ Item {
                 Repeater {
                     model: 3
                     Rectangle {
+                        id: flowDroplet
+                        required property int index
+
                         width: Theme.scaled(4)
                         height: Theme.scaled(6)
                         radius: Theme.scaled(3)
@@ -230,14 +246,14 @@ Item {
                         SequentialAnimation on y {
                             running: root.activeIndex === 1
                             loops: Animation.Infinite
-                            PauseAnimation { duration: index * 300 }
+                            PauseAnimation { duration: flowDroplet.index * 300 }
                             NumberAnimation { from: 0; to: Theme.scaled(28); duration: 700; easing.type: Easing.InQuad }
                             NumberAnimation { from: 0; to: 0; duration: 0 }
                         }
                         SequentialAnimation on opacity {
                             running: root.activeIndex === 1
                             loops: Animation.Infinite
-                            PauseAnimation { duration: index * 300 }
+                            PauseAnimation { duration: flowDroplet.index * 300 }
                             NumberAnimation { from: 0.8; to: 0; duration: 700 }
                             NumberAnimation { to: 0.8; duration: 0 }
                         }
