@@ -1414,14 +1414,41 @@ void BLEManager::onScanFinished() {
     // that named three private members — and it claimed the refractometer's
     // debug prefix for a scan cycle shared by the DE1, the scales and the
     // refractometer. Same overclaim the [DE1] scan lines had.
+    // Captured before the flags are cleared: the tier of the completion line
+    // depends on who asked for the scan, and by the time it is logged nothing
+    // remembers.
+    const bool wasUserInitiated = m_userInitiatedScaleScan;
     m_scanning = false;
     m_scanningForScales = false;
     m_userInitiatedScaleScan = false;
-    // Same reasoning as "Scanning for devices..." above: DEBUG on the DE1 side
-    // (the scan is rarely the machine's story), INFO on the scale side, where the
-    // scan cycle IS the narrative — it is what the reconnect ladder drives.
+
+    // DEBUG on the DE1 side, as with "Scanning for devices..." above — the scan
+    // is rarely the machine's story.
     de1Debug(QStringLiteral("Scan complete"));
-    scaleInfo(QStringLiteral("Scan complete"));
+
+    // On the scale side, INFO only when the USER started this scan. Flat INFO was
+    // wrong in both directions and the view showed it: `Scan complete` arrived
+    // with no matching start, over and over, from nothing the user did.
+    //
+    // The completion has an INFO-worthy partner in exactly one case.
+    // scanForDevices() is the only place "Starting device scan..." is logged, and
+    // it is the only user-initiated entry point. Every OTHER scan — the reconnect
+    // ladder, the refractometer hunt chaining cycles back-to-back for as long as
+    // the review page is open, startup, resume, screensaver exit — reaches the
+    // agent through startScan() directly and announces nothing, so its completion
+    // was an unpaired line appearing from nowhere. Reading it as "the app just
+    // finished looking for my scale" was reasonable and usually wrong.
+    //
+    // Gated on m_userInitiatedScaleScan rather than m_scanningForScales, which
+    // looks like the right flag and is not: the refractometer hunt sets it too, so
+    // it means "this cycle also processes scale/refractometer adverts", not "a
+    // human asked". Gating on it would have kept the worst case — an endless
+    // chain of INFO pairs while the review page sits open.
+    if (wasUserInitiated) {
+        scaleInfo(QStringLiteral("Scan complete"));
+    } else {
+        scaleDebug(QStringLiteral("Scan complete (background)"));
+    }
 
     // State the DE1's OUTCOME, because nothing else did. With the scan-lifecycle
     // lines at DEBUG and "Found DE1:" only firing on success, a machine that was

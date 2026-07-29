@@ -1,6 +1,7 @@
 #include "usb/serialtransport.h"
 #include "ble/de1logging.h"
 #include "ble/protocol/de1characteristics.h"
+#include "usb/serialstall.h"
 
 #ifdef Q_OS_ANDROID
 #include "usb/androidusbhelper.h"
@@ -78,6 +79,22 @@ void SerialTransport::write(const QBluetoothUuid& uuid, const QByteArray& data)
     if (letter == '\0') {
         SERIAL_WARN(QStringLiteral("Unknown UUID for serial write: %1").arg(uuid.toString()));
         return;
+    }
+
+    // The stall check. Deliberately placed before the write rather than after, so
+    // the elapsed time reported is the gap the machine has actually left us in
+    // rather than one including this command's own round trip.
+    if (SerialStall::shouldWarn(m_inboundStallWarned, m_inboundLiveness.isValid(),
+                                m_inboundLiveness.elapsed(), INBOUND_STALE_MS)) {
+        m_inboundStallWarned = true;
+        SERIAL_WARN(QStringLiteral(
+                        "Port %1 is open and accepting writes but the DE1 has sent "
+                        "nothing for %2 s — the machine is not notifying. Subscriptions "
+                        "were written at open; nothing will report a disconnect because "
+                        "the port never closed. Unplug and replug the USB cable, or "
+                        "power-cycle the machine.")
+                        .arg(m_portName)
+                        .arg(m_inboundLiveness.elapsed() / 1000));
     }
 
     // Protocol: <LETTER>hexdata\n
@@ -158,6 +175,11 @@ void SerialTransport::disconnect()
     bool wasConnected = m_connected;
     m_connected = false;
     m_subscribed.clear();
+    // Invalidated, not just reset: a closed port has no stream to be stale, and
+    // leaving it running would make the next write after a reconnect measure the
+    // gap across the outage.
+    m_inboundLiveness.invalidate();
+    m_inboundStallWarned = false;
     m_buffer.clear();
 
     if (wasConnected) {
@@ -251,6 +273,13 @@ void SerialTransport::open()
 
     SERIAL_INFO(QStringLiteral("Port opened: %1 (115200 8N1)").arg(m_portName));
 #endif
+
+    // Arm stall detection from the moment the port is live, so a machine that
+    // NEVER starts notifying is caught, not just one that stops. That is the case
+    // with no other symptom at all: the subscribes below are written, the writes
+    // succeed, and nothing ever comes back.
+    m_inboundLiveness.start();
+    m_inboundStallWarned = false;
 
     // Subscribe to all standard DE1 notifications
     subscribeAll();
@@ -380,6 +409,15 @@ void SerialTransport::processBuffer()
 
 void SerialTransport::processLine(const QString& line)
 {
+    // Any complete inbound line proves the stream is alive, including the two
+    // unrecognised kinds below — a DE1 answering with something we cannot parse is
+    // a different fault from a DE1 not answering, and only the second is a stall.
+    m_inboundLiveness.restart();
+    if (m_inboundStallWarned) {
+        SERIAL_INFO(QStringLiteral("Inbound traffic resumed"));
+        m_inboundStallWarned = false;
+    }
+
     // Response format: [LETTER]hexdata
     // Minimum valid line: [X] (3 chars, possibly with empty hex data)
     if (line.length() < 3 || line[0] != QLatin1Char('[') || line[2] != QLatin1Char(']')) {

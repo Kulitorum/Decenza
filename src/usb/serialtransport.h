@@ -2,6 +2,7 @@
 
 #include "ble/de1transport.h"
 
+#include <QElapsedTimer>
 #include <QSet>
 #include <QTimer>
 
@@ -90,6 +91,44 @@ private:
     QByteArray m_buffer;
     bool m_connected = false;
     QSet<char> m_subscribed;
+
+    // Stall detection for a port that is OPEN but has gone silent — the serial
+    // counterpart of BleTransport's zombie-link check, and until now this path had
+    // nothing of the kind. A USB DE1 whose port opens and whose subscribes are
+    // written but which never starts notifying (or stops mid-session) produced
+    // "Port opened", maybe "Machine info", then silence forever: no WARN, and
+    // "Disconnected:" never fires because the port is still open. Deleting the
+    // per-frame RX line was right on volume — ~600 DEBUG lines a shot — but it was
+    // the only evidence of that negative case, so this replaces it with one line.
+    //
+    // Checked on WRITE, not on a timer. DE1Device writes continuously while
+    // connected (keepalive MMR reads, state polls), so a write already is the
+    // periodic event, and it makes the signature exactly BleTransport's: we are
+    // still talking to the machine and it has stopped answering. Event-driven also
+    // keeps this out of the "timers as guards" trap — nothing here needs a timer to
+    // exist.
+    //
+    // Diagnostic only: it warns and does nothing else. BleTransport's equivalent
+    // tears the link down, which is why that one is evaluated solely at a reconnect
+    // attempt — a false positive there costs a reconnect. Here it costs one log
+    // line, which is what makes the threshold below acceptable to ship.
+    //
+    // The threshold is PROVISIONAL and deliberately double BleTransport's 30 s. The
+    // DE1's minimum push cadence is unmeasured across machine phases — the same
+    // open question BleTransport's comment flags (harden-de1-ble-reliability tasks
+    // 5.2 / 8.5) — and Sleep in particular is unverified: if the firmware stops
+    // pushing water level while asleep, a tighter threshold would warn on every
+    // sleep. Tighten it once the raw cadence is measured on hardware, not before.
+    // The decision itself lives in usb/serialstall.h as a pure predicate, because
+    // none of this class is reachable from a test: open() needs a real port and
+    // write() early-returns without one. See that header.
+    QElapsedTimer m_inboundLiveness;
+    static constexpr int INBOUND_STALE_MS = 60000;
+    // One WARN per stall episode, not one per write. Writes are frequent, so an
+    // unlatched check would produce exactly the flat-repeat noise this change
+    // exists to remove. Cleared when inbound traffic resumes, so a second stall
+    // warns again.
+    bool m_inboundStallWarned = false;
 
 #ifdef Q_OS_ANDROID
     QTimer m_readTimer;  ///< Polls AndroidUsbHelper::readAvailable() at ~20ms

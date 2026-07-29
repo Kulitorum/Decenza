@@ -772,6 +772,13 @@ add_decenza_test(tst_blecontrollererror
     tst_blecontrollererror.cpp
 )
 
+# --- tst_serialstall: the USB serial stall decision. Header-only predicate, so
+#     no QSerialPort link and no platform guard — which is why it was split out
+#     of SerialTransport in the first place (that class needs a real port). ---
+add_decenza_test(tst_serialstall
+    tst_serialstall.cpp
+)
+
 # --- tst_bletransporterror: the #1658 contract itself — a controller error
 #     raises no modal, and the teardown family still feeds de1LinkFault ---
 add_decenza_test(tst_bletransporterror

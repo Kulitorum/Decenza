@@ -1,4 +1,5 @@
 #include "bookooscale.h"
+#include "../bledeviceid.h"
 #include "../protocol/de1characteristics.h"
 #include "scalelogging.h"
 #include <QTimer>
@@ -52,11 +53,8 @@ void BookooScale::connectToDevice(const QBluetoothDeviceInfo& device) {
     m_serviceFound = false;
     m_characteristicsReady = false;
 
-    // Log device identifier (UUID on iOS, address on other platforms)
-    QString deviceId = device.address().isNull()
-        ? device.deviceUuid().toString()
-        : device.address().toString();
-    BOOKOO_LOG(QString("Connecting to %1 (%2)").arg(device.name(), deviceId));
+    BOOKOO_LOG(QString("Connecting to %1 (%2)")
+                   .arg(device.name(), getDeviceIdentifier(device)));
 
     m_transport->connectToDevice(device);
 }

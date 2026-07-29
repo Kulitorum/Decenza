@@ -1,5 +1,6 @@
 #include "difluidr1.h"
 
+#include "../bledeviceid.h"
 #include "../protocol/de1characteristics.h"
 #include "refractometerlogging.h"
 #include "../transport/scalebletransport.h"
@@ -206,9 +207,7 @@ void DiFluidR1::connectToDevice(const QBluetoothDeviceInfo& device) {
     if (nameChange) emit nameChanged();
 
     R1_LOG(QString("Connecting to %1 (%2)")
-               .arg(m_name,
-                    device.address().isNull() ? device.deviceUuid().toString()
-                                              : device.address().toString()));
+               .arg(m_name, getDeviceIdentifier(device)));
 
     m_transport->connectToDevice(device);
 }
