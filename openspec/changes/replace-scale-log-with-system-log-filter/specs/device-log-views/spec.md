@@ -23,14 +23,19 @@ A subsystem event SHALL be written exactly once per output. A call site SHALL NO
 
 ### Requirement: Every device log line carries its subsystem marker
 
-Each device subsystem SHALL prefix every line it logs with a stable marker naming that subsystem: `[Scale]` for the scale subsystem (BLE, WiFi and USB scales, their transports and the refractometers) and `[DE1]` for the DE1 subsystem (the machine, its BLE and serial transports, and USB DE1 discovery). The marker SHALL be applied inside the subsystem's logging helper, never written at a call site.
+Each device subsystem SHALL prefix every line it logs with a stable marker naming that subsystem: `[Scale]` for scales (BLE, WiFi and USB drivers and their transports), `[Refractometer]` for the DiFluid R1/R2, and `[DE1]` for the DE1 subsystem (the machine, its BLE and serial transports, and USB DE1 discovery). The marker SHALL be applied inside the subsystem's logging helper, never written at a call site.
 
 A line MAY carry a further source tag after the marker (`[Scale][BLE AcaiaScale]`, `[DE1][USB]`) to name the specific source. One marker match SHALL be sufficient to retrieve the whole subsystem's narrative, so no subsystem line is reachable only through a source-specific pattern.
 
 #### Scenario: One pattern retrieves a whole subsystem
 
 - **WHEN** the system log is searched for `[Scale]`
-- **THEN** the result includes every scale line — manager, driver, transport, refractometer and USB — with none reachable only under a different prefix
+- **THEN** the result includes every scale line — manager, driver, transport and USB — with none reachable only under a different prefix
+
+#### Scenario: A refractometer investigation is separable from a scale one
+
+- **WHEN** the system log is searched for `[Refractometer]`
+- **THEN** only refractometer lines are returned, and a search for `[Scale]` returns the shared transport lines beneath them without the instrument's own
 
 #### Scenario: DE1 and scale lines are distinguishable
 
@@ -69,7 +74,9 @@ A line's tier SHALL be chosen for its audience, not its authorship: a driver may
 
 ### Requirement: The connections page shows each subsystem as a filtered view of the log
 
-The Connections page SHALL present a DE1 view and a scale view. Each SHALL show the lines of the current session that carry its subsystem marker at INFO or above, in the order the log recorded them.
+The Connections page SHALL present a DE1 view and a scale view. Each SHALL show the lines of the current session that carry any of its subsystem markers at INFO or above, in the order the log recorded them.
+
+The DE1 view SHALL match the `[DE1]` marker. The scale view SHALL match `[Scale]` and `[Refractometer]`: the refractometers are a separate subsystem for querying purposes but appear alongside the scale on screen, so a view MAY cover more than one marker while a marker belongs to exactly one subsystem.
 
 Each view SHALL populate with the session's qualifying lines already recorded when the view is built, and SHALL then append qualifying lines as they are recorded, without polling.
 

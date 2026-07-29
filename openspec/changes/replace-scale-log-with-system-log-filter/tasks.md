@@ -1,9 +1,11 @@
 ## 1. Registry and the INFO tier
 
-- [ ] 1.1 Create the marker registry header (`src/core/logtags.h`): one entry per subsystem carrying its token constant and a one-line description of what it covers. Seed it with `[Scale]` and `[DE1]`. This is the single source every other surface derives from — no other file may hold a list of markers.
-- [ ] 1.2 Add the INFO tier to the scale helpers in `src/ble/scales/scalelogging.h`: `SCALE_INFO_TAGGED` / `SCALE_INFO` (qInfo), plus the stderr-only `SCALE_INFO_STDERR_TAGGED` for symmetry with the existing set. Reference the registry constants rather than re-spelling `"[Scale]"`.
-- [ ] 1.3 Document in `scalelogging.h` how a tier is chosen (audience, not authorship) so the next author picks one deliberately rather than copying the nearest call.
-- [ ] 1.4 Build and run the full suite — no behaviour change expected yet.
+- [x] 1.1 Create the marker registry header (`src/core/logtags.h`): one entry per subsystem carrying its token constant and a one-line description of what it covers. Seed it with `[Scale]`, `[DE1]` and `[Refractometer]`. This is the single source every other surface derives from — no other file may hold a list of markers.
+- [x] 1.2 Add the INFO tier to the scale helpers in `src/ble/scales/scalelogging.h`: `SCALE_INFO_TAGGED` / `SCALE_INFO` (qInfo), plus the stderr-only `SCALE_INFO_STDERR_TAGGED` for symmetry with the existing set. Reference the registry constants rather than re-spelling `"[Scale]"`.
+- [x] 1.3 Document in `scalelogging.h` how a tier is chosen (audience, not authorship) so the next author picks one deliberately rather than copying the nearest call.
+- [x] 1.4 Add the shared `DECENZA_SUBSYS_LOG` / `DECENZA_SUBSYS_LOG_STDERR` base to the registry header so the `[marker][tag] ` shape and the write-then-emit pairing exist once, and rebase the scale helpers onto it.
+- [x] 1.5 Give the refractometers their own marker: `refractometerlogging.h` with the three tiers, and R1/R2 aliasing it instead of `SCALE_LOG`. The shared transports keep `[Scale]` — they are scale plumbing the refractometers borrow.
+- [x] 1.6 Build and run the full suite — no behaviour change expected yet.
 
 ## 2. Assign scale tiers
 
@@ -11,7 +13,7 @@
 - [ ] 2.2 The 13 BLE scale drivers — keep frame/protocol traffic at DEBUG; promote connect/disconnect/identify outcomes to INFO.
 - [ ] 2.3 The transports (`qtscalebletransport.cpp`, `corebluetoothscalebletransport.mm`) — DEBUG for characteristic and discovery mechanics, INFO for link established/lost, existing WARN unchanged.
 - [ ] 2.4 `usbscalemanager.cpp` / `usbdecentscale.cpp` — INFO for device found, probe confirmed, connect/disconnect, unplug; DEBUG for probe byte-level detail.
-- [ ] 2.5 The refractometers (`difluidr1.cpp`, `difluidr2.cpp`) — INFO for connect/measurement outcomes, DEBUG for packet detail.
+- [ ] 2.5 The refractometers (`difluidr1.cpp`, `difluidr2.cpp`) — assign tiers now that they carry `[Refractometer]`: INFO for connect/disconnect and completed measurements, DEBUG for packet framing and checksum detail, WARN for no-liquid/beyond-range/decode failures.
 - [ ] 2.6 `wifiscalediscovery.cpp` — INFO for the browse/lookup outcomes the `wifi-scale-discovery` spec requires to be diagnosable from a shared log.
 - [ ] 2.7 Review the resulting INFO set as a whole: read the INFO-only scale lines for a full scan → connect → shot → disconnect cycle and judge it as a narrative. Fix anything that reads as noise or has a hole. Do not evaluate sites in isolation.
 - [ ] 2.8 Build and run the full suite; confirm no test newly trips `QTest::failOnWarning()`.
@@ -38,7 +40,7 @@
 ## 5. Re-source the two views
 
 - [ ] 5.1 `SettingsConnectionsTab.qml` — DE1 view: populate from the accessor on build (`[DE1]`, INFO+), then append on `lineAppended` for matching lines. Ensure the append handler logs nothing.
-- [ ] 5.2 Same for the scale view (`[Scale]`, INFO+).
+- [ ] 5.2 Same for the scale view, matching **both** `[Scale]` and `[Refractometer]` at INFO+ — the refractometers appear here on screen even though they are a separate subsystem for querying.
 - [ ] 5.3 Make Clear view-local: hide what is shown, keep following new lines, touch neither the log nor the other view.
 - [ ] 5.4 Retarget the share action from `scale_debug_log.txt` to the system log, reusing the existing platform share plumbing.
 - [ ] 5.5 Fix any pre-existing accessibility violations on the two views while in the file, per the CLAUDE.md rule.

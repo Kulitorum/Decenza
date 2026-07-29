@@ -1,12 +1,15 @@
 #include "difluidr2.h"
 #include "../protocol/de1characteristics.h"
-#include "../scales/scalelogging.h"
+#include "refractometerlogging.h"
 #include "../transport/scalebletransport.h"
 
-// Aliases over the shared macros (scalelogging.h) rather than a hand-copied
-// body: the [Scale] marker and the double-write shape then live in one place.
-#define R2_LOG(msg)  SCALE_LOG("DiFluidR2", msg)
-#define R2_WARN(msg) SCALE_WARN("DiFluidR2", msg)
+// Aliases over the shared macros (refractometerlogging.h) rather than a
+// hand-copied body. [Refractometer], not [Scale]: these share the scale BLE
+// transports but are a different instrument, so a TDS problem and a weight
+// problem are searchable apart from each other.
+#define R2_LOG(msg)  REFRACTOMETER_LOG("DiFluidR2", msg)
+#define R2_INFO(msg) REFRACTOMETER_INFO("DiFluidR2", msg)
+#define R2_WARN(msg) REFRACTOMETER_WARN("DiFluidR2", msg)
 
 // Protocol constants
 static constexpr uint8_t PACKET_HEADER = 0xDF;
