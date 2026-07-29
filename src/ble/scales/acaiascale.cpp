@@ -4,6 +4,7 @@
 #include <cmath>
 
 #define ACAIA_LOG(msg)  SCALE_LOG("AcaiaScale", msg)
+#define ACAIA_INFO(msg) SCALE_INFO("AcaiaScale", msg)
 #define ACAIA_WARN(msg) SCALE_WARN("AcaiaScale", msg)
 
 AcaiaScale::AcaiaScale(ScaleBleTransport* transport, QObject* parent)
@@ -113,12 +114,12 @@ void AcaiaScale::connectToDevice(const QBluetoothDeviceInfo& device) {
 }
 
 void AcaiaScale::onTransportConnected() {
-    ACAIA_LOG("Transport connected, starting service discovery");
+    ACAIA_LOG(DECENZA_BLE_MSG_TRANSPORT_CONNECTED);
     m_transport->discoverServices();
 }
 
 void AcaiaScale::onTransportDisconnected() {
-    ACAIA_LOG("Transport disconnected");
+    ACAIA_INFO(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);
     stopAllTimers();
     m_weightReceived = false;
     m_characteristicsReady = false;
@@ -186,7 +187,7 @@ void AcaiaScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& servic
     if (m_isPyxis && serviceUuid != Scale::Acaia::SERVICE) return;
     if (!m_isPyxis && serviceUuid != Scale::AcaiaIPS::SERVICE) return;
     if (m_characteristicsReady) {
-        ACAIA_LOG("Characteristics already set up, ignoring duplicate callback");
+        ACAIA_LOG(DECENZA_BLE_MSG_DUPLICATE_CHARACTERISTICS);
         return;
     }
 
@@ -524,7 +525,7 @@ void AcaiaScale::decodeWeight(const QByteArray& data, int payloadOffset) {
     // This ensures the handshake completed successfully
     if (!m_weightReceived) {
         m_weightReceived = true;
-        ACAIA_LOG("First weight received, marking as connected");
+        ACAIA_INFO(DECENZA_BLE_MSG_CONNECTED("first weight frame"));
         setConnected(true);
     }
 

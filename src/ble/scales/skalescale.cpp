@@ -4,6 +4,7 @@
 #include <QTimer>
 
 #define SKALE_LOG(msg)  SCALE_LOG("SkaleScale", msg)
+#define SKALE_INFO(msg) SCALE_INFO("SkaleScale", msg)
 #define SKALE_WARN(msg) SCALE_WARN("SkaleScale", msg)
 
 SkaleScale::SkaleScale(ScaleBleTransport* transport, QObject* parent)
@@ -57,12 +58,12 @@ void SkaleScale::connectToDevice(const QBluetoothDeviceInfo& device) {
 }
 
 void SkaleScale::onTransportConnected() {
-    SKALE_LOG("Transport connected, starting service discovery");
+    SKALE_LOG(DECENZA_BLE_MSG_TRANSPORT_CONNECTED);
     m_transport->discoverServices();
 }
 
 void SkaleScale::onTransportDisconnected() {
-    SKALE_LOG("Transport disconnected");
+    SKALE_INFO(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);
     setConnected(false);
 }
 
@@ -91,7 +92,7 @@ void SkaleScale::onServicesDiscoveryFinished() {
 void SkaleScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& serviceUuid) {
     if (serviceUuid != Scale::Skale::SERVICE) return;
     if (m_characteristicsReady) {
-        SKALE_LOG("Characteristics already set up, ignoring duplicate callback");
+        SKALE_LOG(DECENZA_BLE_MSG_DUPLICATE_CHARACTERISTICS);
         return;
     }
 

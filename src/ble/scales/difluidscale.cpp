@@ -4,6 +4,7 @@
 #include <QTimer>
 
 #define DIFLUID_LOG(msg)  SCALE_LOG("DifluidScale", msg)
+#define DIFLUID_INFO(msg) SCALE_INFO("DifluidScale", msg)
 #define DIFLUID_WARN(msg) SCALE_WARN("DifluidScale", msg)
 
 DifluidScale::DifluidScale(ScaleBleTransport* transport, QObject* parent)
@@ -56,12 +57,12 @@ void DifluidScale::connectToDevice(const QBluetoothDeviceInfo& device) {
 }
 
 void DifluidScale::onTransportConnected() {
-    DIFLUID_LOG("Transport connected, starting service discovery");
+    DIFLUID_LOG(DECENZA_BLE_MSG_TRANSPORT_CONNECTED);
     m_transport->discoverServices();
 }
 
 void DifluidScale::onTransportDisconnected() {
-    DIFLUID_LOG("Transport disconnected");
+    DIFLUID_INFO(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);
     resetLinkState();
     setConnected(false);
 }
@@ -141,7 +142,7 @@ void DifluidScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& serv
         return;
     }
     if (m_characteristicsReady) {
-        DIFLUID_LOG("Characteristics already set up, ignoring duplicate callback");
+        DIFLUID_LOG(DECENZA_BLE_MSG_DUPLICATE_CHARACTERISTICS);
         return;
     }
 

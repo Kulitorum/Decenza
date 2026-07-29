@@ -94,8 +94,9 @@ private:
     // the same event in different words. Do not reintroduce a bare qDebug or a bare
     // emit here; use these. (Free functions in the .cpp cannot be used instead —
     // the emit needs the instance.)
-    void log(const QString& message);
-    void warn(const QString& message);
+    void log(const QString& message);   // DEBUG — probe/poll detail
+    void info(const QString& message);  // INFO  — the user-facing narrative
+    void warn(const QString& message);  // WARN  — problems
 
     // Emits probeFinished() exactly once per scan-initiated pass, from the point
     // the probe actually settles rather than the point it was started.

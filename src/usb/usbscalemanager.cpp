@@ -16,6 +16,11 @@ void UsbScaleManager::log(const QString& message)
     SCALE_LOG_TAGGED("USB Scale", message);
 }
 
+void UsbScaleManager::info(const QString& message)
+{
+    SCALE_INFO_TAGGED("USB Scale", message);
+}
+
 void UsbScaleManager::warn(const QString& message)
 {
     SCALE_WARN_TAGGED("USB Scale", message);
@@ -82,7 +87,7 @@ void UsbScaleManager::connectToScale()
         return;
     }
 
-    log(QStringLiteral("Connecting (Android)"));
+    info(QStringLiteral("Connecting (Android)"));
 
     m_scale = new UsbDecentScale(this);
     m_scale->open();
@@ -92,7 +97,7 @@ void UsbScaleManager::connectToScale()
         return;
     }
 
-    log(QStringLiteral("Connecting on %1").arg(m_confirmedPortName));
+    info(QStringLiteral("Connecting on %1").arg(m_confirmedPortName));
 
     m_scale = new UsbDecentScale(this);
     m_scale->open(m_confirmedPortName);
@@ -181,7 +186,7 @@ void UsbScaleManager::disconnectScale()
     // and do NOT touch m_scaleAvailable — we only stop feeding the USB weight so
     // the new primary scale doesn't double-feed WeightProcessor. The USB entry
     // stays selectable; reselecting it calls connectToScale() again.
-    log(QStringLiteral("Disconnected (switched to another scale)"));
+    info(QStringLiteral("Disconnected (switched to another scale)"));
 
     // Drop the Android connectedChanged watchdog before close() — same re-entrancy
     // hazard as teardownConnectedScale(): close() emits connectedChanged, which the
@@ -209,7 +214,7 @@ void UsbScaleManager::startPolling()
 {
     if (m_pollTimer.isActive()) return;
 
-    log(QStringLiteral("Polling started (every %1 ms)").arg(POLL_INTERVAL_MS));
+    info(QStringLiteral("Polling started (every %1 ms)").arg(POLL_INTERVAL_MS));
 
     onPollTimerTick();
     m_pollTimer.start();
@@ -307,7 +312,7 @@ void UsbScaleManager::onPollTimerTickAndroid()
     if (!m_hasLoggedInitialPorts && devicePresent) {
         m_hasLoggedInitialPorts = true;
         QString info = AndroidUsbScaleHelper::deviceInfo();
-        log(QStringLiteral("Device found: %1").arg(info));
+        info(QStringLiteral("Device found: %1").arg(info));
     }
 
     // Check if connected scale disappeared
@@ -323,7 +328,7 @@ void UsbScaleManager::onPollTimerTickAndroid()
     // Available-but-not-connected scale unplugged: drop availability and release
     // the JNI connection held open since the probe confirmed.
     if (!m_scale && m_scaleAvailable && !devicePresent) {
-        log(QStringLiteral("Scale unplugged before connect"));
+        info(QStringLiteral("Scale unplugged before connect"));
         AndroidUsbScaleHelper::close();
         m_androidPermissionRequested = false;
         m_hasLoggedInitialPorts = false;
@@ -423,7 +428,7 @@ void UsbScaleManager::onAndroidProbeRead()
                 xorVal ^= static_cast<uint8_t>(m_probeBuffer[j]);
             }
             if (xorVal == static_cast<uint8_t>(m_probeBuffer[i + 6])) {
-                log(QStringLiteral("Half Decent Scale confirmed (weight packet received)"));
+                info(QStringLiteral("Half Decent Scale confirmed (weight packet received)"));
 
                 // Stop probe timers but DON'T close — connectToScale() reuses
                 // the JNI connection when the user selects the USB entry.
@@ -528,7 +533,7 @@ void UsbScaleManager::onPollTimerTickDesktop()
     // Available-but-not-connected scale unplugged: its confirmed port is gone.
     if (!m_scale && m_scaleAvailable && !m_confirmedPortName.isEmpty()
         && !currentPorts.contains(m_confirmedPortName)) {
-        log(QStringLiteral("Scale unplugged before connect (%1)").arg(m_confirmedPortName));
+        info(QStringLiteral("Scale unplugged before connect (%1)").arg(m_confirmedPortName));
         m_confirmedPortName.clear();
         m_hasLoggedInitialPorts = false;
         setScaleAvailable(false);
@@ -617,7 +622,7 @@ void UsbScaleManager::onProbeReadyRead()
     // actually selected, which is the point at which it matters.
     if (m_probeBuffer.contains(" Weight: ")) {
         const QString confirmedPort = m_probingPortInfo.portName();
-        log(QStringLiteral("Half Decent Scale found on %1 (text weight stream)")
+        info(QStringLiteral("Half Decent Scale found on %1 (text weight stream)")
                 .arg(confirmedPort));
         cleanupProbe();
         m_confirmedPortName = confirmedPort;
@@ -637,7 +642,7 @@ void UsbScaleManager::onProbeReadyRead()
             }
             if (xorVal == static_cast<uint8_t>(m_probeBuffer[i + 6])) {
                 QString confirmedPort = m_probingPortInfo.portName();
-                log(QStringLiteral("Half Decent Scale found on %1 (binary weight packet)")
+                info(QStringLiteral("Half Decent Scale found on %1 (binary weight packet)")
                         .arg(confirmedPort));
 
                 // Close the probe port — connectToScale() reopens it on demand.

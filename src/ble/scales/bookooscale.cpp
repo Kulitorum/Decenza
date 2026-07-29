@@ -4,6 +4,7 @@
 #include <QTimer>
 
 #define BOOKOO_LOG(msg)  SCALE_LOG("BookooScale", msg)
+#define BOOKOO_INFO(msg) SCALE_INFO("BookooScale", msg)
 #define BOOKOO_WARN(msg) SCALE_WARN("BookooScale", msg)
 
 BookooScale::BookooScale(ScaleBleTransport* transport, QObject* parent)
@@ -61,12 +62,12 @@ void BookooScale::connectToDevice(const QBluetoothDeviceInfo& device) {
 }
 
 void BookooScale::onTransportConnected() {
-    BOOKOO_LOG("Transport connected, starting service discovery");
+    BOOKOO_LOG(DECENZA_BLE_MSG_TRANSPORT_CONNECTED);
     m_transport->discoverServices();
 }
 
 void BookooScale::onTransportDisconnected() {
-    BOOKOO_LOG("Transport disconnected");
+    BOOKOO_INFO(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);
     setConnected(false);
 }
 
@@ -102,7 +103,7 @@ void BookooScale::onServicesDiscoveryFinished() {
 void BookooScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& serviceUuid) {
     if (serviceUuid != Scale::Bookoo::SERVICE) return;
     if (m_characteristicsReady) {
-        BOOKOO_LOG("Characteristics already set up, ignoring duplicate callback");
+        BOOKOO_LOG(DECENZA_BLE_MSG_DUPLICATE_CHARACTERISTICS);
         return;
     }
 

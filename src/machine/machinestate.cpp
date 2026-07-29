@@ -1,4 +1,6 @@
 #include "machinestate.h"
+
+#include "core/logtags.h"
 #include "../ble/de1device.h"
 #include "../ble/scaledevice.h"
 #include "../ble/scales/scaletypeids.h"
@@ -839,13 +841,13 @@ void MachineState::onScaleWeightChanged(double weight) {
         qint64 now = QDateTime::currentMSecsSinceEpoch();
         if (now - m_lastWeightLogMs >= 2000) {
             if (state == DE1::State::HotWater && m_hotWaterTareBaseline != 0.0) {
-                qDebug() << "[Scale] weight=" << QString::number(weight, 'f', 1)
+                qDebug() << "[" DECENZA_LOG_MARKER_SCALE "] weight=" << QString::number(weight, 'f', 1)
                          << "effective=" << QString::number(weight - m_hotWaterTareBaseline, 'f', 1)
                          << "baseline=" << QString::number(m_hotWaterTareBaseline, 'f', 1)
                          << "phase=" << phaseString()
                          << "tare=" << m_tareCompleted;
             } else {
-                qDebug() << "[Scale] weight=" << QString::number(weight, 'f', 1)
+                qDebug() << "[" DECENZA_LOG_MARKER_SCALE "] weight=" << QString::number(weight, 'f', 1)
                          << "phase=" << phaseString()
                          << "tare=" << m_tareCompleted;
             }

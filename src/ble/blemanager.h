@@ -564,6 +564,44 @@ public:
     // lambda.
     void appendScaleLog(const QString& message, bool mirrorToSystemLog = true);
 
+private:
+    // How BLEManager logs its own narrative. Pick by AUDIENCE, per the tier
+    // rules in core/logtags.h:
+    //
+    //   scaleDebug  developer detail — periodic probes, ignored transients,
+    //               mechanism notes. Kept out of the on-screen view.
+    //   scaleInfo   the narrative a user needs: scanning, found, connecting,
+    //               connected, disconnected, transport fallback, reconnects.
+    //   scaleWarn   problems: refusals, timeouts, unreachable, teardowns.
+    //
+    // Each writes stderr at its tier with the subsystem marker AND records the
+    // line for the connections-page view, from one call — so the two can never
+    // describe the same event differently. BLEManager cannot use the SCALE_*
+    // macros directly: they `emit logMessage(...)`, and this class's signal is
+    // named scaleLogMessage.
+    //
+    // refractometerInfo exists because BLEManager narrates both subsystems and
+    // a refractometer line must carry [Refractometer], not [Scale].
+    void scaleDebug(const QString& message);
+    void scaleInfo(const QString& message);
+    void scaleWarn(const QString& message);
+    void refractometerInfo(const QString& message);
+
+    // A connect failure that REPEATS while nothing changes. Warns for the first
+    // few, then drops to DEBUG until the next successful connect.
+    //
+    // The failure is real every time, but the reconnect ladder retries forever,
+    // so at a flat WARN an absent scale produced 46 "connection timeout" and 24
+    // "unreachable" warnings in one 48 h capture — enough to train a reader to
+    // skim past the tier that is supposed to mean "look here". The first ones
+    // carry the diagnosis; the rest only carry "still absent", which the ladder
+    // lines already say.
+    void scaleRepeatFailure(const QString& message);
+    int m_consecutiveScaleFailures = 0;
+    static constexpr int kScaleFailuresAtWarn = 3;
+
+public:
+
 public slots:
     Q_INVOKABLE void tryDirectConnectToDE1();
     // allowDirectConnect=true (foreground triggers: device-picker switch, app
@@ -1006,6 +1044,10 @@ private:
     QMetaObject::Connection m_refractometerDestroyedConn;
 
     // Scale debug log
+    // Last observe/enforce value we announced, so the mode is logged on
+    // transition instead of on every settings load (it was 11 identical WARNs
+    // in a 48 h capture). Not the mode itself — that is m_backoffMode.
+    bool m_loggedObserveMode = false;
     QStringList m_scaleLogMessages;
     QString m_scaleLogFilePath;
     void writeScaleLogToFile();

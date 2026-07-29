@@ -237,7 +237,10 @@ private slots:
         QTest::ignoreMessage(QtDebugMsg, QRegularExpression(".*Battery byte d\\[4\\]=0xff.*"));
         QTest::ignoreMessage(QtDebugMsg, QRegularExpression(".*Firmware version:.*"));
         scale.onCharacteristicChanged(Scale::Decent::READ, buildDecentLedResponse(0xFF, 0, 0, 0));
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Battery byte changed:.*0xff.*0x3c.*"));
+        // QtDebugMsg: a battery byte ticking down is the battery discharging,
+        // not a fault. It was at WARN, so routine drain read as a problem in
+        // every submitted log.
+        QTest::ignoreMessage(QtDebugMsg, QRegularExpression(".*Battery byte changed:.*0xff.*0x3c.*"));
         scale.onCharacteristicChanged(Scale::Decent::READ, buildDecentLedResponse(60, 0, 0, 0));
 
         // Two flips: false→true, then true→false.

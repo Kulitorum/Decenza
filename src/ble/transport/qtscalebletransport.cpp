@@ -1,4 +1,6 @@
 #include "qtscalebletransport.h"
+
+#include "ble/scales/scalelogging.h"
 #include "../blecapability.h"
 #include "../blecontrollererror.h"
 #include "../bleserviceerror.h"
@@ -46,11 +48,7 @@ int64_t QtScaleBleTransport::nowMs() {
 }
 
 void QtScaleBleTransport::log(const QString& message) {
-    // [Scale] marker so this line is in the same grep as the drivers' —
-    // see scalelogging.h.
-    QString msg = QString("[Scale][BLE QtTransport] ") + message;
-    qDebug().noquote() << msg;
-    emit logMessage(msg);
+    SCALE_LOG_TAGGED("BLE QtTransport", message);
 }
 
 void QtScaleBleTransport::warn(const QString& message) {
@@ -60,9 +58,7 @@ void QtScaleBleTransport::warn(const QString& message) {
     // Originally scoped to connection-priority events; broadened when service
     // errors joined it, since anything that reaches the user through error()
     // needs to be findable in the log they send in (#1586).
-    QString msg = QString("[Scale][BLE QtTransport] ") + message;
-    qWarning().noquote() << msg;
-    emit logMessage(msg);
+    SCALE_WARN_TAGGED("BLE QtTransport", message);
 }
 
 QtScaleBleTransport::~QtScaleBleTransport() {

@@ -4,6 +4,7 @@
 #include <QTimer>
 
 #define TIMEMORE_LOG(msg)  SCALE_LOG("TimemoreScale", msg)
+#define TIMEMORE_INFO(msg) SCALE_INFO("TimemoreScale", msg)
 #define TIMEMORE_WARN(msg) SCALE_WARN("TimemoreScale", msg)
 
 // Timemore Dot/Duo BLE protocol
@@ -82,12 +83,12 @@ void TimemoreScale::connectToDevice(const QBluetoothDeviceInfo& device) {
 }
 
 void TimemoreScale::onTransportConnected() {
-    TIMEMORE_LOG("Transport connected, starting service discovery");
+    TIMEMORE_LOG(DECENZA_BLE_MSG_TRANSPORT_CONNECTED);
     m_transport->discoverServices();
 }
 
 void TimemoreScale::onTransportDisconnected() {
-    TIMEMORE_LOG("Transport disconnected");
+    TIMEMORE_INFO(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);
     setConnected(false);
 }
 
@@ -116,7 +117,7 @@ void TimemoreScale::onServicesDiscoveryFinished() {
 void TimemoreScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& serviceUuid) {
     if (serviceUuid != Scale::Generic::SERVICE) return;
     if (m_characteristicsReady) {
-        TIMEMORE_LOG("Characteristics already set up, ignoring duplicate callback");
+        TIMEMORE_LOG(DECENZA_BLE_MSG_DUPLICATE_CHARACTERISTICS);
         return;
     }
 

@@ -6,6 +6,7 @@
 #include <QTimer>
 
 #define DECENT_LOG(msg)  SCALE_LOG("DecentScale", msg)
+#define DECENT_INFO(msg) SCALE_INFO("DecentScale", msg)
 #define DECENT_WARN(msg) SCALE_WARN("DecentScale", msg)
 
 DecentScale::DecentScale(ScaleBleTransport* transport, QObject* parent)
@@ -69,7 +70,7 @@ void DecentScale::onTransportConnected() {
 }
 
 void DecentScale::onTransportDisconnected() {
-    DECENT_WARN("Transport disconnected");
+    DECENT_WARN(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);
     stopWatchdog();
     stopHeartbeat();
     // The discovered characteristics don't outlive the link. Clearing
@@ -138,7 +139,7 @@ void DecentScale::onServicesDiscoveryFinished() {
 void DecentScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& serviceUuid) {
     if (serviceUuid != Scale::Decent::SERVICE) return;
     if (m_characteristicsReady) {
-        DECENT_LOG("Characteristics already set up, ignoring duplicate callback");
+        DECENT_LOG(DECENZA_BLE_MSG_DUPLICATE_CHARACTERISTICS);
         return;
     }
 
@@ -276,7 +277,10 @@ void DecentScale::parseWeightData(const QByteArray& data) {
                            .arg(battInt)
                            .arg(packet));
             } else {
-                DECENT_WARN(QString("Battery byte changed: 0x%1 -> 0x%2 (%3 -> %4) — LED response raw: %5")
+                // DEBUG: a battery byte ticking 62 -> 61 is the battery
+                // discharging, which is what batteries do. It was at WARN, so
+                // routine drain read as a fault in every submitted log.
+                DECENT_LOG(QString("Battery byte changed: 0x%1 -> 0x%2 (%3 -> %4) — LED response raw: %5")
                             .arg(m_lastBatteryByte, 2, 16, QLatin1Char('0'))
                             .arg(battByte, 2, 16, QLatin1Char('0'))
                             .arg(m_lastBatteryByte)

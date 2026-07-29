@@ -1,12 +1,15 @@
 #include "difluidr2.h"
 #include "../protocol/de1characteristics.h"
-#include "../scales/scalelogging.h"
+#include "refractometerlogging.h"
 #include "../transport/scalebletransport.h"
 
-// Aliases over the shared macros (scalelogging.h) rather than a hand-copied
-// body: the [Scale] marker and the double-write shape then live in one place.
-#define R2_LOG(msg)  SCALE_LOG("DiFluidR2", msg)
-#define R2_WARN(msg) SCALE_WARN("DiFluidR2", msg)
+// Aliases over the shared macros (refractometerlogging.h) rather than a
+// hand-copied body. [Refractometer], not [Scale]: these share the scale BLE
+// transports but are a different instrument, so a TDS problem and a weight
+// problem are searchable apart from each other.
+#define R2_LOG(msg)  REFRACTOMETER_LOG("DiFluidR2", msg)
+#define R2_INFO(msg) REFRACTOMETER_INFO("DiFluidR2", msg)
+#define R2_WARN(msg) REFRACTOMETER_WARN("DiFluidR2", msg)
 
 // Protocol constants
 static constexpr uint8_t PACKET_HEADER = 0xDF;
@@ -134,7 +137,7 @@ DiFluidR2::DiFluidR2(ScaleBleTransport* transport, QObject* parent)
                .arg(QString::number(reinterpret_cast<quintptr>(this), 16)));
         m_connected = true;
         emit connectedChanged();
-        R2_LOG("Connected and ready for measurements");
+        R2_INFO("Connected and ready for measurements");
 
         // Put the R2 into Celsius (Func=1 Settings, Cmd=0 Temperature Unit, Data=0).
         // Doubles as the init handshake the connect path has always sent — it
@@ -386,7 +389,7 @@ void DiFluidR2::requestAveragedMeasurement(int testCount) {
 void DiFluidR2::onTransportConnected() {
     R2_LOG(QString("[R2-diag] transport connected (instance=%1) — starting service discovery")
            .arg(QString::number(reinterpret_cast<quintptr>(this), 16)));
-    R2_LOG("Transport connected, starting service discovery");
+    R2_LOG(DECENZA_BLE_MSG_TRANSPORT_CONNECTED);
     m_transport->discoverServices();
 }
 
@@ -395,7 +398,7 @@ void DiFluidR2::onTransportDisconnected() {
            .arg(m_connected ? QStringLiteral("connectedChanged -> FALSE")
                             : QStringLiteral("connect attempt failed before ready (was not connected)"),
                 QString::number(reinterpret_cast<quintptr>(this), 16)));
-    R2_LOG("Transport disconnected");
+    R2_INFO(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);
     m_measurementTimer.stop();
     m_initTimer.stop();
     m_connected = false;
@@ -443,7 +446,7 @@ void DiFluidR2::onServicesDiscoveryFinished() {
 void DiFluidR2::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& serviceUuid) {
     if (serviceUuid != Refractometer::DiFluidR2::SERVICE) return;
     if (m_characteristicsReady) {
-        R2_LOG("Characteristics already set up, ignoring duplicate callback");
+        R2_LOG(DECENZA_BLE_MSG_DUPLICATE_CHARACTERISTICS);
         return;
     }
 

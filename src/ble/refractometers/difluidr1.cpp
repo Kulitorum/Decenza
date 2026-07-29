@@ -1,7 +1,7 @@
 #include "difluidr1.h"
 
 #include "../protocol/de1characteristics.h"
-#include "../scales/scalelogging.h"
+#include "refractometerlogging.h"
 #include "../transport/scalebletransport.h"
 #include "aes128.h"
 
@@ -10,10 +10,13 @@
 #include <cmath>
 #include <utility>
 
-// Aliases over the shared macros (scalelogging.h) rather than a hand-copied
-// body: the [Scale] marker and the double-write shape then live in one place.
-#define R1_LOG(msg)  SCALE_LOG("DiFluidR1", msg)
-#define R1_WARN(msg) SCALE_WARN("DiFluidR1", msg)
+// Aliases over the shared macros (refractometerlogging.h) rather than a
+// hand-copied body. [Refractometer], not [Scale]: these share the scale BLE
+// transports but are a different instrument, so a TDS problem and a weight
+// problem are searchable apart from each other.
+#define R1_LOG(msg)  REFRACTOMETER_LOG("DiFluidR1", msg)
+#define R1_INFO(msg) REFRACTOMETER_INFO("DiFluidR1", msg)
+#define R1_WARN(msg) REFRACTOMETER_WARN("DiFluidR1", msg)
 
 DiFluidR1::DiFluidR1(ScaleBleTransport* transport, QObject* parent)
     : RefractometerDevice(parent)
@@ -250,13 +253,13 @@ void DiFluidR1::requestMeasurement() {
 // === Transport callbacks ===
 
 void DiFluidR1::onTransportConnected() {
-    R1_LOG("Transport connected, starting service discovery");
+    R1_LOG(DECENZA_BLE_MSG_TRANSPORT_CONNECTED);
     m_phase = Phase::ServiceDiscovery;
     m_transport->discoverServices();
 }
 
 void DiFluidR1::onTransportDisconnected() {
-    R1_LOG("Transport disconnected");
+    R1_INFO(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);
     resetLinkState();
 }
 
@@ -280,7 +283,7 @@ void DiFluidR1::onServicesDiscoveryFinished() {
 void DiFluidR1::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& serviceUuid) {
     if (serviceUuid != Refractometer::DiFluidR1::SERVICE) return;
     if (m_phase >= Phase::CharacteristicsReady) {
-        R1_LOG("Characteristics already set up, ignoring duplicate callback");
+        R1_LOG(DECENZA_BLE_MSG_DUPLICATE_CHARACTERISTICS);
         return;
     }
     R1_LOG("Characteristics discovered, enabling notifications");
@@ -368,7 +371,7 @@ void DiFluidR1::onCharacteristicRead(const QBluetoothUuid& characteristicUuid,
     if (m_phase != Phase::Ready) {
         m_phase = Phase::Ready;
         emit connectedChanged();
-        R1_LOG("Connected and ready for measurements");
+        R1_INFO("Connected and ready for measurements");
     }
 }
 

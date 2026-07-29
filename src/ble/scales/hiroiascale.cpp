@@ -4,6 +4,7 @@
 #include <QTimer>
 
 #define HIROIA_LOG(msg)  SCALE_LOG("HiroiaScale", msg)
+#define HIROIA_INFO(msg) SCALE_INFO("HiroiaScale", msg)
 #define HIROIA_WARN(msg) SCALE_WARN("HiroiaScale", msg)
 
 HiroiaScale::HiroiaScale(ScaleBleTransport* transport, QObject* parent)
@@ -57,12 +58,12 @@ void HiroiaScale::connectToDevice(const QBluetoothDeviceInfo& device) {
 }
 
 void HiroiaScale::onTransportConnected() {
-    HIROIA_LOG("Transport connected, starting service discovery");
+    HIROIA_LOG(DECENZA_BLE_MSG_TRANSPORT_CONNECTED);
     m_transport->discoverServices();
 }
 
 void HiroiaScale::onTransportDisconnected() {
-    HIROIA_LOG("Transport disconnected");
+    HIROIA_INFO(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);
     setConnected(false);
 }
 
@@ -91,7 +92,7 @@ void HiroiaScale::onServicesDiscoveryFinished() {
 void HiroiaScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& serviceUuid) {
     if (serviceUuid != Scale::HiroiaJimmy::SERVICE) return;
     if (m_characteristicsReady) {
-        HIROIA_LOG("Characteristics already set up, ignoring duplicate callback");
+        HIROIA_LOG(DECENZA_BLE_MSG_DUPLICATE_CHARACTERISTICS);
         return;
     }
 

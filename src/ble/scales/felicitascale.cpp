@@ -4,6 +4,7 @@
 #include <QTimer>
 
 #define FELICITA_LOG(msg)  SCALE_LOG("FelicitaScale", msg)
+#define FELICITA_INFO(msg) SCALE_INFO("FelicitaScale", msg)
 #define FELICITA_WARN(msg) SCALE_WARN("FelicitaScale", msg)
 
 FelicitaScale::FelicitaScale(ScaleBleTransport* transport, QObject* parent)
@@ -57,12 +58,12 @@ void FelicitaScale::connectToDevice(const QBluetoothDeviceInfo& device) {
 }
 
 void FelicitaScale::onTransportConnected() {
-    FELICITA_LOG("Transport connected, starting service discovery");
+    FELICITA_LOG(DECENZA_BLE_MSG_TRANSPORT_CONNECTED);
     m_transport->discoverServices();
 }
 
 void FelicitaScale::onTransportDisconnected() {
-    FELICITA_LOG("Transport disconnected");
+    FELICITA_INFO(DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED);
     setConnected(false);
 }
 
@@ -91,7 +92,7 @@ void FelicitaScale::onServicesDiscoveryFinished() {
 void FelicitaScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& serviceUuid) {
     if (serviceUuid != Scale::Felicita::SERVICE) return;
     if (m_characteristicsReady) {
-        FELICITA_LOG("Characteristics already set up, ignoring duplicate callback");
+        FELICITA_LOG(DECENZA_BLE_MSG_DUPLICATE_CHARACTERISTICS);
         return;
     }
 

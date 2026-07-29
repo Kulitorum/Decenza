@@ -1,4 +1,6 @@
 #include "scaledevice.h"
+
+#include "core/logtags.h"
 #include <QDebug>
 
 ScaleDevice::ScaleDevice(QObject* parent)
@@ -87,10 +89,15 @@ void ScaleDevice::setConnected(bool connected) {
             return;
         }
         if (connected) {
-            qDebug() << "[Scale]" << name() << "CONNECTED";
+            // qInfo, not qDebug: this is the canonical "the scale is usable now"
+            // line for EVERY driver, so it is the one event a user most needs in
+            // the connections view — and the view shows INFO and above. Its
+            // DISCONNECTED counterpart below is already WARN, so a connect at
+            // DEBUG meant the log showed scales dropping and never arriving.
+            qInfo() << "[" DECENZA_LOG_MARKER_SCALE "]" << name() << "CONNECTED";
             m_keepAliveTimer.start();
         } else {
-            qWarning() << "[Scale]" << name() << "DISCONNECTED";
+            qWarning() << "[" DECENZA_LOG_MARKER_SCALE "]" << name() << "DISCONNECTED";
             m_keepAliveTimer.stop();
             setBatteryLevel(-1);   // Clear stale reading for reconnect
             setCharging(false);    // Mirror — the next status frame will re-assert if still charging
