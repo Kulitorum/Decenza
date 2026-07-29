@@ -482,3 +482,47 @@ affected while `GHCSimulator`'s were. `GHCSimulator` is registered wherever `DEC
 defined (every desktop config) but instanced only on a **debug** Windows/macOS build, so the broken
 guard passed — and threw on every window activation — on Linux, on Release desktop and on mobile
 Debug, while working on exactly the two configurations it gets tested on.
+
+## A nested event loop reachable from a QML signal handler is a crash, not a slowdown
+
+`QCoreApplication::processEvents()` (and anything that spins its own `QEventLoop` —
+`QDialog::exec()`, a blocking `QNetworkReply` wait) is not "the same work with the UI kept
+responsive". It delivers **queued events**, and one of those is `DeferredDelete`. If the call sits
+anywhere below a QML signal handler on the stack, an object that handler belongs to can be
+destroyed while the handler is still running. Qt does not limp on from that — `QQmlData::destroyed()`
+calls **`qFatal()`**:
+
+```
+Object 0x12a0fa680 destroyed while one of its QML signal handlers is in progress.
+Most likely the object was deleted synchronously (use QObject::deleteLater() instead), or the
+application is running a nested event loop. This behavior is NOT supported!
+qrc:/qt/qml/Decenza/qml/pages/SettingsPage.qml:106
+```
+
+That is issue #1692, on shipped iOS 2.0.0, as a **SIGABRT** — not the SIGSEGV every other crash
+report in the tracker is. The chain was five frames long and none of it looks dangerous in
+isolation:
+
+```
+TabBar.onCurrentIndexChanged  ->  markTabLoaded() writes loadedTabs
+  -> Loader.active binding -> QQmlComponent::create (SYNCHRONOUS incubation)
+    -> SettingsLanguageTab.Component.onCompleted -> TranslationManager::scanAllStrings()
+      -> processEvents()   <-- nested loop
+        -> queued DeferredDelete for the outgoing SettingsPage is delivered here
+          -> ~QQuickPage deletes its children, incl. the TabBar whose handler is still running
+```
+
+Note what the nested loop did **not** need: no dialog, no user interaction, no second thread. A
+page transition had already queued the `deleteLater`; the scan merely gave it a place to land.
+
+Rules that follow:
+
+- Long work reachable from QML goes on a **worker thread** with results posted back via
+  `QMetaObject::invokeMethod(..., Qt::QueuedConnection)`, or is chunked across event-loop turns.
+  Never pumped inline. `TranslationManager::scanAllStrings()` is the worked example.
+- A progress bar is not a reason to pump. If the UI needs to animate during the work, that is
+  precisely the case that needs the work off the calling stack.
+- This is invisible in the UI and in a normal test run — it needs a pending delete to coincide.
+  Pin the asynchrony with a test (`tests/tst_translationscan.cpp` asserts the call has NOT
+  completed when it returns), because "make it synchronous again, it's simpler" reads as a
+  harmless cleanup.

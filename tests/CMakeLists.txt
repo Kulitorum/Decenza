@@ -484,6 +484,16 @@ add_decenza_test(tst_translationsourcedrift
 )
 target_link_libraries(tst_translationsourcedrift PRIVATE Qt6::Qml)
 
+# --- tst_translationscan: the QML string scan, and that it stays off the calling stack ---
+# The scan is what feeds AI translation and community upload, so its three patterns are pinned
+# here. The asynchrony is pinned for a different reason: as a synchronous scan it pumped
+# processEvents() per file, and that nested event loop crashed shipped iOS 2.0.0 (#1692) by
+# letting a queued DeferredDelete destroy the settings TabBar inside its own signal handler.
+add_decenza_test(tst_translationscan
+    tst_translationscan.cpp
+)
+target_link_libraries(tst_translationscan PRIVATE Qt6::Qml)
+
 # --- tst_markdownrenderer: markdown -> HTML, incl. the raw-HTML security claim ---
 add_decenza_test(tst_markdownrenderer
     tst_markdownrenderer.cpp

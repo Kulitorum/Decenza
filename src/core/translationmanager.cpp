@@ -18,7 +18,7 @@
 #include <QNetworkInformation>
 #include <QSet>
 #include <QRegularExpression>
-#include <QCoreApplication>
+#include <QThread>
 #include <functional>
 #include <memory>
 
@@ -156,6 +156,16 @@ TranslationManager::TranslationManager(QNetworkAccessManager* networkManager, Se
              << "AI Translations:" << m_aiTranslations.size();
 
     scheduleLanguageUpdateCheck();
+}
+
+TranslationManager::~TranslationManager()
+{
+    // The string-scan worker posts progress and its results back to this object, so it must not
+    // outlive it. Nothing else waits on it — the scan is pure parsing over compiled-in qrc data,
+    // so the worst case here is the parse of the remaining files, not a blocking I/O wait.
+    if (m_scanThread && m_scanThread->isRunning()) {
+        m_scanThread->wait();
+    }
 }
 
 // Merge community translations for the active language, once per launch, as soon as there is
@@ -640,6 +650,53 @@ void TranslationManager::scanAllStrings()
     }
     qDebug() << "Scanning" << m_scanTotal << "QML files for translatable strings...";
 
+    // Parse off the main thread. The registry is NOT touched here — the worker only reads the
+    // (read-only, compiled-in) qrc files and returns pairs; noteSourceString() and everything
+    // else that mutates state runs in applyScanResults() back on the main thread.
+    QThread* worker = QThread::create([this, qmlFiles]() {
+        QList<ScannedString> found;
+        QSet<QString> seenInQml;
+        int filesDone = 0;
+
+        for (const QString& filePath : qmlFiles) {
+            QFile file(filePath);
+            if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                const QString content = QString::fromUtf8(file.readAll());
+                file.close();
+
+                const QList<ScannedString> inFile = parseTranslatableStrings(content);
+                for (const ScannedString& s : inFile) {
+                    seenInQml.insert(s.key);
+                    found.append(s);
+                }
+            }
+
+            ++filesDone;
+            QMetaObject::invokeMethod(this, [this, filesDone]() {
+                m_scanProgress = filesDone;
+                emit scanProgressChanged();
+            }, Qt::QueuedConnection);
+        }
+
+        QMetaObject::invokeMethod(this, [this, found, seenInQml]() {
+            applyScanResults(found, seenInQml);
+        }, Qt::QueuedConnection);
+    });
+
+    m_scanThread = worker;
+    connect(worker, &QThread::finished, worker, &QObject::deleteLater);
+    worker->start();
+}
+
+// Runs on the scan's worker thread. Touches no member, emits no signal, does no I/O — keep it
+// that way, or the crash this split was made to fix comes back by another route.
+QList<TranslationManager::ScannedString> TranslationManager::parseTranslatableStrings(const QString& content)
+{
+    QList<ScannedString> found;
+
+    // Built per call rather than kept static: this runs on the scan's worker thread, and a few
+    // microseconds of PCRE compile per file is not measurable against regexing the file itself.
+
     // Pattern 1: Direct translate() calls - translate("key", "fallback")
     QRegularExpression directCallRegex("translate\\s*\\(\\s*\"([^\"\\n]+)\"\\s*,\\s*\"([^\"\\n]+)\"\\s*\\)");
 
@@ -664,134 +721,123 @@ void TranslationManager::scanAllStrings()
     QRegularExpression trKeyRegex("\\bkey\\s*:\\s*\"([^\"\\n]+)\"");
     QRegularExpression trFallbackRegex("\\bfallback\\s*:\\s*\"([^\"\\n]+)\"");
 
-    int stringsFound = 0;
-    qsizetype initialCount = m_stringRegistry.size();
-    QSet<QString> seenInQml;
+    // Pattern 1: Direct translate() calls
+    QRegularExpressionMatchIterator matchIt = directCallRegex.globalMatch(content);
+    while (matchIt.hasNext()) {
+        QRegularExpressionMatch match = matchIt.next();
+        QString key = match.captured(1);
+        QString fallback = match.captured(2);
 
-    for (const QString& filePath : qmlFiles) {
-        QFile file(filePath);
-        if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-            QString content = QString::fromUtf8(file.readAll());
-            file.close();
+        // Unescape common escape sequences
+        key = unescapeQmlLiteral(key);
+        fallback = unescapeQmlLiteral(fallback);
 
-            // Pattern 1: Direct translate() calls
-            QRegularExpressionMatchIterator matchIt = directCallRegex.globalMatch(content);
-            while (matchIt.hasNext()) {
-                QRegularExpressionMatch match = matchIt.next();
-                QString key = match.captured(1);
-                QString fallback = match.captured(2);
+        if (!key.trimmed().isEmpty() && !fallback.trimmed().isEmpty()) {
+            found.append({key, fallback});
+        }
+    }
 
-                // Unescape common escape sequences
+    // Pattern 2: Property-based translations (translationKey + translationFallback pairs)
+    // Collect all keys and fallbacks, then match them by proximity in the file
+    QMap<qsizetype, QString> keyPositions;  // position -> key
+    QMap<qsizetype, QString> fallbackPositions;  // position -> fallback
+
+    QRegularExpressionMatchIterator keyIt = propKeyRegex.globalMatch(content);
+    while (keyIt.hasNext()) {
+        QRegularExpressionMatch match = keyIt.next();
+        keyPositions[match.capturedStart()] = match.captured(1);
+    }
+
+    QRegularExpressionMatchIterator fallbackIt = propFallbackRegex.globalMatch(content);
+    while (fallbackIt.hasNext()) {
+        QRegularExpressionMatch match = fallbackIt.next();
+        fallbackPositions[match.capturedStart()] = match.captured(1);
+    }
+
+    // Match keys with their nearest following fallback
+    for (auto posIt = keyPositions.constBegin(); posIt != keyPositions.constEnd(); ++posIt) {
+        qsizetype keyPos = posIt.key();
+        QString key = posIt.value();
+
+        // Find the nearest fallback after this key (within 200 chars)
+        for (auto fbIt = fallbackPositions.constBegin(); fbIt != fallbackPositions.constEnd(); ++fbIt) {
+            qsizetype fbPos = fbIt.key();
+            if (fbPos > keyPos && fbPos - keyPos < 200) {
+                QString fallback = fbIt.value();
+
+                // Unescape
                 key = unescapeQmlLiteral(key);
                 fallback = unescapeQmlLiteral(fallback);
 
                 if (!key.trimmed().isEmpty() && !fallback.trimmed().isEmpty()) {
-                    seenInQml.insert(key);
-                    if (noteSourceString(key, fallback)) {
-                        stringsFound++;
-                    }
+                    found.append({key, fallback});
                 }
+                break;  // Found the matching fallback
             }
+        }
+    }
 
-            // Pattern 2: Property-based translations (translationKey + translationFallback pairs)
-            // Collect all keys and fallbacks, then match them by proximity in the file
-            QMap<qsizetype, QString> keyPositions;  // position -> key
-            QMap<qsizetype, QString> fallbackPositions;  // position -> fallback
+    // Pattern 3: Tr component's key/fallback properties
+    QMap<qsizetype, QString> trKeyPositions;
+    QMap<qsizetype, QString> trFallbackPositions;
 
-            QRegularExpressionMatchIterator keyIt = propKeyRegex.globalMatch(content);
-            while (keyIt.hasNext()) {
-                QRegularExpressionMatch match = keyIt.next();
-                keyPositions[match.capturedStart()] = match.captured(1);
-            }
+    QRegularExpressionMatchIterator trKeyIt = trKeyRegex.globalMatch(content);
+    while (trKeyIt.hasNext()) {
+        QRegularExpressionMatch match = trKeyIt.next();
+        trKeyPositions[match.capturedStart()] = match.captured(1);
+    }
 
-            QRegularExpressionMatchIterator fallbackIt = propFallbackRegex.globalMatch(content);
-            while (fallbackIt.hasNext()) {
-                QRegularExpressionMatch match = fallbackIt.next();
-                fallbackPositions[match.capturedStart()] = match.captured(1);
-            }
+    QRegularExpressionMatchIterator trFallbackIt = trFallbackRegex.globalMatch(content);
+    while (trFallbackIt.hasNext()) {
+        QRegularExpressionMatch match = trFallbackIt.next();
+        trFallbackPositions[match.capturedStart()] = match.captured(1);
+    }
 
-            // Match keys with their nearest following fallback
-            for (auto posIt = keyPositions.constBegin(); posIt != keyPositions.constEnd(); ++posIt) {
-                qsizetype keyPos = posIt.key();
-                QString key = posIt.value();
+    // Match keys with their nearest fallback (within 200 chars, in either direction)
+    for (auto posIt = trKeyPositions.constBegin(); posIt != trKeyPositions.constEnd(); ++posIt) {
+        qsizetype keyPos = posIt.key();
+        QString key = posIt.value();
 
-                // Find the nearest fallback after this key (within 200 chars)
-                for (auto fbIt = fallbackPositions.constBegin(); fbIt != fallbackPositions.constEnd(); ++fbIt) {
-                    qsizetype fbPos = fbIt.key();
-                    if (fbPos > keyPos && fbPos - keyPos < 200) {
-                        QString fallback = fbIt.value();
+        // Find the nearest fallback (can be before or after the key)
+        QString fallback;
+        qsizetype minDistance = 200;
 
-                        // Unescape
-                        key = unescapeQmlLiteral(key);
-                        fallback = unescapeQmlLiteral(fallback);
-
-                        if (!key.trimmed().isEmpty() && !fallback.trimmed().isEmpty()) {
-                            seenInQml.insert(key);
-                            if (noteSourceString(key, fallback)) {
-                                stringsFound++;
-                            }
-                        }
-                        break;  // Found the matching fallback
-                    }
-                }
-            }
-
-            // Pattern 3: Tr component's key/fallback properties
-            QMap<qsizetype, QString> trKeyPositions;
-            QMap<qsizetype, QString> trFallbackPositions;
-
-            QRegularExpressionMatchIterator trKeyIt = trKeyRegex.globalMatch(content);
-            while (trKeyIt.hasNext()) {
-                QRegularExpressionMatch match = trKeyIt.next();
-                trKeyPositions[match.capturedStart()] = match.captured(1);
-            }
-
-            QRegularExpressionMatchIterator trFallbackIt = trFallbackRegex.globalMatch(content);
-            while (trFallbackIt.hasNext()) {
-                QRegularExpressionMatch match = trFallbackIt.next();
-                trFallbackPositions[match.capturedStart()] = match.captured(1);
-            }
-
-            // Match keys with their nearest fallback (within 200 chars, in either direction)
-            for (auto posIt = trKeyPositions.constBegin(); posIt != trKeyPositions.constEnd(); ++posIt) {
-                qsizetype keyPos = posIt.key();
-                QString key = posIt.value();
-
-                // Find the nearest fallback (can be before or after the key)
-                QString fallback;
-                qsizetype minDistance = 200;
-
-                for (auto fbIt = trFallbackPositions.constBegin(); fbIt != trFallbackPositions.constEnd(); ++fbIt) {
-                    qsizetype fbPos = fbIt.key();
-                    qsizetype distance = qAbs(fbPos - keyPos);
-                    if (distance < minDistance) {
-                        minDistance = distance;
-                        fallback = fbIt.value();
-                    }
-                }
-
-                if (!fallback.trimmed().isEmpty()) {
-                    // Unescape
-                    QString keyClean = key;
-                    QString fallbackClean = fallback;
-                    keyClean = unescapeQmlLiteral(keyClean);
-                    fallbackClean = unescapeQmlLiteral(fallbackClean);
-
-                    if (!keyClean.trimmed().isEmpty() && !fallbackClean.trimmed().isEmpty()) {
-                        seenInQml.insert(keyClean);
-                        if (noteSourceString(keyClean, fallbackClean)) {
-                            stringsFound++;
-                        }
-                    }
-                }
+        for (auto fbIt = trFallbackPositions.constBegin(); fbIt != trFallbackPositions.constEnd(); ++fbIt) {
+            qsizetype fbPos = fbIt.key();
+            qsizetype distance = qAbs(fbPos - keyPos);
+            if (distance < minDistance) {
+                minDistance = distance;
+                fallback = fbIt.value();
             }
         }
 
-        m_scanProgress++;
-        emit scanProgressChanged();
+        if (!fallback.trimmed().isEmpty()) {
+            // Unescape
+            QString keyClean = key;
+            QString fallbackClean = fallback;
+            keyClean = unescapeQmlLiteral(keyClean);
+            fallbackClean = unescapeQmlLiteral(fallbackClean);
 
-        // Process events to keep UI responsive
-        QCoreApplication::processEvents();
+            if (!keyClean.trimmed().isEmpty() && !fallbackClean.trimmed().isEmpty()) {
+                found.append({keyClean, fallbackClean});
+            }
+        }
+    }
+
+    return found;
+}
+
+void TranslationManager::applyScanResults(const QList<ScannedString>& found, const QSet<QString>& seenInQml)
+{
+    int stringsFound = 0;
+    const qsizetype initialCount = m_stringRegistry.size();
+
+    // In file order, so a key used with two different fallbacks resolves the same way it did
+    // when this loop was interleaved with the parsing.
+    for (const ScannedString& s : found) {
+        if (noteSourceString(s.key, s.fallback)) {
+            stringsFound++;
+        }
     }
 
     // Save the updated registry
@@ -804,6 +850,7 @@ void TranslationManager::scanAllStrings()
     }
 
     m_scanning = false;
+    m_scanCompleted = true;
     emit scanningChanged();
     emit scanFinished(static_cast<int>(m_stringRegistry.size() - initialCount));
 
@@ -3390,14 +3437,27 @@ void TranslationManager::translateAndUploadAllLanguages()
         return;
     }
 
+    // Ensure all strings are scanned first. The scan is asynchronous now (see scanAllStrings),
+    // so park the batch on scanFinished() and restart it from the top rather than proceeding
+    // with whatever the registry happened to hold — the whole point of the scan here is that the
+    // batch translates the COMPLETE string list, not just the screens this device has rendered.
+    if (!m_scanCompleted) {
+        if (!m_batchAwaitingScan) {
+            m_batchAwaitingScan = true;
+            connect(this, &TranslationManager::scanFinished, this, [this](int) {
+                m_batchAwaitingScan = false;
+                translateAndUploadAllLanguages();
+            }, Qt::SingleShotConnection);
+        }
+        if (!m_scanning) {
+            scanAllStrings();
+        }
+        return;
+    }
+
     // Save original provider AND language to restore later — the batch switches both.
     m_originalProvider = m_settings->ai()->aiProvider();
     m_originalLanguage = m_currentLanguage;
-
-    // Ensure all strings are scanned first
-    if (!m_scanning) {
-        scanAllStrings();
-    }
 
     // Build list of all local (non-remote, non-English) languages
     QStringList allLanguages;

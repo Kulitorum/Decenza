@@ -6,10 +6,13 @@
 #include <QNetworkReply>
 #include <QMap>
 #include <QVariantMap>
+#include <QPointer>
+#include <QSet>
 #include <QStringList>
 #include <QtQml/qqmlregistration.h>
 
 class QQmlEngine;
+class QThread;
 class Settings;
 
 class TranslationManager : public QObject {
@@ -81,6 +84,7 @@ class TranslationManager : public QObject {
 
 public:
     explicit TranslationManager(QNetworkAccessManager* networkManager, Settings* settings, QObject* parent = nullptr);
+    ~TranslationManager() override;
 
     // QML_SINGLETON hooks. The engine does NOT create this object: main.cpp owns it on the
     // stack and wires it into eight other subsystems (BLE, MCP, AI, backup, accessibility …)
@@ -180,7 +184,32 @@ public:
     static QString unescapeQmlLiteral(const QString& literal);
 
     Q_INVOKABLE void registerString(const QString& key, const QString& fallback);
+
+    // Starts the scan and returns IMMEDIATELY — the parsing runs on a worker thread and the
+    // registry is written from a queued callback on the main thread. Watch `scanning` /
+    // `scanProgress`, or the scanFinished() signal, for completion.
+    //
+    // It used to be synchronous, and pumped QCoreApplication::processEvents() once per file "to
+    // keep the UI responsive". That nested event loop crashed the app (#1692, SIGABRT): the scan
+    // is kicked off from SettingsLanguageTab's Component.onCompleted, which QML incubates
+    // synchronously while SettingsPage's TabBar.onCurrentIndexChanged handler is still on the
+    // stack. A DeferredDelete already queued for the outgoing SettingsPage was then delivered
+    // inside the nested loop, destroying the TabBar mid-handler, and Qt's QQmlData::destroyed()
+    // calls qFatal() for exactly that ("Object destroyed while one of its QML signal handlers is
+    // in progress"). Any nested event loop reachable from a QML signal handler can do this —
+    // do not reintroduce one here.
     Q_INVOKABLE void scanAllStrings();
+
+    // One (key, English fallback) pair lifted out of QML source text by the scanner.
+    struct ScannedString {
+        QString key;
+        QString fallback;
+    };
+
+    // Pure text → pairs, in file order, with the same last-write-wins ordering the registry
+    // relies on. Static and state-free so it can run on the scan's worker thread — and so a test
+    // can exercise the three patterns without an instance or the QML resource tree.
+    static QList<ScannedString> parseTranslatableStrings(const QString& qmlSource);
 
     // Public + static so tst_aiproviders can assert these stay equal to each provider's first
     // catalog entry in aiprovider.cpp. That test is what stops this list going stale again.
@@ -329,6 +358,11 @@ private:
     //
     // Returns true when the registry changed, so callers can decide whether to save.
     bool noteSourceString(const QString& key, const QString& fallback);
+
+    // Main-thread tail of scanAllStrings(): writes what the worker parsed into the registry,
+    // saves, and reports. m_stringRegistry is only ever touched here, never on the worker.
+    void applyScanResults(const QList<ScannedString>& found, const QSet<QString>& seenInQml);
+
     void propagateTranslationsToAllKeys();
     void recalculateUntranslatedCount();
     QString translationsDir() const;
@@ -366,6 +400,16 @@ private:
     bool m_scanning = false;
     int m_scanProgress = 0;
     int m_scanTotal = 0;
+
+    // A scan has finished at least once this session. The bulk translator needs the complete
+    // string list, which it used to get by calling the (then synchronous) scan inline; with an
+    // asynchronous scan it parks itself on scanFinished() instead.
+    bool m_scanCompleted = false;
+    bool m_batchAwaitingScan = false;
+
+    // Null once the worker has finished and deleteLater() has collected it. The destructor waits
+    // on it while it is alive, so a scan can never outlive the object it posts its results to.
+    QPointer<QThread> m_scanThread;
     QString m_lastError;
     QString m_retryStatus;
     QByteArray m_pendingUploadData;
