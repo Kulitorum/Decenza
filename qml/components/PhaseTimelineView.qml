@@ -1,7 +1,9 @@
-// The three animation Repeater delegates read this file's ids (`root`, `heatCircle`);
-// Bound makes them statically resolvable. Each declares its one injected role,
-// `index`, required in the same edit -- without that, Bound stops role injection and
-// the phase dots and both animations collapse onto one position at RUNTIME, silently.
+// The three Repeater delegates read this file's ids (`root`, `heatCircle`); Bound makes
+// them statically resolvable. Each declares its one injected role, `index`, required in
+// the same edit. Without that, Bound stops role injection and `index` goes undefined:
+// the two animation delegates compute their `x` from it, so they stack on one position,
+// and the phase dots -- laid out by a Row, so still spaced -- all render in the same
+// inactive style. Silently, in both cases.
 pragma ComponentBehavior: Bound
 
 import QtQuick

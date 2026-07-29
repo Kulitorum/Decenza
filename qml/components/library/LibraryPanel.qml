@@ -1,8 +1,9 @@
-// The tab, save-menu and entry-card Repeater/ListView delegates and the `layer.effect`
-// blocks read this file's `libraryPanel` id; Bound makes it statically resolvable.
-// Each delegate declares its one injected role, `modelData`, required in the same
-// edit -- without that, Bound stops role injection and the tabs, the save menu and the
-// whole library grid render blank at RUNTIME, silently.
+// The tab, save-menu and entry-card Repeater/ListView delegates read this file's
+// `libraryPanel` id; Bound makes it statically resolvable. Each declares its one
+// injected role, `modelData`, required in the same edit -- without that, Bound stops
+// role injection and the tabs, the save menu and the whole library grid render blank at
+// RUNTIME, silently. (The `layer.effect` blocks read only `Theme`, a singleton, so they
+// need nothing from the pragma.)
 pragma ComponentBehavior: Bound
 
 import QtQuick

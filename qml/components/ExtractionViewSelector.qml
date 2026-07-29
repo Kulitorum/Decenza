@@ -1,7 +1,8 @@
-// The option-card Repeater delegate and four `layer.effect` components read this file's
-// `selectorDialog` id; Bound makes it statically resolvable. The delegate declares its
-// injected `model` role required in the same edit -- without that, Bound stops role
-// injection and both option cards render blank at RUNTIME, silently.
+// The option-card Repeater delegate reads this file's `selectorDialog` id; Bound makes
+// it statically resolvable. The delegate declares its injected `model` role required in
+// the same edit -- without that, Bound stops role injection and both option cards render
+// blank at RUNTIME, silently. (The four `layer.effect` blocks read only `Theme`, a
+// singleton, so they need nothing from the pragma.)
 pragma ComponentBehavior: Bound
 
 import QtQuick

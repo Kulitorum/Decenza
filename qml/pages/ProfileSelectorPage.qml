@@ -1,10 +1,10 @@
-// The profile-list delegate, the new-profile type tiles, the FavoritesListView trailing
-// action Component and the `layer.effect` blocks read this file's ids
-// (`profileSelectorPage`, `allProfilesList`, `profileActionsDialog`,
-// `knowledgeDialog`, `newProfileDialog`); Bound makes them statically resolvable. Both
-// delegates declare every injected role they use required in the same edit -- without
-// that, Bound stops role injection and the whole profile list renders blank at RUNTIME,
-// silently.
+// The profile-list delegate reads `profileSelectorPage`, `allProfilesList`,
+// `profileActionsDialog` and `knowledgeDialog`; the new-profile type tiles read
+// `newProfileDialog`. Bound makes those statically resolvable, and both delegates
+// declare every injected role they use required in the same edit -- without that, Bound
+// stops role injection and the whole profile list renders blank at RUNTIME, silently.
+// (The trailing-action Component and the `layer.effect` blocks read no file id, so they
+// need nothing from the pragma.)
 pragma ComponentBehavior: Bound
 
 import QtQuick

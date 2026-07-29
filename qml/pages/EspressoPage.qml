@@ -1,6 +1,7 @@
-// The two extraction-view Components and the `layer.effect` blocks read this file's
-// `espressoPage` id; Bound makes it statically resolvable. Neither Component takes an
-// injected model role, so nothing here needs a `required property`.
+// The two extraction-view Components read this file's `espressoPage` id; Bound makes it
+// statically resolvable. Neither takes an injected model role, so nothing here needs a
+// `required property`. (The `layer.effect` blocks read only `Theme`, a singleton, so
+// they need nothing from the pragma.)
 pragma ComponentBehavior: Bound
 
 import QtQuick
