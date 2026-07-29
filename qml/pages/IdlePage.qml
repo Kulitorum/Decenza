@@ -115,12 +115,12 @@ Page {
     // screen honors the same options LayoutPreview shows. Zones must be wired explicitly:
     // an unpassed option silently falls back to the zone component's default, which is how
     // the top/bottom bars ignored distribution/alignment/style before.
-    function zoneOpts(zone) {
+    function zoneOpts(zone: string): var {
         return (layoutConfig.zoneOptions && layoutConfig.zoneOptions[zone]) || ({})
     }
 
     // Per-zone item size ("compact" | "large"); bars grow to fit large items.
-    function zoneItemSize(zone) {
+    function zoneItemSize(zone: string): string {
         return zoneOpts(zone).itemSize || "compact"
     }
 
@@ -154,7 +154,7 @@ Page {
     // idlePage coords) and height. Slides content only by the overlap (0 when the
     // content doesn't reach the popup), bounded, in the direction set by which
     // half of the page the popup sits in.
-    function requestPanelClearance(panelTop, panelHeight) {
+    function requestPanelClearance(panelTop: real, panelHeight: real) {
         var panelBottom = panelTop + panelHeight
         if ((panelTop + panelBottom) / 2 >= idlePage.height / 2) {
             var up = idlePage._idleContentBottom - panelTop + Theme.spacingSmall
@@ -207,7 +207,7 @@ Page {
     // for the outward selection/focus rings, so pack against the same width or a
     // page that fits here would need a third row there.
     readonly property real _pillRingOutset: Theme.scaled(3) + Theme.focusMargin
-    function _pillPagesFor(widths, availWidth) {
+    function _pillPagesFor(widths: var, availWidth: real): var {
         availWidth = Math.max(0, availWidth - 2 * _pillRingOutset)
         var sizes = PillFit.packPageSizes(widths, Theme.scaled(12), availWidth, 2)
         if (sizes.length <= 1)
@@ -217,14 +217,14 @@ Page {
         return PillFit.packPageSizes(widths, Theme.scaled(12),
                                      Math.max(0, availWidth - 2 * Theme.scaled(48)), 2)
     }
-    function _pillPageStart(sizes, pageIndex) {
+    function _pillPageStart(sizes: var, pageIndex: int): int {
         var idx = Math.max(0, Math.min(pageIndex, sizes.length - 1))
         var start = 0
         for (var p = 0; p < idx; ++p)
             start += sizes[p]
         return start
     }
-    function _pillPageSlice(list, sizes, pageIndex) {
+    function _pillPageSlice(list: var, sizes: var, pageIndex: int): var {
         if (!list || list.length === 0)
             return []
         var idx = Math.max(0, Math.min(pageIndex, sizes.length - 1))
@@ -243,7 +243,7 @@ Page {
     // navigation, so without it the freeze would still be engaged on the way
     // back from e.g. the Recipes page and anything created there would be held
     // at the tail of the list instead of appearing MRU-first.
-    function _orderFrozen(row) {
+    function _orderFrozen(row: var): bool {
         return activePresetFunction === row && StackView.status === StackView.Active
     }
     // Which MRU row is open, so the close edge can be detected in one place.
@@ -254,7 +254,7 @@ Page {
     property bool _bagOrderLiftPending: false
     property bool _equipmentOrderLiftPending: false
     property bool _recipeOrderLiftPending: false
-    function _liftOrderFreeze(row) {
+    function _liftOrderFreeze(row: var) {
         if (row === "recipes") {
             _recipeOrderLiftPending = true
             MainController.recipeStorage.requestInventory()
@@ -282,7 +282,7 @@ Page {
     readonly property int beanPageCount: Math.max(1, _beanPageSizes.length)
     readonly property var visibleBags: _pillPageSlice(inventoryBags, _beanPageSizes, beanPageIndex)
 
-    function bagLabel(bag) {
+    function bagLabel(bag: var): string {
         if (!bag) return ""
         var coffee = bag.coffeeName || ""
         return coffee.length > 0 ? coffee : (bag.roasterName || "")
@@ -320,7 +320,7 @@ Page {
     readonly property int equipmentPageCount: Math.max(1, _equipmentPageSizes.length)
     readonly property var visibleEquipment: _pillPageSlice(inventoryEquipment, _equipmentPageSizes, equipmentPageIndex)
 
-    function equipmentLabel(pkg) {
+    function equipmentLabel(pkg: var): string {
         if (!pkg) return ""
         if (pkg.name && String(pkg.name).length > 0) return String(pkg.name)
         return [pkg.grinderBrand || "", pkg.grinderModel || ""]
@@ -430,7 +430,7 @@ Page {
     // (shared with the compact RecipesItem so both layouts behave identically —
     // the recipe analogue of the profile pills' Settings.app.selectedFavoriteProfile).
     // See tryStartRecipe() below for the two-tap select-then-start handler.
-    function tryStartRecipe(recipe) {
+    function tryStartRecipe(recipe: var) {
         var alreadySelected = (recipe.id === MainController.selectedRecipeId)
         if (!alreadySelected) {
             MainController.activateRecipe(recipe.id)  // sets selectedRecipeId synchronously

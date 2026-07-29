@@ -72,7 +72,57 @@ void TestTextEscaping::initTestCase()
         for (; i < src.size(); ++i) {
             if (src[i] == '{') ++depth;
             else if (src[i] == '}') {
-                if (--depth == 0) return src.mid(start, i - start + 1);
+                if (--depth == 0) {
+                    QString fn = src.mid(start, i - start + 1);
+                    // Strip QML type annotations from the SIGNATURE only, because what comes
+                    // back is evaluated by a plain QJSEngine below and `function f(s: string)`
+                    // is a JavaScript SyntaxError ("Type annotations are not permitted in
+                    // function parameters in JavaScript functions", qqmljs.g:578). The
+                    // annotations exist so qmlcachegen will compile these ahead of time;
+                    // without this the test would dictate that Theme.qml — read on every page
+                    // construction — stay un-annotated, which is the tail wagging the dog.
+                    //
+                    // Signature only: the body legitimately contains ':' in ternaries
+                    // (`cp > 0xFFFF ? 2 : 1`), in string literals ("qrc:/emoji/",
+                    // style="vertical-align: middle") and in comments. The cut is bounded to
+                    // the first ')' followed by an optional return annotation and the brace.
+                    //
+                    // WHAT THIS TEST NO LONGER COVERS: stripping the annotations means the
+                    // QJSEngine below runs the UNTYPED function, while the app runs the typed
+                    // one through coerceAndCall (qv4function.cpp:68-73). Argument coercion is
+                    // therefore untested here — a green run says nothing about it. That gap is
+                    // real: a `string` annotation turns undefined into the literal "undefined"
+                    // (qv4jscall_p.h:337 -> qv4runtime.cpp:618), which is why the guarded
+                    // parameters in Theme.qml are `var`. Covering it needs a QML-engine test
+                    // that links the Decenza module, which no test binary does today.
+                    const qsizetype open = fn.indexOf('(');
+                    const qsizetype close = open < 0 ? -1 : fn.indexOf(')', open);
+                    const qsizetype brace = close < 0 ? -1 : fn.indexOf('{', close);
+                    if (open > 0 && close > open && brace > close) {
+                        QString params = fn.mid(open + 1, close - open - 1);
+                        // Refuse to strip anything that could make the regex cut inside a
+                        // literal rather than an annotation. `\s*:\s*ident` applied to raw
+                        // parameter text would silently turn `sep = "a: b"` into `sep = "a"`,
+                        // or `re = /a:b/` into `/a/` — both still parse, so the test would go
+                        // green while exercising a function Theme.qml does not have. None of
+                        // the extracted functions has a default value today. Note the guard is
+                        // narrower than "no defaults": a plain `pixelSize: var = 16` contains
+                        // none of these characters, so it strips cleanly and is fine. What the
+                        // guard catches is a default whose VALUE could contain a colon the
+                        // regex would eat. When it trips, the unstripped text is returned so
+                        // the engine reports a SyntaxError, which QVERIFY2 below surfaces.
+                        if (!params.contains('"') && !params.contains('\'')
+                            && !params.contains('/') && !params.contains('(')
+                            && !params.contains('{')) {
+                            const qsizetype before = params.count(',');
+                            params.remove(QRegularExpression(
+                                QStringLiteral("\\s*:\\s*[A-Za-z_][\\w.<>]*")));
+                            if (params.count(',') == before)
+                                fn = fn.left(open + 1) + params + QStringLiteral(") ") + fn.mid(brace);
+                        }
+                    }
+                    return fn;
+                }
             }
         }
         return QString();

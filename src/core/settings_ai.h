@@ -8,20 +8,20 @@
 class SettingsAI : public QObject {
     Q_OBJECT
 
-    Q_PROPERTY(QString aiProvider READ aiProvider WRITE setAiProvider NOTIFY aiProviderChanged)
-    Q_PROPERTY(QString openaiApiKey READ openaiApiKey WRITE setOpenaiApiKey NOTIFY openaiApiKeyChanged)
-    Q_PROPERTY(QString anthropicApiKey READ anthropicApiKey WRITE setAnthropicApiKey NOTIFY anthropicApiKeyChanged)
-    Q_PROPERTY(QString geminiApiKey READ geminiApiKey WRITE setGeminiApiKey NOTIFY geminiApiKeyChanged)
-    Q_PROPERTY(QString ollamaEndpoint READ ollamaEndpoint WRITE setOllamaEndpoint NOTIFY ollamaEndpointChanged)
-    Q_PROPERTY(QString ollamaModel READ ollamaModel WRITE setOllamaModel NOTIFY ollamaModelChanged)
-    Q_PROPERTY(QString openaiEndpoint READ openaiEndpoint WRITE setOpenaiEndpoint NOTIFY openaiEndpointChanged)
-    Q_PROPERTY(QString anthropicEndpoint READ anthropicEndpoint WRITE setAnthropicEndpoint NOTIFY anthropicEndpointChanged)
-    Q_PROPERTY(QString openrouterApiKey READ openrouterApiKey WRITE setOpenrouterApiKey NOTIFY openrouterApiKeyChanged)
-    Q_PROPERTY(QString openrouterModel READ openrouterModel WRITE setOpenrouterModel NOTIFY openrouterModelChanged)
+    Q_PROPERTY(QString aiProvider READ aiProvider WRITE setAiProvider NOTIFY aiProviderChanged FINAL)
+    Q_PROPERTY(QString openaiApiKey READ openaiApiKey WRITE setOpenaiApiKey NOTIFY openaiApiKeyChanged FINAL)
+    Q_PROPERTY(QString anthropicApiKey READ anthropicApiKey WRITE setAnthropicApiKey NOTIFY anthropicApiKeyChanged FINAL)
+    Q_PROPERTY(QString geminiApiKey READ geminiApiKey WRITE setGeminiApiKey NOTIFY geminiApiKeyChanged FINAL)
+    Q_PROPERTY(QString ollamaEndpoint READ ollamaEndpoint WRITE setOllamaEndpoint NOTIFY ollamaEndpointChanged FINAL)
+    Q_PROPERTY(QString ollamaModel READ ollamaModel WRITE setOllamaModel NOTIFY ollamaModelChanged FINAL)
+    Q_PROPERTY(QString openaiEndpoint READ openaiEndpoint WRITE setOpenaiEndpoint NOTIFY openaiEndpointChanged FINAL)
+    Q_PROPERTY(QString anthropicEndpoint READ anthropicEndpoint WRITE setAnthropicEndpoint NOTIFY anthropicEndpointChanged FINAL)
+    Q_PROPERTY(QString openrouterApiKey READ openrouterApiKey WRITE setOpenrouterApiKey NOTIFY openrouterApiKeyChanged FINAL)
+    Q_PROPERTY(QString openrouterModel READ openrouterModel WRITE setOpenrouterModel NOTIFY openrouterModelChanged FINAL)
     // When true (default), tapping AI Advice opens the tap-only taste intake
     // picker before the conversation; when false, it opens the conversation
     // directly (pre-existing behavior). See add-ai-taste-intake.
-    Q_PROPERTY(bool tasteIntakeOnAsk READ tasteIntakeOnAsk WRITE setTasteIntakeOnAsk NOTIFY tasteIntakeOnAskChanged)
+    Q_PROPERTY(bool tasteIntakeOnAsk READ tasteIntakeOnAsk WRITE setTasteIntakeOnAsk NOTIFY tasteIntakeOnAskChanged FINAL)
 
 public:
     explicit SettingsAI(QObject* parent = nullptr);

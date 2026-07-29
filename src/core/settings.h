@@ -42,7 +42,7 @@
 // too. The domain SPLIT still does its job — implementations stay in their own .cpp files, and a
 // narrow consumer taking Settings<Domain>* still rebuilds only on its own header — and the
 // recompile win that motivated the split is unaffected by declaring the façade's property types
-// honestly. See openspec/changes/fix-qmllint-usability/design.md D2a for the full measurement.
+// honestly. See openspec/changes/archive/2026-07-29-fix-qmllint-usability/design.md D2a for the full measurement.
 //
 // C++ callers may still use the typed accessors (e.g. `settings->mqtt()`); they no longer need
 // to include the domain header themselves.
@@ -72,43 +72,71 @@ class Settings : public QObject {
     // qmlRegisterUncreatableType<> calls in main.cpp, which qmltyperegistrar cannot see).
     // Without it QML can't discover the type and chained access resolves to `undefined` at
     // runtime while still compiling clean.
-    Q_PROPERTY(SettingsMqtt* mqtt READ mqtt CONSTANT)
-    Q_PROPERTY(SettingsAutoWake* autoWake READ autoWake CONSTANT)
-    Q_PROPERTY(SettingsHardware* hardware READ hardware CONSTANT)
-    Q_PROPERTY(SettingsAI* ai READ ai CONSTANT)
-    Q_PROPERTY(SettingsTheme* theme READ theme CONSTANT)
-    Q_PROPERTY(SettingsVisualizer* visualizer READ visualizer CONSTANT)
-    Q_PROPERTY(SettingsMcp* mcp READ mcp CONSTANT)
-    Q_PROPERTY(SettingsBrew* brew READ brew CONSTANT)
-    Q_PROPERTY(SettingsDye* dye READ dye CONSTANT)
-    Q_PROPERTY(SettingsNetwork* network READ network CONSTANT)
-    Q_PROPERTY(SettingsApp* app READ app CONSTANT)
-    Q_PROPERTY(SettingsCalibration* calibration READ calibration CONSTANT)
+    //
+    // FINAL is not decoration. Without it qmlcachegen refuses to compile any chained lookup
+    // through these accessors — `Settings.theme.x` degrades the base to `var`, and the NEXT
+    // lookup off that base fails with "Cannot use shadowable base type for further lookups"
+    // (qqmljsshadowcheck.cpp:248), because a subclass could in principle shadow the member.
+    // For a plain (non-extended) singleton, marking the property final is what makes the
+    // member NotShadowable — qqmljsshadowcheck.cpp:197-198. It is not the only path to
+    // NotShadowable in that file (an extended singleton takes :176, for instance), but it is
+    // the one available here.
+    //
+    // Measured, and the three numbers reconcile like this: the project had 574 shadowable-base
+    // skips; FINAL on these twelve accessors removed 429 of them, FINAL on the remaining
+    // settings properties removed 73 more (429 + 73 = 502), leaving 72 that live on other
+    // classes entirely. The 429 skips yielded only +394 AOT-compiled bindings, because 35 of
+    // them then failed for a DIFFERENT reason — removing a skip reason is not the same as the
+    // binding compiling, which is the single most misleading thing about this metric.
+    //
+    // Note `Settings.theme` (the SettingsTheme domain object) is not `qml/Theme.qml` (the
+    // styling singleton) despite the shared word — the bucket concentrates there because
+    // Theme.qml holds 88 of the 174 `Settings.theme.` reads under qml/ (both counted as
+    // occurrences: `grep -o 'Settings\.theme\.[A-Za-z0-9_]*'`). Whether any of this is worth
+    // anything at runtime is a separate question; docs/CLAUDE_MD/BUILD_PERFORMANCE.md holds the
+    // AOT numbers and the "is AOT worth it here" argument.
+    //
+    // QML cannot shadow these names structurally: Settings is QML_SINGLETON and every domain
+    // type is QML_UNCREATABLE (settings_qml.h), so no QML type can derive from them. The C++
+    // side is an audit rather than a guarantee — nothing subclasses Settings today. Do not drop
+    // FINAL to make room for a subclass without re-reading that trade.
+    Q_PROPERTY(SettingsMqtt* mqtt READ mqtt CONSTANT FINAL)
+    Q_PROPERTY(SettingsAutoWake* autoWake READ autoWake CONSTANT FINAL)
+    Q_PROPERTY(SettingsHardware* hardware READ hardware CONSTANT FINAL)
+    Q_PROPERTY(SettingsAI* ai READ ai CONSTANT FINAL)
+    Q_PROPERTY(SettingsTheme* theme READ theme CONSTANT FINAL)
+    Q_PROPERTY(SettingsVisualizer* visualizer READ visualizer CONSTANT FINAL)
+    Q_PROPERTY(SettingsMcp* mcp READ mcp CONSTANT FINAL)
+    Q_PROPERTY(SettingsBrew* brew READ brew CONSTANT FINAL)
+    Q_PROPERTY(SettingsDye* dye READ dye CONSTANT FINAL)
+    Q_PROPERTY(SettingsNetwork* network READ network CONSTANT FINAL)
+    Q_PROPERTY(SettingsApp* app READ app CONSTANT FINAL)
+    Q_PROPERTY(SettingsCalibration* calibration READ calibration CONSTANT FINAL)
 
     // Machine settings
-    Q_PROPERTY(QString machineAddress READ machineAddress WRITE setMachineAddress NOTIFY machineAddressChanged)
-    Q_PROPERTY(QString scaleAddress READ scaleAddress WRITE setScaleAddress NOTIFY scaleAddressChanged)
-    Q_PROPERTY(QString scaleType READ scaleType WRITE setScaleType NOTIFY scaleTypeChanged)
-    Q_PROPERTY(bool keepScaleOn READ keepScaleOn WRITE setKeepScaleOn NOTIFY keepScaleOnChanged)
-    Q_PROPERTY(QString scaleName READ scaleName WRITE setScaleName NOTIFY scaleNameChanged)
+    Q_PROPERTY(QString machineAddress READ machineAddress WRITE setMachineAddress NOTIFY machineAddressChanged FINAL)
+    Q_PROPERTY(QString scaleAddress READ scaleAddress WRITE setScaleAddress NOTIFY scaleAddressChanged FINAL)
+    Q_PROPERTY(QString scaleType READ scaleType WRITE setScaleType NOTIFY scaleTypeChanged FINAL)
+    Q_PROPERTY(bool keepScaleOn READ keepScaleOn WRITE setKeepScaleOn NOTIFY keepScaleOnChanged FINAL)
+    Q_PROPERTY(QString scaleName READ scaleName WRITE setScaleName NOTIFY scaleNameChanged FINAL)
 
     // Multi-scale management
-    Q_PROPERTY(QVariantList knownScales READ knownScales NOTIFY knownScalesChanged)
-    Q_PROPERTY(QString primaryScaleAddress READ primaryScaleAddress NOTIFY knownScalesChanged)
+    Q_PROPERTY(QVariantList knownScales READ knownScales NOTIFY knownScalesChanged FINAL)
+    Q_PROPERTY(QString primaryScaleAddress READ primaryScaleAddress NOTIFY knownScalesChanged FINAL)
 
     // FlowScale (virtual scale from flow data)
-    Q_PROPERTY(bool useFlowScale READ useFlowScale WRITE setUseFlowScale NOTIFY useFlowScaleChanged)
+    Q_PROPERTY(bool useFlowScale READ useFlowScale WRITE setUseFlowScale NOTIFY useFlowScaleChanged FINAL)
 
     // Allow user to disable modal scale connection alert dialogs
-    Q_PROPERTY(bool showScaleDialogs READ showScaleDialogs WRITE setShowScaleDialogs NOTIFY showScaleDialogsChanged)
+    Q_PROPERTY(bool showScaleDialogs READ showScaleDialogs WRITE setShowScaleDialogs NOTIFY showScaleDialogsChanged FINAL)
 
     // Refractometer (DiFluid R2)
-    Q_PROPERTY(QString savedRefractometerAddress READ savedRefractometerAddress WRITE setSavedRefractometerAddress NOTIFY savedRefractometerChanged)
-    Q_PROPERTY(QString savedRefractometerName READ savedRefractometerName WRITE setSavedRefractometerName NOTIFY savedRefractometerChanged)
+    Q_PROPERTY(QString savedRefractometerAddress READ savedRefractometerAddress WRITE setSavedRefractometerAddress NOTIFY savedRefractometerChanged FINAL)
+    Q_PROPERTY(QString savedRefractometerName READ savedRefractometerName WRITE setSavedRefractometerName NOTIFY savedRefractometerChanged FINAL)
 
     // Enable USB serial polling for DE1 connection. Off by default to save battery
     // (polling every 2 s). Only needed when connecting the DE1 via USB-C cable.
-    Q_PROPERTY(bool usbSerialEnabled READ usbSerialEnabled WRITE setUsbSerialEnabled NOTIFY usbSerialEnabledChanged)
+    Q_PROPERTY(bool usbSerialEnabled READ usbSerialEnabled WRITE setUsbSerialEnabled NOTIFY usbSerialEnabledChanged FINAL)
 
 public:
     explicit Settings(QObject* parent = nullptr);

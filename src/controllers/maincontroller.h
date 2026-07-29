@@ -87,21 +87,43 @@ class MainController : public QObject {
     QML_SINGLETON
 
     // Non-profile QML properties (profile properties are on ProfileManager)
-    Q_PROPERTY(VisualizerUploader* visualizer READ visualizer CONSTANT)
-    Q_PROPERTY(VisualizerImporter* visualizerImporter READ visualizerImporter CONSTANT)
-    Q_PROPERTY(BeanBaseClient* beanbase READ beanbase CONSTANT)
-    Q_PROPERTY(AIManager* aiManager READ aiManager CONSTANT)
-    Q_PROPERTY(LiveSteamCoach* liveSteamCoach READ liveSteamCoach CONSTANT)
-    Q_PROPERTY(ShotDataModel* shotDataModel READ shotDataModel CONSTANT)
-    Q_PROPERTY(SteamDataModel* steamDataModel READ steamDataModel CONSTANT)
-    Q_PROPERTY(SteamHealthTracker* steamHealthTracker READ steamHealthTracker CONSTANT)
+    //
+    // FINAL on the pointer-typed sub-object accessors below is load-bearing, not decoration:
+    // without it qmlcachegen will not compile a chained lookup like `MainController.aiManager.x`,
+    // because a subclass could shadow the member. The read itself still works — it degrades to
+    // `var` with a qmlCompiler log line (qqmljsshadowcheck.cpp:203-205) — and it is the NEXT
+    // lookup off that base that fails with "Cannot use shadowable base type for further lookups"
+    // (:248). Marking the property final is what makes the member NotShadowable here
+    // (:197-198); that file has other NotShadowable paths, but none that apply to a plain
+    // singleton's property.
+    //
+    // The scalar leaf properties further down (currentFrameName, filteredGoalPressure,
+    // selectedRecipeId, …) are left non-final because it buys nothing THERE, not because they
+    // are exempt from the check. They are not: every property read goes through
+    // checkShadowing() and its isFinal() test, and a non-final one degrades to `var` just the
+    // same. What they never reach is checkBaseType()'s hard error at :248, because no QML
+    // chains a further lookup off them today. Add a binding that does — say
+    // `MainController.currentFrameName.length` — and that property needs FINAL too.
+    //
+    // So the rule is about the VALUE being used as a lookup base, not about pointer vs scalar.
+    // settings.h applies FINAL uniformly to every property rather than tracking which ones are
+    // currently chained; that is inert where it is not needed and immune to this trap.
+    // Nothing subclasses MainController today.
+    Q_PROPERTY(VisualizerUploader* visualizer READ visualizer CONSTANT FINAL)
+    Q_PROPERTY(VisualizerImporter* visualizerImporter READ visualizerImporter CONSTANT FINAL)
+    Q_PROPERTY(BeanBaseClient* beanbase READ beanbase CONSTANT FINAL)
+    Q_PROPERTY(AIManager* aiManager READ aiManager CONSTANT FINAL)
+    Q_PROPERTY(LiveSteamCoach* liveSteamCoach READ liveSteamCoach CONSTANT FINAL)
+    Q_PROPERTY(ShotDataModel* shotDataModel READ shotDataModel CONSTANT FINAL)
+    Q_PROPERTY(SteamDataModel* steamDataModel READ steamDataModel CONSTANT FINAL)
+    Q_PROPERTY(SteamHealthTracker* steamHealthTracker READ steamHealthTracker CONSTANT FINAL)
     Q_PROPERTY(QString currentFrameName READ currentFrameName NOTIFY frameChanged)
     Q_PROPERTY(double filteredGoalPressure READ filteredGoalPressure NOTIFY goalsChanged)
     Q_PROPERTY(double filteredGoalFlow READ filteredGoalFlow NOTIFY goalsChanged)
-    Q_PROPERTY(ShotHistoryStorage* shotHistory READ shotHistory CONSTANT)
-    Q_PROPERTY(CoffeeBagStorage* bagStorage READ bagStorage CONSTANT)
-    Q_PROPERTY(EquipmentStorage* equipmentStorage READ equipmentStorage CONSTANT)
-    Q_PROPERTY(RecipeStorage* recipeStorage READ recipeStorage CONSTANT)
+    Q_PROPERTY(ShotHistoryStorage* shotHistory READ shotHistory CONSTANT FINAL)
+    Q_PROPERTY(CoffeeBagStorage* bagStorage READ bagStorage CONSTANT FINAL)
+    Q_PROPERTY(EquipmentStorage* equipmentStorage READ equipmentStorage CONSTANT FINAL)
+    Q_PROPERTY(RecipeStorage* recipeStorage READ recipeStorage CONSTANT FINAL)
     // The active recipe's full row (empty map = none). Refreshed on
     // activation, on external edits to the active row, and cleared on
     // deactivation. QML reads name/steam fields from here; the id itself
@@ -149,18 +171,18 @@ class MainController : public QObject {
     // always re-converges to activeRecipeId, so the highlight never ends
     // disagreeing with the active recipe.
     Q_PROPERTY(qint64 selectedRecipeId READ selectedRecipeId NOTIFY selectedRecipeIdChanged)
-    Q_PROPERTY(UnifiedBeanSearchModel* beanSearch READ beanSearch CONSTANT)
-    Q_PROPERTY(ShotImporter* shotImporter READ shotImporter CONSTANT)
-    Q_PROPERTY(ProfileConverter* profileConverter READ profileConverter CONSTANT)
-    Q_PROPERTY(ProfileImporter* profileImporter READ profileImporter CONSTANT)
-    Q_PROPERTY(ShotComparisonModel* shotComparison READ shotComparison CONSTANT)
-    Q_PROPERTY(ShotServer* shotServer READ shotServer CONSTANT)
-    Q_PROPERTY(MqttClient* mqttClient READ mqttClient CONSTANT)
-    Q_PROPERTY(UpdateChecker* updateChecker READ updateChecker CONSTANT)
-    Q_PROPERTY(FirmwareUpdater* firmwareUpdater READ firmwareUpdater CONSTANT)
-    Q_PROPERTY(ShotReporter* shotReporter READ shotReporter CONSTANT)
-    Q_PROPERTY(DataMigrationClient* dataMigration READ dataMigration CONSTANT)
-    Q_PROPERTY(DatabaseBackupManager* backupManager READ backupManager CONSTANT)
+    Q_PROPERTY(UnifiedBeanSearchModel* beanSearch READ beanSearch CONSTANT FINAL)
+    Q_PROPERTY(ShotImporter* shotImporter READ shotImporter CONSTANT FINAL)
+    Q_PROPERTY(ProfileConverter* profileConverter READ profileConverter CONSTANT FINAL)
+    Q_PROPERTY(ProfileImporter* profileImporter READ profileImporter CONSTANT FINAL)
+    Q_PROPERTY(ShotComparisonModel* shotComparison READ shotComparison CONSTANT FINAL)
+    Q_PROPERTY(ShotServer* shotServer READ shotServer CONSTANT FINAL)
+    Q_PROPERTY(MqttClient* mqttClient READ mqttClient CONSTANT FINAL)
+    Q_PROPERTY(UpdateChecker* updateChecker READ updateChecker CONSTANT FINAL)
+    Q_PROPERTY(FirmwareUpdater* firmwareUpdater READ firmwareUpdater CONSTANT FINAL)
+    Q_PROPERTY(ShotReporter* shotReporter READ shotReporter CONSTANT FINAL)
+    Q_PROPERTY(DataMigrationClient* dataMigration READ dataMigration CONSTANT FINAL)
+    Q_PROPERTY(DatabaseBackupManager* backupManager READ backupManager CONSTANT FINAL)
     Q_PROPERTY(qint64 lastSavedShotId READ lastSavedShotId NOTIFY lastSavedShotIdChanged)
     Q_PROPERTY(bool sawSettling READ isSawSettling NOTIFY sawSettlingChanged)
 

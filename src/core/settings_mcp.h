@@ -12,25 +12,25 @@
 class SettingsMcp : public QObject {
     Q_OBJECT
 
-    Q_PROPERTY(bool mcpEnabled READ mcpEnabled WRITE setMcpEnabled NOTIFY mcpEnabledChanged)
-    Q_PROPERTY(int mcpAccessLevel READ mcpAccessLevel WRITE setMcpAccessLevel NOTIFY mcpAccessLevelChanged)
-    Q_PROPERTY(int mcpConfirmationLevel READ mcpConfirmationLevel WRITE setMcpConfirmationLevel NOTIFY mcpConfirmationLevelChanged)
-    Q_PROPERTY(QString mcpApiKey READ mcpApiKey NOTIFY mcpApiKeyChanged)
+    Q_PROPERTY(bool mcpEnabled READ mcpEnabled WRITE setMcpEnabled NOTIFY mcpEnabledChanged FINAL)
+    Q_PROPERTY(int mcpAccessLevel READ mcpAccessLevel WRITE setMcpAccessLevel NOTIFY mcpAccessLevelChanged FINAL)
+    Q_PROPERTY(int mcpConfirmationLevel READ mcpConfirmationLevel WRITE setMcpConfirmationLevel NOTIFY mcpConfirmationLevelChanged FINAL)
+    Q_PROPERTY(QString mcpApiKey READ mcpApiKey NOTIFY mcpApiKeyChanged FINAL)
 
     // Remote MCP connector (public-internet reachability for Claude/ChatGPT
     // mobile connectors). See docs/CLAUDE_MD/MCP_SERVER.md and the
     // add-remote-mcp-connector change. Defaults off; opt-in.
-    Q_PROPERTY(bool remoteMcpEnabled READ remoteMcpEnabled WRITE setRemoteMcpEnabled NOTIFY remoteMcpEnabledChanged)
-    Q_PROPERTY(QString remoteMcpMode READ remoteMcpMode WRITE setRemoteMcpMode NOTIFY remoteMcpModeChanged)
-    Q_PROPERTY(int remoteMcpPort READ remoteMcpPort WRITE setRemoteMcpPort NOTIFY remoteMcpPortChanged)
-    Q_PROPERTY(QString remoteMcpCustomBaseUrl READ remoteMcpCustomBaseUrl WRITE setRemoteMcpCustomBaseUrl NOTIFY remoteMcpCustomBaseUrlChanged)
+    Q_PROPERTY(bool remoteMcpEnabled READ remoteMcpEnabled WRITE setRemoteMcpEnabled NOTIFY remoteMcpEnabledChanged FINAL)
+    Q_PROPERTY(QString remoteMcpMode READ remoteMcpMode WRITE setRemoteMcpMode NOTIFY remoteMcpModeChanged FINAL)
+    Q_PROPERTY(int remoteMcpPort READ remoteMcpPort WRITE setRemoteMcpPort NOTIFY remoteMcpPortChanged FINAL)
+    Q_PROPERTY(QString remoteMcpCustomBaseUrl READ remoteMcpCustomBaseUrl WRITE setRemoteMcpCustomBaseUrl NOTIFY remoteMcpCustomBaseUrlChanged FINAL)
     // The capability token. QML normally consumes it only via the composed
     // connector URL (RemoteMcpAccess.connectorUrl), but it is a readable property
     // so the NOTIFY can drive that URL binding and local UI. Rotation is the
     // revocation story; the token is no more sensitive than the existing plaintext
     // mcpApiKey and never leaves the owner's device except inside the URL they
     // paste into their AI app.
-    Q_PROPERTY(QString remoteMcpToken READ remoteMcpToken NOTIFY remoteMcpTokenChanged)
+    Q_PROPERTY(QString remoteMcpToken READ remoteMcpToken NOTIFY remoteMcpTokenChanged FINAL)
 
 public:
     explicit SettingsMcp(QObject* parent = nullptr);

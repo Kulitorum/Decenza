@@ -55,7 +55,7 @@ QtObject {
     // Convert emoji character to pre-rendered SVG image path.
     // Passes through qrc:/icons/... paths unchanged.
     // Returns "" when no asset is bundled — see _emojiAssetPath.
-    function emojiToImage(emoji) {
+    function emojiToImage(emoji: var): string {
         if (!emoji) return ""
         if (emoji.indexOf("qrc:") === 0) return emoji
         var cps = []
@@ -79,7 +79,7 @@ QtObject {
     // fixed at build time, so unlike Settings.theme.effectiveFontSizes there is nothing for
     // a binding to re-evaluate. See src/core/emojiassets.h.
     property bool _warnedNoEmojiAssets: false
-    function _emojiAssetPath(cps) {
+    function _emojiAssetPath(cps: var): string {
         if (!cps || cps.length === 0) return ""
         if (typeof EmojiAssets === "undefined") {
             // Distinct from "this emoji isn't bundled". If EmojiAssets is unresolvable, EVERY
@@ -122,7 +122,7 @@ QtObject {
     // Check if a Unicode code point is an emoji that would trigger Apple Color Emoji
     // font rendering (sbix PNG decoding on macOS, CBDT/CBLC on Android).
     // Returns true for characters that need to be rendered as images, not text glyphs.
-    function _isEmoji(cp) {
+    function _isEmoji(cp: int): bool {
         // Emoticons
         if (cp >= 0x1F600 && cp <= 0x1F64F) return true
         // Misc Symbols & Pictographs
@@ -163,7 +163,7 @@ QtObject {
     // renders from Apple Color Emoji ONLY because of the trailing U+FE0F — which is exactly
     // the colour-glyph path that crashes the render thread. The variation selector is the
     // signal, so use it rather than trying to enumerate every base character.
-    function _isEmojiPresentation(text, i, cp) {
+    function _isEmojiPresentation(text: string, i: int, cp: int): bool {
         var next = i + (cp > 0xFFFF ? 2 : 1)
         if (next >= text.length || text.codePointAt(next) !== 0xFE0F) return false
         // Bound it, but be honest about how loose the bound is: `cp >= 0xA9` is EVERY
@@ -194,7 +194,7 @@ QtObject {
     // screensaver authors, GitHub release notes -- cannot inject tags into the
     // RichText/StyledText renderer. Getting this wrong should fail visibly (raw
     // tags on screen), not silently.
-    function replaceEmojiWithImg(text, pixelSize, allowMarkup) {
+    function replaceEmojiWithImg(text: var, pixelSize: var, allowMarkup: var): string {
         if (!text) return ""
         var size = pixelSize || 16
         var result = ""
@@ -265,7 +265,7 @@ QtObject {
 
     // Strip emoji Unicode characters from a string entirely.
     // Use for plain-text Text elements where <img> tags aren't supported.
-    function stripEmoji(text) {
+    function stripEmoji(text: var): string {
         if (!text) return ""
         var result = ""
         var i = 0
@@ -283,7 +283,7 @@ QtObject {
     // Strip HTML tags and emoji from a string for accessible names.
     // Use on text that has been through replaceEmojiWithImg() to get
     // a clean plain-text string for TalkBack/VoiceOver.
-    function toAccessibleText(html) {
+    function toAccessibleText(html: var): string {
         if (!html) return ""
         // Decode entities as well as stripping tags. Callers now pass MarkdownRenderer output,
         // where QTextDocument::toHtml() has escaped & < > " and emitted &nbsp; — without this a
@@ -315,7 +315,7 @@ QtObject {
     //
     // CONTRACT: content only. Never interpolate untrusted text into an attribute value —
     // that needs quote escaping, which escaping > never provided anyway.
-    function escapeHtml(s) {
+    function escapeHtml(s: var): string {
         return String(s)
             .replace(/&/g, "&amp;")
             .replace(/</g, "&lt;")
@@ -324,7 +324,7 @@ QtObject {
     // 6-digit hex (#rrggbb) for StyledText/RichText <font color> spans. The
     // point is STRIPPING ALPHA (Qt parses #AARRGGBB fine): a user-customized
     // translucent theme color would otherwise render the span see-through.
-    function colorToHex(c) {
+    function colorToHex(c: color): string {
         function h(x) { var s = Math.round(x * 255).toString(16); return s.length < 2 ? "0" + s : s }
         return "#" + h(c.r) + h(c.g) + h(c.b)
     }
@@ -336,7 +336,7 @@ QtObject {
     readonly property string bulletSep: " <font size=\"+1\"><b>·</b></font> "
 
     // Join already-computed text parts with bulletSep, HTML-escaping each part.
-    function joinWithBullet(parts) {
+    function joinWithBullet(parts: var): string {
         var sep = bulletSep
         var out = []
         for (var i = 0; i < parts.length; i++) {
@@ -349,7 +349,13 @@ QtObject {
     // Truncate a UTF-16 string at `cap` code units and append an ellipsis,
     // backing off one unit if cap would split a surrogate pair so we
     // don't emit an orphaned high surrogate to the accessibility tree.
-    function _truncateWithEllipsis(s, cap) {
+    //
+    // `cap: int` is only safe because BOTH callers resolve `maxLen ?? 2000` into a real
+    // number before calling. Forward an optional maxLen straight through and int coerces
+    // undefined to 0: `s.length <= 0` is false, charCodeAt(-1) is NaN, cut is 0, and every
+    // string becomes a bare ellipsis. That exact bug was hit and reverted on the `maxLen`
+    // parameters below, which is why they are `var`. Keep the `??` at the call site.
+    function _truncateWithEllipsis(s: string, cap: int): string {
         if (s.length <= cap) return s
         var c = s.charCodeAt(cap - 1)
         var cut = (c >= 0xD800 && c <= 0xDBFF) ? cap - 1 : cap
@@ -365,7 +371,7 @@ QtObject {
     // nested or malformed spans (e.g. ***bold-italic***, unclosed **bold) —
     // those pass through partially un-stripped, which is acceptable for an
     // accessibility hint.
-    function stripMarkdown(text, maxLen) {
+    function stripMarkdown(text: var, maxLen: var): string {
         if (!text) return ""
         var cap = maxLen ?? 2000
         var s = text
@@ -392,7 +398,7 @@ QtObject {
     // strings (log output, crash dumps) don't flood the accessibility
     // tree. Default cap: 2000 characters. For Markdown-formatted content,
     // use stripMarkdown instead so formatting chars aren't read literally.
-    function capAccessibleText(text, maxLen) {
+    function capAccessibleText(text: var, maxLen: var): string {
         if (!text) return ""
         var cap = maxLen ?? 2000
         return _truncateWithEllipsis(text, cap)
@@ -403,6 +409,20 @@ QtObject {
     // tst_temperaturedisplay). These wrappers read Settings.app.temperatureUnit in
     // JS — that read is what makes bindings re-evaluate on a unit toggle (property
     // reads inside C++ methods are invisible to the QML binding engine).
+    //
+    // DO NOT ADD TYPE ANNOTATIONS TO THESE SEVEN. They are the only unannotated
+    // TOP-LEVEL functions left in this file (the nested helpers `h` in colorToHex and
+    // `linearise` in _relativeLuminance are also unannotated, but they are private
+    // closures inside already-annotated parents and never reached from outside, so they
+    // do not participate in the untyped-call cascade). Leaving these seven is
+    // deliberate, not an oversight. Annotating
+    // them (`tempUnitSuffix(): string` etc.) made qmlcachegen compile tempUnitSuffix()
+    // into something that returns undefined, which showed up in the running app as
+    //     RecipeEditorPage.qml:435: Unable to assign [undefined] to QString
+    // on `suffix: Theme.tempUnitSuffix()`. The C++ side is not at fault —
+    // TemperatureDisplay::unitSuffix(bool) returns QString (src/profile/temperaturedisplay.h:92).
+    // The mechanism is NOT understood, so the annotations were reverted rather than
+    // worked around. If you want them compiled, reproduce that failure first.
     function tempIsFahrenheit() { return Settings.app.temperatureUnit === "fahrenheit" }
     function tempUnitSuffix() { return TemperatureDisplay.unitSuffix(tempIsFahrenheit()) }
     function cToDisplay(celsius) { return TemperatureDisplay.cToDisplay(celsius, tempIsFahrenheit()) }
@@ -416,10 +436,10 @@ QtObject {
     }
 
     // Helper function to scale values
-    function scaled(value) { return Math.round(value * scale) }
+    function scaled(value: real): int { return Math.round(value * scale) }
 
     // Scale without page multiplier (for UI that should stay constant size across pages)
-    function scaledBase(value) {
+    function scaledBase(value: real): int {
         return Math.round(value * scale / (pageScaleMultiplier || 1.0))
     }
 
@@ -427,7 +447,7 @@ QtObject {
     // otherwise returns the normal color value. Called from web theme editor.
     // QML's binding engine tracks Settings.theme.flashColorName and Settings.theme.flashPhase
     // reads inside this function, so all color bindings re-evaluate on flash changes.
-    function _c(name, value) {
+    function _c(name: string, value: var): var {
         if (Settings.theme.flashColorName === name && Settings.theme.flashPhase > 0) {
             return Settings.theme.flashPhase % 2 === 1 ? "#ff0000" : "#000000"
         }
@@ -516,7 +536,7 @@ QtObject {
     // The fallback branch is therefore now a should-never-happen guard, kept because without
     // it an undefined reaches the engine as an opaque "Unable to assign [undefined] to QColor"
     // warning — or, at _flatInsetTint, as a hard "Qt.colorEqual(): Invalid arguments" Error.
-    function _derivedOr(key, fallback) {
+    function _derivedOr(key: string, fallback: var): var {
         var derived = Settings.theme.derivedBackgroundColors
         if (derived[key] === undefined) {
             console.warn("Theme: derivedBackgroundColors." + key + " unexpectedly undefined"
@@ -625,7 +645,7 @@ QtObject {
     // opacity so the wallpaper shows through. Use this instead of hand-rolling
     // Qt.rgba(...) at each call site — keeps every scrim in the app at the same
     // translucency level tuned by backgroundScrimAlpha above.
-    function scrimColor(baseColor) {
+    function scrimColor(baseColor: color): color {
         return Qt.rgba(baseColor.r, baseColor.g, baseColor.b, backgroundScrimAlpha)
     }
 
@@ -649,7 +669,7 @@ QtObject {
 
     // WCAG 2.x relative luminance: sRGB channels linearised, then weighted. Not the same
     // as the cheaper BT.601 brightness weights — see contrastColorFor.
-    function _relativeLuminance(c) {
+    function _relativeLuminance(c: color): real {
         function linearise(channel) {
             return channel <= 0.03928 ? channel / 12.92
                                       : Math.pow((channel + 0.055) / 1.055, 2.4)
@@ -857,16 +877,16 @@ QtObject {
     //   "standard"  - transparent background, normal text (default, today's look)
     //   "surface"   - surface fill, normal text
     //   "accentBar" - accent fill + contrast text + bold values (the PR #1364 look)
-    function zoneBackgroundColor(style) {
+    function zoneBackgroundColor(style: string): color {
         if (style === "accentBar") return primaryColor
         if (style === "surface")   return surfaceColor
         return "transparent"
     }
-    function zoneTextColor(style) {
+    function zoneTextColor(style: string): color {
         if (style === "accentBar") return primaryContrastColor
         return textColor
     }
-    function zoneValueBold(style) {
+    function zoneValueBold(style: string): bool {
         return style === "accentBar"
     }
     // Fill for a small tappable value chip (the Ratio/Grind pills) sitting in a
@@ -875,7 +895,7 @@ QtObject {
     // inset chip on a surfaceColor zone, and a raised surface chip on the
     // transparent standard zone (where a bare zoneTextColor fill would otherwise
     // be a jarring white capsule in dark mode).
-    function zoneChipColor(style) {
+    function zoneChipColor(style: string): color {
         if (style === "accentBar") return primaryContrastColor
         if (style === "surface")   return insetBackgroundColor
         return surfaceColor
@@ -911,7 +931,7 @@ QtObject {
     // Shared tracking color logic: proportional thresholds with floor values
     // so low goals (e.g. 0.5 mL/s flow) don't trigger red on tiny deltas.
     // isPressure: true for pressure tracking, false for flow tracking.
-    function trackingColor(delta, goal, isPressure) {
+    function trackingColor(delta: real, goal: real, isPressure: var): color {
         var floorGood = isPressure ? 0.8 : 0.4
         var floorWarn = isPressure ? 1.8 : 0.8
         var threshGood = Math.max(floorGood, goal * 0.25)
@@ -923,7 +943,7 @@ QtObject {
 
     // Translucent, pastel-tinted overlay text color derived from a tracking color.
     // Lightens toward white for readability over dark backgrounds.
-    function tintedOverlayColor(baseColor, alpha) {
+    function tintedOverlayColor(baseColor: color, alpha: real): color {
         return Qt.rgba(0.7 + baseColor.r * 0.3, 0.7 + baseColor.g * 0.3, 0.7 + baseColor.b * 0.3, alpha)
     }
 

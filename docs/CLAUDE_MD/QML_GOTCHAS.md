@@ -88,6 +88,8 @@ KeyboardAwareContainer {
 
 Never override FINAL properties on Qt types. Qt 6.10+ marks some `Popup`/`Dialog` properties as FINAL (e.g., `message`, `title`). Declaring `property string message` on a Dialog will prevent the component from loading. Use a different name (e.g., `resultMessage`), or use the inherited property directly if it already exists on the base type.
 
+**This is not the same rule as `SETTINGS.md`'s "always add `FINAL`".** Two different things share the keyword: *don't shadow someone else's* `FINAL` property (this section), and *do mark your own* `Q_PROPERTY` final when QML chains a lookup through it, so qmlcachegen will AOT-compile it (`SETTINGS.md`, and `src/core/settings.h`). They never conflict — one is about a base type you don't own, the other about a property you declare.
+
 ## `elide` is silently ignored on `Text.RichText` — use `Text.StyledText`
 
 Qt applies `elide` to `Text.PlainText` and `Text.StyledText`, but **not `Text.RichText`** (a `QTextDocument`-backed format). A label with `textFormat: Text.RichText` and `elide: Text.ElideRight` does not truncate — it overruns its width and hard-clips mid-glyph with no ellipsis, which shows up on wider/fallback system fonts (issue #1469). Default to `Text.StyledText` for any HTML-ish label; it supports the tags we use (`<b> <i> <font color> <a href> <img> <br>`) and is lighter than RichText. Reserve `Text.RichText` for the rare label that genuinely needs `QTextDocument`-only features (tables, CSS blocks) — we currently have none. For inline emoji, `Theme.replaceEmojiWithImg` emits `<img align="middle">`, which StyledText honors (it ignores the CSS `style=` attribute). `TextEdit.RichText` (editable fields) is unaffected — this is about read-only `Text`.

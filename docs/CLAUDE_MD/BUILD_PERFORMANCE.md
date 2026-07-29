@@ -110,38 +110,71 @@ It is not qmlcachegen — it is compiling what qmlcachegen emits: **2.0M lines**
 generated C++ across 216 files, every one containing AOT-compiled functions. Any
 lever aimed at this cost should target the generated C++, not the tool.
 
-## AOT coverage, and why it is only 45 %
+## AOT coverage, and the two levers that moved it
 
-**Re-measured 2026-07-29**, after the QML cleanup (#1665, #1688, #1690, #1695)
-took `setContextProperty` to zero and qmllint to 222/222. The previous numbers,
-and the prediction built on them, are kept below because the prediction turned
-out to be **wrong in both directions** and that is the useful part.
+**Re-measured 2026-07-29** after the QML cleanup (#1665, #1688, #1690, #1695) and
+again after #1698 (`FINAL` on the settings/controller accessors, type annotations
+in `Theme.qml` and `IdlePage.qml`).
 
 ```
-total bindings/functions  29097
-  AOT compiled            13017  (44.7%)
-  skipped -> interpreter  14665  (50.4%)
-  partial                  1415  ( 4.9%)
+                          post-cleanup      post-#1698
+total bindings/functions       29097           29097
+  AOT compiled            13017 (44.7%)   17631 (60.6%)
+  skipped -> interpreter  14665 (50.4%)   10051 (34.5%)
+  partial                  1415 ( 4.9%)    1415 ( 4.9%)
 ```
+
+**Read the measurement warning below before trusting any number you take
+yourself.** #1698 reported +1.7 points for days because every intermediate
+measurement was taken against a build that had recompiled only the two edited
+QML files. The other 213 units' `.aotstats` still described the *previous* state,
+so the change looked local. The real figure only appeared once a `Q_OBJECT`
+header edit invalidated `Decenza.qmltypes` and forced all 215 units to
+regenerate. **Before believing an AOT number, check that the `.aotstats` files
+are newer than your edit:**
+
+```bash
+find <build>/.rcc/qmlcache -name '*.aotstats' -newer <the file you changed> | wc -l
+```
+
+If that is not ~216, you are reading the last build, not this one.
+
+**The untyped-function cascade is the whole story.** Annotating ~32 functions in
+`Theme.qml` alone took `call to untyped JavaScript function` from **4,681 skips to
+499** — because `Theme.*` is called from every file in the app, so typing one
+file unblocked roughly 4,200 call sites elsewhere. This is the 8:1 ratio
+described below, paying off in the direction the ratio predicted. The `FINAL`
+work, by contrast, was worth 429 skips: real, but an order of magnitude smaller.
 
 Grouped by root cause:
 
 | Skips | Share | Cause |
 |---|---|---|
-| 4681 | 31.9 % | call to untyped JS function |
-| 2751 | 18.8 % | unresolved id / model role |
-| 2694 | 18.4 % | member on unresolved type |
-| 2186 | 14.9 % | other |
-| 1787 | 12.2 % | `TranslationManager.translate` — callable `Q_PROPERTY` |
-| 566 | 3.9 % | untyped function definition |
+| 2753 | 27.4 % | unresolved id / model role |
+| 2681 | 26.7 % | member on unresolved type |
+| 1787 | 17.8 % | `TranslationManager.translate` — callable `Q_PROPERTY` |
+| 1729 | 17.2 % | other |
+| 530 | 5.3 % | untyped function definition |
+| 499 | 5.0 % | call to untyped JS function (was 4681 / 31.9 %) |
+| 72 | 0.7 % | shadowable base type (was 574) |
 | **0** | — | **context property** (was 3351 / 19.0 %) |
 
-**Untyped JS functions (32 %) — unchanged, and now the whole story.** Of 1,111
-`function` declarations under `qml/`, **13** carry a return-type annotation and
-**15** a typed parameter. qmlcachegen will not compile an untyped function, and
-will not compile a *call* to one either — so 566 untyped definitions poison 4,681
-call sites, an 8:1 cascade. This is the one lever that would move the number, and
-nothing in the cleanup touched it.
+**Untyped JS functions — was 32 %, now 5 %, and still the best lever.** Of 1,111
+`function` declarations under `qml/`, **46** now carry a return-type annotation and
+**51** a typed parameter (13 and 15 before #1698). qmlcachegen will not compile an
+untyped function, and will not compile a *call* to one either, so definitions poison
+call sites at roughly 8:1. #1698 spent that ratio deliberately: ~32 annotations in
+`Theme.qml` plus 11 in `IdlePage.qml` cut the bucket from 4,681 to 499.
+
+**The remaining 530 untyped definitions are NOT all free to annotate.** Seven in
+`Theme.qml` (`tempUnitSuffix`, `cToDisplay`, …) are unannotated deliberately —
+annotating them made qmlcachegen produce a function returning `undefined` at
+runtime, and the mechanism is unexplained. See the comment at `qml/Theme.qml:406`.
+Annotations also change runtime semantics, not just codegen: a `string` parameter
+converts `undefined` to the literal `"undefined"` (`qv4jscall_p.h:337` ->
+`qv4runtime.cpp:618`), which silently defeats an `if (!x) return ""` guard. Optional
+parameters and guarded ones must be `var`, which coerces nothing
+(`qv4jscall_p.h:331`).
 
 **Context properties: gone.** `src/main.cpp` now contains zero `setContextProperty`
 calls and 23 QML singletons (`src/core/contextsingletons_qml.h`). The entire
@@ -152,13 +185,18 @@ earlier draft said the swappable device handles "realistically cannot" be typed,
 because `ScaleDevice` and `Refractometer` are reassigned at 11 sites as hardware
 connects and disconnects, while the stable globals were the fixable ones. Measured:
 
-| | draft prediction | actual, now |
-|---|---|---|
-| `ScaleDevice`, `Refractometer` | unfixable | **0 skips** |
-| `AccessibilityManager` | fixable | **0 skips** |
-| `MainController` | fixable | 313 -> 152 |
-| `Settings` | fixable | 595 -> **539** |
-| `TranslationManager` | fixable | 1831 -> **1790** |
+| | draft prediction | after the cleanup | after #1698 |
+|---|---|---|---|
+| `ScaleDevice`, `Refractometer` | unfixable | **0 skips** | 0 |
+| `AccessibilityManager` | fixable | **0 skips** | 0 |
+| `MainController` | fixable | 313 -> 152 | **shadowable-base share fixed** |
+| `Settings` | fixable | 595 -> 539 | **shadowable-base share fixed** |
+| `TranslationManager` | fixable | 1831 -> **1790** | 1787 — permanent, see below |
+
+The middle column is the state the prediction was judged against; do not read it as
+current. #1698 then took the *shadowable-base* cause from 574 skips to 72 project-wide,
+which is the part of `Settings`/`MainController` that was fixable at all. Their residual
+skips now sit in other causes (untyped calls, unresolved ids), counted in the table above.
 
 The swappable ones went to zero because swapping moved *behind* a stable singleton
 that re-points its internals — mutability was never the obstacle, dynamic scoping
@@ -172,13 +210,15 @@ that did not exist when it was written:
   `CLAUDE.md`). qmlcachegen cannot compile a call through a callable property. This
   is a **priced tradeoff, not a defect**: correct reactive translation costs 12 % of
   all AOT skips. Do not "fix" it without reading `tst_translationreactivity.cpp`.
-- **`Settings` (539) and `MainController` (152).** `Cannot use shadowable base type
-  for further lookups: Settings::theme with type SettingsTheme`. The 12 domain
-  sub-objects that `CLAUDE.md` mandates (`Settings.<domain>.<prop>`) are non-final
-  QObject-derived properties, so qmlcachegen refuses to chain a lookup through them
-  — a subclass could shadow the member. This one is genuinely fixable, by making
-  the domain types or the properties `FINAL`, and it is the largest remaining
-  self-inflicted bucket.
+- **`Settings` (539) and `MainController` (152) — FIXED in #1698, 574 -> 72.**
+  `Cannot use shadowable base type for further lookups: Settings::theme with type
+  SettingsTheme`. The 12 domain sub-objects that `CLAUDE.md` mandates
+  (`Settings.<domain>.<prop>`) were non-final `QObject`-derived properties, so
+  qmlcachegen refused to chain a lookup through them — a subclass could shadow the
+  member. `FINAL` on the accessors is the fix (`qqmljsshadowcheck.cpp:197-198`), and
+  `SETTINGS.md` now requires it on every new domain accessor. The 72 left are
+  scattered across `AIManager`, `DataMigrationClient` and friends, plus two on
+  `QQuickWindow` that are Qt's own.
 
 **The remaining third is largely downstream**, as before: `Could not find property
 "text"` (432), `"clicked"` (441), and `Cannot retrieve a non-object type by ID`

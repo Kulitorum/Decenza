@@ -56,80 +56,80 @@ public:
 
 private:
     // DYE metadata - sticky fields
-    Q_PROPERTY(QString dyeBeanBrand READ dyeBeanBrand WRITE setDyeBeanBrand NOTIFY dyeBeanBrandChanged)
-    Q_PROPERTY(QString dyeBeanType READ dyeBeanType WRITE setDyeBeanType NOTIFY dyeBeanTypeChanged)
-    Q_PROPERTY(QString dyeRoastDate READ dyeRoastDate WRITE setDyeRoastDate NOTIFY dyeRoastDateChanged)
-    Q_PROPERTY(QString dyeRoastLevel READ dyeRoastLevel WRITE setDyeRoastLevel NOTIFY dyeRoastLevelChanged)
-    Q_PROPERTY(QString dyeGrinderBrand READ dyeGrinderBrand WRITE setDyeGrinderBrand NOTIFY dyeGrinderBrandChanged)
-    Q_PROPERTY(QString dyeGrinderModel READ dyeGrinderModel WRITE setDyeGrinderModel NOTIFY dyeGrinderModelChanged)
-    Q_PROPERTY(QString dyeGrinderBurrs READ dyeGrinderBurrs WRITE setDyeGrinderBurrs NOTIFY dyeGrinderBurrsChanged)
+    Q_PROPERTY(QString dyeBeanBrand READ dyeBeanBrand WRITE setDyeBeanBrand NOTIFY dyeBeanBrandChanged FINAL)
+    Q_PROPERTY(QString dyeBeanType READ dyeBeanType WRITE setDyeBeanType NOTIFY dyeBeanTypeChanged FINAL)
+    Q_PROPERTY(QString dyeRoastDate READ dyeRoastDate WRITE setDyeRoastDate NOTIFY dyeRoastDateChanged FINAL)
+    Q_PROPERTY(QString dyeRoastLevel READ dyeRoastLevel WRITE setDyeRoastLevel NOTIFY dyeRoastLevelChanged FINAL)
+    Q_PROPERTY(QString dyeGrinderBrand READ dyeGrinderBrand WRITE setDyeGrinderBrand NOTIFY dyeGrinderBrandChanged FINAL)
+    Q_PROPERTY(QString dyeGrinderModel READ dyeGrinderModel WRITE setDyeGrinderModel NOTIFY dyeGrinderModelChanged FINAL)
+    Q_PROPERTY(QString dyeGrinderBurrs READ dyeGrinderBurrs WRITE setDyeGrinderBurrs NOTIFY dyeGrinderBurrsChanged FINAL)
     // Active package's display name (read-only; defaults to "{brand} {model}").
     // UI shows this instead of the raw grinder identity (add-equipment-packages).
-    Q_PROPERTY(QString dyeEquipmentName READ dyeEquipmentName NOTIFY dyeEquipmentNameChanged)
+    Q_PROPERTY(QString dyeEquipmentName READ dyeEquipmentName NOTIFY dyeEquipmentNameChanged FINAL)
     // Active package's basket identity (read-only; empty when none). Basket is
     // part of the package identity, not a per-shot dial, so these are resolved
     // from the active package like dyeEquipmentName (add-basket-equipment).
-    Q_PROPERTY(QString dyeBasketBrand READ dyeBasketBrand NOTIFY dyeBasketChanged)
-    Q_PROPERTY(QString dyeBasketModel READ dyeBasketModel NOTIFY dyeBasketChanged)
+    Q_PROPERTY(QString dyeBasketBrand READ dyeBasketBrand NOTIFY dyeBasketChanged FINAL)
+    Q_PROPERTY(QString dyeBasketModel READ dyeBasketModel NOTIFY dyeBasketChanged FINAL)
     // Active package's puck-prep canonical flag string (e.g. "shaker,wdt"; empty =
     // none), resolved from the active package (add-puckprep-equipment). The Edit
     // Equipment form prefills its checkboxes from this when adding new gear.
-    Q_PROPERTY(QString dyePuckPrepCanonical READ dyePuckPrepCanonical NOTIFY dyePuckPrepChanged)
+    Q_PROPERTY(QString dyePuckPrepCanonical READ dyePuckPrepCanonical NOTIFY dyePuckPrepChanged FINAL)
     // One-line registry summary of the active basket (wall/flow/precision/dose),
     // empty for none or a custom off-registry basket.
-    Q_PROPERTY(QString dyeBasketSummary READ dyeBasketSummary NOTIFY dyeBasketChanged)
-    Q_PROPERTY(QString dyeGrinderSetting READ dyeGrinderSetting WRITE setDyeGrinderSetting NOTIFY dyeGrinderSettingChanged)
+    Q_PROPERTY(QString dyeBasketSummary READ dyeBasketSummary NOTIFY dyeBasketChanged FINAL)
+    Q_PROPERTY(QString dyeGrinderSetting READ dyeGrinderSetting WRITE setDyeGrinderSetting NOTIFY dyeGrinderSettingChanged FINAL)
     // Grinder rpm dial-in (add-equipment-packages); shown only when the active
     // package's grinder is rpmCapable. 0 = unset.
-    Q_PROPERTY(int dyeGrinderRpm READ dyeGrinderRpm WRITE setDyeGrinderRpm NOTIFY dyeGrinderRpmChanged)
+    Q_PROPERTY(int dyeGrinderRpm READ dyeGrinderRpm WRITE setDyeGrinderRpm NOTIFY dyeGrinderRpmChanged FINAL)
     // The active equipment package id (the grinder the next shot is ground on).
     // Switching it applies the package's grinder identity + last dial.
-    Q_PROPERTY(qint64 activeEquipmentId READ activeEquipmentId WRITE setActiveEquipmentId NOTIFY activeEquipmentIdChanged)
-    Q_PROPERTY(double dyeBeanWeight READ dyeBeanWeight WRITE setDyeBeanWeight NOTIFY dyeBeanWeightChanged)
-    Q_PROPERTY(double dyeDrinkWeight READ dyeDrinkWeight WRITE setDyeDrinkWeight NOTIFY dyeDrinkWeightChanged)
-    Q_PROPERTY(double dyeDrinkTds READ dyeDrinkTds WRITE setDyeDrinkTds NOTIFY dyeDrinkTdsChanged)
-    Q_PROPERTY(double dyeDrinkEy READ dyeDrinkEy WRITE setDyeDrinkEy NOTIFY dyeDrinkEyChanged)
-    Q_PROPERTY(QString dyeShotNotes READ dyeShotNotes WRITE setDyeShotNotes NOTIFY dyeShotNotesChanged)
-    Q_PROPERTY(QString dyeBarista READ dyeBarista WRITE setDyeBarista NOTIFY dyeBaristaChanged)
-    Q_PROPERTY(QString dyeShotDateTime READ dyeShotDateTime WRITE setDyeShotDateTime NOTIFY dyeShotDateTimeChanged)
+    Q_PROPERTY(qint64 activeEquipmentId READ activeEquipmentId WRITE setActiveEquipmentId NOTIFY activeEquipmentIdChanged FINAL)
+    Q_PROPERTY(double dyeBeanWeight READ dyeBeanWeight WRITE setDyeBeanWeight NOTIFY dyeBeanWeightChanged FINAL)
+    Q_PROPERTY(double dyeDrinkWeight READ dyeDrinkWeight WRITE setDyeDrinkWeight NOTIFY dyeDrinkWeightChanged FINAL)
+    Q_PROPERTY(double dyeDrinkTds READ dyeDrinkTds WRITE setDyeDrinkTds NOTIFY dyeDrinkTdsChanged FINAL)
+    Q_PROPERTY(double dyeDrinkEy READ dyeDrinkEy WRITE setDyeDrinkEy NOTIFY dyeDrinkEyChanged FINAL)
+    Q_PROPERTY(QString dyeShotNotes READ dyeShotNotes WRITE setDyeShotNotes NOTIFY dyeShotNotesChanged FINAL)
+    Q_PROPERTY(QString dyeBarista READ dyeBarista WRITE setDyeBarista NOTIFY dyeBaristaChanged FINAL)
+    Q_PROPERTY(QString dyeShotDateTime READ dyeShotDateTime WRITE setDyeShotDateTime NOTIFY dyeShotDateTimeChanged FINAL)
 
     // Bean Base (Loffee Labs) link state — sticky like the bean fields.
     // dyeBeanBaseId empty = unlinked (the free-text-only path most beans use).
     // dyeBeanBaseData holds the full cached entry as one compact-JSON blob;
     // consumers (shot snapshot, Visualizer upload, AI advisor) read it as a
     // unit, so it is deliberately NOT split into per-attribute properties.
-    Q_PROPERTY(QString dyeBeanBaseId READ dyeBeanBaseId WRITE setDyeBeanBaseId NOTIFY dyeBeanBaseIdChanged)
-    Q_PROPERTY(QString dyeBeanBaseData READ dyeBeanBaseData WRITE setDyeBeanBaseData NOTIFY dyeBeanBaseDataChanged)
+    Q_PROPERTY(QString dyeBeanBaseId READ dyeBeanBaseId WRITE setDyeBeanBaseId NOTIFY dyeBeanBaseIdChanged FINAL)
+    Q_PROPERTY(QString dyeBeanBaseData READ dyeBeanBaseData WRITE setDyeBeanBaseData NOTIFY dyeBeanBaseDataChanged FINAL)
 
     // The active coffee bag (DB row id in coffee_bags), -1 = no bag selected.
     // Setting it loads the bag and applies its fields to the dye cache.
-    Q_PROPERTY(int activeBagId READ activeBagId WRITE setActiveBagId NOTIFY activeBagIdChanged)
+    Q_PROPERTY(int activeBagId READ activeBagId WRITE setActiveBagId NOTIFY activeBagIdChanged FINAL)
     // The active recipe (DB row id in recipes), -1 = none (add-recipes). Only
     // the persisted id lives here — activation, write-through stamping, and
     // deactivate-on-ingredient-swap are MainController's job (the recipe layer
     // sits above the settings façade, unlike bags whose fields ARE dye state).
-    Q_PROPERTY(int activeRecipeId READ activeRecipeId WRITE setActiveRecipeId NOTIFY activeRecipeIdChanged)
+    Q_PROPERTY(int activeRecipeId READ activeRecipeId WRITE setActiveRecipeId NOTIFY activeRecipeIdChanged FINAL)
     // The recipe pinned to auto-load (recipe-auto-load), -1 = none. Mutually
     // exclusive with SettingsApp::autoLoadProfileFilename — setting either one
     // clears the other; the cross-clear is wired in Settings (the façade that
     // owns both sub-objects), not here, so this class stays ignorant of
     // SettingsApp. Shares SettingsApp::autoLoadRevertMinutes with the profile
     // side rather than having its own timeout.
-    Q_PROPERTY(int autoLoadRecipeId READ autoLoadRecipeId WRITE setAutoLoadRecipeId NOTIFY autoLoadRecipeIdChanged)
+    Q_PROPERTY(int autoLoadRecipeId READ autoLoadRecipeId WRITE setAutoLoadRecipeId NOTIFY autoLoadRecipeIdChanged FINAL)
     // Lifecycle fields of the active bag, mirrored for QML display and the
     // shot snapshot (read-only here; edited via CoffeeBagStorage).
-    Q_PROPERTY(QString activeBagFrozenDate READ activeBagFrozenDate NOTIFY activeBagChanged)
-    Q_PROPERTY(QString activeBagDefrostDate READ activeBagDefrostDate NOTIFY activeBagChanged)
+    Q_PROPERTY(QString activeBagFrozenDate READ activeBagFrozenDate NOTIFY activeBagChanged FINAL)
+    Q_PROPERTY(QString activeBagDefrostDate READ activeBagDefrostDate NOTIFY activeBagChanged FINAL)
     // Non-frozen storage lifecycle (bean-freshness-followup): storage category
     // and opened date of the active bag.
-    Q_PROPERTY(QString activeBagStorageHint READ activeBagStorageHint NOTIFY activeBagChanged)
-    Q_PROPERTY(QString activeBagOpenedDate READ activeBagOpenedDate NOTIFY activeBagChanged)
+    Q_PROPERTY(QString activeBagStorageHint READ activeBagStorageHint NOTIFY activeBagChanged FINAL)
+    Q_PROPERTY(QString activeBagOpenedDate READ activeBagOpenedDate NOTIFY activeBagChanged FINAL)
     // The active bag's own yield spec (add-yield-ratio-anchor). QML-visible:
     // Brew Settings reads them for the Update Bag button's enable-gate and
     // for Clear's baseline, so they MUST be properties — a plain getter reads
     // as `undefined` in QML and silently defeats both.
-    Q_PROPERTY(double activeBagYieldValue READ activeBagYieldValue NOTIFY activeBagYieldSpecChanged)
-    Q_PROPERTY(QString activeBagYieldMode READ activeBagYieldMode NOTIFY activeBagYieldSpecChanged)
+    Q_PROPERTY(double activeBagYieldValue READ activeBagYieldValue NOTIFY activeBagYieldSpecChanged FINAL)
+    Q_PROPERTY(QString activeBagYieldMode READ activeBagYieldMode NOTIFY activeBagYieldSpecChanged FINAL)
 
 public:
     explicit SettingsDye(QObject* parent = nullptr);
