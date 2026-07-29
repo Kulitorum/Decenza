@@ -98,9 +98,29 @@ protected:
     // Retry support: each sendRequest() assigns m_retryFn; each onAnalysisReply() calls tryScheduleRetry()
     bool tryScheduleRetry(QNetworkReply* reply);  // returns true if retry was scheduled
 
+    // User-visible error for a reply that hit MAX_OUTPUT_TOKENS. Shared across
+    // providers: every one of them can truncate, and the user's remedy is the
+    // same regardless of which API produced it.
+    QString truncatedResponseError() const;
+
     static constexpr int ANALYSIS_TIMEOUT_MS = 60000;   // 60s for cloud AI analysis
     static constexpr int TEST_TIMEOUT_MS = 15000;        // 15s for connection tests
     static constexpr int MAX_RETRIES = 3;                // max retries for 429/502/503/504
+
+    // Output cap for every analysis request, on every provider.
+    //
+    // Was 1024, which was too tight for the job: a dial-in reply plus the
+    // trailing fenced `nextShot` JSON block (#1054) lands right at that edge,
+    // and NO provider inspected its stop/finish reason — so a capped reply was
+    // emitted as if complete, silently missing the JSON block. #1691 was the
+    // acute form: Anthropic sends no `thinking` field, and claude-sonnet-5
+    // runs adaptive thinking by DEFAULT (claude-sonnet-4-6 does not), so the
+    // whole 1024 went to a thinking block and the reply carried no text block
+    // at all — a hard "empty response content" error on every request.
+    //
+    // Raising the cap is close to free: it is a ceiling, not a reservation —
+    // billing is on tokens actually produced.
+    static constexpr int MAX_OUTPUT_TOKENS = 4096;
 
     QNetworkAccessManager* m_networkManager = nullptr;
     TranslationManager* m_translationManager = nullptr;

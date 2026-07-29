@@ -13,19 +13,98 @@
 //   - construction  → default to availableModels().first().id
 //   - modelHint()   → non-empty and mentions every catalog entry by name
 //
-// These methods are pure (no network I/O) and public, so no mocking or
+// Those catalog methods are pure (no network I/O) and public, so no mocking or
 // friend-class access is needed. Gemini is covered too — it shipped the
 // pattern this test also guards, previously untested.
+//
+// The suite also pins the Anthropic REQUEST SHAPE (#1691), which does need a
+// canned-response server: what broke there was an absent field in the posted
+// JSON, not anything a pure method exposes. See FakeAnthropicServer below.
 
 #include <QtTest>
+#include <QHostAddress>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QNetworkAccessManager>
 #include <QRegularExpression>
+#include <QSignalSpy>
+#include <QTcpServer>
+#include <QTcpSocket>
 #include <QList>
 #include <QPair>
 #include <QString>
 
 #include "ai/aiprovider.h"
 #include "core/translationmanager.h"
+
+// Canned-response HTTP server for the Anthropic request/reply contract below.
+// Records the request BODY (not just the request line) because what these
+// tests assert is what we send in the JSON — the #1691 regression was an
+// absent field, invisible from the URL. Same shape as FakeBeanBaseServer in
+// tst_beanbaseclient.cpp.
+//
+// NOTE: no raw string literals anywhere in this file — moc miscounts the
+// braces inside "..." and silently drops every class declared after one.
+class FakeAnthropicServer : public QObject {
+    Q_OBJECT
+public:
+    FakeAnthropicServer() {
+        connect(&m_server, &QTcpServer::newConnection, this, [this]() {
+            while (m_server.hasPendingConnections()) {
+                QTcpSocket* sock = m_server.nextPendingConnection();
+                auto* buf = new QByteArray;
+                connect(sock, &QTcpSocket::readyRead, this, [this, sock, buf]() {
+                    buf->append(sock->readAll());
+                    // Wait for the whole body: a POST can arrive in several
+                    // chunks, and a half-read body parses as invalid JSON.
+                    const qsizetype headerEnd = buf->indexOf("\r\n\r\n");
+                    if (headerEnd < 0) return;
+                    const QByteArray headers = buf->left(headerEnd);
+                    const qsizetype clPos = headers.indexOf("Content-Length: ");
+                    if (clPos < 0) return;
+                    const qsizetype expected = headers.mid(clPos + 16).split('\r').first().toLongLong();
+                    const QByteArray body = buf->mid(headerEnd + 4);
+                    if (body.size() < expected) return;
+
+                    m_requestBodies.append(body);
+                    const QByteArray resp =
+                        "HTTP/1.1 200 OK\r\n"
+                        "Content-Type: application/json\r\n"
+                        "Content-Length: " + QByteArray::number(m_responseBody.size()) + "\r\n"
+                        "Connection: close\r\n"
+                        "\r\n" + m_responseBody;
+                    sock->write(resp);
+                    sock->disconnectFromHost();
+                });
+                connect(sock, &QTcpSocket::disconnected, sock, [sock, buf]() {
+                    delete buf;
+                    sock->deleteLater();
+                });
+            }
+        });
+        const bool ok = m_server.listen(QHostAddress::LocalHost, 0);
+        Q_ASSERT(ok);
+    }
+
+    QString baseUrl() const {
+        return QStringLiteral("http://127.0.0.1:%1").arg(m_server.serverPort());
+    }
+
+    void respondWith(const QByteArray& body) { m_responseBody = body; }
+
+    // Body of the last request the provider actually sent, parsed as JSON.
+    QJsonObject lastRequest() const {
+        if (m_requestBodies.isEmpty()) return {};
+        return QJsonDocument::fromJson(m_requestBodies.last()).object();
+    }
+    qsizetype requestCount() const { return m_requestBodies.size(); }
+
+private:
+    QTcpServer m_server;
+    QByteArray m_responseBody = "{\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],\"stop_reason\":\"end_turn\"}";
+    QList<QByteArray> m_requestBodies;
+};
 
 namespace {
 
@@ -169,6 +248,90 @@ private slots:
         QVERIFY(GeminiProvider(&nam, "key").supportsUrlAnalysis());
         QVERIFY(!OpenRouterProvider(&nam, "key", "model").supportsUrlAnalysis());
         QVERIFY(!OllamaProvider(&nam, "http://localhost:11434", "model").supportsUrlAnalysis());
+    }
+
+    // #1691: every Anthropic request must turn thinking OFF explicitly.
+    //
+    // The default is not stable across models — claude-sonnet-4-6 runs without
+    // thinking when the field is omitted, claude-sonnet-5 runs adaptive. Since
+    // max_tokens bounds thinking + text together, an omitted field on Sonnet 5
+    // let thinking eat the whole budget and the reply carried no text block at
+    // all, failing 100% of the time. Nothing in the request URL shows this, so
+    // the assertion has to be on the posted JSON.
+    void anthropicRequestsDisableThinkingAndUseTheRaisedCap()
+    {
+        QNetworkAccessManager nam;
+        FakeAnthropicServer server;
+        AnthropicProvider p(&nam, QStringLiteral("key"));
+        p.setBaseUrl(server.baseUrl());
+
+        QSignalSpy complete(&p, &AIProvider::analysisComplete);
+
+        p.analyze(QStringLiteral("system"), QStringLiteral("user"));
+        QVERIFY(complete.wait(5000));
+        QCOMPARE(server.requestCount(), 1);
+
+        QJsonObject body = server.lastRequest();
+        QCOMPARE(body["thinking"].toObject()["type"].toString(), QStringLiteral("disabled"));
+        QCOMPARE(body["max_tokens"].toInt(), 4096);
+
+        // analyzeConversation() is the path the in-app advisor actually uses
+        // (AIConversation::sendRequest) and is where #1691 was reported.
+        QJsonArray messages;
+        QJsonObject userMsg;
+        userMsg["role"] = QStringLiteral("user");
+        userMsg["content"] = QStringLiteral("how did this shot taste?");
+        messages.append(userMsg);
+        p.analyzeConversation(QStringLiteral("system"), messages);
+        QVERIFY(complete.wait(5000));
+        QCOMPARE(server.requestCount(), 2);
+
+        body = server.lastRequest();
+        QCOMPARE(body["thinking"].toObject()["type"].toString(), QStringLiteral("disabled"));
+        QCOMPARE(body["max_tokens"].toInt(), 4096);
+    }
+
+    // A 200 whose content holds blocks but no TEXT block is what #1691 looked
+    // like on the wire. Belt and braces for the fix above: if thinking ever
+    // returns (a new model default, a future feature), the user must get the
+    // truncation message and the log must name the block types — the old
+    // generic "empty response content" was indistinguishable from a refusal
+    // and cost three days of user reports to place.
+    void anthropicReportsAThinkingOnlyReplyAsTruncated()
+    {
+        QNetworkAccessManager nam;
+        FakeAnthropicServer server;
+        server.respondWith(
+            "{\"content\":[{\"type\":\"thinking\",\"thinking\":\"\"}],\"stop_reason\":\"max_tokens\"}");
+        AnthropicProvider p(&nam, QStringLiteral("key"));
+        p.setBaseUrl(server.baseUrl());
+
+        QSignalSpy failed(&p, &AIProvider::analysisFailed);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Anthropic: stop_reason"));
+
+        p.analyze(QStringLiteral("system"), QStringLiteral("user"));
+        QVERIFY(failed.wait(5000));
+        QCOMPARE(failed.size(), 1);
+        const QString message = failed.first().first().toString();
+        QVERIFY2(message.contains(QStringLiteral("cut off")),
+                 qPrintable(QStringLiteral("expected the truncation message, got: ") + message));
+    }
+
+    // The truncation branch must not swallow good replies: stop_reason
+    // "end_turn" with real text still completes.
+    void anthropicCompleteReplyStillSucceeds()
+    {
+        QNetworkAccessManager nam;
+        FakeAnthropicServer server;
+        server.respondWith(
+            "{\"content\":[{\"type\":\"text\",\"text\":\"Grind finer.\"}],\"stop_reason\":\"end_turn\"}");
+        AnthropicProvider p(&nam, QStringLiteral("key"));
+        p.setBaseUrl(server.baseUrl());
+
+        QSignalSpy complete(&p, &AIProvider::analysisComplete);
+        p.analyze(QStringLiteral("system"), QStringLiteral("user"));
+        QVERIFY(complete.wait(5000));
+        QCOMPARE(complete.first().first().toString(), QStringLiteral("Grind finer."));
     }
 };
 

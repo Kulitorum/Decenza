@@ -4,6 +4,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QNetworkRequest>
+#include <QStringList>
 #include <QTimer>
 #include <QUrl>
 #include <QVariant>
@@ -32,6 +33,13 @@ QString AIProvider::tr_(const char* key, const char* fallback) const
         return m_translationManager->translateString(QString::fromUtf8(key),
                                                QString::fromUtf8(fallback));
     return QString::fromUtf8(fallback);
+}
+
+QString AIProvider::truncatedResponseError() const
+{
+    return tr_("ai.error.truncated",
+               "The AI's reply was cut off before it finished. Please try again, "
+               "or ask a more specific question.");
 }
 
 QString AIProvider::friendlyNetworkError(QNetworkReply* reply) const
@@ -243,9 +251,9 @@ void OpenAIProvider::analyze(const QString& systemPrompt, const QString& userPro
     // chat/completions ("Unsupported parameter") — max_completion_tokens is
     // the accepted cap. Live-caught July 2026: stage-1 extraction and the
     // advisor both 400'd on gpt-5.4/gpt-5.4-mini.
-    requestBody["max_completion_tokens"] = 1024;
+    requestBody["max_completion_tokens"] = MAX_OUTPUT_TOKENS;
     // GPT-5 family are reasoning models; keep reasoning off so hidden
-    // reasoning tokens don't count against the 1024-token output cap (which would
+    // reasoning tokens don't count against the output cap (which would
     // risk truncating the trailing nextShot JSON block) and to keep latency/cost
     // low. Dial-in advice needs little chain-of-thought. Mirrors Gemini's
     // thinking=off. The 5.4 generation REPLACED the value "minimal" with "none"
@@ -284,7 +292,7 @@ void OpenAIProvider::analyzeUrl(const QString& systemPrompt, const QString& user
     QJsonObject reasoning;
     reasoning["effort"] = QString("low");
     requestBody["reasoning"] = reasoning;
-    requestBody["max_output_tokens"] = 2048;
+    requestBody["max_output_tokens"] = MAX_OUTPUT_TOKENS;
 
     sendResponsesRequest(requestBody);
 }
@@ -361,10 +369,21 @@ void OpenAIProvider::onResponsesReply(QNetworkReply* reply)
                 text += part["text"].toString();
         }
     }
-    if (text.isEmpty()) {
-        qWarning() << "OpenAI Responses: no output_text (status"
-                   << root["status"].toString() << ")";
-        emit analysisFailed(tr_("ai.openai.emptyContent", "OpenAI returned empty response content"));
+    // "incomplete" + reason "max_output_tokens" means the cap cut the answer
+    // short. Report it either way: an empty text is a failure, and a partial
+    // one is worse than a failure if returned as if complete — it silently
+    // drops the trailing nextShot JSON block.
+    const bool truncated = root["status"].toString() == QLatin1String("incomplete")
+        && root["incomplete_details"].toObject()["reason"].toString()
+               == QLatin1String("max_output_tokens");
+    if (text.isEmpty() || truncated) {
+        qWarning() << "OpenAI Responses: status" << root["status"].toString()
+                   << "incomplete_reason"
+                   << root["incomplete_details"].toObject()["reason"].toString()
+                   << "text chars" << text.size();
+        emit analysisFailed(truncated
+            ? truncatedResponseError()
+            : tr_("ai.openai.emptyContent", "OpenAI returned empty response content"));
         return;
     }
     emit analysisComplete(text);
@@ -384,7 +403,7 @@ void OpenAIProvider::analyzeConversation(const QString& systemPrompt, const QJso
     QJsonObject requestBody;
     requestBody["model"] = m_model;
     requestBody["messages"] = buildOpenAIMessages(systemPrompt, messages);
-    requestBody["max_completion_tokens"] = 1024;
+    requestBody["max_completion_tokens"] = MAX_OUTPUT_TOKENS;
     requestBody["reasoning_effort"] = "none";  // see analyze(): 5.4 generation dropped "minimal"
 
     sendRequest(requestBody);
@@ -430,9 +449,16 @@ void OpenAIProvider::onAnalysisReply(QNetworkReply* reply)
         return;
     }
 
+    const QString finishReason = choices[0].toObject()["finish_reason"].toString();
     QString content = choices[0].toObject()["message"].toObject()["content"].toString();
-    if (content.isEmpty()) {
-        emit analysisFailed(tr_("ai.openai.emptyContent", "OpenAI returned empty response content"));
+    // finish_reason "length" = the answer hit max_completion_tokens. Never emit
+    // a truncated reply as if complete (see MAX_OUTPUT_TOKENS).
+    if (content.isEmpty() || finishReason == QLatin1String("length")) {
+        qWarning() << "OpenAI: finish_reason" << finishReason
+                   << "content chars" << content.size();
+        emit analysisFailed(finishReason == QLatin1String("length")
+            ? truncatedResponseError()
+            : tr_("ai.openai.emptyContent", "OpenAI returned empty response content"));
         return;
     }
     emit analysisComplete(content);
@@ -518,6 +544,27 @@ void OpenAIProvider::onTestReply(QNetworkReply* reply)
 // ============================================================================
 // Anthropic Provider
 // ============================================================================
+
+// Turn extended thinking OFF, explicitly, on every request.
+//
+// This has to be explicit because the default is NOT stable across models:
+// claude-sonnet-4-6 runs without thinking when the field is omitted, while
+// claude-sonnet-5 runs ADAPTIVE thinking when the field is omitted. Since
+// max_tokens caps thinking + response text together, omitting the field on
+// Sonnet 5 let thinking consume the entire budget — the reply came back HTTP
+// 200 with a thinking block and no text block at all, which is #1691's
+// "Anthropic returned empty response content" for every request the user sent.
+//
+// Off (not merely bounded) is the right setting here for the same reason the
+// OpenAI and Gemini paths force reasoning/thinking off: dial-in advice needs
+// little chain-of-thought, and hidden thinking tokens are billed at the output
+// rate. Both selectable models accept the "disabled" form.
+static void disableAnthropicThinking(QJsonObject& requestBody)
+{
+    QJsonObject thinking;
+    thinking["type"] = QStringLiteral("disabled");
+    requestBody["thinking"] = thinking;
+}
 
 AnthropicProvider::AnthropicProvider(QNetworkAccessManager* networkManager,
                                      const QString& apiKey,
@@ -612,7 +659,8 @@ void AnthropicProvider::analyze(const QString& systemPrompt, const QString& user
 
     QJsonObject requestBody;
     requestBody["model"] = m_model;
-    requestBody["max_tokens"] = 1024;
+    requestBody["max_tokens"] = MAX_OUTPUT_TOKENS;
+    disableAnthropicThinking(requestBody);
     requestBody["system"] = buildCachedSystemPrompt(systemPrompt);
     QJsonArray messages;
     QJsonObject userMsg;
@@ -637,7 +685,8 @@ void AnthropicProvider::analyzeUrl(const QString& systemPrompt, const QString& u
 
     QJsonObject requestBody;
     requestBody["model"] = m_model;
-    requestBody["max_tokens"] = 1024;
+    requestBody["max_tokens"] = MAX_OUTPUT_TOKENS;
+    disableAnthropicThinking(requestBody);
     requestBody["system"] = buildCachedSystemPrompt(systemPrompt);
     QJsonArray messages;
     QJsonObject userMsg;
@@ -672,7 +721,8 @@ void AnthropicProvider::analyzeConversation(const QString& systemPrompt, const Q
 
     QJsonObject requestBody;
     requestBody["model"] = m_model;
-    requestBody["max_tokens"] = 1024;
+    requestBody["max_tokens"] = MAX_OUTPUT_TOKENS;
+    disableAnthropicThinking(requestBody);
     requestBody["system"] = buildCachedSystemPrompt(systemPrompt);
     requestBody["messages"] = messagesWithCachedFirstUser(messages);
 
@@ -786,8 +836,24 @@ void AnthropicProvider::onAnalysisReply(QNetworkReply* reply)
         if (obj["type"].toString() == QLatin1String("text"))
             text += obj["text"].toString();
     }
-    if (text.isEmpty()) {
-        emit analysisFailed(tr_("ai.anthropic.emptyContent", "Anthropic returned empty response content"));
+    // stop_reason "max_tokens" = the answer hit the cap. Report it rather than
+    // emitting a half-written reply whose trailing nextShot JSON block is gone.
+    // Log the block types on any text-less reply: content can be non-empty
+    // while carrying no text block at all (a thinking-only reply — #1691), and
+    // the generic message alone made that indistinguishable from a real
+    // refusal for three days of user reports.
+    const QString stopReason = root["stop_reason"].toString();
+    const bool truncated = stopReason == QLatin1String("max_tokens");
+    if (text.isEmpty() || truncated) {
+        QStringList blockTypes;
+        for (const QJsonValue& block : content)
+            blockTypes << block.toObject()["type"].toString();
+        qWarning() << "Anthropic: stop_reason" << stopReason
+                   << "block types" << blockTypes
+                   << "text chars" << text.size();
+        emit analysisFailed(truncated
+            ? truncatedResponseError()
+            : tr_("ai.anthropic.emptyContent", "Anthropic returned empty response content"));
         return;
     }
     emit analysisComplete(text);
@@ -800,10 +866,15 @@ void AnthropicProvider::testConnection()
         return;
     }
 
-    // Send a minimal request to test the API key
+    // Send a minimal request to test the API key. Thinking off for the same
+    // reason as the analysis paths — with thinking on, a 10-token budget
+    // produces a reply with no text block. This check only looks for an error,
+    // so it PASSED while every real request failed (#1691): the user's key
+    // tested fine and the advisor was unusable.
     QJsonObject requestBody;
     requestBody["model"] = m_model;
     requestBody["max_tokens"] = 10;
+    disableAnthropicThinking(requestBody);
     QJsonArray messages;
     QJsonObject userMsg;
     userMsg["role"] = QString("user");
@@ -976,7 +1047,7 @@ void GeminiProvider::sendRequest(const QJsonObject& requestBody)
     }
     QJsonObject generationConfig;
     generationConfig["thinkingConfig"] = thinkingConfig;
-    generationConfig["maxOutputTokens"] = 1024;  // also bounds thinking tokens; matches other providers
+    generationConfig["maxOutputTokens"] = MAX_OUTPUT_TOKENS;  // also bounds thinking tokens; matches other providers
     bodyWithConfig["generationConfig"] = generationConfig;
 
     m_retryFn = [this, requestBody]() { sendRequest(requestBody); };
@@ -1174,8 +1245,16 @@ void GeminiProvider::onAnalysisReply(QNetworkReply* reply)
             continue;
         text += part["text"].toString();
     }
-    if (text.isEmpty()) {
-        emit analysisFailed(tr_("ai.gemini.emptyContent", "Gemini returned empty response content"));
+    // finishReason "MAX_TOKENS" = the answer hit maxOutputTokens; don't emit a
+    // truncated reply as if complete (see MAX_OUTPUT_TOKENS).
+    const QString finishReason = candidates[0].toObject()["finishReason"].toString();
+    const bool truncated = finishReason == QLatin1String("MAX_TOKENS");
+    if (text.isEmpty() || truncated) {
+        qWarning() << "Gemini: finishReason" << finishReason
+                   << "parts" << parts.size() << "text chars" << text.size();
+        emit analysisFailed(truncated
+            ? truncatedResponseError()
+            : tr_("ai.gemini.emptyContent", "Gemini returned empty response content"));
         return;
     }
     emit analysisComplete(text);
@@ -1325,7 +1404,7 @@ void OpenRouterProvider::analyze(const QString& systemPrompt, const QString& use
     userMsg["content"] = userPrompt;
     messages.append(userMsg);
     requestBody["messages"] = messages;
-    requestBody["max_tokens"] = 1024;
+    requestBody["max_tokens"] = MAX_OUTPUT_TOKENS;
 
     sendRequest(requestBody);
 }
@@ -1344,7 +1423,7 @@ void OpenRouterProvider::analyzeConversation(const QString& systemPrompt, const 
     QJsonObject requestBody;
     requestBody["model"] = m_model;
     requestBody["messages"] = buildOpenAIMessages(systemPrompt, messages);
-    requestBody["max_tokens"] = 1024;
+    requestBody["max_tokens"] = MAX_OUTPUT_TOKENS;
 
     sendRequest(requestBody);
 }
@@ -1389,9 +1468,17 @@ void OpenRouterProvider::onAnalysisReply(QNetworkReply* reply)
         return;
     }
 
+    // finish_reason "length" = the answer hit max_tokens. This matters most on
+    // OpenRouter: the model is a free-text user string, so it can point at a
+    // reasoning model whose hidden tokens eat the cap the way #1691's did.
+    const QString finishReason = choices[0].toObject()["finish_reason"].toString();
     QString content = choices[0].toObject()["message"].toObject()["content"].toString();
-    if (content.isEmpty()) {
-        emit analysisFailed(tr_("ai.openrouter.emptyContent", "OpenRouter returned empty response content"));
+    if (content.isEmpty() || finishReason == QLatin1String("length")) {
+        qWarning() << "OpenRouter: model" << m_model << "finish_reason" << finishReason
+                   << "content chars" << content.size();
+        emit analysisFailed(finishReason == QLatin1String("length")
+            ? truncatedResponseError()
+            : tr_("ai.openrouter.emptyContent", "OpenRouter returned empty response content"));
         return;
     }
     emit analysisComplete(content);
