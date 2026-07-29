@@ -1453,9 +1453,11 @@ void BLEManager::setScaleDevice(ScaleDevice* scale) {
     if (m_scaleDevice) {
         connect(m_scaleDevice, &ScaleDevice::connectedChanged,
                 this, &BLEManager::onScaleConnectedChanged);
-        // Connect scale's debug log to our logging system. Record only — the
-        // SCALE_LOG/SCALE_WARN macros the drivers and transports use have
-        // already written this line to stderr at the right severity.
+        // Connect scale's debug log to our logging system. Record only — every
+        // source behind this signal has already written the line to stderr at
+        // the right severity: the drivers via SCALE_LOG/SCALE_WARN, and the
+        // transports (whose logMessage each driver re-emits as its own) via
+        // their own log()/warn() helpers. See appendScaleLog().
         connect(m_scaleDevice, &ScaleDevice::logMessage, this,
                 [this](const QString& msg) {
             appendScaleLog(msg, /*mirrorToSystemLog=*/false);
@@ -2634,17 +2636,29 @@ void BLEManager::appendScaleLog(const QString& message, bool mirrorToSystemLog) 
     // debug log lives only in m_scaleLogMessages (rendered into the user-
     // shareable scale_debug_log.txt) and is invisible during local
     // development unless the developer is staring at the in-app log view.
-    // Use a stable [Scale] prefix so the line is grep-friendly in stderr.
     //
     // mirrorToSystemLog=false is for the forwarders whose source ALREADY wrote
-    // the line to stderr itself: SCALE_LOG/SCALE_WARN (scalelogging.h) and the
-    // R1/R2 refractometer macros both qDebug/qWarning and then emit
-    // logMessage(). Mirroring those a second time printed every scale-device
-    // line twice — once bare, once with the [Scale] prefix — which is what the
-    // whole "[BLE DecentScaleWifi] …" / "[Scale] [BLE DecentScaleWifi] …" pair
-    // in the console was. Suppressing at the sink rather than dropping the
-    // qDebug at the source keeps SCALE_WARN's warning severity, which this
-    // mirror cannot reproduce.
+    // the line to stderr itself: SCALE_LOG/SCALE_WARN (scalelogging.h), the
+    // transports' own log()/warn() helpers (qtscalebletransport.cpp,
+    // corebluetoothscalebletransport.mm — same double-write shape, not the
+    // macros), and the R1/R2 refractometer macros. All of them qDebug/qWarning
+    // and then emit logMessage(). Mirroring those a second time printed every
+    // scale-device line twice — once bare, once with the [Scale] prefix — which
+    // is what the whole "[BLE DecentScaleWifi] …" / "[Scale] [BLE
+    // DecentScaleWifi] …" pair in the console was.
+    //
+    // Suppressing at the sink rather than dropping the qDebug at the source
+    // keeps SCALE_WARN's warning severity, which this qDebug mirror cannot
+    // reproduce. (Severity survives into logcat, debug.log's WARN column and
+    // the per-shot debug log. It does NOT survive to desktop stderr, because
+    // AsyncLogger fprintf()s the raw message with no type and no message
+    // pattern — asynclogger.cpp. So the severity argument is about Android and
+    // the submitted logs, not about the Mac console.)
+    //
+    // Grep note: because of this, [Scale] no longer prefixes the driver lines.
+    // A submitted log has BOTH prefixes and you usually want both — [Scale] for
+    // BLEManager's own narrative (plus scaledevice.cpp's CONNECTED/DISCONNECTED)
+    // and "[BLE <Driver>]" for everything the drivers and transports emit.
     if (mirrorToSystemLog) {
         qDebug().noquote() << "[Scale]" << message;
     }

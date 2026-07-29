@@ -372,11 +372,12 @@ void McpRemoteAccess::doReachabilityProbe()
             if (!m_funnelReachable) {
                 m_funnelReachable = true;
                 stopReachabilityProbe();
-                // Log the recovery edge. Failures warn once per probe and then
-                // the probe just stops; without this line a log showing three
-                // "probe failed" warnings and nothing after is ambiguous —
-                // reachable on the next try, or given up? — and that is exactly
-                // how it read in practice.
+                // Log the recovery edge. Success is what STOPS the probe
+                // (stopReachabilityProbe() just above) and it used to do so
+                // silently, so a log showing a few "probe failed" warnings and
+                // then nothing was ambiguous — recovered, or still failing
+                // off-screen? — and that is exactly how it read in practice.
+                // (Failure never stops the probe; see the branch below.)
                 qInfo().noquote() << "McpRemoteAccess: Funnel reachable at" << domain
                                   << "— remote access Active";
                 setStatus(Active);
@@ -389,8 +390,20 @@ void McpRemoteAccess::doReachabilityProbe()
         // cause is Funnel not granted for this node yet. Keep probing (it
         // recovers once granted), but after a grace window surface an actionable
         // error instead of an unbounded "Verifying…".
-        qWarning() << "McpRemoteAccess: Funnel reachability probe failed:" << errStr;
-        if (++m_probeFailCount >= 5 && m_status != Error) {
+        // Rate-limited: a Funnel that is never granted fails forever at the 6 s
+        // probe interval, which is 600 warnings an hour against a 500-line
+        // in-memory ring (WebDebugLogger) — it evicts the very startup lines a
+        // reader needs. Warn through the grace window (so the run-up to the
+        // Error status is fully visible), then once a minute. errStr is
+        // effectively constant across cycles, so the dropped lines carry nothing
+        // the kept ones don't.
+        ++m_probeFailCount;
+        constexpr int kProbeWarnEveryNAfterGrace = 10;  // 10 × 6 s = once a minute
+        if (m_probeFailCount <= 5 || m_probeFailCount % kProbeWarnEveryNAfterGrace == 0) {
+            qWarning().noquote() << "McpRemoteAccess: Funnel reachability probe failed:" << errStr
+                                 << "(attempt" << m_probeFailCount << ")";
+        }
+        if (m_probeFailCount >= 5 && m_status != Error) {
             setStatus(Error, QStringLiteral(
                 "Public Funnel URL isn't reachable yet. Make sure Funnel is enabled for this "
                 "device in the Tailscale admin console (see “Set up Tailscale Funnel”). "

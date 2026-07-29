@@ -33,6 +33,18 @@ private:
         settings.mqtt()->setMqttBrokerHost(QStringLiteral("192.0.2.1"));  // TEST-NET-1
     }
 
+    // Runs the real Paho failure callback and returns the error string it emitted.
+    // Reads the signal argument rather than status(): internalConnectionFailed is a
+    // QueuedConnection, so the slot that sets the status has not run yet. Lives here
+    // and not in `private slots:` — moc would register it as a test function.
+    static QString failureStringFor(MqttClient* c, MQTTAsync_failureData* data) {
+        QSignalSpy spy(c, &MqttClient::internalConnectionFailed);
+        MqttClient::onConnectFailure(c, data);
+        if (spy.count() != 1)
+            return QString();
+        return spy.at(0).at(0).toString();
+    }
+
 private slots:
     void init() { QTest::failOnWarning(); }
 
@@ -244,18 +256,94 @@ private slots:
     // ===== Status text =====
 
     void brokerReasonSurvivesIntoTheStatus() {
-        // "Bad user name or password" is the whole diagnosis; a bare
+        // "bad username or password" is the whole diagnosis; a bare
         // "reconnecting (3/10)..." that overwrites it makes the fault unfindable.
+        // Uses the string onConnectFailure actually produces for CONNACK 4 (see
+        // connackReasonTextIsUsedInsteadOfARawCode below) — the previous literal
+        // here, "Bad user name or password", was reachable from no code path, so
+        // this test passed while the raw "(code 4)" went unnoticed.
         Settings settings;
         enableMqtt(settings);
         QScopedPointer<MqttClient> c(makeClient(settings));
 
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Connection failed"));
-        c->onInternalConnectionFailed(QStringLiteral("Bad user name or password"));
+        c->onInternalConnectionFailed(QStringLiteral("bad username or password"));
 
-        QVERIFY2(c->status().contains(QStringLiteral("Bad user name or password")),
+        QVERIFY2(c->status().contains(QStringLiteral("bad username or password")),
                  "the broker's reason must reach the Home Automation tab");
         QVERIFY(c->m_reconnectTimer.isActive());
+    }
+
+    // ===== CONNACK decoding =====
+    //
+    // These drive the real Paho callback (onConnectFailure) rather than the slot,
+    // because the string construction under test lives there. internalConnectionFailed
+    // reaches onInternalConnectionFailed via a QueuedConnection, so the assertions read
+    // the signal argument through QSignalSpy — which records synchronously — instead of
+    // status(), which would need the event loop to turn. Each test then pumps once so
+    // the queued slot (and its qWarning) is consumed inside the test that caused it.
+
+    void connackReasonIsDecodedInsteadOfShownAsARawCode() {
+        // A broker that answers and rejects gives Paho the constant message
+        // "CONNACK return code"; the reason is only in `code`. The string reaches
+        // the user verbatim on the Home Automation tab, so it must carry words.
+        Settings settings;
+        enableMqtt(settings);
+        QScopedPointer<MqttClient> c(makeClient(settings));
+
+        char message[] = "CONNACK return code";
+        MQTTAsync_failureData data{};
+        data.code = 4;
+        data.message = message;
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("bad username or password"));
+        const QString error = failureStringFor(c.data(), &data);
+
+        QCOMPARE(error, QStringLiteral("bad username or password"));
+        QVERIFY2(!error.contains(QStringLiteral("code 4")),
+                 "the raw number adds nothing once the reason is spelled out");
+        QVERIFY2(!error.contains(QStringLiteral("CONNACK")),
+                 "Paho's placeholder message carries no information and must not survive");
+        QCoreApplication::processEvents();
+    }
+
+    void transportErrorKeepsPahosMessageAndAppendsTheUnknownCode() {
+        // Negative codes are MQTTASYNC_* transport errors, not CONNACK values —
+        // and these are the common "broker unreachable" failures. Paho's message
+        // is self-describing there, so it is kept, and the unrecognised code is
+        // appended rather than swallowed.
+        Settings settings;
+        enableMqtt(settings);
+        QScopedPointer<MqttClient> c(makeClient(settings));
+
+        char message[] = "TCP/TLS connect failure";
+        MQTTAsync_failureData data{};
+        data.code = -1;
+        data.message = message;
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("TCP/TLS connect failure"));
+        const QString error = failureStringFor(c.data(), &data);
+
+        QVERIFY(error.contains(QStringLiteral("TCP/TLS connect failure")));
+        QVERIFY2(error.contains(QStringLiteral("(code -1)")),
+                 "an unrecognised code must still be visible");
+        QCoreApplication::processEvents();
+    }
+
+    void aNullFailureDataStillYieldsTheGenericMessage() {
+        // Paho can invoke onFailure with no failureData at all; that must not
+        // read any member, and must not append a bogus code.
+        Settings settings;
+        enableMqtt(settings);
+        QScopedPointer<MqttClient> c(makeClient(settings));
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Connection failed"));
+        const QString error = failureStringFor(c.data(), nullptr);
+
+        QCOMPARE(error, QStringLiteral("Connection failed"));
+        QVERIFY2(!error.contains(QStringLiteral("code")),
+                 "no response means no code to report");
+        QCoreApplication::processEvents();
     }
 };
 
