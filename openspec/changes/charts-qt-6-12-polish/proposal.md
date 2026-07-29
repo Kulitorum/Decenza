@@ -10,6 +10,12 @@ This change collects every visual / API / performance item that was deferred dur
 
 Decenza will upgrade to Qt 6.12 in a separate `upgrade-qt-6-12` change after 6.12 GA (2026-09-22). This change runs after that upgrade lands.
 
+**`upgrade-qt-6-12` now exists** (`../upgrade-qt-6-12/`) and is blocked on a product decision of its
+own: Qt 6.12 raises the iOS minimum from 17.0 to iOS 18, dropping a device class including the iPad
+used for iOS testing here. Whichever way that goes, it decides when this change can start — and if it
+goes to "hold iOS on 6.11.1", the charts items still proceed, since every graph surface is shared and
+would be built by the 6.12 toolchain on Android and desktop.
+
 ## Verification against Qt 6.12 (done 2026-07-29, Beta 2 tree)
 
 Every item below was checked against the actual `qt/qtgraphs` **`6.12` branch** (feature freeze
