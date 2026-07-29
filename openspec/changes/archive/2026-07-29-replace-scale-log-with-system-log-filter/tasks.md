@@ -108,7 +108,7 @@ Found while converting group 3: `[Scale]`/`[DE1]`/`[Refractometer]` are not yet 
 
 ## 8. Close out
 
-- [ ] 8.1 Run the full suite via Qt Creator (`run_tests`, scope `all`) and confirm zero failures and zero warnings.
-- [ ] 8.2 Open a PR.
-- [ ] 8.3 Run the automated `/pr-review-toolkit:review-pr` and address findings.
-- [ ] 8.4 Archive the change with spec-sync as the final commit on the PR.
+- [x] 8.1 Run the full suite via Qt Creator (`run_tests`, scope `all`) and confirm zero failures and zero warnings. 109/109, 0 warnings.
+- [x] 8.2 Open a PR. #1707, merged as 01679eb4.
+- [x] 8.3 Run the automated `/pr-review-toolkit:review-pr` and address findings. Five passes (code, tests, silent-failure, comments, types); fixed two regressions the branch itself introduced plus the other real findings across three follow-up commits.
+- [x] 8.4 Archive the change with spec-sync. Landed as a follow-up commit after the PR merged rather than as its final commit — should have archived before merging, not after; noted for next time.

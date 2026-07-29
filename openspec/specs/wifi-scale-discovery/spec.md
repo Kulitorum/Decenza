@@ -371,7 +371,6 @@ The driver SHALL request `rate 10k` on connect and SHALL NOT attempt to downgrad
 - **WHEN** the firmware skips a write tick because the socket is not writable
 - **THEN** the driver receives a frame later than the requested interval; the weight pipeline's EMA tracks the actual cadence and does not trigger spurious stalls so long as gaps stay under `kScaleStaleMs` (2 s)
 
-
 ### Requirement: The recognition window is armed before the socket is opened
 
 `attemptTarget` SHALL start the recognition timer BEFORE calling `open()`, never after. Opening a WebSocket against an address the operating system rejects at the routing layer fails synchronously, inside the `open()` call, so an error handler that stops the recognition timer runs before a timer started after `open()` exists.
@@ -426,11 +425,11 @@ This does not apply to a USB scale being physically unplugged, which removes its
 
 #### Scenario: Stale instance that never resolves
 - **WHEN** the browse returns an instance name whose SRV/address resolution does not complete within the resolve deadline
-- **THEN** no row appears for that instance, and the scale log records the instance name and that it was dropped at resolve
+- **THEN** no row appears for that instance, and the scale narrative in the system log records the instance name and that it was dropped at resolve
 
 #### Scenario: Instance withdrawn mid-scan
 - **WHEN** an instance is listed and the system resolver subsequently withdraws it because nobody answered a re-query
-- **THEN** its row remains in the list for the rest of the scan cycle, and the withdrawal is recorded in the scale log only
+- **THEN** its row remains in the list for the rest of the scan cycle, and the withdrawal is recorded in the scale narrative only
 
 #### Scenario: Departed device disappears on the next scan
 - **WHEN** a scale that was listed in the previous scan is no longer present and the user scans again
@@ -494,19 +493,19 @@ The DNS-SD browse SHALL be available on Windows, macOS, Linux, Android and iOS. 
 
 ### Requirement: Discovery diagnostics cover the browse
 
-The scale debug log SHALL record what the browse did, at the same level of detail the existing A-record probe records, so a user-shared log explains a discovery failure without needing a console.
+The scale narrative in the system log SHALL record what the browse did, at the same level of detail the existing A-record probe records, so a user-shared log explains a discovery failure without needing a console. These records are part of the user-facing narrative — they are what a discovery complaint is diagnosed from — so they SHALL be logged at INFO or above and therefore appear in the connections page's scale view as well as in the shared log.
 
 #### Scenario: Browse produces results
 - **WHEN** a browse completes and returns one or more services
-- **THEN** the scale log records the service type queried, the number of results, and each result's instance name, host, address and firmware version
+- **THEN** the scale narrative records the service type queried, the number of results, and each result's instance name, host, address and firmware version
 
 #### Scenario: Browse returns nothing
 - **WHEN** a browse completes with no results
-- **THEN** the scale log records that the browse ran and found nothing, distinguishably from the browse not having been attempted
+- **THEN** the scale narrative records that the browse ran and found nothing, distinguishably from the browse not having been attempted
 
 #### Scenario: Fallback names are logged individually
 - **WHEN** the multi-name A-record fallback runs
-- **THEN** the scale log records the outcome for each of `hds.local`, `hds-2.local` and `hds-3.local` separately, so a partial result is diagnosable
+- **THEN** the scale narrative records the outcome for each of `hds.local`, `hds-2.local` and `hds-3.local` separately, so a partial result is diagnosable
 
 #### Scenario: A lookup could not be performed at all
 - **WHEN** the query socket cannot be opened, or every query send fails
@@ -515,3 +514,4 @@ The scale debug log SHALL record what the browse did, at the same level of detai
 #### Scenario: A diagnostic reads an empty result set
 - **WHEN** a diagnostic surface reports the results of the most recent discovery and there are none
 - **THEN** it also reports whether each transport actually ran, so "permission denied" is not indistinguishable from "no scales on this network"
+
