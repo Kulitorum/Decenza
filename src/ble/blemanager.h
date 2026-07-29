@@ -557,7 +557,12 @@ public:
     Q_INVOKABLE void clearScaleLog();
     Q_INVOKABLE void shareScaleLog();
     Q_INVOKABLE QString getScaleLogPath() const;
-    void appendScaleLog(const QString& message);  // For use by scale implementations
+    // For use by scale implementations. mirrorToSystemLog=false when the caller
+    // already wrote the line to stderr itself (the SCALE_LOG/R2_LOG macro
+    // family) — see the definition. Note the defaulted second parameter makes
+    // this unusable as a pointer-to-member slot: forwarders connect through a
+    // lambda.
+    void appendScaleLog(const QString& message, bool mirrorToSystemLog = true);
 
 public slots:
     Q_INVOKABLE void tryDirectConnectToDE1();

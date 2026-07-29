@@ -176,10 +176,57 @@ void MqttClient::onConnectSuccess(void* context, MQTTAsync_successData* /*respon
     emit self->internalConnected();
 }
 
+// Decode an MQTT 3.1.1 CONNACK return code into something a user can act on.
+// Returns a null QString for anything that is not a CONNACK code — in
+// particular the negative MQTTASYNC_* transport errors, where Paho's own
+// `message` ("TCP connect timeout", "TCP/TLS connect failure", …) is already
+// self-describing and a bare number would only add noise.
+static QString connackReasonText(int code)
+{
+    switch (code) {
+    case 1: return QStringLiteral("broker rejected the MQTT protocol version");
+    case 2: return QStringLiteral("broker rejected this client ID");
+    case 3: return QStringLiteral("broker unavailable");
+    case 4: return QStringLiteral("bad username or password");
+    case 5: return QStringLiteral("not authorized");
+    default: return QString();
+    }
+}
+
 void MqttClient::onConnectFailure(void* context, MQTTAsync_failureData* response)
 {
     MqttClient* self = static_cast<MqttClient*>(context);
-    QString error = response && response->message ? QString::fromUtf8(response->message) : "Connection failed";
+    // Paho's `message` for a broker that answered but REJECTED the session is
+    // the constant string "CONNACK return code" — it carries no information at
+    // all. The reason lives in `code`, which Paho sets unconditionally
+    // (MQTTAsyncUtils.c nextOrClose): either an MQTT CONNACK return code, or a
+    // negative MQTTASYNC_* error for a failure before CONNACK. Dropping it made
+    // every rejection read identically in the log AND in the status text the
+    // MQTT settings tab shows the user, so "wrong password" was indistinguish-
+    // able from "broker doesn't want this client id".
+    //
+    // Decode rather than print the raw number: the status string reaches the
+    // user verbatim (see setStatus below and SettingsHomeAutomationTab.qml), and
+    // "(code 4)" is no more actionable to them than no code at all. The raw
+    // number is still appended when it is NOT a known CONNACK value, so an
+    // unexpected code is never swallowed. Note the common "broker unreachable"
+    // failures arrive as MQTTASYNC_FAILURE (-1) with a descriptive message, so
+    // they deliberately get no suffix.
+    //
+    // v3 only, by construction: connect() registers onFailure (not onFailure5)
+    // and sets no MQTTVersion, so MQTTVERSION_DEFAULT applies and the codes
+    // below are the 3.1.1 set. MQTTAsync_failureData has no reasonCode field —
+    // that is failureData5 — so nothing is lost by not reading one.
+    QString error = QStringLiteral("Connection failed");
+    if (response) {
+        if (response->message)
+            error = QString::fromUtf8(response->message);
+        const QString reason = connackReasonText(response->code);
+        if (!reason.isEmpty())
+            error = reason;
+        else
+            error += QStringLiteral(" (code %1)").arg(response->code);
+    }
     emit self->internalConnectionFailed(error);
 }
 
@@ -578,7 +625,8 @@ void MqttClient::scheduleReconnect(const QString& reason)
 
     // Keep the broker's own words. The caller has usually just set an "Error: …"
     // status, and both assignments land in one event-loop turn, so a bare
-    // reconnectStatusText() would erase "Bad user name or password" before it could
+    // reconnectStatusText() would erase "bad username or password" (the decoded
+    // CONNACK 4 text from connackReasonText()) before it could
     // ever be painted — and the status line (Home Automation tab, and the ShotServer
     // settings page which mirrors it) is the main place
     // that reason reaches the user. With retries no longer stopping, there would be

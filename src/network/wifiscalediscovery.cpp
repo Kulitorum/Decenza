@@ -26,9 +26,12 @@ WifiScaleDiscovery::WifiScaleDiscovery(QObject* parent)
     m_timeoutTimer->setSingleShot(true);
     connect(m_timeoutTimer, &QTimer::timeout, this, [this]() {
         if (m_outstanding <= 0) return;
-        qDebug() << "[WifiScaleDiscovery] probe timed out with"
-                 << m_outstanding << "lookup(s) outstanding";
-        emit logMessage(QStringLiteral("mDNS probe timed out"));
+        // No qDebug beside the emit: BLEManager forwards logMessage into
+        // appendScaleLog with system-log mirroring ON (both instances — see
+        // blemanager.cpp), so the emitted line already reaches stderr, prefixed.
+        // A qDebug here just printed the same event twice in different words.
+        emit logMessage(QString("mDNS probe timed out with %1 lookup(s) outstanding")
+                            .arg(m_outstanding));
         const bool ran = m_anyProbeRan;
         cancelInFlight();
         emit probeFinished(ran);
@@ -66,8 +69,7 @@ void WifiScaleDiscovery::probe(const QStringList& hostnames, int timeoutMs) {
     // dereferences freed memory.
     m_probeCancel = std::make_shared<std::atomic<bool>>(false);
 
-    qDebug() << "[WifiScaleDiscovery] probing" << hostnames
-             << "(timeout" << timeoutMs << "ms)";
+    // (No paired qDebug — see the probe-timeout handler above.)
     emit logMessage(QString("mDNS lookup of %1 (timeout %2 ms)")
                         .arg(hostnames.join(QStringLiteral(", ")))
                         .arg(timeoutMs));
@@ -169,8 +171,7 @@ void WifiScaleDiscovery::browse(int timeoutMs) {
     auto cancel = std::make_shared<std::atomic<bool>>(false);
     m_browseCancel = cancel;
 
-    qDebug() << "[WifiScaleDiscovery] browse" << serviceType
-             << "(timeout" << timeoutMs << "ms)";
+    // (No paired qDebug — see the probe-timeout handler above.)
     emit logMessage(QString("DNS-SD browse for %1 (timeout %2 ms)")
                         .arg(serviceType).arg(timeoutMs));
 
