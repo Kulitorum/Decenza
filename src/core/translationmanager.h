@@ -6,10 +6,13 @@
 #include <QNetworkReply>
 #include <QMap>
 #include <QVariantMap>
+#include <QPointer>
+#include <QSet>
 #include <QStringList>
 #include <QtQml/qqmlregistration.h>
 
 class QQmlEngine;
+class QThread;
 class Settings;
 
 class TranslationManager : public QObject {
@@ -81,6 +84,7 @@ class TranslationManager : public QObject {
 
 public:
     explicit TranslationManager(QNetworkAccessManager* networkManager, Settings* settings, QObject* parent = nullptr);
+    ~TranslationManager() override;
 
     // QML_SINGLETON hooks. The engine does NOT create this object: main.cpp owns it on the
     // stack and wires it into eight other subsystems (BLE, MCP, AI, backup, accessibility …)
@@ -180,7 +184,49 @@ public:
     static QString unescapeQmlLiteral(const QString& literal);
 
     Q_INVOKABLE void registerString(const QString& key, const QString& fallback);
+
+    // Returns without doing the parsing: it enumerates the qrc tree on the calling thread, hands
+    // the file list to a worker, and writes the registry from a queued callback on the main
+    // thread. Watch `scanning` / `scanProgress`, or the scanFinished() signal, for completion.
+    //
+    // It used to be synchronous, and pumped QCoreApplication::processEvents() once per file "to
+    // keep the UI responsive". That nested pump crashed the app (#1692, SIGABRT): the scan is
+    // kicked off from SettingsLanguageTab's Component.onCompleted, which QML incubates
+    // synchronously (SettingsPage.qml sets `asynchronous: false` on the tab Loaders) while
+    // SettingsPage's TabBar.onCurrentIndexChanged handler is still on the stack. The symbolicated
+    // stack then shows QCoreApplicationPrivate::sendPostedEvents -> QObject::event ->
+    // ~QQmlElement<QQuickPage>, i.e. the outgoing page was destroyed inside the pump, taking its
+    // TabBar with it; QObject::event deletes on DeferredDelete at qobject.cpp:1463-1464. Qt turns
+    // a destroy-during-signal-handler into an abort, not a warning:
+    // qtdeclarative/src/qml/qml/qqmlengine.cpp:1370-1396 (QQmlData::destroyed() -> qFatal() when
+    // the handler isNotifying()).
+    //
+    // What is NOT established is which posted event did it. A bare processEvents() normally will
+    // NOT deliver a queued DeferredDelete — qcoreapplication.cpp:1858-1873 allows one through only
+    // when it was posted at a deeper loop+scope level, or was posted before the outermost loop, or
+    // when DeferredDelete was passed explicitly — and qobject.cpp:2534-2557 records those levels
+    // for exactly the `foo->deleteLater(); qApp->processEvents();` case. So one of those clauses
+    // held on the device, or the destroyer was some other queued event (a queued signal, a timer,
+    // a Loader status change) that deleted synchronously. Qt's own message lists "deleted
+    // synchronously" ahead of the nested loop for that reason.
+    //
+    // The rule survives the uncertainty: a nested pump under a QML signal handler delivers
+    // events that can destroy the object whose handler is running, and the failure is an abort.
+    // Do not reintroduce one here.
     Q_INVOKABLE void scanAllStrings();
+
+    // One (key, English fallback) pair lifted out of QML source text by the scanner.
+    struct ScannedString {
+        QString key;
+        QString fallback;
+    };
+
+    // Pure text → pairs, in SCAN order: all of pattern 1, then 2, then 3, each positional within
+    // itself. Not file order — do not "fix" it to positional, because that changes which fallback
+    // wins for a key used twice, and the old inline loop applied them in exactly this sequence.
+    // Static and state-free so it can run on the scan's worker thread — and so a test can
+    // exercise the three patterns without an instance or the QML resource tree.
+    static QList<ScannedString> parseTranslatableStrings(const QString& qmlSource);
 
     // Public + static so tst_aiproviders can assert these stay equal to each provider's first
     // catalog entry in aiprovider.cpp. That test is what stops this list going stale again.
@@ -329,6 +375,15 @@ private:
     //
     // Returns true when the registry changed, so callers can decide whether to save.
     bool noteSourceString(const QString& key, const QString& fallback);
+
+    // Main-thread tail of scanAllStrings(): writes what the worker parsed into the registry,
+    // saves, and reports. Nothing on the worker thread touches m_stringRegistry — the scan's
+    // writes all happen here. `unreadableFiles` are the QML files the worker could not open;
+    // they make the registry short, which matters because it is what gets AI-translated and
+    // published, so they are reported rather than swallowed.
+    void applyScanResults(const QList<ScannedString>& found, const QSet<QString>& seenInQml,
+                          const QStringList& unreadableFiles);
+
     void propagateTranslationsToAllKeys();
     void recalculateUntranslatedCount();
     QString translationsDir() const;
@@ -366,6 +421,16 @@ private:
     bool m_scanning = false;
     int m_scanProgress = 0;
     int m_scanTotal = 0;
+
+    // A scan has finished at least once this session. The bulk translator needs the complete
+    // string list, which it used to get by calling the (then synchronous) scan inline; with an
+    // asynchronous scan it parks itself on scanFinished() instead.
+    bool m_scanCompleted = false;
+    bool m_batchAwaitingScan = false;
+
+    // Null once the worker has finished and deleteLater() has collected it. The destructor waits
+    // on it while it is alive, so a scan can never outlive the object it posts its results to.
+    QPointer<QThread> m_scanThread;
     QString m_lastError;
     QString m_retryStatus;
     QByteArray m_pendingUploadData;
@@ -522,5 +587,10 @@ private:
     // `if (!openaiApiKey().isEmpty())` would leave the whole suite green while billing a user
     // on an account they did not choose. That is exactly how the retired-model bug survived.
     friend class TestTranslationSourceDrift;
+
+    // The scan's main-thread tail (applyScanResults) and the flags that order it. The ordering
+    // between m_scanCompleted and scanFinished() is what stops the parked bulk translator from
+    // re-parking forever; nothing enforces it but a test that reads both from inside the signal.
+    friend class TestTranslationScan;
 #endif
 };

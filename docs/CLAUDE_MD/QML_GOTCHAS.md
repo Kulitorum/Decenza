@@ -482,3 +482,71 @@ affected while `GHCSimulator`'s were. `GHCSimulator` is registered wherever `DEC
 defined (every desktop config) but instanced only on a **debug** Windows/macOS build, so the broken
 guard passed — and threw on every window activation — on Linux, on Release desktop and on mobile
 Debug, while working on exactly the two configurations it gets tested on.
+
+## A nested event loop reachable from a QML signal handler is a crash, not a slowdown
+
+`QCoreApplication::processEvents()` (and anything that spins its own `QEventLoop` — a
+`QEventLoop::exec()` wrapped around a network reply, a `QThread::wait()` on the GUI thread) is not
+"the same work with the UI kept responsive". It delivers **queued events** while a QML signal
+handler is still on the stack, and if one of them destroys an object that handler belongs to, Qt
+does not limp on — `QQmlData::destroyed()` calls **`qFatal()`**
+(`qtdeclarative/src/qml/qml/qqmlengine.cpp:1370-1396`):
+
+```
+Object 0x12a0fa680 destroyed while one of its QML signal handlers is in progress.
+Most likely the object was deleted synchronously (use QObject::deleteLater() instead), or the
+application is running a nested event loop.
+This behavior is NOT supported!
+qrc:/qt/qml/Decenza/qml/pages/SettingsPage.qml:106: function() { [native code] }
+```
+
+(abridged — Qt appends up to 96 characters of the handler's own source to the location line.)
+
+That is issue #1692, on shipped iOS 2.0.0, as a **SIGABRT** rather than the SIGSEGV most crash
+reports show. Symbolicated, the chain is five frames long and none of it looks dangerous in
+isolation:
+
+```
+TabBar.onCurrentIndexChanged  ->  markTabLoaded() writes loadedTabs
+  -> Loader.active binding -> QQmlComponent::create  (SYNCHRONOUS: SettingsPage sets
+                                                      asynchronous: false on the tab Loaders)
+    -> SettingsLanguageTab.Component.onCompleted -> TranslationManager::scanAllStrings()
+      -> processEvents()   <-- nested pump
+        -> QCoreApplicationPrivate::sendPostedEvents -> QObject::event
+          -> ~QQmlElement<QQuickPage> deletes its children, incl. the TabBar still in its handler
+```
+
+(`SettingsPage.qml:106` was `onCurrentIndexChanged` in v2.0.0; the handler is further down the
+file on main today. Go by the name, not the number.)
+
+**What is established and what is not.** The stack proves an event delivered inside the pump
+destroyed the page — `QObject::event` deletes on `DeferredDelete` at `qobject.cpp:1463-1464`. It
+does **not** prove *which* posted event, and the obvious story is the one Qt guards against: a bare
+`processEvents()` normally will NOT deliver a queued `DeferredDelete`. `qcoreapplication.cpp:1858-1873`
+allows one through only when it was posted at a deeper loop+scope level than the pump, or before
+the outermost loop, or when `DeferredDelete` is passed explicitly; `qobject.cpp:2534-2557` records
+those levels specifically so that
+
+```cpp
+foo->deleteLater();
+qApp->processEvents();   // without passing QEvent::DeferredDelete
+```
+
+does not delete `foo`. So either one of those clauses held on the device, or the destroyer was a
+different queued event — a queued signal, a timer, a `Loader` status change — that deleted
+synchronously. Qt's own message lists "deleted synchronously" first for that reason. Do not repeat
+the tidier version of this story as fact; it is the version this file shipped with and it does not
+survive the sources.
+
+The rule survives the uncertainty, and it is the part that matters:
+
+- Long work reachable from QML goes on a **worker thread** with results posted back via
+  `QMetaObject::invokeMethod(..., Qt::QueuedConnection)`, or is chunked across event-loop turns.
+  Never pumped inline. `TranslationManager::scanAllStrings()` is the worked example.
+- A progress bar is not a reason to pump. If the UI needs to animate during the work, that is
+  precisely the case that needs the work off the calling stack.
+- This is invisible in the UI and in a normal test run — it needs a pending delete to coincide.
+  Pin the asynchrony with a test (`tests/tst_translationscan.cpp` posts a sentinel queued event and
+  asserts it has NOT run when the call returns, which is an assertion about the event queue rather
+  than about when a signal arrives), because "make it synchronous again, it's simpler" reads as a
+  harmless cleanup.

@@ -484,6 +484,30 @@ add_decenza_test(tst_translationsourcedrift
 )
 target_link_libraries(tst_translationsourcedrift PRIVATE Qt6::Qml)
 
+# --- tst_translationscan: the QML string scan, and that it stays off the calling stack ---
+# The scan is what feeds AI translation and community upload, so its three patterns are pinned
+# here. The asynchrony is pinned for a different reason: as a synchronous scan it pumped
+# processEvents() per file, and that nested pump crashed shipped iOS 2.0.0 (#1692) — an event
+# delivered inside it destroyed the settings page while its TabBar handler was still running.
+#
+# The fixture resource is mounted at the SAME prefix the scanner hardcodes
+# (":/qt/qml/Decenza/qml", src/core/translationmanager.cpp). Without it the app's QML module —
+# which belongs to the Decenza target, not to this binary — is absent, the scan finds zero files,
+# and the worker loop, the file reads, the progress posts and the registry-writing tail all go
+# unexecuted while the tests still pass. This is resource DATA, not a QML harness: nothing here is
+# loaded or instantiated, the scanner reads it as text.
+add_decenza_test(tst_translationscan
+    tst_translationscan.cpp
+)
+qt_add_resources(tst_translationscan "translationscan_fixtures"
+    PREFIX "/qt/qml/Decenza/qml"
+    BASE "${CMAKE_CURRENT_SOURCE_DIR}/data/qmlscan"
+    FILES
+        data/qmlscan/AlphaPage.qml
+        data/qmlscan/BetaPage.qml
+)
+target_link_libraries(tst_translationscan PRIVATE Qt6::Qml)
+
 # --- tst_markdownrenderer: markdown -> HTML, incl. the raw-HTML security claim ---
 add_decenza_test(tst_markdownrenderer
     tst_markdownrenderer.cpp
