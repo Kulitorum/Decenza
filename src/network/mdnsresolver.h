@@ -66,11 +66,39 @@ struct ServiceInstance {
 };
 
 /**
+ * Why a resolveHostname() call produced nothing.
+ *
+ * The return value alone cannot say: "could not open a socket", "asked and
+ * every send failed", and "asked fine, nobody answered" all collapse to an
+ * empty string, and the caller then logs one guess for all three. On Android —
+ * the platform that actually uses this path — the first two are real and have
+ * completely different fixes (multicast lock / permissions vs. the scale being
+ * asleep or on another SSID), so the difference has to reach the user's log.
+ *
+ * `error` is set only when the lookup could not be performed. An empty `error`
+ * with an empty result means the query went out and nothing came back.
+ */
+struct ResolveStats {
+    bool socketOpened = false;
+    int queries = 0;        // A-record queries sent (including retransmits)
+    int sendsOk = 0;        // of those, how many the socket accepted
+    int recordsSeen = 0;    // any mDNS record reaching our socket
+    int aRecordsSeen = 0;   // of those, A records
+    QString error;
+};
+
+/**
  * Resolve `hostname` (e.g. "hds.local") to a dotted-quad IPv4 string via a
  * direct mDNS A-record query. Blocks up to `timeoutMs`. MUST be called off
  * the main thread. Returns an empty string on timeout / failure.
+ *
+ * `cancel`, if set, is polled between retransmits and ends the query early —
+ * same reasoning as browseService(): this blocks a QThreadPool thread, and
+ * ~QCoreApplication waits for the pool unconditionally.
  */
-QString resolveHostname(const QString& hostname, int timeoutMs = 2000);
+QString resolveHostname(const QString& hostname, int timeoutMs = 2000,
+                        ResolveStats* stats = nullptr,
+                        const std::atomic<bool>* cancel = nullptr);
 
 /**
  * Browse for DNS-SD service instances of `serviceType` (e.g.

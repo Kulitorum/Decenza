@@ -71,7 +71,7 @@ WifiScaleResult fromBrowseTxt(const QString& instanceName,
  * for the same scale after a lease change. mDNS carries no hardware address, so
  * the hostname is the most stable identifier available.
  *
- * A browse hit supersedes a fallback entry at the same address, because it
+ * A browse hit supersedes a fallback entry for the same hostname, because it
  * carries instance name, port, path and firmware the A-record path cannot
  * produce. A fallback hit never overwrites a browse entry; it only refreshes the
  * address, which DHCP can move between scans.

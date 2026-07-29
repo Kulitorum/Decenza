@@ -163,14 +163,15 @@ public:
     // seeds DecentScaleWifi's IP cache with it before dialing, so the connect
     // skips Qt's own (mDNS-unreliable on non-Android) hostname resolver.
     QString pendingWifiResolvedIp() const { return m_pendingWifiResolvedIp; }
+    // Display name of the WiFi scale being connected to, e.g.
+    // "Half Decent Scale (hdstest) (WiFi)". Derived from the hostname, so it is
+    // available even on a saved-scale reconnect where no scan has run. Without
+    // it every WiFi scale is saved under one identical label and a user with
+    // two of them cannot tell which is connected.
+    QString pendingWifiDisplayName() const;
+
     // WebSocket endpoint advertised by the scale being connected to. Defaults
     // to the firmware's :80/snapshot when discovery had no TXT data to go on.
-    // Display name of the WiFi scale being connected to, e.g.
-    // "Half Decent Scale (hdstest) (WiFi)". Falls back to the generic name when
-    // the scale was not discovered this session (a saved-scale reconnect).
-    // Without this every WiFi scale is saved under one identical label and a
-    // user with two of them cannot tell which is connected.
-    QString pendingWifiDisplayName() const;
     quint16 pendingWifiPort() const { return m_pendingWifiPort; }
     QString pendingWifiPath() const { return m_pendingWifiPath; }
     // True between beginWifiFallbackToBleScan and the next successful connect.
@@ -509,6 +510,13 @@ public:
     // flattens away (instance name, TXT name, port, path, firmware, source).
     QVariantList wifiScaleResults() const;
 
+    // Whether the last browse / A-record probe actually ran, as opposed to
+    // running and finding nothing. Without these an empty result list is
+    // ambiguous, and the ambiguity hides the failure that matters most on this
+    // codebase: macOS silently denying Local Network to the app.
+    bool lastWifiBrowseRan() const { return m_lastWifiBrowseRan; }
+    bool lastWifiProbeRan() const { return m_lastWifiProbeRan; }
+
     // Scale address management
     Q_INVOKABLE void setSavedScaleAddress(const QString& address, const QString& type, const QString& name);
     Q_INVOKABLE void clearSavedScale();
@@ -691,7 +699,7 @@ private:
     // them otherwise, and none of those fire for a scan that never began.
     void clearScanRequestFlags();
     void ensureDiscoveryAgent();
-    // Lazy-create m_wifiDiscovery once with a single unified scaleFound
+    // Lazy-create m_wifiDiscovery once with a single unified resultFound
     // handler. Both scan-for-devices and try-direct-connect paths call this
     // before invoking probe(); registering the lambda only on first call
     // (previously done at TWO sites with DIFFERENT lambdas — whichever ran
@@ -772,7 +780,7 @@ private:
     // UX-only mDNS probe separate from m_wifiDiscovery (which carries an
     // auto-connect-to-saved-primary handler). Lazy-created on first call.
     WifiScaleDiscovery* m_manualEntryDiscovery = nullptr;
-    // Set true when the current manual-entry probe fires scaleFound; consumed
+    // Set true when the current manual-entry probe fires resultFound; consumed
     // by probeFinished to decide whether to log "no responder" — the probe
     // doesn't carry a "found anything" return code, so we have to track it
     // out of band.
@@ -875,6 +883,13 @@ private:
     // have to show their address too. That decision can't be made from one
     // result in isolation. Cleared at the start of each scan.
     QVector<WifiScaleResult> m_wifiResults;
+
+    // Did the last browse / A-record probe actually run? An empty result list
+    // means nothing on its own — "asked, nobody there" and "could not ask"
+    // look identical in it. Start as true so a diagnostic run before any scan
+    // does not report a failure that never happened.
+    bool m_lastWifiBrowseRan = true;
+    bool m_lastWifiProbeRan = true;
 
     // Rebuild the WiFi rows of m_scales from m_wifiResults. The rows are a
     // projection of that set, not a second collection kept in step with it.

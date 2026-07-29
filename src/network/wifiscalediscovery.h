@@ -129,6 +129,12 @@ private:
     QList<int> m_lookupIds;     // QHostInfo lookup ids (non-Android)
     QTimer* m_timeoutTimer = nullptr;
 
+    // Same role as m_browseCancel below, for the Android A-record workers.
+    // Without it, cancelInFlight() bumped the generation so the RESULT was
+    // discarded, but three pool threads still blocked for the full timeout —
+    // and app quit waits on the pool.
+    std::shared_ptr<std::atomic<bool>> m_probeCancel;
+
     bool m_browseInFlight = false;
     int m_browseGeneration = 0;
     // Polled by the blocking worker so stopBrowse() can actually stop it.

@@ -57,6 +57,22 @@ QString normalizeHostname(const QString& hostname)
     return h;
 }
 
+namespace {
+// Field-by-field equality. Written out rather than a defaulted operator==
+// because that is C++20 and this project builds as C++17.
+bool sameResult(const WifiScaleResult& a, const WifiScaleResult& b)
+{
+    return a.instanceName == b.instanceName
+        && a.mdnsName == b.mdnsName
+        && a.hostname == b.hostname
+        && a.address == b.address
+        && a.port == b.port
+        && a.path == b.path
+        && a.firmwareVersion == b.firmwareVersion
+        && a.foundBy == b.foundBy;
+}
+}  // namespace
+
 bool upsertByHostname(QVector<WifiScaleResult>& set, const WifiScaleResult& incoming)
 {
     // Identity is the HOSTNAME, not the resolved address.
@@ -89,6 +105,13 @@ bool upsertByHostname(QVector<WifiScaleResult>& set, const WifiScaleResult& inco
         // A browse hit supersedes anything: it carries instance name, port,
         // path and firmware the A-record path structurally cannot produce.
         if (incoming.foundBy == WifiScaleResult::Source::Browse) {
+            // "Changed" has to mean changed. mDNS re-announces the same record
+            // periodically, so a long browse re-delivers an identical result
+            // several times; returning true for those would report a change on
+            // every re-announce to any caller that trusts this rather than
+            // re-deriving the difference itself.
+            if (sameResult(seen, incoming))
+                return false;
             seen = incoming;
             return true;
         }

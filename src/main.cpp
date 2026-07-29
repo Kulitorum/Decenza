@@ -1240,7 +1240,7 @@ int main(int argc, char *argv[])
     // actually served the shot, not the one nominated as primary in Settings. The two
     // diverge whenever the WiFi-primary Half Decent Scale is unreachable and the app falls
     // back to its BLE transport: that path deliberately skips setPrimaryScale() (see
-    // isFallbackConnect in the scaleFound handler), so settings.scaleType() keeps answering
+    // isFallbackConnect in the resultFound handler), so settings.scaleType() keeps answering
     // "decent-wifi" while every weight sample arrives over BLE. Writing BLE-served shots
     // into the WiFi pool corrupts a learned model the user cannot see or reset separately.
     // Observed on-device: four consecutive BLE-served shots logged scale="decent-wifi".
@@ -2579,9 +2579,10 @@ int main(int argc, char *argv[])
         const QString hostname = isWifi ? bleManager.pendingWifiHostname() : QString();
         const QString deviceId = isWifi ? (QStringLiteral("wifi:") + hostname)
                                          : getDeviceIdentifier(device);
-        // Use the name discovery derived (carries the scale's own DNS-SD
-        // instance name) rather than a generic label — with two WiFi scales
-        // paired, one identical name for both makes Known Devices useless.
+        // Hostname-derived label rather than a generic one — with two WiFi
+        // scales paired, one identical name for both makes Known Devices
+        // useless. See pendingWifiDisplayName() for why the DNS-SD instance
+        // name is deliberately NOT what this is built from.
         const QString displayName = isWifi ? bleManager.pendingWifiDisplayName()
                                             : device.name();
         // Manual "Add WiFi Scale" entries DEFER persistence until the WS

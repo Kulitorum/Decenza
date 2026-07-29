@@ -201,9 +201,20 @@ private slots:
             QStringLiteral("Half Decent Scale"), QStringLiteral("hds.local"),
             QStringLiteral("192.168.10.145"), 80, txtUnrenamed());
         QVector<WifiScaleResult> set;
-        upsertByHostname(set, a);
-        upsertByHostname(set, a);
+        QVERIFY(upsertByHostname(set, a));
+        // The return value is the contract — "true if the set changed" — and
+        // mDNS re-announces the same record throughout a browse, so this is the
+        // common case, not an edge one. Asserting only set.size() let the browse
+        // branch return true unconditionally.
+        QVERIFY(!upsertByHostname(set, a));
         QCOMPARE(set.size(), 1);
+
+        // A browse hit that genuinely differs still reports a change.
+        WifiScaleResult moved = a;
+        moved.address = QStringLiteral("192.168.10.200");
+        QVERIFY(upsertByHostname(set, moved));
+        QCOMPARE(set.size(), 1);
+        QCOMPARE(set.first().address, QStringLiteral("192.168.10.200"));
     }
 
     // ===== Set-wide labelling =====

@@ -276,7 +276,8 @@ int mdnsBrowseCallback(int sock, const struct sockaddr* from, size_t addrlen,
 
 namespace MdnsResolver {
 
-QString resolveHostname(const QString& hostname, int timeoutMs)
+QString resolveHostname(const QString& hostname, int timeoutMs,
+                        ResolveStats* stats, const std::atomic<bool>* cancel)
 {
     // Bind the query socket to an ephemeral port (NOT 5353). Binding to 5353
     // on Android collides with the system mDNS daemon: even with SO_REUSEPORT,
@@ -293,8 +294,11 @@ QString resolveHostname(const QString& hostname, int timeoutMs)
     if (sock < 0) {
         qWarning() << "[MdnsResolver] socket open FAILED for" << hostname
                    << "errno=" << errno;
+        if (stats)
+            stats->error = QString("mDNS socket open failed (errno %1)").arg(errno);
         return {};
     }
+    if (stats) stats->socketOpened = true;
 
     char buffer[2048];
     QByteArray hostBytes = hostname.toUtf8();
@@ -326,6 +330,8 @@ QString resolveHostname(const QString& hostname, int timeoutMs)
     qint64 nextSendAt = 0;  // due immediately, then every kRetransmitMs
 
     while (deadline.elapsed() < timeoutMs && ctx.resolvedIp.isEmpty()) {
+        if (cancel && cancel->load(std::memory_order_relaxed))
+            break;   // probe superseded or app quitting — release the pool thread
         if (deadline.elapsed() >= nextSendAt) {
             // Best-effort: a failed send is not fatal (transient ENOBUFS on a
             // congested interface) — keep polling and retry on the next tick.
@@ -385,10 +391,21 @@ QString resolveHostname(const QString& hostname, int timeoutMs)
     // Distinguish a transport failure (every query send failed — e.g. no
     // multicast route / persistent ENOBUFS) from a silent responder, so triage
     // doesn't conflate "couldn't ask" with "asked but got no answer".
-    if (sendCount > 0 && sendOk == 0)
+    if (sendCount > 0 && sendOk == 0) {
         qWarning().noquote() << "[MdnsResolver] all" << sendCount
                              << "query sends FAILED for" << hostname
                              << "— transport problem, not necessarily an absent responder";
+        if (stats)
+            stats->error = QString("all %1 mDNS query sends failed — transport problem, "
+                                   "not necessarily an absent responder").arg(sendCount);
+    }
+
+    if (stats) {
+        stats->queries = sendCount;
+        stats->sendsOk = sendOk;
+        stats->recordsSeen = ctx.recordsSeen;
+        stats->aRecordsSeen = ctx.aRecordsSeen;
+    }
 
     return ctx.resolvedIp;
 }
@@ -453,18 +470,29 @@ QVector<ServiceInstance> browseServiceMjansson(const QString& serviceType, int t
             // an SRV target with no address yet. Cheap (a couple of unicast-
             // requested queries) and it is what turns a partial answer into a
             // usable row rather than a dropped one.
+            //
+            // Count these like the PTR query rather than discarding the return.
+            // If the chase sends fail systematically (congested interface,
+            // persistent ENOBUFS) the instance ends up logged only as "dropped
+            // unresolved (srv=no addr=no)" — identical to a responder that
+            // never answered, when the truth is we never managed to ask.
             for (auto it = ctx.instances.cbegin(); it != ctx.instances.cend(); ++it) {
+                int chaseRet = 0;
                 if (it->port == 0 || it->target.isEmpty()) {
                     const QByteArray& n = it.key();
-                    (void)mdns_query_send(sock, MDNS_RECORDTYPE_SRV, n.constData(),
-                                          static_cast<size_t>(n.size()),
-                                          buffer, sizeof(buffer), 0);
+                    chaseRet = mdns_query_send(sock, MDNS_RECORDTYPE_SRV, n.constData(),
+                                               static_cast<size_t>(n.size()),
+                                               buffer, sizeof(buffer), 0);
                 } else if (!ctx.addresses.contains(it->target)) {
                     const QByteArray& t = it->target;
-                    (void)mdns_query_send(sock, MDNS_RECORDTYPE_A, t.constData(),
-                                          static_cast<size_t>(t.size()),
-                                          buffer, sizeof(buffer), 0);
+                    chaseRet = mdns_query_send(sock, MDNS_RECORDTYPE_A, t.constData(),
+                                               static_cast<size_t>(t.size()),
+                                               buffer, sizeof(buffer), 0);
+                } else {
+                    continue;  // nothing to chase for this instance
                 }
+                ++sendCount;
+                if (chaseRet >= 0) ++sendOk;
             }
 
             nextSendAt = deadline.elapsed() + kRetransmitMs;
@@ -843,9 +871,20 @@ QVector<ServiceInstance> browseServiceBonjour(const QString& serviceType, int ti
     qDebug().noquote() << "[MdnsResolver] browse start (Bonjour) service=" << serviceType
                        << "timeout=" << timeoutMs << "ms";
 
+    // How often the loop below re-reads `cancel`. Unlike the mjansson path this
+    // backend has nothing to retransmit — mDNSResponder owns the queries — so
+    // the slice exists purely for cancellation latency.
+    constexpr qint64 kCancelPollMs = 250;
+
     const int fd = DNSServiceRefSockFD(ctx.connection);
-    if (fd < 0 && stats)
-        stats->error = QStringLiteral("DNSServiceRefSockFD returned no usable socket");
+    if (fd < 0) {
+        // Warn as well as record: every other failure path here does both, and
+        // with a null `stats` this would otherwise produce an empty result set
+        // with no diagnostic anywhere — the loop below simply never runs.
+        qWarning() << "[MdnsResolver] DNSServiceRefSockFD returned no usable socket";
+        if (stats)
+            stats->error = QStringLiteral("DNSServiceRefSockFD returned no usable socket");
+    }
     QDeadlineTimer deadline(timeoutMs);
 
     // Stay subscribed for the whole window rather than taking an early snapshot.
@@ -854,15 +893,26 @@ QVector<ServiceInstance> browseServiceBonjour(const QString& serviceType, int ti
     while (!deadline.hasExpired() && fd >= 0) {
         if (cancel && cancel->load(std::memory_order_relaxed))
             break;   // scan ended or app quitting — do not hold the pool thread
+        if (ctx.permissionDenied)
+            break;   // answer already known; waiting out the deadline only
+                     // delays the user seeing the diagnostic
         const qint64 remaining = deadline.remainingTime();
         if (remaining <= 0) break;
 
         fd_set readfds;
         FD_ZERO(&readfds);
         FD_SET(fd, &readfds);
+        // Wait in slices, not for the whole remaining deadline. `cancel` is only
+        // read at the top of this loop, and on a quiet LAN nothing wakes
+        // select() — so a full-deadline timeout meant a cancelled browse stayed
+        // parked for up to 15 s, holding the QThreadPool thread that
+        // ~QCoreApplication's unconditional waitForDone() then blocks on. That
+        // is exactly the hang the cancel flag exists to prevent. The mjansson
+        // loop already slices (kRetransmitMs) for the same reason.
+        const qint64 slice = qMin<qint64>(remaining, kCancelPollMs);
         struct timeval tv;
-        tv.tv_sec = static_cast<time_t>(remaining / 1000);
-        tv.tv_usec = static_cast<suseconds_t>((remaining % 1000) * 1000);
+        tv.tv_sec = static_cast<time_t>(slice / 1000);
+        tv.tv_usec = static_cast<suseconds_t>((slice % 1000) * 1000);
 
         const int ret = select(fd + 1, &readfds, nullptr, nullptr, &tv);
         if (ret < 0) {
@@ -947,7 +997,13 @@ bool browseInstanceResolved(const QByteArray& srvTarget, quint16 port, bool have
 // iOS never builds the mjansson path (it would need the multicast entitlement),
 // and resolves ".local" through QHostInfo/Bonjour, so this is unreachable —
 // present only so the TU links.
-QString resolveHostname(const QString& /*hostname*/, int /*timeoutMs*/) { return {}; }
+QString resolveHostname(const QString& /*hostname*/, int /*timeoutMs*/,
+                        ResolveStats* stats, const std::atomic<bool>* /*cancel*/)
+{
+    if (stats)
+        stats->error = QStringLiteral("mDNS A-record path is not compiled on iOS");
+    return {};
+}
 #endif
 
 namespace {

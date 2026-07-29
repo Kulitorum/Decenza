@@ -116,7 +116,10 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
         "devices_wifi_results",
         "Read the raw results of the most recent WiFi scale discovery, including the DNS-SD "
         "detail the device list flattens away: instance name, TXT name, port, WebSocket path, "
-        "firmware version, and whether each was found by service browse or hostname fallback.",
+        "firmware version, and whether each was found by service browse or hostname fallback. "
+        "Also reports browseRan/fallbackProbeRan: false means that transport could not run at "
+        "all (no backend, socket refused, Local Network permission denied) rather than running "
+        "and finding nothing — a distinction a count of 0 cannot make.",
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
         [bleManager](const QJsonObject&) -> QJsonObject {
             QJsonObject result;
@@ -142,6 +145,12 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
             result["results"] = arr;
             result["count"] = arr.size();
             result["backendActive"] = MdnsResolver::activeBrowseBackendName();
+            // A count of 0 is ambiguous on its own. False here means the
+            // transport could not run — no backend, socket refused, Local
+            // Network permission denied — which is a completely different
+            // problem from a LAN with no scales on it.
+            result["browseRan"] = bleManager->lastWifiBrowseRan();
+            result["fallbackProbeRan"] = bleManager->lastWifiProbeRan();
             return result;
         },
         "read");

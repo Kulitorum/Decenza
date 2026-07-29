@@ -62,6 +62,9 @@ void WifiScaleDiscovery::probe(const QStringList& hostnames, int timeoutMs) {
     m_anyProbeRan = true;
     m_outstanding = static_cast<int>(hostnames.size());
     const int generation = ++m_probeGeneration;
+    // Fresh token per probe; shared_ptr so a worker outliving this object never
+    // dereferences freed memory.
+    m_probeCancel = std::make_shared<std::atomic<bool>>(false);
 
     qDebug() << "[WifiScaleDiscovery] probing" << hostnames
              << "(timeout" << timeoutMs << "ms)";
@@ -76,15 +79,29 @@ void WifiScaleDiscovery::probe(const QStringList& hostnames, int timeoutMs) {
         // reception relies on the process-wide WifiManager.MulticastLock that
         // ShotServer holds for the app lifetime.
         QPointer<WifiScaleDiscovery> self(this);
-        auto runnable = QRunnable::create([self, hostname, timeoutMs, generation]() {
-            const QString ip = MdnsResolver::resolveHostname(hostname, timeoutMs);
-            QMetaObject::invokeMethod(qApp, [self, hostname, ip, generation]() {
+        auto cancel = m_probeCancel;
+        auto runnable = QRunnable::create([self, hostname, timeoutMs, generation, cancel]() {
+            MdnsResolver::ResolveStats rs;
+            const QString ip = MdnsResolver::resolveHostname(hostname, timeoutMs,
+                                                             &rs, cancel.get());
+            QMetaObject::invokeMethod(qApp, [self, hostname, ip, generation, rs]() {
                 if (!self) return;
                 if (generation != self->m_probeGeneration) return;  // cancelled/timed out
                 if (self->m_outstanding <= 0) return;
 
                 if (ip.isEmpty()) {
-                    emit self->logMessage(QStringLiteral("mDNS no responder for ") + hostname);
+                    // "Nobody answered" and "we never managed to ask" have
+                    // different fixes — multicast lock / permissions versus a
+                    // sleeping scale or the wrong SSID — so say which happened
+                    // instead of logging one guess for both.
+                    if (!rs.error.isEmpty()) {
+                        emit self->logMessage(
+                            QString("mDNS lookup of %1 could not run: %2").arg(hostname, rs.error));
+                    } else {
+                        emit self->logMessage(
+                            QString("mDNS no responder for %1 (%2 queries sent, %3 records seen)")
+                                .arg(hostname).arg(rs.queries).arg(rs.recordsSeen));
+                    }
                 } else {
                     WifiScaleResult r;
                     r.foundBy = WifiScaleResult::Source::Fallback;
@@ -240,6 +257,10 @@ void WifiScaleDiscovery::cancelInFlight() {
         m_outstanding = 0;
         m_anyProbeRan = false;
     }
+    // Release the Android workers rather than only discarding their results.
+    if (m_probeCancel)
+        m_probeCancel->store(true, std::memory_order_relaxed);
+    m_probeCancel.reset();
     for (int id : m_lookupIds)
         QHostInfo::abortHostLookup(id);
     m_lookupIds.clear();

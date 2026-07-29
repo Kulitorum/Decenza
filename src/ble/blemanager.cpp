@@ -813,7 +813,7 @@ void BLEManager::setUsbScaleAvailable(bool available, const QString& name) {
 void BLEManager::probeMdnsForManualEntry() {
     // Dedicated mDNS probe for the "Add WiFi Scale" dialog. We keep this
     // separate from m_wifiDiscovery (used by the user-initiated scan / saved-
-    // scale rehydration path), because m_wifiDiscovery's scaleFound handler
+    // scale rehydration path), because m_wifiDiscovery's resultFound handler
     // auto-connects when the discovered hostname matches the saved primary
     // (and no user-initiated scan is in progress) — we explicitly do NOT
     // want that side effect here. The manual flow's contract is "tell the
@@ -1115,13 +1115,22 @@ void BLEManager::doStartScan() {
 }
 
 void BLEManager::stopScan() {
-    // End the WiFi browse with the scan cycle. Without this the browse ran to
-    // its full deadline, keeping the composite `scanning` property true and the
-    // Scan button disabled with no way to abort — and holding a thread pool
-    // slot after the user had already picked a scale.
-    if (m_wifiDiscovery)
-        m_wifiDiscovery->stopBrowse();
-
+    // BLE ONLY — deliberately does NOT stop the WiFi browse.
+    //
+    // An earlier version called stopBrowse() here, which silently defeated the
+    // feature. stopScan() is called whenever something merely *happens* during
+    // a scan: the saved primary being rediscovered and auto-connected
+    // (main.cpp), the DE1 being found, a USB DE1 transport arriving. The BLE
+    // agent typically finds the saved scale 1-2 s into a 15 s browse, so the
+    // browse was being killed almost immediately — and the scales that only a
+    // browse can find (renamed ones, invisible to the hds/hds-2/hds-3 A-record
+    // fallback) are exactly the ones that then never appeared. The whole point
+    // of this feature, silently undone by an unrelated auto-connect.
+    //
+    // A browse ends on its own deadline, or when a new scan supersedes it
+    // (browse() calls stopBrowse() first), or at teardown
+    // (~WifiScaleDiscovery). Leaving `scanning` true until it does is correct:
+    // WiFi discovery genuinely is still running.
     if (!m_scanning) return;
 
     emit de1LogMessage("Scan stopped");
@@ -1245,7 +1254,7 @@ void BLEManager::onDeviceDiscovered(const QBluetoothDeviceInfo& device) {
             && scaleType == QStringLiteral("decent");
 
         // Auto-connect rules (BLE path — WiFi has its own handler in
-        // the WifiScaleDiscovery::scaleFound lambda further down):
+        // the WifiScaleDiscovery::resultFound lambda further down):
         //   • Saved BLE primary → always auto-connect (even on user-initiated
         //     scans). The user's "Scan" tap when their scale is offline is
         //     itself a "please reconnect" — the original "don't hijack the
@@ -2119,10 +2128,17 @@ void BLEManager::scanForDevices() {
     m_wifiResults.clear();
     clearWifiScaleRows();
 
+#ifndef Q_OS_IOS
     m_usbProbeInFlight = true;
     emit usbProbeRequested();
+#endif
+    // iOS has no USB scale support at all, so main.cpp wires
+    // usbProbeRequested/probeFinished only under the same guard. Setting the
+    // flag there would latch it: nothing can ever call onUsbProbeFinished(),
+    // so the composite `scanning` below stays true for the rest of the process
+    // and the Scan button is dead after one tap.
 
-    // The composite `scanning` property just gained two more contributors.
+    // The composite `scanning` property just gained more contributors.
     emit scanningChanged();
 }
 
@@ -2282,10 +2298,15 @@ void BLEManager::ensureWifiDiscovery() {
     // Each transport finishing changes the composite `scanning` property, so
     // the "Scanning..." indicator clears only once ALL of them are done rather
     // than when the BLE agent alone finishes.
+    // `ran` is not decoration: false means the transport could not run at all
+    // (no backend, socket refused, Local Network denied) as opposed to running
+    // and finding nothing. Both leave the list empty, so keep the distinction
+    // where a diagnostic can read it — otherwise devices_wifi_results reports
+    // "0 results" for a permission denial exactly as it does for a quiet LAN.
     connect(m_wifiDiscovery, &WifiScaleDiscovery::probeFinished, this,
-            [this](bool) { emit scanningChanged(); });
+            [this](bool ran) { m_lastWifiProbeRan = ran; emit scanningChanged(); });
     connect(m_wifiDiscovery, &WifiScaleDiscovery::browseFinished, this,
-            [this](bool) { emit scanningChanged(); });
+            [this](bool ran) { m_lastWifiBrowseRan = ran; emit scanningChanged(); });
     // Forward mDNS-layer diagnostics into the user-shareable scale debug log.
     // Without this, "mDNS lookup timed out" / "no responder" lines lived only
     // in qDebug output (Qt Creator console / adb logcat), invisible in the log
