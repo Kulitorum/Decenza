@@ -1,3 +1,8 @@
+// The shared wheel-row Component reads this file's ids (`root`, `rpmTumbler`); Bound
+// makes them statically resolvable. Its delegate already declares both injected roles,
+// `modelData` and `index`, required, so Bound cannot break role injection here.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -343,6 +348,7 @@ Dialog {
     Component {
         id: wheelDelegate
         Item {
+            id: wheelRow
             required property var modelData
             required property int index
             readonly property real _dist: Math.abs(Tumbler.displacement)
@@ -354,13 +360,13 @@ Dialog {
                 Tumbler.tumbler === rpmTumbler && root._rpmPlaceholder
             Text {
                 anchors.centerIn: parent
-                text: String(modelData.value)
-                color: (_centered && !_placeholder) ? Theme.primaryColor : Theme.textColor
+                text: String(wheelRow.modelData.value)
+                color: (wheelRow._centered && !wheelRow._placeholder) ? Theme.primaryColor : Theme.textColor
                 font.family: Theme.bodyFont.family
                 font.pixelSize: Theme.bodyFont.pixelSize
-                font.bold: _centered && !_placeholder
-                opacity: (_centered && _placeholder ? 0.45 : 1.0)
-                         - Math.min(0.72, _dist * 0.36)
+                font.bold: wheelRow._centered && !wheelRow._placeholder
+                opacity: (wheelRow._centered && wheelRow._placeholder ? 0.45 : 1.0)
+                         - Math.min(0.72, wheelRow._dist * 0.36)
             }
         }
     }

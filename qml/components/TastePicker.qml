@@ -1,3 +1,8 @@
+// The two chip Components read this file's `root` id; Bound makes it statically
+// resolvable. Their shared TasteChip type already declares its one injected role,
+// `modelData`, required, so Bound cannot break role injection here.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Layouts
 import Decenza
@@ -152,6 +157,7 @@ ColumnLayout {
     // selectable option cards: border-highlighted (not filled) when selected,
     // with a subtle primary tint and the icon/label tinted to the primary color.
     component TasteChip: Rectangle {
+        id: chip
         required property var modelData
         property bool selected: false
         signal tapped()
@@ -172,25 +178,25 @@ ColumnLayout {
             ColoredIcon {
                 Layout.preferredWidth: Theme.scaled(22)
                 Layout.preferredHeight: Theme.scaled(22)
-                source: modelData.icon
+                source: chip.modelData.icon
                 iconWidth: Theme.scaled(22)
                 iconHeight: Theme.scaled(22)
-                iconColor: selected ? Theme.primaryColor : Theme.textSecondaryColor
+                iconColor: chip.selected ? Theme.primaryColor : Theme.textSecondaryColor
             }
             Text {
-                text: modelData.label
+                text: chip.modelData.label
                 font: Theme.bodyFont
-                color: selected ? Theme.primaryColor : Theme.textColor
+                color: chip.selected ? Theme.primaryColor : Theme.textColor
                 Accessible.ignored: true
             }
         }
 
         AccessibleMouseArea {
             anchors.fill: parent
-            accessibleName: modelData.label
-            accessibleItem: parent
-            accessibleChecked: selected
-            onAccessibleClicked: tapped()
+            accessibleName: chip.modelData.label
+            accessibleItem: chip
+            accessibleChecked: chip.selected
+            onAccessibleClicked: chip.tapped()
         }
     }
 }

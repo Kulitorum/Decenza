@@ -1,3 +1,9 @@
+// The profile-list delegate reads this file's `profileList` id; Bound makes it
+// statically resolvable. It declares both injected roles it uses, `modelData` and
+// `index`, required in the same edit -- without that, Bound stops role injection and
+// every row renders blank at RUNTIME, silently.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Dialogs
@@ -209,12 +215,15 @@ Page {
 
                 delegate: Rectangle {
                     id: profileDelegate
+                    required property var modelData
+                    required property int index
+
                     width: profileList.width
                     height: Math.max(Theme.scaled(56), importContentRow.implicitHeight + Theme.scaled(10) * 2)
                     radius: Theme.scaled(6)
-                    color: index % 2 === 0 ? Theme.rowAlternateColor : Theme.rowAlternateLightColor
+                    color: profileDelegate.index % 2 === 0 ? Theme.rowAlternateColor : Theme.rowAlternateLightColor
 
-                    property var profileData: modelData
+                    property var profileData: profileDelegate.modelData
                     property string status: profileData.status || "new"
                     property bool isNew: status === "new"
                     property bool isIdentical: status === "identical"
@@ -225,7 +234,7 @@ Page {
                         longPressThreshold: 0.5
                         onLongPressed: {
                             if (!MainController.profileImporter.isImporting) {
-                                MainController.profileImporter.forceImportProfile(profileData.sourcePath)
+                                MainController.profileImporter.forceImportProfile(profileDelegate.profileData.sourcePath)
                             }
                         }
                     }
@@ -256,11 +265,11 @@ Page {
                             Layout.preferredWidth: Theme.scaled(40)
                             Layout.preferredHeight: Theme.scaled(20)
                             radius: Theme.scaled(4)
-                            color: profileData.format === "TCL" ? Theme.sourceBadgeBlueColor : Theme.sourceBadgeGreenColor
+                            color: profileDelegate.profileData.format === "TCL" ? Theme.sourceBadgeBlueColor : Theme.sourceBadgeGreenColor
 
                             Text {
                                 anchors.centerIn: parent
-                                text: profileData.format || "?"
+                                text: profileDelegate.profileData.format || "?"
                                 font.pixelSize: Theme.scaled(10)
                                 font.bold: true
                                 color: Theme.primaryContrastColor
@@ -274,7 +283,7 @@ Page {
 
                             Text {
                                 Layout.fillWidth: true
-                                text: profileData.title || profileData.filename
+                                text: profileDelegate.profileData.title || profileDelegate.profileData.filename
                                 color: Theme.textColor
                                 font: Theme.bodyFont
                                 elide: Text.ElideRight
@@ -284,8 +293,8 @@ Page {
                                 Layout.fillWidth: true
                                 text: {
                                     var parts = []
-                                    if (profileData.author) parts.push(profileData.author)
-                                    parts.push((profileData.frameCount || 0) + " frames")
+                                    if (profileDelegate.profileData.author) parts.push(profileDelegate.profileData.author)
+                                    parts.push((profileDelegate.profileData.frameCount || 0) + " frames")
                                     if (profileDelegate.isIdentical) {
                                         parts.push(TranslationManager.translate("profileimport.status.identical", "Already imported"))
                                     } else if (profileDelegate.isDifferent) {
@@ -306,15 +315,15 @@ Page {
                                   TranslationManager.translate("profileimport.button.update", "Update") :
                                   TranslationManager.translate("profileimport.button.import", "Import")
                             accessibleName: profileDelegate.isDifferent ?
-                                  TranslationManager.translate("profileImport.updateProfileVersion", "Update profile %1 with newer version").arg(profileData.title) :
-                                  TranslationManager.translate("profileImport.importProfile", "Import profile %1").arg(profileData.title)
+                                  TranslationManager.translate("profileImport.updateProfileVersion", "Update profile %1 with newer version").arg(profileDelegate.profileData.title) :
+                                  TranslationManager.translate("profileImport.importProfile", "Import profile %1").arg(profileDelegate.profileData.title)
                             Accessible.description: profileDelegate.isDifferent ?
                                 TranslationManager.translate("profileimport.accessible.forceHint", "Long-press the row to force overwrite without prompting.") : ""
                             warning: profileDelegate.isDifferent
                             primary: !profileDelegate.isDifferent
                             enabled: !MainController.profileImporter.isImporting
                             onClicked: {
-                                MainController.profileImporter.importProfile(profileData.sourcePath)
+                                MainController.profileImporter.importProfile(profileDelegate.profileData.sourcePath)
                             }
                         }
 
