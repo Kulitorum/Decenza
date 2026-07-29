@@ -635,7 +635,7 @@ re-using it as a reason.
   the bundled macOS qmllint (section 7)
 - [x] 5.6 Update the qmllint instruction in `CLAUDE.md` and `docs/CLAUDE_MD/QML_GOTCHAS.md`, which currently point at a command whose output is unreadable
 - [x] 5.7 Record in `QML_GOTCHAS.md` that new C++ objects exposed to QML are registered as singletons, never via `setContextProperty()`
-- [ ] 5.8 Archive this change with `openspec archive fix-qmllint-usability` as the last commit on the branch
+- [x] 5.8 Archive this change with `openspec archive fix-qmllint-usability` as the last commit on the branch
 
 ## 6. Review round on PR #1665
 
