@@ -5,10 +5,15 @@ the levers are. Also records the measured AOT coverage and the finding that
 Decenza's per-frame hot path contains no QML at all — which is what decides
 whether AOT is worth paying for.
 
-**All numbers below were measured on 2026-07-27 at commit `99f8f8f1`**, macOS
-Debug build, Qt 6.11.1. They are a snapshot, not a contract. Every one is
+**Rebuild-cost numbers were measured on 2026-07-27 at commit `99f8f8f1`; the AOT
+coverage section was re-measured on 2026-07-29** after the QML cleanup landed.
+macOS Debug build, Qt 6.11.1. They are a snapshot, not a contract. Every one is
 re-derivable with the commands in "How to re-derive" at the bottom — do that
 rather than trusting these figures after the QML tree has moved.
+
+The re-measurement is itself the argument for doing so: this document previously
+predicted which AOT skips were fixable, and got it backwards in both directions.
+See "AOT coverage".
 
 ## The short version
 
@@ -105,49 +110,79 @@ It is not qmlcachegen — it is compiling what qmlcachegen emits: **2.0M lines**
 generated C++ across 216 files, every one containing AOT-compiled functions. Any
 lever aimed at this cost should target the generated C++, not the tool.
 
-## AOT coverage, and why it is only 40 %
+## AOT coverage, and why it is only 45 %
+
+**Re-measured 2026-07-29**, after the QML cleanup (#1665, #1688, #1690, #1695)
+took `setContextProperty` to zero and qmllint to 222/222. The previous numbers,
+and the prediction built on them, are kept below because the prediction turned
+out to be **wrong in both directions** and that is the useful part.
 
 ```
-total bindings/functions  29388
-  AOT compiled            11766  (40.0%)
-  skipped -> interpreter  16231  (55.2%)
-  partial                  1391  ( 4.7%)
+total bindings/functions  29097
+  AOT compiled            13017  (44.7%)
+  skipped -> interpreter  14665  (50.4%)
+  partial                  1415  ( 4.9%)
 ```
 
 Grouped by root cause:
 
 | Skips | Share | Cause |
 |---|---|---|
-| 4493 | 25.5 % | call to untyped JS function |
-| 3351 | 19.0 % | context property |
-| 2974 | 16.9 % | member on unresolved type |
-| 2858 | 16.2 % | unresolved id / model role |
-| 1998 | 11.3 % | other |
-| 1386 | 7.9 % | (no message) |
-| 562 | 3.2 % | untyped function definition |
+| 4681 | 31.9 % | call to untyped JS function |
+| 2751 | 18.8 % | unresolved id / model role |
+| 2694 | 18.4 % | member on unresolved type |
+| 2186 | 14.9 % | other |
+| 1787 | 12.2 % | `TranslationManager.translate` — callable `Q_PROPERTY` |
+| 566 | 3.9 % | untyped function definition |
+| **0** | — | **context property** (was 3351 / 19.0 %) |
 
-**Untyped JS functions (29 %).** Of 1,064 `function` declarations under `qml/`,
-**10** carry a return-type annotation and **9** a typed parameter. qmlcachegen
-will not compile an untyped function, and will not compile a *call* to one
-either — so 562 untyped definitions poison 4,493 call sites, an 8:1 cascade.
+**Untyped JS functions (32 %) — unchanged, and now the whole story.** Of 1,111
+`function` declarations under `qml/`, **13** carry a return-type annotation and
+**15** a typed parameter. qmlcachegen will not compile an untyped function, and
+will not compile a *call* to one either — so 566 untyped definitions poison 4,681
+call sites, an 8:1 cascade. This is the one lever that would move the number, and
+nothing in the cleanup touched it.
 
-**Context properties (19 %).** `src/main.cpp` exposes 39 globals via
-`setContextProperty` and registers **zero** QML singletons. qmlcachegen cannot
-resolve context properties by design: they are dynamically scoped and may be
-reassigned at runtime. `TranslationManager` alone accounts for 1,831 skips,
-`Settings` 595, `MainController` 313.
+**Context properties: gone.** `src/main.cpp` now contains zero `setContextProperty`
+calls and 23 QML singletons (`src/core/contextsingletons_qml.h`). The entire
+second-largest cause, 3,351 skips, is off the board.
 
-This is only partly fixable, and the reason is in the code: `ScaleDevice` and
-`Refractometer` are reassigned at 11 sites in `main.cpp` as hardware connects and
-disconnects. That mutability is *why* they are context properties, and why they
-cannot be typed. The stable ones (`Settings`, `TranslationManager`,
-`MainController`, `AccessibilityManager`) could become singletons; the swappable
-device handles realistically cannot.
+**But the prediction about which ones were fixable was exactly backwards.** The
+earlier draft said the swappable device handles "realistically cannot" be typed,
+because `ScaleDevice` and `Refractometer` are reassigned at 11 sites as hardware
+connects and disconnects, while the stable globals were the fixable ones. Measured:
 
-**The remaining third is largely downstream.** `Could not find property "text"`
-(455), `"clicked"` (451), `modelData` (241) and friends mostly follow from the two
-causes above — once `Settings` is untyped, every `Settings.theme.x` under it
-fails. Fixing the roots recovers part of this bucket for free.
+| | draft prediction | actual, now |
+|---|---|---|
+| `ScaleDevice`, `Refractometer` | unfixable | **0 skips** |
+| `AccessibilityManager` | fixable | **0 skips** |
+| `MainController` | fixable | 313 -> 152 |
+| `Settings` | fixable | 595 -> **539** |
+| `TranslationManager` | fixable | 1831 -> **1790** |
+
+The swappable ones went to zero because swapping moved *behind* a stable singleton
+that re-points its internals — mutability was never the obstacle, dynamic scoping
+was. The two the draft was most confident about barely moved, each for a reason
+that did not exist when it was written:
+
+- **`TranslationManager` (1,787).** `Type TranslationManager does not have a
+  property translate for calling`. `translate` is a `Q_PROPERTY` holding a
+  callable, deliberately — that is what makes a binding re-evaluate on a language
+  change, and 3,248 call sites depend on it (see `translationmanager.h` and
+  `CLAUDE.md`). qmlcachegen cannot compile a call through a callable property. This
+  is a **priced tradeoff, not a defect**: correct reactive translation costs 12 % of
+  all AOT skips. Do not "fix" it without reading `tst_translationreactivity.cpp`.
+- **`Settings` (539) and `MainController` (152).** `Cannot use shadowable base type
+  for further lookups: Settings::theme with type SettingsTheme`. The 12 domain
+  sub-objects that `CLAUDE.md` mandates (`Settings.<domain>.<prop>`) are non-final
+  QObject-derived properties, so qmlcachegen refuses to chain a lookup through them
+  — a subclass could shadow the member. This one is genuinely fixable, by making
+  the domain types or the properties `FINAL`, and it is the largest remaining
+  self-inflicted bucket.
+
+**The remaining third is largely downstream**, as before: `Could not find property
+"text"` (432), `"clicked"` (441), and `Cannot retrieve a non-object type by ID`
+(root, idlePage, postShotReviewPage) mostly follow from the causes above.
 
 ## Whether AOT is worth it here
 
@@ -171,9 +206,19 @@ recalc) at flush rate instead of per-sample."*
 
 The only QML that re-evaluates per sample is **32 bindings across 7 files**, all
 numeric readouts on `DE1Device.pressure` / `.flow` / `.temperature` /
-`.steamTemperature`. At ~5 Hz that is ~160 binding evaluations per second, and
-every one of them is interpreted and always will be — `DE1Device` is a context
-property, structurally out of AOT's reach.
+`.steamTemperature`. At ~5 Hz that is ~160 binding evaluations per second.
+
+This paragraph used to end "every one of them is interpreted and always will be —
+`DE1Device` is a context property, structurally out of AOT's reach." **That is no
+longer true.** `DE1Device` is a QML singleton (`contextsingletons_qml.h:185-190`)
+and only **3** skips in the whole tree now mention it, so those readouts are
+compiled rather than structurally excluded.
+
+The conclusion below survives anyway, on the independent argument: the hot path
+contains no QML at all, so what those 32 bindings cost is a rounding error either
+way. The stale reasoning is called out rather than deleted because it was the load
+-bearing sentence, and anyone re-deriving this will otherwise wonder why the
+verdict did not move when the premise did.
 
 **So the steady-state value of AOT to Decenza is close to zero.** It may still help
 cold binding execution, which affects page-open latency (felt on the Android
@@ -202,7 +247,7 @@ build. But it is a different path, and there is no net.
 binary can be run *as if* bytecode-only (below); a `--only-bytecode` binary has no
 AOT code to switch back on. Since Decenza has no QML test harness — QML is
 validated by manually running the Debug build — making Debug bytecode-only means
-the only validation QML gets never exercises the path 40 % of bindings take in
+the only validation QML gets never exercises the path 45 % of bindings take in
 the shipped app. Prefer an opt-in cache variable over defaulting it on for Debug,
 unless the A/B below shows AOT buys nothing, in which case turning it off
 *everywhere including Release* is better than either: same speed win, and dev and
@@ -287,8 +332,19 @@ ninja -n -d explain 2>&1 | grep "is dirty" | sort | uniq -c | sort -rn
 
 **AOT coverage** — aggregate `codegenResult` across
 `.rcc/qmlcache/**/*.aotstats` (JSON; `0` = compiled, `2` = skipped, with a
-`message` giving the reason). Deduplicate by `filepath`: each stats file embeds
-entries for more than one module file.
+`message` giving the reason). The shape is
+`modules[].moduleFiles[].entries[]`, and the key is **`filePath`**, capital P —
+this used to say `filepath`, which silently matches nothing, so a dedup written
+from it collapses all 216 files into one bucket and reports 288 entries instead
+of 29,097. Deduplicate by `filePath` and verify the distinct-file count is ~216
+before believing any total.
+
+On a Qt Creator build dir the real duplication risk is different from what this
+section used to claim: each stats file holds exactly **one** module file, but the
+tree contains a second copy of the whole cache under
+`qtc_Ninja_Multi_Config/.rcc/qmlcache/`. Glob both and every number doubles.
+Restrict the glob to the top-level `.rcc/`, or dedup by `filePath`, which fixes it
+either way.
 
 **Typed-function count:**
 ```bash
