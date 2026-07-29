@@ -1,8 +1,9 @@
-// Bound so this file's three ListView/ComboBox delegates resolve this file's own ids
-// (`connectionsTab`, `scalePicker`, `discoveredDevicesList`) instead of reading them as
-// unqualified access. Each of those delegates declares every injected model role it uses
-// as a required property in the same edit: without that, ComponentBehavior: Bound stops
-// role injection and breaks them at RUNTIME, silently.
+// Bound so the scale-picker ComboBox delegate resolves this file's `scalePicker` id
+// instead of reading it as unqualified access. All three delegates in this file declare
+// every injected model role they use as a required property in the same edit: without
+// that, ComponentBehavior: Bound stops role injection and breaks them at RUNTIME,
+// silently. (`connectionsTab` and `discoveredDevicesList` are read only from sibling
+// scopes, which resolve without the pragma.)
 pragma ComponentBehavior: Bound
 
 import QtQuick

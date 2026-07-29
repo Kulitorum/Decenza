@@ -1,8 +1,8 @@
-// Three Repeater/ListView delegates here read this file's ids (`autoWakeContent`,
-// `categoryList`); Bound makes them statically resolvable. Each declares every
-// injected role it uses required in the same edit -- without that, Bound stops role
-// injection and the day buttons, the category list and the overlay chips all render
-// blank at RUNTIME, silently.
+// The day-button delegate reads this file's `autoWakeContent` id; Bound makes it
+// statically resolvable. All three delegates here declare every injected role they use
+// required in the same edit -- without that, Bound stops role injection and the day
+// buttons, the category list and the overlay chips all render blank at RUNTIME,
+// silently. (`categoryList` is read only from sibling scopes, which need no pragma.)
 pragma ComponentBehavior: Bound
 
 import QtQuick

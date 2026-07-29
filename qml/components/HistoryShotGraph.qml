@@ -428,6 +428,13 @@ Item {
             subTickCount: 0
             labelFormat: "%.0f"
             visible: chart.showLabels
+            // Caption goes on the axis, not in an overlay: Qt Graphs draws axis
+            // titles itself AND reserves layout space for them (axisrenderer.cpp:622
+            // counts titled axes into the margin math). The Qt Charts -> Qt Graphs
+            // migration (#1146) carried this over as a Text positioned off `plotArea`
+            // bottom-right, which floated it ON TOP of the plot, over any trace running
+            // along the bottom.
+            titleText: TranslationManager.translate("graph.timeAxis", "Time (s)")
         }
 
         ValueAxis {
@@ -688,18 +695,6 @@ Item {
             visible: markerTime <= timeAxis.max && modelData.label !== "Start" && modelData.label !== "End"
             Accessible.ignored: true
         }
-    }
-
-    // Time axis label - inside graph at bottom right
-    Text {
-        x: graphsView.plotArea.x + graphsView.plotArea.width - width - Theme.spacingSmall
-        y: graphsView.plotArea.y + graphsView.plotArea.height - height - Theme.scaled(12)
-        text: TranslationManager.translate("graph.timeAxis", "Time (s)")
-        color: Theme.textSecondaryColor
-        font: Theme.captionFont
-        opacity: 0.7
-        visible: chart.showLabels
-        Accessible.ignored: true
     }
 
     // Crosshair vertical line
