@@ -62,7 +62,7 @@ Page {
                 spacing: Theme.scaled(4)
 
                 Text {
-                    text: profileData?.title || profileName || TranslationManager.translate("profileinfo.unknownProfile", "Profile")
+                    text: profileInfoPage.profileData?.title || profileInfoPage.profileName || TranslationManager.translate("profileinfo.unknownProfile", "Profile")
                     font: Theme.titleFont
                     color: Theme.textColor
                     wrapMode: Text.Wrap
@@ -70,8 +70,8 @@ Page {
                 }
 
                 Text {
-                    visible: (profileData?.author?.length ?? 0) > 0
-                    text: TranslationManager.translate("profileinfo.by", "by") + " " + (profileData?.author ?? "")
+                    visible: (profileInfoPage.profileData?.author?.length ?? 0) > 0
+                    text: TranslationManager.translate("profileinfo.by", "by") + " " + (profileInfoPage.profileData?.author ?? "")
                     font: Theme.labelFont
                     color: Theme.textSecondaryColor
                 }
@@ -90,14 +90,14 @@ Page {
                     anchors.margins: Theme.scaled(8)
                     frames: []
                     selectedFrameIndex: -1
-                    targetWeight: profileData ? (profileData.target_weight || 0) : 0
-                    targetVolume: profileData ? (profileData.target_volume || 0) : 0
+                    targetWeight: profileInfoPage.profileData ? (profileInfoPage.profileData.target_weight || 0) : 0
+                    targetVolume: profileInfoPage.profileData ? (profileInfoPage.profileData.target_volume || 0) : 0
                 }
 
                 // No data message
                 Text {
                     anchors.centerIn: parent
-                    visible: !profileData || !profileData.steps || profileData.steps.length === 0
+                    visible: !profileInfoPage.profileData || !profileInfoPage.profileData.steps || profileInfoPage.profileData.steps.length === 0
                     text: TranslationManager.translate("profileinfo.noData", "No profile data")
                     font: Theme.bodyFont
                     color: Theme.textSecondaryColor
@@ -146,12 +146,12 @@ Page {
                         }
                         Text {
                             text: {
-                                if (!profileData) return "-"
+                                if (!profileInfoPage.profileData) return "-"
                                 var parts = []
-                                if (profileData.target_weight > 0)
-                                    parts.push(TranslationManager.translate("profileinfo.weight", "Weight") + " " + profileData.target_weight.toFixed(0) + " g")
-                                if (profileData.target_volume > 0)
-                                    parts.push(TranslationManager.translate("profileinfo.volume", "Volume") + " " + profileData.target_volume.toFixed(0) + " ml")
+                                if (profileInfoPage.profileData.target_weight > 0)
+                                    parts.push(TranslationManager.translate("profileinfo.weight", "Weight") + " " + profileInfoPage.profileData.target_weight.toFixed(0) + " g")
+                                if (profileInfoPage.profileData.target_volume > 0)
+                                    parts.push(TranslationManager.translate("profileinfo.volume", "Volume") + " " + profileInfoPage.profileData.target_volume.toFixed(0) + " ml")
                                 return parts.length > 0 ? parts.join(", ") : TranslationManager.translate("profileEditor.off", "off")
                             }
                             font: Theme.bodyFont
@@ -170,7 +170,7 @@ Page {
                             color: Theme.textSecondaryColor
                         }
                         Text {
-                            text: profileData ? Theme.cToDisplay(profileData.espresso_temperature || 0).toFixed(1) + " " + Theme.tempUnitSuffix() : "-"
+                            text: profileInfoPage.profileData ? Theme.cToDisplay(profileInfoPage.profileData.espresso_temperature || 0).toFixed(1) + " " + Theme.tempUnitSuffix() : "-"
                             font: Theme.bodyFont
                             color: Theme.textColor
                         }
@@ -187,7 +187,7 @@ Page {
                             color: Theme.textSecondaryColor
                         }
                         Text {
-                            text: profileData && profileData.steps ? profileData.steps.length.toString() : "0"
+                            text: profileInfoPage.profileData && profileInfoPage.profileData.steps ? profileInfoPage.profileData.steps.length.toString() : "0"
                             font: Theme.bodyFont
                             color: Theme.textColor
                         }
@@ -209,13 +209,13 @@ Page {
                                 void(_calVersion);
                                 void(Settings.calibration.autoFlowCalibration);
                                 void(Settings.calibration.flowCalibrationMultiplier);
-                                return profileFilename ? Settings.calibration.effectiveFlowCalibration(profileFilename) : Settings.calibration.flowCalibrationMultiplier;
+                                return profileInfoPage.profileFilename ? Settings.calibration.effectiveFlowCalibration(profileInfoPage.profileFilename) : Settings.calibration.flowCalibrationMultiplier;
                             }
                             property bool isAuto: {
                                 void(_calVersion);
                                 void(Settings.calibration.autoFlowCalibration);
                                 void(Settings.calibration.flowCalibrationMultiplier);
-                                return profileFilename ? Settings.calibration.hasProfileFlowCalibration(profileFilename) : false;
+                                return profileInfoPage.profileFilename ? Settings.calibration.hasProfileFlowCalibration(profileInfoPage.profileFilename) : false;
                             }
                             // Multipliers above this were historically out-of-range; on newer firmware
                             // they can be legitimate but are worth flagging so the user can sanity-check
@@ -281,13 +281,13 @@ Page {
                     Text {
                         Layout.fillWidth: true
                         text: {
-                            if (profileData && profileData.profile_notes && profileData.profile_notes.length > 0) {
-                                return profileData.profile_notes
+                            if (profileInfoPage.profileData && profileInfoPage.profileData.profile_notes && profileInfoPage.profileData.profile_notes.length > 0) {
+                                return profileInfoPage.profileData.profile_notes
                             }
                             return TranslationManager.translate("profileinfo.noNotes", "No notes available for this profile.")
                         }
                         font: Theme.bodyFont
-                        color: profileData && profileData.profile_notes && profileData.profile_notes.length > 0 ?
+                        color: profileInfoPage.profileData && profileInfoPage.profileData.profile_notes && profileInfoPage.profileData.profile_notes.length > 0 ?
                                Theme.textColor : Theme.textSecondaryColor
                         wrapMode: Text.Wrap
                         textFormat: Text.PlainText

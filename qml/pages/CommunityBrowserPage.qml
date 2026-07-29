@@ -1,3 +1,9 @@
+// The results-grid delegate reads this file's ids (`communityBrowser`, `resultsGrid`);
+// Bound makes them statically resolvable. It declares its one injected role,
+// `modelData`, required in the same edit -- without that, Bound stops role injection
+// and every community card renders blank at RUNTIME, silently.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Layouts
 import Decenza
@@ -46,8 +52,8 @@ Item {
                 model: ["All Types", "Items", "Zones", "Layouts", "Themes"]
                 onCurrentIndexChanged: {
                     var types = ["", "item", "zone", "layout", "theme"]
-                    filterType = types[currentIndex]
-                    refreshResults()
+                    communityBrowser.filterType = types[currentIndex]
+                    communityBrowser.refreshResults()
                 }
             }
 
@@ -65,8 +71,8 @@ Item {
                                 "%FLOW%", "%WEIGHT%", "%WATER%", "%SHOT_TIME%",
                                 "%PROFILE%", "%STATE%", "%TIME%", "%DATE%",
                                 "%RATIO%", "%DOSE%", "%TARGET_WEIGHT%"]
-                    filterVariable = vars[currentIndex]
-                    refreshResults()
+                    communityBrowser.filterVariable = vars[currentIndex]
+                    communityBrowser.refreshResults()
                 }
             }
 
@@ -98,8 +104,8 @@ Item {
                         "command:tare", "command:quit",
                         "togglePreset:espresso", "togglePreset:steam",
                         "togglePreset:hotwater", "togglePreset:flush", "togglePreset:beans"]
-                    filterAction = actions[currentIndex]
-                    refreshResults()
+                    communityBrowser.filterAction = actions[currentIndex]
+                    communityBrowser.refreshResults()
                 }
             }
 
@@ -111,8 +117,8 @@ Item {
                 model: ["Newest", "Most Popular"]
                 onCurrentIndexChanged: {
                     var sorts = ["newest", "popular"]
-                    sortBy = sorts[currentIndex]
-                    refreshResults()
+                    communityBrowser.sortBy = sorts[currentIndex]
+                    communityBrowser.refreshResults()
                 }
             }
         }
@@ -140,19 +146,22 @@ Item {
             model: LibrarySharing.communityEntries
 
             delegate: LibraryItemCard {
+                id: communityCard
+                required property var modelData
+
                 width: resultsGrid.cellWidth - Theme.scaled(8)
                 height: resultsGrid.cellHeight - Theme.scaled(8)
-                entryData: modelData
+                entryData: communityCard.modelData
                 displayMode: 0
-                isSelected: communityBrowser.selectedEntryId === (modelData.id || "")
+                isSelected: communityBrowser.selectedEntryId === (communityCard.modelData.id || "")
 
                 onClicked: {
-                    var id = modelData.id || ""
+                    var id = communityCard.modelData.id || ""
                     communityBrowser.selectedEntryId =
                         communityBrowser.selectedEntryId === id ? "" : id
                 }
                 onDoubleClicked: {
-                    LibrarySharing.downloadEntry(modelData.id)
+                    LibrarySharing.downloadEntry(communityCard.modelData.id)
                 }
             }
 
@@ -160,10 +169,10 @@ Item {
             onAtYEndChanged: {
                 if (atYEnd && count > 0 && !LibrarySharing.browsing) {
                     var totalPages = Math.ceil(LibrarySharing.totalCommunityResults / 20)
-                    if (currentPage < totalPages) {
-                        currentPage++
-                        LibrarySharing.browseCommunity(filterType, filterVariable,
-                            filterAction, "", sortBy, currentPage)
+                    if (communityBrowser.currentPage < totalPages) {
+                        communityBrowser.currentPage++
+                        LibrarySharing.browseCommunity(communityBrowser.filterType, communityBrowser.filterVariable,
+                            communityBrowser.filterAction, "", communityBrowser.sortBy, communityBrowser.currentPage)
                     }
                 }
             }
@@ -172,7 +181,7 @@ Item {
             Text {
                 visible: resultsGrid.count === 0 && !LibrarySharing.browsing
                 anchors.centerIn: parent
-                text: filterType || filterVariable || filterAction
+                text: communityBrowser.filterType || communityBrowser.filterVariable || communityBrowser.filterAction
                     ? "No entries match your filters."
                     : "Community library is empty.\nBe the first to share a widget!"
                 color: Theme.textSecondaryColor
@@ -240,7 +249,7 @@ Item {
 
         // Download button
         Rectangle {
-            property bool downloadEnabled: selectedEntryId !== "" && !LibrarySharing.downloading
+            property bool downloadEnabled: communityBrowser.selectedEntryId !== "" && !LibrarySharing.downloading
             width: downloadLabel.implicitWidth + Theme.scaled(32)
             height: Theme.scaled(40)
             radius: Theme.scaled(20)
@@ -266,7 +275,7 @@ Item {
                 id: downloadArea
                 anchors.fill: parent
                 enabled: parent.downloadEnabled
-                onClicked: LibrarySharing.downloadEntry(selectedEntryId)
+                onClicked: LibrarySharing.downloadEntry(communityBrowser.selectedEntryId)
             }
         }
 

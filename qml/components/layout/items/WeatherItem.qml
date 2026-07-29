@@ -1,3 +1,10 @@
+// The compact and expanded hourly-forecast delegates read this file's ids (`root`,
+// `compactList`, `hourlyList`) and its formatting helpers; Bound makes them statically
+// resolvable. Each declares both injected roles it uses, `modelData` and `index`,
+// required in the same edit -- without that, Bound stops role injection and the whole
+// forecast strip renders blank at RUNTIME, silently.
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Layouts
 import Decenza
@@ -107,13 +114,17 @@ LayoutWidgetItem {
             model: WeatherManager.hourlyForecast
 
             delegate: Item {
+                id: compactHour
+                required property var modelData
+                required property int index
+
                 width: Theme.scaled(32)
                 height: compactList.height
 
                 // Day-alternating background
                 Rectangle {
                     anchors.fill: parent
-                    color: parseInt((modelData.time || "").substring(8, 10)) % 2 === 0
+                    color: parseInt((compactHour.modelData.time || "").substring(8, 10)) % 2 === 0
                         ? Qt.rgba(1, 1, 1, 0.06) : "transparent"
                     radius: Theme.scaled(3)
                 }
@@ -122,7 +133,7 @@ LayoutWidgetItem {
                     anchors.fill: parent
                     color: Qt.rgba(1, 0.9, 0.3, 0.1)
                     radius: Theme.scaled(3)
-                    visible: modelData.isDaytime || false
+                    visible: compactHour.modelData.isDaytime || false
                 }
 
                 Column {
@@ -131,19 +142,19 @@ LayoutWidgetItem {
 
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
-                        text: formatHour(modelData.hour || "")
-                        color: index === 0 ? Theme.textColor : Theme.textSecondaryColor
+                        text: root.formatHour(compactHour.modelData.hour || "")
+                        color: compactHour.index === 0 ? Theme.textColor : Theme.textSecondaryColor
                         font: Theme.captionFont
                     }
                     Image {
                         anchors.horizontalCenter: parent.horizontalCenter
-                        source: Theme.emojiToImage(weatherEmoji(modelData.weatherIcon || "", modelData.isDaytime, modelData.time || ""))
+                        source: Theme.emojiToImage(root.weatherEmoji(compactHour.modelData.weatherIcon || "", compactHour.modelData.isDaytime, compactHour.modelData.time || ""))
                         sourceSize.width: Theme.scaled(16)
                         sourceSize.height: Theme.scaled(16)
                     }
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
-                        text: formatTemp(modelData.temperature || 0)
+                        text: root.formatTemp(compactHour.modelData.temperature || 0)
                         color: Theme.textColor
                         font: Theme.captionFont
                     }
@@ -184,7 +195,7 @@ LayoutWidgetItem {
                     source: {
                         var forecast = WeatherManager.hourlyForecast
                         if (forecast.length > 0)
-                            return Theme.emojiToImage(weatherEmoji(forecast[0].weatherIcon || "", forecast[0].isDaytime, forecast[0].time || ""))
+                            return Theme.emojiToImage(root.weatherEmoji(forecast[0].weatherIcon || "", forecast[0].isDaytime, forecast[0].time || ""))
                         return ""
                     }
                     sourceSize.width: Theme.scaled(28)
@@ -195,7 +206,7 @@ LayoutWidgetItem {
                     text: {
                         var forecast = WeatherManager.hourlyForecast
                         if (forecast.length > 0)
-                            return formatTemp(forecast[0].temperature || 0)
+                            return root.formatTemp(forecast[0].temperature || 0)
                         return "--"
                     }
                     color: Theme.textColor
@@ -227,9 +238,9 @@ LayoutWidgetItem {
                                 if (f.relativeHumidity > 0) parts.push(f.relativeHumidity + "%")
                                 if (f.windSpeed > 0) {
                                     if (WeatherManager.useImperialUnits)
-                                        parts.push(windArrow(f.windDirection) + Math.round(f.windSpeed * 0.621371) + "mph")
+                                        parts.push(root.windArrow(f.windDirection) + Math.round(f.windSpeed * 0.621371) + "mph")
                                     else
-                                        parts.push(windArrow(f.windDirection) + Math.round(f.windSpeed) + "km/h")
+                                        parts.push(root.windArrow(f.windDirection) + Math.round(f.windSpeed) + "km/h")
                                 }
                                 return parts.join("  ")
                             }
@@ -256,13 +267,17 @@ LayoutWidgetItem {
                 model: WeatherManager.hourlyForecast
 
                 delegate: Item {
+                    id: hourlyCell
+                    required property var modelData
+                    required property int index
+
                     width: Theme.scaled(38)
                     height: hourlyList.height
 
                     // Day-alternating background
                     Rectangle {
                         anchors.fill: parent
-                        color: parseInt((modelData.time || "").substring(8, 10)) % 2 === 0
+                        color: parseInt((hourlyCell.modelData.time || "").substring(8, 10)) % 2 === 0
                             ? Qt.rgba(1, 1, 1, 0.06) : "transparent"
                         radius: Theme.scaled(3)
                     }
@@ -271,7 +286,7 @@ LayoutWidgetItem {
                         anchors.fill: parent
                         color: Qt.rgba(1, 0.9, 0.3, 0.1)
                         radius: Theme.scaled(3)
-                        visible: modelData.isDaytime || false
+                        visible: hourlyCell.modelData.isDaytime || false
                     }
 
                     Column {
@@ -281,15 +296,15 @@ LayoutWidgetItem {
                         // Hour
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter
-                            text: formatHour(modelData.hour || "")
-                            color: index === 0 ? Theme.textColor : Theme.textSecondaryColor
+                            text: root.formatHour(hourlyCell.modelData.hour || "")
+                            color: hourlyCell.index === 0 ? Theme.textColor : Theme.textSecondaryColor
                             font: Theme.captionFont
                         }
 
                         // Weather icon
                         Image {
                             anchors.horizontalCenter: parent.horizontalCenter
-                            source: Theme.emojiToImage(weatherEmoji(modelData.weatherIcon || "", modelData.isDaytime, modelData.time || ""))
+                            source: Theme.emojiToImage(root.weatherEmoji(hourlyCell.modelData.weatherIcon || "", hourlyCell.modelData.isDaytime, hourlyCell.modelData.time || ""))
                             sourceSize.width: Theme.scaled(16)
                             sourceSize.height: Theme.scaled(16)
                         }
@@ -297,23 +312,23 @@ LayoutWidgetItem {
                         // Temperature
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter
-                            text: formatTemp(modelData.temperature || 0)
+                            text: root.formatTemp(hourlyCell.modelData.temperature || 0)
                             color: Theme.textColor
                             font.family: Theme.captionFont.family
                             font.pixelSize: Theme.captionFont.pixelSize
-                            font.bold: index === 0
+                            font.bold: hourlyCell.index === 0
                         }
 
                         // Precipitation probability (only if > 0)
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter
-                            text: (modelData.precipitationProbability || 0) > 0
-                                  ? (modelData.precipitationProbability + "%")
+                            text: (hourlyCell.modelData.precipitationProbability || 0) > 0
+                                  ? (hourlyCell.modelData.precipitationProbability + "%")
                                   : ""
                             color: Theme.textColor
                             font.family: Theme.captionFont.family
                             font.pixelSize: Theme.scaled(10)
-                            visible: (modelData.precipitationProbability || 0) > 0
+                            visible: (hourlyCell.modelData.precipitationProbability || 0) > 0
                         }
                     }
                 }
