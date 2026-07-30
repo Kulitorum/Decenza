@@ -986,7 +986,7 @@ static double grinderWideStep(QSqlDatabase& db, const QString& grinderModel)
     q.prepare(QStringLiteral(
         "SELECT DISTINCT grinder_setting FROM shots "
         "WHERE equipment_id IN (SELECT package_id FROM equipment_items "
-        "WHERE kind = 'grinder' AND model = :model) "
+        "WHERE kind = 'grinder' AND LOWER(TRIM(IFNULL(model,''))) = LOWER(TRIM(:model))) "
         "AND grinder_setting IS NOT NULL AND grinder_setting != ''"));
     q.bindValue(":model", grinderModel);
     if (!q.exec()) {
@@ -1016,7 +1016,7 @@ static double grinderWideRpmStep(QSqlDatabase& db, const QString& grinderModel)
     q.prepare(QStringLiteral(
         "SELECT DISTINCT rpm FROM shots "
         "WHERE equipment_id IN (SELECT package_id FROM equipment_items "
-        "WHERE kind = 'grinder' AND model = :model) "
+        "WHERE kind = 'grinder' AND LOWER(TRIM(IFNULL(model,''))) = LOWER(TRIM(:model))) "
         "AND rpm > 0"));
     q.bindValue(":model", grinderModel);
     if (!q.exec()) {
@@ -1053,7 +1053,7 @@ GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
     QString sql = QStringLiteral(
         "SELECT DISTINCT grinder_setting FROM shots "
         "WHERE equipment_id IN (SELECT package_id FROM equipment_items "
-        "WHERE kind = 'grinder' AND model = :model) "
+        "WHERE kind = 'grinder' AND LOWER(TRIM(IFNULL(model,''))) = LOWER(TRIM(:model))) "
         "AND beverage_type = :bev "
         "AND grinder_setting != ''");
     if (!beanBrand.isEmpty()) {
@@ -1122,7 +1122,7 @@ GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
         QString rpmSql = QStringLiteral(
             "SELECT DISTINCT rpm FROM shots "
             "WHERE equipment_id IN (SELECT package_id FROM equipment_items "
-            "WHERE kind = 'grinder' AND model = :model) "
+            "WHERE kind = 'grinder' AND LOWER(TRIM(IFNULL(model,''))) = LOWER(TRIM(:model))) "
             "AND beverage_type = :bev "
             "AND rpm > 0");
         if (!beanBrand.isEmpty())
@@ -1610,10 +1610,20 @@ QStringList ShotHistoryStorage::getDistinctGrinderSettingsForGrinder(const QStri
 
     // Settings are per-shot dial-in (grinder_setting stays on shots); the grinder
     // model resolves through the equipment_id pointer (task 4.2).
+    //
+    // The model compare is case- and whitespace-FOLDED, matching the identity
+    // matcher that writes these rows (findPackageByGrinderIdentityStatic, which
+    // has always used LOWER). An exact compare here meant a model string differing
+    // only in case or padding — two packages the write path considers the same
+    // grinder — read back as a grinder with NO history. That is invisible: an
+    // empty result is indistinguishable from a new grinder, so the step silently
+    // falls back to 1.0 and the wheel loses the resolution the user actually
+    // dials. Every model-scoped lookup in this file and in the AI grinder
+    // calibration block folds the same way; they must agree.
     requestDistinctValueAsync(cacheKey,
         "SELECT DISTINCT grinder_setting FROM shots "
         "WHERE equipment_id IN (SELECT package_id FROM equipment_items "
-        "WHERE kind = 'grinder' AND model = ?) "
+        "WHERE kind = 'grinder' AND LOWER(TRIM(IFNULL(model,''))) = LOWER(TRIM(?))) "
         "AND grinder_setting IS NOT NULL AND grinder_setting != '' "
         "ORDER BY grinder_setting",
         {grinderModel});
@@ -1711,7 +1721,7 @@ double ShotHistoryStorage::grindRpmStepForGrinder(const QString& grinderModel)
         requestDistinctValueAsync(cacheKey,
             "SELECT DISTINCT rpm FROM shots "
             "WHERE equipment_id IN (SELECT package_id FROM equipment_items "
-            "WHERE kind = 'grinder' AND model = ?) "
+            "WHERE kind = 'grinder' AND LOWER(TRIM(IFNULL(model,''))) = LOWER(TRIM(?))) "
             "AND rpm > 0 "
             "ORDER BY rpm",
             {grinderModel});

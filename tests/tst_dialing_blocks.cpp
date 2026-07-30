@@ -1617,6 +1617,48 @@ private slots:
         });
     }
 
+    // The grinder identity compare is case- and whitespace-FOLDED, like the
+    // identity matcher that writes the packages. An exact compare made a model or
+    // burr string differing only in case or padding return no history at all —
+    // and an empty history is indistinguishable from a grinder that has never
+    // been used, so the failure is silent (#1713).
+    void calibrationBlock_grinderIdentityMatchIsCaseAndSpaceInsensitive()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("calib_fold"), [&](QSqlDatabase& db) {
+            calSeed(db, QStringLiteral("f1"), 1000,
+                    QStringLiteral("D-Flow / Q"), QStringLiteral("d-flow-q-variant"),
+                    QStringLiteral("6"));
+            const qint64 cur = calSeed(db, QStringLiteral("f2"), 1100,
+                    QStringLiteral("D-Flow / Q"), QStringLiteral("d-flow-q-variant"),
+                    QStringLiteral("6"));
+            // Stored as "Niche Zero" / "63mm conical"; asked for in another case,
+            // with padding.
+            const QJsonObject folded = DialingBlocks::buildGrinderCalibrationBlock(
+                db, QStringLiteral("  niche ZERO "), QStringLiteral("63MM Conical"),
+                QStringLiteral("espresso"), cur);
+            QVERIFY2(!folded.isEmpty(), "case/padding difference must still find the history");
+            const QJsonObject exact = DialingBlocks::buildGrinderCalibrationBlock(
+                db, QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
+                QStringLiteral("espresso"), cur);
+            // Everything derived from history is identical. grinderModel itself is
+            // echoed back as the caller wrote it, so it is compared separately
+            // rather than folded — the block reports the identity it was ASKED
+            // about, and the AI reads it as a label, not as a key.
+            QCOMPARE(folded.value(QStringLiteral("profiles")),
+                     exact.value(QStringLiteral("profiles")));
+            QCOMPARE(folded.value(QStringLiteral("confidence")),
+                     exact.value(QStringLiteral("confidence")));
+
+            // Folding is not matching everything: a different grinder still has no
+            // history here.
+            QVERIFY(DialingBlocks::buildGrinderCalibrationBlock(
+                        db, QStringLiteral("Niche Duo"), QStringLiteral("63mm conical"),
+                        QStringLiteral("espresso"), cur).isEmpty());
+        });
+    }
+
     // #1223 core: dialed-in on D-Flow / Q, asking about far profiles →
     // directional only. No conversionKey, no rgs anywhere, no negative
     // numbers; TurboTurbo (UGS 6, far above current UGS 1.0) is coarser.

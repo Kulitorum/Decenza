@@ -93,6 +93,17 @@ struct EquipmentPackageView {
     QVariantMap toVariantMap() const;
 };
 
+// Outcome of mergePackagesStatic: what moved, and why it refused when it did.
+// `error` is a stable machine-readable token (empty on success) so every caller
+// words the refusal itself rather than parsing prose.
+struct EquipmentMergeResult {
+    bool ok = false;
+    qint64 shotsMoved = 0;
+    qint64 bagsMoved = 0;
+    qint64 recipesMoved = 0;
+    QString error;  // "", "samePackage", "sourceNotFound", "targetNotFound", "sqlFailed"
+};
+
 // SQLite-backed equipment storage in the shot history database
 // (equipment_packages + equipment_items tables, created by ShotHistoryStorage
 // migration 22). Async request* methods run DB work on a QThread::create()
@@ -191,6 +202,8 @@ public:
     //       package's bags to it, delete this package if unused else soft-delete
     //       it with superseded_by -> that id
     //   - package unused (no shots)                -> edit in place -> same id
+    //   - every differing component was EMPTY      -> edit in place -> same id
+    //       (enrichment: filling in gear the package always had, not a swap)
     //   - package used (>=1 shot)                  -> fork a new package (copies
     //       name + last dial), repoint bags, soft-delete old (superseded_by) -> new id
     // Identity is the full (grinder brand/model/burrs + basket brand/model +
@@ -208,6 +221,53 @@ public:
     static qint64 supersedeOrEditGrinderStatic(QSqlDatabase& db, qint64 packageId,
                                                const QString& brand, const QString& model,
                                                const QString& burrs);
+
+    // Fold `sourceId` into `targetId` and delete the source: every shot, bag and
+    // recipe pointing at the source is repointed at the target, lineage pointers
+    // that named the source name the target instead, and a retired target is
+    // brought back into inventory (the package that ends up holding the history
+    // has to be selectable).
+    //
+    // This is the REPAIR for a package split that should never have happened —
+    // the copy-on-write fork is what makes such a split possible, and before the
+    // enrichment rule (supersedeOrEditStatic) merely typing in the burrs you
+    // always had produced one (#1713). It is destructive and NOT the inverse of a
+    // fork: the source's identity is gone afterwards, and its shots then claim
+    // the target's gear. Callers must have the user name both packages.
+    //
+    // Unlike the merge branch inside supersedeOrEditStatic — which matches on
+    // identity, only considers in-inventory candidates, and leaves the source's
+    // shots behind — this takes two explicit ids, accepts a RETIRED source or
+    // target (that is the normal case when undoing a fork), and moves everything.
+    static EquipmentMergeResult mergePackagesStatic(QSqlDatabase& db, qint64 sourceId, qint64 targetId);
+
+    // The merge body without a transaction of its own, for a caller that already
+    // owns one (the migration heal below — DbWriteTxn refuses to nest, and
+    // adopting an outer transaction would let a rejection leave partial writes
+    // staged in it). Returns with `ok` false and the writes NOT undone; the
+    // caller's rollback is what cleans up.
+    static EquipmentMergeResult mergePackagesUnlockedStatic(QSqlDatabase& db, qint64 sourceId, qint64 targetId);
+
+    // Shared id/existence checks for both merge entry points. Returns a result
+    // whose `error` is empty when the pair is mergeable.
+    static EquipmentMergeResult validateMergeStatic(QSqlDatabase& db, qint64 sourceId, qint64 targetId);
+
+    // One-time repair of packages split by a pre-enrichment fork: for each pair
+    // where a package is superseded by one that differs ONLY by having burrs where
+    // it has none, fold the older into the newer. Fills `remap` (old id ->
+    // surviving id) so the caller can repoint anything holding an id outside this
+    // database — the active-equipment selection lives in QSettings, not here — and
+    // `healedOut` with the number of pairs merged.
+    //
+    // Returns false on a SQL failure, with its writes STAGED, not undone: it runs
+    // inside the CALLER's transaction (see mergePackagesUnlockedStatic) and the
+    // caller's rollback is what cleans up. A run that finds nothing to heal
+    // returns true with a count of 0.
+    //
+    // Everything not matching that exact signature — a burr swap, a cleared field,
+    // two lookalike packages with no lineage between them — is left untouched.
+    static bool healEnrichmentForksStatic(QSqlDatabase& db, QHash<qint64, qint64>* remap = nullptr,
+                                          qsizetype* healedOut = nullptr);
 
     // Find an existing in-inventory package whose full identity matches
     // (case-insensitive grinder brand+model+burrs AND basket brand+model AND

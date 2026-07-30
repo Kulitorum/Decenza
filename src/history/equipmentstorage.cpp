@@ -515,11 +515,22 @@ void EquipmentStorage::requestDeletePackage(qint64 packageId)
             // deleting a fork target would leave that older package with a
             // dangling lineage pointer (it would render as "older" with no
             // successor to resolve).
+            //
+            // Recipes count too: recipes.equipment_id is a reference like any
+            // other, and leaving it out let a hard delete strand a recipe on a
+            // package id that no longer existed. The table is only counted when it
+            // exists — RecipeStorage creates it on its own first initialize, and a
+            // missing table would otherwise fail the pre-check and block every
+            // delete.
+            const bool hasRecipes = db.tables().contains(QStringLiteral("recipes"));
             QSqlQuery countQuery(db);
-            countQuery.prepare("SELECT "
-                               "(SELECT COUNT(*) FROM coffee_bags WHERE equipment_id = :id) + "
-                               "(SELECT COUNT(*) FROM shots WHERE equipment_id = :id) + "
-                               "(SELECT COUNT(*) FROM equipment_packages WHERE superseded_by = :id)");
+            countQuery.prepare(QStringLiteral(
+                "SELECT "
+                "(SELECT COUNT(*) FROM coffee_bags WHERE equipment_id = :id) + "
+                "(SELECT COUNT(*) FROM shots WHERE equipment_id = :id) + "
+                "(SELECT COUNT(*) FROM equipment_packages WHERE superseded_by = :id)")
+                + (hasRecipes ? QStringLiteral(" + (SELECT COUNT(*) FROM recipes WHERE equipment_id = :id)")
+                              : QString()));
             countQuery.bindValue(":id", packageId);
             if (!countQuery.exec() || !countQuery.next()) {
                 qWarning() << "EquipmentStorage: delete pre-check failed:" << countQuery.lastError().text();
@@ -1092,6 +1103,229 @@ qint64 EquipmentStorage::findPackageByNameStatic(QSqlDatabase& db, const QString
     return 0;
 }
 
+EquipmentMergeResult EquipmentStorage::mergePackagesStatic(QSqlDatabase& db, qint64 sourceId, qint64 targetId)
+{
+    EquipmentMergeResult probe = validateMergeStatic(db, sourceId, targetId);
+    if (!probe.error.isEmpty())
+        return probe;
+
+    DbWriteTxn txn = DbWriteTxn::begin(db, "equipment package merge");
+    if (!txn.ok()) {
+        qWarning() << "EquipmentStorage: merge of" << sourceId << "into" << targetId
+                   << "could not start a transaction - nothing moved";
+        probe.error = QStringLiteral("sqlFailed");
+        return probe;
+    }
+    EquipmentMergeResult result = mergePackagesUnlockedStatic(db, sourceId, targetId);
+    if (!result.ok)
+        return result;   // guard rolls back
+    if (!txn.commit()) {
+        qWarning() << "EquipmentStorage: merge commit failed:" << txn.commitError();
+        return EquipmentMergeResult{false, 0, 0, 0, QStringLiteral("sqlFailed")};
+    }
+    return result;
+}
+
+EquipmentMergeResult EquipmentStorage::validateMergeStatic(QSqlDatabase& db, qint64 sourceId, qint64 targetId)
+{
+    EquipmentMergeResult result;
+    if (sourceId == targetId || sourceId <= 0 || targetId <= 0) {
+        result.error = QStringLiteral("samePackage");
+        return result;
+    }
+    if (!loadPackageStatic(db, sourceId).isValid()) {
+        result.error = QStringLiteral("sourceNotFound");
+        return result;
+    }
+    if (!loadPackageStatic(db, targetId).isValid())
+        result.error = QStringLiteral("targetNotFound");
+    return result;
+}
+
+EquipmentMergeResult EquipmentStorage::mergePackagesUnlockedStatic(QSqlDatabase& db, qint64 sourceId, qint64 targetId)
+{
+    EquipmentMergeResult result = validateMergeStatic(db, sourceId, targetId);
+    if (!result.error.isEmpty())
+        return result;
+
+    // Every table carrying equipment_id lives in this one database (recipes
+    // included — RecipeStorage opens the shot history file). Missing one leaves a
+    // row pointing at the package deleted below, which is exactly the dangling
+    // pointer the delete pre-check refuses to create by hand.
+    //
+    // A table that does not exist yet is skipped rather than failing the merge:
+    // each storage class creates its own table on first initialize, so a merge can
+    // legitimately run before RecipeStorage ever has (and the equipment tests
+    // create only what they exercise). It has no rows to repoint by definition.
+    const QStringList presentTables = db.tables();
+    auto repoint = [&](const char* table, qint64* moved) -> bool {
+        if (!presentTables.contains(QLatin1String(table)))
+            return true;
+        QSqlQuery q(db);
+        q.prepare(QString("UPDATE %1 SET equipment_id = :to WHERE equipment_id = :from")
+                      .arg(QLatin1String(table)));
+        q.bindValue(":to", targetId);
+        q.bindValue(":from", sourceId);
+        if (!q.exec()) {
+            qWarning() << "EquipmentStorage: merge repoint failed on" << table << ":"
+                       << q.lastError().text();
+            return false;
+        }
+        *moved = q.numRowsAffected() > 0 ? q.numRowsAffected() : 0;
+        return true;
+    };
+    if (!repoint("shots", &result.shotsMoved)
+        || !repoint("coffee_bags", &result.bagsMoved)
+        || !repoint("recipes", &result.recipesMoved)) {
+        result.error = QStringLiteral("sqlFailed");
+        return result;
+    }
+
+    // Lineage: anything superseded BY the source is now superseded by the target.
+    // The target itself is excluded — it may be the very package that superseded
+    // the source (undoing a fork is the common case), and rewriting that row here
+    // would point the survivor at itself.
+    QSqlQuery lineage(db);
+    lineage.prepare("UPDATE equipment_packages SET superseded_by = :to, "
+                    "updated_at = strftime('%s','now') "
+                    "WHERE superseded_by = :from AND id != :to");
+    lineage.bindValue(":to", targetId);
+    lineage.bindValue(":from", sourceId);
+    if (!lineage.exec()) {
+        qWarning() << "EquipmentStorage: merge lineage re-point failed:" << lineage.lastError().text();
+        result.error = QStringLiteral("sqlFailed");
+        return result;
+    }
+
+    // The survivor holds the history, so it has to be selectable: clear any
+    // supersession pointing at the package about to be deleted, and un-retire it.
+    QSqlQuery revive(db);
+    revive.prepare("UPDATE equipment_packages SET in_inventory = 1, "
+                   "superseded_by = CASE WHEN superseded_by = :from THEN NULL ELSE superseded_by END, "
+                   "updated_at = strftime('%s','now') WHERE id = :to");
+    revive.bindValue(":from", sourceId);
+    revive.bindValue(":to", targetId);
+    if (!revive.exec()) {
+        qWarning() << "EquipmentStorage: merge target revive failed:" << revive.lastError().text();
+        result.error = QStringLiteral("sqlFailed");
+        return result;
+    }
+
+    QSqlQuery delItems(db);
+    delItems.prepare("DELETE FROM equipment_items WHERE package_id = :id");
+    delItems.bindValue(":id", sourceId);
+    QSqlQuery delPkg(db);
+    delPkg.prepare("DELETE FROM equipment_packages WHERE id = :id");
+    delPkg.bindValue(":id", sourceId);
+    if (!delItems.exec() || !delPkg.exec()) {
+        qWarning() << "EquipmentStorage: merge source delete failed:" << delPkg.lastError().text();
+        result.error = QStringLiteral("sqlFailed");
+        return result;
+    }
+    result.ok = true;
+    return result;
+}
+
+bool EquipmentStorage::healEnrichmentForksStatic(QSqlDatabase& db, QHash<qint64, qint64>* remap,
+                                                 qsizetype* healedOut)
+{
+    // One-time repair for forks that the enrichment rule would no longer create.
+    //
+    // The signature is deliberately narrow, and every part of it is load-bearing:
+    //   - the two packages are in a LINEAGE (older.superseded_by = newer.id), which
+    //     is what proves the app forked them rather than the user owning two
+    //     grinders that happen to look alike;
+    //   - grinder brand + model, basket brand + model and the puck-prep string are
+    //     all equal, so nothing but the burrs differs;
+    //   - the OLDER side's burrs are empty and the NEWER side's are set, i.e. the
+    //     fork ran in the enrichment direction.
+    // Anything else — a burr swap between two named sets, a cleared field, a
+    // basket change, two similar packages with no lineage — is left alone. A user
+    // who really did swap burrs on the same edit that first named them is
+    // indistinguishable here, and is healed too; that is the same trade the
+    // enrichment rule itself makes, and it is stated in the change's design.
+    //
+    // The newer package survives: it is the one in inventory, the one carrying the
+    // burrs the user just recorded, and the one new shots already point at.
+    //
+    // Runs INSIDE the caller's transaction (it uses the unlocked merge), so the
+    // whole heal commits or rolls back with the migration that calls it.
+    if (healedOut)
+        *healedOut = 0;
+    if (!db.tables().contains(QStringLiteral("equipment_packages")))
+        return true;
+
+    qsizetype healed = 0;
+    // A chain (A -> B -> C, burrs named twice) collapses one link per pass, and
+    // each pass re-reads the lineage the previous one rewrote. Bounded so a
+    // cycle in superseded_by — which nothing should create, but which would
+    // otherwise spin forever inside a migration — cannot hang startup.
+    for (int pass = 0; pass < 10; ++pass) {
+        QVector<QPair<qint64, qint64>> pairs;   // older (to remove), newer (survivor)
+        QSqlQuery q(db);
+        if (!q.exec(
+                "SELECT older.id, newer.id FROM equipment_packages older "
+                "JOIN equipment_packages newer ON newer.id = older.superseded_by "
+                "JOIN equipment_items og ON og.package_id = older.id AND og.kind = 'grinder' "
+                "JOIN equipment_items ng ON ng.package_id = newer.id AND ng.kind = 'grinder' "
+                "WHERE LOWER(TRIM(IFNULL(og.brand,''))) = LOWER(TRIM(IFNULL(ng.brand,''))) "
+                "  AND LOWER(TRIM(IFNULL(og.model,''))) = LOWER(TRIM(IFNULL(ng.model,''))) "
+                "  AND TRIM(IFNULL(json_extract(og.attrs,'$.burrs'),'')) = '' "
+                "  AND TRIM(IFNULL(json_extract(ng.attrs,'$.burrs'),'')) != '' "
+                "  AND LOWER(TRIM(IFNULL((SELECT b.brand FROM equipment_items b "
+                "      WHERE b.package_id = older.id AND b.kind = 'basket' ORDER BY b.id LIMIT 1),''))) "
+                "    = LOWER(TRIM(IFNULL((SELECT b.brand FROM equipment_items b "
+                "      WHERE b.package_id = newer.id AND b.kind = 'basket' ORDER BY b.id LIMIT 1),''))) "
+                "  AND LOWER(TRIM(IFNULL((SELECT b.model FROM equipment_items b "
+                "      WHERE b.package_id = older.id AND b.kind = 'basket' ORDER BY b.id LIMIT 1),''))) "
+                "    = LOWER(TRIM(IFNULL((SELECT b.model FROM equipment_items b "
+                "      WHERE b.package_id = newer.id AND b.kind = 'basket' ORDER BY b.id LIMIT 1),''))) "
+                "  AND IFNULL((SELECT pp.model FROM equipment_items pp "
+                "      WHERE pp.package_id = older.id AND pp.kind = 'puckprep' ORDER BY pp.id LIMIT 1),'') "
+                "    = IFNULL((SELECT pp.model FROM equipment_items pp "
+                "      WHERE pp.package_id = newer.id AND pp.kind = 'puckprep' ORDER BY pp.id LIMIT 1),'') "
+                "ORDER BY older.id")) {
+            qWarning() << "EquipmentStorage: enrichment-fork scan failed:" << q.lastError().text();
+            return false;
+        }
+        while (q.next())
+            pairs.append({q.value(0).toLongLong(), q.value(1).toLongLong()});
+        // The scan returned rows, so its read transaction is still open on this
+        // connection until the statement is released — and the merges below write.
+        q.finish();
+        if (pairs.isEmpty())
+            break;
+
+        for (const auto& [older, newer] : pairs) {
+            // A previous iteration of THIS pass may have already merged one side
+            // away (a chain seen from both ends); skip rather than fail.
+            if (!loadPackageStatic(db, older).isValid() || !loadPackageStatic(db, newer).isValid())
+                continue;
+            const EquipmentMergeResult r = mergePackagesUnlockedStatic(db, older, newer);
+            if (!r.ok) {
+                qWarning() << "EquipmentStorage: enrichment-fork heal failed for" << older
+                           << "->" << newer << ":" << r.error;
+                return false;   // caller rolls back
+            }
+            ++healed;
+            if (healedOut)
+                *healedOut = healed;
+            if (remap) {
+                // Anything that already pointed at `older` now points at `newer`,
+                // including an earlier heal in this same run.
+                for (auto it = remap->begin(); it != remap->end(); ++it)
+                    if (it.value() == older)
+                        it.value() = newer;
+                remap->insert(older, newer);
+            }
+            qInfo() << "EquipmentStorage: merged enrichment fork - package" << older
+                    << "folded into" << newer << "(" << r.shotsMoved << "shots,"
+                    << r.bagsMoved << "bags," << r.recipesMoved << "recipes )";
+        }
+    }
+    return true;
+}
+
 qint64 EquipmentStorage::supersedeOrEditGrinderStatic(QSqlDatabase& db, qint64 packageId,
                                                       const QString& brand, const QString& model,
                                                       const QString& burrs)
@@ -1128,6 +1362,31 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
         && curPuck.model == puck;  // both canonical
     if (unchanged)
         return packageId;  // no identity change
+
+    // ENRICHMENT: every component that differs went from EMPTY to a value. The
+    // user is RECORDING gear the package always had (typing in the burrs they
+    // have run forever, naming the basket they always used), not swapping it —
+    // so it is not a new grinder and must not fork. Forking here is what #1713
+    // reported: adding "Lebrew Sweet" to a long-used Eureka retired the package
+    // the whole shot history hangs off, and the app started treating a
+    // years-old grinder as brand new.
+    //
+    // Deliberately asymmetric. empty -> value is enrichment; value -> different
+    // value and value -> empty are real identity changes and still fork. So a
+    // genuine burr SWAP forks as before, as long as the old burrs were named —
+    // and if they were not, the app had nothing to distinguish the two states by
+    // in the first place. Puck prep compares whole canonical strings, so adding
+    // a second technique to an existing one ("wdt" -> "wdt,rdt") is a change,
+    // not enrichment: the puck prep of the earlier shots really was different.
+    auto filledIn = [&](const QString& before, const QString& after) {
+        return norm(before).isEmpty() || norm(before) == norm(after);
+    };
+    const bool enrichment = filledIn(cur.brand, brand)
+        && filledIn(cur.model, model)
+        && filledIn(cur.burrs, burrs)
+        && filledIn(curBasket.brand, basketBrand)
+        && filledIn(curBasket.model, basketModel)
+        && (curPuck.model.isEmpty() || curPuck.model == puck);  // both canonical
 
     auto shotCount = [&]() -> qint64 {
         QSqlQuery q(db);
@@ -1228,8 +1487,10 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
         return done(mergeTarget);
     }
 
-    // Unused package: safe to edit in place (grinder + basket + puckprep items).
-    if (shotCount() == 0) {
+    // Edit in place: an unused package (nothing to preserve), or an enrichment on
+    // a used one (the shots keep pointing at the same package, which is the
+    // point — their grinder simply gains the detail it always had).
+    if (enrichment || shotCount() == 0) {
         if (!updateGrinderItemStatic(db, packageId, brand, model, burrs))
             return -1;
         // A false return is a genuine SQL failure (a no-op returns true), so roll

@@ -1811,6 +1811,53 @@ bool ShotHistoryStorage::runMigrations()
         }
     }
 
+    // Migration 35: heal packages split by a pre-enrichment identity fork
+    // (fix-equipment-enrichment-fork). Until this change, recording burrs on a
+    // grinder that already had shots forked a new package and retired the old
+    // one — and because grinder calibration matches on model AND burrs while
+    // dial-in grouping keys on equipment_id, the grinder read as brand new with
+    // no history (#1713). The fork rule is fixed going forward; this repairs the
+    // users it already happened to, which is most of them: the signature is
+    // narrow (a lineage pair differing ONLY by empty-vs-set burrs) and everything
+    // else is left alone. See EquipmentStorage::healEnrichmentForksStatic.
+    //
+    // Data-only and NOT idempotent in effect (a second run simply finds nothing),
+    // so it commits with the version bump like migration 22. The heal runs inside
+    // this transaction via the unlocked merge — DbWriteTxn refuses to nest.
+    if (currentVersion >= 34 && currentVersion < 35) {
+        qDebug() << "ShotHistoryStorage: Running migration to version 35 (heal enrichment forks)";
+
+        const bool txn = m_db.transaction();
+        QHash<qint64, qint64> remap;
+        qsizetype healed = 0;
+        // A failed heal leaves its writes staged for this transaction to roll back,
+        // and the version must NOT advance — otherwise the split packages are never
+        // looked at again and the user is left repairing them by hand over MCP.
+        bool ok = EquipmentStorage::healEnrichmentForksStatic(m_db, &remap, &healed);
+        if (ok) {
+            query.exec ("DELETE FROM schema_version");
+            ok = query.exec ("INSERT INTO schema_version (version) VALUES (35)");
+        }
+        if (ok && (!txn || m_db.commit())) {
+            currentVersion = 35;
+            if (healed > 0) {
+                qInfo() << "ShotHistoryStorage: migration 35 merged" << healed
+                        << "package(s) that a burr edit had split off";
+                // The active selection lives in QSettings, not this database, so a
+                // merged-away id would leave the app pointing at a deleted package.
+                // Resolved here and adopted through SettingsDye's setter by
+                // MainController (a raw write would bypass the cache and NOTIFY).
+                AppSettings settings;
+                const qint64 activeId = settings.value("dye/activeEquipmentId", -1).toLongLong();
+                if (activeId > 0 && remap.contains(activeId))
+                    m_healedActiveEquipmentId = remap.value(activeId);
+            }
+        } else {
+            if (txn) m_db.rollback();
+            qWarning() << "ShotHistoryStorage: migration 35 incomplete - will retry next launch";
+        }
+    }
+
     m_schemaVersion = currentVersion;
     return true;
 }

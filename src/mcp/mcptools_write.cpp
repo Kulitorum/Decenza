@@ -2517,9 +2517,11 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
         "(puckPrep: { wdt, shaker, puckScreen, paperFilter, rdt } — set all false to remove puck prep), "
         "and optional name. Only provided fields change. rpmAdjustable is re-derived from the grinder "
         "registry; basket specs from the basket registry; puck-prep distribution from the flags. "
-        "Identity (grinder AND basket AND puck prep) is copy-on-write: editing a package that has shots "
-        "forks a NEW package (the old one is retired and kept for its history) and an unused package is "
-        "edited in place — so the returned package.id may differ from the input packageId. An edit "
+        "Identity (grinder AND basket AND puck prep) is copy-on-write: CHANGING a component on a package "
+        "that has shots forks a NEW package (the old one is retired and kept for its history) — so the "
+        "returned package.id may differ from the input packageId. Filling in a component that was EMPTY "
+        "(recording burrs or a basket the package always had) is enrichment, not a swap: it is applied in "
+        "place and keeps the package's history. An unused package is always edited in place, and an edit "
         "matching an existing package merges into it.",
         QJsonObject{
             {"type", "object"},
@@ -2717,5 +2719,81 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             thread->start();
         },
         "control");
+
+    // equipment_merge — fold one package into another (repair a wrongly split grinder).
+    registry->registerAsyncTool(
+        "equipment_merge",
+        "Merge two equipment packages that are really the same gear: every shot, bag and recipe on "
+        "sourcePackageId moves to targetPackageId, and the source package is deleted. Use this when a "
+        "grinder got split in two — historically, editing a package that had shots always forked a new "
+        "one, so recording burrs on a long-used grinder left the history stranded on the retired "
+        "package. Either package may already be retired; the surviving target is returned to the "
+        "inventory. DESTRUCTIVE and not undoable: the source's identity is gone afterwards and its "
+        "shots then report the target's grinder, basket and puck prep — so confirm with the user which "
+        "package survives (target) before calling, and only merge packages that describe the SAME "
+        "physical gear. Two genuinely different grinders must stay separate.",
+        QJsonObject{
+            {"type", "object"},
+            {"properties", QJsonObject{
+                {"sourcePackageId", QJsonObject{{"type", "integer"},
+                    {"description", "Package to fold in and delete (from equipment_list)"}}},
+                {"targetPackageId", QJsonObject{{"type", "integer"},
+                    {"description", "Package that survives and receives the history (from equipment_list)"}}}
+            }},
+            {"required", QJsonArray{"sourcePackageId", "targetPackageId"}}
+        },
+        [shotHistory, settings, packageToJson](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+            if (!shotHistory || !shotHistory->isReady()) {
+                respond(QJsonObject{{"error", "Storage not available"}});
+                return;
+            }
+            const qint64 sourceId = args["sourcePackageId"].toInteger();
+            const qint64 targetId = args["targetPackageId"].toInteger();
+            if (sourceId <= 0 || targetId <= 0) {
+                respond(QJsonObject{{"error", "Valid sourcePackageId and targetPackageId are required"}});
+                return;
+            }
+            const qint64 activeId = settings ? settings->dye()->activeEquipmentId() : -1;
+            const QString dbPath = shotHistory->databasePath();
+            QThread* thread = QThread::create([=]() {
+                EquipmentMergeResult merge;
+                EquipmentPackageView view;
+                const bool opened = withTempDb(dbPath, "mcp_equip_merge", [&](QSqlDatabase& db) {
+                    merge = EquipmentStorage::mergePackagesStatic(db, sourceId, targetId);
+                    if (!merge.ok)
+                        return;
+                    view.package = EquipmentStorage::loadPackageStatic(db, targetId);
+                    view.grinder = EquipmentStorage::loadGrinderItemStatic(db, targetId);
+                    view.basket = EquipmentStorage::loadBasketItemStatic(db, targetId);
+                    view.puckPrep = EquipmentStorage::loadPuckPrepItemStatic(db, targetId);
+                });
+                const QVariantMap pkgMap = view.toVariantMap();
+                QMetaObject::invokeMethod(qApp, [=]() {
+                    if (!opened) { respond(QJsonObject{{"error", "Could not open shot database"}}); return; }
+                    if (!merge.ok) {
+                        static const QHash<QString, QString> kWhy{
+                            {"samePackage", "sourcePackageId and targetPackageId must be two different packages"},
+                            {"sourceNotFound", "Source package not found"},
+                            {"targetNotFound", "Target package not found"},
+                            {"sqlFailed", "Merge failed; nothing was moved"}};
+                        respond(QJsonObject{{"error", kWhy.value(merge.error, QStringLiteral("Merge failed"))}});
+                        return;
+                    }
+                    // The active package cannot be one that no longer exists: when the
+                    // merged-away source was active, move the selection to the survivor
+                    // (which also re-applies its last grind + rpm to the next shot).
+                    if (activeId == sourceId && settings)
+                        settings->dye()->switchToEquipment(pkgMap);
+                    respond(QJsonObject{{"success", true},
+                        {"package", packageToJson(view, activeId == sourceId ? targetId : activeId)},
+                        {"shotsMoved", merge.shotsMoved},
+                        {"bagsMoved", merge.bagsMoved},
+                        {"recipesMoved", merge.recipesMoved}});
+                }, Qt::QueuedConnection);
+            });
+            QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+            thread->start();
+        },
+        "settings");
 
 }

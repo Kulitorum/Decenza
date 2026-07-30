@@ -488,6 +488,77 @@ private slots:
         drainDbWorkAndClose(storage);
     }
 
+    // equipment_merge: the repair path for a grinder that got split in two
+    // (#1713). Pinned at the tool layer because the destructive part — the source
+    // package really is deleted and its shots really do move — is what an AI will
+    // be asked to run on a user's live history, and the only signal it has that
+    // the merge happened is this response.
+    void equipmentMergeMovesHistoryAndDeletesSource()
+    {
+        McpTestFixture f;
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(f.tempDir.filePath("eqmerge.db")));
+        registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
+                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+
+        qint64 source = -1, target = -1, movedShot = -1;
+        withTempDb(storage.databasePath(), "eqmerge_seed", [&](QSqlDatabase& db) {
+            EquipmentPackage a;
+            a.name = QStringLiteral("Eureka (with burrs)");
+            source = EquipmentStorage::createPackageWithGrinderStatic(
+                db, a, QStringLiteral("Eureka"), QStringLiteral("Mignon Single Dose"),
+                QStringLiteral("Lebrew Sweet"), QString(), QString(), QString());
+            EquipmentPackage b;
+            b.name = QStringLiteral("Eureka");
+            target = EquipmentStorage::createPackageWithGrinderStatic(
+                db, b, QStringLiteral("Eureka"), QStringLiteral("Mignon Single Dose"),
+                QString(), QString(), QString(), QString());
+            // The real schema, not the minimal one the storage tests build: uuid,
+            // timestamp, profile_name and duration_seconds are NOT NULL.
+            QSqlQuery q(db);
+            q.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, equipment_id) "
+                      "VALUES ('eqmerge-shot-1', 1000, 'P', 25.0, ?)");
+            q.addBindValue(source);
+            QVERIFY2(q.exec(), qPrintable(q.lastError().text()));
+            movedShot = q.lastInsertId().toLongLong();
+        });
+        QVERIFY2(source > 0 && target > 0, "seed packages should be created");
+
+        QJsonObject args;
+        args["sourcePackageId"] = source;
+        args["targetPackageId"] = target;
+        const QJsonObject result = f.callAsyncTool("equipment_merge", args);
+        QVERIFY2(result["success"].toBool(), qPrintable(QJsonDocument(result).toJson()));
+        QCOMPARE(result["shotsMoved"].toInteger(), (qint64)1);
+        QCOMPARE(result["package"].toObject()["id"].toInteger(), target);
+
+        // On disk, not just in the response.
+        qint64 shotEquipment = -1, sourceRows = -1;
+        withTempDb(storage.databasePath(), "eqmerge_check", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            q.prepare("SELECT equipment_id FROM shots WHERE id = ?");
+            q.addBindValue(movedShot);
+            if (q.exec() && q.next()) shotEquipment = q.value(0).toLongLong();
+            QSqlQuery c(db);
+            c.prepare("SELECT COUNT(*) FROM equipment_packages WHERE id = ?");
+            c.addBindValue(source);
+            if (c.exec() && c.next()) sourceRows = c.value(0).toLongLong();
+        });
+        QCOMPARE(shotEquipment, target);
+        QCOMPARE(sourceRows, (qint64)0);
+
+        // Two ids that name one package is a refusal, not a self-merge that
+        // deletes the package it was asked to keep.
+        QJsonObject same;
+        same["sourcePackageId"] = target;
+        same["targetPackageId"] = target;
+        const QJsonObject refused = f.callAsyncTool("equipment_merge", same);
+        QVERIFY(!refused["success"].toBool());
+        QVERIFY(refused.contains("error"));
+
+        drainDbWorkAndClose(storage);
+    }
+
     // bag_create (add-recipe-wizard-tea): kind stamped at creation, gated in
     // both directions. Needs a real CoffeeBagStorage (the tool creates via the
     // async instance — there is no static fallback like bag_update).
