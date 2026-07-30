@@ -169,10 +169,23 @@ Page {
                 var _cm = steamPage.capturedMilkForScaling()
                 if (_cm > 0) _scaledNow = steamPage.steamTimeForMilk(_cm)
             }
+            var _pitcherAtStart = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
+            console.log("SteamPage: steam-start scaling decision — sessionMeasuredMilkG=", AppShell.sessionMeasuredMilkG,
+                        "lastOnScaleMilk=", steamPage.lastOnScaleMilk,
+                        "milkAutoCaptureEnabled=", Settings.brew.milkAutoCaptureEnabled,
+                        "steamSecondsPerGram=", Settings.brew.steamSecondsPerGram,
+                        "pitcher=", _pitcherAtStart ? _pitcherAtStart.name : "<none>",
+                        "pitcherDisabled=", _pitcherAtStart ? _pitcherAtStart.disabled === true : true,
+                        "steamTimeoutUserAdjusted=", steamPage.steamTimeoutUserAdjusted,
+                        "scaledResult=", _scaledNow)
             if (_scaledNow > 0) {
                 Settings.brew.steamTimeout = _scaledNow
                 steamPage.steamTimeoutScaled = true
                 MainController.setSteamTimeoutImmediate(_scaledNow)
+                console.log("SteamPage: steam-start applied duration=", _scaledNow, "source=scaled")
+            } else {
+                console.log("SteamPage: steam-start applied duration=", Settings.brew.steamTimeout,
+                            "source=", steamPage.steamTimeoutUserAdjusted ? "user-adjusted, unchanged" : "fixed-fallback")
             }
             // Drop any banner left over from a prior session so it doesn't
             // carry into the new one. SteamHealthTracker re-arms its per-session
@@ -432,7 +445,17 @@ Page {
     // or weight-timing toggled off while the scaled flag is still latched) — writing
     // the base duration then would discard the measured-milk scaling.
     function syncSteamTimeout() {
-        if (isCurrentPitcherDisabled()) return   // heater is off — keep whatever's set
+        var _pitcherAtSync = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
+        console.log("SteamPage: syncSteamTimeout decision — sessionMeasuredMilkG=", AppShell.sessionMeasuredMilkG,
+                    "lastOnScaleMilk=", steamPage.lastOnScaleMilk,
+                    "milkAutoCaptureEnabled=", Settings.brew.milkAutoCaptureEnabled,
+                    "steamSecondsPerGram=", Settings.brew.steamSecondsPerGram,
+                    "pitcher=", _pitcherAtSync ? _pitcherAtSync.name : "<none>",
+                    "pitcherDisabled=", _pitcherAtSync ? _pitcherAtSync.disabled === true : true)
+        if (isCurrentPitcherDisabled()) {
+            console.log("SteamPage: syncSteamTimeout skipped — pitcher disabled")
+            return   // heater is off — keep whatever's set
+        }
         var milk = currentMeasuredMilk()
         if (milk <= 0) milk = capturedMilkForScaling()   // pitcher lifted: use the captured milk
         var scaled = steamTimeForMilk(milk)
@@ -444,6 +467,10 @@ Page {
         if (scaled > 0 || Settings.brew.steamSecondsPerGram <= 0 || !steamPage.steamTimeoutScaled) {
             Settings.brew.steamTimeout = Settings.brew.effectiveSteamDurationSec(
                 Settings.brew.selectedSteamPitcher, milk)
+            console.log("SteamPage: syncSteamTimeout applied duration=", Settings.brew.steamTimeout,
+                        "source=", scaled > 0 ? "scaled" : "fixed-fallback")
+        } else {
+            console.log("SteamPage: syncSteamTimeout kept existing scaled duration=", Settings.brew.steamTimeout)
         }
     }
 
