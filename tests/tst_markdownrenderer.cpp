@@ -1,10 +1,17 @@
 // Guards MarkdownRenderer, and in particular a SECURITY claim its header makes.
 //
-// Three call sites feed untrusted text through this and then call
+// FIVE call sites feed untrusted text through this and then call
 // replaceEmojiWithImg(..., allowMarkup=true) — escaping deliberately OFF:
-//   SettingsUpdateTab   (GitHub release notes — remote, unauthenticated)
-//   ConversationOverlay (AI replies, x2)
+//   SettingsUpdateTab   (GitHub release notes — remote, unauthenticated) x2
+//   ConversationOverlay (AI replies) x2
 //   SettingsAITab       (AI replies)
+//
+// The count is the number of CALL SITES, not of files — three files, five sites. Re-derive
+// it, never adjust it by hand: `grep -rn "MarkdownRenderer.toHtml(" qml/`. Both earlier
+// versions of this header were wrong in the same way, undercounting SettingsUpdateTab as
+// one site when it has two (the inline release-notes view and the full-screen one), which
+// is exactly the "a plausible number is not verification" failure this file exists to
+// prevent.
 //
 // The header asserts "text content is escaped by toHtml(), so the result is safe to pass
 // through replaceEmojiWithImg() with allowMarkup=true". That claim was written WITHOUT

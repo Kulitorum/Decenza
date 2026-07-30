@@ -117,12 +117,40 @@ again after #1698 (`FINAL` on the settings/controller accessors, type annotation
 in `Theme.qml` and `IdlePage.qml`).
 
 ```
-                          post-cleanup      post-#1698
-total bindings/functions       29097           29097
-  AOT compiled            13017 (44.7%)   17631 (60.6%)
-  skipped -> interpreter  14665 (50.4%)   10051 (34.5%)
-  partial                  1415 ( 4.9%)    1415 ( 4.9%)
+                          post-cleanup      post-#1698      post-#1715
+total bindings/functions       29097           29097           29087
+  AOT compiled            13017 (44.7%)   17631 (60.6%)   18127 (62.3%)
+  skipped -> interpreter  14665 (50.4%)   10051 (34.5%)    9545 (32.8%)
+  partial                  1415 ( 4.9%)    1415 ( 4.9%)    1415 ( 4.9%)
 ```
+
+#1715 rooted 31 pages at `QtQuick.Templates.Page`; **id skips went 1,464 -> 510**.
+
+**The id-skip and hard-skip columns overlap — do not add them.** An id skip IS a hard
+skip, counted again by cause, so `compiled + hard skips` is the same 27,672 before and
+after and a reviewer summing all three across the two sweeps will find a phantom
+954-binding discrepancy and report a measurement bug that is not there. One did.
+
+### Re-rooting a type at Templates BREAKS `as <ControlsType>` casts elsewhere
+
+Not a styling concern, and not visible to the compiler, qmllint or the test suite. Under a
+style, `QtQuick.Controls.Page` is the style's `Page.qml` — a **composite** type — and a
+composite matches only instances whose own metaobject chain contains it. Qt says so in
+`qqmltypewrapper.cpp:513-516`: *"a composite type cannot be equal to a non-composite object
+instance (Rectangle{} is never an instance of CustomRectangle)"*. `as` is `doInstanceof`,
+and a failed **object** cast returns `null`, not `undefined` (`qv4runtime.cpp:394-406`).
+
+So re-rooting a page at `T.Page` drops the style composite out of its chain, and every
+`x as Page` **elsewhere in the tree** starts returning null against it. #1715 hit exactly
+this: `main.qml`'s `shotChartOnCurrentPage` binding cast `pageStack.currentItem as Page`,
+and the migration would have pinned it to `false` on every page — a silently dead feature,
+in a file the migration never touched. The migration commit asserted "No file declares a
+property typed Page or casts to it"; the cast was there, one grep away.
+
+**Before re-rooting any type at Templates, grep the whole tree for `as <ThatType>` and for
+`property <ThatType>` — not just the files you are editing — and rewrite the survivors to
+the Templates type.** `as T.Page` is strictly more general: it is the C++ `QQuickPage`, so
+it matches Templates-rooted and Controls-rooted instances alike.
 
 **Read the measurement warning below before trusting any number you take
 yourself.** #1698 reported +1.7 points for days because every intermediate

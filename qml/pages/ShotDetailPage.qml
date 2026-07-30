@@ -81,11 +81,6 @@ T.Page {
         }
     }
 
-    // Re-assert on every activation, not just creation — returning here after a
-    // page was pushed on top would otherwise keep that page's header title.
-    StackView.onActivated: {
-    }
-
     // RecipeField (labeled component row) is a shared component in
     // qml/components/RecipeField.qml.
 
