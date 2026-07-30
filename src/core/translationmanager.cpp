@@ -6,6 +6,7 @@
 #include <QDir>
 #include <QDirIterator>
 #include <QFile>
+#include <QTextStream>
 #include <QSaveFile>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -925,10 +926,42 @@ void TranslationManager::applyScanResults(const QList<ScannedString>& found, con
     }
     if (!notInQml.isEmpty()) {
         notInQml.sort();
-        qDebug().noquote() << "TranslationManager:" << notInQml.size()
-                           << "registry keys were not found in any QML file. Live C++-registered"
-                           << "strings look like this too — verify before removing any:"
-                           << "\n    " + notInQml.join(QStringLiteral("\n    "));
+
+        // The COUNT goes to the log; the LIST goes to a file beside it.
+        //
+        // This used to join all 560 keys into this one qDebug() with embedded
+        // newlines. That is a single call emitting 561 physical lines, and only
+        // the first carries a timestamp and a level — the rest are unattributable
+        // to any subsystem, defeat line-based parsing, and on their own exceed the
+        // whole 500-line in-memory ring. It fires for any user who opens the
+        // Language settings tab, so a log submitted about a Bluetooth fault
+        // arrived carrying 560 lines of translation keys.
+        //
+        // Nothing was gained by that. The audience for the list is a developer
+        // pruning the registry, at a desk, with the source open — and the comment
+        // above already says the list cannot be acted on without cross-checking
+        // C++ registration by hand. Everyone else reading this log is diagnosing
+        // hardware. The list is also regenerable at will: open the tab again.
+        //
+        // So the signal a reader can actually use ("560 of 3,858") stays inline,
+        // and the payload moves to a file that is named in the line, which keeps
+        // the maintenance use exactly and costs the log one line instead of 561.
+        const QString dumpPath =
+            QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+            + QStringLiteral("/translation-keys-not-in-qml.txt");
+        QString written = QStringLiteral("could not be written");
+        QFile dump(dumpPath);
+        if (dump.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+            QTextStream out(&dump);
+            out << notInQml.join(QLatin1Char('\n')) << '\n';
+            if (dump.flush())
+                written = dumpPath;
+        }
+        qDebug().noquote()
+            << "TranslationManager:" << notInQml.size() << "of" << m_stringRegistry.size()
+            << "registry keys were not found in any QML file. Live C++-registered strings look"
+            << "like this too, so this is a candidate list and not garbage — verify before"
+            << "removing any. Full list:" << written;
     }
 }
 

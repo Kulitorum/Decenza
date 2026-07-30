@@ -20,6 +20,15 @@
 // espresso readout and CupFillView both bind MachineState.scaleWeight, so a
 // break anywhere in that chain shows as a permanently empty cup even though
 // the shot is clearly extracting.
+// Minimal concrete ScaleDevice for the disconnect-tier branch. SimulatedScale
+// is the only concrete driver reachable from a test, and both members under test
+// are protected, so a probe subclass is the least-machinery way in.
+class DisconnectTierProbe : public SimulatedScale {
+public:
+    using SimulatedScale::setConnected;
+    void markExpected() { markExpectedDisconnect(); }
+};
+
 class tst_SimulatedScale : public QObject {
     Q_OBJECT
 
@@ -120,6 +129,48 @@ private slots:
 
         f.scale.setSimulatedWeight(20.0);
         QCOMPARE(f.state.scaleWeight(), 20.0);
+    }
+
+    // A disconnect is a FAULT only when the link dropped on its own.
+    //
+    // Validated in both directions against real logs before being written this
+    // way: a user's capture has eight disconnects, every one preceded by a
+    // genuine "CONTROLLER ERROR: ConnectionError", where WARN is right. A
+    // maintainer's capture has the opposite — "WebSocket disconnected (expected)
+    // — scale power-off" followed immediately by the same line at WARN, i.e. a
+    // deliberate DE1-sleep close reported as a fault. Neither a blanket WARN nor
+    // a blanket demotion is correct, which is why the driver declares intent.
+    void expectedDisconnectIsNarrativeNotAFault() {
+        DisconnectTierProbe probe;
+        probe.setConnected(true);
+
+        // Unmarked: the link went away by itself. WARN.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(R"(\[Scale\]\[ScaleDevice\] .* DISCONNECTED$)"));
+        probe.setConnected(false);
+
+        // Marked: we closed it. INFO, and it says so.
+        probe.setConnected(true);
+        probe.markExpected();
+        QTest::ignoreMessage(QtInfoMsg,
+            QRegularExpression(R"(\[Scale\]\[ScaleDevice\] .* DISCONNECTED \(expected\))"));
+        probe.setConnected(false);
+    }
+
+    // The flag is ONE-SHOT. A stale flag would silently downgrade the next
+    // genuine failure — turning the fix into a way to hide real faults.
+    void expectedDisconnectDoesNotPersistToTheNextOne() {
+        DisconnectTierProbe probe;
+        probe.setConnected(true);
+        probe.markExpected();
+        QTest::ignoreMessage(QtInfoMsg,
+            QRegularExpression(R"(DISCONNECTED \(expected\))"));
+        probe.setConnected(false);
+
+        probe.setConnected(true);
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(R"(\[Scale\]\[ScaleDevice\] .* DISCONNECTED$)"));
+        probe.setConnected(false);
     }
 
     // Every published sample must also go out on weightSampleReceived — that is

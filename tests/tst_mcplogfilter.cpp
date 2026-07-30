@@ -23,6 +23,75 @@ private slots:
         QCOMPARE(levelRank("nonsense"), -1);
     }
 
+    // ---- linePrefix(): the census behind debug_get_log families=true ----
+    //
+    // The whole point of that mode is to tell a reader which subsystems exist
+    // but are NOT reachable by marker. If this misclassifies, the tool reports a
+    // tidier log than it has, which is worse than not reporting at all.
+
+    void linePrefix_separatesTheFourGrammars()
+    {
+        const QSet<QString> reg = {QStringLiteral("Scale"), QStringLiteral("DE1")};
+
+        const auto marker = linePrefix("[13:05:49.776] INFO  [Scale][BLEManager] connecting", reg);
+        QCOMPARE(marker.kind, PrefixKind::RegisteredMarker);
+        QCOMPARE(marker.token, QStringLiteral("Scale"));
+
+        // Bracketed but not in the registry — the case the census exists for.
+        const auto bracket = linePrefix("[13:05:49.776] DEBUG [R2-diag] scanForDevices", reg);
+        QCOMPARE(bracket.kind, PrefixKind::UnregisteredBracket);
+        QCOMPARE(bracket.token, QStringLiteral("R2-diag"));
+
+        const auto cls = linePrefix("[13:05:49.776] WARN  MqttClient: Connection failed", reg);
+        QCOMPARE(cls.kind, PrefixKind::ClassPrefix);
+        QCOMPARE(cls.token, QStringLiteral("MqttClient"));
+
+        const auto none = linePrefix("[13:05:49.776] DEBUG Simulation mode: ON", reg);
+        QCOMPARE(none.kind, PrefixKind::None);
+        QVERIFY(none.token.isEmpty());
+    }
+
+    // The level field is PADDED to five characters, so "INFO" and "WARN" are
+    // followed by TWO spaces and "DEBUG" by one. A single-space pattern parses
+    // DEBUG lines and silently misreads every INFO and WARN line — which is
+    // exactly what happened when this census was first prototyped by hand
+    // against a real log, and it inverted the resulting percentages.
+    void linePrefix_toleratesThePaddedLevelField()
+    {
+        const QSet<QString> reg = {QStringLiteral("Font")};
+        for (const char* line : {"[13:05:49.776] INFO  [Font][Bundled] set",
+                                 "[13:05:49.776] WARN  [Font][Bundled] failed",
+                                 "[13:05:49.776] DEBUG [Font][Probe] probing"}) {
+            const auto p = linePrefix(QString::fromLatin1(line), reg);
+            QCOMPARE(p.kind, PrefixKind::RegisteredMarker);
+            QCOMPARE(p.token, QStringLiteral("Font"));
+        }
+    }
+
+    void linePrefix_ignoresLinesItCannotAttribute()
+    {
+        const QSet<QString> reg = {QStringLiteral("Scale")};
+        // Session markers, trim banners and the untimestamped continuation lines
+        // a multi-line qDebug() used to emit are not log lines and must not be
+        // counted as a family.
+        QCOMPARE(linePrefix("========== SESSION START: 2026-01-01T09:00:00 ==========", reg).kind,
+                 PrefixKind::None);
+        QCOMPARE(linePrefix("... [log trimmed] ...", reg).kind, PrefixKind::None);
+        QCOMPARE(linePrefix("    about.manualHint", reg).kind, PrefixKind::None);
+    }
+
+    // A registered marker is matched by TOKEN, not by substring: "[FontProbe]"
+    // is not "[Font]". That distinction is the whole reason [FontProbe] was
+    // invisible to a [Font] filter, and the census must not paper over it by
+    // reporting it as covered.
+    void linePrefix_doesNotTreatALongerTokenAsRegistered()
+    {
+        const QSet<QString> reg = {QStringLiteral("Font")};
+        const auto p = linePrefix("[13:05:49.776] DEBUG [FontProbe] U+26A1 would resolve", reg);
+        QCOMPARE(p.kind, PrefixKind::UnregisteredBracket);
+        QCOMPARE(p.token, QStringLiteral("FontProbe"));
+    }
+
     void lineLevel_parsesWebDebugLoggerFormat()
     {
         QCOMPARE(lineLevel("[   0.123] DEBUG some message"), QStringLiteral("DEBUG"));

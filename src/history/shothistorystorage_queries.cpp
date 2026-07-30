@@ -1640,7 +1640,36 @@ double ShotHistoryStorage::grindStepForGrinder(const QString& grinderModel)
     }
     QList<double> numeric(numericSet.begin(), numericSet.end());
     std::sort(numeric.begin(), numeric.end());
-    return deriveGrindStep(numeric);
+    const double step = deriveGrindStep(numeric);
+
+    // Say what was derived and from how much, ONCE per (grinder, answer).
+    //
+    // This line exists because #1713 could not be diagnosed from the 25,720-line
+    // log attached to it: "grind" appeared three times, none of them reporting
+    // the step, and the reported symptom (whole numbers only, no 1.2) is
+    // entirely a consequence of what this function returns. That value is
+    // derived from the user's OWN history, so it differs per install and cannot
+    // be inferred from the version number — which is exactly the kind of fact a
+    // log has to carry, because nobody can reconstruct it afterwards.
+    //
+    // Deduped: this is called from a QML binding that re-evaluates on every
+    // distinctCacheReady() and grinder change. The answer is what matters, not
+    // how often it was asked.
+    const QString observed = QStringLiteral("%1:%2:%3")
+                                 .arg(grinderModel).arg(numeric.size()).arg(step);
+    if (m_lastGrindStepReport != observed) {
+        m_lastGrindStepReport = observed;
+        qDebug().noquote()
+            << QStringLiteral("ShotHistoryStorage: grind step for %1 = %2, derived from %3 "
+                              "distinct numeric setting(s)%4")
+                   .arg(grinderModel.isEmpty() ? QStringLiteral("(no grinder)") : grinderModel)
+                   .arg(step)
+                   .arg(numeric.size())
+                   .arg(step > 0.0 ? QString()
+                                   : QStringLiteral(" — too thin to derive; the caller's "
+                                                    "fallback step is used instead"));
+    }
+    return step;
 }
 
 double ShotHistoryStorage::grindRpmStepForGrinder(const QString& grinderModel)

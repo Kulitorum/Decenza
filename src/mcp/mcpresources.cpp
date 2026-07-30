@@ -13,6 +13,10 @@
 #include "../network/webdebuglogger.h"
 #include "mcplogfilter.h"
 
+#include <QMap>
+#include <QSet>
+#include <algorithm>
+
 #include <QDateTime>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -383,6 +387,9 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
     registry->registerTool(
         "debug_get_log",
         "Read the persisted debug log. Supports three addressing modes: "
+        "(0) families=true: census of this log's line prefixes — start here when you do not "
+        "already know which subsystem you need, because the markers named below are a "
+        "MINORITY of the log and a subsystem missing from them is not missing from the log. "
         "(1) sessions=true: list all sessions with index, start line, timestamp, and line count. "
         "(2) session=N: address session N (-1=most recent, -2=previous, 0=first). "
         "(3) Default: address the whole log. "
@@ -416,6 +423,18 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
                 {"sessions", QJsonObject{
                     {"type", "boolean"},
                     {"description", "If true, return a list of sessions instead of log lines"}
+                }},
+                {"families", QJsonObject{
+                    {"type", "boolean"},
+                    {"description",
+                     "If true, return a census of this log's line prefixes instead of log lines: "
+                     "how many lines carry each REGISTERED marker, each unregistered bracketed "
+                     "prefix, and each bare \"ClassName:\" prefix, plus how many carry no prefix "
+                     "at all. Start here when you do not already know which subsystem you need. "
+                     "The registered markers are the only ones this tool's description names, and "
+                     "they are a minority of the log — a subsystem missing from that list is not "
+                     "absent from the log, it is just not searchable by marker, and this census "
+                     "is how you find out it exists at all."}
                 }},
                 {"session", QJsonObject{
                     {"type", "integer"},
@@ -466,6 +485,69 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
             const qsizetype offset = qMax(qsizetype(0), static_cast<qsizetype>(args["offset"].toInt(0)));
             const qsizetype limit = qBound(qsizetype(1), static_cast<qsizetype>(args["limit"].toInt(500)), qsizetype(2000));
             const bool narrowed = !filter.isEmpty() || !minLevel.isEmpty() || tailActive || dedupe;
+
+            // Mode 0: families=true — a census of this log's prefixes.
+            //
+            // Computed from the log in hand rather than from a list in the source.
+            // A static list would be one more thing to drift, and would describe
+            // the build rather than the file the reader is holding — a family that
+            // never fired this run would still be advertised, and one added since
+            // would be missing. This cannot be wrong about the log it just read.
+            if (args["families"].toBool()) {
+                QSet<QString> registered;
+                for (const auto& s : DecenzaLog::subsystems())
+                    registered.insert(QString::fromUtf8(s.marker));
+
+                qsizetype scanned = 0;
+                const QStringList all = logger->getPersistedLogChunk(0, 1000000, &scanned);
+                QMap<QString, int> reg, unreg, cls;
+                int none = 0;
+                for (const QString& l : all) {
+                    const auto p = McpLogFilter::linePrefix(l, registered);
+                    switch (p.kind) {
+                    case McpLogFilter::PrefixKind::RegisteredMarker:     reg[p.token]++;   break;
+                    case McpLogFilter::PrefixKind::UnregisteredBracket:  unreg[p.token]++; break;
+                    case McpLogFilter::PrefixKind::ClassPrefix:          cls[p.token]++;   break;
+                    case McpLogFilter::PrefixKind::None:                 ++none;           break;
+                    }
+                }
+                const auto toArray = [](const QMap<QString, int>& m, const QString& how) {
+                    // Descending by line count: the families worth knowing about are
+                    // the ones with volume, and an alphabetical list buries them.
+                    QList<QPair<int, QString>> rows;
+                    for (auto it = m.constBegin(); it != m.constEnd(); ++it)
+                        rows.append({it.value(), it.key()});
+                    std::sort(rows.begin(), rows.end(), [](const auto& a, const auto& b) {
+                        return a.first != b.first ? a.first > b.first : a.second < b.second;
+                    });
+                    QJsonArray out;
+                    for (const auto& r : rows)
+                        out.append(QJsonObject{{"prefix", r.second}, {"lines", r.first},
+                                               {"searchWith", how.arg(r.second)}});
+                    return out;
+                };
+
+                return QJsonObject{
+                    {"linesScanned", static_cast<double>(all.size())},
+                    {"registeredMarkers", toArray(reg, QStringLiteral("filter=\"[%1]\""))},
+                    {"unregisteredBracketPrefixes",
+                     toArray(unreg, QStringLiteral("filter=\"[%1]\""))},
+                    {"classPrefixes", toArray(cls, QStringLiteral("filter=\"%1:\""))},
+                    {"linesWithNoPrefix", none},
+                    {"note",
+                     "Only `registeredMarkers` are named in this tool's description and guaranteed "
+                     "to return a subsystem's WHOLE story from one search. The other two lists are "
+                     "searchable with the `searchWith` filter shown, but that filter is a plain "
+                     "substring over one hand-written prefix, so it may be incomplete where the "
+                     "same subsystem logs under more than one spelling. `linesWithNoPrefix` are "
+                     "attributable to nothing and can only be found by content. "
+                     "IMPORTANT: this census describes THIS FILE, not the current build. The log "
+                     "is a ring buffer spanning many runs and possibly several app versions, so an "
+                     "unregistered prefix here may be one that has since been converted and no "
+                     "longer occurs — it is evidence about the lines in front of you, not about "
+                     "what the code still does."},
+                };
+            }
 
             // Mode 1/2: sessions=true or session=N — resolve via the cached index.
             if (args.contains("sessions") || args.contains("session")) {

@@ -3,7 +3,6 @@
 #include <QObject>
 #include <QMutex>
 #include <QStringList>
-#include <QElapsedTimer>
 #include <QDateTime>
 #include <QFile>
 #include <QtQml/qqmlregistration.h>
@@ -219,7 +218,6 @@ private:
     mutable QRecursiveMutex m_fileMutex;
     QStringList m_lines;
     int m_maxLines = 500;   // Ring buffer size
-    QElapsedTimer m_timer;
     QDateTime m_startTime;
 
     // File persistence

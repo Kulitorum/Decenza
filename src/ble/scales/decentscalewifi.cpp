@@ -490,12 +490,17 @@ void DecentScaleWifi::onDisconnected() {
         // Fall through to the normal post-disconnect bookkeeping below — the
         // fallback and reconnect paths must still run for a failed connect.
     } else if (!m_lastPowerEventReason.isEmpty()) {
+        // This classification already exists for the wording; tell the base class
+        // too, so its DISCONNECTED line agrees instead of calling the same event
+        // a fault one line later.
+        markExpectedDisconnect();
         disconnectLog = QStringLiteral("WebSocket disconnected (expected) — scale power-off: ")
                         + m_lastPowerEventReason;
     } else if (m_socketErrorThisConnect) {
         disconnectLog = QStringLiteral("WebSocket disconnected (unexpected) — transport error: ")
                         + m_lastSocketErrorString;
     } else if (m_userInitiatedShutdown) {
+        markExpectedDisconnect();
         disconnectLog = QStringLiteral("WebSocket disconnected (expected)");
     } else {
         const int closeCode = m_socket ? static_cast<int>(m_socket->closeCode()) : -1;

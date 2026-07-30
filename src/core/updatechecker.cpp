@@ -716,8 +716,24 @@ void UpdateChecker::onDownloadFinished()
         return;
     }
 
-    // Flush any remaining buffered data not delivered via readyRead
-    QByteArray remaining = m_currentReply->readAll();
+    // Flush any remaining buffered data not delivered via readyRead — but ONLY
+    // on a reply that succeeded.
+    //
+    // `finished` fires for failures too, and on a failure Qt has already closed
+    // the device, so reading it emits Qt's own
+    // "QIODevice::read (QNetworkReplyHttpImpl): device not open" — followed by a
+    // matching write warning from the socket. Both appear in a user's log as
+    // unattributed WARNs with nothing naming the subsystem that caused them, two
+    // lines after "UpdateChecker: Download errorOccurred code=
+    // QNetworkReply::TimeoutError". A reader has to guess they are related.
+    //
+    // Nothing is lost by skipping it: a failed download's buffer is incomplete by
+    // definition, and the error branch further down already discards the file.
+    // This only ever ran because the error check sits AFTER this flush rather
+    // than before it.
+    QByteArray remaining;
+    if (m_currentReply->error() == QNetworkReply::NoError)
+        remaining = m_currentReply->readAll();
     if (!remaining.isEmpty()) {
         if (m_downloadFile->write(remaining) != remaining.size()) {
             qWarning() << "UpdateChecker: Final write failed:" << m_downloadFile->errorString();

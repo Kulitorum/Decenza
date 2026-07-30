@@ -111,8 +111,27 @@ void ScaleDevice::setConnected(bool connected) {
                 QStringLiteral("%1 CONNECTED").arg(name()));
             m_keepAliveTimer.start();
         } else {
-            SCALE_WARN_STDERR_TAGGED("ScaleDevice",
-                QStringLiteral("%1 DISCONNECTED").arg(name()));
+            // WARN only when the link dropped on its own. A deliberate close —
+            // DE1 going to sleep, app exit, the user disconnecting — is narrative,
+            // not a fault, and INFO keeps it in the connections view without
+            // spending the tier that means "look here".
+            //
+            // Validated both ways against real logs: a user's 25,720-line capture
+            // has eight disconnects, every one preceded by
+            // "CONTROLLER ERROR: ConnectionError" — genuine faults, correctly WARN.
+            // A maintainer's log has the opposite case, "WebSocket disconnected
+            // (expected) — scale power-off: disabled" followed immediately by this
+            // line at WARN. A blanket demotion would have been wrong for the first
+            // log; a blanket WARN is wrong for the second. Hence the flag.
+            const bool expected = m_expectedDisconnect;
+            m_expectedDisconnect = false;
+            if (expected) {
+                SCALE_INFO_STDERR_TAGGED("ScaleDevice",
+                    QStringLiteral("%1 DISCONNECTED (expected)").arg(name()));
+            } else {
+                SCALE_WARN_STDERR_TAGGED("ScaleDevice",
+                    QStringLiteral("%1 DISCONNECTED").arg(name()));
+            }
             m_keepAliveTimer.stop();
             setBatteryLevel(-1);   // Clear stale reading for reconnect
             setCharging(false);    // Mirror — the next status frame will re-assert if still charging

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/logcollapse.h"
+
 #include <QObject>
 #include <QTimer>
 #include <QMutex>
@@ -162,6 +164,12 @@ private:
     // Latches when the slow cadence is announced, so the transition is logged once
     // rather than every 15 minutes for as long as the broker stays away.
     bool m_slowRetryAnnounced = false;
+
+    // One line per window while a repeating message is unchanged; a changed
+    // message emits at once. 10 min: a broker that is down stays down for hours,
+    // and the retry ladder already has its own one-shot "backing off" warning, so
+    // this only decides how often "still down, same reason" is restated.
+    LogCollapse m_logCollapse{10 * 60 * 1000};
     // A stop the user asked for is not a fault, so it must not re-arm the retry loop.
     //
     // INVARIANT: this may only be true while a disconnect callback is actually pending.

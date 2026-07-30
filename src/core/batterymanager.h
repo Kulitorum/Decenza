@@ -1,6 +1,8 @@
 #pragma once
 
 #include <QObject>
+#include "core/logcollapse.h"
+
 #include <QTimer>
 
 class DE1Device;
@@ -182,5 +184,8 @@ private:
 
     // Throttle the periodic status log to every 5th cycle (~5 min at 60s intervals).
     // State-change logs (threshold crossings, mismatch alerts) always print immediately.
-    int m_logCycleCount = 0;
+    // One line per window while the poll result is unchanged; a change emits at
+    // once. 15 min: the poll runs every ~60 s and a plugged-in tablet never
+    // varies, so the window only decides how often "still the same" is restated.
+    LogCollapse m_pollCollapse{15 * 60 * 1000};
 };

@@ -3,6 +3,7 @@
 #include <QHash>
 #include <QList>
 #include <QRegularExpression>
+#include <QSet>
 #include <QString>
 #include <QStringList>
 
@@ -44,7 +45,7 @@ inline int levelRank(const QString& level)
 }
 
 // Extracts the level tag from a line in WebDebugLogger's persisted format
-// ("[<elapsed>] <LEVEL> <message>", written by handleMessage()). Returns an
+// ("[<HH:mm:ss.zzz>] <LEVEL> <message>", written by handleMessage()). Returns an
 // empty string for lines with no level tag.
 inline QString lineLevel(const QString& line)
 {
@@ -78,6 +79,44 @@ inline bool matchesAnyMarker(const QString& line, const QStringList& markers)
         if (!marker.isEmpty() && line.contains(marker, Qt::CaseSensitive)) return true;
     }
     return false;
+}
+
+// The prefix a line carries, and which of the four grammars it is written in.
+//
+// Four is not a design, it is what accreted, and the census built on this is how
+// a reader finds that out. `debug_get_log`'s description is generated from the
+// marker registry, so it names the registered subsystems and is silent about
+// every other family — an assistant that searches [Scale], gets a complete
+// answer, and infers the log is marker-organised has been misled by a tool
+// telling it only the true part. Reporting the other three kinds turns "this
+// subsystem does not exist" into "this subsystem is not searchable by marker",
+// which is a different and much cheaper mistake to recover from.
+enum class PrefixKind { RegisteredMarker, UnregisteredBracket, ClassPrefix, None };
+
+struct LinePrefix {
+    PrefixKind kind = PrefixKind::None;
+    QString token;  // "Scale", "MqttClient", … ; empty for None
+};
+
+inline LinePrefix linePrefix(const QString& line, const QSet<QString>& registeredTokens)
+{
+    // Skip the leading "[<time>] LEVEL " field; what follows is the message.
+    static const QRegularExpression head(QStringLiteral(R"(^\[[^\]]*\]\s*[A-Za-z]+\s+)"));
+    const auto hm = head.match(line);
+    if (!hm.hasMatch()) return {};
+    const QString msg = line.mid(hm.capturedLength(0));
+
+    static const QRegularExpression bracket(QStringLiteral(R"(^\[([A-Za-z][A-Za-z0-9 _.\-]*)\])"));
+    const auto bm = bracket.match(msg);
+    if (bm.hasMatch()) {
+        const QString tok = bm.captured(1);
+        return {registeredTokens.contains(tok) ? PrefixKind::RegisteredMarker
+                                               : PrefixKind::UnregisteredBracket, tok};
+    }
+    static const QRegularExpression cls(QStringLiteral(R"(^([A-Z][A-Za-z0-9]*):\s)"));
+    const auto cm = cls.match(msg);
+    if (cm.hasMatch()) return {PrefixKind::ClassPrefix, cm.captured(1)};
+    return {};
 }
 
 // Filters `lines` (whose element 0 is absolute line number `startLine` within
@@ -119,7 +158,7 @@ inline QList<LineMatch> filterLines(const QStringList& lines, qsizetype startLin
     return result;
 }
 
-// Strips a leading "[<elapsed>] " field (WebDebugLogger's persisted line
+// Strips a leading "[<HH:mm:ss.zzz>] " field (WebDebugLogger's persisted line
 // format — see lineLevel() above) so two lines that differ only in when they
 // were logged compare equal. Lines with no such prefix (shot debug log lines,
 // session markers) are returned unchanged.

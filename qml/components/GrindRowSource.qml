@@ -79,19 +79,43 @@ QtObject {
     readonly property int rpmWindowSteps: 40
 
     // --- Stepping algorithm -------------------------------------------------
-    function _stepDecimals(step) {
-        // Decimal places come from the STEP, not the current value:
-        // 1.0 -> 0 ("31"), 0.5 -> 1 ("30.5"), 0.25 -> 2. Sanitize float-dirty
-        // steps to 3 decimals and strip trailing zeros so labels + the
-        // persisted value stay clean (the picked label string is written
-        // straight through to the host's store).
-        var s = Number(step).toFixed(3).replace(/0+$/, "").replace(/\.$/, "")
+    function _decimalsOf(x) {
+        // Sanitize float-dirty values to 3 decimals and strip trailing zeros so
+        // labels + the persisted value stay clean (the picked label string is
+        // written straight through to the host's store).
+        var s = Number(x).toFixed(3).replace(/0+$/, "").replace(/\.$/, "")
         var dot = s.indexOf(".")
         return dot < 0 ? 0 : (s.length - dot - 1)
     }
 
-    function _fmtNum(v, step) {
-        return v.toFixed(_stepDecimals(step))
+    // Decimal places for a stepped label: the STEP's precision, but never fewer
+    // than the VALUE already has.
+    //
+    // Step alone was #1713. The step is derived from shot history and falls back
+    // when history is too thin; a fallback of 1.0 gives 0 decimals, and 0
+    // decimals reformats a user's "1.1" to "1". The value was not merely
+    // unreachable by stepping — it was destroyed by formatting, so a grind of
+    // 1.1 became 1 as soon as the picker rendered it, which is precisely what
+    // was reported.
+    //
+    // Taking the max is what makes the two independent: the step decides how far
+    // each row moves, the value decides how much precision must survive being
+    // written down. A coarse step may now produce 1.1 -> 2.1 -> 3.1, which is
+    // correct — it steps by the step and keeps what the user typed.
+    function _stepDecimals(step, currentValue) {
+        var d = _decimalsOf(step)
+        if (currentValue !== undefined && currentValue !== null) {
+            var s = String(currentValue).trim()
+            if (/^-?\d+(\.\d+)?$/.test(s))
+                d = Math.max(d, _decimalsOf(parseFloat(s)))
+        }
+        return d
+    }
+
+    // `orig` is the value being stepped FROM — its precision must survive, see
+    // _stepDecimals(). Callers inside stepGrind() pass the trimmed input string.
+    function _fmtNum(v, step, orig) {
+        return v.toFixed(_stepDecimals(step, orig))
     }
 
     // Return the grind setting `n` steps from `currentString`,
@@ -106,7 +130,7 @@ QtObject {
         //    custom grinder, an unparseable value, or a click-indexed
         //    below-floor candidate — then the JS branches take over.
         var viaCatalog = Settings.dye.stepGrinderSetting(root.grinderBrand, root.grinderModel,
-                                                         s, n * step, _stepDecimals(step))
+                                                         s, n * step, _stepDecimals(step, s))
         if (viaCatalog && viaCatalog.length > 0)
             return viaCatalog
 
@@ -122,7 +146,7 @@ QtObject {
             var v = parseFloat(s) + n * step
             if (v < 0 && Settings.dye.grinderIsClickIndexed(root.grinderBrand, root.grinderModel))
                 return ""             // click-indexed dial floor -> skip
-            return _fmtNum(v, step)
+            return _fmtNum(v, step, s)
         }
 
         // 2. Number embedded in text: optional non-digit prefix + number + suffix.
@@ -130,7 +154,7 @@ QtObject {
         if (m) {
             var nv = parseFloat(m[2]) + n * step
             if (nv < 0) nv = 0               // clamp numeric >= 0
-            return m[1] + _fmtNum(nv, step) + m[3]
+            return m[1] + _fmtNum(nv, step, m[2]) + m[3]
         }
 
         // 3. Pure letters (1..3 chars): step the LAST character by ordinal,

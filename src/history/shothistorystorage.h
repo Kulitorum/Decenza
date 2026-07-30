@@ -507,6 +507,10 @@ private:
 
     // Cache for getDistinct*() results (invalidated on save/delete/import)
     QHash<QString, QStringList> m_distinctCache;
+    // Last "<grinder>:<count>:<step>" reported by grindStepForGrinder(), so the
+    // derivation is logged when it CHANGES rather than on every QML binding
+    // re-evaluation. Not a cache — it is only ever compared, never read back.
+    QString m_lastGrindStepReport;
     bool m_distinctCacheRefreshing = false;  // Debounce guard for requestDistinctCache()
     bool m_distinctCacheDirty = false;       // Re-queue flag: set when invalidation arrives during refresh
     QSet<QString> m_pendingDistinctKeys;     // De-duplicate in-flight requestDistinctValueAsync() calls
