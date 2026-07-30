@@ -193,6 +193,10 @@ private:
     QString m_status;
     bool m_connected = false;
     bool m_discoveryPublished = false;
+    // Entities published by the current publishHomeAssistantDiscovery() pass, so the
+    // one summary line can report the set was complete without a line per member.
+    // Reset at the top of that function — it runs again on every reconnect.
+    int m_discoveryEntityCount = 0;
     QString m_lastPublishedState;
     QString m_lastPublishedPhase;
     QString m_lastPublishedSubstate;
