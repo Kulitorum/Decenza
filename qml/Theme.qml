@@ -410,27 +410,36 @@ QtObject {
     // JS — that read is what makes bindings re-evaluate on a unit toggle (property
     // reads inside C++ methods are invisible to the QML binding engine).
     //
-    // DO NOT ADD TYPE ANNOTATIONS TO THESE SEVEN. They are the only unannotated
-    // TOP-LEVEL functions left in this file (the nested helpers `h` in colorToHex and
-    // `linearise` in _relativeLuminance are also unannotated, but they are private
-    // closures inside already-annotated parents and never reached from outside, so they
-    // do not participate in the untyped-call cascade). Leaving these seven is
-    // deliberate, not an oversight. Annotating
-    // them (`tempUnitSuffix(): string` etc.) made qmlcachegen compile tempUnitSuffix()
-    // into something that returns undefined, which showed up in the running app as
+    // These seven carried a "DO NOT ADD TYPE ANNOTATIONS" ban for one release, on the
+    // strength of a real failure in a running app:
     //     RecipeEditorPage.qml:435: Unable to assign [undefined] to QString
-    // on `suffix: Theme.tempUnitSuffix()`. The C++ side is not at fault —
-    // TemperatureDisplay::unitSuffix(bool) returns QString (src/profile/temperaturedisplay.h:92).
-    // The mechanism is NOT understood, so the annotations were reverted rather than
-    // worked around. If you want them compiled, reproduce that failure first.
-    function tempIsFahrenheit() { return Settings.app.temperatureUnit === "fahrenheit" }
-    function tempUnitSuffix() { return TemperatureDisplay.unitSuffix(tempIsFahrenheit()) }
-    function cToDisplay(celsius) { return TemperatureDisplay.cToDisplay(celsius, tempIsFahrenheit()) }
-    function displayToC(value) { return TemperatureDisplay.displayToC(value, tempIsFahrenheit()) }
+    // on `suffix: Theme.tempUnitSuffix()`. The ban was WRONG, and the annotations are
+    // back. The failure was a stale incremental build, not a qmlcachegen defect —
+    // qmlcachegen has no dependency edge from one QML file's cache to another QML
+    // file's SOURCE, so editing this file changes how every caller should compile and
+    // rebuilds none of them (see docs/CLAUDE_MD/BUILD_PERFORMANCE.md, "Cross-file QML
+    // cache staleness"). Reproduced three ways against 6.11.1, opening the A-Flow
+    // Editor each time: both sides untyped (works), this file typed with callers stale
+    // (works — the mixed state is benign, which is why nobody caught it), and both
+    // sides typed after a full QML regen (works; the Infuse Temp field reads "93.0°C").
+    // The C++ side was never at fault — TemperatureDisplay::unitSuffix(bool) returns
+    // QString (src/profile/temperaturedisplay.h:92).
+    //
+    // Six of the seven now AOT-compile; formatTemperature still skips on `.toFixed`.
+    // Global AOT coverage moved 60.6% -> 60.7%, so the point of this is removing a
+    // false warning from the source, not the ~30 recovered bindings.
+    function tempIsFahrenheit(): bool { return Settings.app.temperatureUnit === "fahrenheit" }
+    function tempUnitSuffix(): string { return TemperatureDisplay.unitSuffix(tempIsFahrenheit()) }
+    function cToDisplay(celsius: real): real { return TemperatureDisplay.cToDisplay(celsius, tempIsFahrenheit()) }
+    function displayToC(value: real): real { return TemperatureDisplay.displayToC(value, tempIsFahrenheit()) }
     // A temperature DELTA/offset scales only (no +32 origin shift): +4°C = +7.2°F.
-    function cDeltaToDisplay(deltaCelsius) { return TemperatureDisplay.cDeltaToDisplay(deltaCelsius, tempIsFahrenheit()) }
-    function displayToCDelta(deltaValue) { return TemperatureDisplay.displayToCDelta(deltaValue, tempIsFahrenheit()) }
-    function formatTemperature(celsius, decimals) {
+    function cDeltaToDisplay(deltaCelsius: real): real { return TemperatureDisplay.cDeltaToDisplay(deltaCelsius, tempIsFahrenheit()) }
+    function displayToCDelta(deltaValue: real): real { return TemperatureDisplay.displayToCDelta(deltaValue, tempIsFahrenheit()) }
+    // `decimals` is optional at 3 of the 39 call sites. With `: int` the omitted argument
+    // is coerced, not left undefined — toInt32(undefined) is 0 (qv4jscall_p.h:329-340),
+    // which is what the guard below already produced. The guard is kept so the function
+    // still behaves if the annotation is ever removed.
+    function formatTemperature(celsius: real, decimals: int): string {
         var d = (decimals === undefined) ? 0 : decimals
         return cToDisplay(celsius).toFixed(d) + tempUnitSuffix()
     }
