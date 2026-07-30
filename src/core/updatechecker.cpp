@@ -716,8 +716,30 @@ void UpdateChecker::onDownloadFinished()
         return;
     }
 
-    // Flush any remaining buffered data not delivered via readyRead
-    QByteArray remaining = m_currentReply->readAll();
+    // Flush any remaining buffered data not delivered via readyRead — but ONLY
+    // on a reply that succeeded.
+    //
+    // `finished` fires for failures too, and on a failure Qt has already closed
+    // the device, so reading it emits Qt's own unattributed
+    // "QIODevice::read (QNetworkReplyHttpImpl): device not open" — a WARN naming
+    // no subsystem of ours, two lines after "UpdateChecker: Download
+    // errorOccurred code= QNetworkReply::TimeoutError". A reader has to guess
+    // they are related.
+    //
+    // Scope, because this is easy to overclaim: this accounts for the
+    // (QNetworkReplyHttpImpl) instance ONLY. The (QSslSocket) ones that look
+    // identical are a different cause entirely — Qt's HTTP/2 closure path,
+    // already explained at releaseInfoRequest() above — and in the user log that
+    // motivated this there were five of those to one of these. Guarding here
+    // removes one line in six, not the family.
+    //
+    // Nothing is lost by skipping it: a failed download's buffer is incomplete by
+    // definition, and the error branch further down already discards the file.
+    // This only ever ran because the error check sits AFTER this flush rather
+    // than before it.
+    QByteArray remaining;
+    if (m_currentReply->error() == QNetworkReply::NoError)
+        remaining = m_currentReply->readAll();
     if (!remaining.isEmpty()) {
         if (m_downloadFile->write(remaining) != remaining.size()) {
             qWarning() << "UpdateChecker: Final write failed:" << m_downloadFile->errorString();

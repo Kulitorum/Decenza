@@ -97,6 +97,22 @@ signals:
 
 protected:
     void setConnected(bool connected);
+    // Declare the NEXT disconnect deliberate, so it is reported as narrative
+    // rather than as a fault. One-shot: consumed by the disconnect transition.
+    //
+    // The base class cannot work this out. Only the driver knows a close was
+    // app-initiated — DecentScaleWifi already computes exactly this for its own
+    // "(expected)" wording — and without it every teardown reads WARN.
+    //
+    // The two cases came from two DIFFERENT logs, not one (the .cpp says which,
+    // and an earlier version of this comment claimed they appeared back to back
+    // in a single capture, which is not true of either): a user's log has eight
+    // disconnects, every one preceded by a genuine "CONTROLLER ERROR:
+    // ConnectionError", while a maintainer's has a deliberate DE1-sleep close
+    // reported at the same WARN. Indistinguishable at that tier in both. Warning
+    // on the deliberate one teaches the reader to skim the tier that means "look
+    // here" — the failure this subsystem was audited for.
+    void markExpectedDisconnect() { m_expectedDisconnect = true; }
     void setWeight(double weight);
     void setFlowRate(double rate);
     void setBatteryLevel(int level);
@@ -112,6 +128,8 @@ private:
     // knows the subclass is gone and must not log through the (now base-class)
     // name() or emit signals into slots that assume a live scale.
     bool m_destroying = false;
+    // Consumed (and cleared) by the next disconnect — see markExpectedDisconnect().
+    bool m_expectedDisconnect = false;
     bool m_simulationMode = false;
     double m_weight = 0.0;
     double m_flowRate = 0.0;

@@ -83,12 +83,12 @@ void MemoryMonitor::onSampleTimerTick()
     const QString gate = QStringLiteral("rss%1|obj%2")
                              .arg(static_cast<int>(rssMB / 5.0))
                              .arg(objCount / 25);
-    int suppressed = 0;
+    LogCollapse::Collapsed collapsed;
     const bool speak = m_logCollapse.shouldLog(QStringLiteral("sample"), gate,
-                                               sample.timestampMs, &suppressed)
+                                               sample.timestampMs, &collapsed)
                        || newPeak;
     if (speak) {
-        const QByteArray tail = m_logCollapse.suffix(suppressed).toUtf8();
+        const QByteArray tail = m_logCollapse.suffix(collapsed).toUtf8();
 #ifdef Q_OS_ANDROID
         QJniObject runtime = QJniObject::callStaticObjectMethod(
             "java/lang/Runtime", "getRuntime", "()Ljava/lang/Runtime;");

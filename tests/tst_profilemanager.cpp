@@ -1523,6 +1523,107 @@ private slots:
         }
     }
 
+    // === families=true: the prefix census ===
+
+    // Every line is classified into exactly one of the four grammars, and the
+    // registered/unregistered split is real.
+    //
+    // The census is the answer to "which subsystems does this log even contain",
+    // so a wrong split is worse than no census: an unregistered family reported
+    // as registered tells a reader that one `filter=` search returns that
+    // subsystem's WHOLE story, when in fact it returns whatever share happens to
+    // carry that one spelling.
+    void debugGetLog_familiesCensusSplitsRegisteredFromEverythingElse() {
+        QTemporaryDir dir;
+        writeLogFile(dir.filePath("debug.log"),
+            "[   0.100] INFO  [Scale][BLEManager] connecting\n"
+            "[   0.200] DEBUG [Scale][USB Scale] polling started\n"
+            "[   0.300] DEBUG [R2-diag] scanForDevices\n"
+            "[   0.400] WARN  MqttClient: Connection failed\n"
+            "[   0.500] DEBUG Simulation mode: ON\n");
+        WebDebugLoggerTestGuard guard(dir.filePath("debug.log"));
+
+        McpTestFixture f;
+        registerDebugTools(&f.registry, nullptr);
+
+        const QJsonObject result = f.callTool("debug_get_log", QJsonObject{{"families", true}});
+        QCOMPARE(result["linesScanned"].toInt(), 5);
+
+        const QJsonArray registered = result["registeredMarkers"].toArray();
+        QCOMPARE(registered.size(), 1);
+        QCOMPARE(registered[0].toObject()["prefix"].toString(), QStringLiteral("Scale"));
+        QCOMPARE(registered[0].toObject()["lines"].toInt(), 2);
+        // The searchWith string is the whole point of the row — it must be
+        // pasteable into this same tool's `filter`.
+        QCOMPARE(registered[0].toObject()["searchWith"].toString(),
+                 QStringLiteral("filter=\"[Scale]\""));
+
+        const QJsonArray unregistered = result["unregisteredBracketPrefixes"].toArray();
+        QCOMPARE(unregistered.size(), 1);
+        QCOMPARE(unregistered[0].toObject()["prefix"].toString(), QStringLiteral("R2-diag"));
+
+        const QJsonArray classes = result["classPrefixes"].toArray();
+        QCOMPARE(classes.size(), 1);
+        QCOMPARE(classes[0].toObject()["prefix"].toString(), QStringLiteral("MqttClient"));
+        QCOMPARE(classes[0].toObject()["searchWith"].toString(),
+                 QStringLiteral("filter=\"MqttClient:\""));
+
+        QCOMPARE(result["linesWithNoPrefix"].toInt(), 1);
+        // A readable, non-empty log says nothing about being empty.
+        QVERIFY(!result.contains("emptyBecause"));
+    }
+
+    // Rows are ordered by volume, because the reason to read a census is to find
+    // where the log's mass is. Alphabetical order buries the family that
+    // accounts for a third of the file behind one that fired twice.
+    void debugGetLog_familiesCensusOrdersByLineCount() {
+        QTemporaryDir dir;
+        writeLogFile(dir.filePath("debug.log"),
+            "[   0.100] DEBUG [Aardvark] rare\n"
+            "[   0.200] DEBUG [Zebra] common\n"
+            "[   0.300] DEBUG [Zebra] common\n"
+            "[   0.400] DEBUG [Zebra] common\n");
+        WebDebugLoggerTestGuard guard(dir.filePath("debug.log"));
+
+        McpTestFixture f;
+        registerDebugTools(&f.registry, nullptr);
+
+        const QJsonObject result = f.callTool("debug_get_log", QJsonObject{{"families", true}});
+        const QJsonArray rows = result["unregisteredBracketPrefixes"].toArray();
+        QCOMPARE(rows.size(), 2);
+        QCOMPARE(rows[0].toObject()["prefix"].toString(), QStringLiteral("Zebra"));
+        QCOMPARE(rows[1].toObject()["prefix"].toString(), QStringLiteral("Aardvark"));
+    }
+
+    // An empty census must say WHY it is empty.
+    //
+    // Zeros across the board read as "this log is quiet", and a reader acts on
+    // that — when the real state may be that nothing was read at all. That is the
+    // same absence-looks-like-evidence mistake the census exists to prevent, so
+    // the census committing it would be the worst place for it.
+    void debugGetLog_familiesCensusDistinguishesEmptyFromUnreadable() {
+        QTemporaryDir dir;
+        const QString missing = dir.filePath("never-written.log");
+        WebDebugLoggerTestGuard guard(missing);
+
+        McpTestFixture f;
+        registerDebugTools(&f.registry, nullptr);
+
+        // getPersistedLogChunk() warns when it cannot open the file, which is
+        // correct and is half the point — the census field below is the same
+        // fact delivered to the MCP caller, who never sees the app's own log.
+        // Permitted rather than asserted: what this test is about is the field.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("failed to open persisted log for reading"));
+
+        const QJsonObject result = f.callTool("debug_get_log", QJsonObject{{"families", true}});
+        QCOMPARE(result["linesScanned"].toInt(), 0);
+        const QString why = result["emptyBecause"].toString();
+        QVERIFY2(!why.isEmpty(), "an empty census must name its cause");
+        QVERIFY(why.contains(QStringLiteral("no log file exists")));
+        QVERIFY2(why.contains(missing), "the cause must name the path that was checked");
+    }
+
     // === QML binding smoke test ===
     // Verifies that ProfileManager properties resolve to real values when
     // registered as a QML context property. Would have caught the 3 QML bugs

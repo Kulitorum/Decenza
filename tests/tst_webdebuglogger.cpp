@@ -2,9 +2,11 @@
 #include <QDateTime>
 #include <QTemporaryDir>
 #include <QFile>
+#include <QRegularExpression>
 #include <QSet>
 #include <QTextStream>
 
+#include "mcp/mcplogfilter.h"
 #include "network/webdebuglogger.h"
 
 // Exercises WebDebugLogger::sessionIndex()'s cache: reused across repeated
@@ -129,6 +131,40 @@ private slots:
         QCOMPARE(after[0].lineCount, qsizetype(2));
         // And its start time is absent, not borrowed from the running session.
         QVERIFY(after[0].timestamp.isEmpty());
+    }
+
+    // The line prefix is SECONDS SINCE SESSION START, inside ONE bracket.
+    //
+    // Both halves are load-bearing and neither was pinned before.
+    //
+    // Elapsed rather than a wall clock, deliberately: this branch tried the swap
+    // and reverted it. A wall clock carries no date, so on the 73-hour session in
+    // the log that motivated the change, "09:04" matched three different days
+    // with nothing on the line to choose between them — it looked like a
+    // zero-arithmetic join and was actually an ambiguous one. Elapsed is
+    // monotone and unambiguous within a session, and the absolute anchor already
+    // exists once per session on the SESSION START marker. It is also 4 bytes per
+    // line cheaper, which is ~5% of the 2 MB cap over a full buffer.
+    //
+    // One bracket, because lineLevel() and stripTimestampPrefix() both match
+    // "[^]]*" inside a single bracket. A second bracket here would silently break
+    // both parsers and every log already on disk.
+    void handleMessage_prefixesLinesWithElapsedSeconds()
+    {
+        WebDebugLogger logger(logPath());
+        logger.handleMessage(QtWarningMsg, QStringLiteral("hello"));
+
+        const QStringList lines = logger.getPersistedLogChunk(0, 100);
+        QVERIFY(!lines.isEmpty());
+        const QString line = lines.last();
+
+        // [ SSSS.mmm] LEVEL message — right-aligned to 8, three decimals.
+        QRegularExpression shape(QStringLiteral(R"(^\[\s*\d+\.\d{3}\] WARN\s+hello$)"));
+        QVERIFY2(shape.match(line).hasMatch(), qPrintable("unexpected line shape: " + line));
+
+        // And the shared parsers read it.
+        QCOMPARE(McpLogFilter::lineLevel(line), QStringLiteral("WARN"));
+        QCOMPARE(McpLogFilter::stripTimestampPrefix(line), QStringLiteral("WARN  hello"));
     }
 
     // ---- Session boundaries are recorded, never fabricated ----

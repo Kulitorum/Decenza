@@ -598,6 +598,29 @@ No dedicated preset parameter is provided: `filter` plus `minLevel` already expr
 - **WHEN** an MCP client reads the description before filtering on a marker
 - **THEN** it is told to pass the marker as a substring, because `[Scale]` under `regex: true` is a character class that matches nearly every line
 
+### Requirement: Debug log discloses what its markers do not cover
+
+`debug_get_log` SHALL accept an optional `families` boolean. When `true`, it SHALL return a census of the addressed log's line prefixes instead of log lines, computed from the file in hand rather than from any list in the source, partitioning every line into exactly one of: a REGISTERED subsystem marker, an unregistered bracketed prefix, a bare `ClassName:` prefix, or no prefix at all. Each reported prefix SHALL carry its line count and a ready-to-use `filter` expression, ordered by line count descending.
+
+The requirement exists because the tool's description names only the registered markers. A caller that searches `[Scale]`, gets a complete answer, and infers the log is marker-organised has been misled by a tool that told it only the true part — most of the log carries no registered marker, and a subsystem absent from the description is not absent from the log. The census converts "this subsystem does not exist" into "this subsystem is not searchable by marker", which is a cheaper mistake to recover from.
+
+The response SHALL state that the census describes THAT FILE and not the current build, because the log is a ring buffer spanning app versions and an unregistered prefix in it may be one since converted. An empty census SHALL name its cause — no such file, a file that could not be opened, or a file that is genuinely empty — rather than report zeros that read as a quiet log.
+
+#### Scenario: A caller with no prior knowledge finds the subsystems that exist
+
+- **WHEN** an MCP client calls `debug_get_log` with `families: true`
+- **THEN** the response lists registered markers, unregistered bracketed prefixes, and `ClassName:` prefixes separately, each with a line count and a `filter` expression that retrieves it
+
+#### Scenario: The unregistered families are not presented as searchable-in-full
+
+- **WHEN** the census reports an unregistered prefix
+- **THEN** the response states that its `filter` is a plain substring over one hand-written prefix and may be incomplete where a subsystem logs under more than one spelling
+
+#### Scenario: An unreadable log is not reported as an empty one
+
+- **WHEN** an MCP client calls `debug_get_log` with `families: true` and the log file is missing or cannot be opened
+- **THEN** the response names the path and which of those states it is in, rather than returning all-zero counts
+
 ### Requirement: App debug log supports a minimum-severity filter
 `debug_get_log` SHALL accept an optional `minLevel` parameter (`"DEBUG" | "INFO" | "WARN" | "ERROR" | "FATAL"`, ordered ascending) that restricts returned lines to that level or higher, based on the level tag already present on every persisted log line. `minLevel` SHALL combine with `filter` (a line must satisfy both to be returned). An unrecognized `minLevel` value SHALL be rejected with an `{"error": ...}` response rather than silently matching every line. `shots_get_debug_log` SHALL accept `minLevel` without error but ignore it, since the shot debug log carries no level tagging.
 

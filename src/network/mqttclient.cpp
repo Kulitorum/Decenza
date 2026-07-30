@@ -1,4 +1,6 @@
 #include "mqttclient.h"
+
+#include <QDateTime>
 #include "../ble/de1device.h"
 #include "../machine/machinestate.h"
 #include "../core/settings.h"
@@ -416,7 +418,18 @@ void MqttClient::connectWithHost(const QString& host)
     m_status = "Connecting...";
     emit statusChanged();
 
-    qDebug() << "MqttClient: Connecting to" << serverUri;
+    // Collapsed: a broker that is down produces this every retry forever, and
+    // "connecting to the address you configured" is not news the second time.
+    // A CHANGED address still emits at once — LogCollapse keys on the text.
+    {
+        LogCollapse::Collapsed collapsed;
+        const QString text = QStringLiteral("Connecting to ") + serverUri;
+        if (m_logCollapse.shouldLog(QStringLiteral("connecting"), text,
+                                    QDateTime::currentMSecsSinceEpoch(), &collapsed)) {
+            qDebug().noquote() << QStringLiteral("MqttClient: ") + text
+                                      + m_logCollapse.suffix(collapsed);
+        }
+    }
 
     rc = MQTTAsync_connect(m_client, &connOpts);
     if (rc != MQTTASYNC_SUCCESS) {
@@ -482,7 +495,33 @@ void MqttClient::disconnectFromBroker()
 
 void MqttClient::onInternalConnected()
 {
-    qDebug() << "MqttClient: Connected to broker";
+    // Close the books on the outage, if there was one.
+    //
+    // The three collapsed ladders above stop being called the moment this fires, so nothing would
+    // ever flush their pending counts — the tally would ride out on the first line of the NEXT
+    // outage, dating an old failure to a new one. Flushing here also makes the recovery itself
+    // visible: an outage announced at WARN whose end is only a DEBUG "Connected to broker" reads,
+    // to anyone filtering at INFO, as a broker that never came back. Same defect the BatteryManager
+    // threshold had, same fix.
+    //
+    // The suppressed count is reported rather than dropped because it is the honest statement that
+    // the log UNDERCOUNTS: 47 attempts of which 45 were never printed is a different picture from
+    // 2 attempts, and collapsing is what made them look alike.
+    const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+    const int failedAttempts = m_reconnectAttempts;
+    m_logCollapse.flush(QStringLiteral("connecting"), nowMs);
+    m_logCollapse.flush(QStringLiteral("retry"), nowMs);
+    const LogCollapse::Collapsed unprinted = m_logCollapse.flush(QStringLiteral("failed"), nowMs);
+
+    if (failedAttempts > 0) {
+        QString line = QStringLiteral("MqttClient: Connected to broker after %1 failed attempt(s)")
+                           .arg(failedAttempts);
+        if (unprinted.suppressed > 0)
+            line += QStringLiteral(" (%1 collapsed, never printed)").arg(unprinted.suppressed);
+        qInfo().noquote() << line;
+    } else {
+        qDebug() << "MqttClient: Connected to broker";
+    }
 
     {
         QMutexLocker locker(&m_mutex);
@@ -569,7 +608,31 @@ void MqttClient::onInternalDisconnected()
 
 void MqttClient::onInternalConnectionFailed(const QString& error)
 {
-    qWarning() << "MqttClient: Connection failed -" << error;
+    // Repeating a failure whose reason has not changed does not add information — it
+    // only spends the tier that is supposed to mean "look here", which is the habit
+    // this subsystem's audit was about. A DIFFERENT error still warns immediately (a
+    // broker that moved from "connection refused" to "bad username or password" is
+    // genuinely new), and the one-shot "backing off" warning below still marks the
+    // giving-up moment.
+    //
+    // Where the volume claim comes from, since it is easy to overstate: the pathological
+    // case is a MAINTAINER's machine with an unreachable broker left configured, which
+    // produced hundreds of these at WARN in a single capture. A real user's 25,720-line
+    // log is the opposite shape — 262 MqttClient lines, of which 5 are WARN, and the
+    // four "TCP/TLS connect failure" ones RECOVERED. So this collapse is worth having,
+    // but it is not what a typical user's log looks like, and sizing it from the
+    // maintainer's log alone is how the earlier version of this comment ended up
+    // asserting a cause ("a broker that was simply switched off") that the user log
+    // does not support.
+    {
+        LogCollapse::Collapsed collapsed;
+        const QString text = QStringLiteral("Connection failed - ") + error;
+        if (m_logCollapse.shouldLog(QStringLiteral("failed"), text,
+                                    QDateTime::currentMSecsSinceEpoch(), &collapsed)) {
+            qWarning().noquote() << QStringLiteral("MqttClient: ") + text
+                                        + m_logCollapse.suffix(collapsed);
+        }
+    }
 
     {
         QMutexLocker locker(&m_mutex);
@@ -620,7 +683,16 @@ void MqttClient::scheduleReconnect(const QString& reason)
                    << "attempts - backing off to one retry every" << delay / 60000
                    << "min. Reason:" << reason;
     }
-    qDebug() << "MqttClient: Retrying in" << delay / 1000 << "seconds -" << reason;
+    {
+        LogCollapse::Collapsed collapsed;
+        const QString text = QStringLiteral("Retrying in %1 seconds - %2")
+                                 .arg(delay / 1000).arg(reason);
+        if (m_logCollapse.shouldLog(QStringLiteral("retry"), text,
+                                    QDateTime::currentMSecsSinceEpoch(), &collapsed)) {
+            qDebug().noquote() << QStringLiteral("MqttClient: ") + text
+                                      + m_logCollapse.suffix(collapsed);
+        }
+    }
     m_reconnectTimer.start(delay);
 
     // Keep the broker's own words. The caller has usually just set an "Error: …"

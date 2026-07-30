@@ -34,20 +34,28 @@ public:
     // moved is the interesting event, and holding it back is how a collapser turns into a bug.
     explicit LogCollapse(qint64 windowMs) : m_windowMs(windowMs) {}
 
-    // Returns true when the caller should log, and sets `suppressed` to how many identical lines
-    // were swallowed since the last emit (0 on the first line, or when the text changed).
+    // What a single emitted line stood in for. Both fields are needed to describe it honestly, and
+    // they travel together for exactly that reason — see suffix().
+    struct Collapsed
+    {
+        int suppressed = 0;   // identical lines swallowed since the last emit
+        qint64 spanMs = 0;    // wall time those lines actually covered
+    };
+
+    // Returns true when the caller should log, and fills `out` with what the emitted line stands in
+    // for (0/0 on the first line, or when the text changed).
     //
     // `nowMs` is passed in rather than read from a clock so the caller can reuse a timestamp it
     // already has, and so this is testable without waiting.
-    bool shouldLog(const QString& key, const QString& text, qint64 nowMs, int* suppressed)
+    bool shouldLog(const QString& key, const QString& text, qint64 nowMs, Collapsed* out)
     {
         Entry& e = m_entries[key];
         const bool changed = (e.text != text);
         const bool windowElapsed = (nowMs - e.lastEmitMs) >= m_windowMs;
 
         if (!e.everEmitted || changed || windowElapsed) {
-            if (suppressed)
-                *suppressed = e.suppressed;
+            if (out)
+                *out = {e.suppressed, e.everEmitted ? nowMs - e.lastEmitMs : 0};
             e.text = text;
             e.lastEmitMs = nowMs;
             e.suppressed = 0;
@@ -56,24 +64,48 @@ public:
         }
 
         e.suppressed++;
-        if (suppressed)
-            *suppressed = 0;
+        if (out)
+            *out = {};
         return false;
     }
 
-    // Convenience for the common shape: " (+N identical in the last M s)" or an empty string.
-    // Centralized so the three callers cannot word the same annotation three ways — which is what
-    // happened to the [USB Scale] prefix (73 hand-written sites, 21 of them drifted).
-    static QString suffix(int suppressed, qint64 windowMs)
+    // Ends a run: returns what is still pending for `key` and forgets the key entirely, so the next
+    // run starts as a first sighting.
+    //
+    // For a periodic source there is no run end and this is never needed. For an EPISODIC one there
+    // is, and without this the tally is not merely late — it is misattributed. A broker outage that
+    // recovers stops calling shouldLog(), so its suppressed count sits in the table until the NEXT
+    // outage prints it, stapling last week's repeat count onto today's first failure. The caller
+    // that observes the recovery is the only code that knows the run ended, so it is the only place
+    // that can say so.
+    Collapsed flush(const QString& key, qint64 nowMs)
     {
-        if (suppressed <= 0)
-            return QString();
-        return QStringLiteral(" (+%1 identical in the last %2 s)")
-            .arg(suppressed)
-            .arg(windowMs / 1000);
+        const auto it = m_entries.constFind(key);
+        if (it == m_entries.cend())
+            return {};
+        const Collapsed c{it->suppressed, it->everEmitted ? nowMs - it->lastEmitMs : 0};
+        m_entries.erase(it);
+        return c;
     }
 
-    QString suffix(int suppressed) const { return suffix(suppressed, m_windowMs); }
+    // Convenience for the common shape: " (+N identical in the preceding M s)" or an empty string.
+    // Centralized so the five callers cannot word the same annotation five ways — which is what
+    // happened to the [USB Scale] prefix (73 hand-written sites, 21 of them drifted).
+    //
+    // M IS THE MEASURED SPAN, NOT THE WINDOW. This took the window at first, and that was a lie
+    // whenever the source was bursty rather than periodic. The window is only a MINIMUM: a run that
+    // repeated for two minutes and then went quiet for three hours gets flushed by the next line
+    // three hours later, and "in the last 600 s" would date a stale burst to the moment a reader is
+    // looking at. For the periodic callers the two numbers are near-identical, which is precisely
+    // why the error would have survived review — every log they produce looks right.
+    static QString suffix(const Collapsed& c)
+    {
+        if (c.suppressed <= 0)
+            return QString();
+        return QStringLiteral(" (+%1 identical in the preceding %2 s)")
+            .arg(c.suppressed)
+            .arg(c.spanMs / 1000);
+    }
 
 private:
     struct Entry
