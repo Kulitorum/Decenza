@@ -54,6 +54,13 @@ T.Dialog {
     // grow_fade_in / shrink_fade_out, copied exactly from Material's Dialog.qml. Not one
     // dialog in the app declares `enter`/`exit`, so all 27 have always animated with these
     // — losing them would make every dialog in the app pop in and out instantly.
+    // VERIFIED RUNNING, not just assigned. Temporary instrumentation on this Transition
+    // (`onRunningChanged` logging, since removed) measured the exit at 220-224 ms across
+    // repeated opens of GrindPickerDialog — an inline site, i.e. one of the 104 rewritten
+    // mechanically — which is exactly the `duration: 220` below. `Overlay.modal` resolved
+    // SET on the same instances. Worth recording because a screenshot cannot tell a
+    // running transition from a dialog that pops, and a non-null `enter` does not prove
+    // Qt honours it; those are different failures with different fixes.
     enter: Transition {
         NumberAnimation { property: "scale"; from: 0.9; to: 1.0; easing.type: Easing.OutQuint; duration: 220 }
         NumberAnimation { property: "opacity"; from: 0.0; to: 1.0; easing.type: Easing.OutCubic; duration: 150 }
