@@ -18,14 +18,20 @@ import Decenza
 // Declared once here, they cannot disagree.
 //
 // WHAT IT DELIBERATELY DOES NOT CARRY. `Material.elevation`, `Material.roundedScale` and the
-// style's `background` only ever fed the style's own background Rectangle, and all 27 files
-// already replace `background:` outright — none of it reached the screen. Likewise the
-// `header: Label` and `footer: DialogButtonBox`: the four files that show a header or footer
-// declare their own, and no file in the tree uses `standardButtons`.
+// style's `background` only ever fed the style's own background Rectangle, and all 131 sites
+// already replace `background:` outright — none of it reached the screen. Same for
+// `footer: DialogButtonBox`: no DecenzaDialog-rooted file sets `standardButtons`, so it never
+// rendered. (`SettingsConnectionsTab.qml` does set it, on a `ComboBox.popup: Dialog` that is
+// deliberately NOT migrated — so the scope of that statement is this base's users, not the
+// tree. An earlier version of this comment said "no file in the tree", which is false.)
 //
-// One base covers both shapes: 26 of the 27 were `Dialog {}` and the last was `Popup {}`, and
-// T.Dialog IS a QQuickPopup in C++, so a popup loses nothing by rooting here. The only
-// Dialog-specific API in use anywhere is BrewDialog's `onRejected`, which T.Dialog has.
+// The `header` IS carried, below — see the note there. Getting that wrong is the one defect
+// this migration actually shipped into review.
+//
+// One base covers both shapes: 26 of the 27 file roots were `Dialog {}` and the last was
+// `Popup {}`, and T.Dialog IS a QQuickPopup in C++, so a popup loses nothing by rooting here.
+// Dialog-specific API is in use at exactly two sites — `onRejected` in BrewDialog.qml and
+// SettingsScreensaverTab.qml — and T.Dialog has it.
 T.Dialog {
     id: control
 
@@ -69,6 +75,44 @@ T.Dialog {
     exit: Transition {
         NumberAnimation { property: "scale"; from: 1.0; to: 0.9; easing.type: Easing.OutQuint; duration: 220 }
         NumberAnimation { property: "opacity"; from: 1.0; to: 0.0; easing.type: Easing.OutCubic; duration: 150 }
+    }
+
+    // THE TITLE. Material's Dialog.qml renders `title` through a header Label and nothing
+    // else (qquickdialog.cpp:42: "Dialog's title is displayed by a style-specific title bar
+    // that is assigned to header"). T.Dialog supplies no header at all, so omitting this
+    // made three dialogs that set `title:` — SteamPage's steamWarningDialog,
+    // ConversationOverlay's unsupportedBeverageDialog and ProfileImportPage's
+    // duplicateDialog — open with no visible heading. Body and buttons still drew, so
+    // nothing looked broken; the heading was simply gone.
+    //
+    // It is declared HERE rather than patched into those three because Material attached its
+    // header to all 131 sites, gated on `title` being non-empty. Reproducing that gate
+    // reproduces the previous behaviour everywhere at once: dialogs with no title get
+    // nothing (as before), and the files that declare their own `header:` override this one
+    // exactly as they overrode Material's.
+    //
+    // The visible condition is Material's own — a dialog reparented away from the overlay
+    // (an inline/embedded one) does not draw a title bar. Styling is Theme's rather than
+    // Material's dialogColor, since every dialog here paints its own background.
+    //
+    // VERIFIED RENDERING, by temporarily setting a `title:` on an untitled dialog that uses
+    // this header (SteamPage's editPitcherPopup) and opening it: the heading drew above the
+    // content, correctly padded, no overlap. That check was worth its two rebuilds — the
+    // app log alone could not distinguish "the binding evaluates" from "the binding is
+    // TRUE", because an untitled dialog short-circuits before the overlay comparison
+    // decides anything. All three real cases are behind conditions too awkward to trigger
+    // on demand, and one of them sits behind a button that would start a paid AI request.
+    header: Text {
+        text: control.title
+        visible: parent?.parent === T.Overlay.overlay && control.title !== ""
+        elide: Text.ElideRight
+        color: Theme.textColor
+        font.family: Theme.subtitleFont.family
+        font.pixelSize: Theme.scaled(20)
+        font.weight: Font.Medium
+        padding: Theme.scaled(24)
+        bottomPadding: 0
+        Accessible.ignored: true   // T.Dialog announces `title` itself
     }
 
     // The dimmer behind the dialog. A popup's own attached Overlay.modal wins over the

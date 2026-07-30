@@ -14,7 +14,11 @@ import Decenza
 // `Controls.Button` resolves to that style's Button.qml — a COMPOSITE type whose base
 // chain qmlcachegen cannot walk at build time, so every `root.<prop>` here and every
 // `text:`/`onClicked:` on an AccessibleButton ANYWHERE in the app fell back to the
-// interpreter: 1,085 skipped bindings, the single largest AOT loss in the tree.
+// interpreter — the single largest AOT loss in the tree. 1,049 of those were members read
+// on AccessibleButton INSTANCES in other files (the figure BUILD_PERFORMANCE.md quotes,
+// since that table counts by the element a skip was written on); 36 more were inside this
+// file. Two numbers for one fact is how drift starts, so: 1,049 is the attributed count
+// and the one to cite.
 // Templates.Button is the plain C++ QQuickButton, so the chain resolves.
 //
 // This is only safe because the file already replaces `contentItem` and `background`

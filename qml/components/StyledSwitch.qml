@@ -3,11 +3,23 @@ import QtQuick.Templates as T
 import Decenza
 
 // Templates.Switch, not Controls.Switch — see the note in AccessibleButton.qml for why a
-// style-composite root costs every binding on this type its AOT compilation. Nothing
-// carries over here: this file already replaces `indicator`, `contentItem` and both
-// implicit sizes, and Material's Switch.qml declares no insets and no padding.
+// style-composite root costs every binding on this type its AOT compilation. This file
+// already replaces `indicator`, `contentItem` and both implicit sizes, and Material's
+// Switch.qml declares no insets — but it DOES declare padding, which is carried over below.
 T.Switch {
     id: control
+
+    // qtdeclarative/src/quickcontrols/material/Switch.qml:19. Load-bearing, not cosmetic:
+    // the implicit sizes below are written in terms of this padding, so dropping it takes
+    // implicitHeight from max(28, 8+24+8)=40 down to max(28,24)=28 and cuts 16 from
+    // implicitWidth — shrinking every switch in the app and, per the comment below, undoing
+    // the touch-target enlargement that width was widened to provide.
+    //
+    // An earlier version of this file's header claimed Material's Switch declared no
+    // padding. It does. The claim came from a grep whose pattern matched leftPadding /
+    // topPadding / verticalPadding but not a bare `padding:` — the same miss that briefly
+    // dropped RoundButton's `padding: 12` in StyledIconButton.qml.
+    padding: 8
 
     // Optional accessibility label for context when text is empty
     property string accessibleName: ""

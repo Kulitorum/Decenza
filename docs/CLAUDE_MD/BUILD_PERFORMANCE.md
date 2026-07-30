@@ -166,13 +166,28 @@ cachegen on all 221 (seconds of wall time, in parallel), then ninja compares the
 regenerated `.cpp` against the old one and prunes every unit whose output came out
 byte-identical. The expensive half still only happens where the code really changed.
 
-**The failure mode to know about:** `add_custom_command(APPEND)` against an OUTPUT
-that does not match an existing command is a **silent no-op**. The path is
-reconstructed from Qt's own formula (`Qt6QmlMacros.cmake:3841-3847` — the reason
-the directory is `Decenza_qml/` is that the `Decenza_` target prefix is glued onto
-the leading `qml/` of the relative path). If Qt ever changes that formula, the
-wiring detaches, CMake still prints a healthy `wired for 221 units`, and the mixed
-cache comes back. Hence:
+The path is reconstructed from Qt's own formula (`Qt6QmlMacros.cmake:3841-3847` — the
+reason the directory is `Decenza_qml/` is that the `Decenza_` target prefix is glued
+onto the leading `qml/` of the relative path). **If Qt changes that formula the build
+fails loudly at configure time**, because `add_custom_command(APPEND)` against an
+OUTPUT with no existing command is a hard error:
+
+```
+CMake Error at CMakeLists.txt:12 (add_custom_command):
+  Attempt to APPEND to custom command with output ... which is not already a
+  custom command output.
+```
+
+This paragraph previously said the opposite — that a mismatch was a **silent no-op**
+which would leave CMake printing a healthy `wired for 221 units` while doing nothing.
+That was asserted without being tried, and a reproduction with this project's own
+CMake 3.30.5 disproved it. Recorded rather than quietly corrected, because the false
+version was the stated justification for the check below, and because writing a
+mechanism down from belief instead of measurement is the failure this whole document
+exists to push back on.
+
+What the check below is actually for is the half CMake does not cover: an accepted
+APPEND proves the path matched, not that the edge reaches the generator. Hence:
 
 ```bash
 cmake --build <builddir> --target qml_dep_wiring_check
@@ -182,6 +197,13 @@ cmake --build <builddir> --target qml_dep_wiring_check
 touches `Theme.qml`, asks ninja what is now dirty, and fails unless all 221 units
 are. Run it after any Qt upgrade. A count printed by the thing being tested is not
 evidence — the whole of this file's history says so.
+
+**221, not 214: 7 of those entries are `.js`, whose units end `_js.cpp`.** The check
+first shipped matching only `_qml.cpp`, so it could never reach 221 and refused
+unconditionally — and it went to review that way, never once run green. Which is the
+joke at this document's expense: a gate written to stop people trusting an unverified
+mechanism, itself never verified. If you add a check here, run it and watch it PASS,
+then break something on purpose and watch it FAIL. Neither half is optional.
 
 The real fix is `qmlcachegen --depfile` upstream. The tool has no such flag today
 (check `tools/qmlcachegen/qmlcachegen.cpp`; there is no dependency output of any

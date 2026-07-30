@@ -1858,10 +1858,11 @@ foreach(_qml_file IN LISTS QML_FILES)
 endforeach()
 message(STATUS "QML cross-file cache deps wired for ${_decenza_qml_units_wired} units")
 
-# The gate. `add_custom_command(APPEND)` against an OUTPUT that does not match an
-# existing command is a SILENT no-op, so a drift in Qt's path formula would leave
-# this whole block doing nothing while still printing a healthy-looking count
-# above. Verify by making the build system REFUSE, not by reading a number:
+# The gate. NOTE: `add_custom_command(APPEND)` against an OUTPUT that does not match an
+# existing command is a hard configure-time error, NOT a silent no-op — verified by
+# reproduction with this project's CMake 3.30.5. So path drift fails the build by itself,
+# and this target covers the other half: that the accepted dependencies actually reach the
+# generator and cause a rebuild. Exercise it rather than reading the count above:
 #
 #   cmake --build <builddir> --target qml_dep_wiring_check
 #

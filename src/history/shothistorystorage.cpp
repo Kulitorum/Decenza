@@ -80,14 +80,39 @@ void ShotHistoryStorage::runDetachedDbThread(std::function<void()> body)
     // Counted, so isDbWorkIdle() can see it. The counter is a shared_ptr for the
     // same reason m_destroyed is: the thread may outlive `this`, and it must still
     // be able to decrement without touching a destroyed object.
-    auto inFlight = m_detachedDbThreads;
-    inFlight->fetch_add(1, std::memory_order_relaxed);
-    QThread* thread = QThread::create([body = std::move(body), inFlight]() {
-        body();
-        // Release, paired with the acquire in isDbWorkIdle(): a reader that sees
-        // zero must also see everything the thread did to the DB file before it.
-        inFlight->fetch_sub(1, std::memory_order_release);
-    });
+    // The decrement is RAII rather than a trailing statement, so an exception escaping
+    // body() cannot latch the counter above zero for the rest of the process. That matters
+    // because a stuck counter makes isDbWorkIdle() permanently false, turning any future
+    // wait on it — a factory reset about to delete the file, a shutdown drain — from a wait
+    // into a hang.
+    //
+    // NOT covered: thread->start() failing. Qt only warns there, run() never executes, and
+    // `finished` never fires, so the QThread is never deleteLater'd and the lambda holding
+    // this guard is never destroyed either. Accepted rather than worked around: it means
+    // the OS refused a thread, the process has bigger problems, and the tests' failOnWarning
+    // would surface Qt's warning immediately. Stated because the first draft of this comment
+    // claimed the guard handled it, which is wrong in a way that reads as reassuring.
+    struct InFlightGuard {
+        std::shared_ptr<std::atomic<int>> counter;
+        explicit InFlightGuard(std::shared_ptr<std::atomic<int>> c) : counter(std::move(c)) {
+            counter->fetch_add(1, std::memory_order_relaxed);
+        }
+        InFlightGuard(InFlightGuard&& other) noexcept : counter(std::move(other.counter)) {}
+        InFlightGuard(const InFlightGuard&) = delete;
+        InFlightGuard& operator=(const InFlightGuard&) = delete;
+        ~InFlightGuard() {
+            // Release, paired with the acquire in isDbWorkIdle(): a reader that sees zero
+            // must also see everything the thread did to the DB file before it. Guarded
+            // because a moved-from copy holds nothing.
+            if (counter)
+                counter->fetch_sub(1, std::memory_order_release);
+        }
+    };
+
+    QThread* thread = QThread::create(
+        [body = std::move(body), guard = InFlightGuard(m_detachedDbThreads)]() mutable {
+            body();
+        });
     connect(thread, &QThread::finished, thread, &QObject::deleteLater);
     thread->start();
 }

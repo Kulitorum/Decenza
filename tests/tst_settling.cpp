@@ -45,11 +45,24 @@ private:
     // failed on an unrelated final-weight assertion that said nothing about why. That
     // is the "timers as guards" anti-pattern CLAUDE.md names by name, living in a test.
     //
-    // Looping on the CONDITION instead spends the minimum wall time — the gate fires
-    // around sample 7, ~350 ms — so it cannot overshoot. The isSawSettling() check is
-    // the point of the helper: if the ceiling is ever hit anyway, the failure says so.
+    // Looping on the CONDITION instead spends the minimum wall time, so it cannot
+    // overshoot by feeding samples nobody needs. The isSawSettling() check is the point of
+    // the helper: if the ceiling is hit anyway, the failure says so instead of surfacing
+    // as a wrong final weight three assertions later.
+    //
+    // TIMING, derived from the constants rather than guessed. The window fills on the 6th
+    // sample (SETTLING_WINDOW_SIZE = 6), which is when the stability clock STARTS; the gate
+    // then needs SETTLING_CLEAN_CAPTURE_MS (250 ms) more, i.e. 5 further samples at 50 ms.
+    // So capture lands on roughly the 11th sample, ~500 ms — against a 1000 ms ceiling.
+    // An earlier version of this comment said "around sample 7, ~350 ms", which was wrong
+    // in the direction that matters: it made the margin look twice as large as it is.
+    //
+    // Hence the cap of 16 rather than 20. Twenty iterations is 1000 ms, exactly
+    // SETTLING_STABLE_MS — a bound sitting precisely on the threshold it exists to stay
+    // under, which is no bound at all. Sixteen leaves ~300 ms of headroom past the ~500 ms
+    // the gate actually needs, and still stops short of the ceiling.
     void feedPlateauUntilCaptured(ShotTimingController& tc, double grams, double flow) {
-        for (int i = 0; i < 20 && tc.m_lastCleanSettlingAvg <= 0.0; ++i) {
+        for (int i = 0; i < 16 && tc.m_lastCleanSettlingAvg <= 0.0; ++i) {
             tc.onWeightSample(grams, flow);
             QTest::qWait(50);
         }
@@ -387,6 +400,11 @@ private slots:
         // Simulate a frozen-scale fault: a run of identical samples at 74.8 g
         // (35+ g above stop weight), held until the capture gate fires.
         feedPlateauUntilCaptured(tc, 74.8, 0.0);
+        // QVERIFY2 inside a non-slot helper returns from the HELPER, not the test, so
+        // without this the test would keep asserting against state the helper just
+        // reported as bad -- and the failure it printed would be buried under the
+        // downstream one. That is the same diagnosis problem the helper exists to fix.
+        QVERIFY(!QTest::currentTestFailed());
         // Confirm the capture landed on the GLITCH value (we DON'T want to
         // silently rely on the capture gate having filtered it — the
         // plausibility cap is the layer being tested).
@@ -463,6 +481,11 @@ private slots:
         tc.onSawTriggered(35.0, 2.5, 36.0);
         tc.endShot();
         feedPlateauUntilCaptured(tc, 36.0, 0.5);
+        // QVERIFY2 inside a non-slot helper returns from the HELPER, not the test, so
+        // without this the test would keep asserting against state the helper just
+        // reported as bad -- and the failure it printed would be buried under the
+        // downstream one. That is the same diagnosis problem the helper exists to fix.
+        QVERIFY(!QTest::currentTestFailed());
 
         // Starting shot N+1 while shot N is still settling warns that it's
         // cancelling the settling timer and saving the previous shot — exactly
@@ -502,6 +525,11 @@ private slots:
 
         // Establish the captured value with a stable plateau.
         feedPlateauUntilCaptured(tc, 42.3, 0.5);
+        // QVERIFY2 inside a non-slot helper returns from the HELPER, not the test, so
+        // without this the test would keep asserting against state the helper just
+        // reported as bad -- and the failure it printed would be buried under the
+        // downstream one. That is the same diagnosis problem the helper exists to fix.
+        QVERIFY(!QTest::currentTestFailed());
         const double capturedAvg = tc.m_lastCleanSettlingAvg;
         QVERIFY2(capturedAvg > 41.0 && capturedAvg < 43.0,
                  "Plateau should produce a clean avg near 42.3 g");
