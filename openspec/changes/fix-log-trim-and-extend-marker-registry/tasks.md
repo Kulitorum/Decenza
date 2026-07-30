@@ -61,13 +61,17 @@
 
 - [x] 8.1 Run the full suite via `mcp__qtcreator__run_tests` (scope `all`) — ask before building; Qt Creator is shared. Zero failures, zero warnings.
 - [x] 8.2 Run `scripts/check_log_markers.py` clean, and qmllint clean.
-- [ ] 8.3 **Pending a macOS run.** Read a fresh live session over `debug_get_log` at `minLevel="INFO"` and confirm it reads as a narrative: no event twice, no bare marker, no WARN on a working configuration, no subsystem silent that should not be. Verify against the **macOS** build (the `decenza` MCP server) — the `de1` server is the tablet, which stays on the current beta until the next one is built. Jeff starts the app.
+- [x] 8.3 **Done 2026-07-30 against the macOS build** (`decenza` MCP, Decenza 2.0.1, session 68 / `2026-07-30T10:47:31`). 34 INFO+ lines across a 60 s shot, reading as a narrative: font registered, Flow Scale connected, simulator attached, WiFi target unreachable, Bluetooth fallback, shot, saved. No event logged twice, no bare marker, no source-less line. The WiFi failure carried its provenance on the existing line — `WebSocket error: Host unreachable (code 7) — target=192.168.10.241 (freshly resolved via QHostInfo) local=<unbound>` — confirming group 3 works on live data at zero added lines.
+
+      **The read found what the gate could not**, which is the point of doing it: four `[FontProbe]` lines in `src/screensaver/iosbrightness.mm`, an unregistered bracketed family sitting outside both glob sets (they reach `src/ble/**/*.mm` and no other `.mm`). Two of them were INFO and fired on *every* Apple-platform startup — the probe set includes ⚡ ☀ ☁ ❄, which Apple Color Emoji always covers — so the always-true branch stood permanently in the user-facing narrative saying "this is normal". Their existence also made this change's own `[Font]` registry description false: a `[Font]` search did not return the font story. Converted to `FONT_WARN`/`FONT_LOG` with tag `Probe`; the two paragraphs dropped to DEBUG, which costs their intended reader nothing because `debug_get_log` returns DEBUG by default. Gap documented in `LOGGING.md` alongside why the directory was not simply added to the globs (`iosbrightness.mm` also hosts `[Screensaver]` and `[Theme]`).
 - [ ] 8.4 Re-check the tier judgements in 4.5 against a second session on a different day before landing — the motivating read was one device over one day.
-- [ ] 8.5 **Pending a macOS run**, same as 8.3: `sessions=true` on a trimmed log reports recorded order and no duplicate start times. Covered by unit tests meanwhile (`trim_doesNotFabricateASession`, `sessionIndex_startTimesAreUniqueAndOrdered`), but the real-log confirmation is the one that has historically found what review missed.
+- [x] 8.5 **Done 2026-07-30**, same session as 8.3. `sessions=true` reports 69 sessions in recorded order. Session 0 is the headless-fragment case and reports it honestly — `timestamp: null`, `startTimeKnown: false`, and the note explaining the start marker was lost to a trim — which is group 1 and group 2 working end to end on a real file.
+
+      **One duplicate start time remains in the file and is expected: it is pre-fix residue, not a live defect.** Sessions 1 and 65 both read `2026-07-30T10:28:23`. Session 1's *content* is old-format (`[BLE DecentScaleWifi]` doubled with a `[Scale] [BLE …]` echo, unprefixed `BLEManager:`), so it was written long before that timestamp — a trim under the old binary stamped the then-current run's start onto surviving old content, exactly the forgery this change removes. Session 68's content shows the new single-line format. Nothing written after the fix has forged a marker; the stale pair ages out of the ring buffer on its own.
 
 ## 9. Ship
 
-- [ ] 9.1 Open the PR against `main` from a feature branch.
+- [x] 9.1 Open the PR against `main` from a feature branch. — [#1716](https://github.com/Kulitorum/Decenza/pull/1716)
 - [ ] 9.2 Run the automated `/pr-review-toolkit:review-pr` and address findings.
 - [ ] 9.3 Archive this change (`/opsx:archive`) and sync `openspec/specs/` as the **final commit on this PR**, not a separate one.
 - [ ] 9.4 Squash-merge and delete the branch (`/merge-pr`).

@@ -93,6 +93,7 @@ void ios_setStatusBarStyle(bool) {}
 // --- Font probe (macOS + iOS) — detect Apple Color Emoji fallback for non-emoji chars ---
 #import <Foundation/Foundation.h>
 #import <CoreText/CoreText.h>
+#include "core/fontlogging.h"
 #include <QDebug>
 #include <QString>
 
@@ -118,7 +119,7 @@ void macos_probeEmojiFont()
 
     CTFontRef systemFont = CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 16.0, NULL);
     if (!systemFont) {
-        qWarning() << "[FontProbe] Failed to create system font";
+        FONT_WARN("Probe", QStringLiteral("Failed to create system font"));
         return;
     }
 
@@ -136,9 +137,12 @@ void macos_probeEmojiFont()
             // Check if it's Apple Color Emoji
             bool isEmoji = [name containsString:@"Emoji"] || [name containsString:@"emoji"];
             if (isEmoji) {
-                qInfo() << "[FontProbe] U+" << QString::number(p.ch, 16).toUpper()
-                        << p.name << "would resolve to" << QString::fromNSString(name)
-                        << "IF rendered as text — expected; the app renders it as a bundled SVG.";
+                FONT_LOG("Probe", QStringLiteral("U+%1 %2 would resolve to %3 IF rendered as "
+                                                 "text — expected; the app renders it as a "
+                                                 "bundled SVG")
+                                      .arg(QString::number(p.ch, 16).toUpper(),
+                                           QString::fromLatin1(p.name),
+                                           QString::fromNSString(name)));
                 anyEmoji = true;
             }
 
@@ -148,7 +152,7 @@ void macos_probeEmojiFont()
     }
 
     if (!anyEmoji) {
-        qDebug() << "[FontProbe] All probed characters use non-emoji fonts (OK)";
+        FONT_LOG("Probe", QStringLiteral("All probed characters use non-emoji fonts (OK)"));
     } else {
         // This used to say "CurveTextRendering should still prevent the CopyEmojiImage crash."
         // That is FALSE, and a crash on 2026-07-18 disproved it: curves cannot represent colour
@@ -156,11 +160,22 @@ void macos_probeEmojiFont()
         // are read by users' AIs via MCP and acted on, so a confidently wrong all-clear here would
         // get a real crash report dismissed. The actual defence is never letting a colour glyph
         // reach the renderer — Theme.replaceEmojiWithImg() rewrites emoji to bundled SVGs.
-        qInfo() << "[FontProbe] Probed characters have Apple Color Emoji coverage. That is normal "
-                   "and NOT a crash indicator: the app renders emoji as bundled SVG images, so "
-                   "these glyphs never reach the text renderer. A crash here would mean some "
-                   "string bypassed Theme.replaceEmojiWithImg() — that is the thing to look for, "
-                   "not this line.";
+        //
+        // DEBUG, not INFO, and the audience rule is why: every line of this is
+        // addressed to whoever is investigating a suspected render crash, and to
+        // nobody else. It also fires on EVERY Apple-platform startup — the probe
+        // set includes ⚡ ☀ ☁ ❄, which Apple Color Emoji always covers — so at
+        // INFO it was two paragraphs of "this is normal" standing permanently in
+        // the user-facing narrative. Demoting costs the intended reader nothing:
+        // debug_get_log returns DEBUG by default, so the AI reading a submitted
+        // log still sees it exactly when it is looking here.
+        FONT_LOG("Probe",
+                 QStringLiteral("Probed characters have Apple Color Emoji coverage. That is "
+                                "normal and NOT a crash indicator: the app renders emoji as "
+                                "bundled SVG images, so these glyphs never reach the text "
+                                "renderer. A crash here would mean some string bypassed "
+                                "Theme.replaceEmojiWithImg() — that is the thing to look for, "
+                                "not this line."));
     }
 
     CFRelease(systemFont);

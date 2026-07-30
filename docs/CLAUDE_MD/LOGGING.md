@@ -375,6 +375,17 @@ prefixes (`SteamPage:`, `MqttClient:`, `ShotDataModel:`, `Visualizer:`, `Battery
 teach people to write exemptions. "Every line carries its marker" is the rule you
 follow; the gate enforces it where a subsystem has somewhere to log to.
 
+**The gap that is not on that list, because it looks covered:** a *bracketed* family in a
+file simply outside both glob sets. Rule 5 is built for exactly that shape and never
+sees it. `[FontProbe]` in `src/screensaver/iosbrightness.mm` was four such lines — the
+globs reach `src/ble/**/*.mm` but no other `.mm` — and it sat one directory away from a
+`[Font]` marker whose registry description promises that a `[Font]` search returns the
+font story. It did not. Found in a live session read, not by the gate or by review,
+which is the whole argument of the next section. Before adding a directory to the globs,
+check what else it contains: `iosbrightness.mm` also hosts `[Screensaver]` and `[Theme]`,
+so covering it means registering two more subsystems or writing exemptions, and neither
+is free.
+
 ## Verify against a running app, not just the source
 
 The last several defects in this area were invisible in review and obvious in one
