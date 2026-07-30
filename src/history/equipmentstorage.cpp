@@ -1,4 +1,5 @@
 #include "equipmentstorage.h"
+#include "equipmentlogging.h"
 #include "core/dbutils.h"
 #include "core/grinderaliases.h"
 #include "core/basketaliases.h"
@@ -263,7 +264,7 @@ void EquipmentStorage::runAsync(const QString& connPrefix,
                                 std::function<void(bool dbOpened)> done)
 {
     if (m_dbPath.isEmpty()) {
-        qWarning() << "EquipmentStorage: not initialized, dropping" << connPrefix;
+        EQUIP_WARN_STDERR("Store", QString("not initialized, dropping %1").arg(connPrefix));
         return;
     }
     if (!m_dbWorker)
@@ -360,7 +361,9 @@ void EquipmentStorage::requestCreatePackage(const QVariantMap& packageMap)
 void EquipmentStorage::requestUpdatePackage(qint64 packageId, const QVariantMap& fields)
 {
     if (m_dbPath.isEmpty()) {
-        qWarning() << "EquipmentStorage: requestUpdatePackage on uninitialized storage, package" << packageId;
+        EQUIP_WARN_STDERR("Update",
+                          QString("requestUpdatePackage on uninitialized storage, package %1")
+                              .arg(packageId));
         emit packageUpdated(packageId, false);
         return;
     }
@@ -392,8 +395,10 @@ void EquipmentStorage::requestUpdatePackage(qint64 packageId, const QVariantMap&
                 const QString oldName = loadPackageStatic(db, packageId).name.trimmed();
                 const bool renamed = QString::compare(newName, oldName, Qt::CaseInsensitive) != 0;
                 if (renamed && findPackageByNameStatic(db, newName, packageId) > 0) {
-                    qWarning() << "EquipmentStorage: rejecting rename of package" << packageId
-                               << "to" << newName << "- already used by another in-inventory package";
+                    EQUIP_WARN_STDERR("Update",
+                                      QString("rejecting rename of package %1 to %2 - already used by another in-inventory package")
+                                          .arg(packageId)
+                                          .arg(newName));
                     *success = false;
                     *resultId = packageId;
                     *failReason = QStringLiteral("nameInUse");
@@ -426,8 +431,9 @@ void EquipmentStorage::requestUpdatePackage(qint64 packageId, const QVariantMap&
                     // Stop here rather than applying the remaining fields: a save
                     // that persists the rename but drops the burr change, and
                     // reports success, is the worst of the three outcomes.
-                    qWarning() << "EquipmentStorage: identity edit failed for package" << packageId
-                               << "- reporting the whole update as failed";
+                    EQUIP_WARN_STDERR("Update",
+                                      QString("identity edit failed for package %1 - reporting the whole update as failed")
+                                          .arg(packageId));
                     *success = false;
                     *resultId = packageId;  // signals carry a real id, not the sentinel
                     return;
@@ -452,8 +458,9 @@ void EquipmentStorage::requestUpdatePackage(qint64 packageId, const QVariantMap&
                 // its own transaction and cannot be undone from here, so the
                 // honest report is failure, with the partial state visible.
                 if (!updatePackageFieldsStatic(db, *resultId, pkgFields)) {
-                    qWarning() << "EquipmentStorage: package-field update failed for" << *resultId
-                               << "- reporting the whole update as failed";
+                    EQUIP_WARN_STDERR("Update",
+                                      QString("package-field update failed for %1 - reporting the whole update as failed")
+                                          .arg(*resultId));
                     *success = false;
                     // Report the id the CALLER asked about, as the identity
                     // branch above does. Leaving the forked id here made the
@@ -499,7 +506,9 @@ void EquipmentStorage::requestTouchLastUsed(qint64 packageId)
             query.bindValue(":now", QDateTime::currentSecsSinceEpoch());
             query.bindValue(":id", packageId);
             if (!query.exec())
-                qWarning() << "EquipmentStorage: touch last_used failed:" << query.lastError().text();
+                EQUIP_WARN_STDERR("Store",
+                                  QString("touch last_used failed: %1")
+                                      .arg(query.lastError().text()));
         },
         [](bool) {});
 }
@@ -533,11 +542,15 @@ void EquipmentStorage::requestDeletePackage(qint64 packageId)
                               : QString()));
             countQuery.bindValue(":id", packageId);
             if (!countQuery.exec() || !countQuery.next()) {
-                qWarning() << "EquipmentStorage: delete pre-check failed:" << countQuery.lastError().text();
+                EQUIP_WARN_STDERR("Delete",
+                                  QString("delete pre-check failed: %1")
+                                      .arg(countQuery.lastError().text()));
                 return;
             }
             if (countQuery.value(0).toInt() > 0) {
-                qWarning() << "EquipmentStorage: refusing to delete package" << packageId << "with references";
+                EQUIP_WARN_STDERR("Delete",
+                                  QString("refusing to delete package %1 with references")
+                                      .arg(packageId));
                 return;
             }
             // Release the pre-check statement: an active read holds a read
@@ -554,8 +567,9 @@ void EquipmentStorage::requestDeletePackage(qint64 packageId)
             // transaction is here to prevent.
             DbWriteTxn txn = DbWriteTxn::begin(db, "equipment package delete");
             if (!txn.ok()) {
-                qWarning() << "EquipmentStorage: delete of package" << packageId
-                           << "could not start a transaction - leaving it in place";
+                EQUIP_WARN_STDERR("Delete",
+                                  QString("delete of package %1 could not start a transaction - leaving it in place")
+                                      .arg(packageId));
                 return;
             }
             QSqlQuery delItems(db);
@@ -567,7 +581,9 @@ void EquipmentStorage::requestDeletePackage(qint64 packageId)
             if (delItems.exec() && delPkg.exec() && txn.commit())
                 *success = true;
             else
-                qWarning() << "EquipmentStorage: delete failed:" << delPkg.lastError().text();
+                EQUIP_WARN_STDERR("Delete",
+                                  QString("delete failed: %1")
+                                      .arg(delPkg.lastError().text()));
         },
         // Write: emit regardless — *success is false on open failure, terminal.
         [this, packageId, success](bool) {
@@ -597,7 +613,9 @@ bool EquipmentStorage::ensureTablesStatic(QSqlDatabase& db)
         )
     )");
     if (!okPkg) {
-        qWarning() << "EquipmentStorage: failed to create equipment_packages table:" << query.lastError().text();
+        EQUIP_WARN_STDERR("Schema",
+                          QString("failed to create equipment_packages table: %1")
+                              .arg(query.lastError().text()));
         return false;
     }
     const bool okItem = query.exec(R"(
@@ -613,7 +631,9 @@ bool EquipmentStorage::ensureTablesStatic(QSqlDatabase& db)
         )
     )");
     if (!okItem) {
-        qWarning() << "EquipmentStorage: failed to create equipment_items table:" << query.lastError().text();
+        EQUIP_WARN_STDERR("Schema",
+                          QString("failed to create equipment_items table: %1")
+                              .arg(query.lastError().text()));
         return false;
     }
     query.exec("CREATE INDEX IF NOT EXISTS idx_equipment_inventory ON equipment_packages(in_inventory, last_used DESC)");
@@ -638,7 +658,9 @@ qint64 EquipmentStorage::insertPackageStatic(QSqlDatabase& db, const EquipmentPa
     for (qsizetype i = 0; i < binds.size(); ++i)
         query.bindValue(static_cast<int>(i), binds.at(i));
     if (!query.exec()) {
-        qWarning() << "EquipmentStorage: package insert failed:" << query.lastError().text();
+        EQUIP_WARN_STDERR("Store",
+                          QString("package insert failed: %1")
+                              .arg(query.lastError().text()));
         return -1;
     }
     return query.lastInsertId().toLongLong();
@@ -655,7 +677,7 @@ qint64 EquipmentStorage::insertItemStatic(QSqlDatabase& db, const EquipmentItem&
     query.bindValue(":model", nullIfEmpty(item.model));
     query.bindValue(":attrs", item.attrsJson());
     if (!query.exec()) {
-        qWarning() << "EquipmentStorage: item insert failed:" << query.lastError().text();
+        EQUIP_WARN_STDERR("Store", QString("item insert failed: %1").arg(query.lastError().text()));
         return -1;
     }
     return query.lastInsertId().toLongLong();
@@ -700,8 +722,10 @@ qint64 EquipmentStorage::createPackageWithGrinderStatic(QSqlDatabase& db, Equipm
         // visible rather than silent. (In the fork path the outer transaction
         // rolls it back regardless.)
         if (!dp.exec())
-            qWarning() << "EquipmentStorage: rollback drop of package" << packageId
-                       << "failed (possible orphan):" << dp.lastError().text();
+            EQUIP_WARN_STDERR("Create",
+                              QString("rollback drop of package %1 failed (possible orphan): %2")
+                                  .arg(packageId)
+                                  .arg(dp.lastError().text()));
     };
     if (!grinderLess) {
         EquipmentItem grinder;
@@ -729,8 +753,10 @@ qint64 EquipmentStorage::createPackageWithGrinderStatic(QSqlDatabase& db, Equipm
         di.prepare("DELETE FROM equipment_items WHERE package_id = :id");
         di.bindValue(":id", packageId);
         if (!di.exec())
-            qWarning() << "EquipmentStorage: rollback delete of items for package" << packageId
-                       << "failed (possible orphan):" << di.lastError().text();
+            EQUIP_WARN_STDERR("Create",
+                              QString("rollback delete of items for package %1 failed (possible orphan): %2")
+                                  .arg(packageId)
+                                  .arg(di.lastError().text()));
         dropPackage();
     };
     if (!basketBrand.trimmed().isEmpty() || !basketModel.trimmed().isEmpty()) {
@@ -817,8 +843,10 @@ bool EquipmentStorage::setBasketItemStatic(QSqlDatabase& db, qint64 packageId,
         del.prepare("DELETE FROM equipment_items WHERE package_id = :id AND kind = 'basket'");
         del.bindValue(":id", packageId);
         if (!del.exec()) {
-            qWarning() << "EquipmentStorage: basket clear failed for package" << packageId << ":"
-                       << del.lastError().text();
+            EQUIP_WARN_STDERR("Identity",
+                              QString("basket clear failed for package %1 : %2")
+                                  .arg(packageId)
+                                  .arg(del.lastError().text()));
             return false;
         }
         return true;
@@ -832,8 +860,10 @@ bool EquipmentStorage::setBasketItemStatic(QSqlDatabase& db, qint64 packageId,
         upd.bindValue(":model", nullIfEmpty(m));
         upd.bindValue(":id", packageId);
         if (!upd.exec()) {
-            qWarning() << "EquipmentStorage: basket update failed for package" << packageId << ":"
-                       << upd.lastError().text();
+            EQUIP_WARN_STDERR("Identity",
+                              QString("basket update failed for package %1 : %2")
+                                  .arg(packageId)
+                                  .arg(upd.lastError().text()));
             return false;
         }
         return true;
@@ -877,8 +907,10 @@ bool EquipmentStorage::setPuckPrepItemStatic(QSqlDatabase& db, qint64 packageId,
         del.prepare("DELETE FROM equipment_items WHERE package_id = :id AND kind = 'puckprep'");
         del.bindValue(":id", packageId);
         if (!del.exec()) {
-            qWarning() << "EquipmentStorage: puckprep clear failed for package" << packageId << ":"
-                       << del.lastError().text();
+            EQUIP_WARN_STDERR("Identity",
+                              QString("puckprep clear failed for package %1 : %2")
+                                  .arg(packageId)
+                                  .arg(del.lastError().text()));
             return false;
         }
         return true;
@@ -891,8 +923,10 @@ bool EquipmentStorage::setPuckPrepItemStatic(QSqlDatabase& db, qint64 packageId,
         upd.bindValue(":model", canon);
         upd.bindValue(":id", packageId);
         if (!upd.exec()) {
-            qWarning() << "EquipmentStorage: puckprep update failed for package" << packageId << ":"
-                       << upd.lastError().text();
+            EQUIP_WARN_STDERR("Identity",
+                              QString("puckprep update failed for package %1 : %2")
+                                  .arg(packageId)
+                                  .arg(upd.lastError().text()));
             return false;
         }
         return true;
@@ -913,7 +947,9 @@ QVector<EquipmentPackageView> EquipmentStorage::loadInventoryStatic(QSqlDatabase
                             "(SELECT COUNT(*) FROM shots WHERE equipment_id = equipment_packages.id) AS shot_count "
                             "FROM equipment_packages WHERE in_inventory = 1 "
                             "ORDER BY last_used DESC, id DESC").arg(packageColumnList()))) {
-        qWarning() << "EquipmentStorage: inventory query failed:" << query.lastError().text();
+        EQUIP_WARN_STDERR("Store",
+                          QString("inventory query failed: %1")
+                              .arg(query.lastError().text()));
         return views;
     }
     const int shotCountCol = query.record().indexOf("shot_count");
@@ -944,7 +980,7 @@ bool EquipmentStorage::updatePackageFieldsStatic(QSqlDatabase& db, qint64 packag
     for (auto it = fields.constBegin(); it != fields.constEnd(); ++it) {
         const PkgCol* col = kColumnFor.value(it.key(), nullptr);
         if (!col) {
-            qWarning() << "EquipmentStorage: ignoring unknown package field" << it.key();
+            EQUIP_WARN_STDERR("Update", QString("ignoring unknown package field %1").arg(it.key()));
             continue;
         }
         assignments << QString("%1 = ?").arg(QString::fromLatin1(col->sql));
@@ -962,7 +998,10 @@ bool EquipmentStorage::updatePackageFieldsStatic(QSqlDatabase& db, qint64 packag
         query.bindValue(pos++, value);
     query.bindValue(pos, packageId);
     if (!query.exec()) {
-        qWarning() << "EquipmentStorage: package update failed for" << packageId << ":" << query.lastError().text();
+        EQUIP_WARN_STDERR("Update",
+                          QString("package update failed for %1 : %2")
+                              .arg(packageId)
+                              .arg(query.lastError().text()));
         return false;
     }
     return query.numRowsAffected() > 0;
@@ -989,8 +1028,10 @@ bool EquipmentStorage::updateGrinderItemStatic(QSqlDatabase& db, qint64 packageI
         del.prepare("DELETE FROM equipment_items WHERE package_id = :id AND kind = 'grinder'");
         del.bindValue(":id", packageId);
         if (!del.exec()) {
-            qWarning() << "EquipmentStorage: grinder clear failed for package" << packageId << ":"
-                       << del.lastError().text();
+            EQUIP_WARN_STDERR("Identity",
+                              QString("grinder clear failed for package %1 : %2")
+                                  .arg(packageId)
+                                  .arg(del.lastError().text()));
             return false;
         }
         return true;
@@ -1011,8 +1052,10 @@ bool EquipmentStorage::updateGrinderItemStatic(QSqlDatabase& db, qint64 packageI
         query.bindValue(":attrs", item.attrsJson());
         query.bindValue(":id", packageId);
         if (!query.exec()) {
-            qWarning() << "EquipmentStorage: grinder item update failed for package" << packageId << ":"
-                       << query.lastError().text();
+            EQUIP_WARN_STDERR("Identity",
+                              QString("grinder item update failed for package %1 : %2")
+                                  .arg(packageId)
+                                  .arg(query.lastError().text()));
             return false;
         }
         return true;
@@ -1021,7 +1064,9 @@ bool EquipmentStorage::updateGrinderItemStatic(QSqlDatabase& db, qint64 packageI
     item.packageId = packageId;
     item.kind = QStringLiteral("grinder");
     if (insertItemStatic(db, item) <= 0) {
-        qWarning() << "EquipmentStorage: grinder item insert failed for package" << packageId;
+        EQUIP_WARN_STDERR("Identity",
+                          QString("grinder item insert failed for package %1")
+                              .arg(packageId));
         return false;
     }
     return true;
@@ -1111,8 +1156,10 @@ EquipmentMergeResult EquipmentStorage::mergePackagesStatic(QSqlDatabase& db, qin
 
     DbWriteTxn txn = DbWriteTxn::begin(db, "equipment package merge");
     if (!txn.ok()) {
-        qWarning() << "EquipmentStorage: merge of" << sourceId << "into" << targetId
-                   << "could not start a transaction - nothing moved";
+        EQUIP_WARN_STDERR("Merge",
+                          QString("merge of %1 into %2 could not start a transaction - nothing moved")
+                              .arg(sourceId)
+                              .arg(targetId));
         probe.error = QStringLiteral("sqlFailed");
         return probe;
     }
@@ -1120,7 +1167,7 @@ EquipmentMergeResult EquipmentStorage::mergePackagesStatic(QSqlDatabase& db, qin
     if (!result.ok)
         return result;   // guard rolls back
     if (!txn.commit()) {
-        qWarning() << "EquipmentStorage: merge commit failed:" << txn.commitError();
+        EQUIP_WARN_STDERR("Merge", QString("merge commit failed: %1").arg(txn.commitError()));
         return EquipmentMergeResult{false, 0, 0, 0, QStringLiteral("sqlFailed")};
     }
     return result;
@@ -1167,8 +1214,10 @@ EquipmentMergeResult EquipmentStorage::mergePackagesUnlockedStatic(QSqlDatabase&
         q.bindValue(":to", targetId);
         q.bindValue(":from", sourceId);
         if (!q.exec()) {
-            qWarning() << "EquipmentStorage: merge repoint failed on" << table << ":"
-                       << q.lastError().text();
+            EQUIP_WARN_STDERR("Merge",
+                              QString("merge repoint failed on %1 : %2")
+                                  .arg(table)
+                                  .arg(q.lastError().text()));
             return false;
         }
         *moved = q.numRowsAffected() > 0 ? q.numRowsAffected() : 0;
@@ -1192,21 +1241,37 @@ EquipmentMergeResult EquipmentStorage::mergePackagesUnlockedStatic(QSqlDatabase&
     lineage.bindValue(":to", targetId);
     lineage.bindValue(":from", sourceId);
     if (!lineage.exec()) {
-        qWarning() << "EquipmentStorage: merge lineage re-point failed:" << lineage.lastError().text();
+        EQUIP_WARN_STDERR("Merge",
+                          QString("merge lineage re-point failed: %1")
+                              .arg(lineage.lastError().text()));
         result.error = QStringLiteral("sqlFailed");
         return result;
     }
 
     // The survivor holds the history, so it has to be selectable: clear any
     // supersession pointing at the package about to be deleted, and un-retire it.
+    //
+    // Un-retire ONLY when nothing else supersedes it. A target that is retired
+    // because a THIRD package replaced it is still genuinely retired, and
+    // reviving it puts a stale duplicate back in the inventory — with the same
+    // derived name as its own successor, since a fork copies the name. That is
+    // reachable from the heal on a real database: A retired into B, then B
+    // retired into C, and the heal folds A into B. loadInventoryStatic and
+    // findPackageByGrinderIdentityStatic both key on in_inventory alone, so the
+    // zombie would read as live gear to the Equipment page AND become a merge
+    // target for a later identity edit.
     QSqlQuery revive(db);
-    revive.prepare("UPDATE equipment_packages SET in_inventory = 1, "
+    revive.prepare("UPDATE equipment_packages SET "
+                   "in_inventory = CASE WHEN superseded_by IS NULL OR superseded_by = :from "
+                   "                    THEN 1 ELSE in_inventory END, "
                    "superseded_by = CASE WHEN superseded_by = :from THEN NULL ELSE superseded_by END, "
                    "updated_at = strftime('%s','now') WHERE id = :to");
     revive.bindValue(":from", sourceId);
     revive.bindValue(":to", targetId);
     if (!revive.exec()) {
-        qWarning() << "EquipmentStorage: merge target revive failed:" << revive.lastError().text();
+        EQUIP_WARN_STDERR("Merge",
+                          QString("merge target revive failed: %1")
+                              .arg(revive.lastError().text()));
         result.error = QStringLiteral("sqlFailed");
         return result;
     }
@@ -1218,11 +1283,22 @@ EquipmentMergeResult EquipmentStorage::mergePackagesUnlockedStatic(QSqlDatabase&
     delPkg.prepare("DELETE FROM equipment_packages WHERE id = :id");
     delPkg.bindValue(":id", sourceId);
     if (!delItems.exec() || !delPkg.exec()) {
-        qWarning() << "EquipmentStorage: merge source delete failed:" << delPkg.lastError().text();
+        EQUIP_WARN_STDERR("Merge",
+                          QString("merge source delete failed: %1")
+                              .arg(delPkg.lastError().text()));
         result.error = QStringLiteral("sqlFailed");
         return result;
     }
     result.ok = true;
+    // Logged here, in the shared body, so both entry points report it identically —
+    // the explicit MCP repair and the migration's automatic heal.
+    EQUIP_INFO_STDERR("Merge",
+                      QString("package %1 folded into %2 and deleted - %3 shots, %4 bags, %5 recipes moved")
+                          .arg(sourceId)
+                          .arg(targetId)
+                          .arg(result.shotsMoved)
+                          .arg(result.bagsMoved)
+                          .arg(result.recipesMoved));
     return result;
 }
 
@@ -1260,7 +1336,8 @@ bool EquipmentStorage::healEnrichmentForksStatic(QSqlDatabase& db, QHash<qint64,
     // each pass re-reads the lineage the previous one rewrote. Bounded so a
     // cycle in superseded_by — which nothing should create, but which would
     // otherwise spin forever inside a migration — cannot hang startup.
-    for (int pass = 0; pass < 10; ++pass) {
+    constexpr int kMaxHealPasses = 10;
+    for (int pass = 0; pass < kMaxHealPasses; ++pass) {
         QVector<QPair<qint64, qint64>> pairs;   // older (to remove), newer (survivor)
         QSqlQuery q(db);
         if (!q.exec(
@@ -1285,16 +1362,21 @@ bool EquipmentStorage::healEnrichmentForksStatic(QSqlDatabase& db, QHash<qint64,
                 "    = IFNULL((SELECT pp.model FROM equipment_items pp "
                 "      WHERE pp.package_id = newer.id AND pp.kind = 'puckprep' ORDER BY pp.id LIMIT 1),'') "
                 "ORDER BY older.id")) {
-            qWarning() << "EquipmentStorage: enrichment-fork scan failed:" << q.lastError().text();
+            EQUIP_WARN_STDERR("Heal",
+                              QString("enrichment-fork scan failed: %1")
+                                  .arg(q.lastError().text()));
             return false;
         }
         while (q.next())
             pairs.append({q.value(0).toLongLong(), q.value(1).toLongLong()});
-        // The scan returned rows, so its read transaction is still open on this
-        // connection until the statement is released — and the merges below write.
+        // Release the scan before the merges write. The loop above stepped it to
+        // exhaustion, so this is NOT the DbWriteTxn precondition (that one is about
+        // a SELECT left mid-iteration, and this path opens no transaction of its
+        // own anyway) — it is SQLite refusing a write to a table this same
+        // connection still holds an unfinalized cursor on.
         q.finish();
         if (pairs.isEmpty())
-            break;
+            return true;   // nothing left to match — the normal exit
 
         for (const auto& [older, newer] : pairs) {
             // A previous iteration of THIS pass may have already merged one side
@@ -1303,8 +1385,11 @@ bool EquipmentStorage::healEnrichmentForksStatic(QSqlDatabase& db, QHash<qint64,
                 continue;
             const EquipmentMergeResult r = mergePackagesUnlockedStatic(db, older, newer);
             if (!r.ok) {
-                qWarning() << "EquipmentStorage: enrichment-fork heal failed for" << older
-                           << "->" << newer << ":" << r.error;
+                EQUIP_WARN_STDERR("Heal",
+                                  QString("enrichment-fork heal failed for %1 -> %2 : %3")
+                                      .arg(older)
+                                      .arg(newer)
+                                      .arg(r.error));
                 return false;   // caller rolls back
             }
             ++healed;
@@ -1318,11 +1403,21 @@ bool EquipmentStorage::healEnrichmentForksStatic(QSqlDatabase& db, QHash<qint64,
                         it.value() = newer;
                 remap->insert(older, newer);
             }
-            qInfo() << "EquipmentStorage: merged enrichment fork - package" << older
-                    << "folded into" << newer << "(" << r.shotsMoved << "shots,"
-                    << r.bagsMoved << "bags," << r.recipesMoved << "recipes )";
+            EQUIP_INFO_STDERR("Heal",
+                              QString("package %1 was an enrichment fork of %2 (same gear, burrs recorded "
+                                      "on the newer one only) - reuniting them")
+                                  .arg(older)
+                                  .arg(newer));
         }
     }
+    // Falling out of the loop with pairs still matching means a chain deeper than
+    // the bound. Nothing should build one, but silence here would look exactly
+    // like "nothing to heal" while the version bumps and the remaining forks are
+    // never revisited.
+    EQUIP_WARN_STDERR("Heal",
+                      QString("stopped after %1 passes with enrichment forks still unmerged - "
+                              "repair the rest with the equipment_merge MCP tool")
+                          .arg(kMaxHealPasses));
     return true;
 }
 
@@ -1378,10 +1473,28 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
     // in the first place. Puck prep compares whole canonical strings, so adding
     // a second technique to an existing one ("wdt" -> "wdt,rdt") is a change,
     // not enrichment: the puck prep of the earlier shots really was different.
+    //
+    // One absence is NOT missing data: a package with no grinder ITEM at all is
+    // deliberately grinder-less — a basket-only tea setup (add-recipe-wizard-tea)
+    // — and the identity model treats "no grinder" as a real, matchable value
+    // (findPackageByGrinderIdentityStatic matches it as one). Its shots were
+    // pulled with nothing ground, so giving it a grinder is a genuine identity
+    // change and forks; calling that enrichment would make those shots report a
+    // grinder that never touched them. isValid() (id > 0) is what separates "no
+    // row" from "row with blank fields" — the loaders return a default-constructed
+    // item either way.
+    //
+    // This does NOT extend to the basket or the puck prep, and the difference is
+    // physical rather than tidy: there is no espresso pulled without a basket, so
+    // an absent basket is a basket nobody wrote down, exactly like absent burrs.
+    // Tea genuinely has no grinder.
     auto filledIn = [&](const QString& before, const QString& after) {
         return norm(before).isEmpty() || norm(before) == norm(after);
     };
-    const bool enrichment = filledIn(cur.brand, brand)
+    const bool gainingAGrinder = !cur.isValid()
+        && !(brand.trimmed().isEmpty() && model.trimmed().isEmpty() && burrs.trimmed().isEmpty());
+    const bool enrichment = !gainingAGrinder
+        && filledIn(cur.brand, brand)
         && filledIn(cur.model, model)
         && filledIn(cur.burrs, burrs)
         && filledIn(curBasket.brand, basketBrand)
@@ -1400,7 +1513,9 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
         q.bindValue(":to", to);
         q.bindValue(":from", from);
         if (!q.exec()) {
-            qWarning() << "EquipmentStorage: repoint bags failed:" << q.lastError().text();
+            EQUIP_WARN_STDERR("Identity",
+                              QString("repoint bags failed: %1")
+                                  .arg(q.lastError().text()));
             return false;
         }
         return true;
@@ -1412,7 +1527,9 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
         q.bindValue(":by", supersededBy > 0 ? QVariant(supersededBy) : QVariant());
         q.bindValue(":id", id);
         if (!q.exec()) {
-            qWarning() << "EquipmentStorage: soft-delete failed:" << q.lastError().text();
+            EQUIP_WARN_STDERR("Identity",
+                              QString("soft-delete failed: %1")
+                                  .arg(q.lastError().text()));
             return false;
         }
         return true;
@@ -1431,16 +1548,19 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
     // the write lock up front — see DbWriteTxn.
     DbWriteTxn txn = DbWriteTxn::begin(db, "equipment identity edit");
     if (!txn.ok()) {
-        qWarning() << "EquipmentStorage: identity edit for package" << packageId
-                   << "could not start a transaction - leaving the package unchanged";
+        EQUIP_WARN_STDERR("Identity",
+                          QString("identity edit for package %1 could not start a transaction - leaving the package unchanged")
+                              .arg(packageId));
         return -1;
     }
     // Every `return -1` below rolls back through the guard's destructor; only a
     // successful commit lets a result out.
     auto done = [&](qint64 result) -> qint64 {
         if (!txn.commit()) {
-            qWarning() << "EquipmentStorage: identity edit commit failed for package" << packageId
-                       << "-" << txn.commitError();
+            EQUIP_WARN_STDERR("Identity",
+                              QString("identity edit commit failed for package %1 - %2")
+                                  .arg(packageId)
+                                  .arg(txn.commitError()));
             return -1;
         }
         return result;
@@ -1469,8 +1589,10 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
             lineage.bindValue(":target", mergeTarget);
             lineage.bindValue(":source", packageId);
             if (!lineage.exec()) {
-                qWarning() << "EquipmentStorage: lineage re-point failed for package" << packageId
-                           << "-" << lineage.lastError().text();
+                EQUIP_WARN_STDERR("Identity",
+                                  QString("lineage re-point failed for package %1 - %2")
+                                      .arg(packageId)
+                                      .arg(lineage.lastError().text()));
                 return -1;
             }
             QSqlQuery di(db);
@@ -1484,6 +1606,10 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
         } else if (!softDelete(packageId, mergeTarget)) {
             return -1;
         }
+        EQUIP_INFO_STDERR("Identity",
+                          QString("package %1 edit matched existing package %2 - merged into it")
+                              .arg(packageId)
+                              .arg(mergeTarget));
         return done(mergeTarget);
     }
 
@@ -1500,6 +1626,14 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
             return -1;
         if (!setPuckPrepItemStatic(db, packageId, puck))
             return -1;
+        // Which of the two reasons applies is the whole question when a user asks
+        // why their grinder did (or did not) turn into a new one, so the line says
+        // it rather than leaving the reader to infer it from the shot count.
+        EQUIP_INFO_STDERR("Identity",
+                          QString("package %1 edit applied in place (%2)")
+                              .arg(packageId)
+                              .arg(enrichment ? QStringLiteral("enrichment - filled in a component that was empty")
+                                              : QStringLiteral("package has no shots")));
         return done(packageId);
     }
 
@@ -1518,6 +1652,23 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
         return -1;
     if (!softDelete(packageId, newId))
         return -1;
+    // The fork is the event that detaches history — grinder calibration matches on
+    // model AND burrs, dial-in grouping keys on equipment_id — so it is logged at
+    // INFO with both ids and what actually changed. Without this line, "the app
+    // thinks I have a new grinder" (#1713) leaves no trace at all in a submitted
+    // log; with it, one [Equipment] search answers the question.
+    EQUIP_INFO_STDERR("Identity",
+                      QString("package %1 identity CHANGED - forked to package %2 "
+                              "(grinder \"%3 %4\" burrs \"%5\" -> \"%6 %7\" burrs \"%8\"); "
+                              "earlier shots stay on %1")
+                          .arg(packageId)
+                          .arg(newId)
+                          .arg(cur.brand)
+                          .arg(cur.model)
+                          .arg(cur.burrs)
+                          .arg(brand)
+                          .arg(model)
+                          .arg(burrs));
     return done(newId);
 }
 
@@ -1588,8 +1739,9 @@ bool EquipmentStorage::migrateFromGrinderColumnsStatic(QSqlDatabase& db,
             "  SELECT grinder_brand, grinder_model, grinder_burrs FROM coffee_bags "
             "  UNION ALL "
             "  SELECT grinder_brand, grinder_model, grinder_burrs FROM shots)")) {
-        qWarning() << "EquipmentStorage: migration distinct-identity query failed:"
-                   << distinctQ.lastError().text();
+        EQUIP_WARN_STDERR("Migration",
+                          QString("migration distinct-identity query failed: %1")
+                              .arg(distinctQ.lastError().text()));
         return false;
     }
     struct Identity { QString brand, model, burrs; };
@@ -1642,8 +1794,10 @@ bool EquipmentStorage::migrateFromGrinderColumnsStatic(QSqlDatabase& db,
             linkQ.bindValue(":m", m.toLower());
             linkQ.bindValue(":bu", bu.toLower());
             if (!linkQ.exec())
-                qWarning() << "EquipmentStorage: migration link failed on" << table << ":"
-                           << linkQ.lastError().text();
+                EQUIP_WARN_STDERR("Migration",
+                                  QString("migration link failed on %1 : %2")
+                                      .arg(table)
+                                      .arg(linkQ.lastError().text()));
             else
                 linkedRows += linkQ.numRowsAffected();
         }
@@ -1656,8 +1810,10 @@ bool EquipmentStorage::migrateFromGrinderColumnsStatic(QSqlDatabase& db,
         QSqlQuery scanQ(db);
         if (!scanQ.exec(QString("SELECT id, grinder_setting FROM %1 "
                                 "WHERE grinder_setting LIKE '%rpm%'").arg(QLatin1String(table)))) {
-            qWarning() << "EquipmentStorage: migration rpm-scan failed on" << table << ":"
-                       << scanQ.lastError().text();
+            EQUIP_WARN_STDERR("Migration",
+                              QString("migration rpm-scan failed on %1 : %2")
+                                  .arg(table)
+                                  .arg(scanQ.lastError().text()));
             continue;
         }
         QVector<std::tuple<qint64, QString, qint64>> updates;  // id, grind, rpm
@@ -1676,8 +1832,10 @@ bool EquipmentStorage::migrateFromGrinderColumnsStatic(QSqlDatabase& db,
             upd.bindValue(":r", rpm);
             upd.bindValue(":id", rowId);
             if (!upd.exec())
-                qWarning() << "EquipmentStorage: migration rpm-split update failed on" << table << ":"
-                           << upd.lastError().text();
+                EQUIP_WARN_STDERR("Migration",
+                                  QString("migration rpm-split update failed on %1 : %2")
+                                      .arg(table)
+                                      .arg(upd.lastError().text()));
             else
                 ++splitRows;
         }
@@ -1687,10 +1845,11 @@ bool EquipmentStorage::migrateFromGrinderColumnsStatic(QSqlDatabase& db,
     // what migration 22 actually did on a user's device (created N packages,
     // linked B+S bag/shot rows, split R combined settings). qInfo so it survives
     // release log levels.
-    qInfo() << "EquipmentStorage: migration 22 data step complete -"
-            << allPackages.size() << "packages created,"
-            << linkedRows << "bag/shot rows linked,"
-            << splitRows << "grind+rpm settings split";
+    EQUIP_INFO_STDERR("Migration",
+                      QString("migration 22 data step complete - %1 packages created, %2 bag/shot rows linked, %3 grind+rpm settings split")
+                          .arg(allPackages.size())
+                          .arg(linkedRows)
+                          .arg(splitRows));
     return true;
 }
 
@@ -1705,8 +1864,9 @@ bool EquipmentStorage::importEquipmentStatic(QSqlDatabase& srcDb, QSqlDatabase& 
         // after importDatabaseStatic has already cleared the dest shots/bags).
         QSqlQuery clr(destDb);
         if (!clr.exec("DELETE FROM equipment_items") || !clr.exec("DELETE FROM equipment_packages")) {
-            qWarning() << "EquipmentStorage: failed to clear equipment for replace import:"
-                       << clr.lastError().text();
+            EQUIP_WARN_STDERR("Import",
+                              QString("failed to clear equipment for replace import: %1")
+                                  .arg(clr.lastError().text()));
             return false;
         }
     }
@@ -1721,7 +1881,9 @@ bool EquipmentStorage::importEquipmentStatic(QSqlDatabase& srcDb, QSqlDatabase& 
 
     QSqlQuery srcPkgs(srcDb);
     if (!srcPkgs.exec(QString("SELECT %1 FROM equipment_packages").arg(packageColumnList()))) {
-        qWarning() << "EquipmentStorage: failed to query source packages:" << srcPkgs.lastError().text();
+        EQUIP_WARN_STDERR("Import",
+                          QString("failed to query source packages: %1")
+                              .arg(srcPkgs.lastError().text()));
         return false;
     }
     QVector<EquipmentPackage> pkgs;
@@ -1782,8 +1944,10 @@ bool EquipmentStorage::importEquipmentStatic(QSqlDatabase& srcDb, QSqlDatabase& 
             srcItems.prepare(QString("SELECT %1 FROM equipment_items WHERE package_id = :id").arg(kItemColumns));
             srcItems.bindValue(":id", srcPkg.id);
             if (!srcItems.exec()) {
-                qWarning() << "EquipmentStorage: import items query failed for package" << srcPkg.id
-                           << ":" << srcItems.lastError().text();
+                EQUIP_WARN_STDERR("Import",
+                                  QString("import items query failed for package %1 : %2")
+                                      .arg(srcPkg.id)
+                                      .arg(srcItems.lastError().text()));
                 return false;
             }
             while (srcItems.next()) {
@@ -1814,8 +1978,11 @@ bool EquipmentStorage::importEquipmentStatic(QSqlDatabase& srcDb, QSqlDatabase& 
             // Fail rather than silently drop the lineage pointer: a swallowed
             // failure leaves superseded_by NULL, so a forked-from package renders
             // as "retired" instead of "older". Propagate so the caller rolls back.
-            qWarning() << "EquipmentStorage: import superseded_by remap failed for package" << destId
-                       << "-> target" << destTarget << ":" << upd.lastError().text();
+            EQUIP_WARN_STDERR("Import",
+                              QString("import superseded_by remap failed for package %1 -> target %2 : %3")
+                                  .arg(destId)
+                                  .arg(destTarget)
+                                  .arg(upd.lastError().text()));
             return false;
         }
     }
@@ -1824,8 +1991,10 @@ bool EquipmentStorage::importEquipmentStatic(QSqlDatabase& srcDb, QSqlDatabase& 
     // are traceable: how many source packages imported as new rows vs merged into
     // an existing dest package by grinder identity.
     const qsizetype merged = outIdMap.size() - newlyInsertedSrcIds.size();
-    qInfo() << "EquipmentStorage: equipment import -" << newlyInsertedSrcIds.size()
-            << "packages imported," << merged << "merged into existing,"
-            << srcSupersededBy.size() << "superseded_by pointers remapped";
+    EQUIP_INFO_STDERR("Import",
+                      QString("equipment import - %1 packages imported, %2 merged into existing, %3 superseded_by pointers remapped")
+                          .arg(newlyInsertedSrcIds.size())
+                          .arg(merged)
+                          .arg(srcSupersededBy.size()));
     return true;
 }

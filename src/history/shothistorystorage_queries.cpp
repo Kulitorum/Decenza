@@ -1611,9 +1611,10 @@ QStringList ShotHistoryStorage::getDistinctGrinderSettingsForGrinder(const QStri
     // Settings are per-shot dial-in (grinder_setting stays on shots); the grinder
     // model resolves through the equipment_id pointer (task 4.2).
     //
-    // The model compare is case- and whitespace-FOLDED, matching the identity
-    // matcher that writes these rows (findPackageByGrinderIdentityStatic, which
-    // has always used LOWER). An exact compare here meant a model string differing
+    // The model compare is case- and whitespace-FOLDED, so it agrees with the
+    // identity lookup that decides two packages are the same gear
+    // (findPackageByGrinderIdentityStatic, which has always used LOWER).
+    // An exact compare here meant a model string differing
     // only in case or padding — two packages the write path considers the same
     // grinder — read back as a grinder with NO history. That is invisible: an
     // empty result is indistinguishable from a new grinder, so the step silently

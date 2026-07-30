@@ -382,6 +382,18 @@ private slots:
                                                                          PuckPrep::recanonical(QStringLiteral("wdt,rdt")));
             QVERIFY(fFork > 0 && fFork != F);
 
+            // A grinder-less (basket-only tea) package GAINING a grinder is a real
+            // identity change, not enrichment: its shots were pulled with nothing
+            // ground, and they must not start reporting a grinder.
+            EquipmentPackage tea;
+            const qint64 T = EquipmentStorage::createPackageWithGrinderStatic(
+                db, tea, "", "", "", "IMS", "Superfine 18g", QString());
+            const qint64 teaShot = addShot(T);
+            const qint64 teaFork = EquipmentStorage::supersedeOrEditStatic(
+                db, T, "Niche", "Zero", "", "IMS", "Superfine 18g", QString());
+            QVERIFY(teaFork > 0 && teaFork != T);
+            QCOMPARE(shotEq(teaShot), T);   // the tea shot keeps its grinder-less package
+
             // Clearing a component is a change, not enrichment -> forks as well.
             EquipmentPackage g;
             const qint64 G = EquipmentStorage::createPackageWithGrinderStatic(db, g, "Mazzer", "Philos", "83mm");
@@ -569,6 +581,13 @@ private slots:
             QCOMPARE(healed3, (qsizetype)1);
             QCOMPARE(remap3.value(chainOld), chainMid);
             QCOMPARE(shotEq(chainShot), chainMid);
+            // ...and the middle package stays RETIRED. It is superseded by chainNew,
+            // so reviving it would put a stale duplicate — same derived name as its
+            // own successor — back in the inventory, which is what the repair is
+            // supposed to remove.
+            const EquipmentPackage mid = EquipmentStorage::loadPackageStatic(db, chainMid);
+            QVERIFY(!mid.inInventory);
+            QCOMPARE(mid.supersededBy, chainNew);
         });
     }
 

@@ -531,6 +531,10 @@ private slots:
         QVERIFY2(result["success"].toBool(), qPrintable(QJsonDocument(result).toJson()));
         QCOMPARE(result["shotsMoved"].toInteger(), (qint64)1);
         QCOMPARE(result["package"].toObject()["id"].toInteger(), target);
+        // The survivor now HOLDS that shot, so the response must say so. Reporting
+        // shotCount 0 here would tell an assistant the package it just moved history
+        // onto is disposable — the same defect equipment_update was fixed for.
+        QCOMPARE(result["package"].toObject()["shotCount"].toInteger(), (qint64)1);
 
         // On disk, not just in the response.
         qint64 shotEquipment = -1, sourceRows = -1;

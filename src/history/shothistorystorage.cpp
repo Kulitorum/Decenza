@@ -3,6 +3,7 @@
 #include "shothistorystorage_internal.h"
 #include "coffeebagstorage.h"
 #include "equipmentstorage.h"
+#include "equipmentlogging.h"
 #include "core/settings.h"   // Settings::testQSettingsPath() under DECENZA_TESTING
 #include "recipestorage.h"
 #include "ai/conductance.h"
@@ -1822,39 +1823,66 @@ bool ShotHistoryStorage::runMigrations()
     // else is left alone. See EquipmentStorage::healEnrichmentForksStatic.
     //
     // Data-only and NOT idempotent in effect (a second run simply finds nothing),
-    // so it commits with the version bump like migration 22. The heal runs inside
-    // this transaction via the unlocked merge — DbWriteTxn refuses to nest.
+    // so the heal commits together with the version bump.
+    //
+    // DbWriteTxn, not the raw m_db.transaction() the migrations around this one
+    // use: the heal SELECTs its lineage pairs before it writes, and that is
+    // exactly the read-then-write shape a DEFERRED BEGIN cannot upgrade under
+    // contention (dbutils.h). It also removes the failure mode a plain
+    // transaction() has here — a false return there would have let the merges run
+    // and autocommit one by one, with the `if (txn) rollback()` guard doing
+    // nothing, so a mid-heal failure left a half-applied merge behind. A guard
+    // that failed to begin now aborts before anything is written.
+    //
+    // The heal itself uses the UNLOCKED merge, because DbWriteTxn refuses to nest
+    // (adopting an outer transaction would let an inner rejection leave partial
+    // writes staged in it).
     if (currentVersion >= 34 && currentVersion < 35) {
-        qDebug() << "ShotHistoryStorage: Running migration to version 35 (heal enrichment forks)";
+        EQUIP_LOG_STDERR("Migration", "35: healing enrichment forks");
 
-        const bool txn = m_db.transaction();
-        QHash<qint64, qint64> remap;
-        qsizetype healed = 0;
-        // A failed heal leaves its writes staged for this transaction to roll back,
-        // and the version must NOT advance — otherwise the split packages are never
-        // looked at again and the user is left repairing them by hand over MCP.
-        bool ok = EquipmentStorage::healEnrichmentForksStatic(m_db, &remap, &healed);
-        if (ok) {
-            query.exec ("DELETE FROM schema_version");
-            ok = query.exec ("INSERT INTO schema_version (version) VALUES (35)");
-        }
-        if (ok && (!txn || m_db.commit())) {
-            currentVersion = 35;
-            if (healed > 0) {
-                qInfo() << "ShotHistoryStorage: migration 35 merged" << healed
-                        << "package(s) that a burr edit had split off";
-                // The active selection lives in QSettings, not this database, so a
-                // merged-away id would leave the app pointing at a deleted package.
-                // Resolved here and adopted through SettingsDye's setter by
-                // MainController (a raw write would bypass the cache and NOTIFY).
-                AppSettings settings;
-                const qint64 activeId = settings.value("dye/activeEquipmentId", -1).toLongLong();
-                if (activeId > 0 && remap.contains(activeId))
-                    m_healedActiveEquipmentId = remap.value(activeId);
-            }
+        // attempts = 1: this runs on the GUI thread during startup, before any
+        // other storage has opened the file, so there is no writer to wait out.
+        DbWriteTxn txn = DbWriteTxn::begin(m_db, "migration 35 enrichment-fork heal", 1);
+        if (!txn.ok()) {
+            EQUIP_WARN_STDERR("Migration",
+                              "35 could not start a transaction - will retry next launch");
         } else {
-            if (txn) m_db.rollback();
-            qWarning() << "ShotHistoryStorage: migration 35 incomplete - will retry next launch";
+            QHash<qint64, qint64> remap;
+            qsizetype healed = 0;
+            // A failed heal leaves its writes staged for this transaction to roll
+            // back, and the version must NOT advance — otherwise the split packages
+            // are never looked at again and the user is left repairing them by hand
+            // over MCP.
+            bool ok = EquipmentStorage::healEnrichmentForksStatic(m_db, &remap, &healed);
+            if (ok) {
+                query.exec ("DELETE FROM schema_version");
+                ok = query.exec ("INSERT INTO schema_version (version) VALUES (35)");
+            }
+            if (ok && txn.commit()) {
+                currentVersion = 35;
+                // Logged even at zero: "ran, found nothing" and "never ran" are the
+                // same silence otherwise, and this migration is the first thing to
+                // check when a user reports the grinder still looks split.
+                EQUIP_INFO_STDERR("Migration",
+                                  QString("35 complete - merged %1 package(s) that a burr edit had split off")
+                                      .arg(healed));
+                if (healed > 0) {
+                    // The active selection lives in QSettings, not this database, so a
+                    // merged-away id would leave the app pointing at a deleted package.
+                    // Resolved here and adopted through SettingsDye's setter by
+                    // MainController (a raw write would bypass the cache and NOTIFY).
+                    AppSettings settings;
+                    const qint64 activeId = settings.value("dye/activeEquipmentId", -1).toLongLong();
+                    if (activeId > 0 && remap.contains(activeId)) {
+                        m_healedActiveEquipmentId = remap.value(activeId);
+                        EQUIP_INFO_STDERR("Migration",
+                                          QString("35 moved the active equipment from package %1 to %2")
+                                              .arg(activeId).arg(m_healedActiveEquipmentId));
+                    }
+                }
+            } else {
+                EQUIP_WARN_STDERR("Migration", "35 incomplete - will retry next launch");
+            }
         }
     }
 

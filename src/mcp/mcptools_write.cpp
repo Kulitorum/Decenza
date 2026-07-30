@@ -2435,6 +2435,20 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
 
     // Flatten an EquipmentPackageView into an MCP-friendly object (units in
     // field names, no raw timestamps, isActive marks the selected package).
+    // shotCount is a per-query aggregate, not a package column, so a view built
+    // from the load* helpers alone reports 0 however much history the package
+    // holds — and an assistant reading that concludes the package is disposable.
+    // equipment_update learned this the hard way; equipment_merge, whose whole job
+    // is moving shots onto the survivor, would have been the second place to get
+    // it wrong. One helper, both call sites.
+    auto fillShotCount = [](QSqlDatabase& db, qint64 packageId, EquipmentPackageView& view) {
+        QSqlQuery shots(db);
+        shots.prepare("SELECT COUNT(*) FROM shots WHERE equipment_id = :id");
+        shots.bindValue(":id", packageId);
+        if (shots.exec() && shots.next())
+            view.shotCount = shots.value(0).toLongLong();
+    };
+
     auto packageToJson = [](const EquipmentPackageView& v, qint64 activeId) {
         QJsonObject o;
         o["id"] = v.package.id;
@@ -2521,8 +2535,9 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
         "that has shots forks a NEW package (the old one is retired and kept for its history) — so the "
         "returned package.id may differ from the input packageId. Filling in a component that was EMPTY "
         "(recording burrs or a basket the package always had) is enrichment, not a swap: it is applied in "
-        "place and keeps the package's history. An unused package is always edited in place, and an edit "
-        "matching an existing package merges into it.",
+        "place and keeps the package's history. An edit whose resulting identity matches another "
+        "package merges into that one instead — checked BEFORE everything above, so it applies to an "
+        "unused package too; otherwise an unused package is edited in place.",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
@@ -2545,7 +2560,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             }},
             {"required", QJsonArray{"packageId"}}
         },
-        [shotHistory, settings, packageToJson](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+        [shotHistory, settings, packageToJson, fillShotCount](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
             if (!shotHistory || !shotHistory->isReady()) {
                 respond(QJsonObject{{"error", "Storage not available"}});
                 return;
@@ -2642,16 +2657,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                     view.grinder = EquipmentStorage::loadGrinderItemStatic(db, resultId);
                     view.basket = EquipmentStorage::loadBasketItemStatic(db, resultId);
                     view.puckPrep = EquipmentStorage::loadPuckPrepItemStatic(db, resultId);
-                    // shotCount is a per-query aggregate, not a package column, so
-                    // it defaults to 0 unless filled in — and this response was
-                    // reporting every edited package as having no history, however
-                    // many shots it held. An assistant reading that would conclude
-                    // the package is disposable.
-                    QSqlQuery shots(db);
-                    shots.prepare("SELECT COUNT(*) FROM shots WHERE equipment_id = :id");
-                    shots.bindValue(":id", resultId);
-                    if (shots.exec() && shots.next())
-                        view.shotCount = shots.value(0).toLongLong();
+                    fillShotCount(db, resultId, view);
                 });
                 QMetaObject::invokeMethod(qApp, [ok, nameInUse, view, activeId, packageId, packageToJson, respond]() {
                     if (nameInUse) {
@@ -2742,7 +2748,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             }},
             {"required", QJsonArray{"sourcePackageId", "targetPackageId"}}
         },
-        [shotHistory, settings, packageToJson](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+        [shotHistory, settings, packageToJson, fillShotCount](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
             if (!shotHistory || !shotHistory->isReady()) {
                 respond(QJsonObject{{"error", "Storage not available"}});
                 return;
@@ -2766,6 +2772,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                     view.grinder = EquipmentStorage::loadGrinderItemStatic(db, targetId);
                     view.basket = EquipmentStorage::loadBasketItemStatic(db, targetId);
                     view.puckPrep = EquipmentStorage::loadPuckPrepItemStatic(db, targetId);
+                    fillShotCount(db, targetId, view);
                 });
                 const QVariantMap pkgMap = view.toVariantMap();
                 QMetaObject::invokeMethod(qApp, [=]() {
@@ -2779,6 +2786,13 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                         respond(QJsonObject{{"error", kWhy.value(merge.error, QStringLiteral("Merge failed"))}});
                         return;
                     }
+                    // Tell the app its inventory changed. This tool writes on its own
+                    // connection, so nothing else emits — and an Equipment page left open
+                    // would keep offering the package this merge just deleted. Tapping it
+                    // writes the dead id onto the active bag through setActiveEquipmentId,
+                    // which is the same orphaning the merge was called to repair.
+                    if (settings && settings->dye()->equipmentStorage())
+                        settings->dye()->equipmentStorage()->notifyPackagesChangedExternally();
                     // The active package cannot be one that no longer exists: when the
                     // merged-away source was active, move the selection to the survivor
                     // (which also re-applies its last grind + rpm to the next shot).

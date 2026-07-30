@@ -144,6 +144,10 @@ public:
     // bag's equipment_id points at a package here; the dye grinder identity is
     // resolved through it (add-equipment-packages).
     void setEquipmentStorage(EquipmentStorage* storage);
+    // The live storage instance, for a caller that wrote to the database on its
+    // own connection and now has to tell the app (see
+    // notifyPackagesChangedExternally). Null until setEquipmentStorage runs.
+    EquipmentStorage* equipmentStorage() const { return m_equipmentStorage; }
 
     // DYE metadata
     QString dyeBeanBrand() const;

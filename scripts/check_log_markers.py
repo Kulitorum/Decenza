@@ -94,6 +94,10 @@ COVERED_GLOBS = [
     "src/core/settings_hardware.cpp",
     # Wholly about the screensaver: every log line in it is a screensaver line.
     "src/screensaver/screensavervideomanager.cpp",
+    # Wholly about equipment packages: every log line in it is an [Equipment] line
+    # (identity edits and their fork/merge/in-place decision, package CRUD, the
+    # enrichment-fork heal, the equipment migration and device import).
+    "src/history/equipmentstorage.cpp",
 ]
 
 # Files that HOST a registered subsystem's lines alongside unrelated code.
@@ -116,6 +120,9 @@ COVERED_GLOBS = [
 # hand-typed "[USB Scale]"/"[BLE DE1]" that no [Scale]/[DE1] search returned, and two
 # lines that applied [Refractometer] twice.
 MARKER_ONLY_GLOBS = [
+    # Hosts the [Equipment] migration lines (the enrichment-fork heal) beside the
+    # whole schema-migration chain and the shot CRUD, none of which is equipment.
+    "src/history/shothistorystorage.cpp",
     # Drives both reconnect ladders through BLEManager's public tier helpers, so a
     # device subsystem's most-asked-about narrative is written here, in a file that is
     # not about logging at all.

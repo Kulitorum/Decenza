@@ -76,6 +76,7 @@
 #define DECENZA_LOG_MARKER_NETWORK       "Network"
 #define DECENZA_LOG_MARKER_SCREENSAVER   "Screensaver"
 #define DECENZA_LOG_MARKER_THEME         "Theme"
+#define DECENZA_LOG_MARKER_EQUIPMENT     "Equipment"
 
 // The registry. Each row: (marker literal, what the subsystem covers).
 // The description is user/assistant-facing — it reaches the MCP tool
@@ -128,7 +129,15 @@
       "images and presets, and per-role font-size overrides. Separate from Font, " \
       "which is about which typeface actually resolved — a size the user chose "  \
       "and a family the platform substituted are different faults with the same " \
-      "symptom of text that looks wrong")
+      "symptom of text that looks wrong")                                          \
+    X(DECENZA_LOG_MARKER_EQUIPMENT,                                                \
+      "Equipment packages — the grinder, basket and puck prep a shot was pulled "  \
+      "on. Answers \"why does the app think I have a new grinder\" and \"where "   \
+      "did my grind history go\": whether an identity edit was applied in place, " \
+      "forked a new package, or merged into an existing one, plus explicit "       \
+      "package merges and the one-time repair of packages an older build split. "  \
+      "A fork is what detaches a grinder's shot history, so the line naming that " \
+      "decision is the first thing to read when history appears to have vanished")
 
 // ---- The one place a log line's shape is built -------------------------
 //

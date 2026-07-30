@@ -135,6 +135,15 @@ public:
     Q_INVOKABLE void requestInventory();                       // inventoryReady()
     Q_INVOKABLE void requestPackage(qint64 packageId);         // packageReady()
 
+    // Announce that packages changed underneath the app — for a writer that did
+    // NOT go through this object's async methods and so emitted nothing itself.
+    // The MCP equipment tools are that case: they write on their own withTempDb
+    // connection, and without this the Equipment page keeps showing a package the
+    // merge deleted, which the user can then still tap (writing a dangling
+    // equipment_id onto the active bag — the orphaning the merge exists to undo).
+    // Call on the GUI thread, after the write has committed.
+    void notifyPackagesChangedExternally() { emit packagesChanged(); }
+
     // Async writes — all emit packagesChanged() on success.
     // The map carries package fields plus grinder identity (brand/model/burrs);
     // rpmCapable is derived from the registry, not taken from the map.
