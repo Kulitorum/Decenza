@@ -1238,7 +1238,6 @@ set(QML_FILES
     qml/pages/RecipeWizardPage.qml
     qml/pages/PostShotReviewPage.qml
     qml/pages/AISettingsPage.qml
-    qml/pages/DialingAssistantPage.qml
     qml/pages/ShotHistoryPage.qml
     qml/pages/AutoFavoritesPage.qml
     qml/pages/AutoFavoriteInfoPage.qml

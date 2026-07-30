@@ -182,7 +182,6 @@
     "qml/pages/BeanInfoPage.qml",
     "qml/pages/CommunityBrowserPage.qml",
     "qml/pages/DescalingPage.qml",
-    "qml/pages/DialingAssistantPage.qml",
     "qml/pages/EquipmentPage.qml",
     "qml/pages/EspressoPage.qml",
     "qml/pages/FlowCalibrationPage.qml",

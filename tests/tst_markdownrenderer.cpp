@@ -1,11 +1,10 @@
 // Guards MarkdownRenderer, and in particular a SECURITY claim its header makes.
 //
-// Four call sites feed untrusted text through this and then call
+// Three call sites feed untrusted text through this and then call
 // replaceEmojiWithImg(..., allowMarkup=true) — escaping deliberately OFF:
 //   SettingsUpdateTab   (GitHub release notes — remote, unauthenticated)
 //   ConversationOverlay (AI replies, x2)
 //   SettingsAITab       (AI replies)
-//   DialingAssistantPage(AI replies)
 //
 // The header asserts "text content is escaped by toHtml(), so the result is safe to pass
 // through replaceEmojiWithImg() with allowMarkup=true". That claim was written WITHOUT
