@@ -201,9 +201,11 @@ public:
     void analyzeConversation(const QString& systemPrompt, const QJsonArray& messages) override;
     // OpenAI web search on the Responses API (chat/completions has no general
     // web tool): the model can open a specific URL from the prompt via the
-    // tool's open_page action. Uses reasoning effort "low" — web_search needs
-    // at least "low"; the gpt-5.4 generation's floor is "none" (it dropped
-    // "minimal"), and web_search is rejected at that floor.
+    // tool's open_page action. Uses reasoning effort "low" — the gpt-5.4
+    // generation's floor is "none" (it dropped "minimal") and rejects
+    // web_search there. The 5.6 generation accepts web_search at "none", so
+    // "low" is the value valid across the whole catalog, not a universal
+    // web_search requirement.
     bool supportsUrlAnalysis() const override { return true; }
     void analyzeUrl(const QString& systemPrompt, const QString& userPrompt) override;
     void testConnection() override;

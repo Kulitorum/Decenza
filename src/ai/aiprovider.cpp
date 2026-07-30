@@ -200,14 +200,21 @@ OpenAIProvider::OpenAIProvider(QNetworkAccessManager* networkManager,
 
 QList<AIProvider::ModelOption> OpenAIProvider::availableModels() const
 {
-    // Order = UI order; first entry is the recommended default. GPT-5.4 leads
-    // as the default for shot analysis quality (mini measurably misses
-    // multi-shot trends and taste-feedback gating in real dial-in testing);
-    // GPT-5.4 mini is the same-family cheaper/faster opt-in for cost-conscious
-    // users. Pricing figures and why the other tiers (GPT-5.5, GPT-5.4 nano)
-    // are omitted live in docs/CLAUDE_MD/AI_ADVISOR.md so they don't rot in
-    // code. Revisit as models land.
+    // Order = UI order; first entry is the recommended default. GPT-5.6 Terra
+    // leads: it is cheaper than GPT-5.4 on both input and output AND a
+    // generation newer, and in live replay testing the 5.6 pair caught a
+    // 64.3g/8.5s blowout in recent history that BOTH 5.4 models missed — the
+    // split was generational, not tier. Luna is the cheap opt-in and measured
+    // at least as well as Terra; it is not the default only because six
+    // scenarios is too thin a base to crown the smallest tier. The two 5.4
+    // entries stay as known-quantity fallbacks.
+    //
+    // Pricing figures, the replay methodology and the per-model defects live in
+    // docs/CLAUDE_MD/AI_ADVISOR.md so they don't rot in code. Revisit as models
+    // land.
     return {
+        { "gpt-5.6-terra", "GPT-5.6 Terra" },
+        { "gpt-5.6-luna", "GPT-5.6 Luna" },
         { "gpt-5.4", "GPT-5.4" },
         { "gpt-5.4-mini", "GPT-5.4 mini" },
     };
@@ -215,7 +222,10 @@ QList<AIProvider::ModelOption> OpenAIProvider::availableModels() const
 
 QString OpenAIProvider::modelHint() const
 {
-    return QStringLiteral("GPT-5.4 mini is cheaper and faster, but gives weaker dial-in advice. GPT-5.4 is recommended.");
+    return QStringLiteral(
+        "GPT-5.6 Terra is recommended. GPT-5.6 Luna is much cheaper and did as well in testing. "
+        "GPT-5.4 and GPT-5.4 mini are the older generation — both missed a failed shot the 5.6 "
+        "models caught, and mini gives the weakest dial-in advice.");
 }
 
 void OpenAIProvider::setModel(const QString& modelId)
@@ -290,15 +300,23 @@ void OpenAIProvider::analyze(const QString& systemPrompt, const QString& userPro
     // the accepted cap. Live-caught July 2026: stage-1 extraction and the
     // advisor both 400'd on gpt-5.4/gpt-5.4-mini.
     requestBody["max_completion_tokens"] = MAX_OUTPUT_TOKENS;
-    // GPT-5 family are reasoning models; keep reasoning off so hidden
-    // reasoning tokens don't count against the output cap (which would
-    // risk truncating the trailing nextShot JSON block) and to keep latency/cost
-    // low. Dial-in advice needs little chain-of-thought. Mirrors Gemini's
-    // thinking=off. The 5.4 generation REPLACED the value "minimal" with "none"
-    // (live-caught 400: supported = none/low/medium/high). INVARIANT: assumes
-    // every availableModels() entry is a reasoning model that accepts
-    // reasoning_effort "none" — guard/branch here if the catalog ever gains
-    // one that doesn't.
+    // GPT-5 family are reasoning models; keep reasoning off. Dial-in advice
+    // needs little chain-of-thought, and reasoning measurably COSTS us the
+    // trailing nextShot JSON block: a 4-model x 4-scenario x 2-effort replay
+    // (2026-07-30) emitted the block 16/16 at "none" and lost 5 of 16 at "low",
+    // Luna and full 5.4 losing two apiece. Mirrors Gemini's thinking=off.
+    //
+    // NOT because reasoning tokens overrun the output cap — that was this
+    // comment's original claim and the replay refuted it. No run hit
+    // finish_reason "length"; reasoning ran 208-1245 tokens against a 4096 cap
+    // and the models simply chose to omit the block while reasoning. Keep the
+    // setting, don't repeat the old rationale.
+    //
+    // The 5.4 generation REPLACED the value "minimal" with "none" (live-caught
+    // 400: supported = none/low/medium/high); the 5.6 generation accepts "none"
+    // too (verified live, all three tiers). INVARIANT: assumes every
+    // availableModels() entry is a reasoning model that accepts "none" —
+    // guard/branch here if the catalog ever gains one that doesn't.
     requestBody["reasoning_effort"] = "none";
 
     sendRequest(requestBody);
@@ -327,7 +345,13 @@ void OpenAIProvider::analyzeUrl(const QString& systemPrompt, const QString& user
     searchTool["type"] = QString("web_search");
     requestBody["tools"] = QJsonArray{searchTool};
     // Reasoning "low", not the "none" floor: the gpt-5.4 generation rejects
-    // web_search below "low". max_output_tokens covers reasoning + the JSON answer.
+    // web_search below "low". The 5.6 generation accepts web_search at "none"
+    // (verified live 2026-07-30, all three tiers), so this is a 5.4-generation
+    // floor kept because it is valid for every catalog entry — not a universal
+    // web_search requirement. max_output_tokens covers reasoning + the JSON answer.
+    //
+    // Unlike analyze(), the effort here is NOT a nextShot-block risk: this path
+    // extracts recipe JSON from a URL and never emits that block.
     QJsonObject reasoning;
     reasoning["effort"] = QString("low");
     requestBody["reasoning"] = reasoning;

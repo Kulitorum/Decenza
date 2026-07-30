@@ -3470,7 +3470,7 @@ bool TranslationManager::mergeLanguageUpdate(const QJsonObject& newTranslations)
 // setting and never went stale, which is the argument for reading settings.
 QString TranslationManager::fallbackTranslationModel(const QString& providerId)
 {
-    if (providerId == QLatin1String("openai"))    return QStringLiteral("gpt-5.4");
+    if (providerId == QLatin1String("openai"))    return QStringLiteral("gpt-5.6-terra");
     if (providerId == QLatin1String("anthropic")) return QStringLiteral("claude-sonnet-4-6");
     if (providerId == QLatin1String("gemini"))    return QStringLiteral("gemini-2.5-flash");
     return {};   // ollama has no catalog — its model is user-supplied

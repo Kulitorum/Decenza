@@ -62,19 +62,31 @@ still works, exactly as before.
 | Provider | Model | Caching | Cost |
 |----------|-------|---------|------|
 | Anthropic | User-selected (Sonnet 4.6 default, or Sonnet 5) | Explicit `cache_control` on system prompt. 5-min TTL, ~90% discount on cached input | Cloud |
-| OpenAI | User-selected (GPT-5.4 default, or GPT-5.4 mini); `reasoning_effort: minimal` | Automatic for prefixes >1024 tokens. ~90% discount on cached input | Cloud |
+| OpenAI | User-selected (GPT-5.6 Terra default; Luna, GPT-5.4, GPT-5.4 mini); `reasoning_effort: none` | Automatic for prefixes >1024 tokens. ~90% discount on cached input | Cloud |
 | Google Gemini | 3.5 Flash | Implicit caching automatic (stable system prompt sent first); explicit Context Caching not implemented | Cloud |
 | OpenRouter | User-selected | Passes through to underlying provider | Cloud |
 | Ollama | User-selected | N/A — local, no cost | Local/free |
 
 #### Model-selection rationale (Anthropic / OpenAI catalogs)
 
-Each provider's `availableModels()` catalog lists the recommended model first (existing users keep their explicitly-chosen model regardless of order; only users who never picked a model get the first entry). The catalogs are deliberately two entries — a quality-recommended default plus one cheaper/faster opt-in — matching Gemini's shape.
+Each provider's `availableModels()` catalog lists the recommended model first (existing users keep their explicitly-chosen model regardless of order; only users who never picked a model get the first entry). Anthropic and Gemini are two entries — a quality-recommended default plus one cheaper/faster opt-in. OpenAI is four: the 5.6 pair plus the 5.4 pair retained as known-quantity fallbacks.
 
-- **OpenAI**: `gpt-5.4` ($2.50/$15 per 1M in/out) default → `gpt-5.4-mini` ($0.75/$4.50, ~3.3× cheaper) opt-in. A blind-judged, real-provider A/B test (see `fix-multishot-advice-tracking` OpenSpec change) found GPT-5.4 mini specifically — not GPT-5.4 — missed a genuine multi-shot pressure trend and never asked for taste feedback before declaring a shot successful, both caught correctly by full GPT-5.4 and by Claude on the same data. That capability gap is why GPT-5.4 leads; mini remains a legitimate opt-in for cost-conscious users who accept weaker dial-in reasoning. **GPT-5.5** (frontier, ~7× the mini's input cost, aimed at complex reasoning this task doesn't need) and **GPT-5.4 nano** (weaker than mini) are intentionally omitted. GPT-5 models are reasoning models, so both request paths send `reasoning_effort: "minimal"` — dial-in advice needs little chain-of-thought, and it keeps hidden reasoning tokens from eating the shared `max_tokens` (1024) output cap (which would risk truncating the trailing `nextShot` JSON). This assumes every catalog model is a reasoning model that accepts `reasoning_effort`; revisit if a non-reasoning model is ever added.
+- **OpenAI**: `gpt-5.6-terra` ($2.00/$12 per 1M in/out) default → `gpt-5.6-luna` ($0.20/$1.20, 10× cheaper) → `gpt-5.4` ($2.50/$15) → `gpt-5.4-mini` ($0.75/$4.50). Terra leads because it is **cheaper than GPT-5.4 on both axes and a generation newer**. **GPT-5.6 Sol** ($5/$30, frontier reasoning this task doesn't need) and **GPT-5.4 nano** (strictly dominated by Luna: same input price, higher output price, older) are intentionally omitted.
+
+  Evidence (live replay against the app's real assembled prompts, 2026-07-30 — method below): on a shot whose recent history contained a 64.3 g / 8.5 s blowout, **both 5.6 models flagged it and both 5.4 models missed it** — the split was generational, not tier. GPT-5.4-mini additionally reproduced its documented failure mode, inventing a grind trend that did not exist. Luna measured at least as well as Terra and costs 10× less; it is not the default only because six scenarios of single runs is too thin a base to promote the smallest tier, and prior testing established that tier as the weak one. Revisit with a wider scenario set.
+
+  **`reasoning_effort` is `"none"`, and raising it is a regression.** A 4-model × 4-scenario × 2-effort matrix emitted the trailing `nextShot` JSON block **16/16 at `"none"` and lost 5 of 16 at `"low"`**. Note this is *not* the token-budget mechanism this document and the code both used to claim: no run hit `finish_reason: "length"` (reasoning ran 208–1245 tokens against a 4096 cap). The models finish cleanly and simply omit the block while reasoning. The `analyzeUrl()` path still sends `"low"` because the 5.4 generation rejects `web_search` at `"none"`; 5.6 accepts it, so that floor is a catalog-compatibility choice, not a `web_search` requirement. This assumes every catalog model is a reasoning model that accepts `reasoning_effort`; revisit if a non-reasoning model is ever added.
+
+  **Known model defect:** models sometimes write prose into `structuredNext.grinderSetting` (Terra: "a touch coarser than 9"; mini: "slightly coarser than 9"; Luna and GPT-5.4 never did in this sample). Unguarded, prose matches no real setting and parses as no number, so `computeAdherence()` scored it `"ignored"` — falsely reporting the user disregarded advice. `isJudgeableGrinderRecommendation()` in `dialing_blocks.cpp` now treats prose as unscoreable and warns.
 - **Anthropic**: `claude-sonnet-4-6` default → `claude-sonnet-5` opt-in. No `thinking` field is sent, so extended thinking stays off by default (the Messages API opt-in behavior).
 
-Pricing figures are current as of the change that added these catalogs and will drift — treat them as guidance, not a live source of truth.
+Pricing figures are current as of the change that added these catalogs and will drift — treat them as guidance, not a live source of truth. Verify against <https://developers.openai.com/api/docs/pricing>; third-party pricing pages were checked and found **wrong** (one listed Terra at $2.50/$15).
+
+#### How to re-run the model comparison
+
+**Don't start from scratch — the harness is `tools/ai_model_eval/`.** Read its `README.md` before any catalog change: it holds the method (capture real prompts via `ai_advisor_invoke` `dryRun`, replay byte-for-byte against `OpenAIProvider::analyze()`'s request shape, blind the judging), the scenario manifest with what each shot is known to discriminate, and the findings log from each run. A full four-model comparison costs about $1 in API spend; the method is the part that took real work to get right.
+
+Two traps it documents, both of which silently void a run: an emission test over a shot with **no taste feedback** measures the taste gate rather than emission (the model correctly asks a question and correctly omits the block), and printing per-model cost **breaks the blind** because the cheapest response is unmistakable.
 
 ### What the AI Receives Today
 

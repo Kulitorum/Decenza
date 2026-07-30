@@ -564,6 +564,31 @@ namespace {
 constexpr double kGrinderStepTolerance = 0.25;
 constexpr double kDoseToleranceG = 0.3;
 
+// A `grinderSetting` we can actually judge adherence against. The field is a
+// free string authored by an LLM, and models do sometimes write prose into it
+// — a live replay (2026-07-30) caught GPT-5.6 Terra emitting "a touch coarser
+// than 9" and GPT-5.4 mini "slightly coarser than 9". Left unguarded, prose
+// fails both arms of grinderMatches() (never string-equal to a real setting,
+// never QString::toDouble-parseable), so computeAdherence() scores it
+// matched == 0 and reports **"ignored"** — telling the NEXT turn's prompt the
+// user disregarded advice they may have followed exactly.
+//
+// Non-numeric is not by itself the defect: some grinders use settings like
+// "3F", and grinderMatches() handles those via exact string equality. Prose is
+// what cannot work, and whitespace separates the two cleanly — a real setting
+// is a single token.
+bool isJudgeableGrinderRecommendation(const QString& recommended)
+{
+    // Empty means "no grind change recommended", which IS judgeable (trivially).
+    if (recommended.isEmpty())
+        return true;
+    for (const QChar c : recommended) {
+        if (c.isSpace())
+            return false;
+    }
+    return true;
+}
+
 // Match `actual` against `recommended` for adherence purposes. Also
 // guard against "the user kept the prior shot's setting" registering
 // as followed when the recommendation happens to be within tolerance
@@ -611,11 +636,19 @@ QString computeAdherence(const QJsonObject& sn, const ShotProjection& actual,
     int total = 0;
 
     if (sn.contains(QStringLiteral("grinderSetting"))) {
-        anyRecommendation = true;
-        ++total;
-        if (grinderMatches(sn.value("grinderSetting").toString(),
-                           actual.grinderSetting, prior.grinderSetting))
-            ++matched;
+        const QString recommended = sn.value("grinderSetting").toString();
+        if (isJudgeableGrinderRecommendation(recommended)) {
+            anyRecommendation = true;
+            ++total;
+            if (grinderMatches(recommended, actual.grinderSetting, prior.grinderSetting))
+                ++matched;
+        } else {
+            // Unscoreable rather than unfollowed: scoring it would report
+            // "ignored" for a recommendation the user could not have followed
+            // literally, and that verdict feeds the next turn's prompt.
+            qWarning() << "computeAdherence: grinderSetting is prose, not a setting —"
+                       << "not scoring it:" << recommended;
+        }
     }
     if (sn.contains(QStringLiteral("rpm"))) {
         anyRecommendation = true;

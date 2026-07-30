@@ -1388,6 +1388,94 @@ private slots:
         });
     }
 
+    // A model may write prose into `grinderSetting` instead of a setting — a
+    // live replay (2026-07-30) caught GPT-5.6 Terra emitting "a touch coarser
+    // than 9". Prose can never string-match a real setting nor parse as a
+    // number, so before the guard it scored matched == 0 and reported
+    // "ignored", falsely telling the next turn the user disregarded advice.
+    // It must be treated as unscoreable instead.
+    void recentAdvice_proseGrinderSettingIsNotScoredAsIgnored()
+    {
+        const QString dbPath = freshDbPath();
+        initAndClose(dbPath);
+        const qint64 nowSec = QDateTime::currentSecsSinceEpoch();
+
+        qint64 priorId = -1;
+        withRawDb(dbPath, "rec_advice_prose", [&](QSqlDatabase& db) {
+            priorId = insertShot(db, ShotRow{
+                .uuid = "u-prior", .timestamp = nowSec - 7200,
+                .profileName = "P", .profileKbId = "kb",
+                .duration = 30, .finalWeight = 36, .doseWeight = 18,
+                .grinderSetting = "9.0"
+            });
+            // The user DID act on "a touch coarser than 9" — they moved to 8.75.
+            insertShot(db, ShotRow{
+                .uuid = "u-next", .timestamp = nowSec - 3600,
+                .profileName = "P", .profileKbId = "kb",
+                .duration = 30, .finalWeight = 36, .doseWeight = 18,
+                .grinderSetting = "8.75"
+            });
+
+            QJsonObject sn = sampleStructuredNext();
+            sn["grinderSetting"] = "a touch coarser than 9";
+
+            DialingBlocks::RecentAdviceInputs in;
+            in.turns = {AIConversation::HistoricalAssistantTurn{priorId, "advice", sn}};
+            in.currentProfileKbId = "kb";
+            in.currentShotId = 99999;
+
+            QTest::ignoreMessage(QtWarningMsg,
+                QRegularExpression("grinderSetting is prose"));
+
+            const QJsonArray out = DialingBlocks::buildRecentAdviceBlock(db, in);
+            QCOMPARE(out.size(), 1);
+            const QJsonObject ur = out.first().toObject().value("userResponse").toObject();
+            QVERIFY2(ur.value("adherence").toString() != QStringLiteral("ignored"),
+                     "prose grinderSetting must not be scored as ignored — the user "
+                     "cannot follow a recommendation that names no setting");
+            QCOMPARE(ur.value("adherence").toString(), QStringLiteral("followed"));
+        });
+    }
+
+    // A non-numeric but real setting (some grinders use these) still scores
+    // normally via exact string equality — the guard targets prose, not
+    // non-numeric values.
+    void recentAdvice_nonNumericSettingStillScores()
+    {
+        const QString dbPath = freshDbPath();
+        initAndClose(dbPath);
+        const qint64 nowSec = QDateTime::currentSecsSinceEpoch();
+
+        qint64 priorId = -1;
+        withRawDb(dbPath, "rec_advice_nonnumeric", [&](QSqlDatabase& db) {
+            priorId = insertShot(db, ShotRow{
+                .uuid = "u-prior", .timestamp = nowSec - 7200,
+                .profileName = "P", .profileKbId = "kb",
+                .duration = 30, .finalWeight = 36, .doseWeight = 18,
+                .grinderSetting = "3C"
+            });
+            insertShot(db, ShotRow{
+                .uuid = "u-next", .timestamp = nowSec - 3600,
+                .profileName = "P", .profileKbId = "kb",
+                .duration = 30, .finalWeight = 36, .doseWeight = 18,
+                .grinderSetting = "3F"
+            });
+
+            QJsonObject sn = sampleStructuredNext();
+            sn["grinderSetting"] = "3F";
+
+            DialingBlocks::RecentAdviceInputs in;
+            in.turns = {AIConversation::HistoricalAssistantTurn{priorId, "advice", sn}};
+            in.currentProfileKbId = "kb";
+            in.currentShotId = 99999;
+
+            const QJsonArray out = DialingBlocks::buildRecentAdviceBlock(db, in);
+            QCOMPARE(out.size(), 1);
+            const QJsonObject ur = out.first().toObject().value("userResponse").toObject();
+            QCOMPARE(ur.value("adherence").toString(), QStringLiteral("followed"));
+        });
+    }
+
     void recentAdvice_emptyTurnsOmitsBlock()
     {
         const QString dbPath = freshDbPath();

@@ -1,0 +1,7 @@
+# Captured advisor prompts and replay responses.
+#
+# Never commit these: they embed personal shot history — bean names, tasting
+# notes, timestamps, grinder settings — and this is a public repository. The
+# method for regenerating them is in README.md ("Capture real prompts").
+captured/
+runs/
