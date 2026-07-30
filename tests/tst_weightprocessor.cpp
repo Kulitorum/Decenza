@@ -722,7 +722,7 @@ private slots:
         const qsizetype countBefore = flowSpy.count();
 
         // Exemption already spent by the 0.4 g sample, so this is a spike.
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Spike rejected: weight= 0 "));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Spike rejected: weight=0\\.00 "));
         wp.processWeight(0.0); m_fakeClock += 200;
 
         QCOMPARE(flowSpy.count(), countBefore);
@@ -749,7 +749,7 @@ private slots:
         // ...and DOWN is not enough either — the destination has to be near zero.
         // A large downward step that lands somewhere else is a cup lift or garbage,
         // not the tare we are waiting for.
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Spike rejected: weight= 250 "));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Spike rejected: weight=250\\.00 "));
         wp.processWeight(250.0); m_fakeClock += 200;
         QCOMPARE(flowSpy.count(), countBefore);
     }
@@ -774,7 +774,7 @@ private slots:
         wp.processWeight(150.0); m_fakeClock += 200;
         const qsizetype countBefore = flowSpy.count();
 
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Spike rejected: weight= 0 "));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Spike rejected: weight=0\\.00 "));
         wp.processWeight(0.0); m_fakeClock += 200;
 
         QCOMPARE(flowSpy.count(), countBefore);  // rejected — no second free pass
@@ -794,7 +794,7 @@ private slots:
         feedRising(wp, 150.0, 2.0, 4);
         const qsizetype countBefore = flowSpy.count();
 
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Spike rejected: weight= 0 "));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Spike rejected: weight=0\\.00 "));
         wp.processWeight(0.0); m_fakeClock += 200;
 
         QCOMPARE(flowSpy.count(), countBefore);

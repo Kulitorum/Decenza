@@ -1,7 +1,15 @@
 #include "settings_calibration.h"
 #include "settings.h"
+#include "../machine/sawlogging.h"
 #include "../machine/sawprediction.h"
 #include "../ble/scales/scaletypeids.h"  // ScaleTypeIds::normalizeScaleTypeId (dependency-free)
+
+// Aliases, not copies — see sawlogging.h. This is a settings store with no
+// logMessage signal, so the STDERR forms apply. "Learning" as the source: every
+// line here is about the per-(profile, scale) learning store rather than about
+// an individual shot's stop.
+#define SAWC_LOG(msg)  SAW_LOG_STDERR("Learning", msg)
+#define SAWC_WARN(msg) SAW_WARN_STDERR("Learning", msg)
 
 #include <QDateTime>
 #include <QJsonDocument>
@@ -361,8 +369,10 @@ bool SettingsCalibration::isSawConverged(QString scaleType) const {
                 if (v >= -1.0) allNegative = false;
             }
             if (allPositive || allNegative) {
-                qDebug() << "[SAW] Divergence detected: last 3 overshoots all"
-                         << (allPositive ? "positive" : "negative") << "- forcing adaptation mode";
+                SAWC_LOG(QStringLiteral("Divergence detected: last 3 overshoots all %1 "
+                                        "— forcing adaptation mode")
+                             .arg(allPositive ? QStringLiteral("positive")
+                                              : QStringLiteral("negative")));
                 converged = false;
             }
         }
@@ -487,12 +497,12 @@ double SettingsCalibration::sensorLag(const QString& scaleType)
     // that ScaleTypeIds does not know, so it is also missing from kAll and keys its own
     // orphan pool.
     if (ScaleTypeIds::isCanonicalScaleTypeId(id)) {
-        qDebug() << "[SAW] No measured sensor lag for" << id
-                 << "- using the 0.38s default until learning has data";
+        SAWC_LOG(QStringLiteral("No measured sensor lag for %1 — using the 0.38 s default "
+                                "until learning has data").arg(id));
     } else {
-        qWarning() << "[SAW] Unknown scale type for sensorLag:" << scaleType
-                   << "- using default 0.38s. If this is a real scale, add it to"
-                   << "ScaleTypeIds::kAll.";
+        SAWC_WARN(QStringLiteral("Unknown scale type for sensorLag: %1 — using default 0.38 s. "
+                                 "If this is a real scale, add it to ScaleTypeIds::kAll.")
+                      .arg(scaleType));
     }
     return 0.38;  // de1app default for unknown/unlisted scales
 }
@@ -505,7 +515,8 @@ void SettingsCalibration::addSawLearningPoint(double drip, double flowRate, QStr
 
     // Validate physical constraints (scale glitches can produce negative values)
     if (drip < 0 || flowRate < 0) {
-        qWarning() << "[SAW] Invalid learning point rejected: drip=" << drip << "flow=" << flowRate;
+        SAWC_WARN(QStringLiteral("Invalid learning point rejected: drip=%1 g flow=%2 g/s")
+                      .arg(drip, 0, 'f', 2).arg(flowRate, 0, 'f', 2));
         return;
     }
 
@@ -514,8 +525,10 @@ void SettingsCalibration::addSawLearningPoint(double drip, double flowRate, QStr
     // The flowRate > 0.5 guard prevents division-by-near-zero making the ratio meaningless
     // at very low flow (e.g. 0.1 g/s would flag a 0.39g drip as "too high").
     if (flowRate > 0.5 && drip / flowRate > 4.0) {
-        qWarning() << "[SAW] Implied lag too high (" << drip / flowRate
-                   << "s), skipping learning: drip=" << drip << "flow=" << flowRate;
+        SAWC_WARN(QStringLiteral("Implied lag too high (%1 s), skipping learning: "
+                                 "drip=%2 g flow=%3 g/s")
+                      .arg(drip / flowRate, 0, 'f', 2).arg(drip, 0, 'f', 2)
+                      .arg(flowRate, 0, 'f', 2));
         return;
     }
 
@@ -527,10 +540,10 @@ void SettingsCalibration::addSawLearningPoint(double drip, double flowRate, QStr
         double expectedDrip = getExpectedDripFor(profileFilename, scaleType, flowRate);
         double threshold = qMax(3.0, expectedDrip);  // Reject if deviation exceeds expected drip (or 3g floor)
         if (qAbs(drip - expectedDrip) > threshold) {
-            qWarning() << "[SAW] Outlier rejected: drip=" << drip
-                       << "g expected=" << expectedDrip
-                       << "g threshold=" << threshold
-                       << "(converged, deviation too high)";
+            SAWC_WARN(QStringLiteral("Outlier rejected: drip=%1 g expected=%2 g threshold=%3 g "
+                                     "(converged, deviation too high)")
+                          .arg(drip, 0, 'f', 2).arg(expectedDrip, 0, 'f', 2)
+                          .arg(threshold, 0, 'f', 2));
             return;
         }
     }
@@ -555,7 +568,8 @@ void SettingsCalibration::addSawLearningPoint(double drip, double flowRate, QStr
         if (doc.isArray()) {
             arr = doc.array();
         } else {
-            qWarning() << "[SAW] Learning history corrupted, starting fresh:" << parseError.errorString();
+            SAWC_WARN(QStringLiteral("Learning history corrupted, starting fresh: %1")
+                          .arg(parseError.errorString()));
         }
     }
 
@@ -577,8 +591,8 @@ void SettingsCalibration::addSawLearningPoint(double drip, double flowRate, QStr
             }
         }
         if (prevAlsoEarly) {
-            qWarning() << "[SAW] 2nd consecutive early stop for" << scaleType
-                       << "- resetting learning (both shots overshoot <-6g)";
+            SAWC_WARN(QStringLiteral("2nd consecutive early stop for %1 — resetting learning "
+                                     "(both shots overshoot <-6g)").arg(scaleType));
             // Remove all entries for this scale type, preserving other scales.
             // The new entry will be appended below and becomes the fresh baseline.
             QJsonArray filtered;
@@ -649,7 +663,7 @@ void SettingsCalibration::resetSawLearning() {
     m_sawConvergedCache = -1;
     m_perProfileSawHistoryCacheValid = false;
     m_perProfileSawBatchCacheValid = false;
-    qDebug() << "[SAW] reset all SAW learning";
+    SAWC_LOG(QStringLiteral("Reset all learning"));
     emit sawLearnedLagChanged();
 
     // Cross-domain: hot-water SAW offset reset is performed by SettingsBrew
@@ -659,7 +673,7 @@ void SettingsCalibration::resetSawLearning() {
 
 void SettingsCalibration::resetSawLearningForProfile(const QString& profileFilename, const QString& scaleType) {
     if (profileFilename.isEmpty()) {
-        qWarning() << "[SAW] resetSawLearningForProfile called with empty profile";
+        SAWC_WARN(QStringLiteral("resetSawLearningForProfile called with empty profile"));
         return;
     }
     const QString key = sawPairKey(profileFilename, scaleType);
@@ -677,7 +691,7 @@ void SettingsCalibration::resetSawLearningForProfile(const QString& profileFilen
         changed = true;
     }
     if (changed) {
-        qDebug() << "[SAW] reset perProfileHistory for" << key;
+        SAWC_LOG(QStringLiteral("Reset perProfileHistory for %1").arg(key));
         emit sawLearnedLagChanged();
     }
 }
@@ -699,8 +713,8 @@ QJsonObject SettingsCalibration::loadPerProfileSawHistoryMap() const {
         m_settings.value("saw/perProfileHistory", "{}").toByteArray(),
         &parseError).object();
     if (parseError.error != QJsonParseError::NoError) {
-        qWarning() << "[SAW] corrupt perProfileHistory JSON:" << parseError.errorString()
-                   << "- per-profile SAW history lost";
+        SAWC_WARN(QStringLiteral("Corrupt perProfileHistory JSON: %1 — per-profile history lost")
+                      .arg(parseError.errorString()));
         m_settings.setValue("saw/perProfileHistory", "{}");
         map = QJsonObject();
     }
@@ -723,7 +737,7 @@ QJsonObject SettingsCalibration::loadPerProfileSawBatchMap() const {
         m_settings.value("saw/perProfileBatch", "{}").toByteArray(),
         &parseError).object();
     if (parseError.error != QJsonParseError::NoError) {
-        qWarning() << "[SAW] corrupt perProfileBatch JSON:" << parseError.errorString();
+        SAWC_WARN(QStringLiteral("Corrupt perProfileBatch JSON: %1").arg(parseError.errorString()));
         m_settings.setValue("saw/perProfileBatch", "{}");
         map = QJsonObject();
     }
@@ -886,9 +900,9 @@ void SettingsCalibration::addSawPerPairEntry(double drip, double flowRate, const
         batchMap[key] = batch;
         savePerProfileSawBatchMap(batchMap);
         const double lag = (flowRate > 0.5) ? drip / flowRate : 0.0;
-        qDebug() << "[SAW] accumulated drip=" << drip << "flow=" << flowRate
-                 << "for" << key
-                 << "(" << batch.size() << "/" << kBatchSize << ") lag=" << lag;
+        SAWC_LOG(QStringLiteral("Accumulated drip=%1 g flow=%2 g/s for %3 (%4/%5) lag=%6 s")
+                     .arg(drip, 0, 'f', 2).arg(flowRate, 0, 'f', 2).arg(key)
+                     .arg(batch.size()).arg(kBatchSize).arg(lag, 0, 'f', 3));
         return;
     }
 
@@ -928,8 +942,8 @@ void SettingsCalibration::addSawPerPairEntry(double drip, double flowRate, const
         }
     }
     if (!rejectReason.isEmpty()) {
-        qWarning() << "[SAW] batch rejected —" << qPrintable(rejectReason)
-                   << "median_lag=" << medianLag << "for" << key << "— dropping batch";
+        SAWC_WARN(QStringLiteral("batch rejected — %1 median_lag=%2 s for %3 — dropping batch")
+                      .arg(rejectReason).arg(medianLag, 0, 'f', 3).arg(key));
         batchMap.remove(key);
         savePerProfileSawBatchMap(batchMap);
         return;
@@ -946,8 +960,8 @@ void SettingsCalibration::addSawPerPairEntry(double drip, double flowRate, const
     if (medianOver < -6.0 && !pairHistory.isEmpty()) {
         QJsonObject lastMedian = pairHistory.last().toObject();
         if (lastMedian["overshoot"].toDouble() < -6.0) {
-            qWarning() << "[SAW] 2nd consecutive overshoot<-6g for" << key
-                       << "— clearing committed history";
+            SAWC_WARN(QStringLiteral("2nd consecutive overshoot<-6g for %1 — clearing "
+                                     "committed history").arg(key));
             pairHistory = QJsonArray();
         }
     }
@@ -985,10 +999,10 @@ void SettingsCalibration::addSawPerPairEntry(double drip, double flowRate, const
     batchMap.remove(key);
     savePerProfileSawBatchMap(batchMap);
 
-    qDebug() << "[SAW] committed median lag=" << medianLag
-             << "(drip=" << medianDrip << "flow=" << medianFlow << ")"
-             << "for" << key
-             << "— n_medians=" << pairHistory.size();
+    SAWC_LOG(QStringLiteral("Committed median lag=%1 s (drip=%2 g flow=%3 g/s) for %4 "
+                            "— n_medians=%5")
+                 .arg(medianLag, 0, 'f', 3).arg(medianDrip, 0, 'f', 2)
+                 .arg(medianFlow, 0, 'f', 2).arg(key).arg(pairHistory.size()));
 
     // 8. Recompute global bootstrap lag for this scale type so other (profile, scale)
     //    pairs with no per-pair history can use it as their first-shot default.
@@ -1038,8 +1052,9 @@ void SettingsCalibration::recomputeGlobalSawBootstrap(const QString& scaleType) 
     const qsizetype n = lags.size();
     const double median = (n % 2 == 0) ? (lags[n / 2 - 1] + lags[n / 2]) / 2.0 : lags[n / 2];
     setGlobalSawBootstrapLag(scaleType, median);
-    qDebug() << "[SAW] global bootstrap lag for" << scaleType
-             << "updated to" << median << "(median of" << n << "pairs with committed history)";
+    SAWC_LOG(QStringLiteral("Global bootstrap lag for %1 updated to %2 s "
+                            "(median of %3 pairs with committed history)")
+                 .arg(scaleType).arg(median, 0, 'f', 3).arg(n));
 }
 
 void SettingsCalibration::migrateScaleTypeIds() {
@@ -1053,8 +1068,8 @@ void SettingsCalibration::migrateScaleTypeIds() {
                 // Surface corruption instead of silently rewriting nothing. The
                 // global-pool reader (ensureSawCacheLoaded) already tolerates a bad
                 // blob as empty, so leave the bytes for that path rather than reset.
-                qWarning() << "[SAW] migrate: corrupt learningHistory JSON — skipping global-pool rewrite:"
-                           << perr.errorString();
+                SAWC_WARN(QStringLiteral("migrate: corrupt learningHistory JSON — skipping "
+                                         "global-pool rewrite: %1").arg(perr.errorString()));
             } else {
                 QJsonArray arr = doc.array();
                 bool changed = false;
@@ -1143,5 +1158,5 @@ void SettingsCalibration::migrateScaleTypeIds() {
     m_perProfileSawHistoryCacheValid = false;
     m_perProfileSawBatchCacheValid = false;
 
-    qDebug() << "[SAW] migrated SAW storage to canonical scale type-ids";
+    SAWC_LOG(QStringLiteral("Migrated storage to canonical scale type-ids"));
 }

@@ -1,6 +1,7 @@
 #include <QtTest>
 #include <QTemporaryDir>
 #include <QFile>
+#include <QSet>
 #include <QTextStream>
 
 #include "network/webdebuglogger.h"
@@ -97,8 +98,9 @@ private slots:
 
     void sessionIndex_rebuildsAfterTruncateAndRewrite()
     {
-        // Simulates trimLogFile(): the file is truncated and rewritten with a
-        // re-emitted session marker so it survives the trim (webdebuglogger.cpp).
+        // Simulates trimLogFile(): the file is truncated and rewritten behind a
+        // banner. It emits NO session marker — see trimLogFile()'s comment for
+        // why the re-emit this test used to assert was a forgery.
         writeFile(logPath(),
             "========== SESSION START: 2026-01-01T09:00:00 ==========\n"
             "[   0.100] INFO  line one\n"
@@ -112,17 +114,156 @@ private slots:
         QCOMPARE(before[0].lineCount, qsizetype(4));
 
         // Truncate-and-rewrite: shorter content, same-ish size class, but a
-        // genuinely different file (content and size both change).
+        // genuinely different file (content and size both change). The session's
+        // own marker went with the front of the file.
         writeFile(logPath(),
             "... [log trimmed] ...\n"
-            "========== SESSION START: 2026-01-01T09:00:00 ==========\n"
             "[   0.300] INFO  line three\n");
 
         const auto after = logger.sessionIndex();
         QCOMPARE(WebDebugLogger::testSessionIndexRebuildCount(), 2);
+        // Still exactly one session — the surviving fragment — not two.
         QCOMPARE(after.size(), 1);
-        QCOMPARE(after[0].startLine, qsizetype(1));
+        QCOMPARE(after[0].startLine, qsizetype(0));
         QCOMPARE(after[0].lineCount, qsizetype(2));
+        // And its start time is absent, not borrowed from the running session.
+        QVERIFY(after[0].timestamp.isEmpty());
+    }
+
+    // ---- Session boundaries are recorded, never fabricated ----
+    //
+    // The defect these pin shipped for a long time and was invisible in review:
+    // trimLogFile() re-emitted a SESSION START stamped with the RUNNING session's
+    // start time, at the head of OLDER surviving content. Every session=N address
+    // shifted, two sessions reported the same timestamp, and yesterday's lines
+    // read as this morning's. It was found by enumerating a real log, not by
+    // reading the tree, so these tests exist to make the next such regression
+    // fail here instead.
+
+    // A trim is file maintenance. It may remove sessions; it may never invent one.
+    void trim_doesNotFabricateASession()
+    {
+        // trimLogFile() early-returns unless the file exceeds keepSize (80% of
+        // MAX_LOG_FILE_SIZE = 2MB), so the fixture has to be genuinely large.
+        // Driving the real function matters here: the bug lived in the writer,
+        // and a test that only simulated its output could never have caught it.
+        QString content = QStringLiteral("========== SESSION START: 2026-01-01T09:00:00 ==========\n");
+        const QString filler = QStringLiteral("[   0.100] INFO  [Scale][BLEManager] padding line\n");
+        content.reserve(3 * 1024 * 1024);
+        while (content.size() < 2 * 1024 * 1024)
+            content += filler;
+        content += QStringLiteral("[   9.999] INFO  [Scale][BLEManager] last line before trim\n");
+        writeFile(logPath(), content);
+
+        WebDebugLogger logger(logPath());
+        QCOMPARE(logger.sessionIndex().size(), 1);
+
+        logger.trimLogFile();
+
+        const auto after = logger.sessionIndex();
+        // One session before, one after. The old code produced two.
+        QCOMPARE(after.size(), 1);
+        // Its start time is unknown — the marker was at the front, which is the
+        // end the trim cuts from.
+        QVERIFY(after[0].timestamp.isEmpty());
+
+        // No SESSION START line was written by the trim.
+        QFile f(logPath());
+        QVERIFY(f.open(QIODevice::ReadOnly | QIODevice::Text));
+        const QString trimmed = QString::fromUtf8(f.readAll());
+        QVERIFY(!trimmed.contains(QStringLiteral("SESSION START")));
+        QVERIFY(trimmed.startsWith(QStringLiteral("... [log trimmed] ...")));
+    }
+
+    // The concern the old re-emit named was real: a trim can take the RUNNING
+    // session's marker. session=-1 must still resolve to the current run's lines.
+    void trim_currentSessionStillAddressableAsMinusOne()
+    {
+        writeFile(logPath(),
+            "... [log trimmed] ...\n"
+            "[   0.100] INFO  [Scale][BLEManager] current session, marker was trimmed away\n"
+            "[   0.200] INFO  [Scale][BLEManager] still the current session\n");
+
+        WebDebugLogger logger(logPath());
+        const auto sessions = logger.sessionIndex();
+        QCOMPARE(sessions.size(), 1);
+
+        // -1 resolves to index 0 here, which IS the running session.
+        const qsizetype newest = sessions.size() - 1;
+        QCOMPARE(newest, qsizetype(0));
+        QCOMPARE(sessions[newest].startLine, qsizetype(0));
+        QCOMPARE(sessions[newest].lineCount, qsizetype(3));
+    }
+
+    // A fragment ahead of an intact marker is its own session, undated, and does
+    // not merge into the session that follows it.
+    void sessionIndex_headlessFragmentIsSeparateFromTheNextSession()
+    {
+        writeFile(logPath(),
+            "... [log trimmed] ...\n"
+            "[   0.100] INFO  orphaned line from a session whose marker is gone\n"
+            "========== SESSION START: 2026-01-01T10:00:00 ==========\n"
+            "[   0.100] INFO  a session that kept its marker\n");
+
+        WebDebugLogger logger(logPath());
+        const auto sessions = logger.sessionIndex();
+
+        QCOMPARE(sessions.size(), 2);
+        QCOMPARE(sessions[0].startLine, qsizetype(0));
+        QVERIFY(sessions[0].timestamp.isEmpty());
+        QCOMPARE(sessions[0].lineCount, qsizetype(2));
+        QCOMPARE(sessions[1].startLine, qsizetype(2));
+        QCOMPARE(sessions[1].timestamp, QStringLiteral("2026-01-01T10:00:00"));
+        QCOMPARE(sessions[1].lineCount, qsizetype(2));
+    }
+
+    // The session marker is written with a LEADING NEWLINE, so line 0 of a
+    // healthy fresh log is blank and the marker is on line 1. A headless-fragment
+    // test of "line 0 is not a marker" would report a phantom one-blank-line
+    // session on every new log — a fabricated session, which is the very thing
+    // being fixed. Blank lines before the first marker are not a fragment.
+    void sessionIndex_leadingBlankLineIsNotAFragment()
+    {
+        writeFile(logPath(),
+            "\n"
+            "========== SESSION START: 2026-01-01T09:00:00 ==========\n"
+            "[   0.100] INFO  line\n");
+
+        WebDebugLogger logger(logPath());
+        const auto sessions = logger.sessionIndex();
+
+        QCOMPARE(sessions.size(), 1);
+        QCOMPARE(sessions[0].startLine, qsizetype(1));
+        QCOMPARE(sessions[0].timestamp, QStringLiteral("2026-01-01T09:00:00"));
+    }
+
+    // Enumeration is in recorded order and no two sessions claim the same start.
+    // Both were false in a real log: five sessions enumerated 07-29 18:17,
+    // 07-28 10:23, 07-29 08:21, 07-29 18:17, 07-30 08:20.
+    void sessionIndex_startTimesAreUniqueAndOrdered()
+    {
+        writeFile(logPath(),
+            "========== SESSION START: 2026-01-01T09:00:00 ==========\n"
+            "[   0.100] INFO  a\n"
+            "========== SESSION START: 2026-01-01T10:00:00 ==========\n"
+            "[   0.100] INFO  b\n"
+            "========== SESSION START: 2026-01-01T11:00:00 ==========\n"
+            "[   0.100] INFO  c\n");
+
+        WebDebugLogger logger(logPath());
+        const auto sessions = logger.sessionIndex();
+        QCOMPARE(sessions.size(), 3);
+
+        QSet<QString> seen;
+        QString previous;
+        for (const auto& s : sessions) {
+            QVERIFY2(!seen.contains(s.timestamp),
+                     "two sessions reported the same start time");
+            seen.insert(s.timestamp);
+            QVERIFY2(previous.isEmpty() || previous < s.timestamp,
+                     "sessions are not in recorded (chronological) order");
+            previous = s.timestamp;
+        }
     }
 
     // ---- sessionLinesMatching(): the query the connections-page views run ----

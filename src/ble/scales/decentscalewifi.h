@@ -85,6 +85,22 @@ public:
     void setIpResolver(IpResolver resolver) { m_ipResolver = std::move(resolver); }
     void setIpCacheUpdate(IpCacheUpdate cb) { m_ipCacheUpdate = std::move(cb); }
 
+    // Sink for a failure that REPEATS every reconnect cycle while nothing
+    // changes. Routes to BLEManager's per-message warn budget, so the first few
+    // carry the diagnosis at `warn`'s tier and the rest drop to DEBUG.
+    //
+    // Injected rather than logged directly because the budget must be ONE store
+    // shared with the manager. When only the manager's lines were budgeted, its
+    // half of the failing cycle went quiet on the endless tail while this
+    // driver's half kept warning every 60 s forever — leaving a repeating
+    // fragment with no attempt number and no outcome.
+    //
+    // Unset (the default) means log normally: the driver is usable standalone
+    // and in tests without a manager, and an unbudgeted line is the safe
+    // fallback — too loud beats missing.
+    using RepeatFailureSink = std::function<void(const QString& message, bool warn)>;
+    void setRepeatFailureSink(RepeatFailureSink sink) { m_repeatFailureSink = std::move(sink); }
+
 signals:
     // Emitted on the first valid HDS frame (snapshot or status) after a
     // connect attempt — confirms the WS endpoint is actually an HDS scale,
@@ -374,4 +390,21 @@ private:
 
     IpResolver m_ipResolver;     // hostname → cached IP (or empty)
     IpCacheUpdate m_ipCacheUpdate;  // hostname, ip → side-effect
+    RepeatFailureSink m_repeatFailureSink;  // repeating-cycle line → shared warn budget
+
+    // WHERE m_currentTarget came from: caller-supplied, remembered from a
+    // previous connect, or freshly resolved. Rides on the connect-failure line
+    // rather than being announced on a line of its own.
+    //
+    // This exists because a repeating failure against one address is ambiguous
+    // in the one way that decides the diagnosis: a FRESHLY RESOLVED address that
+    // is unreachable means the scale is off or off-network, while a REMEMBERED
+    // address that is unreachable usually means the scale moved and mDNS is
+    // deaf. A real 8-minute ladder showed the second and read as the first,
+    // because the only line naming the source sat at DEBUG.
+    //
+    // A field on an existing line, not a new line: the alternative was one extra
+    // INFO per 60 s cycle forever, which is the log spam this work exists to
+    // reduce.
+    QString m_targetSource;
 };

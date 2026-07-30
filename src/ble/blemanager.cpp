@@ -2861,7 +2861,8 @@ void BLEManager::scaleWarn(const QString& message, const QString& source) {
     SCALE_WARN_STDERR_DYN(source, message);
 }
 
-void BLEManager::scaleRepeatFailure(const QString& message) {
+void BLEManager::scaleRepeatFailure(const QString& message, RepeatTier tier,
+                                    const QString& source) {
     // Counted PER MESSAGE, not per subsystem. A single subsystem counter looked
     // simpler and was wrong twice over:
     //
@@ -2877,11 +2878,17 @@ void BLEManager::scaleRepeatFailure(const QString& message) {
     // are literals with at most a host name interpolated.
     const int count = ++m_repeatFailureCounts[message];
     if (count <= kScaleFailuresAtWarn) {
-        scaleWarn(message);
+        // At the caller's own tier, not always WARN. A failing cycle emits
+        // narrative as well as problems, and promoting the narrative to WARN to
+        // budget it would trade one kind of noise for a worse one.
+        if (tier == RepeatTier::Warn)
+            scaleWarn(message, source);
+        else
+            scaleInfo(message, source);
     } else {
         // Same event, still true, nothing new. Kept at DEBUG so the log still
         // proves the ladder is running without another alarm.
-        scaleDebug(QString("%1 (repeat %2)").arg(message).arg(count));
+        scaleDebug(QString("%1 (repeat %2)").arg(message).arg(count), source);
     }
 }
 

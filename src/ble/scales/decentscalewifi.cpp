@@ -126,6 +126,7 @@ void DecentScaleWifi::connectToHost(const QString& hostname, const QString& pref
     // satisfies the same obligation a re-resolve would have.
     if (!preferredIp.isEmpty() && preferredIp != hostname) {
         m_retryShouldReresolve = false;
+        m_targetSource = QStringLiteral("caller-supplied");
         WIFI_LOG(QString("Trying freshly-resolved IP %1 for %2").arg(preferredIp, hostname));
         attemptTarget(preferredIp, /*isHostname=*/false);
         return;
@@ -144,7 +145,24 @@ void DecentScaleWifi::connectToHost(const QString& hostname, const QString& pref
     // the cached IP when resolution fails, so leaving the flag set still dials
     // something on every cycle.
     if (m_retryShouldReresolve) {
-        WIFI_INFO(QString("Previous attempt found %1 unreachable — re-resolving before retry")
+        // DEBUG, not INFO — DEMOTED, and that is the fix rather than a cost of it.
+        //
+        // This line used to read "Previous attempt found X unreachable —
+        // re-resolving before retry" at INFO, and it was the whole defect: it
+        // announces an INTENT, and attemptHostname() may then resolve OR fail and
+        // dial the remembered address instead. The fallback logged at DEBUG, so an
+        // INFO read of a real session showed this line followed by eight minutes
+        // of failures against one unchanging address — reading as a freshly
+        // resolved address that was merely unreachable, when the truth was a
+        // stale cache and a scale that had moved.
+        //
+        // The honest fix is NOT a second INFO line announcing the fallback; that
+        // costs a line per cycle forever to correct a line that should not have
+        // been at INFO. It is to stop narrating the intent and let the ONE line
+        // that reports the outcome carry the address and where it came from —
+        // see m_targetSource and the WebSocket error line. Net INFO+ lines per
+        // failing cycle: unchanged. Net information: strictly more.
+        WIFI_LOG(QString("Retry: %1 was unreachable last attempt, resolving it again")
                  .arg(hostname));
         attemptHostname();
         return;
@@ -155,6 +173,7 @@ void DecentScaleWifi::connectToHost(const QString& hostname, const QString& pref
     // to the wrong device.
     const QString cachedIp = m_ipResolver ? m_ipResolver(hostname) : QString();
     if (!cachedIp.isEmpty() && cachedIp != hostname) {
+        m_targetSource = QStringLiteral("remembered from a previous connect");
         WIFI_LOG(QString("Trying cached IP %1 for %2").arg(cachedIp, hostname));
         attemptTarget(cachedIp, /*isHostname=*/false);
     } else {
@@ -174,6 +193,10 @@ bool DecentScaleWifi::dialCachedIpAfterResolveFailure() {
     const QString cachedIp = m_ipResolver ? m_ipResolver(m_hostname) : QString();
     if (cachedIp.isEmpty() || cachedIp == m_hostname)
         return false;
+    // Stays at DEBUG. The fact a reader needs — that this address is remembered
+    // rather than freshly resolved — rides on the failure line via m_targetSource
+    // instead of costing an INFO line of its own on every cycle.
+    m_targetSource = QStringLiteral("remembered; mDNS found no responder this attempt");
     WIFI_LOG(QString("Resolution failed — falling back to cached IP %1 for %2")
              .arg(cachedIp, m_hostname));
     attemptTarget(cachedIp, /*isHostname=*/false);
@@ -183,6 +206,12 @@ bool DecentScaleWifi::dialCachedIpAfterResolveFailure() {
 void DecentScaleWifi::attemptTarget(const QString& target, bool isHostname) {
     m_currentTarget = target;
     m_currentTargetIsHostname = isHostname;
+    // Dialing the name itself resolves through the OS, so no caller set a source.
+    // Stamp it here rather than leaving the previous attempt's source attached to
+    // this one — a stale source on a failure line is worse than none, because it
+    // reads as fact.
+    if (isHostname)
+        m_targetSource = QStringLiteral("hostname dialed directly, resolved by the OS");
     m_recognized = false;
     m_socketErrorThisConnect = false;
     m_wsHandshakeDone = false;
@@ -296,6 +325,7 @@ void DecentScaleWifi::attemptHostname() {
             QMetaObject::invokeMethod(guard.data(), [this, guard, ip, host, generation]() {
                 if (!guard || generation != m_resolveGeneration) return;
                 if (!ip.isEmpty()) {
+                    m_targetSource = QStringLiteral("freshly resolved via mDNS");
                     WIFI_LOG(QString("Resolved %1 to %2 via mDNS").arg(host, ip));
                     // Persist the peer IP so the next connect skips resolution.
                     // A stale answer self-heals: the cached-IP attempt fails the
@@ -362,6 +392,7 @@ void DecentScaleWifi::attemptHostname() {
                 return;
             }
             const QString ip = info.addresses().first().toString();
+            m_targetSource = QStringLiteral("freshly resolved via QHostInfo");
             WIFI_LOG(QString("Resolved %1 to %2 via QHostInfo").arg(host, ip));
             // Persist the peer IP so the next connect skips resolution. A stale
             // answer self-heals: the cached-IP attempt fails the recognition
@@ -958,9 +989,25 @@ void DecentScaleWifi::onError() {
     // unreachable" that egressed the wrong / a down interface shows up here as
     // a local address on an interface that can't reach the target.
     const QString localIp = m_socket ? m_socket->localAddress().toString() : QString();
-    WIFI_WARN(QString("WebSocket error: %1 (code %2) — target=%3 local=%4")
-              .arg(errStr).arg(static_cast<int>(err))
-              .arg(m_currentTarget, localIp.isEmpty() ? QStringLiteral("<unbound>") : localIp));
+    // target= carries WHERE THE ADDRESS CAME FROM, not just what it was. The two
+    // failures look identical on the wire and mean opposite things: a freshly
+    // resolved address that is unreachable says the scale is off or off-network;
+    // a remembered one says the scale probably moved and mDNS is not answering.
+    // Without the source, a reader watching the same IP fail for eight minutes
+    // has no way to tell which — and the line that knew sat at DEBUG.
+    const QString errorLine =
+        QString("WebSocket error: %1 (code %2) — target=%3 (%4) local=%5")
+            .arg(errStr).arg(static_cast<int>(err))
+            .arg(m_currentTarget,
+                 m_targetSource.isEmpty() ? QStringLiteral("source unrecorded") : m_targetSource,
+                 localIp.isEmpty() ? QStringLiteral("<unbound>") : localIp);
+    // Through the shared budget: this is THE line a dead reconnect ladder repeats
+    // forever, once per 60 s cycle. The first few say what is wrong; the rest say
+    // only "still wrong", which the ladder's own lines already establish.
+    if (m_repeatFailureSink)
+        m_repeatFailureSink(errorLine, /*warn=*/true);
+    else
+        WIFI_WARN(errorLine);
 
     // 503 detection — firmware refuses additional clients past its cap. Treat
     // as an expected refusal so it isn't recorded as a transport error, but

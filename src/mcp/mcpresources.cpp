@@ -386,6 +386,12 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
         "(1) sessions=true: list all sessions with index, start line, timestamp, and line count. "
         "(2) session=N: address session N (-1=most recent, -2=previous, 0=first). "
         "(3) Default: address the whole log. "
+        "Sessions are listed in the order they were recorded, so index 0 is the oldest "
+        "surviving session and -1 is the run happening now. The log file is capped and "
+        "trimmed from the front, which can remove the oldest session's start marker while "
+        "leaving its lines; that session is reported with `timestamp` null and "
+        "`startTimeKnown` false. Its lines are intact — only its start time is "
+        "unrecoverable — so treat null as \"unknown\", never as \"just now\". "
         "Within modes 2/3, `filter` (substring, or regex when `regex` is true; case-insensitive) "
         "and `minLevel` (DEBUG/INFO/WARN/ERROR/FATAL, mode-2/3 app log only) narrow which lines "
         "qualify before pagination. `dedupe` collapses consecutive qualifying lines that are "
@@ -464,6 +470,31 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
                 qsizetype totalLines = 0;
                 const QList<WebDebugLogger::SessionBoundary> sessions = logger->sessionIndex(&totalLines);
 
+                // One writer for a session's start time, because it is reported
+                // from two places (the list below and the single-session result
+                // further down) and they must not describe an unknown start
+                // differently.
+                //
+                // An unknown start is reported as JSON null plus an explicit
+                // flag and reason, never as "". An empty string reads to a
+                // consumer as a parse failure in the tool, which sends the reader
+                // looking for a bug here instead of understanding that the
+                // information was destroyed by a log trim before they arrived.
+                const auto describeStart = [](const WebDebugLogger::SessionBoundary& b,
+                                              QJsonObject& into) {
+                    if (b.timestamp.isEmpty()) {
+                        into["timestamp"] = QJsonValue();  // null
+                        into["startTimeKnown"] = false;
+                        into["startTimeNote"] =
+                            "This session's start marker was removed when the log file was "
+                            "trimmed from the front. Its lines are intact; only its start "
+                            "time is unrecoverable. It is the oldest session in the file.";
+                    } else {
+                        into["timestamp"] = b.timestamp;
+                        into["startTimeKnown"] = true;
+                    }
+                };
+
                 if (args["sessions"].toBool()) {
                     QJsonArray sessionList;
                     for (qsizetype i = 0; i < sessions.size(); ++i) {
@@ -472,7 +503,7 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
                         s["negativeIndex"] = static_cast<int>(i - sessions.size());
                         s["startLine"] = static_cast<int>(sessions[i].startLine);
                         s["lineCount"] = static_cast<int>(sessions[i].lineCount);
-                        s["timestamp"] = sessions[i].timestamp;
+                        describeStart(sessions[i], s);
                         sessionList.append(s);
                     }
                     return QJsonObject{
@@ -506,7 +537,18 @@ void registerDebugTools(McpToolRegistry* registry, MemoryMonitor* memoryMonitor)
 
                 QJsonObject result;
                 result["session"] = static_cast<int>(sessionIdx);
-                result["sessionTimestamp"] = sessions[sessionIdx].timestamp;
+                {
+                    // Same shape as the list mode, via the same writer: the key
+                    // is named sessionTimestamp here for backward compatibility,
+                    // so rename what describeStart() wrote rather than composing
+                    // a second description of an unknown start.
+                    QJsonObject start;
+                    describeStart(sessions[sessionIdx], start);
+                    result["sessionTimestamp"] = start["timestamp"];
+                    result["sessionStartTimeKnown"] = start["startTimeKnown"];
+                    if (start.contains("startTimeNote"))
+                        result["sessionStartTimeNote"] = start["startTimeNote"];
+                }
                 result["offsetLines"] = static_cast<int>(offset);
                 result["limitLines"] = static_cast<int>(limit);
                 result["sessionLines"] = static_cast<int>(sessLines);

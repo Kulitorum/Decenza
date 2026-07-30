@@ -1,6 +1,7 @@
 #include "machinestate.h"
 
 #include "core/logtags.h"
+#include "sawlogging.h"
 #include "../ble/de1device.h"
 #include "../ble/scaledevice.h"
 #include "../ble/scales/scaletypeids.h"
@@ -625,8 +626,10 @@ void MachineState::updatePhase() {
                         // Sanity: ignore if overshoot is wildly negative (cup removed)
                         // or extremely large (scale glitch)
                         if (overshoot < -2.0 || overshoot > 20.0) {
-                            qDebug() << "[SAW-Learn] Ignoring outlier: overshoot=" << overshoot
-                                     << "settled=" << settledWeight << "trigger=" << triggerWeight;
+                            SAW_LOG_STDERR("HotWaterLearn",
+                                QStringLiteral("Ignoring outlier: overshoot=%1 g settled=%2 g trigger=%3 g")
+                                    .arg(overshoot, 0, 'f', 2).arg(settledWeight, 0, 'f', 2)
+                                    .arg(triggerWeight, 0, 'f', 2));
                             return;
                         }
 
@@ -641,10 +644,12 @@ void MachineState::updatePhase() {
 
                         m_settings->brew()->setHotWaterSawOffset(newOffset);
                         m_settings->brew()->setHotWaterSawSampleCount(n + 1);
-                        qDebug() << "[SAW-Learn] overshoot=" << overshoot
-                                 << "settled=" << settledWeight << "trigger=" << triggerWeight
-                                 << "offset:" << oldOffset << "->" << newOffset
-                                 << "samples=" << (n + 1);
+                        SAW_LOG_STDERR("HotWaterLearn",
+                            QStringLiteral("overshoot=%1 g settled=%2 g trigger=%3 g "
+                                           "offset %4 -> %5 g samples=%6")
+                                .arg(overshoot, 0, 'f', 2).arg(settledWeight, 0, 'f', 2)
+                                .arg(triggerWeight, 0, 'f', 2).arg(oldOffset, 0, 'f', 2)
+                                .arg(newOffset, 0, 'f', 2).arg(n + 1));
                     });
                 }
                 m_hotWaterSawTriggerWeight = -1.0;
@@ -868,7 +873,9 @@ void MachineState::checkStopAtWeightHotWater(double weight) {
         static qint64 s_lastTareWarnMs = 0;
         qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
         if (nowMs - s_lastTareWarnMs >= 5000) {
-            qWarning() << "[SAW-HotWater] Tare not completed - skipping SAW check, weight=" << weight;
+            SAW_WARN_STDERR("HotWater",
+                QStringLiteral("Tare not completed — skipping stop-at-weight check, weight=%1 g")
+                    .arg(weight, 0, 'f', 2));
             s_lastTareWarnMs = nowMs;
         }
         return;
@@ -896,10 +903,14 @@ void MachineState::checkStopAtWeightHotWater(double weight) {
         m_stopAtWeightTriggered = true;
         m_hotWaterFrozenWeight = effectiveWeight;      // Freeze UI display at trigger weight
         m_hotWaterSawTriggerWeight = weight;            // Raw scale weight for learning overshoot
-        qDebug() << "[SAW-HotWater] STOP triggered: effectiveWeight=" << effectiveWeight
-                 << "scaleWeight=" << weight << "baseline=" << m_hotWaterTareBaseline
-                 << "threshold=" << stopThreshold << "target=" << target
-                 << "sawOffset=" << sawOffset;
+        // INFO: the stop itself is the user-facing answer to "why did my hot
+        // water stop there". Once per dispense.
+        SAW_INFO_STDERR("HotWater",
+            QStringLiteral("Stop triggered: effectiveWeight=%1 g scaleWeight=%2 g baseline=%3 g "
+                           "threshold=%4 g target=%5 g offset=%6 g")
+                .arg(effectiveWeight, 0, 'f', 2).arg(weight, 0, 'f', 2)
+                .arg(m_hotWaterTareBaseline, 0, 'f', 2).arg(stopThreshold, 0, 'f', 2)
+                .arg(target, 0, 'f', 2).arg(sawOffset, 0, 'f', 2));
         emit targetWeightReached();
 
         if (m_device) {

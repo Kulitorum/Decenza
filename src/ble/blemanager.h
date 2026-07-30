@@ -604,8 +604,9 @@ private:
     // reports about this device is a problem — the failures all belong to the
     // driver, which has R2_WARN. Add one when a call site needs it, not before.
 
-    // A connect failure that REPEATS while nothing changes. Warns for the first
-    // few, then drops to DEBUG until the next successful connect.
+    // A connect failure that REPEATS while nothing changes. Logs at its normal
+    // tier for the first few, then drops to DEBUG until the next successful
+    // connect.
     //
     // The failure is real every time, but the reconnect ladder retries forever,
     // so at a flat WARN an absent scale produced 46 "connection timeout" and 24
@@ -613,7 +614,37 @@ private:
     // skim past the tier that is supposed to mean "look here". The first ones
     // carry the diagnosis; the rest only carry "still absent", which the ladder
     // lines already say.
-    void scaleRepeatFailure(const QString& message);
+    //
+    // `tier` is the level the message would carry if it were not repeating, so
+    // the budget suppresses WITHOUT re-tiering. A repeating cycle emits both
+    // problems (WARN) and narrative (INFO) — the WiFi driver's "resolving again"
+    // and "dialing remembered address" are INFO — and routing those through a
+    // WARN-only budget would have made the quiet ones loud, which is the opposite
+    // of the point.
+    //
+    // `source` names who wrote the line, so a driver routing through this class's
+    // budget still reads as the driver. Without it the driver's suppressed lines
+    // would be stamped "BLEManager" and a reader would go looking in the wrong
+    // file.
+    // Public for the same reason scaleDebug/Info/Warn are: code outside this
+    // class emits lines belonging to this subsystem's failing cycle, and the
+    // budget only works if it sees ALL of them.
+    //
+    // That was the defect. The manager's three ladder lines were budgeted and
+    // DecentScaleWifi's three were not, so past the budget the manager fell
+    // silent while the driver kept warning every 60 s — a repeating fragment
+    // carrying neither the attempt number nor the outcome. Noisier than
+    // suppressing nothing and less useful than suppressing everything.
+    //
+    // ONE store, deliberately: a second counter in the driver would be a second
+    // policy, and resetRepeatFailureBudget() would not reach it, so a scale that
+    // reconnected would re-arm half its messages.
+public:
+    enum class RepeatTier { Info, Warn };
+    void scaleRepeatFailure(const QString& message,
+                            RepeatTier tier = RepeatTier::Warn,
+                            const QString& source = QStringLiteral("BLEManager"));
+private:
     // The DE1 equivalent, sharing the budget map. Same shape, [DE1] marker.
     void de1RepeatFailure(const QString& message);
     // Clears every message's warn budget. Call on a successful connect (either

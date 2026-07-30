@@ -67,8 +67,11 @@ The helper headers, one per subsystem:
 | `[DE1]` | `src/ble/de1logging.h` | `DE1_LOG/INFO/WARN_TAGGED` | |
 | `[Refractometer]` | `src/ble/refractometers/refractometerlogging.h` | `REFRACTOMETER_LOG/INFO/WARN` | same `"BLE "` short form |
 | `[Bluetooth]` | `src/ble/bluetoothlogging.h` | `BT_LOG/INFO/WARN_TAGGED` | **stderr-only by construction** — nothing here has a `logMessage`, so there is no `BT_*_STDERR_TAGGED` and `BT_*_TAGGED` does not emit |
+| `[SAW]` | `src/machine/sawlogging.h` | `SAW_LOG/INFO/WARN[_STDERR]` | mostly stderr in practice — SAW lives in controllers, a settings store and a worker thread, none of which carry `logMessage` |
+| `[Font]` | `src/core/fontlogging.h` | `FONT_LOG/INFO/WARN` | stderr-only by construction — font setup runs before any object with a `logMessage` exists |
+| `[Network]` | `src/core/networklogging.h` | `NETWORK_LOG/INFO/WARN[_TAGGED]` | |
 
-All four families stop at `WARN`. There is no marked CRITICAL/FATAL tier — a genuine
+All families stop at `WARN`. There is no marked CRITICAL/FATAL tier — a genuine
 `qCritical` in a covered file has to take an exemption, which is deliberate: nothing
 in these subsystems is unrecoverable enough to warrant aborting.
 
@@ -103,7 +106,7 @@ are the same thing. (They were.)
 Anything genuinely model-specific — which characteristic, which extra notification —
 stays a literal at the call site.
 
-## Three failure modes to avoid
+## Four failure modes to avoid
 
 These are the ones that actually happened, repeatedly.
 
@@ -136,6 +139,30 @@ the app having just lost hardware. `DECENZA_BLE_MSG_INCOMPLETE_SUFFIX(ready)` ex
 because "the link dropped after working" and "the connect never reached ready" arrive
 through the same callback and are different diagnoses.
 
+**Don't announce an intent as if it were an outcome.** A line that says what the code
+is *about to try*, at a tier where the failure of that attempt is not visible, is worse
+than silence: it reads as a complete account and the reader draws the wrong conclusion
+with nothing to signal that anything is missing.
+
+The WiFi scale did exactly this. At INFO the log said
+
+```
+[Scale][BLE DecentScaleWifi] Previous attempt found hds.local unreachable — re-resolving before retry
+[Scale][BLE DecentScaleWifi] WebSocket error: Host unreachable — target=192.168.10.145
+```
+
+for eight minutes against one unchanging address. The truth was that resolution had
+failed and the driver had fallen back to the *cached* address — a line that existed,
+at DEBUG. So the narrative asserted a fresh resolve that never happened, and a scale
+that had simply moved read as a scale that was switched off.
+
+Two fixes, and prefer the second: defer the line until the branch is known, or put the
+outcome on the line that already reports the result. Here the failure line already
+printed `target=`; it gained *where that address came from*. Note what the tempting fix
+would have cost — promoting the fallback line to INFO adds one line per retry cycle
+forever to correct one line that should not have been at INFO. **Fixing a
+dishonest line by adding a second line is usually the wrong direction.**
+
 ## Adding a subsystem
 
 Two edits in `src/core/logtags.h`:
@@ -159,6 +186,20 @@ and appear in the same view, because "my TDS reading is wrong" and "my weight is
 wrong" are diagnosed from different lines. `[Bluetooth]` is separate from both because
 it sits *beneath* them — when the adapter is wedged neither device can connect, and
 filing that under one of them sends a reader hunting a fault in the wrong place.
+
+**The test is the question, not the hardware.** `[SAW]` is registered even though
+stop-at-weight owns no device, because "why did my shot stop where it did" is a
+different question from "did the weight readings arrive" — different code, different
+fault, and a reader sent to the wrong one wastes the whole investigation. Registration
+is open to any subsystem whose lines are retrieved as a group; being a driver is not
+the entry requirement. (`#1707` left this open as "shot logic, not a device", which
+framed it as a question about ownership. It is not.)
+
+The same test cuts the other way in the same file. `weightprocessor.cpp` is SAW's
+worker, but its feed-liveness, stall and interval lines carry **`[Scale]`**, because
+they answer whether the readings arrived. Two markers in one file is correct when the
+file answers two questions; what is never correct is a third, unregistered prefix —
+which is what `[Weight-Worker]` was.
 
 **Don't let one subsystem claim a shared resource.** One `QBluetoothDeviceDiscoveryAgent`
 serves the DE1, the scales and the refractometers. Logging its scan lifecycle under
@@ -187,6 +228,49 @@ It looks like a working query returning everything.
 
 `session=-1` scopes to the current run. Without it you get every session in the file,
 and a scale connecting and disconnecting yesterday looks like it happened just now.
+
+## Session boundaries, and what a trim may not do
+
+A `SESSION START` marker asserts **when the session whose lines follow it began**, and
+is written only at that moment. Nothing else may write one — in particular no
+maintenance of the file, because the only start time such code holds is the *current*
+run's, while the lines it would be introducing belong to an older one.
+
+That is not a hypothetical rule. `trimLogFile()` used to re-emit a marker stamped with
+the running session's start at the head of the surviving (older) content, "so it
+survives the trim". Since the index treats every `SESSION START` as a boundary, the
+forgery became a real session in every enumeration:
+
+```
+idx 0  3249 lines  2026-07-29T18:17   <- forged by a trim
+idx 1  9089 lines  2026-07-28T10:23
+idx 2  5526 lines  2026-07-29T08:21
+idx 3  2852 lines  2026-07-29T18:17   <- the real one
+idx 4  1297 lines  2026-07-30T08:20
+```
+
+Two sessions claiming one timestamp, an enumeration not in chronological order, every
+`session=N` off by one, and yesterday's lines dated to this morning — the exact hazard
+`session=-1` is documented above as protecting you from, reintroduced beneath the
+guidance by the thing writing the log.
+
+**A trim writes a banner and nothing else.** The concern the old code named is real —
+a trim *can* remove the running session's own marker, if that session alone exceeds
+the keep size — and it is handled where it belongs, in the reader: a leading fragment
+with no marker of its own is reported as a session with an **unknown** start
+(`timestamp: null`, `startTimeKnown: false`), not one borrowed from a neighbour. An
+absent timestamp is recoverable by a reader; a wrong one is not.
+
+Two traps if you touch this code:
+
+- The marker is written with a **leading newline**, so line 0 of a perfectly healthy
+  fresh log is blank and the marker is on line 1. A headless-fragment test of "line 0
+  is not a marker" invents a phantom one-blank-line session on every new log — the
+  same defect class. Require a non-blank line before the first marker.
+- `debug_get_log` reports an unknown start as JSON `null` plus a flag and a reason,
+  never as `""`. An empty string reads as a parse failure in the tool and sends the
+  reader looking for a bug there instead of understanding that the information was
+  destroyed before they arrived.
 
 ## Where the log goes
 
@@ -217,17 +301,38 @@ recursion, but the guard's cost is dropping that line's signal — so a stray
 `.github/workflows/text-invariants.yml`). No Qt, no compiler, seconds. It parses the
 registry rather than restating it, and checks:
 
-1. No bare `qDebug`/`qInfo`/`qWarning`/`qCritical` in a covered file.
+1. No bare `qDebug`/`qInfo`/`qWarning`/`qCritical` in a **fully** covered file.
 2. No registered marker typed into a message (the helper already applies it — typing
-   one produces `[Scale] [BLE DecentScaleWifi] …`). Only *registered* tokens, because
-   `[M]` is a DE1 protocol byte and `[observe]` a mode qualifier. So an unregistered
-   prefix inside a helper call — `SCALE_LOG("Acaia", "[R2-diag] …")` — is caught by
-   nothing. Don't do it.
+   one produces `[Scale] [BLE DecentScaleWifi] …`).
 3. No helper header applying a marker the registry does not declare. The header set is
    derived by grepping for the macros, so a new helper is covered the day it lands.
 4. No bracketed marker literal in `qml/` that the registry does not declare — the
    views name their subsystems as plain strings, and a rename would otherwise empty a
    view while every other rule passed.
+5. **No leading bracketed token that the registry does not declare.** `[Subsystem]` is
+   the grammar of a marker and a reader cannot tell `[SAW]` from `[Scale]` by looking,
+   so an unregistered one advertises a `debug_get_log` filter that quietly returns an
+   incomplete answer — or none — while looking exactly like one that works. Register
+   it and give it a helper, or write the prefix so it cannot be mistaken for a marker.
+
+Rule 5 replaces a documented hole. Rule 2 matches only *registered* tokens, so
+`SCALE_LOG("Acaia", "[R2-diag] …")` passed rule 1 (it uses the helper) and rule 2
+(unregistered) and was caught by nothing. This file used to say so and leave it there.
+On its first run rule 5 found a **sixth** hand-rolled family (`[Weight-Worker]`) plus
+seven device lines under a hand-typed `[USB Scale]`/`[BLE DE1]` that no `[Scale]` or
+`[DE1]` search returned.
+
+Two things rule 5 needs in order not to cry wolf, both learned by running it:
+
+- **It only fires on a line that contains a log call.** `m_probeBuffer.contains("[M]")`
+  is a protocol comparison, not a message. Leading position alone does not separate a
+  log message from any other string literal.
+- **The token must start uppercase**, as every registered marker does. `[observe]` is a
+  lowercase mode qualifier following a marker the helper already applied; it
+  impersonates nothing.
+
+Neither is an allowlist, deliberately — an allowlist of permitted tokens would be a
+second registry, free to drift from the first.
 
 If a line genuinely cannot go through a helper, append
 `// log-marker-exempt: <reason>` on or just above it. Give a real reason; the window
@@ -243,12 +348,32 @@ found by a person reading a running app's log, not by the tree. A grep finds the
 milliseconds. (The families are gone from `main`, so the count of nine is no longer
 checkable from a checkout; it is the tally across commits `460fb8e9` and `3d022dd5`.)
 
-The gate is not the whole invariant, and the difference matters. Rule 1 covers
-`COVERED_GLOBS` — `src/ble`, `src/usb`, the two simulator files. Other files carry
-subsystem lines and are **not** covered, `src/main.cpp` most of all: it drives the
-scale and refractometer reconnect ladders and has ~127 bare log calls. "Every line
-carries its marker" is the rule you follow; the gate enforces it where the helpers
-live.
+The gate is not the whole invariant, and the difference matters. There are **two**
+coverage sets, because the rules do not all generalise the same way:
+
+- **`COVERED_GLOBS` — all rules.** Files that are *wholly* about their subsystem:
+  `src/ble`, `src/usb`, the two simulator files, `wifiscalediscovery.cpp`,
+  `settings_hardware.cpp`. Every log line in `acaiascale.cpp` is a scale line, so
+  "use the helper" is always the right instruction.
+- **`MARKER_ONLY_GLOBS` — rules 2 and 5 only.** Files that *host* a subsystem's lines
+  alongside unrelated code: `main.cpp`, and SAW's three (`shottimingcontroller.cpp`,
+  `settings_calibration.cpp`, `weightprocessor.cpp`).
+
+The split is a correction, not a concession. `main.cpp` drives both reconnect ladders
+*and* initialises fonts, translations, TTS and accessibility; applying rule 1 there
+produced 112 "violations" that were overwhelmingly lines with **no subsystem to belong
+to**, for which "route it through a helper" has no answer. A check reporting a hundred
+non-defects is one people switch off — which is how the generation of this convention
+before the gate died. What does hold everywhere is the marker invariant: if you write a
+bracketed prefix, it must be registered and applied by its helper. Rules 2 and 5
+enforce exactly that, and they are what found the real defects in `main.cpp`.
+
+Still uncovered, and known: roughly 40 non-device subsystems using hand-rolled `Class:`
+prefixes (`SteamPage:`, `MqttClient:`, `ShotDataModel:`, `Visualizer:`, `BatteryManager:`
+…), and the bare `console.log` lines from QML (`Phase Idle/Ready:`, `FRAME CHANGE:`,
+`Auto flow cal:`). These have no registry entry and no helper; covering them would only
+teach people to write exemptions. "Every line carries its marker" is the rule you
+follow; the gate enforces it where a subsystem has somewhere to log to.
 
 ## Verify against a running app, not just the source
 

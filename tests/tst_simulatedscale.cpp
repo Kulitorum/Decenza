@@ -167,7 +167,10 @@ private slots:
         SimFixture f;
         f.simulator.wakeUp();
 
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("SAW-HotWater"));
+        // Matches the source TAG, not the old "SAW-HotWater" hyphenated prefix:
+        // that family collapsed into the registered [SAW] marker with a
+        // [HotWater] source tag, so one search on [SAW] now returns it.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("HotWater"));
         f.simulator.startHotWater();
         QTRY_VERIFY_WITH_TIMEOUT(f.scale.weight() > 50.0, 8000);
         f.simulator.stop();

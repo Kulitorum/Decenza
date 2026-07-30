@@ -71,6 +71,9 @@
 #define DECENZA_LOG_MARKER_DE1           "DE1"
 #define DECENZA_LOG_MARKER_REFRACTOMETER "Refractometer"
 #define DECENZA_LOG_MARKER_BLUETOOTH     "Bluetooth"
+#define DECENZA_LOG_MARKER_SAW           "SAW"
+#define DECENZA_LOG_MARKER_FONT          "Font"
+#define DECENZA_LOG_MARKER_NETWORK       "Network"
 
 // The registry. Each row: (marker literal, what the subsystem covers).
 // The description is user/assistant-facing — it reaches the MCP tool
@@ -91,7 +94,24 @@
       "and automatic recovery, and platform capability problems. Separate from " \
       "Scale and DE1 because it is BENEATH both — when the adapter is off or "   \
       "wedged, neither device can connect, and attributing that to one of them " \
-      "sends a reader looking for a fault in the wrong place")
+      "sends a reader looking for a fault in the wrong place")                   \
+    X(DECENZA_LOG_MARKER_SAW,                                                  \
+      "Stop-at-weight: deciding when to stop a shot so it lands on the target "  \
+      "weight, and learning each profile+scale pair's drip and lag from past "   \
+      "shots. Answers \"why did my shot stop where it did\" and \"why is it "    \
+      "consistently over or under\". Separate from Scale, which answers whether " \
+      "the weight readings arrived at all — a correct reading the stop logic "   \
+      "then acts on wrongly is a different fault from a reading that never came") \
+    X(DECENZA_LOG_MARKER_FONT,                                                 \
+      "Font loading and text rendering: which bundled families registered, "     \
+      "which text fell back to a platform font, and glyph-coverage problems. "   \
+      "Users report these as layout or language bugs, so this is the first "     \
+      "thing to check for clipped or garbled text in a non-Latin locale")       \
+    X(DECENZA_LOG_MARKER_NETWORK,                                              \
+      "Local network reachability and the app's own servers, as opposed to one " \
+      "device's link. Separate from Scale and DE1 because \"the WiFi scale is "  \
+      "unreachable\" and \"the shot server will not bind\" are the same question " \
+      "asked about different things, and neither belongs to a device")
 
 // ---- The one place a log line's shape is built -------------------------
 //

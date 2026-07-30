@@ -1,8 +1,22 @@
 #include "weightprocessor.h"
+#include "../ble/scales/scalelogging.h"  // the feed-liveness line is a [Scale] question
+#include "sawlogging.h"
 #include "sawprediction.h"
 #include <QtMath>
 #include <QDebug>
 #include <chrono>
+
+// Aliases, not copies — see sawlogging.h. This class runs on a worker thread and
+// carries no logMessage signal, so the STDERR forms are the right ones here.
+// The feed-liveness/stall/interval lines answer "did the readings arrive", which
+// is a [Scale] question, not a [SAW] one — they were a sixth hand-rolled family
+// ("[Weight-Worker]") that no registered marker matched.
+#define SCALEFEED_LOG(msg)  SCALE_LOG_STDERR_TAGGED("ScaleFeed", msg)
+#define SCALEFEED_WARN(msg) SCALE_WARN_STDERR_TAGGED("ScaleFeed", msg)
+
+#define SAWW_LOG(msg)  SAW_LOG_STDERR("Worker", msg)
+#define SAWW_INFO(msg) SAW_INFO_STDERR("Worker", msg)
+#define SAWW_WARN(msg) SAW_WARN_STDERR("Worker", msg)
 
 namespace {
 qint64 monotonicMsNow()
@@ -93,21 +107,28 @@ void WeightProcessor::processWeight(double weight)
             // count, so m_awaitingTare never clears for the whole preheat. Bounded —
             // markExtractionStart() arms unconditionally at flow start — but worth
             // seeing rather than guessing at.
-            qDebug() << "[SAW-Worker] Tare candidate held (unconfirmed): weight=" << weight
-                     << "last=" << m_lastRawWeight
-                     << "confirmations=" << m_tareLandedSamples << "/" << kTareLandedConfirmations;
+            SAWW_LOG(QStringLiteral("Tare candidate held (unconfirmed): weight=%1 g last=%2 g "
+                                    "confirmations=%3/%4")
+                         .arg(weight, 0, 'f', 2).arg(m_lastRawWeight, 0, 'f', 2)
+                         .arg(m_tareLandedSamples).arg(kTareLandedConfirmations));
             m_lastWallClockMs = wallClock;  // keep de-jitter timing accurate
             return;
         } else if (++m_consecutiveRejections < 3) {
             m_tareLandedSamples = 0;  // not near zero — any run of them is broken
             m_lastWallClockMs = wallClock;  // Keep de-jitter timing accurate
-            qWarning() << "[SAW-Worker] Spike rejected: weight=" << weight
-                       << "last=" << m_lastRawWeight;
+            // WARN. Measured, not assumed: zero occurrences across 22,265 log
+            // lines and five sessions, so this is not a spam source, and a
+            // rejected sample sitting next to a stop-at-weight decision is
+            // exactly what a reader chasing a mis-stopped shot needs to see.
+            // (An earlier pass demoted this to DEBUG on the asserted claim that
+            // it "fires several times on a normal shot". It does not.)
+            SAWW_WARN(QStringLiteral("Spike rejected: weight=%1 g last=%2 g")
+                          .arg(weight, 0, 'f', 2).arg(m_lastRawWeight, 0, 'f', 2));
             return;
         } else {
-            qWarning() << "[SAW-Worker] Spike filter reset after"
-                       << m_consecutiveRejections << "consecutive rejections"
-                       << "— accepting new baseline:" << weight;
+            SAWW_WARN(QStringLiteral("Spike filter reset after %1 consecutive rejections "
+                                     "— accepting new baseline: %2 g")
+                          .arg(m_consecutiveRejections).arg(weight, 0, 'f', 2));
             m_consecutiveRejections = 0;
         }
     } else {
@@ -161,14 +182,19 @@ void WeightProcessor::processWeight(double weight)
         && (m_lastConstantSampleLogMs == 0
             || wallClock - m_lastConstantSampleLogMs >= 2000)) {
         m_lastConstantSampleLogMs = wallClock;
-        // qDebug, not qInfo: this line exists to prove a NON-bug (a static
-        // reading is a live feed, not a stalled one). 59 of them in a 48 h
-        // capture, on a 2 s dedupe window, none of which a user needs.
-        qDebug().noquote()
-            << "[ScaleFeed] alive: constant weight"
-            << QString::number(weight, 'f', 1)
-            << "g still streaming via weightSampleReceived"
-            << "(pre-#1176 this static window read as a stalled feed)";
+        // [Scale], not [SAW], even though this file is otherwise SAW's worker:
+        // the line answers "did the weight readings keep arriving", which is a
+        // scale question. Filing it under SAW would leave a reader chasing a
+        // missing feed inside the stop logic. It was a fifth hand-rolled
+        // marker-shaped prefix ("[ScaleFeed]") that no registered marker matched.
+        //
+        // DEBUG, not INFO: it exists to prove a NON-bug (a static reading is a
+        // live feed, not a stalled one). 59 of them in a 48 h capture, on a 2 s
+        // dedupe window, none of which a user needs.
+        SCALE_LOG_STDERR_TAGGED("ScaleFeed",
+            QStringLiteral("alive: constant weight %1 g still streaming via "
+                           "weightSampleReceived (pre-#1176 this static window read "
+                           "as a stalled feed)").arg(weight, 0, 'f', 1));
     }
 
     // Scale-feed liveness: a genuine (non-spike) sample arrived, so the feed
@@ -188,9 +214,9 @@ void WeightProcessor::processWeight(double weight)
             // sets m_feedStallStartMs alongside m_scaleFeedStale). Log loudly
             // rather than silently emit gapMs=0 — a fake "recovered after
             // 0.0 s" would be plausible-looking but wrong observe evidence.
-            qWarning() << "[Weight-Worker] scaleFeedResumed with no recorded "
-                          "stall-start — emitting gap 0 (investigate: a stall "
-                          "was flagged without m_feedStallStartMs being set)";
+            SCALEFEED_WARN(QStringLiteral("scaleFeedResumed with no recorded stall-start — "
+                                          "emitting gap 0 (investigate: a stall was flagged "
+                                          "without m_feedStallStartMs being set)"));
         }
         emit scaleFeedResumed(gapMs);
     }
@@ -240,8 +266,8 @@ void WeightProcessor::processWeight(double weight)
         // Batched but uncalibrated: use wall-clock (LSLR may see dt≈0 until calibrated)
         sampleTs = wallClock;
         if (m_active && !m_uncalibratedBatchWarned) {
-            qWarning() << "[SAW-Worker] De-jitter: batched event before calibration"
-                       << "— LSLR may return 0 until a non-batched gap is observed";
+            SAWW_WARN(QStringLiteral("De-jitter: batched event before calibration — LSLR may "
+                                     "return 0 until a non-batched gap is observed"));
             m_uncalibratedBatchWarned = true;
         }
     }
@@ -287,8 +313,8 @@ void WeightProcessor::processWeight(double weight)
         m_weightSamples.clear();  // Discard oscillation samples from LSLR
 
         m_hasLastWeight = false;  // Accept first reading at any weight after recovery
-        qWarning() << "[SAW-Worker] Scale oscillation detected (weight=" << weight
-                   << "g) - SAW blocked, awaiting settle";
+        SAWW_WARN(QStringLiteral("Scale oscillation detected (weight=%1 g) — stop-at-weight "
+                                 "blocked, awaiting settle").arg(weight, 0, 'f', 2));
     }
 
     // Mid-shot oscillation recovery: once scale returns to ~0g stably, re-arm SAW
@@ -303,7 +329,7 @@ void WeightProcessor::processWeight(double weight)
                 m_settleCount = 0;
                 m_weightSamples.clear();  // Fresh LSLR baseline from post-settle readings
                 m_hasLastWeight = false;  // Accept first reading at any weight after recovery
-                qDebug() << "[SAW-Worker] Scale settled after oscillation, SAW re-armed";
+                SAWW_LOG(QStringLiteral("Scale settled after oscillation, stop-at-weight re-armed"));
             }
         } else {
             m_settleCount = 0;  // Reset counter if weight leaves the near-zero band
@@ -313,7 +339,8 @@ void WeightProcessor::processWeight(double weight)
     if (!m_tareComplete) {
         // Throttle warning to every 5s to avoid log spam at 5Hz
         if (wallClock - m_lastTareWarnMs >= 5000) {
-            qDebug() << "[SAW-Worker] Active but tare not complete - skipping SAW, weight=" << weight;
+            SAWW_LOG(QStringLiteral("Active but tare not complete — skipping stop-at-weight, "
+                                    "weight=%1 g").arg(weight, 0, 'f', 2));
             m_lastTareWarnMs = wallClock;
         }
         return;
@@ -323,8 +350,9 @@ void WeightProcessor::processWeight(double weight)
     if (m_extractionStartTime > 0) {
         double extractionTime = (wallClock - m_extractionStartTime) / 1000.0;
         if (extractionTime < 3.0 && weight > 50.0) {
-            qWarning() << "[SAW-Worker] Sanity check: weight" << weight
-                       << "g at" << extractionTime << "s into extraction — skipping SAW (likely untared cup)";
+            SAWW_WARN(QStringLiteral("Sanity check: weight %1 g at %2 s into extraction — "
+                                     "skipping stop-at-weight (likely untared cup)")
+                          .arg(weight, 0, 'f', 2).arg(extractionTime, 0, 'f', 1));
             if (!m_untaredCupSignalled) {
                 m_untaredCupSignalled = true;
                 emit untaredCupDetected();
@@ -349,12 +377,13 @@ void WeightProcessor::processWeight(double weight)
                 while (si > 0 && m_weightSamples[si - 1].timestamp >= cutoff) --si;
                 shortDt = (m_weightSamples.last().timestamp - m_weightSamples[si].timestamp) / 1000.0;
             }
-            qDebug() << "[SAW-Worker] Flow too low for SAW check: flowShort=" << flowRateShort
-                     << "weight=" << weight << "target=" << m_targetWeight
-                     << "samples=" << m_weightSamples.size()
-                     << "shortWindow=" << shortWindowMs << "ms"
-                     << "shortDt=" << QString::number(shortDt, 'f', 3) << "s"
-                     << "gate=" << QString::number(shortWindowMs * 0.65 / 1000.0, 'f', 3) << "s";
+            SAWW_LOG(QStringLiteral("Flow too low for stop-at-weight check: flowShort=%1 g/s "
+                                    "weight=%2 g target=%3 g samples=%4 shortWindow=%5 ms "
+                                    "shortDt=%6 s gate=%7 s")
+                         .arg(flowRateShort, 0, 'f', 2).arg(weight, 0, 'f', 2)
+                         .arg(m_targetWeight, 0, 'f', 2).arg(m_weightSamples.size())
+                         .arg(shortWindowMs).arg(shortDt, 0, 'f', 3)
+                         .arg(shortWindowMs * 0.65 / 1000.0, 0, 'f', 3));
             m_lastLowFlowLogMs = wallClock;
         }
     }
@@ -367,9 +396,14 @@ void WeightProcessor::processWeight(double weight)
         if (!m_flowBecameValidLogged && m_extractionStartTime > 0) {
             m_flowBecameValidLogged = true;
             double extractionTime = (wallClock - m_extractionStartTime) / 1000.0;
-            qDebug() << "[SAW-Worker] Flow became valid: flowShort=" << QString::number(flowRateShort, 'f', 2)
-                     << "flowLong=" << QString::number(flowRate, 'f', 2)
-                     << "weight=" << weight << "at" << QString::number(extractionTime, 'f', 1) << "s";
+            // INFO: this marks the moment stop-at-weight can act at all. When it
+            // arrives LATE the target has already passed and the shot overshoots,
+            // which is exactly the failure a reader is trying to explain — so it
+            // belongs in the narrative, not below it. Once per shot.
+            SAWW_INFO(QStringLiteral("Flow became valid: flowShort=%1 g/s flowLong=%2 g/s "
+                                     "weight=%3 g at %4 s")
+                          .arg(flowRateShort, 0, 'f', 2).arg(flowRate, 0, 'f', 2)
+                          .arg(weight, 0, 'f', 2).arg(extractionTime, 0, 'f', 1));
         }
         double cappedFlow = qMin(flowRateShort, 12.0);
         double expectedDrip = getExpectedDrip(cappedFlow);
@@ -378,11 +412,16 @@ void WeightProcessor::processWeight(double weight)
         if (weight >= stopThreshold) {
             m_stopTriggered = true;
             qint64 triggerMs = monotonicMsNow();
-            qDebug() << "[SAW-Worker] Stop triggered: weight=" << weight
-                     << "threshold=" << stopThreshold
-                     << "flow=" << flowRateShort << "(short)"
-                     << "expectedDrip=" << expectedDrip
-                     << "target=" << m_targetWeight;
+            // INFO: the stop decision itself. One line per shot, and it is the
+            // whole answer to "why did my shot stop where it did" — every input
+            // to the decision is on it. This subsystem previously had ZERO INFO
+            // lines, so a user-level read showed stop-at-weight only when it
+            // complained and never when it worked.
+            SAWW_INFO(QStringLiteral("Stop triggered: weight=%1 g threshold=%2 g "
+                                     "flow=%3 g/s (short) expectedDrip=%4 g target=%5 g")
+                          .arg(weight, 0, 'f', 2).arg(stopThreshold, 0, 'f', 2)
+                          .arg(flowRateShort, 0, 'f', 2).arg(expectedDrip, 0, 'f', 2)
+                          .arg(m_targetWeight, 0, 'f', 2));
             emit sawTriggered(weight, flowRateShort, m_targetWeight);
             emit stopNow(triggerMs);
         }
@@ -422,8 +461,8 @@ void WeightProcessor::processWeight(double weight)
                     return;
                 }
             }
-            qDebug() << "[Weight-Worker] FRAME-WEIGHT EXIT: weight" << weight
-                     << ">=" << exitWeight << "on frame" << m_currentFrame;
+            SAWW_LOG(QStringLiteral("Frame-weight exit: weight %1 g >= %2 g on frame %3")
+                         .arg(weight, 0, 'f', 2).arg(exitWeight, 0, 'f', 2).arg(m_currentFrame));
             m_frameWeightSkipSent.insert(m_currentFrame);
             emit skipFrame(m_currentFrame);
         }
@@ -514,10 +553,13 @@ void WeightProcessor::checkScaleFeedStall(int frameNumber)
         // spikes (the #1176/#610 overlap) still confirms instead of having
         // its confirm clock reset to ~0 by every spike.
         m_feedStallStartMs = m_lastWallClockMs;
-        qWarning() << "[Weight-Worker] Scale feed stalled >" << kScaleStaleMs
-                   << "ms while weight expected (frame" << frameNumber
-                   << "active=" << m_active << "preheat=" << m_preheatActive
-                   << ") — SUSPECTED (not yet confirmed)";
+        SCALEFEED_WARN(QStringLiteral("Scale feed stalled > %1 ms while weight expected "
+                                      "(frame %2 active=%3 preheat=%4) — SUSPECTED "
+                                      "(not yet confirmed)")
+                           .arg(kScaleStaleMs).arg(frameNumber)
+                           .arg(m_active ? QStringLiteral("true") : QStringLiteral("false"))
+                           .arg(m_preheatActive ? QStringLiteral("true")
+                                                : QStringLiteral("false")));
         emit scaleFeedStalled(gapMs);
         return;
     }
@@ -531,10 +573,12 @@ void WeightProcessor::checkScaleFeedStall(int frameNumber)
     const qint64 confirmGapMs = m_wallClock() - m_feedStallStartMs;
     if (!m_scaleStallConfirmed && confirmGapMs >= kScaleStallConfirmMs) {
         m_scaleStallConfirmed = true;
-        qWarning() << "[Weight-Worker] Scale feed stall CONFIRMED — still dead"
-                   << confirmGapMs << "ms (>" << kScaleStallConfirmMs
-                   << "ms) with no recovery (frame" << frameNumber
-                   << "active=" << m_active << "preheat=" << m_preheatActive << ")";
+        SCALEFEED_WARN(QStringLiteral("Scale feed stall CONFIRMED — still dead %1 ms (> %2 ms) "
+                                      "with no recovery (frame %3 active=%4 preheat=%5)")
+                           .arg(confirmGapMs).arg(kScaleStallConfirmMs).arg(frameNumber)
+                           .arg(m_active ? QStringLiteral("true") : QStringLiteral("false"))
+                           .arg(m_preheatActive ? QStringLiteral("true")
+                                                : QStringLiteral("false")));
         emit scaleFeedStallConfirmed(confirmGapMs);
     }
 }
@@ -641,10 +685,11 @@ void WeightProcessor::stopExtraction()
         qint64 span = m_weightSamples.last().timestamp - m_weightSamples.first().timestamp;
         if (span > 0) {
             double avgIntervalMs = span / static_cast<double>(m_weightSamples.size() - 1);
-            qDebug() << "[Weight-Worker] Scale interval: avg" << static_cast<int>(avgIntervalMs) << "ms"
-                     << "(" << QString::number(1000.0 / avgIntervalMs, 'f', 1) << "Hz)"
-                     << "over" << m_weightSamples.size() << "samples (last 1s)"
-                     << "| de-jitter calibrated:" << m_estimatedIntervalMs << "ms";
+            SCALEFEED_LOG(QStringLiteral("Scale interval: avg %1 ms (%2 Hz) over %3 samples "
+                                         "(last 1s) | de-jitter calibrated: %4 ms")
+                              .arg(static_cast<int>(avgIntervalMs))
+                              .arg(1000.0 / avgIntervalMs, 0, 'f', 1)
+                              .arg(m_weightSamples.size()).arg(m_estimatedIntervalMs));
         }
     }
 
@@ -673,7 +718,7 @@ void WeightProcessor::resetForRetare()
     m_lastLowFlowLogMs = 0;
     m_lastConstantSampleLogMs = 0;
     m_flowBecameValidLogged = false;
-    qDebug() << "[SAW-Worker] Reset for auto-retare";
+    SAWW_LOG(QStringLiteral("Reset for auto-retare"));
 }
 
 double WeightProcessor::computeLSLR(int windowMs) const

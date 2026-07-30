@@ -236,10 +236,29 @@ void WebDebugLogger::trimLogFile()
         newlinePos = trimPoint;
     }
 
-    // Write trimmed content; re-emit the session marker so it survives the trim.
+    // Write the trimmed content behind a banner, and NOTHING else.
+    //
+    // This used to re-emit a session marker here, "so it survives the trim". It
+    // did the opposite. The only start time this function holds is m_startTime —
+    // the CURRENTLY RUNNING session's — while the content it was introducing
+    // belongs to whatever older session survived the cut. rebuildSessionIndex()
+    // treats every SESSION START line as a boundary, so the forgery became a real
+    // session in every enumeration, carrying a timestamp from a different day
+    // than its own lines.
+    //
+    // Observed in a real log: five sessions enumerated as 07-29 18:17, 07-28
+    // 10:23, 07-29 08:21, 07-29 18:17, 07-30 08:20 — not chronological, and the
+    // duplicated timestamp is the run that performed the trim. Every session=N
+    // address was wrong, and old lines read as having been written just now,
+    // which is the exact hazard session scoping exists to prevent.
+    //
+    // The concern the old comment named is real: a trim CAN remove the running
+    // session's own marker, if that session alone exceeds keepSize. The remedy is
+    // in rebuildSessionIndex(), which reports a headless leading fragment as a
+    // session with an UNKNOWN start rather than borrowing one — an absent
+    // timestamp is recoverable, a wrong one is not.
     if (file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
         file.write("... [log trimmed] ...\n");
-        file.write(("========== SESSION START: " + m_startTime.toString(Qt::ISODate) + " ==========\n").toUtf8());
         file.write(content.mid(newlinePos + 1));
     }
 }
@@ -308,6 +327,53 @@ QList<WebDebugLogger::SessionBoundary> WebDebugLogger::sessionIndex(qsizetype* t
         const QStringList allLines = getPersistedLogChunk(0, 100000, &scannedTotal);
 
         QList<SessionBoundary> sessions;
+
+        // A trim cuts from the FRONT, so it can leave lines whose own SESSION
+        // START marker is gone. Those lines are a session — they are just one
+        // whose start time was destroyed, and the file no longer holds the
+        // information needed to recover it.
+        //
+        // Report them as a boundary at line 0 with an EMPTY timestamp. Two
+        // properties follow, and both matter:
+        //
+        //   - The fragment is addressable. Without a boundary it belonged to no
+        //     session at all, so its lines were unreachable through session=N and
+        //     invisible in the line accounting.
+        //   - Its start time is absent rather than borrowed. trimLogFile() used to
+        //     supply one by writing a marker stamped with the running session's
+        //     start; that is why this branch exists rather than that one. An
+        //     absent timestamp tells a reader it is unknown. A borrowed one tells
+        //     them yesterday's disconnect happened this morning.
+        //
+        // Only ever the FIRST boundary: any later session was written whole and
+        // carries its own marker.
+        //
+        // "Content before the first marker" is NOT the same as "line 0 is not a
+        // marker". The marker is written with a leading newline (see the
+        // constructor), so line 0 of a perfectly healthy fresh log is BLANK and
+        // the marker is on line 1. Testing line 0 alone would invent a
+        // one-blank-line fragment on every new log, which is a phantom session in
+        // every enumeration — the same class of defect this is here to fix.
+        // Require a non-blank line before the first marker instead.
+        qsizetype firstMarkerLine = -1;
+        for (qsizetype i = 0; i < allLines.size(); ++i) {
+            if (allLines[i].contains(kSessionMarker)) {
+                firstMarkerLine = i;
+                break;
+            }
+        }
+        const qsizetype fragmentEnd =
+            (firstMarkerLine >= 0) ? firstMarkerLine : allLines.size();
+        bool hasHeadlessFragment = false;
+        for (qsizetype i = 0; i < fragmentEnd; ++i) {
+            if (!allLines[i].trimmed().isEmpty()) {
+                hasHeadlessFragment = true;
+                break;
+            }
+        }
+        if (hasHeadlessFragment)
+            sessions.append({0, QString(), 0});
+
         for (qsizetype i = 0; i < allLines.size(); ++i) {
             if (allLines[i].contains(kSessionMarker)) {
                 QString ts;
