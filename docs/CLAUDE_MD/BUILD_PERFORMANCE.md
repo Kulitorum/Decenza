@@ -178,7 +178,7 @@ again after #1698 (`FINAL` on the settings/controller accessors, type annotation
 in `Theme.qml` and `IdlePage.qml`).
 
 ```
-                          post-cleanup      post-#1698      post-#1715     post-#PRNUM
+                          post-cleanup      post-#1698      post-#1715     post-#1717
 total bindings/functions       29097           29097           29087           29088
   AOT compiled            13017 (44.7%)   17631 (60.6%)   18168 (62.5%)   18853 (64.8%)
   skipped -> interpreter  14665 (50.4%)   10051 (34.5%)    9504 (32.7%)    8820 (30.3%)
@@ -187,7 +187,7 @@ total bindings/functions       29097           29097           29087           2
 
 #1715 rooted 31 pages at `QtQuick.Templates.Page`; **id skips went 1,464 -> 510**.
 
-#PRNUM did the same for the button family — `AccessibleButton`, `StyledIconButton`,
+#1717 did the same for the button family — `AccessibleButton`, `StyledIconButton`,
 `ActionButton`, `StyledSwitch`. Attributing every `Could not find property/signal` skip to
 the element it was written on (walk back from the reported line to the enclosing `Type {`)
 showed that class was not spread thin: **`AccessibleButton` alone owned 1,049 of 2,653**,
@@ -279,7 +279,7 @@ file unblocked roughly 4,200 call sites elsewhere. This is the 8:1 ratio
 described below, paying off in the direction the ratio predicted. The `FINAL`
 work, by contrast, was worth 429 skips: real, but an order of magnitude smaller.
 
-Grouped by root cause. Re-derived post-#PRNUM on a consistent cache, by exact
+Grouped by root cause. Re-derived post-#1717 on a consistent cache, by exact
 `message` string out of the `.aotstats` (8,820 hard skips; shares are of that):
 
 | Skips | Share | `message` |
