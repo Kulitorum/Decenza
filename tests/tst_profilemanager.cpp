@@ -1588,9 +1588,8 @@ private slots:
         McpTestFixture f;
         registerDebugTools(&f.registry, nullptr);
 
-        const QJsonArray rows =
-            f.callTool("debug_get_log", QJsonObject{{"families", true}})
-                ["unregisteredBracketPrefixes"].toArray();
+        const QJsonObject result = f.callTool("debug_get_log", QJsonObject{{"families", true}});
+        const QJsonArray rows = result["unregisteredBracketPrefixes"].toArray();
         QCOMPARE(rows.size(), 2);
         QCOMPARE(rows[0].toObject()["prefix"].toString(), QStringLiteral("Zebra"));
         QCOMPARE(rows[1].toObject()["prefix"].toString(), QStringLiteral("Aardvark"));
@@ -1609,6 +1608,13 @@ private slots:
 
         McpTestFixture f;
         registerDebugTools(&f.registry, nullptr);
+
+        // getPersistedLogChunk() warns when it cannot open the file, which is
+        // correct and is half the point — the census field below is the same
+        // fact delivered to the MCP caller, who never sees the app's own log.
+        // Permitted rather than asserted: what this test is about is the field.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("failed to open persisted log for reading"));
 
         const QJsonObject result = f.callTool("debug_get_log", QJsonObject{{"families", true}});
         QCOMPARE(result["linesScanned"].toInt(), 0);

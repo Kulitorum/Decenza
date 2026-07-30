@@ -1,5 +1,6 @@
 #include "webdebuglogger.h"
 
+#include "core/logpaths.h"
 #include "mcp/mcplogfilter.h"
 
 #include <QDebug>
@@ -17,10 +18,6 @@ const QString kSessionMarker = QStringLiteral("========== SESSION START:");
 // to keep out.
 const QString kTrimBanner = QStringLiteral("... [log trimmed] ...");
 }
-
-#ifdef Q_OS_ANDROID
-#include <QJniObject>
-#endif
 
 WebDebugLogger* WebDebugLogger::s_instance = nullptr;
 QtMessageHandler WebDebugLogger::s_previousHandler = nullptr;
@@ -58,23 +55,12 @@ WebDebugLogger::WebDebugLogger(QObject* parent)
 {
     m_timer.start();
 
-    // Set up log file path — use external storage on Android so logs survive APK updates.
-    // Falls back to internal app data if external storage is unavailable.
-    QString dataDir;
-#ifdef Q_OS_ANDROID
-    QJniObject javaPath = QJniObject::callStaticObjectMethod(
-        "io/github/kulitorum/decenza_de1/StorageHelper",
-        "getLogsPath",
-        "()Ljava/lang/String;");
-    if (javaPath.isValid()) {
-        dataDir = javaPath.toString();
-    }
-#endif
-    if (dataDir.isEmpty()) {
-        dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    }
-    QDir().mkpath(dataDir);
-    m_logFilePath = dataDir + "/debug.log";
+    // External storage on Android so logs survive APK updates and the user can
+    // retrieve them; internal app data everywhere else. This body used to live
+    // here; it moved to logpaths.h when TranslationManager needed to write its
+    // key dump into the SAME directory, and getting that wrong on Android means
+    // a file the reader of the log cannot open.
+    m_logFilePath = DecenzaPaths::logsDirectory() + "/debug.log";
 
     // Write session start marker
     QFile file(m_logFilePath);

@@ -2,7 +2,7 @@
 #include "translationmanager.h"
 #include "settings.h"
 #include "settings_ai.h"
-#include "network/webdebuglogger.h"
+#include "logpaths.h"
 #include <QStandardPaths>
 #include <QDir>
 #include <QDirIterator>
@@ -954,22 +954,10 @@ void TranslationManager::applyScanResults(const QList<ScannedString>& found, con
         // precisely so a user can retrieve the file. A dump written to internal
         // app data on Android is unreachable without adb — it would exist, be
         // named in the log, and be impossible for the person reading that log to
-        // open. Deriving the directory from the logger that already resolved it
-        // keeps the two in one place rather than duplicating the Android branch.
-        // instance() is null until install() runs, which is true in unit tests and
-        // during very early startup, so the desktop-correct location is the
-        // fallback rather than a crash.
-        QString dumpDir;
-        if (const WebDebugLogger* logger = WebDebugLogger::instance()) {
-            const QString logPath = logger->logFilePath();
-            const qsizetype slash = logPath.lastIndexOf(QLatin1Char('/'));
-            if (slash > 0)
-                dumpDir = logPath.left(slash);
-        }
-        if (dumpDir.isEmpty())
-            dumpDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-        QDir().mkpath(dumpDir);
-        const QString dumpPath = dumpDir + QStringLiteral("/translation-keys-not-in-qml.txt");
+        // open. DecenzaPaths::logsDirectory() is the single resolver this and
+        // WebDebugLogger share, rather than a second copy of the Android branch.
+        const QString dumpPath = DecenzaPaths::logsDirectory()
+                                 + QStringLiteral("/translation-keys-not-in-qml.txt");
 
         // QSaveFile, so a failed write leaves the PREVIOUS dump intact. With
         // Truncate a full disk or a revoked permission destroys the good copy and
