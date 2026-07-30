@@ -2,6 +2,7 @@
 #include "sanitizers.h"
 #include <QCoreApplication>
 #include <QDateTime>
+#include <cmath>
 #include <QDebug>
 #include <QJsonDocument>
 #include <QQmlApplicationEngine>
@@ -77,11 +78,25 @@ void MemoryMonitor::onSampleTimerTick()
     // 5 MB band, QObjects pinned at 9,605).
     //
     // The gate text is QUANTIZED rather than the message itself, because the message never repeats
-    // byte-for-byte — RSS moves 0.1 MB between any two samples. Bucketing to 5 MB of RSS and 25
-    // QObjects means "same plateau" collapses while a real step change prints at once. A new peak
-    // always prints: it is the one sample that cannot be reconstructed from a later line.
+    // byte-for-byte — RSS moves 0.1 MB between any two samples. "Same plateau" collapses while a
+    // real step change prints at once. A new peak always prints: it is the one sample that cannot
+    // be reconstructed from a later line.
+    //
+    // QUANTIZED AGAINST THE LAST LINE PRINTED, NOT A FIXED BUCKET. This used
+    // static_cast<int>(rssMB / 5.0), and a real Android capture shows why that fails: RSS sat at
+    // 119.1–121.6 MB, straddling the 120.0 bucket edge, so consecutive samples alternated between
+    // buckets 23 and 24 and the "collapsed" line printed 160 times in one session — roughly every
+    // other sample, for memory that never moved 2.5 MB. A fixed grid is only quiet when the value
+    // happens to sit mid-bucket, which is not something a memory figure will do for you.
+    //
+    // Anchoring the band to the last PRINTED value removes the edge entirely: nothing prints until
+    // RSS is genuinely 5 MB away from what was last reported, and a real climb still prints once
+    // per 5 MB. Object count keeps a fixed bucket — it is a count that steps rather than jitters,
+    // so it has no edge to oscillate across.
+    if (m_lastLoggedRssMB < 0.0 || std::abs(rssMB - m_lastLoggedRssMB) >= 5.0)
+        m_lastLoggedRssMB = rssMB;
     const QString gate = QStringLiteral("rss%1|obj%2")
-                             .arg(static_cast<int>(rssMB / 5.0))
+                             .arg(m_lastLoggedRssMB, 0, 'f', 1)
                              .arg(objCount / 25);
     LogCollapse::Collapsed collapsed;
     const bool speak = m_logCollapse.shouldLog(QStringLiteral("sample"), gate,
