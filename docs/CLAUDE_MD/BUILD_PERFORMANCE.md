@@ -126,6 +126,13 @@ annotation with an incremental build.** Two experiments on the same day produced
 byte-identical generated code for "before" and "after" purely because the staged
 copy already held the "after" text.
 
+**It caught the fix for itself, on the day that fix merged.** Merging #1714 into
+#1715 brought the newly annotated `Theme.qml`; the staged copy and the binary both
+updated, the suite passed, and of 217 `.aotstats` exactly **one** was newer than
+`Theme.qml` — `Theme_qml.cpp.aotstats`. Every other unit still called the seven
+wrappers as `var`. Knowing about this section is not protection: an ordinary
+rebuild does not clear it, and nothing in the build output says so.
+
 Force a consistent cache before believing any cross-file result:
 
 ```bash
