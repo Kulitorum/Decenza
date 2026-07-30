@@ -305,6 +305,83 @@ tablet). Bytecode caching — which `--only-bytecode` retains — already covers
 and compile cost; only *execution* of bindings would change. That is the open
 question, and it is measurable (see below).
 
+## The two biggest remaining skip classes, and why neither is worth chasing
+
+Measured 2026-07-30 at 60.7% coverage: 17,661 compiled, 1,415 partial, 10,011
+hard-skipped (`codegenResult` `2`; note `1` is **partial**, not skipped — ranking
+files by "not 0" makes `ShotDetailPage.qml` look like 2% when it is mostly
+partial). Two reasons dominate, and both are traps for anyone ranking by count.
+
+**`Type TranslationManager does not have a property translate` — 1787 skips, 18%
+of all skips, spread over every page.** `translate` is a `Q_PROPERTY` holding a
+callable so that bindings record a dependency and re-evaluate on a language
+change; that is exactly what qmlcachegen cannot compile a call through. Biggest
+number on the board, near-smallest prize: the property's `NOTIFY` is
+`translationsChanged`, which fires on a language switch or a translation
+download and nothing else, so these bindings evaluate **once at page
+construction and never again** for the ~95% of users who never change language.
+AOT would remove the JS frame, not the C++ hash lookup inside. Not worth
+touching the reactivity mechanism `tst_translationreactivity` guards.
+
+**`Cannot retrieve a non-object type by ID: <id>` — 1464 skips across 82 files.**
+The condition is `variant() == ObjectById && !retrieved->isReferenceType()`
+(`qqmljstypepropagator.cpp:637-641`): `genericType()` walks the base chain looking
+for a scope whose `internalName()` is literally `QObject`, and returns
+`m_jsValueType` — a value type — when the walk does not get there
+(`qqmljstyperesolver.cpp:875-921`).
+
+**Referencing by `id` any object whose type comes from QtQuick.Controls fails.
+Everything else works.** Established by controlled experiment (an 11-line probe
+compiled with the project's own qmlcachegen flags), not by correlation:
+
+| Referenced object's type | Origin | Result |
+|---|---|---|
+| `Item`, `Rectangle`, `Timer` | QtQuick / QtQml C++ | compiles |
+| `T.Page` | QtQuick.**Templates** (`QQuickPage`) | compiles |
+| `ThemedIcon` (roots at `Item`) | Decenza composite | compiles |
+| `Page`, `StackView`, `Dialog`, `ApplicationWindow` | QtQuick.**Controls** | **fails** |
+| `AccessibleButton` (roots at `Button`) | Decenza composite | **fails** |
+
+It is inherited, so a Decenza composite fails exactly when its own root is a
+Controls type. It applies to the file's own root id and to nested ids alike —
+root vs nested makes no difference, only the type does.
+
+The reason is visible in `QtQuick/Controls/qmldir`: that module declares **no
+types**. Every concrete type arrives from a style module (`optional import
+QtQuick.Controls.Material auto`, … , `default import QtQuick.Controls.Basic
+auto`), selected at run time. So the compiler cannot resolve the base chain to
+QObject, and every id-load of such an object degrades to `var`.
+
+**A fix exists and is mechanical.** Swapping `SteamPage.qml`'s root from `Page` to
+`T.Page` — one import line and one identifier — measured:
+
+| SteamPage.qml root | compiled | hard skips | of which id-skips |
+|---|---|---|---|
+| `Page` (Controls) | 252 | 108 | 52 |
+| `T.Page` (Templates) | **280** | **80** | **1** |
+
+What that swap does *not* settle is behaviour: a Templates type ships no style
+visuals, so anything relying on the Controls default background, padding or
+font needs checking per file. 74 of the 82 affected files already set
+`background:` explicitly. Treat the table as proof the AOT half works, and the
+visual half as unverified.
+
+**Do not try to fix it by dropping the `id.` qualifier.** Measured on
+`SteamPage.qml`: stripping all 202 `steamPage.` prefixes removed all 52 id skips
+and added 51 `Cannot access value for name …` and `method … cannot be resolved`
+skips, for a net of **−1** — and introduced qmllint `unqualified` warnings inside
+`Connections` blocks, where the scope object is the Connections rather than the
+page. The qualifier was never the cause.
+
+**Two traps that made this take four wrong answers.** First, a skipped entry
+reports only its *first* error, so an id failure is invisible in any function
+that already failed on `Could not find signal "clicked"` or `Functions without
+type annotations` — which makes it look like the same id compiles in one place
+and not another. Second, 291 groups tree-wide have two entries sharing one
+(line, column, function), one compiled and one skipped, so attributing a result
+to a source line by proximity is unreliable. Both produce clean-looking
+correlations that are artifacts.
+
 ## Levers
 
 ### 1. Drop AOT — `--only-bytecode`
