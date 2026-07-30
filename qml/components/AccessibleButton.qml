@@ -4,12 +4,23 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
-import QtQuick.Controls
+import QtQuick.Templates as T
 import QtQuick.Effects
 import Decenza
 
 // Button with required accessibility - enforces accessibleName at compile time
-Button {
+//
+// Rooted at QtQuick.Templates.Button, NOT QtQuick.Controls.Button. Under a style,
+// `Controls.Button` resolves to that style's Button.qml — a COMPOSITE type whose base
+// chain qmlcachegen cannot walk at build time, so every `root.<prop>` here and every
+// `text:`/`onClicked:` on an AccessibleButton ANYWHERE in the app fell back to the
+// interpreter: 1,085 skipped bindings, the single largest AOT loss in the tree.
+// Templates.Button is the plain C++ QQuickButton, so the chain resolves.
+//
+// This is only safe because the file already replaces `contentItem` and `background`
+// outright and uses no Material attached property — nothing of the style's Button.qml
+// was reaching the screen. What DID come from it is re-declared below.
+T.Button {
     id: root
 
     // Required property - will cause compile error if not provided
@@ -57,6 +68,22 @@ Button {
     // Optional font overrides (0/-1 = use defaults)
     property int _customFontSize: 0
     property int _customFontWeight: -1
+
+    // Carried over verbatim from qtdeclarative/src/quickcontrols/material/Button.qml,
+    // which supplied them and which we no longer inherit. Templates types declare no
+    // geometry at all — QQuickControl computes implicitContentWidth/implicitBackgroundWidth
+    // in C++ but leaves implicitWidth itself to the style
+    // (qquickcontrol.cpp:1749-1757), so without this every button would be 0 wide.
+    //
+    // The insets are the load-bearing ones: Material draws a button's background 6px
+    // short at top and bottom, so the fill under a 44px AccessibleButton is 32px tall.
+    // They are deliberately unscaled, exactly as Material has them — scaling them would
+    // change the look at any Theme scale other than 1.
+    implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
+                            implicitContentWidth + leftPadding + rightPadding)
+    topInset: 6
+    bottomInset: 6
+    verticalPadding: 14   // Material.buttonVerticalPadding, non-Dense variant
 
     implicitHeight: Theme.scaled(44)
     leftPadding: Theme.scaled(20)

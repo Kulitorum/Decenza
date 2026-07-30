@@ -1,8 +1,12 @@
 import QtQuick
-import QtQuick.Controls
+import QtQuick.Templates as T
 import Decenza
 
-Switch {
+// Templates.Switch, not Controls.Switch — see the note in AccessibleButton.qml for why a
+// style-composite root costs every binding on this type its AOT compilation. Nothing
+// carries over here: this file already replaces `indicator`, `contentItem` and both
+// implicit sizes, and Material's Switch.qml declares no insets and no padding.
+T.Switch {
     id: control
 
     // Optional accessibility label for context when text is empty

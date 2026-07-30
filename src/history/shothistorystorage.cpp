@@ -75,11 +75,38 @@ void ShotHistoryStorage::runOnDbThread(std::function<void()> task)
     m_dbWorker->post(std::move(task));
 }
 
+void ShotHistoryStorage::runDetachedDbThread(std::function<void()> body)
+{
+    // Counted, so isDbWorkIdle() can see it. The counter is a shared_ptr for the
+    // same reason m_destroyed is: the thread may outlive `this`, and it must still
+    // be able to decrement without touching a destroyed object.
+    auto inFlight = m_detachedDbThreads;
+    inFlight->fetch_add(1, std::memory_order_relaxed);
+    QThread* thread = QThread::create([body = std::move(body), inFlight]() {
+        body();
+        // Release, paired with the acquire in isDbWorkIdle(): a reader that sees
+        // zero must also see everything the thread did to the DB file before it.
+        inFlight->fetch_sub(1, std::memory_order_release);
+    });
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    thread->start();
+}
+
 bool ShotHistoryStorage::isDbWorkIdle() const
 {
     // No worker means nothing was ever posted, which is idle by definition — the
     // worker is created lazily on first use (runOnDbThread).
-    return !m_dbWorker || m_dbWorker->isIdle();
+    //
+    // The detached count is the other half, and it used to be missing: the eleven
+    // read queries spawn one-shot threads that never go through m_dbWorker, so a
+    // caller that waited on this was told "idle" while a thread was mid-SELECT.
+    // initialize() itself starts one (the distinct-cache pre-warm), so EVERY user
+    // of this class had one running. It surfaced as tst_mcptools_write failing
+    // with `disk I/O error Unable to execute statement` — a test's QTemporaryDir
+    // deleting the .db out from under the previous test's still-running pre-warm,
+    // with the warning landing in whichever test happened to be running next.
+    return (!m_dbWorker || m_dbWorker->isIdle())
+        && m_detachedDbThreads->load(std::memory_order_acquire) == 0;
 }
 
 void ShotHistoryStorage::close()
@@ -3313,7 +3340,7 @@ void ShotHistoryStorage::requestCreateBackup(const QString& destPath)
     const QString dbPath = m_dbPath;
     auto destroyed = m_destroyed;
 
-    QThread* thread = QThread::create([this, dbPath, destPath, destroyed]() {
+    runDetachedDbThread([this, dbPath, destPath, destroyed]() {
         QString resultPath = createBackupStatic(dbPath, destPath);
 
         if (*destroyed) return;
@@ -3327,8 +3354,6 @@ void ShotHistoryStorage::requestCreateBackup(const QString& destPath)
         }, Qt::QueuedConnection);
     });
 
-    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-    thread->start();
 }
 
 void ShotHistoryStorage::checkpoint()
@@ -3419,7 +3444,7 @@ void ShotHistoryStorage::requestImportDatabase(const QString& filePath, bool mer
     const QString dbPath = m_dbPath;
     auto destroyed = m_destroyed;
 
-    QThread* thread = QThread::create([this, dbPath, cleanPath, merge, destroyed]() {
+    runDetachedDbThread([this, dbPath, cleanPath, merge, destroyed]() {
         bool success = importDatabaseStatic(dbPath, cleanPath, merge);
 
         if (*destroyed) return;
@@ -3439,8 +3464,6 @@ void ShotHistoryStorage::requestImportDatabase(const QString& filePath, bool mer
         }, Qt::QueuedConnection);
     });
 
-    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-    thread->start();
 }
 
 // ============================================================================

@@ -4,13 +4,16 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
-import QtQuick.Controls
+import QtQuick.Templates as T
 import QtQuick.Effects
 import Decenza
 
 // Round icon button with consistent styling
 // Use text property for text/emoji icons, or icon.source for image icons
-RoundButton {
+//
+// Templates.RoundButton, not Controls.RoundButton — see the note in AccessibleButton.qml
+// for why a style-composite root costs every binding on this type its AOT compilation.
+T.RoundButton {
     id: root
 
     // For toggle states (starred, selected, etc.)
@@ -30,6 +33,15 @@ RoundButton {
     implicitWidth: Theme.scaled(40)
     implicitHeight: Theme.scaled(40)
     flat: true
+
+    // From qtdeclarative/src/quickcontrols/material/RoundButton.qml, which supplied these
+    // before this file was re-rooted. RoundButton insets on all four sides, so the round
+    // background under a 40px button is a 28px circle; dropping them would fatten every
+    // icon button in the app. Unscaled, as Material has them.
+    topInset: 6
+    bottomInset: 6
+    leftInset: 6
+    rightInset: 6
 
     // Default icon styling - override with icon.width/height/color as needed
     icon.width: Theme.scaled(18)

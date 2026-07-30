@@ -178,14 +178,30 @@ again after #1698 (`FINAL` on the settings/controller accessors, type annotation
 in `Theme.qml` and `IdlePage.qml`).
 
 ```
-                          post-cleanup      post-#1698      post-#1715
-total bindings/functions       29097           29097           29087
-  AOT compiled            13017 (44.7%)   17631 (60.6%)   18168 (62.5%)
-  skipped -> interpreter  14665 (50.4%)   10051 (34.5%)    9504 (32.7%)
-  partial                  1415 ( 4.9%)    1415 ( 4.9%)    1415 ( 4.9%)
+                          post-cleanup      post-#1698      post-#1715     post-#PRNUM
+total bindings/functions       29097           29097           29087           29088
+  AOT compiled            13017 (44.7%)   17631 (60.6%)   18168 (62.5%)   18853 (64.8%)
+  skipped -> interpreter  14665 (50.4%)   10051 (34.5%)    9504 (32.7%)    8820 (30.3%)
+  partial                  1415 ( 4.9%)    1415 ( 4.9%)    1415 ( 4.9%)    1415 ( 4.9%)
 ```
 
 #1715 rooted 31 pages at `QtQuick.Templates.Page`; **id skips went 1,464 -> 510**.
+
+#PRNUM did the same for the button family — `AccessibleButton`, `StyledIconButton`,
+`ActionButton`, `StyledSwitch`. Attributing every `Could not find property/signal` skip to
+the element it was written on (walk back from the reported line to the enclosing `Type {`)
+showed that class was not spread thin: **`AccessibleButton` alone owned 1,049 of 2,653**,
+almost all of it `text:` and `onClicked:` on instances in other files. Re-rooting the four
+took the whole class 2,653 -> 1,271 and cleared all four types to zero.
+
+**But the total only moved 9,504 -> 8,820, not by the 1,353 those four accounted for.**
+Both numbers are right. Resolving a type lets qmlcachegen reach *further* into bindings it
+used to abandon at the first unresolvable member, where it then hits the next blocker:
+`TranslationManager.translate` went **1,833 -> 2,168** in the same sweep. This is the
+qmllint effect in `QML_GOTCHAS.md` ("a count going UP after a fix is usually the fix
+working") showing up in the AOT stats. **Diff per-cause, never on the total** — judged on
+the total alone this migration looks half as effective as it is, and the +335 looks like a
+regression it introduced.
 
 The post-#1715 column is measured on a **consistent** cache — all 213 units regenerated
 together, after #1714's `Theme.qml` annotations. #1715's own commit message reports
@@ -219,6 +235,28 @@ property typed Page or casts to it"; the cast was there, one grep away.
 the Templates type.** `as T.Page` is strictly more general: it is the C++ `QQuickPage`, so
 it matches Templates-rooted and Controls-rooted instances alike.
 
+### What the style's QML supplies that Templates does not
+
+`Page` was nearly free because a Material `Page` is nearly empty. Most controls are not.
+Open the style file — `qtdeclarative/src/quickcontrols/material/<Type>.qml` — and carry
+over anything the migrated file does not already replace. Three things bite:
+
+- **`implicitWidth` / `implicitHeight`.** The `Math.max(implicitBackground… , implicitContent…)`
+  formula lives ONLY in the style QML. C++ computes the `implicitContentWidth` and
+  `implicitBackgroundWidth` inputs but leaves the result to the style
+  (`qquickcontrol.cpp:1749-1757`), so a Templates root that does not declare it is **0 wide**.
+- **Insets.** Material inset buttons by 6 (all four sides for `RoundButton`, top/bottom for
+  `Button`), so the background paints smaller than the control. Dropping them silently
+  fattens every instance. They are **unscaled literals** in Material — keep them unscaled,
+  or the look changes at every `Theme.scaled` factor except 1.
+- **`contentItem`.** Only safe to omit if the file already replaces it. `ColoredIcon.qml` is
+  the counter-example and is deliberately still Controls-rooted: its whole mechanism is
+  Material's internal `IconLabel` doing `icon.color` tinting, and a Templates root would
+  render nothing. 38 skips is not worth a blank icon.
+
+Palette and default font are NOT in this list — those come from `QQuickTheme`, which the
+style plugin registers against the C++ class, so a Templates-rooted control still gets them.
+
 **Read the measurement warning below before trusting any number you take
 yourself.** #1698 reported +1.7 points for days because every intermediate
 measurement was taken against a build that had recompiled only the two edited
@@ -241,33 +279,42 @@ file unblocked roughly 4,200 call sites elsewhere. This is the 8:1 ratio
 described below, paying off in the direction the ratio predicted. The `FINAL`
 work, by contrast, was worth 429 skips: real, but an order of magnitude smaller.
 
-Grouped by root cause. Re-derived post-#1715 on a consistent cache, by exact
-`message` string out of the `.aotstats` (9,504 hard skips; shares are of that):
+Grouped by root cause. Re-derived post-#PRNUM on a consistent cache, by exact
+`message` string out of the `.aotstats` (8,820 hard skips; shares are of that):
 
 | Skips | Share | `message` |
 |---|---|---|
-| 1997 | 21.0 % | `Could not find property "X".` |
-| 1833 | 19.3 % | `Type TranslationManager does not have a property translate for calling` |
-| 672 | 7.1 % | `Could not find signal "X".` |
-| 570 | 6.0 % | `Cannot generate efficient code for call to untyped JavaScript function` |
-| 524 | 5.5 % | `Functions without type annotations won't be compiled` |
-| 399 | 4.2 % | `Cannot access value for name root` |
-| 164 | 1.7 % | `Cannot retrieve a non-object type by ID: root` |
-| 144 | 1.5 % | `Cannot generate efficient code for storing an array in a non-sequence type` |
-| 126 | 1.3 % | `Cannot load property length from <T> with type QVariant.` |
-| 79 | 0.8 % | `Cannot access value for name popup` |
+| 2168 | 24.6 % | `Type TranslationManager does not have a property translate for calling` |
+| 1107 | 12.6 % | `Could not find property "X".` |
+| 593 | 6.7 % | `Cannot generate efficient code for call to untyped JavaScript function` |
+| 524 | 5.9 % | `Functions without type annotations won't be compiled` |
+| 434 | 4.9 % | `Cannot access value for name root` |
+| 180 | 2.0 % | `Could not find signal "X".` |
+| 149 | 1.7 % | `Cannot retrieve a non-object type by ID: root` |
+| 144 | 1.6 % | `Cannot generate efficient code for storing an array in a non-sequence type` |
+| 87 | 1.0 % | `Cannot access value for name popup` |
+| 76 | 0.9 % | `Cannot retrieve a non-object type by ID: popup` |
 | **0** | — | **context property** (was 3351 / 19.0 %) |
 
-Two things this table says that the previous, coarser one hid:
+What is left, in the order worth taking:
 
-- **The `root` id is now the whole of the id problem**, at 563 skips across the two
-  `root` rows. #1715 took the page ids out; what is left is `main.qml`'s
-  `ApplicationWindow`, which is Controls-rooted for the same reason the pages were.
-- **`Could not find property` + `Could not find signal` is the largest class at 2,669
-  combined**, and it is mostly *downstream* of the same defect: those members read as
-  missing because the type declaring them is a Controls-rooted composite whose base
-  chain qmlcachegen cannot resolve (`AccessibleButton` and friends). It is one cause
-  wearing two message strings, not two independent buckets.
+- **`TranslationManager.translate` is now the single largest class at 2,168.** It grew as
+  the Controls-composite work shrank the classes in front of it (see above). Do not touch
+  it without reading `tst_translationreactivity.cpp` first — `translate` is a `Q_PROPERTY`
+  holding a callable precisely so a binding records a dependency on it, and that
+  reactivity is worth more than the skips.
+- **`Could not find property` + `signal` is down to 1,287 from 2,669**, and what remains
+  is the same defect in the next tier of types: **`Dialog` 572**, `Label` 204,
+  `StyledComboBox` 69, `ColoredIcon` 38. `Dialog` is the big one and the risky one — a
+  Material `Dialog` supplies header, footer, dim and an elevated background, so it is
+  nothing like the drop-in the buttons were.
+- **The `root` id is 583 across its two rows**, essentially all `main.qml`'s
+  `ApplicationWindow` — Controls-rooted for exactly the reason the pages were. One file,
+  same migration, but it is the shell, so the visual risk is concentrated.
+- To attribute a `Could not find property/signal` skip to the type that caused it, walk
+  back from the reported line to the enclosing `Type {` and count by that. The message
+  names the member, never the type — counting by message alone tells you `text` is a
+  problem, not that `AccessibleButton` is.
 
 Re-derive rather than hand-adjusting these rows, and only from a cache you have just
 forced consistent — see the staleness section above for why that is not optional.

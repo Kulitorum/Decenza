@@ -688,6 +688,8 @@ private slots:
         QCOMPARE(result["recipeId"].toInteger(), recipeId);
         QCOMPARE(result["name"].toString(), QString("Morning Latte"));
         QCOMPARE(result["revertMinutes"].toInt(), 15);
+        drainDbWork(storage);
+        storage.close();
     }
 
     void recipeGetAutoLoadStaleIdReturnsNullNotError()
@@ -705,6 +707,8 @@ private slots:
         QJsonObject result = f.callAsyncTool("recipe_get_auto_load", {});
         QVERIFY(result["recipeId"].isNull());
         QVERIFY(!result.contains("error"));
+        drainDbWork(storage);
+        storage.close();
     }
 
     void recipeGetAutoLoadConfiguredButStorageUnavailableIsError()
@@ -747,6 +751,8 @@ private slots:
         QCOMPARE(f.settings.dye()->autoLoadRecipeId(), static_cast<int>(recipeId));
         // Mutual exclusion: setting a recipe auto-load clears the profile side.
         QCOMPARE(f.settings.app()->autoLoadProfileFilename(), QString());
+        drainDbWork(storage);
+        storage.close();
     }
 
     void recipeSetAutoLoadMissingRecipeIdIsError()
@@ -809,6 +815,8 @@ private slots:
         QJsonObject result = f.callAsyncTool("recipe_set_auto_load", args);
         QCOMPARE(result["error"].toString(), QString("Recipe not found: 99999"));
         QCOMPARE(f.settings.dye()->autoLoadRecipeId(), before);
+        drainDbWork(storage);
+        storage.close();
     }
 
     void recipeSetAutoLoadArchivedIsError()
@@ -828,6 +836,8 @@ private slots:
         QJsonObject result = f.callAsyncTool("recipe_set_auto_load", args);
         QCOMPARE(result["error"].toString(), QString("Recipe is archived"));
         QCOMPARE(f.settings.dye()->autoLoadRecipeId(), before);
+        drainDbWork(storage);
+        storage.close();
     }
 
     void recipeSetAutoLoadOverwritesExistingPin()
@@ -857,6 +867,8 @@ private slots:
         QVERIFY2(resultSecond["success"].toBool(), qPrintable(QJsonDocument(resultSecond).toJson()));
         QCOMPARE(resultSecond["recipeId"].toInteger(), second);
         QCOMPARE(f.settings.dye()->autoLoadRecipeId(), static_cast<int>(second));
+        drainDbWork(storage);
+        storage.close();
     }
 
     void recipeSetAutoLoadOptionalRevertMinutesUpdatesSharedSetting()
@@ -878,6 +890,8 @@ private slots:
         QCOMPARE(result["revertMinutes"].toInt(), 33);
         // Shared with the profile side.
         QCOMPARE(f.settings.app()->autoLoadRevertMinutes(), 33);
+        drainDbWork(storage);
+        storage.close();
     }
 
     void recipeClearAutoLoadSuccessPreservesRevertMinutes()
