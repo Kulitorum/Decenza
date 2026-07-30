@@ -41,16 +41,16 @@ Four of the seven had a wrong stated symptom, and two were artifacts of one mach
 - [x] 5.2 Fix the mechanism that actually destroyed the value: decimals came from the STEP alone, so a fallback step of 1.0 meant zero decimals and reformatted `1.1` to `1`. `_stepDecimals(step, value)` now takes whichever has more precision.
 - [x] 5.3 **Reverted two wrong fixes for the step fallback**, both recorded because each looked right: conditioning on `grinderIsClickIndexed()` (which is `notation == Compound` and therefore true for every Eureka Mignon — it would have skipped the reporter's own grinder), and a flat 0.1 (wrong for letter-notation and true detent grinders). The fallback stays 1.0. Grind settings are not uniformly numeric and the registry has no granularity field, so any blanket default is a guess.
 - [x] 5.4 Log the derivation — `ShotHistoryStorage: grind step for X = N, derived from M distinct setting(s)` — deduped per (grinder, answer) since it is called from a QML binding. This one line would have answered the ticket immediately.
-- [ ] 5.5 Manual QML check: enter a decimal grind on a thin-history grinder and confirm it survives. No QML harness exists and logic is deliberately not extracted to C++ to create one.
+- [x] 5.5 Manual QML check, done on a real build: a typed `1.1` on a thin-history grinder survives a navigate-away-and-back, and the steppers give 2.1 / 0.1 rather than snapping to whole numbers. Manual because the fix is pure arithmetic in QML — it compiles, qmllints and passes all 110 tests whatever number it produces, and no QML harness exists to evaluate it.
 
 ## 6. Verification
 
 - [x] 6.1 Full suite green via Qt Creator (Jeff runs it; QC is shared).
 - [x] 6.2 `scripts/check_log_markers.py` clean.
 - [x] 6.3 Read a live session at `minLevel="INFO"` and confirm the quieter ladders. Done: 18 INFO+ lines for a whole startup. (The wall-clock prefix was live at that point and has since been reverted — see 1.1 — and the funnel-probe silence observed in the same read belongs to #1716, see 3.4.)
-- [ ] 6.6 Re-read a live session after the review fixes, since the build under 6.3 predates all of §7.
+- [ ] 6.6 **Not done, and recorded rather than assumed.** Re-reading a live session after the §7 fixes needs the app running THIS build; the instance reachable over MCP at the time was older than #1716 (its `debug_get_log` description advertises four markers, not the nine on `main`, and has no `families` parameter). Claiming it from that instance would have been the exact overclaim §7 is about.
 - [x] 6.4 Run `families=true` against a real log. Done, and it caught the wrong note in 2.4.
-- [ ] 6.5 Re-run `families=true` after a fresh log has accumulated, to confirm the collapsed families actually shrank rather than merely moving.
+- [ ] 6.5 Re-run `families=true` after a fresh log has accumulated on this build, to confirm the collapsed families actually shrank rather than merely moving. Blocked on the same stale instance as 6.6.
 
 ## 7. Defects found by reviewing this change's own logging
 
@@ -68,8 +68,8 @@ Four review agents ran against the PR. The recurring finding was not a bug in th
 
 ## 8. Ship
 
-- [ ] 8.1 Open the PR.
-- [ ] 8.2 Run `/pr-review-toolkit:review-pr` and address findings.
+- [x] 8.1 Open the PR. [#1718](https://github.com/Kulitorum/Decenza/pull/1718)
+- [x] 8.2 Run `/pr-review-toolkit:review-pr` and address findings. Four agents; see §7.
 - [ ] 8.3 Archive and sync specs as the final commit on the PR.
 - [ ] 8.4 Squash-merge and delete the branch.
 
