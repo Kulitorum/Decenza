@@ -8,6 +8,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Templates as T
 import QtQuick.Layouts
 import Decenza
 
@@ -29,7 +30,7 @@ import Decenza
 // data → the profile's own recommended numbers. Tea default temps and the
 // profile type-match table live in C++ (src/core/drinktypes.h, exposed via
 // ProfileManager) — the single source shared with the ranking helpers.
-Page {
+T.Page {
     id: wizardPage
     // Declarative so it re-evaluates on a language change. This used to be an
     // imperative assignment in onCompleted/onActivated, which ran once and left
@@ -62,6 +63,23 @@ Page {
     // them in order; edit/clone/promote start at "summary". A step opened
     // FROM the summary returns to it on selection instead of advancing.
     property string currentStep: "drink"
+
+    // Step order, as an explicit switch rather than `[...].indexOf(currentStep)`.
+    // qmlcachegen compiles QJSList::indexOf() and assigns its qsizetype result
+    // straight into the int this feeds (StackLayout.currentIndex), which is a
+    // -Wshorten-64-to-32 error under -Werror. The binding only started compiling
+    // when this page moved to a T.Page root, so the Qt defect was invisible before.
+    // -1 for an unknown step, matching indexOf and leaving the StackLayout blank.
+    function _stepIndex(step: string): int {
+        switch (step) {
+        case "drink":   return 0
+        case "bean":    return 1
+        case "profile": return 2
+        case "details": return 3
+        case "summary": return 4
+        }
+        return -1
+    }
     property bool _fromSummary: false
     // True when the wizard OPENED on the summary (edit / promote / clone):
     // back from the summary then exits; in a creation walk it steps back
@@ -2374,8 +2392,7 @@ Page {
             StackLayout {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                currentIndex: ["drink", "bean", "profile", "details", "summary"]
-                    .indexOf(wizardPage.currentStep)
+                currentIndex: wizardPage._stepIndex(wizardPage.currentStep)
 
                 // ===== Step 1: drink type =====
                 ColumnLayout {

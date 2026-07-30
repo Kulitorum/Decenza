@@ -2,12 +2,13 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Templates as T
 import QtQuick.Layouts
 import QtQuick.Effects
 import Decenza
 import "../components/layout/ShotPlanConfig.js" as ShotPlanConfig
 
-Page {
+T.Page {
     id: shotDetailPage
     // Declarative so it re-evaluates on a language change. This used to be an
     // imperative assignment in onCompleted/onActivated, which ran once and left
@@ -78,11 +79,6 @@ Page {
             if (key === "shotReview/advancedMode")
                 shotDetailPage.advancedMode = Settings.boolValue("shotReview/advancedMode", false)
         }
-    }
-
-    // Re-assert on every activation, not just creation — returning here after a
-    // page was pushed on top would otherwise keep that page's header title.
-    StackView.onActivated: {
     }
 
     // RecipeField (labeled component row) is a shared component in

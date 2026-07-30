@@ -8,10 +8,11 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Templates as T
 import QtQuick.Layouts
 import Decenza
 
-Page {
+T.Page {
     id: page
 
     objectName: "hotWaterPage"

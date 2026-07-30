@@ -120,11 +120,33 @@ as you like.
 
 This is not theoretical. Adding `: string` to `Theme.tempUnitSuffix()` produced a
 build where `Theme_qml.cpp` called it as a typed QString function and every caller
-still called it as `var`. That mixed state turns out to be benign, but the class is
-not, and it burns investigation time in a nastier way: **you cannot A/B a QML type
-annotation with an incremental build.** Two experiments on the same day produced
-byte-identical generated code for "before" and "after" purely because the staged
-copy already held the "after" text.
+still called it as `var`. It also burns investigation time in a nastier way: **you
+cannot A/B a QML type annotation with an incremental build.** Two experiments on the
+same day produced byte-identical generated code for "before" and "after" purely
+because the staged copy already held the "after" text.
+
+**That mixed state is NOT benign. This document said it was; running the app
+disproved it.** Exercising espresso and steam on a mixed build logged
+
+```
+EspressoPage.qml:882:21:  Unable to assign [undefined] to QString
+SteamGraph.qml:213:13:    Unable to assign [undefined] to QString
+```
+
+both on `text: Theme.tempUnitSuffix()`, in units last generated **before** the
+annotation landed while `Theme_qml.cpp` was generated after it. That is the same
+function and the same message as the original report which got annotations banned
+from those seven wrappers for a release. So the mixed cache does not merely fail to
+prove things — **it reproduces, exactly, the runtime failure that the ban was
+founded on.** The annotations are still fine; the stale cache is the whole defect,
+and it is user-visible, not cosmetic.
+
+**It caught the fix for itself, on the day that fix merged.** Merging #1714 into
+#1715 brought the newly annotated `Theme.qml`; the staged copy and the binary both
+updated, the suite passed, and of 217 `.aotstats` exactly **one** was newer than
+`Theme.qml` — `Theme_qml.cpp.aotstats`. Every other unit still called the seven
+wrappers as `var`. Knowing about this section is not protection: an ordinary
+rebuild does not clear it, and nothing in the build output says so.
 
 Force a consistent cache before believing any cross-file result:
 
@@ -156,12 +178,46 @@ again after #1698 (`FINAL` on the settings/controller accessors, type annotation
 in `Theme.qml` and `IdlePage.qml`).
 
 ```
-                          post-cleanup      post-#1698
-total bindings/functions       29097           29097
-  AOT compiled            13017 (44.7%)   17631 (60.6%)
-  skipped -> interpreter  14665 (50.4%)   10051 (34.5%)
-  partial                  1415 ( 4.9%)    1415 ( 4.9%)
+                          post-cleanup      post-#1698      post-#1715
+total bindings/functions       29097           29097           29087
+  AOT compiled            13017 (44.7%)   17631 (60.6%)   18168 (62.5%)
+  skipped -> interpreter  14665 (50.4%)   10051 (34.5%)    9504 (32.7%)
+  partial                  1415 ( 4.9%)    1415 ( 4.9%)    1415 ( 4.9%)
 ```
+
+#1715 rooted 31 pages at `QtQuick.Templates.Page`; **id skips went 1,464 -> 510**.
+
+The post-#1715 column is measured on a **consistent** cache — all 213 units regenerated
+together, after #1714's `Theme.qml` annotations. #1715's own commit message reports
+18,127 / 62.32 %; that sweep predated the #1714 merge, so it is a real measurement of a
+tree that no longer exists rather than an error. The 41-binding difference is those
+annotations. Cite this column, not that one.
+
+**The id-skip and hard-skip columns overlap — do not add them.** An id skip IS a hard
+skip, counted again by cause, so `compiled + hard skips` is the same 27,672 before and
+after and a reviewer summing all three across the two sweeps will find a phantom
+954-binding discrepancy and report a measurement bug that is not there. One did.
+
+### Re-rooting a type at Templates BREAKS `as <ControlsType>` casts elsewhere
+
+Not a styling concern, and not visible to the compiler, qmllint or the test suite. Under a
+style, `QtQuick.Controls.Page` is the style's `Page.qml` — a **composite** type — and a
+composite matches only instances whose own metaobject chain contains it. Qt says so in
+`qqmltypewrapper.cpp:513-516`: *"a composite type cannot be equal to a non-composite object
+instance (Rectangle{} is never an instance of CustomRectangle)"*. `as` is `doInstanceof`,
+and a failed **object** cast returns `null`, not `undefined` (`qv4runtime.cpp:394-406`).
+
+So re-rooting a page at `T.Page` drops the style composite out of its chain, and every
+`x as Page` **elsewhere in the tree** starts returning null against it. #1715 hit exactly
+this: `main.qml`'s `shotChartOnCurrentPage` binding cast `pageStack.currentItem as Page`,
+and the migration would have pinned it to `false` on every page — a silently dead feature,
+in a file the migration never touched. The migration commit asserted "No file declares a
+property typed Page or casts to it"; the cast was there, one grep away.
+
+**Before re-rooting any type at Templates, grep the whole tree for `as <ThatType>` and for
+`property <ThatType>` — not just the files you are editing — and rewrite the survivors to
+the Templates type.** `as T.Page` is strictly more general: it is the C++ `QQuickPage`, so
+it matches Templates-rooted and Controls-rooted instances alike.
 
 **Read the measurement warning below before trusting any number you take
 yourself.** #1698 reported +1.7 points for days because every intermediate
@@ -185,31 +241,56 @@ file unblocked roughly 4,200 call sites elsewhere. This is the 8:1 ratio
 described below, paying off in the direction the ratio predicted. The `FINAL`
 work, by contrast, was worth 429 skips: real, but an order of magnitude smaller.
 
-Grouped by root cause:
+Grouped by root cause. Re-derived post-#1715 on a consistent cache, by exact
+`message` string out of the `.aotstats` (9,504 hard skips; shares are of that):
 
-| Skips | Share | Cause |
+| Skips | Share | `message` |
 |---|---|---|
-| 2753 | 27.4 % | unresolved id / model role |
-| 2681 | 26.7 % | member on unresolved type |
-| 1787 | 17.8 % | `TranslationManager.translate` — callable `Q_PROPERTY` |
-| 1729 | 17.2 % | other |
-| 530 | 5.3 % | untyped function definition |
-| 499 | 5.0 % | call to untyped JS function (was 4681 / 31.9 %) |
-| 72 | 0.7 % | shadowable base type (was 574) |
+| 1997 | 21.0 % | `Could not find property "X".` |
+| 1833 | 19.3 % | `Type TranslationManager does not have a property translate for calling` |
+| 672 | 7.1 % | `Could not find signal "X".` |
+| 570 | 6.0 % | `Cannot generate efficient code for call to untyped JavaScript function` |
+| 524 | 5.5 % | `Functions without type annotations won't be compiled` |
+| 399 | 4.2 % | `Cannot access value for name root` |
+| 164 | 1.7 % | `Cannot retrieve a non-object type by ID: root` |
+| 144 | 1.5 % | `Cannot generate efficient code for storing an array in a non-sequence type` |
+| 126 | 1.3 % | `Cannot load property length from <T> with type QVariant.` |
+| 79 | 0.8 % | `Cannot access value for name popup` |
 | **0** | — | **context property** (was 3351 / 19.0 %) |
 
-**Untyped JS functions — was 32 %, now 5 %, and still the best lever.** Of 1,111
-`function` declarations under `qml/`, **46** now carry a return-type annotation and
-**51** a typed parameter (13 and 15 before #1698). qmlcachegen will not compile an
+Two things this table says that the previous, coarser one hid:
+
+- **The `root` id is now the whole of the id problem**, at 563 skips across the two
+  `root` rows. #1715 took the page ids out; what is left is `main.qml`'s
+  `ApplicationWindow`, which is Controls-rooted for the same reason the pages were.
+- **`Could not find property` + `Could not find signal` is the largest class at 2,669
+  combined**, and it is mostly *downstream* of the same defect: those members read as
+  missing because the type declaring them is a Controls-rooted composite whose base
+  chain qmlcachegen cannot resolve (`AccessibleButton` and friends). It is one cause
+  wearing two message strings, not two independent buckets.
+
+Re-derive rather than hand-adjusting these rows, and only from a cache you have just
+forced consistent — see the staleness section above for why that is not optional.
+
+**Untyped JS functions — was 32 %, now 5 %, and still the best lever.** Of 1,107
+`function` declarations under `qml/`, **54** now carry a return-type annotation and
+**57** a typed parameter (13 and 15 before #1698). qmlcachegen will not compile an
 untyped function, and will not compile a *call* to one either, so definitions poison
 call sites at roughly 8:1. #1698 spent that ratio deliberately: ~32 annotations in
 `Theme.qml` plus 11 in `IdlePage.qml` cut the bucket from 4,681 to 499.
 
-**The remaining 530 untyped definitions are NOT all free to annotate.** Seven in
-`Theme.qml` (`tempUnitSuffix`, `cToDisplay`, …) are unannotated deliberately —
-annotating them made qmlcachegen produce a function returning `undefined` at
-runtime, and the mechanism is unexplained. See the comment at `qml/Theme.qml:406`.
-Annotations also change runtime semantics, not just codegen: a `string` parameter
+**The remaining untyped definitions are NOT all free to annotate — but the most
+cited reason not to was false.** Seven wrappers in `Theme.qml` (`tempUnitSuffix`,
+`cToDisplay`, …) carried a "DO NOT ADD TYPE ANNOTATIONS" ban for a release, on the
+strength of a real runtime failure, and this document repeated it as an unexplained
+qmlcachegen defect. #1714 established there was no defect: the failure was the
+cross-file cache staleness described above — `Theme.qml` recompiled typed while
+every caller's cached unit still called it as `var`. All seven are annotated now.
+See `qml/Theme.qml:413`, which keeps the account so the ban is not reinstated from
+memory. **An unexplained mechanism is a reason to keep investigating, not a reason
+to write a ban into a reference doc.**
+
+Annotations do still change runtime semantics, not just codegen: a `string` parameter
 converts `undefined` to the literal `"undefined"` (`qv4jscall_p.h:337` ->
 `qv4runtime.cpp:618`), which silently defeats an `if (!x) return ""` guard. Optional
 parameters and guarded ones must be `var`, which coerces nothing

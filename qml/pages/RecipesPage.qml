@@ -7,6 +7,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Templates as T
 import QtQuick.Layouts
 import Decenza
 import "../components/RecipeSearch.js" as RecipeSearch
@@ -15,7 +16,7 @@ import "../components/RecipeSearch.js" as RecipeSearch
 // grid, tap a card to activate the recipe, compact action row per card.
 // A recipe with shots archives (provenance must survive); one without is a
 // mistaken creation and deletes outright — same lifecycle as bags.
-Page {
+T.Page {
     id: recipesPage
     // Declarative so it re-evaluates on a language change. This used to be an
     // imperative assignment in onCompleted/onActivated, which ran once and left

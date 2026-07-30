@@ -5,7 +5,7 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
-import QtQuick.Controls
+import QtQuick.Templates as T
 import QtQuick.Layouts
 import Decenza
 
@@ -14,7 +14,7 @@ import Decenza
 // tapping a card selects it (sets activeBagId), and the Change Beans dialog
 // handles search/creation. There are no editable bean text fields here —
 // bag edits go through the dialog's Edit Bag form.
-Page {
+T.Page {
     id: bagInventoryPage
     // Declarative so it re-evaluates on a language change. This used to be an
     // imperative assignment in onCompleted/onActivated, which ran once and left

@@ -7,11 +7,12 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Templates as T
 import QtQuick.Effects
 import QtQuick.Layouts
 import Decenza
 
-Page {
+T.Page {
     id: shotComparisonPage
     // Declarative so it re-evaluates on a language change. This used to be an
     // imperative assignment in onCompleted/onActivated, which ran once and left

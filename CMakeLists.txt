@@ -1238,7 +1238,6 @@ set(QML_FILES
     qml/pages/RecipeWizardPage.qml
     qml/pages/PostShotReviewPage.qml
     qml/pages/AISettingsPage.qml
-    qml/pages/DialingAssistantPage.qml
     qml/pages/ShotHistoryPage.qml
     qml/pages/AutoFavoritesPage.qml
     qml/pages/AutoFavoriteInfoPage.qml
@@ -1295,7 +1294,6 @@ set(QML_FILES
     qml/components/ProfileGraph.qml
     qml/components/ProfilePreviewPopup.qml
     qml/components/ProfileInfoButton.qml
-    qml/components/ProfileDisplayButton.qml
     qml/components/BottomBar.qml
     qml/components/ThemedIcon.qml
     qml/components/TranslationErrorToast.qml
@@ -1305,7 +1303,6 @@ set(QML_FILES
     qml/components/HideKeyboardButton.qml
     qml/components/ExpandableTextArea.qml
     qml/components/FocusIndicator.qml
-    qml/components/ColorWheel.qml
     qml/components/ColorEditor.qml
     qml/components/ColorSwatch.qml
     qml/components/StyledTextField.qml

@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Templates as T
 import QtQuick.Window
 import Decenza
 
@@ -1164,11 +1165,21 @@ ApplicationWindow {
     // paintsShotChart is the surface's own drawing state, which it computes anyway, and its
     // `shotChart &&` short-circuits before touching LastShotChartSource when this
     // background is not selected, so the singleton's load guard still holds.
+    //
+    // `as T.Page`, NOT `as Page`. QtQuick.Controls.Page resolves to the active style's
+    // Page.qml — a COMPOSITE type — and a composite can only match an instance whose own
+    // metaobject chain contains it (`qqmltypewrapper.cpp:513-516`: "Rectangle{} is never an
+    // instance of CustomRectangle"). `as` is doInstanceof, and a failed object cast yields
+    // null (`qv4runtime.cpp:394-406`). Pages root at QtQuick.Templates.Page now, so the
+    // style composite is no longer in their chain and `as Page` would return null on every
+    // page — silently pinning shotChartOnCurrentPage to false forever. T.Page is the C++
+    // QQuickPage, which every page satisfies, including the one still rooted at Controls
+    // Page (AddLanguagePage) since the style composite derives from it.
     Binding {
         target: Theme
         property: "shotChartOnCurrentPage"
         value: {
-            var page = pageStack.currentItem as Page
+            var page = pageStack.currentItem as T.Page
             var surface = page ? page.background as BackgroundSurface : null
             return !!(surface && surface.paintsShotChart)
         }
@@ -1374,7 +1385,6 @@ ApplicationWindow {
             "postShotReviewPage": TranslationManager.translate("main.pageShotReview", "Shot review"),
             "beanInfoPage": TranslationManager.translate("main.pageBeanInfo", "Bean info"),
             "equipmentPage": TranslationManager.translate("main.pageEquipment", "Equipment"),
-            "dialingAssistantPage": TranslationManager.translate("main.pageAiAssistant", "AI assistant"),
             "shotDetailPage": TranslationManager.translate("main.pageShotDetail", "Shot detail"),
             "shotComparisonPage": TranslationManager.translate("main.pageShotComparison", "Shot comparison")
         }

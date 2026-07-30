@@ -5,12 +5,13 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Templates as T
 import QtQuick.Layouts
 import QtQuick.Window
 import Decenza
 import "../components/layout/PillFit.js" as PillFit
 
-Page {
+T.Page {
     id: idlePage
     // Declarative so it re-evaluates on a language change. This used to be an
     // imperative assignment in onCompleted/onActivated, which ran once and left

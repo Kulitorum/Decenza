@@ -8,12 +8,13 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Templates as T
 import QtQuick.Layouts
 import QtQuick.Effects
 import QtQuick.Window
 import Decenza
 
-Page {
+T.Page {
     id: steamPage
     objectName: "steamPage"
     // suppressShotChart: this page draws its own graph, and the last-shot chart
