@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Templates as T
 import QtQuick.Layouts
 import Decenza
 
@@ -9,7 +10,7 @@ import Decenza
  * Users edit intuitive "coffee concept" parameters like infuse pressure
  * and pour flow, and the app automatically generates DE1 frames.
  */
-Page {
+T.Page {
     id: recipeEditorPage
     // Declarative so it re-evaluates on a language change. This used to be an
     // imperative assignment in onCompleted/onActivated, which ran once and left

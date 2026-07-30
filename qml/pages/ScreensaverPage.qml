@@ -5,6 +5,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Templates as T
 import QtMultimedia
 import Decenza
 
@@ -16,7 +17,7 @@ import Decenza
 // "attractor" - Strange attractor visualization
 // "shotmap"   - Shot location map
 
-Page {
+T.Page {
     id: screensaverPage
     objectName: "screensaverPage"
     background: Rectangle { color: "black" }

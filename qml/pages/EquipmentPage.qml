@@ -5,7 +5,7 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
-import QtQuick.Controls
+import QtQuick.Templates as T
 import QtQuick.Layouts
 import Decenza
 
@@ -13,7 +13,7 @@ import Decenza
 // packages with inInventory = true as cards; "Add Equipment" opens the create
 // dialog. Equipment is switched per-bag from Brew Settings, so there is no
 // global selection here — cards are informational + edit/remove.
-Page {
+T.Page {
     id: equipmentPage
     // Declarative so it re-evaluates on a language change. This used to be an
     // imperative assignment in onCompleted/onActivated, which ran once and left

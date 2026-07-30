@@ -6,11 +6,12 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Templates as T
 import QtQuick.Dialogs
 import QtQuick.Layouts
 import Decenza
 
-Page {
+T.Page {
     id: profileImportPage
     objectName: "profileImportPage"
     background: ThemedPageBackground {}

@@ -1,9 +1,10 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Templates as T
 import QtQuick.Layouts
 import Decenza
 
-Page {
+T.Page {
     id: transportPage
     // Declarative so it re-evaluates on a language change (see DescalingPage).
     readonly property string pageTitle: TranslationManager.translate("transport.title", "Transport Mode")

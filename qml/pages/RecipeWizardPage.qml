@@ -8,6 +8,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Templates as T
 import QtQuick.Layouts
 import Decenza
 
@@ -29,7 +30,7 @@ import Decenza
 // data → the profile's own recommended numbers. Tea default temps and the
 // profile type-match table live in C++ (src/core/drinktypes.h, exposed via
 // ProfileManager) — the single source shared with the ranking helpers.
-Page {
+T.Page {
     id: wizardPage
     // Declarative so it re-evaluates on a language change. This used to be an
     // imperative assignment in onCompleted/onActivated, which ran once and left
